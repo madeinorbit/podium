@@ -1,5 +1,5 @@
 /**
- * THE JOIN — the four settings write contracts (L1, `@podium/commands`) paired
+ * THE JOIN — the settings contracts (L1, `@podium/commands`) paired
  * with the `SettingsService` methods that implement them (L3), per ADR 3 D1 and
  * the three-way split POD-311 established.
  *
@@ -9,16 +9,13 @@
  * way.
  *
  * ---------------------------------------------------------------------------
- * WHAT THIS FAMILY ADDS THAT THE OTHERS DO NOT: TWO HANDLERS, FOUR COMMANDS
+ * THE PREFERENCE TIERS ARE NOT HERE ANY MORE
  * ---------------------------------------------------------------------------
  *
- * `updatePersonal` and `updateInstance` both forward to
- * `SettingsService.updatePreferences`, because the TIER GATE IS THE INPUT
- * SCHEMA and not the handler. Each command's schema admits only the paths its
- * own tier classifies, so by the time a handler runs, "which tier is this" has
- * already been decided by the thing that refused everything else. A second
- * decision in the handler could not refuse anything the schema let through, and
- * two answers to one authorization question is what this whole phase is undoing.
+ * Personal and instance preferences are synced records written by generic
+ * edits (`records.userPreferences.edit`, POD-6673; `records.instancePreferences.edit`,
+ * POD-6677), through `SettingsService.updatePreferences`. What remains is the
+ * secret pair, the presence read and the Telegram ceremony.
  *
  * The secret pair does NOT share a handler with them and must not: those methods
  * write the store directly, past the guard that now refuses a secret change on
@@ -67,31 +64,10 @@ export interface SettingsCommand {
  * router both name.
  */
 export const SETTINGS_COMMANDS_TRPC = {
-  'settings.updatePersonal': {
-    contract: SETTINGS_CONTRACTS['settings.updatePersonal'],
-    // THE OWNING USER DECIDES WHERE THE VALUE LANDS (POD-1213). The contract's
-    // role floor already re-checks this user at drain; passing the actor is what
-    // makes the row it writes theirs rather than the instance's.
-    handler: (async (svc, input, actor) =>
-      await svc.updatePreferences(actor, input.values)) satisfies SettingsHandler<
-      z.infer<(typeof SETTINGS_CONTRACTS)['settings.updatePersonal']['input']>,
-      unknown
-    >,
-  },
-  'settings.updateInstance': {
-    contract: SETTINGS_CONTRACTS['settings.updateInstance'],
-    // Same method, and the actor is carried rather than dropped: the store routes
-    // BY CLASSIFICATION, so an instance patch reaches the shared blob no matter
-    // who sends it. One routing answer, not one per command.
-    handler: (async (svc, input, actor) =>
-      await svc.updatePreferences(actor, input.values)) satisfies SettingsHandler<
-      z.infer<(typeof SETTINGS_CONTRACTS)['settings.updateInstance']['input']>,
-      unknown
-    >,
-  },
   'settings.setSecret': {
     contract: SETTINGS_CONTRACTS['settings.setSecret'],
-    handler: (async (svc, input) => await svc.setSecret(input.key, input.value)) satisfies SettingsHandler<
+    handler: (async (svc, input) =>
+      await svc.setSecret(input.key, input.value)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.setSecret']['input']>,
       unknown
     >,
@@ -120,16 +96,33 @@ export const SETTINGS_COMMANDS_TRPC = {
       unknown
     >,
   },
+  'settings.telegramBotPresence': {
+    contract: SETTINGS_CONTRACTS['settings.telegramBotPresence'],
+    handler: (async (svc) => await svc.telegramBotPresence()) satisfies SettingsHandler<
+      z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramBotPresence']['input']>,
+      Promise<boolean>
+    >,
+  },
+  'settings.telegramDisconnect': {
+    contract: SETTINGS_CONTRACTS['settings.telegramDisconnect'],
+    handler: (async (svc, _input, actor) =>
+      await svc.disconnectTelegram(actor)) satisfies SettingsHandler<
+      z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramDisconnect']['input']>,
+      void
+    >,
+  },
   'settings.telegramSetupStart': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupStart'],
-    handler: (async (svc, _input, actor) => await svc.startTelegramSetup(actor)) satisfies SettingsHandler<
+    handler: (async (svc, _input, actor) =>
+      await svc.startTelegramSetup(actor)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramSetupStart']['input']>,
       unknown
     >,
   },
   'settings.telegramSetupPoll': {
     contract: SETTINGS_CONTRACTS['settings.telegramSetupPoll'],
-    handler: (async (svc, input) => await svc.pollTelegramSetup(input.setupId)) satisfies SettingsHandler<
+    handler: (async (svc, input, actor) =>
+      await svc.pollTelegramSetup(input.setupId, actor)) satisfies SettingsHandler<
       z.infer<(typeof SETTINGS_CONTRACTS)['settings.telegramSetupPoll']['input']>,
       unknown
     >,

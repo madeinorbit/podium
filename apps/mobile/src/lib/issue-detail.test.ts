@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import { blockingCloseConcerns, issueCloseConcerns } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model'
@@ -13,7 +13,7 @@ import { issueCommands } from './issue-detail'
 // silently over something the derivation raised.
 // ---------------------------------------------------------------------------
 
-const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
+const issue = (partial: Partial<IssueWithBodies> = {}): IssueWithBodies =>
   ({
     id: asIssueId('task'),
     repoPath: '/src/podium',
@@ -31,7 +31,7 @@ const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
     parentBranch: 'main',
     archived: false,
     ...partial,
-  }) as IssueViewModel
+  }) as IssueWithBodies
 
 const session = (partial: Partial<SessionViewInput> = {}): SessionView =>
   ({
@@ -41,10 +41,6 @@ const session = (partial: Partial<SessionViewInput> = {}): SessionView =>
     title: 'Agent',
     cwd: '/r/wt',
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-07-22T10:00:00.000Z',
     lastActiveAt: '2026-07-22T10:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -55,7 +51,7 @@ const session = (partial: Partial<SessionViewInput> = {}): SessionView =>
   }) as SessionView
 
 function harness(
-  over: { issue?: IssueViewModel; sessions?: SessionView[]; guarded?: boolean } = {},
+  over: { issue?: IssueWithBodies; sessions?: SessionView[]; guarded?: boolean } = {},
 ) {
   const closeIssue = vi.fn(async () => ({}))
   const updateIssue = vi.fn(async () => ({}))

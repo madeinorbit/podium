@@ -6,6 +6,7 @@ import type {
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
+  PinWire,
   RepoProjection,
   SessionMeta,
 } from '@podium/model'
@@ -26,8 +27,19 @@ function make(store: FixtureStore) {
   const repos = new Map<string, RepoProjection>()
   const projections: IssueProjection[] = []
   const markers: IssueUserStateWire[] = []
+  // A `pinned` input is my pin record (POD-6692), never a marker.
+  const pins: PinWire[] = []
   const git: IssueGitStateProjection[] = []
   const deps: Array<{ id: string; fromId: string; toId: string; type: string }> = []
+  // The panel is records of its own (POD-6764): an older input's inline panel
+  // and activity notes become the task's panel records here.
+  const panelTodos: Record<string, unknown>[] = []
+  const panelArtifacts: Record<string, unknown>[] = []
+  const panelDeferred: Record<string, unknown>[] = []
+  const panelStates: Record<string, unknown>[] = []
+  // So are the brief and the description (POD-6767).
+  const briefs: { id: string; text: string }[] = []
+  const descriptions: { id: string; text: string }[] = []
   // Historical fixtures sometimes supplied only a precomputed unread flag.
   // Materialize a marker at their latest activity instead of carrying that flag.
   const latestActivity = [...(store.issues ?? []), ...(store.sessions ?? [])].reduce<string>(
@@ -70,8 +82,38 @@ function make(store: FixtureStore) {
       childCount: _children,
       childDoneCount: _doneChildren,
       memberSessionIds: _members,
+      panel,
+      activityNotes,
+      notesUpdatedAt,
       ...durable
     } = input
+    const item = (kind: string, position: number, value: Record<string, unknown>) => ({
+      ...value,
+      id: value.id ?? `${input.id}-${kind}-${position}`,
+      issueId: input.id,
+      position,
+    })
+    ;(panel?.todos ?? []).forEach((value: Record<string, unknown>, position: number) =>
+      panelTodos.push(item('todo', position, value)),
+    )
+    ;(panel?.artifacts ?? []).forEach((value: Record<string, unknown>, position: number) =>
+      panelArtifacts.push(item('artifact', position, value)),
+    )
+    ;(panel?.deferred ?? []).forEach((value: Record<string, unknown>, position: number) =>
+      panelDeferred.push(item('deferred', position, value)),
+    )
+    const descriptionText =
+      typeof input.description === 'string' ? input.description : input.description?.value
+    if (typeof descriptionText === 'string' && descriptionText !== '')
+      descriptions.push({ id: input.id, text: descriptionText })
+    if (typeof input.brief === 'string' && input.brief !== '')
+      briefs.push({ id: input.id, text: input.brief })
+    if (typeof activityNotes === 'string' && activityNotes !== '')
+      panelStates.push({
+        id: input.id,
+        text: activityNotes,
+        updatedAt: notesUpdatedAt ?? input.updatedAt ?? '2026-01-01T00:00:00.000Z',
+      })
     const repoId =
       input.repoId ??
       store.repos?.find((repo) => repo.path === repoPath)?.repoId ??
@@ -115,8 +157,15 @@ function make(store: FixtureStore) {
       entityId: input.id,
       readAt: readAt ?? (input.unread === false ? latestActivity || null : null),
       tuckedAt: tuckedAt ?? null,
-      pinned: pinned ?? false,
     } as IssueUserStateWire)
+    if (pinned === true) {
+      pins.push({
+        userId: asUserId('fixture-user'),
+        kind: 'issue',
+        entityId: input.id,
+        pinnedAt: input.createdAt ?? '2026-01-01T00:00:00.000Z',
+      })
+    }
     if (gitState) git.push({ ...gitState, id: input.id })
     for (const dep of outgoing ?? [])
       deps.push({
@@ -129,16 +178,27 @@ function make(store: FixtureStore) {
   replica.applySnapshot('repos', [...repos.values()])
   replica.applySnapshot('issueProjections', projections)
   replica.applySnapshot('issueUserStates', markers)
+  replica.applySnapshot('pins', pins)
   replica.applySnapshot('issueGitStates', git)
   replica.applySnapshot('issueDeps', deps as never)
+  replica.applySnapshot('issueBriefs', briefs as never)
+  replica.applySnapshot('issueDescriptions', descriptions as never)
+  replica.applySnapshot('issuePanelTodos', panelTodos as never)
+  replica.applySnapshot('issuePanelArtifacts', panelArtifacts as never)
+  replica.applySnapshot('issuePanelDeferreds', panelDeferred as never)
+  replica.applySnapshot('issuePanelStates', panelStates as never)
   replica.applySnapshot('sessions', (store.sessions ?? []) as SessionMeta[])
-  return { replica, issueProjections: projections, issueUserStates: markers, issueGitStates: git }
+  return {
+    replica,
+    issueProjections: projections,
+    issueUserStates: markers,
+    pins,
+    issueGitStates: git,
+  }
 }
 
 /** The store's retained issue rows stay empty, including in published slices. */
-export function poolFixtureStore<T extends FixtureStore>(
-  store: T,
-): T & ReturnType<typeof make> {
+export function poolFixtureStore<T extends FixtureStore>(store: T): T & ReturnType<typeof make> {
   const key = store.issues ?? store
   let hit = cache.get(key)
   if (!hit || hit.sessions !== store.sessions) {
@@ -150,5 +210,9 @@ export function poolFixtureStore<T extends FixtureStore>(
 
 export function poolFixtureIssues(store: FixtureStore) {
   const normalized = poolFixtureStore(store)
-  return allIssueViewModels(normalized.replica, normalized.issueProjections, normalized.issueUserStates)
+  return allIssueViewModels(
+    normalized.replica,
+    normalized.issueProjections,
+    normalized.issueUserStates,
+  )
 }

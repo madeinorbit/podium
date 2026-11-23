@@ -1,3 +1,4 @@
+import type { WorkspaceId } from '@podium/model'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import type { BootstrapMetrics, SyncFailureReason } from './types'
@@ -11,10 +12,12 @@ import { Worker } from 'node:worker_threads'
 import { isCompiledSyncWorkerUrl, syncWorkerEmbeddedTarget } from './sync-worker-embed'
 import {
   type BootstrapJob,
+  type CollectionsJob,
   type DeltaJob,
-  type SyncJob,
   type FromWorker,
+  jobWorkspaceId,
   SYNC_JOB_DEADLINE_MS,
+  type SyncJob,
   type SyncMetaSummary,
   SyncWorkerError,
   type ToWorker,
@@ -25,6 +28,8 @@ export { SyncWorkerError } from './types'
 
 interface Pending {
   principal: BootstrapJob['principal']
+  /** The job's workspace: its perf partition is keyed by it with the principal. */
+  workspaceId: WorkspaceId
   controller: ReadableStreamDefaultController<Uint8Array>
   resolve(meta: SyncMetaSummary): void
   reject(error: Error): void
@@ -55,6 +60,13 @@ export class SyncWorkerClient {
   constructor(
     private readonly options: {
       dbPath: string
+      /** The effect kinds the server serves, read at each spawn: the worker
+       *  builds effect records and holds no executor (POD-6770). */
+      effectKinds?: () => readonly string[]
+      /** Source fixtures run outside the caller's module runner. */
+      execArgv?: string[]
+      /** Fixture record time; admission and deadlines still use the real clock. */
+      recordNow?: () => number
       monitorMs?: number
       wedgedMs?: number
       onMetrics?: (metrics: BootstrapMetrics) => void
@@ -86,8 +98,17 @@ export class SyncWorkerClient {
         ? syncWorkerEmbeddedTarget()
         : new URL('./sync-worker.ts', import.meta.url)
       // Bun 1.4 follows Node's Worker contract: file URLs are URL objects.
-      const worker = new Worker(typeof target === 'string' && target.startsWith('file://') ? new URL(target) : target,
-        { workerData: { dbPath: this.options.dbPath } })
+      const worker = new Worker(
+        typeof target === 'string' && target.startsWith('file://') ? new URL(target) : target,
+        {
+          ...(this.options.execArgv && { execArgv: this.options.execArgv }),
+          workerData: {
+            dbPath: this.options.dbPath,
+            effectKinds: [...(this.options.effectKinds?.() ?? [])],
+            ...(this.options.recordNow && { recordNow: this.options.recordNow() }),
+          },
+        },
+      )
       this.worker = worker
       worker.on('message', (message: FromWorker) => {
         if (worker !== this.worker) return
@@ -112,7 +133,7 @@ export class SyncWorkerClient {
         const job = this.jobs.get(message.transferId)
         if (!job) return
         if (message.type === 'metrics') {
-          const attribution = perfPrincipal(job.principal)
+          const attribution = perfPrincipal(job.workspaceId, job.principal)
           for (const [name, value] of Object.entries(message.metrics.phases))
             perf.record('phase', `syncBootstrap.${name}`, value.ms, attribution, value.bytes)
           this.options.onMetrics?.(message.metrics)
@@ -206,6 +227,9 @@ export class SyncWorkerClient {
   delta(input: DeltaJob, signal?: AbortSignal) {
     return this.start(input, signal)
   }
+  collections(input: CollectionsJob, signal?: AbortSignal) {
+    return this.start(input, signal)
+  }
   private start(
     input: SyncJob,
     signal?: AbortSignal,
@@ -247,6 +271,7 @@ export class SyncWorkerClient {
           timer.unref()
           this.jobs.set(job.transferId, {
             principal: job.principal,
+            workspaceId: jobWorkspaceId(job),
             controller,
             resolve,
             reject,

@@ -1,53 +1,79 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, UserId, SessionId, IssueId, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
+import { MachineId, IssueId, UserId, UserRole, IssueJoinVia, ArtifactId, SessionId, IssueProjection, UsageBucketWire, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, CredentialId, AgentPhase, HarnessAgent } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
-import { ModelChoiceWire, ConvergenceState, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
+import { ModelChoiceWire, ConvergenceState, MobileWebIdentity } from '@podium/protocol';
 import * as TRPC from '@trpc/server';
 
 /**
- * The channels an INSTANCE can default its fleet to. Deliberately the same three
- * values as `UpdateChannel` in @podium/model, which is what a single machine may
- * pin — a fleet default and a per-machine override answer the same question at
- * two scopes, so they must range over the same answers (POD-1882). Restated here
- * rather than imported because @podium/runtime is the lower layer.
- */
-type FleetUpdateChannel = 'stable' | 'edge' | 'dev';
-/** Which machines this instance's updater may replace. See `config.updateScope`. */
-type UpdateScope = 'all' | 'fleet-only';
-/** Whether this instance mirrors daemon transcripts. See `config.transcriptLake`. */
-type TranscriptLakeMode = 'on' | 'off';
-/**
- * Which layer answered.
+ * THE VAULT (credential management design §7, "Encryption").
  *
- * `settings` is the persisted instance-tier settings row, and it exists for the
- * instance-scoped keys. Environment and config.json overrides sit above these
- * choices. Bootstrap and operator-only keys never read the settings row.
+ * Every secret Podium holds is sealed here with AES-256-GCM under one random data
+ * key, with a fresh 12-byte nonce per seal and the binding (credential id, type,
+ * version) as authenticated data: a ciphertext moved to another row, passed off as
+ * another type or replayed as another version does not open.
+ *
+ * The data key is stored in the database wrapped by the outside key
+ * (`@podium/runtime/vault-key`), created at the first seal. Three states:
+ *
+ *  - `empty`: no data key yet. The first seal creates one.
+ *  - `ready`: the data key is open.
+ *  - `locked`: a data key is stored and the outside key is missing or does not
+ *    open it (a restored database, a lost file). Nothing is sealed or opened,
+ *    and no new key is created: replacing the key silently would orphan every
+ *    stored secret. The way out is `podium vault reset --confirm`, or putting
+ *    the key file back and restarting.
+ *
+ * A plaintext is opened only inside `withSecret`, handed to its callback and
+ * wiped afterwards. The server keeps no plaintext.
  */
-type SettingSource = 'env' | 'file' | 'settings' | 'default';
 
-/** A tier's stored consent. 'absent' = never chosen; see {@link TIER_DEFAULTS}. */
-type ConsentState = 'on' | 'off' | 'absent';
-/** Why telemetry is force-disabled, for UI that must explain itself. */
-type SuppressionReason = 'DO_NOT_TRACK' | 'PODIUM_TELEMETRY';
-interface TelemetryState {
-    usage: ConsentState;
-    crash: ConsentState;
-    /** Present once any tier has been on (the server mints it then; never by an opt-out). */
-    installId?: string;
-    /** Epoch ms the clock started — set with installId (D5). */
-    since?: number;
-    /** Set ⇒ both tiers are forced off regardless of the stored values. */
-    suppressedBy?: SuppressionReason;
-    /** Where reports would be POSTed (resolved through the full precedence). */
-    endpoint: string;
+type VaultState = 'ready' | 'empty' | 'locked';
+interface VaultStatus {
+    /** Where the outside key is expected. */
+    keyPath: string;
+    /** The outside key that wrapped the stored data key; null when the vault is empty. */
+    keyId: string | null;
+    state: VaultState;
+    /** Why the outside key cannot be used, naming the file; null when it can. */
+    problem: string | null;
 }
 
-interface PinState {
-    panels: string[];
-    worktrees: string[];
-    repos: string[];
+declare const MachineFailureReason: z.ZodObject<{
+    code: z.ZodOptional<z.ZodString>;
+    message: z.ZodString;
+    source: z.ZodEnum<["machine", "coordinator"]>;
+    at: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    message: string;
+    at: number;
+    source: "machine" | "coordinator";
+    code?: string | undefined;
+}, {
+    message: string;
+    at: number;
+    source: "machine" | "coordinator";
+    code?: string | undefined;
+}>;
+type MachineFailureReason = z.infer<typeof MachineFailureReason>;
+
+/** The two task texts that keep a revision history (POD-6289). */
+type IssueTextField = 'description' | 'brief';
+/** One recorded text of a task's description or brief (POD-6289). */
+interface IssueTextRevisionRow {
+    id: number;
+    issueId: IssueId;
+    field: IssueTextField;
+    body: string;
+    /** `baseline`: the text a task from before this history held when its
+     *  first edit was recorded; its author is unknown. */
+    source: 'create' | 'baseline' | 'edit' | 'restore';
+    restoredFrom: number | null;
+    issueRevision: number | null;
+    actor: string | null;
+    onBehalfOf: string | null;
+    createdAt: string;
 }
 /** A durable event subscription (event-subscriptions design, Phase B). The steward
  *  matches enabled rows against every polled event; a match resolves `source` to the
@@ -109,60 +135,6 @@ interface SuperagentMessageRow {
     toolName?: string;
     createdAt: string;
 }
-/** A superagent conversation: the always-there 'global' thread, a per-session 'btw'
- *  thread, or a per-repo 'concierge' intake thread. */
-interface SuperagentThreadRow {
-    id: string;
-    ownerUserId: UserId;
-    kind: 'global' | 'btw' | 'concierge';
-    originSessionId?: SessionId;
-    /** The repo this thread fronts (concierge threads only). */
-    repoPath?: string;
-    title?: string;
-    /** High-water mark into the origin session's transcript (btw threads), or the
-     *  issue event-log id already digested (concierge threads, stringified). */
-    watermarkItemId?: string;
-    watermarkTs?: string;
-    /** Harness last run on the thread. Settings is the default; a prompt-box
-     *  pick from another connector switches this (and starts a fresh session). */
-    agentKind?: string;
-    /** The Podium headless session rendering this thread (concierge unification). */
-    podiumSessionId?: SessionId;
-    /** The harness's own session id — the resume value for every later turn. */
-    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-    harnessSessionId?: string;
-    /** PTY session holding the "open in terminal" one-writer lock; sendTurn
-     *  rejects while this session is live (lazily checked, lazily cleared). */
-    /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
-    terminalSessionId?: string;
-    /** The thread's own model / effort (POD-782). Undefined = follow the
-     *  `superagent` settings role; a value OVERRIDES it, including the role's
-     *  fall-through to the `coding` backend. Unlike `agentKind` these are not
-     *  frozen — the operator may change them between turns on one conversation. */
-    model?: string;
-    effort?: string;
-    createdAt: string;
-    updatedAt: string;
-    archived: boolean;
-}
-
-declare const MachineFailureReason: z.ZodObject<{
-    code: z.ZodOptional<z.ZodString>;
-    message: z.ZodString;
-    source: z.ZodEnum<["machine", "coordinator"]>;
-    at: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    message: string;
-    at: number;
-    source: "machine" | "coordinator";
-    code?: string | undefined;
-}, {
-    message: string;
-    at: number;
-    source: "machine" | "coordinator";
-    code?: string | undefined;
-}>;
-type MachineFailureReason = z.infer<typeof MachineFailureReason>;
 
 /**
  * Events/steward aggregate — owns the durable orchestrator event log
@@ -181,117 +153,25 @@ interface PodiumEventRecord {
 }
 
 /**
- * THE CLIENT-LOG FAMILY — `logs.forward · logs.crash · logs.setLevel`
- * ([spec:2026-08-11-logging-strategy-design]).
- *
- * Two ingestion writes and one operator command. The first two are a client
- * reporting itself; the third is the valve the whole design exists to open —
- * raising one running client so a problem on a user's machine can be diagnosed
- * without shipping them a new build. That asymmetry is why they sit at different
- * role floors, and each contract says so where it is declared.
- *
- * A client (web, desktop webview, mobile) keeps its own ring buffer and forwards
- * what matters to ITS OWN SERVER: `forward` is the routine batch, `crash` is the
- * one-shot "I died, here is the flight recorder". Both are server-side ingestion
- * with no client code in this chunk — these contracts are the shape chunks 4 and
- * 5 build their forwarding sinks against.
- *
- * ---------------------------------------------------------------------------
- * NO CONSENT GATE ON THIS HOP, AND THAT IS A DECISION WITH A REASON
- * ---------------------------------------------------------------------------
- *
- * Podium is self-hosted: the client's server is the USER'S OWN server, so
- * forwarding a log line to it discloses nothing to anybody — it moves the user's
- * data from one of their processes to another. The consent gate sits one hop
- * further out, where a scrubbed crash SIGNATURE may leave the installation
- * entirely (`telemetry.recordCrash`, the existing `crash` tier). The design spec
- * states this in "Client → server forwarding"; it is written here too because
- * this is the contract a reviewer reads when asking "why is there no consent
- * check on an endpoint that accepts logs".
- *
- * ---------------------------------------------------------------------------
- * BOUNDS ARE PART OF THE CONTRACT, NOT OF THE HANDLER
- * ---------------------------------------------------------------------------
- *
- * An ingestion endpoint that accepts an unbounded array is a disk-filler with an
- * authentication check in front of it. Every collection and every string below
- * is capped in the SCHEMA, so an oversized batch is refused by the transport
- * before a handler sees it, and the cap is visible to the client author writing
- * the batching sink rather than discoverable by exceeding it in production.
- *
- * The caps are deliberately generous against the spec's own client behaviour
- * (flush every 5 s or 50 records) so a client that batches correctly never meets
- * them: they exist to bound the worst case, not to shape the normal one.
+ * The channels an INSTANCE can default its fleet to. Deliberately the same three
+ * values as `UpdateChannel` in @podium/model, which is what a single machine may
+ * pin — a fleet default and a per-machine override answer the same question at
+ * two scopes, so they must range over the same answers (POD-1882). Restated here
+ * rather than imported because @podium/runtime is the lower layer.
  */
-
-declare const logsSetLevelInput: z.ZodObject<{
-    /** `null` puts the matched clients back to their boot default. */
-    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
-    /** How long the raise lasts. Absent leaves the duration to the client's own
-     *  default, which is the thing holding the timer. */
-    ttlMs: z.ZodOptional<z.ZodNumber>;
-    /** Absent means every connected client — see {@link logLevelTarget}. */
-    target: z.ZodOptional<z.ZodObject<{
-        /** The server-minted connection id (`c3`), as reported by a previous call. */
-        clientId: z.ZodOptional<z.ZodString>;
-        role: z.ZodOptional<z.ZodString>;
-        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
-    }, "strip", z.ZodTypeAny, {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    }, {
-        machineId?: string | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
-    target?: {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    } | undefined;
-}, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
-    target?: {
-        machineId?: string | undefined;
-        role?: string | undefined;
-        clientId?: string | undefined;
-    } | undefined;
-}>;
-declare const logsSetDaemonLevelInput: z.ZodObject<{
-    /** `null` puts the matched daemons back to their boot default AND stops them
-     *  forwarding. */
-    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
-    /** How long the raise lasts. Absent leaves the duration to the daemon's own
-     *  default, which is the thing holding the timer. */
-    ttlMs: z.ZodOptional<z.ZodNumber>;
-    /** Absent means every daemon online right now — see {@link daemonLogLevelTarget}. */
-    target: z.ZodOptional<z.ZodObject<{
-        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
-    }, "strip", z.ZodTypeAny, {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-    }, {
-        machineId?: string | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
-    target?: {
-        machineId?: (string & z.BRAND<"MachineId">) | undefined;
-    } | undefined;
-}, {
-    level: "error" | "warn" | "info" | "debug" | "trace" | null;
-    ttlMs?: number | undefined;
-    target?: {
-        machineId?: string | undefined;
-    } | undefined;
-}>;
-type LogsSetLevelInput = z.infer<typeof logsSetLevelInput>;
-type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
+type FleetUpdateChannel = 'stable' | 'edge' | 'dev';
+/** Which machines this instance's updater may replace. See `config.updateScope`. */
+type UpdateScope = 'all' | 'fleet-only';
+/** Whether this instance mirrors daemon transcripts. See `config.transcriptLake`. */
+type TranscriptLakeMode = 'on' | 'off';
+/**
+ * Which layer answered.
+ *
+ * `settings` is the persisted instance-tier settings row, and it exists for the
+ * instance-scoped keys. Environment and config.json overrides sit above these
+ * choices. Bootstrap and operator-only keys never read the settings row.
+ */
+type SettingSource = 'env' | 'file' | 'settings' | 'default';
 
 /**
  * The blob, COMPOSED from the three classified halves (POD-418). Key order is
@@ -300,7 +180,7 @@ type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
  * Reading the tiers off this object: `roles` / `sidebar` / `autoContinue` and
  * three of four `notifications` members are `preferences-personal`;
  * `hibernation` / `gitWorkflow` / `issues` / `steward` / `experimental` are
- * `preferences-instance`; `apiKeys` / `integrations` /
+ * `preferences-instance`; `integrations` /
  * `notifications.telegramBotToken` are `server-secrets`. That mapping is not
  * documentation — it is `SETTINGS_CLASSIFICATION` in `@podium/model`, and
  * `settings.classification.test.ts` fails if this object and that table
@@ -312,6 +192,7 @@ declare const PodiumSettings: z.ZodObject<{
     roles: z.ZodDefault<z.ZodObject<{
         coding: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
+            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -326,18 +207,21 @@ declare const PodiumSettings: z.ZodObject<{
             subagentModel: string;
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         }>>;
         superagent: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
+            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -345,15 +229,18 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         background: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
+            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -361,15 +248,18 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
         shipwright: z.ZodDefault<z.ZodObject<{
             accountId: z.ZodDefault<z.ZodBranded<z.ZodString, "AccountId">>;
+            credentialId: z.ZodOptional<z.ZodBranded<z.ZodString, "CredentialId">>;
             model: z.ZodDefault<z.ZodString>;
             effort: z.ZodDefault<z.ZodString>;
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
@@ -377,18 +267,21 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }, {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         }>>;
     }, "strip", z.ZodTypeAny, {
         superagent: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         coding: {
@@ -398,65 +291,59 @@ declare const PodiumSettings: z.ZodObject<{
             subagentModel: string;
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         background: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         shipwright: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
     }, {
         superagent?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     }>>;
     /** Provider API keys. Stored plaintext in the self-hosted SQLite — same trust
      *  domain as the shell the agents already run in. `server-secrets`: never
      *  replicated and never enqueued once POD-419/POD-420 land. */
-    apiKeys: z.ZodDefault<z.ZodObject<{
-        openrouter: z.ZodDefault<z.ZodString>;
-        anthropic: z.ZodDefault<z.ZodString>;
-        openai: z.ZodDefault<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        openrouter: string;
-        anthropic: string;
-        openai: string;
-    }, {
-        openrouter?: string | undefined;
-        anthropic?: string | undefined;
-        openai?: string | undefined;
-    }>>;
     integrations: z.ZodDefault<z.ZodObject<{
         linearApiKey: z.ZodDefault<z.ZodString>;
     }, "strip", z.ZodTypeAny, {
@@ -494,12 +381,35 @@ declare const PodiumSettings: z.ZodObject<{
         ntfyTopic: z.ZodDefault<z.ZodString>;
         telegramBotToken: z.ZodDefault<z.ZodString>;
         telegramChatId: z.ZodDefault<z.ZodString>;
+        notices: z.ZodDefault<z.ZodObject<{
+            mention: z.ZodDefault<z.ZodBoolean>;
+            credentialAttention: z.ZodDefault<z.ZodBoolean>;
+            credentialShared: z.ZodDefault<z.ZodBoolean>;
+        }, "strip", z.ZodTypeAny, {
+            mention: boolean;
+            credentialAttention: boolean;
+            credentialShared: boolean;
+        }, {
+            mention?: boolean | undefined;
+            credentialAttention?: boolean | undefined;
+            credentialShared?: boolean | undefined;
+        }>>;
     }, "strip", z.ZodTypeAny, {
+        notices: {
+            mention: boolean;
+            credentialAttention: boolean;
+            credentialShared: boolean;
+        };
         web: boolean;
         ntfyTopic: string;
         telegramChatId: string;
         telegramBotToken: string;
     }, {
+        notices?: {
+            mention?: boolean | undefined;
+            credentialAttention?: boolean | undefined;
+            credentialShared?: boolean | undefined;
+        } | undefined;
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
         telegramChatId?: string | undefined;
@@ -508,27 +418,21 @@ declare const PodiumSettings: z.ZodObject<{
     sidebar: z.ZodDefault<z.ZodObject<{
         repoSort: z.ZodDefault<z.ZodEnum<["alphabetical", "lastUsed", "custom"]>>;
         repoOrder: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-        groupByRepo: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         repoSort: "custom" | "alphabetical" | "lastUsed";
         repoOrder: string[];
-        groupByRepo: boolean;
     }, {
         repoSort?: "custom" | "alphabetical" | "lastUsed" | undefined;
         repoOrder?: string[] | undefined;
-        groupByRepo?: boolean | undefined;
     }>>;
     gitWorkflow: z.ZodDefault<z.ZodObject<{
         defaultParentBranch: z.ZodDefault<z.ZodString>;
-        mergeStyle: z.ZodDefault<z.ZodEnum<["ff-only", "pr", "ask"]>>;
         autoRebaseBeforeMerge: z.ZodDefault<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         defaultParentBranch: string;
-        mergeStyle: "ask" | "ff-only" | "pr";
         autoRebaseBeforeMerge: boolean;
     }, {
         defaultParentBranch?: string | undefined;
-        mergeStyle?: "ask" | "ff-only" | "pr" | undefined;
         autoRebaseBeforeMerge?: boolean | undefined;
     }>>;
     issues: z.ZodDefault<z.ZodObject<{
@@ -618,6 +522,16 @@ declare const PodiumSettings: z.ZodObject<{
         telemetryInstallId?: string | undefined;
         telemetrySince?: number | undefined;
     }>>;
+    /** Networks whose daemons count as safe for credentials (credential management §8). */
+    daemonLink: z.ZodDefault<z.ZodObject<{
+        trustedNetworks: z.ZodDefault<z.ZodArray<z.ZodEffects<z.ZodString, string, string>, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        trustedNetworks: string[];
+    }, {
+        trustedNetworks?: string[] | undefined;
+    }>>;
+    /** Per harness, the credential a launch uses when it names none (credential management §9). */
+    credentialDefaults: z.ZodDefault<z.ZodRecord<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>, z.ZodBranded<z.ZodString, "CredentialId">>>;
 }, "strip", z.ZodTypeAny, {
     issues: {
         assistantEnabled: boolean;
@@ -627,6 +541,7 @@ declare const PodiumSettings: z.ZodObject<{
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         coding: {
@@ -636,36 +551,44 @@ declare const PodiumSettings: z.ZodObject<{
             subagentModel: string;
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         background: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
         shipwright: {
             model: string;
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
+            credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         };
     };
     sidebar: {
         repoSort: "custom" | "alphabetical" | "lastUsed";
         repoOrder: string[];
-        groupByRepo: boolean;
     };
     autoContinue: {
         enabled: boolean;
         promptDismissed: boolean;
     };
     notifications: {
+        notices: {
+            mention: boolean;
+            credentialAttention: boolean;
+            credentialShared: boolean;
+        };
         web: boolean;
         ntfyTopic: string;
         telegramChatId: string;
         telegramBotToken: string;
     };
+    credentialDefaults: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string & z.BRAND<"CredentialId">>>;
     hibernation: {
         enabled: boolean;
         memoryPct: number;
@@ -677,7 +600,6 @@ declare const PodiumSettings: z.ZodObject<{
     };
     gitWorkflow: {
         defaultParentBranch: string;
-        mergeStyle: "ask" | "ff-only" | "pr";
         autoRebaseBeforeMerge: boolean;
     };
     steward: {
@@ -700,10 +622,8 @@ declare const PodiumSettings: z.ZodObject<{
         telemetryInstallId?: string | undefined;
         telemetrySince?: number | undefined;
     };
-    apiKeys: {
-        openrouter: string;
-        anthropic: string;
-        openai: string;
+    daemonLink: {
+        trustedNetworks: string[];
     };
     integrations: {
         linearApiKey: string;
@@ -714,48 +634,57 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     roles?: {
         superagent?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         coding?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
         shipwright?: {
-            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
+            credentialId?: string | undefined;
             model?: string | undefined;
             effort?: string | undefined;
             accountId?: string | undefined;
+            harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
         } | undefined;
     } | undefined;
     sidebar?: {
         repoSort?: "custom" | "alphabetical" | "lastUsed" | undefined;
         repoOrder?: string[] | undefined;
-        groupByRepo?: boolean | undefined;
     } | undefined;
     autoContinue?: {
         enabled?: boolean | undefined;
         promptDismissed?: boolean | undefined;
     } | undefined;
     notifications?: {
+        notices?: {
+            mention?: boolean | undefined;
+            credentialAttention?: boolean | undefined;
+            credentialShared?: boolean | undefined;
+        } | undefined;
         web?: boolean | undefined;
         ntfyTopic?: string | undefined;
         telegramChatId?: string | undefined;
         telegramBotToken?: string | undefined;
     } | undefined;
+    credentialDefaults?: Partial<Record<"claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi", string>> | undefined;
     hibernation?: {
         enabled?: boolean | undefined;
         memoryPct?: number | undefined;
@@ -767,7 +696,6 @@ declare const PodiumSettings: z.ZodObject<{
     } | undefined;
     gitWorkflow?: {
         defaultParentBranch?: string | undefined;
-        mergeStyle?: "ask" | "ff-only" | "pr" | undefined;
         autoRebaseBeforeMerge?: boolean | undefined;
     } | undefined;
     steward?: {
@@ -790,10 +718,8 @@ declare const PodiumSettings: z.ZodObject<{
         telemetryInstallId?: string | undefined;
         telemetrySince?: number | undefined;
     } | undefined;
-    apiKeys?: {
-        openrouter?: string | undefined;
-        anthropic?: string | undefined;
-        openai?: string | undefined;
+    daemonLink?: {
+        trustedNetworks?: string[] | undefined;
     } | undefined;
     integrations?: {
         linearApiKey?: string | undefined;
@@ -807,6 +733,18 @@ interface LinearIssue {
     state: string;
     assignee?: string;
     url: string;
+}
+
+interface UserAccountRow {
+    id: string;
+    displayName: string;
+    email: string | null;
+    accountId?: string | null;
+    avatar?: string | null;
+    role: UserRole;
+    createdAt: string;
+    /** ADR 9's disable-before-remove. A disabled account is not an actor. */
+    disabledAt: string | null;
 }
 
 /** One edge endpoint in a dep report: enough to render "#12 title (open, blocks)". */
@@ -831,6 +769,13 @@ interface DepReportEntry {
     deps: DepReportRef[];
     /** Incoming deps: issues waiting on this one. */
     dependents: DepReportRef[];
+}
+
+/** One collaborator of a task (POD-6290): a member with a start or join record. */
+interface IssueCollaborator {
+    userId: UserId;
+    joinedAt: string;
+    via: IssueJoinVia | null;
 }
 
 /** One artifact's stored content, as `panelArtifactRead` answers it. */
@@ -870,6 +815,13 @@ interface IssueArtifactContent {
  * exists unarchived — so a coordinator that is gone never leaves a session blocked
  * with nobody to ask. The walk skips the session's OWN marker: a phase lead asks the
  * coordinator above it, and the top coordinator asks nobody.
+ *
+ * ONE HUMAN PER CHAIN (POD-6296, design §2.3). "The user" is the session's own
+ * human: the person it belongs to. A coordinator counts only while it acts for that
+ * same human, so Bob's worker under a task Alice's agent coordinates skips Alice's
+ * coordinator and asks the nearest of Bob's, or Bob. A top coordinator of Bob's on
+ * Alice's task asks Bob, never the task's assignee. On a one-member instance every
+ * session has the same human and nothing is skipped.
  */
 
 interface SeatCoordinator {
@@ -879,6 +831,128 @@ interface SeatCoordinator {
     title: string;
     sessionId: SessionId;
 }
+
+/** One page of `issues.searchNormalized` (POD-7108). */
+interface IssueSearchPage {
+    hits: (IssueProjection & {
+        displayRef: string;
+    })[];
+    /** Continues the answer after the last hit; `null` when it is complete. */
+    next: string | null;
+}
+
+/**
+ * THE CLIENT-LOG FAMILY — `logs.forward · logs.crash · logs.setLevel`
+ * ([spec:2026-08-11-logging-strategy-design]).
+ *
+ * Two ingestion writes and one operator command. The first two are a client
+ * reporting itself; the third is the valve the whole design exists to open —
+ * raising one running client so a problem on a user's machine can be diagnosed
+ * without shipping them a new build. That asymmetry is why they sit at different
+ * role floors, and each contract says so where it is declared.
+ *
+ * A client (web, desktop webview, mobile) keeps its own ring buffer and forwards
+ * what matters to ITS OWN SERVER: `forward` is the routine batch, `crash` is the
+ * one-shot "I died, here is the flight recorder". Both are server-side ingestion
+ * with no client code in this chunk — these contracts are the shape chunks 4 and
+ * 5 build their forwarding sinks against.
+ *
+ * ---------------------------------------------------------------------------
+ * NO CONSENT GATE ON THIS HOP, AND THAT IS A DECISION WITH A REASON
+ * ---------------------------------------------------------------------------
+ *
+ * Podium is self-hosted: the client's server is the USER'S OWN server, so
+ * forwarding a log line to it discloses nothing to anybody — it moves the user's
+ * data from one of their processes to another. The consent gate sits one hop
+ * further out, where a scrubbed crash SIGNATURE may leave the installation
+ * entirely (`telemetry.recordCrash`, the existing `crash` tier). The design spec
+ * states this in "Client → server forwarding"; it is written here too because
+ * this is the contract a reviewer reads when asking "why is there no consent
+ * check on an endpoint that accepts logs".
+ *
+ * ---------------------------------------------------------------------------
+ * BOUNDS ARE PART OF THE CONTRACT, NOT OF THE HANDLER
+ * ---------------------------------------------------------------------------
+ *
+ * An ingestion endpoint that accepts an unbounded array is a disk-filler with an
+ * authentication check in front of it. Every collection and every string below
+ * is capped in the SCHEMA, so an oversized batch is refused by the transport
+ * before a handler sees it, and the cap is visible to the client author writing
+ * the batching sink rather than discoverable by exceeding it in production.
+ *
+ * The caps are deliberately generous against the spec's own client behaviour
+ * (flush every 5 s or 50 records) so a client that batches correctly never meets
+ * them: they exist to bound the worst case, not to shape the normal one.
+ */
+
+declare const logsSetLevelInput: z.ZodObject<{
+    /** `null` puts the matched clients back to their boot default. */
+    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
+    /** How long the raise lasts. Absent leaves the duration to the client's own
+     *  default, which is the thing holding the timer. */
+    ttlMs: z.ZodOptional<z.ZodNumber>;
+    /** Absent means every connected client — see {@link logLevelTarget}. */
+    target: z.ZodOptional<z.ZodObject<{
+        /** The server-minted connection id (`c3`), as reported by a previous call. */
+        clientId: z.ZodOptional<z.ZodString>;
+        role: z.ZodOptional<z.ZodString>;
+        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
+    }, "strip", z.ZodTypeAny, {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    }, {
+        machineId?: string | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    target?: {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    } | undefined;
+    ttlMs?: number | undefined;
+}, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    target?: {
+        machineId?: string | undefined;
+        role?: string | undefined;
+        clientId?: string | undefined;
+    } | undefined;
+    ttlMs?: number | undefined;
+}>;
+declare const logsSetDaemonLevelInput: z.ZodObject<{
+    /** `null` puts the matched daemons back to their boot default AND stops them
+     *  forwarding. */
+    level: z.ZodNullable<z.ZodEnum<["error", "warn", "info", "debug", "trace"]>>;
+    /** How long the raise lasts. Absent leaves the duration to the daemon's own
+     *  default, which is the thing holding the timer. */
+    ttlMs: z.ZodOptional<z.ZodNumber>;
+    /** Absent means every daemon online right now — see {@link daemonLogLevelTarget}. */
+    target: z.ZodOptional<z.ZodObject<{
+        machineId: z.ZodOptional<z.ZodPipeline<z.ZodString, z.ZodBranded<z.ZodString, "MachineId">>>;
+    }, "strip", z.ZodTypeAny, {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+    }, {
+        machineId?: string | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    target?: {
+        machineId?: (string & z.BRAND<"MachineId">) | undefined;
+    } | undefined;
+    ttlMs?: number | undefined;
+}, {
+    level: "error" | "warn" | "info" | "debug" | "trace" | null;
+    target?: {
+        machineId?: string | undefined;
+    } | undefined;
+    ttlMs?: number | undefined;
+}>;
+type LogsSetLevelInput = z.infer<typeof logsSetLevelInput>;
+type LogsSetDaemonLevelInput = z.infer<typeof logsSetDaemonLevelInput>;
 
 /**
  * The send vocabulary — the nouns every messages module and every caller of the
@@ -908,6 +982,71 @@ interface SeatCoordinator {
 type SendDisposition = 'delivered' | 'queued' | 'held' | 'spawning' | 'dead_letter';
 
 /**
+ * ONE ACCOUNT'S TOKEN USAGE: the hour×model buckets for the last 7 days,
+ * harvested from the answering machine's transcripts.
+ *
+ * Two readers ask the same question, so it is answered here once:
+ * - `usage.summary`, a request (the CLI, and any caller without topics);
+ * - the `account.quota` topic (ADR 7 Amendment 2 D26, POD-5798), whose live
+ *   pass reads it for each account that holds the key.
+ *
+ * ALSO WRITES (POD-1858), on the same terms as `quota.summary`: the daemon
+ * returns the per-FILE half of the walk it just did, and it is folded into the
+ * per-task cost rows on the way out. No caller input reaches the fold and no
+ * second scan happens. Attributing the walk that already runs is the whole
+ * design of the cost read path, because a second walk of the same 4 GB would
+ * land on the daemon loop that carries PTY traffic.
+ *
+ * `sources` is STRIPPED before the answer is returned: it is an order of
+ * magnitude larger than the buckets and no client reads it. Best-effort: a
+ * failed fold never fails the usage read.
+ */
+
+interface UsageSummary {
+    hostname: string;
+    sampledAt?: string;
+    buckets: UsageBucketWire[];
+}
+
+/** A tier's stored consent. 'absent' = never chosen; see {@link TIER_DEFAULTS}. */
+type ConsentState = 'on' | 'off' | 'absent';
+/** Why telemetry is force-disabled, for UI that must explain itself. */
+type SuppressionReason = 'DO_NOT_TRACK' | 'PODIUM_TELEMETRY';
+interface TelemetryState {
+    usage: ConsentState;
+    crash: ConsentState;
+    /** Present once any tier has been on (the server mints it then; never by an opt-out). */
+    installId?: string;
+    /** Epoch ms the clock started — set with installId (D5). */
+    since?: number;
+    /** Set ⇒ both tiers are forced off regardless of the stored values. */
+    suppressedBy?: SuppressionReason;
+    /** Where reports would be POSTed (resolved through the full precedence). */
+    endpoint: string;
+}
+
+interface SpecComponentMeta {
+    id: string;
+    title: string;
+    /** Parent component id; empty for the root. */
+    parent: string;
+    /** Sort position among siblings. */
+    order: number;
+    status: 'active' | 'superseded' | 'draft';
+    updatedAt: number;
+}
+interface SpecComponent extends SpecComponentMeta {
+    /** Inner HTML of the component's <section> — the editable body. */
+    body: string;
+}
+interface SpecSearchHit {
+    id: string;
+    title: string;
+    /** Plain-text snippet around the first match. */
+    snippet: string;
+}
+
+/**
  * Live per-agent model lists for ONE machine.
  *
  * KEYED BY `machineId`, deliberately: which models a harness offers is a fact
@@ -932,6 +1071,16 @@ interface ModelCatalogSnapshot {
     /** Shape version — a persisted snapshot with a different version is discarded. */
     version?: number;
 }
+
+/**
+ * THE CHATGPT PLAN MODULE (credential management §11; epic Task 14): the
+ * sign-in, the keeper, and the daemon that listens for the browser's return.
+ * The credential commands reach it as `CredentialsState.chatgpt`; the
+ * composition root builds it with {@link composeChatgptPlan}
+ * (`registry.modules.chatgptPlan`).
+ */
+
+type ChatgptSignInVia = 'machine' | 'paste';
 
 interface WaveMachine {
     id: string;
@@ -1098,7 +1247,8 @@ interface SessionSpawnResult {
     effort: string | null;
     machine: string;
     machineId: MachineId;
-    accountId: AccountId | null;
+    /** The credential the session runs on; `null`: none, the harness's own login. */
+    credentialId: CredentialId | null;
     /** The task prompt as its spawner's message, when a session spawned this one
      *  and the prompt is queued rather than launched with the process (POD-4778):
      *  the id the spawner checks with `podium mail status`. */
@@ -1147,6 +1297,41 @@ interface AgentConcurrencyHistoryResult {
 }
 
 type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed';
+
+/**
+ * ADDING A SUBSCRIPTION BY SIGNING IN ON A MACHINE (credential management §6
+ * way 2, §10 "Homes"; epic plan Task 9).
+ *
+ * The person picks a machine and a harness's login type. Podium makes a home
+ * for the login on that machine and opens the vendor's own sign-in in a
+ * terminal there, with the harness's directory variable pointed at the home:
+ * `claude auth login` (a link, then a code pasted back) or
+ * `codex login --device-auth` (a link and a one-time code). Podium never sees
+ * the login: the home keeps it, and the machine's inventory reports only who
+ * it is (`AgentInventory.logins`).
+ *
+ * The credential row is written when that report arrives, not before, so a
+ * sign-in that is cancelled, fails or is abandoned leaves no credential, and
+ * the home it made is removed again. A home is only ever made on a machine
+ * the person holds custody of or sent the credential to (§8).
+ *
+ * WHO SIGNED IN DECIDES (review focus 5). The identity the home reports is
+ * the one the credential gets. If the person signed in as an account they
+ * already hold a credential for, the home is attached to that credential; if
+ * they re-signed a credential with another account and hold none for it, that
+ * credential now names the account that signed in. Either way the result
+ * names the account, so the switch is shown, not hidden.
+ */
+
+type SignInOutcome = 
+/** A new credential for the account that signed in. */
+'new'
+/** The credential signed in again as the account it already named. */
+ | 'same'
+/** The account already had a credential: the home now belongs to it. */
+ | 'attached'
+/** The credential named another account; it now names the one that signed in. */
+ | 'identity-changed';
 
 type ReclaimDiskEstimateState = {
     status: 'unknown';
@@ -1356,61 +1541,33 @@ interface CrashResult {
 
 type OperationActionResult = Record<string, unknown>;
 
-interface TelegramSetupStartResult {
-    setupId: string;
-    code: string;
-    botUsername: string;
-    telegramUrl: string;
-    expiresAt: string;
-}
+/** Transient reports from the local tunnel supervisor; no credentials or persisted state. */
 
-interface SpecComponentMeta {
-    id: string;
-    title: string;
-    /** Parent component id; empty for the root. */
-    parent: string;
-    /** Sort position among siblings. */
-    order: number;
-    status: 'active' | 'superseded' | 'draft';
-    updatedAt: number;
-}
-interface SpecComponent extends SpecComponentMeta {
-    /** Inner HTML of the component's <section> — the editable body. */
-    body: string;
-}
-interface SpecSearchHit {
-    id: string;
-    title: string;
-    /** Plain-text snippet around the first match. */
-    snippet: string;
-}
-
-/** One durable turn failure, as `latestTurnFailure` serves it. `userText` is
- *  null when the turn reached a harness (the transcript carries the prompt);
- *  the user row is persisted only for turns that provably never dispatched. */
-interface SuperagentTurnFailure {
-    inputId: string;
-    userText: string | null;
-    error: string;
-    at: string;
-}
+declare const TunnelHealthReport: z.ZodObject<{
+    state: z.ZodEnum<["starting", "working", "unhealthy", "restarting", "stopped"]>;
+    url: z.ZodNullable<z.ZodString>;
+    lastOkAt: z.ZodNullable<z.ZodNumber>;
+    failedSince: z.ZodNullable<z.ZodNumber>;
+    lastError: z.ZodNullable<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
+    url: string | null;
+    lastError: string | null;
+    lastOkAt: number | null;
+    failedSince: number | null;
+}, {
+    state: "starting" | "stopped" | "working" | "restarting" | "unhealthy";
+    url: string | null;
+    lastError: string | null;
+    lastOkAt: number | null;
+    failedSince: number | null;
+}>;
+type TunnelHealthReport = z.infer<typeof TunnelHealthReport>;
+type TunnelHealth = TunnelHealthReport & {
+    reportedAt: number;
+};
 
 type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual';
-
-/** What `mail.send` answers with, narrowed to the keys the chat paths return.
- *  Exported because it is the INFERRED return type of two tRPC procedures — an
- *  unnameable local type here becomes `unknown` on the client. */
-interface SubstrateOutcome {
-    ok: boolean;
-    queued?: boolean;
-    reason?: string;
-    position?: number;
-    disposition: SendDisposition;
-    wakeSelection?: {
-        model: string;
-        effort: string;
-    };
-}
 
 type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent';
 type CloudRuntimeState = 'provisioning' | 'running' | 'stopped' | 'failed';
@@ -1438,32 +1595,6 @@ interface CloudRuntime {
     metadata?: Record<string, unknown> | undefined;
 }
 
-/** Transient reports from the local tunnel supervisor; no credentials or persisted state. */
-
-declare const TunnelHealthReport: z.ZodObject<{
-    state: z.ZodEnum<["starting", "working", "unhealthy", "restarting", "stopped"]>;
-    url: z.ZodNullable<z.ZodString>;
-    lastOkAt: z.ZodNullable<z.ZodNumber>;
-    failedSince: z.ZodNullable<z.ZodNumber>;
-    lastError: z.ZodNullable<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    state: "starting" | "working" | "stopped" | "restarting" | "unhealthy";
-    url: string | null;
-    lastError: string | null;
-    lastOkAt: number | null;
-    failedSince: number | null;
-}, {
-    state: "starting" | "working" | "stopped" | "restarting" | "unhealthy";
-    url: string | null;
-    lastError: string | null;
-    lastOkAt: number | null;
-    failedSince: number | null;
-}>;
-type TunnelHealthReport = z.infer<typeof TunnelHealthReport>;
-type TunnelHealth = TunnelHealthReport & {
-    reportedAt: number;
-};
-
 /**
  * THE REACHABILITY VOCABULARY (POD-4534). `connect.check` asks Podium Connect to
  * probe a public URL from the outside and say precisely why it does not work;
@@ -1476,46 +1607,23 @@ type TunnelHealth = TunnelHealthReport & {
  * without either dragging the other's transport along.
  */
 type CheckError = 'INVALID_URL' | 'DNS_FAILED' | 'PRIVATE_ADDRESS' | 'REDIRECTED' | 'TLS_INVALID' | 'PORT_NOT_REACHABLE' | 'UNREACHABLE' | 'NOT_PODIUM' | 'IDENTITY_MISMATCH'
+/** Connect cannot probe this port. No opinion about the address's reachability. */
+ | 'PORT_UNSUPPORTED'
 /** Connect itself could not be reached or refused the request. Never a failed check. */
  | 'CONNECT_UNAVAILABLE';
-
-/**
- * [spec:SP-3701] Tiered repo discovery for a (newly paired or reconnecting) machine —
- * POD-787. Answers "what repos does this machine have?" without ever walking blindly:
- *
- *   T1 probe    — exact-path probes derived from repos registered on OTHER machines
- *                 (raw path + home-translated `~/…` form). maxDepth 0: a handful of
- *                 stats on the daemon, no walk. The common "same layout on my laptop"
- *                 case completes here in milliseconds.
- *   T2 adjacent — a shallow walk (depth 2) of the PARENT directories of everything
- *                 known on that machine (registered + T1 hits): repos cluster, so
- *                 siblings of known repos are where the rest usually live.
- *   T3 sweep    — a bounded $HOME walk (depth 4, standard ignore list). Only when
- *                 `deep: true` (the explicit "scan this machine" action) — never on
- *                 the automatic connect trigger, so reconnects stay cheap.
- *
- * All walking happens ON THE DAEMON (the target machine); the hub only awaits RPC
- * replies, so nothing here contends with the hub main loop or session reattach.
- *
- * Registration policy: a discovered repo whose origin URL matches a repo already
- * registered on another machine is auto-registered (identity converges to the same
- * repo_id via deriveRepoId, so it is unambiguously "the same repo, here too");
- * anything else is returned as a candidate for the user to confirm — never a
- * silent add.
- */
-type DiscoveredRepo = {
-    path: string;
-    originUrl?: string;
-    branch?: string;
-    status: 'registered' | 'auto-registered' | 'candidate';
-    /** Names of other machines that carry the same repo (origin match). */
-    alsoOn: string[];
-};
 
 type DirectoryBrowserEntry = {
     name: string;
     path: string;
 };
+
+interface TelegramSetupStartResult {
+    setupId: string;
+    code: string;
+    botUsername: string;
+    telegramUrl: string;
+    expiresAt: string;
+}
 
 interface UpdateFleetMachine {
     id: MachineId;
@@ -1607,42 +1715,96 @@ type UpdateStartability = {
 };
 
 /**
- * Server-side experimental feature flags [spec:SP-f4b9].
+ * [spec:SP-3701] Tiered repo discovery for a (newly paired or reconnecting) machine —
+ * POD-787. Answers "what repos does this machine have?" without ever walking blindly:
  *
- * Resolves the shared protocol registry against config.json overrides,
- * user settings, update channel, and the dev-mode version sentinel.
+ *   T1 probe    — exact-path probes derived from repos registered on OTHER machines
+ *                 (raw path + home-translated `~/…` form). maxDepth 0: a handful of
+ *                 stats on the daemon, no walk. The common "same layout on my laptop"
+ *                 case completes here in milliseconds.
+ *   T2 adjacent — a shallow walk (depth 2) of the PARENT directories of everything
+ *                 known on that machine (registered + T1 hits): repos cluster, so
+ *                 siblings of known repos are where the rest usually live.
+ *   T3 sweep    — a bounded $HOME walk (depth 4, standard ignore list). Only when
+ *                 `deep: true` (the explicit "scan this machine" action) — never on
+ *                 the automatic connect trigger, so reconnects stay cheap.
+ *
+ * All walking happens ON THE DAEMON (the target machine); the hub only awaits RPC
+ * replies, so nothing here contends with the hub main loop or session reattach.
+ *
+ * Registration policy: a discovered repo whose origin URL matches a repo already
+ * registered on another machine is auto-registered (identity converges to the same
+ * repo_id via deriveRepoId, so it is unambiguously "the same repo, here too");
+ * anything else is returned as a candidate for the user to confirm — never a
+ * silent add.
+ *
+ * A scan runs as a `machine.scan` effect record (POD-6396,
+ * `modules/fleet/discovery-effects.ts`): the record says that it runs and what
+ * it found, so this service holds no state of its own — no map of running
+ * scans, no last results.
+ */
+type DiscoveredRepo = {
+    path: string;
+    originUrl?: string;
+    branch?: string;
+    status: 'registered' | 'auto-registered' | 'candidate';
+    /** Names of other machines that carry the same repo (origin match). */
+    alsoOn: string[];
+};
+
+/**
+ * THE DOCK SHELL'S WRITE ON THE SYNC WRITE ENTRY POINT (POD-6419).
+ *
+ * `shells.forWorktree` answers "which shell is my dock's for this worktree",
+ * creating one when there is none. CLASSIFIED SYNCED (ADR 12 D1): it can start a
+ * session, and a session is a synced record every device lists. The mapping row
+ * itself (`user_dock_shell`) is the caller's own per-user state.
+ *
+ * NOTHING OUTSIDE THE DATABASE RUNS IN THE WRITE. The old route spawned the
+ * shell inside the request. Now the write claims (or replaces) the mapping row
+ * and creates the shell's start as a `session.launch` effect record, minted
+ * under the session id the mapping names; the runner spawns it after the commit,
+ * and the session row is born under that id when it succeeds (every device sees
+ * the start pending meanwhile). A mapped shell whose start is still pending or
+ * running is live, so a second device attaches to it instead of replacing it.
+ *
+ * TARGET: the caller's own mapping row, for a person whose account is a member
+ * or an admin now (the old route's rule, read live). A named machine must be one
+ * the caller can see, and may use: an unknown one is not found, a denied one is
+ * refused, with the old route's words.
+ *
+ * THE OLD ROUTE stays as a thin adapter (`trpc.ts`): the desktop app bundles its
+ * own web, which calls it.
  */
 
-interface FeatureStateWire extends FeatureState {
-    id: string;
-    name: string;
-    description: string;
-    visibility: FeatureVisibility;
+interface ForWorktreeOutput {
+    readonly sessionId: SessionId;
+    /** True when this call asked for the shell; false when it attached to an existing one. */
+    readonly created: boolean;
 }
 
-type Input_agentProfiles_create = {
-    candidates?: undefined | {
-        effort?: string | undefined;
-        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-        model?: string | undefined;
-    }[];
-    description?: string | undefined;
-    instructions?: string | undefined;
-    machine?: null | string | undefined;
-    name: string;
-};
-type Input_agentProfiles_update = {
-    candidates?: undefined | {
-        effort?: string | undefined;
-        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-        model?: string | undefined;
-    }[];
-    description?: string | undefined;
-    instructions?: string | undefined;
-    machine?: null | string | undefined;
-    name?: string | undefined;
-    ref: string;
-};
+/** What `mail.send` answers with, narrowed to the keys the chat paths return.
+ *  Exported because it is the INFERRED return type of two tRPC procedures — an
+ *  unnameable local type here becomes `unknown` on the client. */
+interface SubstrateOutcome {
+    ok: boolean;
+    queued?: boolean;
+    reason?: string;
+    position?: number;
+    disposition: SendDisposition;
+    wakeSelection?: {
+        model: string;
+        effort: string;
+    };
+}
+
+interface CodexServerAiMarker {
+    harness: HarnessAgent;
+    machineId?: MachineId;
+    machineName?: string;
+    lastError?: string;
+}
+
 type Input_automations_create = {
     agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
     cron?: null | string | undefined;
@@ -1727,6 +1889,26 @@ type Input_conversations_search = {
     projectPath?: string | undefined;
     query?: string | undefined;
 };
+type Input_credentials_add = {
+    label: string;
+    secret: string;
+    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
+};
+type Input_credentials_share = {
+    acknowledgeDisclosure: boolean;
+    acknowledgeWarning?: boolean | undefined;
+    credentialId: string;
+    grantee: "all-members" | {
+        userId: string;
+    };
+    verb: "manage" | "use";
+};
+type Input_credentials_signInStart = {
+    credentialId?: string | undefined;
+    label?: string | undefined;
+    machineId: string;
+    type: "anthropic.api-key" | "anthropic.claude-login" | "anthropic.claude-token" | "openai.api-key" | "openai.chatgpt-login" | "openai.chatgpt-plan" | "openrouter.api-key";
+};
 type Input_files_read = ({
     artifactId: string;
     issueId: string;
@@ -1757,6 +1939,13 @@ type Input_interactions_answer = {
     }, z.ZodTypeAny, "passthrough">;
     id: string;
     text?: string | undefined;
+};
+type Input_issues_addSession = {
+    agentKind?: string | undefined;
+    credential?: string | undefined;
+    forceUnknownModel?: boolean | undefined;
+    id: string;
+    sessionId?: string | undefined;
 };
 type Input_issues_attachSession = {
     confirmRehome?: boolean | undefined;
@@ -1821,10 +2010,12 @@ type Input_issues_events = {
     subject?: string | undefined;
 };
 type Input_issues_panelApply = {
+    effectId?: string | undefined;
     expectedRevision?: number | undefined;
     extraPaths?: string[] | undefined;
     id: string;
     index?: number | undefined;
+    itemId?: string | undefined;
     op: "artifact-add" | "artifact-remove" | "artifact-upload" | "deferred-add" | "deferred-remove" | "todo-add" | "todo-clear" | "todo-done" | "todo-remove" | "todo-undone";
     path?: string | undefined;
     sourceRoot?: string | undefined;
@@ -1866,6 +2057,19 @@ type Input_issues_search = {
     text?: string | undefined;
     type?: "decision" | "phase" | "task" | undefined;
 };
+type Input_issues_searchNormalized = {
+    assignee?: string | undefined;
+    cursor?: string | undefined;
+    label?: string | undefined;
+    limit?: number | undefined;
+    parentId?: string | undefined;
+    priority?: number | undefined;
+    repoPath?: string | undefined;
+    stage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
+    status?: "blocked" | "closed" | "deferred" | "open" | "ready" | undefined;
+    text?: string | undefined;
+    type?: "decision" | "phase" | "task" | undefined;
+};
 type Input_issues_setCoordinator = {
     claim?: boolean | undefined;
     expectedRevision?: number | undefined;
@@ -1896,11 +2100,13 @@ type Input_issues_setPlacement = {
 type Input_issues_start = {
     agentKind?: string | undefined;
     agentProfile?: string | undefined;
+    credential?: string | undefined;
     defaultEffort?: string | undefined;
     defaultModel?: string | undefined;
     forceUnknownModel?: boolean | undefined;
     id: string;
     mutationId?: string | undefined;
+    sessionId?: string | undefined;
 };
 type Input_issues_subscriptionAdd = {
     deliver?: undefined | {
@@ -1939,7 +2145,6 @@ type Input_issues_update = {
         machineId?: null | string | undefined;
         parentBranch?: string | undefined;
         parentId?: string | undefined;
-        pinned?: boolean | undefined;
         priority?: number | undefined;
         sortKey?: string | undefined;
         stage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
@@ -2037,6 +2242,10 @@ type Input_machines_moveServer = {
     targetMachineId: string;
 };
 type Input_machines_pairingCode = (undefined) | ({
+    clientRegistration?: undefined | {
+        machineId: string;
+        publicKey?: string | undefined;
+    };
     copyAgentCredentials?: boolean | undefined;
     podiumManaged?: boolean | undefined;
     replaceMachineId?: string | undefined;
@@ -2081,6 +2290,7 @@ type Input_sessions_create = {
         mediaType: string;
         path?: string | undefined;
     }[];
+    credentialId?: null | string | undefined;
     cwd: string;
     draftArtifacts?: undefined | {
         dataBase64: string;
@@ -2143,13 +2353,6 @@ type Input_sessions_uploadImage = {
     pending?: true | undefined;
     sessionId: string;
 };
-type Input_settings_clearSecret = {
-    key: "apiKeys.anthropic" | "apiKeys.openai" | "apiKeys.openrouter" | "integrations.linearApiKey" | "notifications.telegramBotToken";
-};
-type Input_settings_setSecret = {
-    key: "apiKeys.anthropic" | "apiKeys.openai" | "apiKeys.openrouter" | "integrations.linearApiKey" | "notifications.telegramBotToken";
-    value: string;
-};
 type Input_setup_complete = {
     acknowledgeNoPassword?: true | undefined;
     confirmUrlChange?: true | undefined;
@@ -2202,6 +2405,14 @@ type Input_superagent_sendTurn = {
     model?: string | undefined;
     text: string;
     threadId?: string | undefined;
+};
+type Input_sync_submit = {
+    command: string;
+    confirmed?: true | undefined;
+    expectedRevision?: number | undefined;
+    input?: unknown;
+    mutationId: string;
+    version: number;
 };
 type Input_workflows_checkpoint = {
     evidence?: undefined | {
@@ -2270,7 +2481,145 @@ type Input_workflows_runs = {
     includeTerminal?: boolean | undefined;
     limit?: number | undefined;
 };
-type Output_accounts_login = Pick<{
+type Output_agentProfiles_list = Array<{
+    candidates: {
+        effort: string;
+        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+        model: string;
+    }[];
+    createdAt: string;
+    description: string;
+    id: string;
+    instructions: string;
+    machineId: (string & z.BRAND<"MachineId">) | null;
+    name: string;
+    updatedAt: string;
+} & {
+    machineName: null | string;
+}>;
+type Output_agentProfiles_show = {
+    candidates: {
+        effort: string;
+        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+        model: string;
+    }[];
+    createdAt: string;
+    description: string;
+    id: string;
+    instructions: string;
+    machineId: (string & z.BRAND<"MachineId">) | null;
+    name: string;
+    updatedAt: string;
+} & {
+    machineName: null | string;
+};
+type Output_auth_status = {
+    canManageInstance: boolean;
+    hasOwnCredential: boolean;
+    hostLocalRequest: boolean;
+    loginPolicySource: SettingSource;
+    loginRequired: boolean;
+    loginRequiredReason: "hosted" | "several-members" | null;
+};
+type Output_automations_create = {
+    agentKind: string;
+    createdAt: string;
+    cron: null | string;
+    effort: string;
+    enabled: boolean;
+    id: string & z.BRAND<"AutomationId">;
+    lastRunAt: null | string;
+    model: string;
+    name: string;
+    nextRunAt: null | string;
+    prompt: string;
+    repoPath: null | string;
+    runAt: null | string;
+    scheduleKind: "cron" | "once";
+    sessionMode: "fresh" | "resume";
+    targetSessionId: (string & z.BRAND<"SessionId">) | null;
+} & {
+    createdByActor: string;
+    createdByOnBehalfOf: _podium_model.UserId;
+    ownerUserId: _podium_model.UserId;
+};
+type Output_automations_list = Array<{
+    agentKind: string;
+    createdAt: string;
+    cron: null | string;
+    effort: string;
+    enabled: boolean;
+    id: string & z.BRAND<"AutomationId">;
+    lastRunAt: null | string;
+    model: string;
+    name: string;
+    nextRunAt: null | string;
+    prompt: string;
+    repoPath: null | string;
+    runAt: null | string;
+    scheduleKind: "cron" | "once";
+    sessionMode: "fresh" | "resume";
+    targetSessionId: (string & z.BRAND<"SessionId">) | null;
+} & {
+    createdByActor: string;
+    createdByOnBehalfOf: _podium_model.UserId;
+    ownerUserId: _podium_model.UserId;
+}>;
+type Output_automations_runs = Array<{
+    actor: string;
+    onBehalfOf: _podium_model.UserId;
+} & {
+    automationId: string & z.BRAND<"AutomationId">;
+    detail: null | string;
+    firedAt: string;
+    id: string & z.BRAND<"AutomationRunId">;
+    outcome: "error" | "missed" | "skipped_overlap" | "spawned";
+    sessionId: (string & z.BRAND<"SessionId">) | null;
+}>;
+type Output_connect_check = ({
+    detail: string;
+    error: CheckError;
+    ok: false;
+}) | ({
+    ok: true;
+    resolvedTo: string[];
+    url: string;
+});
+type Output_credentials_chatgptSignInComplete = ({
+    credentialId: _podium_model.CredentialId;
+    email?: string;
+    label: string;
+    planEnabled: boolean;
+    state: "signed-in";
+    updated: boolean;
+}) | ({
+    reason: string;
+    state: "failed";
+}) | ({
+    state: "waiting";
+});
+type Output_credentials_chatgptSignInStart = {
+    attemptId: string;
+    authorizeUrl: string;
+    via: ChatgptSignInVia;
+};
+type Output_credentials_chatgptSignInStatus = ({
+    credentialId: _podium_model.CredentialId;
+    email?: string;
+    label: string;
+    planEnabled: boolean;
+    state: "signed-in";
+    updated: boolean;
+}) | ({
+    readonly reason: "Sign in with ChatGPT is not available on this server.";
+    readonly state: "failed";
+}) | ({
+    reason: string;
+    state: "failed";
+}) | ({
+    state: "waiting";
+});
+type Output_credentials_login = Pick<{
     accountId?: (string & z.BRAND<"AccountId">) | undefined;
     agentColor?: string | undefined;
     agentKind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | "shell";
@@ -2354,15 +2703,12 @@ type Output_accounts_login = Pick<{
         stateConfidence?: number | undefined;
         stateObservedAt?: string | undefined;
         stateSource?: "classifier" | "hook" | "poll" | undefined;
+        turnStartedAt?: string | undefined;
         workingMsTotal?: number | undefined;
     };
     archived: boolean;
     attachKinds?: ("client" | "engine")[] | undefined;
-    busy?: boolean | undefined;
-    clientCount: number;
     configureFields?: string[] | undefined;
-    contextUsagePercent?: number | undefined;
-    controllerId: null | string;
     conversationPodiumId?: (string & z.BRAND<"ConversationId">) | undefined;
     createdAt: string;
     createdBy?: undefined | {
@@ -2380,6 +2726,20 @@ type Output_accounts_login = Pick<{
             kind: "system";
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
+    };
+    credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
+    credentialMismatch?: undefined | {
+        chosen: {
+            credentialId: string & z.BRAND<"CredentialId">;
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method?: "api-key" | "subscription" | "token" | "unknown" | undefined;
+        };
+        reported: {
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method: "api-key" | "subscription" | "token" | "unknown";
+        };
     };
     cwd: string;
     delegation?: undefined | {
@@ -2402,17 +2762,19 @@ type Output_accounts_login = Pick<{
         parentBindingId: (string & z.BRAND<"SessionId">) | null;
         revision: number;
     };
+    desired?: "hibernated" | "running" | "stopped" | undefined;
     draftSyncEngine?: boolean | undefined;
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
-    effort?: string | undefined;
-    epoch: number;
-    exitCode?: number | undefined;
-    geometry: {
-        cols: number;
-        rows: number;
+    effectiveAuth?: undefined | {
+        email?: string | undefined;
+        fingerprint?: string | undefined;
+        method: "api-key" | "subscription" | "token" | "unknown";
     };
+    effort?: string | undefined;
+    exitCode?: number | undefined;
+    force?: boolean | undefined;
     geometryState?: "absent" | "current" | "unknown" | undefined;
     handoffTargetMachineId?: (string & z.BRAND<"MachineId">) | undefined;
     harnessHandoff?: boolean | undefined;
@@ -2420,7 +2782,17 @@ type Output_accounts_login = Pick<{
     headless?: boolean | undefined;
     issueId?: (string & z.BRAND<"IssueId">) | undefined;
     lastActiveAt: string;
-    lastInputAt?: string | undefined;
+    launchPosture?: undefined | {
+        requestedMode: null | string;
+        unmet: {
+            reason: string;
+            requirement: "autonomy" | "podium-cli" | "podium-material" | "quiet-start" | "workspace-trust";
+        }[];
+    };
+    lifecycleFailure?: undefined | {
+        reason: string;
+        revision: number;
+    };
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     messageDraft?: string | undefined;
     model?: string | undefined;
@@ -2428,7 +2800,9 @@ type Output_accounts_login = Pick<{
     nameSource?: "agent" | "user" | undefined;
     neverBound?: true | undefined;
     observedEffort?: string | undefined;
+    observedMode?: string | undefined;
     observedModel?: string | undefined;
+    observedRevision?: number | undefined;
     offer?: null | undefined | {
         actions: {
             input?: boolean | undefined;
@@ -2455,17 +2829,17 @@ type Output_accounts_login = Pick<{
     requestedEffort?: string | undefined;
     requestedModel?: string | undefined;
     requestsDuplicate?: number | undefined;
-    requestsGated?: number | undefined;
     requestsUnanswered?: number | undefined;
     resumable?: boolean | undefined;
     resume?: undefined | {
         kind: string;
         value: string;
     };
+    revision?: number | undefined;
     sessionId: string & z.BRAND<"SessionId">;
     spawnFailure?: string | undefined;
     spawnedBy?: string | undefined;
-    status: "exited" | "hibernated" | "live" | "reconnecting" | "starting";
+    status: "exited" | "hibernated" | "live" | "starting";
     stopReason?: "exited" | "forced" | "oom" | "parent" | "self" | undefined;
     stoppedAt?: string | undefined;
     title: string;
@@ -2559,15 +2933,12 @@ type Output_accounts_login = Pick<{
         stateConfidence?: number | undefined;
         stateObservedAt?: string | undefined;
         stateSource?: "classifier" | "hook" | "poll" | undefined;
+        turnStartedAt?: string | undefined;
         workingMsTotal?: number | undefined;
     };
     archived: boolean;
     attachKinds?: ("client" | "engine")[] | undefined;
-    busy?: boolean | undefined;
-    clientCount: number;
     configureFields?: string[] | undefined;
-    contextUsagePercent?: number | undefined;
-    controllerId: null | string;
     conversationPodiumId?: (string & z.BRAND<"ConversationId">) | undefined;
     createdAt: string;
     createdBy?: undefined | {
@@ -2585,6 +2956,20 @@ type Output_accounts_login = Pick<{
             kind: "system";
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
+    };
+    credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
+    credentialMismatch?: undefined | {
+        chosen: {
+            credentialId: string & z.BRAND<"CredentialId">;
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method?: "api-key" | "subscription" | "token" | "unknown" | undefined;
+        };
+        reported: {
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method: "api-key" | "subscription" | "token" | "unknown";
+        };
     };
     cwd: string;
     delegation?: undefined | {
@@ -2607,17 +2992,19 @@ type Output_accounts_login = Pick<{
         parentBindingId: (string & z.BRAND<"SessionId">) | null;
         revision: number;
     };
+    desired?: "hibernated" | "running" | "stopped" | undefined;
     draftSyncEngine?: boolean | undefined;
     draftUpdatedAt?: string | undefined;
     driverFamily?: "server" | "terminal" | undefined;
     driverId?: string | undefined;
-    effort?: string | undefined;
-    epoch: number;
-    exitCode?: number | undefined;
-    geometry: {
-        cols: number;
-        rows: number;
+    effectiveAuth?: undefined | {
+        email?: string | undefined;
+        fingerprint?: string | undefined;
+        method: "api-key" | "subscription" | "token" | "unknown";
     };
+    effort?: string | undefined;
+    exitCode?: number | undefined;
+    force?: boolean | undefined;
     geometryState?: "absent" | "current" | "unknown" | undefined;
     handoffTargetMachineId?: (string & z.BRAND<"MachineId">) | undefined;
     harnessHandoff?: boolean | undefined;
@@ -2625,7 +3012,17 @@ type Output_accounts_login = Pick<{
     headless?: boolean | undefined;
     issueId?: (string & z.BRAND<"IssueId">) | undefined;
     lastActiveAt: string;
-    lastInputAt?: string | undefined;
+    launchPosture?: undefined | {
+        requestedMode: null | string;
+        unmet: {
+            reason: string;
+            requirement: "autonomy" | "podium-cli" | "podium-material" | "quiet-start" | "workspace-trust";
+        }[];
+    };
+    lifecycleFailure?: undefined | {
+        reason: string;
+        revision: number;
+    };
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     messageDraft?: string | undefined;
     model?: string | undefined;
@@ -2633,7 +3030,9 @@ type Output_accounts_login = Pick<{
     nameSource?: "agent" | "user" | undefined;
     neverBound?: true | undefined;
     observedEffort?: string | undefined;
+    observedMode?: string | undefined;
     observedModel?: string | undefined;
+    observedRevision?: number | undefined;
     offer?: null | undefined | {
         actions: {
             input?: boolean | undefined;
@@ -2660,17 +3059,17 @@ type Output_accounts_login = Pick<{
     requestedEffort?: string | undefined;
     requestedModel?: string | undefined;
     requestsDuplicate?: number | undefined;
-    requestsGated?: number | undefined;
     requestsUnanswered?: number | undefined;
     resumable?: boolean | undefined;
     resume?: undefined | {
         kind: string;
         value: string;
     };
+    revision?: number | undefined;
     sessionId: string & z.BRAND<"SessionId">;
     spawnFailure?: string | undefined;
     spawnedBy?: string | undefined;
-    status: "exited" | "hibernated" | "live" | "reconnecting" | "starting";
+    status: "exited" | "hibernated" | "live" | "starting";
     stopReason?: "exited" | "forced" | "oom" | "parent" | "self" | undefined;
     stoppedAt?: string | undefined;
     title: string;
@@ -2685,107 +3084,23 @@ type Output_accounts_login = Pick<{
     machineName: _podium_model.MachineProjection["name"];
     status: NativeLoginAttemptStatus;
 };
-type Output_agentProfiles_create = {
-    candidates: {
-        effort: string;
-        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-        model: string;
-    }[];
-    createdAt: string;
-    description: string;
-    id: string;
-    instructions: string;
-    machineId: null | string;
-    name: string;
-    updatedAt: string;
-} & {
-    machineName: null | string;
-};
-type Output_agentProfiles_list = Array<{
-    candidates: {
-        effort: string;
-        harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-        model: string;
-    }[];
-    createdAt: string;
-    description: string;
-    id: string;
-    instructions: string;
-    machineId: null | string;
-    name: string;
-    updatedAt: string;
-} & {
-    machineName: null | string;
-}>;
-type Output_auth_status = {
-    canManageInstance: boolean;
-    hasOwnCredential: boolean;
-    loginPolicySource: SettingSource;
-    loginRequired: boolean;
-};
-type Output_automations_create = {
-    agentKind: string;
-    createdAt: string;
-    cron: null | string;
-    effort: string;
-    enabled: boolean;
-    id: string & z.BRAND<"AutomationId">;
-    lastRunAt: null | string;
-    model: string;
-    name: string;
-    nextRunAt: null | string;
-    prompt: string;
-    repoPath: null | string;
-    runAt: null | string;
-    scheduleKind: "cron" | "once";
-    sessionMode: "fresh" | "resume";
-    targetSessionId: (string & z.BRAND<"SessionId">) | null;
-} & {
-    createdByActor: string;
-    createdByOnBehalfOf: _podium_model.UserId;
-    ownerUserId: _podium_model.UserId;
-};
-type Output_automations_list = Array<{
-    agentKind: string;
-    createdAt: string;
-    cron: null | string;
-    effort: string;
-    enabled: boolean;
-    id: string & z.BRAND<"AutomationId">;
-    lastRunAt: null | string;
-    model: string;
-    name: string;
-    nextRunAt: null | string;
-    prompt: string;
-    repoPath: null | string;
-    runAt: null | string;
-    scheduleKind: "cron" | "once";
-    sessionMode: "fresh" | "resume";
-    targetSessionId: (string & z.BRAND<"SessionId">) | null;
-} & {
-    createdByActor: string;
-    createdByOnBehalfOf: _podium_model.UserId;
-    ownerUserId: _podium_model.UserId;
-}>;
-type Output_automations_runs = Array<{
-    actor: string;
-    onBehalfOf: _podium_model.UserId;
-} & {
-    automationId: string & z.BRAND<"AutomationId">;
-    detail: null | string;
-    firedAt: string;
-    id: string & z.BRAND<"AutomationRunId">;
-    outcome: "error" | "missed" | "skipped_overlap" | "spawned";
-    sessionId: (string & z.BRAND<"SessionId">) | null;
-}>;
-type Output_connect_check = ({
-    detail: string;
-    error: CheckError;
-    ok: false;
+type Output_credentials_signInStatus = ({
+    credentialId: _podium_model.CredentialId;
+    email?: string;
+    label: string;
+    outcome: SignInOutcome;
+    previousEmail?: string;
+    state: "signed-in";
 }) | ({
-    ok: true;
-    resolvedTo: string[];
-    url: string;
+    machineId: _podium_model.MachineId;
+    state: "waiting";
+    terminalSessionId: _podium_model.SessionId;
+}) | ({
+    readonly reason: "Signing in on a machine is not available on this server.";
+    readonly state: "failed";
+}) | ({
+    reason: string;
+    state: "failed";
 });
 type Output_discovery_lastMachineScan = (null) | ({
     deep: boolean;
@@ -2795,126 +3110,6 @@ type Output_discovery_lastMachineScan = (null) | ({
     repos: DiscoveredRepo[];
     startedAt: number;
 });
-type Output_discovery_refreshRepos = {
-    diagnostics: _podium_model.GitDiscoveryDiagnosticWire[];
-    machines: {
-        adoptable?: boolean | undefined;
-        appVersion?: null | string | undefined;
-        availability?: undefined | {
-            daemon: boolean;
-            epoch: string;
-            server: boolean;
-            supervisor: boolean;
-        };
-        buildReportedAt?: null | string | undefined;
-        components?: ("daemon" | "server")[] | undefined;
-        daemonReadiness?: undefined | {
-            quarantinedBindings: number;
-            reason: string;
-            state: "attached" | "ready" | "recovering";
-        };
-        deliveryCaps?: string[] | undefined;
-        harnessVersions?: undefined | {
-            firstSeen: string;
-            harness: string;
-            lastSeen: string;
-            unverified?: boolean | undefined;
-            verifiedThrough?: string | undefined;
-            version: string;
-        }[];
-        hostname: string;
-        id: string & z.BRAND<"MachineId">;
-        installKind?: null | string | undefined;
-        inventory?: undefined | {
-            agents: {
-                installed: boolean | null;
-                kind: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-                login: {
-                    account?: string | undefined;
-                    freshness?: number | undefined;
-                    identity?: undefined | {
-                        email?: string | undefined;
-                        fingerprint: string;
-                        providerAccountId?: string | undefined;
-                    };
-                    state: "in" | "out" | "unknown";
-                };
-                path?: string | undefined;
-                probeError?: undefined | {
-                    reason: "timed-out";
-                    timeoutMs: number;
-                };
-                version?: string | undefined;
-            }[];
-            arch: "arm64" | "x64";
-            os: "darwin" | "linux" | "win32";
-            podiumVersion?: string | undefined;
-            runtimeDrivers?: undefined | {
-                family: "server" | "terminal";
-                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-                id: string;
-            }[];
-            tools: {
-                installed: boolean | null;
-                name: string;
-                path?: string | undefined;
-                probeError?: undefined | {
-                    reason: "timed-out";
-                    timeoutMs: number;
-                };
-                version?: string | undefined;
-            }[];
-        };
-        lastSeenAt: string;
-        name: string;
-        online: boolean;
-        owned?: boolean | undefined;
-        podiumManaged?: boolean | undefined;
-        presenceSource?: "legacy-daemon" | "supervisor" | undefined;
-        revokedAt?: null | string | undefined;
-        serverMoveEligibility?: undefined | {
-            eligible: boolean;
-            reason?: "current-server" | "offline" | "unsupported" | undefined;
-        };
-        serviceAssignment?: undefined | {
-            agentExecution: boolean;
-            server: boolean;
-        };
-        services?: undefined | {
-            agentExecution: {
-                observedAt: string;
-                policy: "disabled" | "enabled";
-                reason?: string | undefined;
-                state: "available" | "refused" | "starting" | "stopped";
-            };
-            agentExecutionLockout?: boolean | undefined;
-            crashOwner?: string | undefined;
-            server: {
-                observedAt: string;
-                policy: "disabled" | "enabled";
-                reason?: string | undefined;
-                state: "available" | "refused" | "starting" | "stopped";
-            };
-            topology?: undefined | {
-                legacyUnits: string[];
-                parentUnit: "absent" | "active" | "inactive";
-                persistence: "detached" | "systemd" | "unmanaged";
-            };
-        };
-        supersedable?: boolean | undefined;
-        supersededBy?: (string & z.BRAND<"MachineId">) | null | undefined;
-        targetUnavailableReason?: null | string | undefined;
-        targetVersion?: null | string | undefined;
-        transferable?: boolean | undefined;
-        unowned?: boolean | undefined;
-        updateChannel?: "dev" | "edge" | "stable" | undefined;
-        updateChannelOverride?: "dev" | "edge" | "stable" | null | undefined;
-        use?: "denied" | "granted" | undefined;
-        versionState?: "ahead" | "behind" | "current" | "unreported" | undefined;
-        wireSchemaDigest?: null | string | undefined;
-    }[];
-    repositories: _podium_model.GitRepositoryWire[];
-};
 type Output_discovery_scanMachine = {
     deep: boolean;
     diagnostics: _podium_model.GitDiscoveryDiagnosticWire[];
@@ -2922,11 +3117,6 @@ type Output_discovery_scanMachine = {
     machineId: _podium_model.MachineId;
     repos: DiscoveredRepo[];
     startedAt: number;
-};
-type Output_features_state = {
-    channel: "edge" | "stable";
-    devMode: boolean;
-    flags: FeatureStateWire[];
 };
 type Output_files_read = {
     baseHash?: string | undefined;
@@ -3093,6 +3283,7 @@ type Output_issues_action = {
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
+        legacyAssignee?: string | undefined;
         linearId?: string | undefined;
         linearIdentifier?: string | undefined;
         linearUrl?: string | undefined;
@@ -3111,7 +3302,10 @@ type Output_issues_action = {
                     path: string;
                     size: number;
                 }[];
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
                 path: string;
+                position?: number | undefined;
                 sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
@@ -3120,10 +3314,16 @@ type Output_issues_action = {
             }[];
             deferred: {
                 addedAt: string;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
             todos: {
                 done: boolean;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
         };
@@ -3233,6 +3433,7 @@ type Output_issues_action = {
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
+        legacyAssignee?: string | undefined;
         linearId?: string | undefined;
         linearIdentifier?: string | undefined;
         linearUrl?: string | undefined;
@@ -3251,7 +3452,10 @@ type Output_issues_action = {
                     path: string;
                     size: number;
                 }[];
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
                 path: string;
+                position?: number | undefined;
                 sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
@@ -3260,10 +3464,16 @@ type Output_issues_action = {
             }[];
             deferred: {
                 addedAt: string;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
             todos: {
                 done: boolean;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
         };
@@ -3285,7 +3495,8 @@ type Output_issues_action = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+        assigneeName?: string;
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3399,6 +3610,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -3417,7 +3629,10 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -3426,10 +3641,16 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -3539,6 +3760,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -3557,7 +3779,10 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -3566,10 +3791,16 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -3591,7 +3822,8 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -3704,6 +3936,7 @@ type Output_issues_answerQuestion = {
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
+        legacyAssignee?: string | undefined;
         linearId?: string | undefined;
         linearIdentifier?: string | undefined;
         linearUrl?: string | undefined;
@@ -3722,7 +3955,10 @@ type Output_issues_answerQuestion = {
                     path: string;
                     size: number;
                 }[];
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
                 path: string;
+                position?: number | undefined;
                 sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
@@ -3731,10 +3967,16 @@ type Output_issues_answerQuestion = {
             }[];
             deferred: {
                 addedAt: string;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
             todos: {
                 done: boolean;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
         };
@@ -3844,6 +4086,7 @@ type Output_issues_answerQuestion = {
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
         };
+        legacyAssignee?: string | undefined;
         linearId?: string | undefined;
         linearIdentifier?: string | undefined;
         linearUrl?: string | undefined;
@@ -3862,7 +4105,10 @@ type Output_issues_answerQuestion = {
                     path: string;
                     size: number;
                 }[];
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
                 path: string;
+                position?: number | undefined;
                 sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
                 sourcePaths?: string[] | undefined;
                 title?: string | undefined;
@@ -3871,10 +4117,16 @@ type Output_issues_answerQuestion = {
             }[];
             deferred: {
                 addedAt: string;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
             todos: {
                 done: boolean;
+                id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+                issueId?: (string & z.BRAND<"IssueId">) | undefined;
+                position?: number | undefined;
                 text: string;
             }[];
         };
@@ -3896,7 +4148,8 @@ type Output_issues_answerQuestion = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+        assigneeName?: string;
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3980,6 +4233,16 @@ type Output_issues_cancelShip = {
     };
     validationProfileDigest?: string | undefined;
 };
+type Output_issues_comments = Array<{
+    author: string;
+    authorId?: string | undefined;
+    body: string;
+    createdAt: string;
+    editedAt?: string | undefined;
+    editedBy?: string | undefined;
+    id: string;
+    mayEdit: boolean;
+}>;
 type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
@@ -4069,6 +4332,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4087,7 +4351,10 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4096,10 +4363,16 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -4122,7 +4395,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     warning: string;
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4210,6 +4483,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4228,7 +4502,10 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4237,10 +4514,16 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -4263,6 +4546,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4373,6 +4657,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4391,7 +4676,10 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4400,10 +4688,16 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -4425,7 +4719,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -4513,6 +4807,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4531,7 +4826,10 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4540,10 +4838,16 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -4566,6 +4870,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4592,8 +4897,10 @@ type Output_issues_get = (null) | ({
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
+    allowed: _podium_model.IssueAllowedActions;
     archived: boolean;
     assignee?: (string & z.BRAND<"UserId">) | undefined;
+    assigneeName?: string;
     audience: "agent" | "human";
     blocked: boolean;
     blockedByNotes: string[];
@@ -4630,6 +4937,7 @@ type Output_issues_get = (null) | ({
     labels: string[];
     landedAt?: string | undefined;
     landedSha?: string | undefined;
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -4648,7 +4956,10 @@ type Output_issues_get = (null) | ({
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -4657,16 +4968,21 @@ type Output_issues_get = (null) | ({
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
     parentBranch: string;
     parentId?: (string & z.BRAND<"IssueId">) | undefined;
-    pinned: boolean;
     prUrl?: string | undefined;
     prefix?: string;
     priority: number;
@@ -4676,6 +4992,7 @@ type Output_issues_get = (null) | ({
     repoPath: string;
     revision?: number | undefined;
     seq: number;
+    sessionSummaries: _podium_model.IssueSessionSummaryEntry[];
     sessions: {
         accountId?: (string & z.BRAND<"AccountId">) | undefined;
         agentColor?: string | undefined;
@@ -4760,15 +5077,12 @@ type Output_issues_get = (null) | ({
             stateConfidence?: number | undefined;
             stateObservedAt?: string | undefined;
             stateSource?: "classifier" | "hook" | "poll" | undefined;
+            turnStartedAt?: string | undefined;
             workingMsTotal?: number | undefined;
         };
         archived: boolean;
         attachKinds?: ("client" | "engine")[] | undefined;
-        busy?: boolean | undefined;
-        clientCount: number;
         configureFields?: string[] | undefined;
-        contextUsagePercent?: number | undefined;
-        controllerId: null | string;
         conversationPodiumId?: (string & z.BRAND<"ConversationId">) | undefined;
         createdAt: string;
         createdBy?: undefined | {
@@ -4786,6 +5100,20 @@ type Output_issues_get = (null) | ({
                 kind: "system";
             };
             onBehalfOf: (string & z.BRAND<"UserId">) | null;
+        };
+        credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
+        credentialMismatch?: undefined | {
+            chosen: {
+                credentialId: string & z.BRAND<"CredentialId">;
+                email?: string | undefined;
+                fingerprint?: string | undefined;
+                method?: "api-key" | "subscription" | "token" | "unknown" | undefined;
+            };
+            reported: {
+                email?: string | undefined;
+                fingerprint?: string | undefined;
+                method: "api-key" | "subscription" | "token" | "unknown";
+            };
         };
         cwd: string;
         delegation?: undefined | {
@@ -4808,17 +5136,19 @@ type Output_issues_get = (null) | ({
             parentBindingId: (string & z.BRAND<"SessionId">) | null;
             revision: number;
         };
+        desired?: "hibernated" | "running" | "stopped" | undefined;
         draftSyncEngine?: boolean | undefined;
         draftUpdatedAt?: string | undefined;
         driverFamily?: "server" | "terminal" | undefined;
         driverId?: string | undefined;
-        effort?: string | undefined;
-        epoch: number;
-        exitCode?: number | undefined;
-        geometry: {
-            cols: number;
-            rows: number;
+        effectiveAuth?: undefined | {
+            email?: string | undefined;
+            fingerprint?: string | undefined;
+            method: "api-key" | "subscription" | "token" | "unknown";
         };
+        effort?: string | undefined;
+        exitCode?: number | undefined;
+        force?: boolean | undefined;
         geometryState?: "absent" | "current" | "unknown" | undefined;
         handoffTargetMachineId?: (string & z.BRAND<"MachineId">) | undefined;
         harnessHandoff?: boolean | undefined;
@@ -4826,7 +5156,17 @@ type Output_issues_get = (null) | ({
         headless?: boolean | undefined;
         issueId?: (string & z.BRAND<"IssueId">) | undefined;
         lastActiveAt: string;
-        lastInputAt?: string | undefined;
+        launchPosture?: undefined | {
+            requestedMode: null | string;
+            unmet: {
+                reason: string;
+                requirement: "autonomy" | "podium-cli" | "podium-material" | "quiet-start" | "workspace-trust";
+            }[];
+        };
+        lifecycleFailure?: undefined | {
+            reason: string;
+            revision: number;
+        };
         machineId?: (string & z.BRAND<"MachineId">) | undefined;
         messageDraft?: string | undefined;
         model?: string | undefined;
@@ -4834,7 +5174,9 @@ type Output_issues_get = (null) | ({
         nameSource?: "agent" | "user" | undefined;
         neverBound?: true | undefined;
         observedEffort?: string | undefined;
+        observedMode?: string | undefined;
         observedModel?: string | undefined;
+        observedRevision?: number | undefined;
         offer?: null | undefined | {
             actions: {
                 input?: boolean | undefined;
@@ -4861,17 +5203,17 @@ type Output_issues_get = (null) | ({
         requestedEffort?: string | undefined;
         requestedModel?: string | undefined;
         requestsDuplicate?: number | undefined;
-        requestsGated?: number | undefined;
         requestsUnanswered?: number | undefined;
         resumable?: boolean | undefined;
         resume?: undefined | {
             kind: string;
             value: string;
         };
+        revision?: number | undefined;
         sessionId: string & z.BRAND<"SessionId">;
         spawnFailure?: string | undefined;
         spawnedBy?: string | undefined;
-        status: "exited" | "hibernated" | "live" | "reconnecting" | "starting";
+        status: "exited" | "hibernated" | "live" | "starting";
         stopReason?: "exited" | "forced" | "oom" | "parent" | "self" | undefined;
         stoppedAt?: string | undefined;
         title: string;
@@ -4892,6 +5234,7 @@ type Output_issues_get = (null) | ({
     tuckedAt: null | string;
     type: "decision" | "phase" | "task";
     updatedAt: string;
+    viewerUserId?: (string & z.BRAND<"UserId">) | undefined;
     worktreePath: null | string;
 });
 type Output_issues_mailClaim = {
@@ -5038,152 +5381,11 @@ type Output_issues_resolveShipHold = {
         };
     };
 };
-type Output_issues_searchNormalized = Array<{
-    acceptance?: string | undefined;
-    activityNotes?: string | undefined;
-    agentProfileId?: string | undefined;
-    archived: boolean;
-    asked?: undefined | {
-        at?: string | undefined;
-        attribution?: undefined | {
-            actor: {
-                id: string & z.BRAND<"AgentIdentityId">;
-                kind: "agent";
-            } | {
-                id: string & z.BRAND<"MachineId">;
-                kind: "machine";
-            } | {
-                id: string & z.BRAND<"UserId">;
-                kind: "user";
-            } | {
-                job: string;
-                kind: "system";
-            };
-            onBehalfOf: (string & z.BRAND<"UserId">) | null;
-        };
-        by?: (string & z.BRAND<"SessionId">) | undefined;
-        options?: string[] | undefined;
-        question: string;
-    };
-    assignee?: (string & z.BRAND<"UserId">) | undefined;
-    audience: "agent" | "human";
-    blockedByNotes: string[];
-    branch?: string | undefined;
-    brief?: string | undefined;
-    closedAt?: string | undefined;
-    closedReason?: string | undefined;
-    coordinatorSessionId?: (string & z.BRAND<"SessionId">) | undefined;
-    createdAt: string;
-    createdBy: {
-        actor: {
-            id: string & z.BRAND<"AgentIdentityId">;
-            kind: "agent";
-        } | {
-            id: string & z.BRAND<"MachineId">;
-            kind: "machine";
-        } | {
-            id: string & z.BRAND<"UserId">;
-            kind: "user";
-        } | {
-            job: string;
-            kind: "system";
-        };
-        onBehalfOf: (string & z.BRAND<"UserId">) | null;
-    };
-    defaultAgent: string;
-    defaultEffort: string;
-    defaultModel: string;
-    deferUntil?: string | undefined;
-    deletedAt?: string | undefined;
-    dependencyNote?: string | undefined;
-    description: {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
-    displayRef: string;
-    dueAt?: string | undefined;
-    duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
-    estimateMin?: number | undefined;
-    id: string & z.BRAND<"IssueId">;
-    intentOrigin: "agent" | "human";
-    isDraftVessel: boolean;
-    labels: string[];
-    landedAt?: string | undefined;
-    landedSha?: string | undefined;
-    lastLifecycleActor?: undefined | {
-        actor: {
-            id: string & z.BRAND<"AgentIdentityId">;
-            kind: "agent";
-        } | {
-            id: string & z.BRAND<"MachineId">;
-            kind: "machine";
-        } | {
-            id: string & z.BRAND<"UserId">;
-            kind: "user";
-        } | {
-            job: string;
-            kind: "system";
-        };
-        onBehalfOf: (string & z.BRAND<"UserId">) | null;
-    };
-    linearId?: string | undefined;
-    linearIdentifier?: string | undefined;
-    linearUrl?: string | undefined;
-    machineId?: (string & z.BRAND<"MachineId">) | undefined;
-    needsHuman: boolean;
-    notesUpdatedAt?: string | undefined;
-    owner: string & z.BRAND<"UserId">;
-    panel?: undefined | {
-        artifacts: {
-            addedAt: string;
-            artifactId?: (string & z.BRAND<"ArtifactId">) | undefined;
-            chatUploadId?: string | undefined;
-            chatUploadOwner?: string | undefined;
-            entry?: string | undefined;
-            files?: undefined | {
-                path: string;
-                size: number;
-            }[];
-            path: string;
-            sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
-            sourcePaths?: string[] | undefined;
-            title?: string | undefined;
-            tracking?: "tracked" | "unknown" | "untracked" | undefined;
-            untrackedPaths?: string[] | undefined;
-        }[];
-        deferred: {
-            addedAt: string;
-            text: string;
-        }[];
-        todos: {
-            done: boolean;
-            text: string;
-        }[];
-    };
-    parentBranch: string;
-    parentId?: (string & z.BRAND<"IssueId">) | undefined;
-    prUrl?: string | undefined;
-    priority: number;
-    repoId?: (string & z.BRAND<"RepoId">) | undefined;
-    revision?: number | undefined;
-    seq: number;
-    sortKey?: string | undefined;
-    stage: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping";
-    startedBySession?: (string & z.BRAND<"SessionId">) | undefined;
-    suggestedReason?: string | undefined;
-    suggestedStage?: "backlog" | "done" | "in_progress" | "planning" | "proposed" | "review" | "shipping" | undefined;
-    supersededBy?: (string & z.BRAND<"IssueId">) | undefined;
-    title: string;
-    type: "decision" | "phase" | "task";
-    updatedAt: string;
-    visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
-    worktreePath?: string | undefined;
-}>;
 type Output_issues_seat = ({
     askUserRefusal?: string | undefined;
     claimable?: string;
     coordinates: boolean;
+    human?: string;
     kind: "top";
     text: string;
 }) | ({
@@ -5386,6 +5588,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -5404,7 +5607,10 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -5413,10 +5619,16 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -5438,7 +5650,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "agentProfileId" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "landedAt" | "landedSha" | "lastLifecycleActor" | "legacyAssignee" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     agentProfileId?: string | undefined;
@@ -5526,6 +5738,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         };
         onBehalfOf: (string & z.BRAND<"UserId">) | null;
     };
+    legacyAssignee?: string | undefined;
     linearId?: string | undefined;
     linearIdentifier?: string | undefined;
     linearUrl?: string | undefined;
@@ -5544,7 +5757,10 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
                 path: string;
                 size: number;
             }[];
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
             path: string;
+            position?: number | undefined;
             sourceKind?: "creation-attachment" | "terminal-evidence" | undefined;
             sourcePaths?: string[] | undefined;
             title?: string | undefined;
@@ -5553,10 +5769,16 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         }[];
         deferred: {
             addedAt: string;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
         todos: {
             done: boolean;
+            id?: (string & z.BRAND<"IssuePanelItemId">) | undefined;
+            issueId?: (string & z.BRAND<"IssueId">) | undefined;
+            position?: number | undefined;
             text: string;
         }[];
     };
@@ -5579,6 +5801,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
 }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
+    assigneeName?: string;
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -5657,6 +5880,16 @@ type Output_machines_applyUpdate = {
                     };
                     state: "in" | "out" | "unknown";
                 };
+                logins?: undefined | {
+                    freshness?: number | undefined;
+                    homeId: string;
+                    identity?: undefined | {
+                        email?: string | undefined;
+                        fingerprint: string;
+                        providerAccountId?: string | undefined;
+                    };
+                    state: "in" | "out" | "unknown";
+                }[];
                 path?: string | undefined;
                 probeError?: undefined | {
                     reason: "timed-out";
@@ -5793,7 +6026,7 @@ type Output_repos_listDetailed = Array<{
 type Output_sessions_configure = ({
     cause?: "agent-exited" | "dropped-by-agent" | "not-accepting-input" | "not-recorded" | "rejected-by-agent" | "unconfirmed" | undefined;
     detail?: string | undefined;
-    reason: "busy" | "invalid_value" | "lease_held" | "needs_user" | "no_archive_yet" | "no_resume_ref" | "not_running" | "session_ended" | "staging_failed" | "unsupported";
+    reason: "busy" | "invalid_value" | "lease_held" | "needs_user" | "no_archive_yet" | "no_resume_ref" | "not_running" | "session_ended" | "staging_failed" | "turn_ended" | "unsupported";
 }) | ({
     detail: string;
     reason: "not_running";
@@ -5808,6 +6041,7 @@ type Output_sessions_interrupt = ({
     ok: false;
     reason: string;
     requested?: undefined;
+    turnEnded?: true;
 }) | ({
     ok: true;
     reason?: undefined;
@@ -5836,6 +6070,11 @@ type Output_sessions_stop = ({
     ok: boolean;
     reason: string;
 });
+type Output_sessions_switchCredential = {
+    continuedAs: "handoff" | "next-wake" | "resume";
+    handoffSessionId?: (string & z.BRAND<"SessionId">) | undefined;
+    waitingForTurnEnd?: true | undefined;
+};
 type Output_sessions_uploadImage = ({
     attachment: {
         filename: string;
@@ -5852,103 +6091,12 @@ type Output_sessions_uploadImage = ({
     refusal: {
         cause?: "agent-exited" | "dropped-by-agent" | "not-accepting-input" | "not-recorded" | "rejected-by-agent" | "unconfirmed" | undefined;
         detail?: string | undefined;
-        reason: "busy" | "invalid_value" | "lease_held" | "needs_user" | "no_archive_yet" | "no_resume_ref" | "not_running" | "session_ended" | "staging_failed" | "unsupported";
+        reason: "busy" | "invalid_value" | "lease_held" | "needs_user" | "no_archive_yet" | "no_resume_ref" | "not_running" | "session_ended" | "staging_failed" | "turn_ended" | "unsupported";
     };
 }) | ({
     error?: string;
     path: string;
 });
-type Output_settings_get = {
-    apiKeys: {
-        anthropic: string;
-        openai: string;
-        openrouter: string;
-    };
-    autoContinue: {
-        enabled: boolean;
-        promptDismissed: boolean;
-    };
-    deployment: {
-        authOpenMode?: boolean | undefined;
-        connectEnabled?: boolean | undefined;
-        telemetryCrash?: "off" | "on" | undefined;
-        telemetryInstallId?: string | undefined;
-        telemetrySince?: number | undefined;
-        telemetryUsage?: "off" | "on" | undefined;
-        updateChannel?: "dev" | "edge" | "stable" | undefined;
-    };
-    experimental: Record<string, boolean>;
-    gitWorkflow: {
-        autoRebaseBeforeMerge: boolean;
-        defaultParentBranch: string;
-        mergeStyle: "ask" | "ff-only" | "pr";
-    };
-    hibernation: {
-        backstopMinutes: null | number;
-        enabled: boolean;
-        idleMinutes: number;
-        idleShellMinutes: null | number;
-        loadPerCore: null | number;
-        maxIdleSessions: null | number;
-        memoryPct: number;
-    };
-    integrations: {
-        linearApiKey: string;
-    };
-    issues: {
-        assistantEnabled: boolean;
-    };
-    notifications: {
-        ntfyTopic: string;
-        telegramBotToken: string;
-        telegramChatId: string;
-        web: boolean;
-    };
-    roles: {
-        background: {
-            accountId: string & z.BRAND<"AccountId">;
-            effort: string;
-            harness?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | undefined;
-            model: string;
-        };
-        coding: {
-            accountId: string & z.BRAND<"AccountId">;
-            effort: string;
-            harness?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | undefined;
-            model: string;
-            seedCliTheme: boolean;
-            startScreen: "auto" | "chat" | "native";
-            subagentModel: string;
-        };
-        shipwright: {
-            accountId: string & z.BRAND<"AccountId">;
-            effort: string;
-            harness?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | undefined;
-            model: string;
-        };
-        superagent: {
-            accountId: string & z.BRAND<"AccountId">;
-            effort: string;
-            harness?: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi" | undefined;
-            model: string;
-        };
-    };
-    sidebar: {
-        groupByRepo: boolean;
-        repoOrder: string[];
-        repoSort: "alphabetical" | "custom" | "lastUsed";
-    };
-    steward: {
-        enabled: boolean;
-    };
-    transcripts: {
-        mirror?: boolean | undefined;
-    };
-    worktreeGc: {
-        afterDays: number;
-        mode: "auto" | "off" | "propose";
-    };
-};
 type Output_settings_telegramSetupPoll = ({
     chatId: string;
     chatLabel?: string;
@@ -5977,9 +6125,7 @@ type Output_setup_complete = {
     allowedOrigins?: string[] | undefined;
     appUrl?: string | undefined;
     auth?: undefined | {
-        mode?: "cloud" | "local" | undefined;
         openMode?: boolean | undefined;
-        signInUrl?: string | undefined;
     };
     bindHost?: "0.0.0.0" | "127.0.0.1" | undefined;
     configVersion?: number | undefined;
@@ -5990,6 +6136,12 @@ type Output_setup_complete = {
         trustedProbeKeys?: string[] | undefined;
     };
     features?: Record<string, boolean> | undefined;
+    fileStorage?: undefined | {
+        backend: "local" | "s3";
+        bucket?: string | undefined;
+        endpoint?: string | undefined;
+        region?: string | undefined;
+    };
     hookPort?: number | undefined;
     installationId?: string | undefined;
     installationPublicKey?: string | undefined;
@@ -6014,6 +6166,7 @@ type Output_setup_complete = {
     uiUrl?: string | undefined;
     updateChannel?: "dev" | "edge" | "stable" | undefined;
     updateFeed?: string | undefined;
+    updateFeedPolling?: boolean | undefined;
     updateScope?: "all" | "fleet-only" | undefined;
     workspaceId?: string | undefined;
 };
@@ -6051,15 +6204,7 @@ type Output_setup_provenance = {
         env?: string;
         source: SettingSource;
     };
-    authMode: {
-        env?: string;
-        source: SettingSource;
-    };
     authOpenMode: {
-        env?: string;
-        source: SettingSource;
-    };
-    authSignInUrl: {
         env?: string;
         source: SettingSource;
     };
@@ -6116,6 +6261,10 @@ type Output_setup_provenance = {
         source: SettingSource;
     };
     updateFeed: {
+        env?: string;
+        source: SettingSource;
+    };
+    updateFeedPolling: {
         env?: string;
         source: SettingSource;
     };
@@ -6468,59 +6617,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
     errorShape: TRPC.TRPCDefaultErrorShape;
     transformer: false;
 }, {
-    "accounts": {
-        "connect": TRPC.TRPCMutationProcedure<{
-            input: {
-                credential: string;
-                kind: "api-key" | "oauth";
-                provider: "anthropic" | "openai" | "openrouter";
-            };
-            output: {
-                id: string;
-            };
-            meta: unknown;
-        }>;
-        "disconnect": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-            };
-            output: {
-                ok: true;
-            };
-            meta: unknown;
-        }>;
-        "list": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: Array<_podium_model.AccountView>;
-            meta: unknown;
-        }>;
-        "login": TRPC.TRPCMutationProcedure<{
-            input: {
-                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
-                machineId?: string | undefined;
-            };
-            output: Output_accounts_login;
-            meta: unknown;
-        }>;
-    };
     "agentProfiles": {
-        "create": TRPC.TRPCMutationProcedure<{
-            input: Input_agentProfiles_create;
-            output: Output_agentProfiles_create;
-            meta: unknown;
-        }>;
-        "delete": TRPC.TRPCMutationProcedure<{
-            input: {
-                ref: string;
-            };
-            output: {
-                id: string;
-                name: string;
-            };
-            meta: unknown;
-        }>;
         "export": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
                 ref?: string | undefined;
@@ -6528,19 +6625,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<{
                 name: string;
                 text: string;
-            }>;
-            meta: unknown;
-        }>;
-        "import": TRPC.TRPCMutationProcedure<{
-            input: {
-                files: {
-                    name?: string | undefined;
-                    text: string;
-                }[];
-            };
-            output: Array<{
-                action: "created" | "updated";
-                name: string;
             }>;
             meta: unknown;
         }>;
@@ -6555,35 +6639,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 ref: string;
             };
-            output: Output_agentProfiles_create;
-            meta: unknown;
-        }>;
-        "update": TRPC.TRPCMutationProcedure<{
-            input: Input_agentProfiles_update;
-            output: Output_agentProfiles_create;
-            meta: unknown;
-        }>;
-    };
-    "approvals": {
-        "approve": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-            };
-            output: Protocol.ApprovalWire;
-            meta: unknown;
-        }>;
-        "deny": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-            };
-            output: Protocol.ApprovalWire;
-            meta: unknown;
-        }>;
-        "list": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: Array<Protocol.ApprovalWire>;
+            output: Output_agentProfiles_show;
             meta: unknown;
         }>;
     };
@@ -6592,8 +6648,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: (undefined) | ({
                 [k: string]: unknown;
             } & {});
+            output: UserAccountRow;
+            meta: unknown;
+        }>;
+        "setDisplayName": TRPC.TRPCMutationProcedure<{
+            input: {
+                displayName: string;
+            };
             output: {
-                email: null | string;
+                displayName: string;
             };
             meta: unknown;
         }>;
@@ -6740,15 +6803,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<ConversationIndexRow>;
             meta: unknown;
         }>;
-        "setMeta": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                name?: string | undefined;
-                summary?: string | undefined;
-            };
-            output: void;
-            meta: unknown;
-        }>;
     };
     "cost": {
         "task": TRPC.TRPCQueryProcedure<{
@@ -6774,6 +6828,169 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
     };
+    "credentials": {
+        "add": TRPC.TRPCMutationProcedure<{
+            input: Input_credentials_add;
+            output: {
+                credentialId: string & z.BRAND<"CredentialId">;
+            };
+            meta: unknown;
+        }>;
+        "allowMachine": TRPC.TRPCMutationProcedure<{
+            input: {
+                acknowledgeDisclosure: boolean;
+                credentialId: string;
+                machineId: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "chatgptSignInComplete": TRPC.TRPCMutationProcedure<{
+            input: {
+                attemptId: string;
+                pastedUrl: string;
+            };
+            output: Output_credentials_chatgptSignInComplete;
+            meta: unknown;
+        }>;
+        "chatgptSignInStart": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId?: string | undefined;
+                label?: string | undefined;
+                machineId?: string | undefined;
+            };
+            output: Output_credentials_chatgptSignInStart;
+            meta: unknown;
+        }>;
+        "chatgptSignInStatus": TRPC.TRPCQueryProcedure<{
+            input: {
+                attemptId: string;
+            };
+            output: Output_credentials_chatgptSignInStatus;
+            meta: unknown;
+        }>;
+        "disallowMachine": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+                machineId: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "list": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                [k: string]: unknown;
+            } & {});
+            output: Array<_podium_model.CredentialView>;
+            meta: unknown;
+        }>;
+        "login": TRPC.TRPCMutationProcedure<{
+            input: {
+                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+                machineId?: string | undefined;
+            };
+            output: Output_credentials_login;
+            meta: unknown;
+        }>;
+        "remove": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+            };
+            output: {
+                ok: true;
+                providerRevocation?: "confirmed" | "not-confirmed" | undefined;
+            };
+            meta: unknown;
+        }>;
+        "rename": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+                label: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "renew": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+                secret: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "serverAiStatus": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                [k: string]: unknown;
+            } & {});
+            output: (CodexServerAiMarker) | (undefined);
+            meta: unknown;
+        }>;
+        "share": TRPC.TRPCMutationProcedure<{
+            input: Input_credentials_share;
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "signInCancel": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+            };
+            output: {
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+        "signInStart": TRPC.TRPCMutationProcedure<{
+            input: Input_credentials_signInStart;
+            output: {
+                credentialId: _podium_model.CredentialId;
+                terminalSessionId: _podium_model.SessionId;
+            };
+            meta: unknown;
+        }>;
+        "signInStatus": TRPC.TRPCQueryProcedure<{
+            input: {
+                credentialId: string;
+            };
+            output: Output_credentials_signInStatus;
+            meta: unknown;
+        }>;
+        "unshare": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: string;
+                grantee: "all-members" | {
+                    userId: string;
+                };
+                verb?: "manage" | "use" | undefined;
+            };
+            output: {
+                ok: true;
+                removed: boolean;
+            };
+            meta: unknown;
+        }>;
+        "useOnMyMachines": TRPC.TRPCMutationProcedure<{
+            input: {
+                enabled: boolean;
+                fingerprint: string;
+                harness: "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
+            };
+            output: {
+                enabled: boolean;
+                ok: true;
+            };
+            meta: unknown;
+        }>;
+    };
     "discovery": {
         "lastMachineScan": TRPC.TRPCQueryProcedure<{
             input: {
@@ -6784,7 +7001,13 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "refreshRepos": TRPC.TRPCMutationProcedure<{
             input: void;
-            output: Output_discovery_refreshRepos;
+            output: {
+                diagnostics: {
+                    message: string;
+                    path: string;
+                    severity: "error" | "warning";
+                }[];
+            };
             meta: unknown;
         }>;
         "scanFolder": TRPC.TRPCMutationProcedure<{
@@ -6811,7 +7034,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: (undefined) | ({
                 [k: string]: unknown;
             } & {});
-            output: Output_features_state;
+            output: Protocol.FeatureStates;
             meta: unknown;
         }>;
     };
@@ -6970,17 +7193,14 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "addSession": TRPC.TRPCMutationProcedure<{
-            input: {
-                agentKind?: string | undefined;
-                forceUnknownModel?: boolean | undefined;
-                id: string;
-            };
+            input: Input_issues_addSession;
             output: Output_issues_addComment;
             meta: unknown;
         }>;
         "addShell": TRPC.TRPCMutationProcedure<{
             input: {
                 id: string;
+                sessionId?: string | undefined;
             };
             output: Output_issues_addComment;
             meta: unknown;
@@ -7050,7 +7270,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "claim": TRPC.TRPCMutationProcedure<{
             input: {
-                assignee: string;
+                assignee?: string | undefined;
                 expectedRevision?: number | undefined;
                 id: string;
             };
@@ -7084,11 +7304,18 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<_podium_model.IssueReport>;
             meta: unknown;
         }>;
+        "collaborators": TRPC.TRPCQueryProcedure<{
+            input: {
+                id: string;
+            };
+            output: Array<IssueCollaborator>;
+            meta: unknown;
+        }>;
         "comments": TRPC.TRPCQueryProcedure<{
             input: {
                 id: string;
             };
-            output: Array<_podium_model.IssueComment>;
+            output: Output_issues_comments;
             meta: unknown;
         }>;
         "count": TRPC.TRPCQueryProcedure<{
@@ -7105,6 +7332,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "deck": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 id: string;
             };
             output: _podium_model.IssueDeck;
@@ -7127,6 +7355,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 mutationId?: string | undefined;
             };
             output: unknown;
+            meta: unknown;
+        }>;
+        "deleteComment": TRPC.TRPCMutationProcedure<{
+            input: {
+                commentId: string;
+                id: string;
+                mutationId?: string | undefined;
+            };
+            output: Output_issues_addComment;
             meta: unknown;
         }>;
         "deliveryReceipt": TRPC.TRPCQueryProcedure<{
@@ -7159,6 +7396,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<DepReportEntry>;
             meta: unknown;
         }>;
+        "dismissAssignment": TRPC.TRPCMutationProcedure<{
+            input: {
+                id: string;
+                mutationId?: string | undefined;
+            };
+            output: {
+                dismissed: boolean;
+            };
+            meta: unknown;
+        }>;
         "dismissSuggestion": TRPC.TRPCMutationProcedure<{
             input: {
                 expectedRevision?: number | undefined;
@@ -7179,6 +7426,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 canonicalId: string;
                 expectedRevision?: number | undefined;
                 id: string;
+            };
+            output: Output_issues_addComment;
+            meta: unknown;
+        }>;
+        "editComment": TRPC.TRPCMutationProcedure<{
+            input: {
+                body: string;
+                commentId: string;
+                id: string;
+                mutationId?: string | undefined;
             };
             output: Output_issues_addComment;
             meta: unknown;
@@ -7224,6 +7481,18 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_issues_action;
             meta: unknown;
         }>;
+        "join": TRPC.TRPCMutationProcedure<{
+            input: {
+                id: string;
+                mutationId?: string | undefined;
+            };
+            output: Array<{
+                joinedAt: string;
+                userId: _podium_model.UserId;
+                via: _podium_model.IssueJoinVia | null;
+            }>;
+            meta: unknown;
+        }>;
         "labelList": TRPC.TRPCQueryProcedure<{
             input: {};
             output: Array<_podium_model.IssueLabelWire>;
@@ -7238,6 +7507,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "list": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 repoPath?: string | undefined;
             };
             output: Array<_podium_model.IssueReport>;
@@ -7327,6 +7597,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "prime": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
+                assignee?: string | undefined;
                 repoPath?: string | undefined;
             });
             output: string;
@@ -7343,6 +7614,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "ready": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 repoPath?: string | undefined;
             };
             output: Array<_podium_model.IssueReport>;
@@ -7392,14 +7664,24 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: unknown;
             meta: unknown;
         }>;
+        "restoreTextRevision": TRPC.TRPCMutationProcedure<{
+            input: {
+                expectedRevision?: number | undefined;
+                id: string;
+                mutationId?: string | undefined;
+                revisionId: number;
+            };
+            output: Output_issues_addComment;
+            meta: unknown;
+        }>;
         "search": TRPC.TRPCQueryProcedure<{
             input: Input_issues_search;
             output: Array<_podium_model.IssueReport>;
             meta: unknown;
         }>;
         "searchNormalized": TRPC.TRPCQueryProcedure<{
-            input: Input_issues_search;
-            output: Output_issues_searchNormalized;
+            input: Input_issues_searchNormalized;
+            output: IssueSearchPage;
             meta: unknown;
         }>;
         "seat": TRPC.TRPCQueryProcedure<{
@@ -7451,7 +7733,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 id: string;
                 verb: "manage" | "read" | "write";
             };
-            output: Output_issues_addComment;
+            output: never;
             meta: unknown;
         }>;
         "ship": TRPC.TRPCMutationProcedure<{
@@ -7510,25 +7792,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<Subscription>;
             meta: unknown;
         }>;
-        "subscriptionRemove": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-            };
-            output: {
-                removed: boolean;
-            };
-            meta: unknown;
-        }>;
-        "subscriptionSetEnabled": TRPC.TRPCMutationProcedure<{
-            input: {
-                enabled: boolean;
-                id: string;
-            };
-            output: {
-                updated: boolean;
-            };
-            meta: unknown;
-        }>;
         "supersede": TRPC.TRPCMutationProcedure<{
             input: {
                 expectedRevision?: number | undefined;
@@ -7538,8 +7801,17 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_issues_addComment;
             meta: unknown;
         }>;
+        "textRevisions": TRPC.TRPCQueryProcedure<{
+            input: {
+                field: "brief" | "description";
+                id: string;
+            };
+            output: Array<IssueTextRevisionRow>;
+            meta: unknown;
+        }>;
         "tree": TRPC.TRPCQueryProcedure<{
             input: {
+                assignee?: string | undefined;
                 id: string;
                 maxDepth?: number | undefined;
                 maxNodes?: number | undefined;
@@ -7562,7 +7834,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 id: string;
                 verb: "manage" | "read" | "write";
             };
-            output: Output_issues_addComment;
+            output: never;
             meta: unknown;
         }>;
         "update": TRPC.TRPCMutationProcedure<{
@@ -7715,14 +7987,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             };
             meta: unknown;
         }>;
-        "rename": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                name: string;
-            };
-            output: Array<_podium_model.MachineWire>;
-            meta: unknown;
-        }>;
         "revoke": TRPC.TRPCMutationProcedure<{
             input: {
                 id: string;
@@ -7730,28 +7994,9 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<_podium_model.MachineWire>;
             meta: unknown;
         }>;
-        "setAssignment": TRPC.TRPCMutationProcedure<{
-            input: {
-                assignment: {
-                    agentExecution: boolean;
-                    server: boolean;
-                };
-                id: string;
-                requestId: string;
-            };
-            output: Array<_podium_model.MachineWire>;
-            meta: unknown;
-        }>;
-        "setUpdateChannel": TRPC.TRPCMutationProcedure<{
-            input: {
-                channel: "dev" | "edge" | "stable" | null;
-                id: string;
-            };
-            output: Array<_podium_model.MachineWire>;
-            meta: unknown;
-        }>;
         "share": TRPC.TRPCMutationProcedure<{
             input: {
+                acknowledgeSharedMachine?: boolean | undefined;
                 grantee: string;
                 id: string;
                 verb: "manage" | "see" | "use";
@@ -7869,6 +8114,26 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
     };
+    "notices": {
+        "list": TRPC.TRPCQueryProcedure<{
+            input: {
+                before?: undefined | {
+                    createdAt: string;
+                    id: string;
+                };
+                limit?: number | undefined;
+            };
+            output: Array<_podium_model.NoticeWire>;
+            meta: unknown;
+        }>;
+        "unreadCount": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                [k: string]: unknown;
+            } & {});
+            output: number;
+            meta: unknown;
+        }>;
+    };
     "operations": {
         "action": TRPC.TRPCMutationProcedure<{
             input: {
@@ -7934,25 +8199,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
     };
-    "pins": {
-        "list": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: PinState;
-            meta: unknown;
-        }>;
-        "set": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                kind: "panel" | "repo" | "worktree";
-                mutationId?: string | undefined;
-                pinned: boolean;
-            };
-            output: PinState;
-            meta: unknown;
-        }>;
-    };
     "quota": {
         "history": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
@@ -7966,23 +8212,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 [k: string]: unknown;
             } & {});
             output: Array<_podium_model.MachineQuotaWire>;
-            meta: unknown;
-        }>;
-    };
-    "readPosition": {
-        "advance": TRPC.TRPCMutationProcedure<{
-            input: {
-                lastEventId: number;
-                mutationId?: string | undefined;
-                seenAt?: null | string | undefined;
-                streamId: string;
-            };
-            output: _podium_model.ReadPositionSnapshot;
-            meta: unknown;
-        }>;
-        "get": TRPC.TRPCQueryProcedure<{
-            input: void;
-            output: _podium_model.ReadPositionSnapshot;
             meta: unknown;
         }>;
     };
@@ -8324,15 +8553,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: void;
             meta: unknown;
         }>;
-        "setIssueId": TRPC.TRPCMutationProcedure<{
-            input: {
-                issueId: null | string;
-                mutationId?: string | undefined;
-                sessionId: string;
-            };
-            output: void;
-            meta: unknown;
-        }>;
         "setWorkState": TRPC.TRPCMutationProcedure<{
             input: Input_sessions_setWorkState;
             output: void;
@@ -8353,6 +8573,15 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_sessions_stop;
             meta: unknown;
         }>;
+        "switchCredential": TRPC.TRPCMutationProcedure<{
+            input: {
+                credentialId: null | string;
+                sessionId: string;
+                whenBusy: "interrupt" | "wait";
+            };
+            output: Output_sessions_switchCredential;
+            meta: unknown;
+        }>;
         "transcriptRead": TRPC.TRPCQueryProcedure<{
             input: {
                 anchor?: string | undefined;
@@ -8371,15 +8600,10 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
     };
     "settings": {
         "clearSecret": TRPC.TRPCMutationProcedure<{
-            input: Input_settings_clearSecret;
+            input: {
+                key: "integrations.linearApiKey" | "notifications.telegramBotToken";
+            };
             output: _podium_model.SecretPresenceWire;
-            meta: unknown;
-        }>;
-        "get": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: Output_settings_get;
             meta: unknown;
         }>;
         "secretPresence": TRPC.TRPCQueryProcedure<{
@@ -8388,8 +8612,21 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "setSecret": TRPC.TRPCMutationProcedure<{
-            input: Input_settings_setSecret;
+            input: {
+                key: "integrations.linearApiKey" | "notifications.telegramBotToken";
+                value: string;
+            };
             output: _podium_model.SecretPresenceWire;
+            meta: unknown;
+        }>;
+        "telegramBotPresence": TRPC.TRPCQueryProcedure<{
+            input: {};
+            output: (false) | (true);
+            meta: unknown;
+        }>;
+        "telegramDisconnect": TRPC.TRPCMutationProcedure<{
+            input: {};
+            output: void;
             meta: unknown;
         }>;
         "telegramSetupPoll": TRPC.TRPCMutationProcedure<{
@@ -8402,21 +8639,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         "telegramSetupStart": TRPC.TRPCMutationProcedure<{
             input: (undefined) | ({});
             output: TelegramSetupStartResult;
-            meta: unknown;
-        }>;
-        "updateInstance": TRPC.TRPCMutationProcedure<{
-            input: {
-                values: Record<string, unknown>;
-            };
-            output: Output_settings_get;
-            meta: unknown;
-        }>;
-        "updatePersonal": TRPC.TRPCMutationProcedure<{
-            input: {
-                mutationId?: string | undefined;
-                values: Record<string, unknown>;
-            };
-            output: Output_settings_get;
             meta: unknown;
         }>;
         "viewer": TRPC.TRPCQueryProcedure<{
@@ -8519,10 +8741,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 machineId?: string | undefined;
                 worktreePath: string;
             };
-            output: {
-                created: boolean;
-                sessionId: string & z.BRAND<"SessionId">;
-            };
+            output: ForWorktreeOutput;
             meta: unknown;
         }>;
     };
@@ -8648,22 +8867,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: void;
             meta: unknown;
         }>;
-        "latestTurnFailure": TRPC.TRPCQueryProcedure<{
-            input: {
-                threadId?: string | undefined;
-            };
-            output: (SuperagentTurnFailure) | (null);
-            meta: unknown;
-        }>;
-        "listThreads": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: Array<SuperagentThreadRow & {
-                turnRunning: boolean;
-            }>;
-            meta: unknown;
-        }>;
         "openInTerminal": TRPC.TRPCMutationProcedure<{
             input: {
                 threadId: string;
@@ -8701,46 +8904,9 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
     };
     "sync": {
-        "changesSince": TRPC.TRPCQueryProcedure<{
-            input: {
-                cursor: null | number;
-            };
-            output: Protocol.SyncChangesSinceResult;
-            meta: unknown;
-        }>;
-        "feedSlice": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({});
-            output: {
-                epoch: string;
-                feedId: string;
-                rows: {
-                    entity: string;
-                    entityId: string;
-                }[];
-                throughSeq: number;
-            };
-            meta: unknown;
-        }>;
-    };
-    "tabs": {
-        "listOrders": TRPC.TRPCQueryProcedure<{
-            input: (undefined) | ({
-                [k: string]: unknown;
-            } & {});
-            output: {
-                [x: string]: string[];
-            };
-            meta: unknown;
-        }>;
-        "setOrder": TRPC.TRPCMutationProcedure<{
-            input: {
-                mutationId?: string | undefined;
-                sessionIds: string[];
-                worktree: string;
-            };
-            output: {
-                [x: string]: string[];
-            };
+        "submit": TRPC.TRPCMutationProcedure<{
+            input: Input_sync_submit;
+            output: Protocol.SyncSubmitReply;
             meta: unknown;
         }>;
     };
@@ -8795,8 +8961,16 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "checkNow": TRPC.TRPCMutationProcedure<{
-            input: void;
+            input: undefined;
             output: Array<ChannelCheckRecord>;
+            meta: unknown;
+        }>;
+        "checkSpace": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                expectedVersion?: string | undefined;
+                scope?: "all" | "operation" | undefined;
+            });
+            output: Protocol.UpdateSpacePreview;
             meta: unknown;
         }>;
         "converge": TRPC.TRPCMutationProcedure<{
@@ -8815,7 +8989,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "repairCompatibility": TRPC.TRPCMutationProcedure<{
-            input: void;
+            input: undefined;
             output: {
                 state: "in-progress";
                 version: string;
@@ -8849,11 +9023,26 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: (undefined) | ({
                 [k: string]: unknown;
             } & {});
-            output: {
-                buckets: _podium_model.UsageBucketWire[];
-                hostname: string;
-                sampledAt?: string;
+            output: UsageSummary;
+            meta: unknown;
+        }>;
+    };
+    "vault": {
+        "reset": TRPC.TRPCMutationProcedure<{
+            input: {
+                confirm: true;
             };
+            output: {
+                needsAttention: number;
+                state: VaultState;
+            };
+            meta: unknown;
+        }>;
+        "status": TRPC.TRPCQueryProcedure<{
+            input: (undefined) | ({
+                [k: string]: unknown;
+            } & {});
+            output: VaultStatus;
             meta: unknown;
         }>;
     };
@@ -8866,15 +9055,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
                 startStepId?: string | undefined;
             };
             output: Protocol.WorkflowRunWire;
-            meta: unknown;
-        }>;
-        "assign": TRPC.TRPCMutationProcedure<{
-            input: {
-                revisionId: string;
-                targetId: string;
-                targetKind: "global" | "issue" | "repository" | "session";
-            };
-            output: Protocol.WorkflowBindingWire;
             meta: unknown;
         }>;
         "assignStep": TRPC.TRPCMutationProcedure<{
@@ -8891,7 +9071,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 [k: string]: unknown;
             } & {};
-            output: Array<Protocol.WorkflowBindingWire>;
+            output: Array<_podium_model.WorkflowBindingWire>;
             meta: unknown;
         }>;
         "checkpoint": TRPC.TRPCMutationProcedure<{
@@ -8918,7 +9098,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "list": TRPC.TRPCQueryProcedure<{
             input: Input_workflows_list;
-            output: Array<Protocol.WorkflowWire>;
+            output: Array<_podium_model.WorkflowWire>;
             meta: unknown;
         }>;
         "prime": TRPC.TRPCQueryProcedure<{
@@ -8932,7 +9112,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 revisionId: string;
             };
-            output: Protocol.WorkflowRevisionWire;
+            output: _podium_model.WorkflowRevisionWire;
             meta: unknown;
         }>;
         "retry": TRPC.TRPCMutationProcedure<{
@@ -8946,7 +9126,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
         }>;
         "revise": TRPC.TRPCMutationProcedure<{
             input: Input_workflows_revise;
-            output: Protocol.WorkflowRevisionWire;
+            output: _podium_model.WorkflowRevisionWire;
             meta: unknown;
         }>;
         "runs": TRPC.TRPCQueryProcedure<{

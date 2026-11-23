@@ -1,5 +1,6 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
+import { issueRefText } from '@podium/protocol'
 
 /** Identity labels need the named row and its declared repo, never the
  * resident reference-reader bootstrap or any other issue's payload. */
@@ -16,9 +17,7 @@ export function readAddressedIssueRef(
   return {
     prefix,
     displayRef: repoId
-      ? prefix
-        ? `${prefix}-${row.seq}`
-        : `#${row.seq}`
-      : (row.displayRef ?? (prefix ? `${prefix}-${row.seq}` : `#${row.seq}`)),
+      ? issueRefText(row.seq, prefix)
+      : (row.displayRef ?? issueRefText(row.seq, prefix)),
   }
 }

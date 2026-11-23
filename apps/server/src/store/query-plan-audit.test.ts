@@ -7,11 +7,11 @@
  * on a plan that reads a whole table or sorts in a temporary B-tree, unless
  * the query is on one of the lists below with a written reason.
  *
- * ONE MODULE INSTANCE. The audit pairs each registered definition with its
- * source site by position (see `matchSites`), which needs every repository
- * module loaded once. It therefore never imports a repository by a second
- * specifier (an absolute path next to the server's `@podium/sync/...` or
- * relative import can load the same file twice).
+ * ONE MODULE INSTANCE. The audit pairs each registered definition with the
+ * source site its call is on (see `siteContaining`), and plans what one store
+ * built. It therefore never imports a repository by a second specifier (an
+ * absolute path next to the server's `@podium/sync/...` or relative import can
+ * load the same file twice, and register every definition in it twice).
  *
  * HOW IT SEES EVERY QUERY, NOT ONLY THE ONES A TEST RUNS. Each definition
  * registers itself when it is made (`preparedDefinitions()` in
@@ -25,240 +25,50 @@
  * registered, so a query cannot be missed by not being reached.
  */
 
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import {
-  type PreparedDefinition,
-  preparedDefinitions,
   PREPARED_DEFINITION_LIMIT,
+  preparedDefinitions,
 } from '@podium/sync/adapters/sqlite/prepared'
 import { eq } from 'drizzle-orm'
-import { messages } from '../migrations/schema'
-import { param, prepared, shapeOf, type StoreDrizzle } from './executor/sync-drizzle'
-import { readdirSync, readFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { LEGACY_WORKTREE_MIGRATION } from './issues'
-import { type IssueListingShape, listingKey } from './issue-listings'
-import { openTestStore } from '../test-support/open-test-store'
+import { messages } from '../migrations/schema'
 import { PLANNER_STATISTICS_ROW_FLOOR } from '../migrations/store-lifecycle'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import type { SessionStore } from '../store'
 import {
-  censusScope,
-  queryDefinitionSites,
-  type QueryDefinitionSite,
-  rawSqlScope,
-  rawSqlSites,
-  type RawSqlSite,
-} from '../test-support/prepared-census'
-import { issueRowFixture } from '../test-support/issue-row'
+  builtStatements,
+  FAMILY_SHAPES,
+  type KeyedDefinition,
+  keyedDefinitions,
+  RAW_SQL_EXEMPT,
+  RAW_SQL_PLANNED,
+  REPO_ROOT,
+  rawExemption,
+  rawKey,
+  rawSqlCensus,
+  reachMethodDefinitions,
+  SIZES,
+  type SourceTree,
+  trackedSources,
+} from '../test-support/definition-census'
+import { openTestStore } from '../test-support/open-test-store'
+import {
+  OPERATOR_PLANNER_STATISTICS,
+  OPERATOR_STATISTICS_CAPTURED_AT,
+} from '../test-support/operator-planner-statistics'
+import { type RawSqlSite, rawSqlSites } from '../test-support/prepared-census'
 import {
   type BuiltStatement,
-  definitionFrame,
   explain,
-  matchSites,
-  planFindings,
   type PlanFinding,
-  recordingDrizzle,
-  statementsOf,
+  planFindings,
   tablesOf,
 } from '../test-support/query-plan-audit'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { asIssueId, asMachineId, asRepoId, firstAdminMemberId } from '@podium/model'
-
-const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../..')
-
-const SIZES = [1, 4] as const
-
-/**
- * The shapes each family is audited at, keyed `file:name`. A family's key
- * comes from a finite domain; list each value whose SQL differs in a way the
- * plan can see (each optional filter on its own, each principal shape). A
- * family missing here fails the audit.
- */
-/**
- * The issue listing shapes the reports use (POD-6191, `modules/issues/service/
- * reads.ts`), each scoped to a repository and filtered for a reader, and each
- * across every repository unrestricted; the search shape with every filter.
- */
-const LISTING_BASES: readonly Omit<IssueListingShape, 'repo' | 'readable'>[] = [
-  { live: false, order: 'repo-seq' },
-  { live: true, state: 'ready', order: 'priority-seq' },
-  { live: true, state: 'blocked', order: 'priority-seq' },
-  { live: true, order: 'path-seq' },
-  { live: true, parents: 1, order: 'path-seq' },
-  { live: true, unarchived: true, parents: 1, order: 'path-seq' },
-  { live: true, state: 'open', completeParent: true, order: 'path-seq' },
-  { live: true, state: 'open', order: 'seq' },
-  { live: true, state: 'open', updatedBefore: true, order: 'updated' },
-  { live: false, state: 'open', parents: 1, order: 'repo-seq' },
-  { live: true, state: 'ready', order: 'repo-seq' },
-  { live: true, state: 'closed', hasWorktree: true, order: 'repo-seq' },
-  { live: true, state: 'closed', ids: 1, order: 'repo-seq' },
-  {
-    live: true, state: 'open', stage: true, priority: true, type: true, assignee: true, parent: true,
-    label: true, text: true, order: 'priority-seq',
-  },
-  { live: true, deferred: true, order: 'priority-seq' },
-  { live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
-  { live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq' },
-  { live: false, hasWorktree: true, order: 'path-seq' },
-  { live: true, deferred: true, order: 'path-seq' },
-  { live: true, unarchived: true, hasWorktree: true, order: 'path-seq' },
-  { live: true, text: true, order: 'path-seq' },
-]
-const LISTING_KEYS = LISTING_BASES.flatMap((base) => [
-  listingKey({ ...base, repo: true, readable: true }),
-  listingKey({ ...base, repo: false, readable: false }),
-])
-const SCOPE_KEYS = [
-  listingKey({ live: true, order: 'path-seq', repo: true, readable: true }),
-  listingKey({ live: true, order: 'path-seq', repo: false, readable: false }),
-]
-
-const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map<
-  string,
-  readonly (string | number)[]
->([
-  ['apps/server/src/store/shipping.ts:queuedOrdersOfLane', SIZES],
-  ['apps/server/src/store/shipping.ts:ordersOfIds', SIZES],
-  ['apps/server/src/store/shipping.ts:queuedDependentsOfIds', SIZES],
-  ['apps/server/src/store/shipping.ts:stackEdgesFromUppers', SIZES],
-  ['apps/server/src/store/shipping.ts:openHoldsOfOrders', SIZES],
-  ['apps/server/src/store/shipping.ts:receiptsOfOrders', SIZES],
-  ['apps/server/src/store/shipping.ts:issueIdsOfOrders', SIZES],
-  ['apps/server/src/store/shipping.ts:orderIdsOfIssues', SIZES],
-  ['apps/server/src/store/shipping.ts:queuedOrdersOfLanes', ['1x1', '1x4', '4x4']],
-  ['apps/server/src/store/automations.ts:automationOwnersOfIds', SIZES],
-  ['apps/server/src/store/automations.ts:runOwnersOfIds', SIZES],
-  ['apps/server/src/store/user-layout.ts:layoutRowsPage', ['start', 'after']],
-  ['apps/server/src/store/users.ts:insertInvite', ['id']],
-  ['apps/server/src/store/conversations/registry.ts:segmentsWithPaths', SIZES],
-  ['apps/server/src/store/conversations/registry.ts:parentsOf', SIZES],
-  ['apps/server/src/store/conversations/registry.ts:nativeIdsOf', SIZES],
-  ['apps/server/src/store/conversations/registry.ts:pathsOfNativeIds', SIZES],
-  ['apps/server/src/store/transcript-costs.ts:costsOfIssues', SIZES],
-  ['apps/server/src/store/grants.ts:grantsOfResources', SIZES],
-  ['apps/server/src/store/grants.ts:grantsOfResourceKeys', ['1x1', '2x4', '4x512']],
-  ['apps/server/src/store/shipping.ts:activeOrdersOfLane', SIZES],
-  ['apps/server/src/store/grants.ts:audiencesOf', SIZES],
-  ['apps/server/src/store/machines.ts:machinesByIds', SIZES],
-  ['apps/server/src/store/users.ts:accountsByIds', SIZES],
-  ['apps/server/src/store/issues.ts:worktreeOwnersOf', SIZES],
-  ['apps/server/src/store/issues.ts:issueClosureRowsOf', SIZES],
-  ['apps/server/src/store/grants.ts:upsertGrant', ['set', 'keep']],
-  ['apps/server/src/store/grants.ts:deleteGrantsOfResource', ['retain', 'all']],
-  ['apps/server/src/store/sessions.ts:bindingOwnersOfIds', SIZES],
-  ['apps/server/src/store/sessions.ts:bindingFactsOfIds', SIZES],
-  ['apps/server/src/store/sessions.ts:sessionsOfIds', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsOfResumeValues', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsOfIssueIds', SIZES],
-  ['apps/server/src/store/sessions.ts:upsertSessionOfShape', ['0|id', '31|id']],
-  ['apps/server/src/store/sessions.ts:offersOfIds', SIZES],
-  ['apps/server/src/store/sessions.ts:draftTimesOfIds', SIZES],
-  ['apps/server/src/store/observation-checkpoints.ts:checkpointedLeasesOfIds', SIZES],
-  ['apps/server/src/store/events.ts:runtimeTranscriptSubjectsOfIds', SIZES],
-  ['apps/server/src/store/conversations/registry.ts:podiumIdsOfSegments', SIZES],
-  ['apps/server/src/store/conversations/index.ts:curatedConversationsOf', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsOfStatuses', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsOfBirthLetter', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsReferencingIssues', SIZES],
-  ['apps/server/src/store/sessions.ts:liveSessionsSpawnedBy', SIZES],
-  ['apps/server/src/store/sessions.ts:readAtOfUserSessions', SIZES],
-  ['apps/server/src/store/sessions.ts:snoozesOfUserSessions', SIZES],
-  ['apps/server/src/store/events.ts:turnStatesOfIds', SIZES],
-  ['apps/server/src/store/events.ts:relationshipSubscriptionFor', SIZES],
-  ['apps/server/src/store/events.ts:matchingSubscriptions', ['r|1', 'a|1', 'ra|4']],
-  ['apps/server/src/store/sessions.ts:upsertSessionsOfShape', ['2|0|id', '4|1|id', '4|31|id']],
-  ['apps/server/src/store/superagent.ts:setThreadBinding', ['podiumSessionId,updatedAt']],
-  ['apps/server/src/store/machines.ts:rotateCredentialOf', ['null', 'key']],
-  ['apps/server/src/store/issues.ts:issuesByIds', SIZES],
-  ['apps/server/src/store/issues.ts:issueUserStatesOf', SIZES],
-  ['apps/server/src/store/issues.ts:issueRefsAtSeqsOf', SIZES],
-  ['apps/server/src/store/issue-listings.ts:issueListing', LISTING_KEYS],
-  ['apps/server/src/store/issue-listings.ts:issueCountGroups', SCOPE_KEYS],
-  ['apps/server/src/store/issue-listings.ts:issueStatTotals', SCOPE_KEYS],
-  ['apps/server/src/store/issue-listings.ts:deferralsOf', SCOPE_KEYS],
-  ['apps/server/src/store/issue-listings.ts:labelsOfIssues', SIZES],
-  ['apps/server/src/store/issue-listings.ts:depsFromIssues', SIZES],
-  ['apps/server/src/store/issue-listings.ts:depsToIssues', SIZES],
-  ['apps/server/src/store/issue-listings.ts:commentCountsOfIssues', SIZES],
-  ['apps/server/src/store/issue-listings.ts:liveChildrenOf', SIZES],
-  ['apps/server/src/store/issue-listings.ts:readableAmong', SIZES],
-  ['apps/server/src/store/issue-listings.ts:sortScopeOf', ['parent', 'top', 'top-unpinned']],
-  ['apps/server/src/store/issues.ts:labelsNamed', SIZES],
-  ['apps/server/src/store/issues.ts:patchLabel', ['color', 'description', 'color,description']],
-  ['apps/server/src/store/issues.ts:commentSearch', ['all', 'limited']],
-  ['apps/server/src/store/issues.ts:issueRowsPage', ['start', 'after']],
-  ['apps/server/src/store/issues.ts:IssuesRepository.upsert', [shapeOf(issueRowFixture())]],
-  [
-    'apps/server/src/store/events.ts:eventsSince',
-    [
-      'b0|k0|x0|r0|s0|asc',
-      'b0|k0|x0|r0|s0|desc',
-      'b1|k0|x0|r0|s0|desc',
-      'b0|k2|x0|r0|s0|asc',
-      'b0|k0|x2|r0|s0|asc',
-      'b0|k0|x0|r1|s0|asc',
-      'b0|k0|x0|r0|s1|asc',
-    ],
-  ],
-  ['apps/server/src/store/messages.ts:insertMessage', ['id']],
-  ['apps/server/src/store/messages.ts:messagesWithIds', SIZES],
-  ['apps/server/src/store/messages.ts:attachmentMessagesOfItems', SIZES],
-  ['apps/server/src/store/messages.ts:messagesAddressedTo', ['no-id', 'id']],
-  ['apps/server/src/store/messages.ts:ledger', ['issue', 'session', 'both']],
-  ['apps/server/src/store/messages.ts:pendingPages', SIZES],
-  ['apps/server/src/store/messages.ts:pendingTargetsAmong', SIZES],
-  [
-    'apps/server/src/store/messages.ts:pendingSummaryOf',
-    ['no-id', 'id', 'session', 'session-blank'],
-  ],
-  [
-    'apps/server/src/store/messages.ts:pendingSendersOf',
-    ['no-id', 'id', 'session', 'session-blank'],
-  ],
-  [
-    'apps/server/src/store/messages.ts:pendingCountOf',
-    ['no-id', 'id', 'session', 'session-blank'],
-  ],
-  ['apps/server/src/store/messages.ts:existingIdsAmong', SIZES],
-  ['apps/server/src/store/messages.ts:receiptsAmong', SIZES],
-  ['apps/server/src/store/messages.ts:sentAmong', SIZES],
-  ['apps/server/src/store/messages.ts:communicatedSince', ['no-id', 'id']],
-  ['apps/server/src/store/messages.ts:swapHarnessRef', ['null', 'text']],
-  ['apps/server/src/store/messages.ts:openBoundTo', ['1', '4', '1|issue', '4|issue']],
-  ['apps/server/src/store/messages.ts:queuedPage', ['start', 'after']],
-  ['apps/server/src/store/messages.ts:wakeCooldownsOf', SIZES],
-  ['apps/server/src/store/messages.ts:pendingDeliveredToPage', ['start', 'after']],
-  ['packages/sync/src/adapters/sqlite/sync-repository.ts:insertChangeRows', SIZES],
-  ['packages/sync/src/adapters/sqlite/sync-repository.ts:installedRowsOfKeys', SIZES],
-  ['packages/sync/src/adapters/sqlite/sync-repository.ts:installedIdsUnderPrefixes', SIZES],
-  [
-    'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.queuedCounts',
-    ['all', 'one', ...SIZES],
-  ],
-  [
-    'apps/server/src/store/workflows.ts:workflowsWhere',
-    ['a1|s0|r0', 'a0|s0|r0', 'a0|s1|r0', 'a0|s1|r1', 'a1|s0|r1'],
-  ],
-  ['apps/server/src/store/workflows.ts:insertRunSteps', SIZES],
-  [
-    'apps/server/src/store/conversations/index.ts:recentConversations',
-    ['dated|any', 'dated|posix', 'dated|windows', 'undated|any', 'undated|posix', 'undated|windows'],
-  ],
-  [
-    'apps/server/src/store/conversations/index.ts:searchConversations',
-    [
-      'fts|any',
-      'fts|posix',
-      'fts|windows',
-      'like|any',
-      'like|posix',
-      'like|windows',
-    ],
-  ],
-  ['apps/server/src/store/conversations/mirror.ts:segmentsToMirror', ['all', 'dirty']],
-])
+import { param, prepared, type StoreDrizzle } from './executor/sync-drizzle'
+import { WORKSPACE_TABLES } from './workspace-manifest'
 
 /**
  * Columns whose value most rows share, as `table.column`. A plan that seeks
@@ -273,7 +83,39 @@ const LOW_SELECTIVITY: ReadonlySet<string> = new Set([
   'grants.resource_kind',
   // Three recipient kinds.
   'messages.to_kind',
+  // EVERY WORKSPACE TABLE'S WORKSPACE (POD-7024). Every key and index leads with
+  // workspace_id, and a self-hosted install has one workspace, so `workspace_id = ?` selects
+  // every row: a search constrained by the workspace alone reads the whole table. Without
+  // statistics SQLite takes it as selective (and SQLite does not carry the workspace into the
+  // branches of an OR unless statistics say it pays), so the audit models it as what it is.
+  // `sync_feed` is keyed by the workspace alone (one row per workspace): there it is the key.
+  ...[...WORKSPACE_TABLES]
+    .filter((table) => table !== 'sync_feed')
+    .map((table) => `${table}.workspace_id`),
 ])
+
+/**
+ * An index's statistics as `ANALYZE` writes them for a table of `rows` rows: the row count, then
+ * how many rows share each prefix of the index's columns. The workspace leads every index of a
+ * workspace table and a self-hosted install has one, so a real ANALYZE finds every row under it;
+ * the column after it narrows as the leading column always did (`first`), and the rest to one.
+ */
+function prefixStatistics(
+  rows: number,
+  table: string,
+  columns: readonly string[],
+  first: (rows: number, lowSelectivity: boolean) => number,
+): string {
+  let narrowed = false
+  const perPrefix = columns.map((column) => {
+    const low = LOW_SELECTIVITY.has(`${table}.${column}`)
+    if (!narrowed && low && column === 'workspace_id') return rows
+    if (narrowed) return 1
+    narrowed = true
+    return first(rows, low)
+  })
+  return [rows, ...perPrefix].join(' ')
+}
 
 /**
  * Tables that do not grow with work: their size follows the number of people,
@@ -282,11 +124,25 @@ const LOW_SELECTIVITY: ReadonlySet<string> = new Set([
  * accepted for the reason given.
  */
 const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
-  ['sqlite_sequence', "SQLite's own table: one row per AUTOINCREMENT table."],
   ['accounts', 'Provider accounts the operator configures by hand.'],
+  [
+    'credentials',
+    'Credentials people add by hand or sign in to, a few per person and provider. Only a vault reset updates them all.',
+  ],
+  [
+    'account_machine_sends',
+    'Machines an owner sent a key to by hand, a few per key. Read whole only by the one-time move into the vault.',
+  ],
+  [
+    'credential_placements',
+    'What Podium placed on a machine for a credential: a home or a copied login file per machine a person uses it on, a few per credential.',
+  ],
+  [
+    'credential_secrets',
+    'One sealed secret per credential (older versions are deleted on write); people add credentials by hand. Only a vault reset reads it whole.',
+  ],
   ['automations', 'Schedules people define by hand; a handful per person.'],
   ['machines', 'The fleet: one row per enrolled machine.'],
-  ['maintenance_commands', 'The maintenance ledger, held to a fixed size by pruneOldestCommands.'],
   ['repos', 'One row per repository checkout per machine.'],
   ['repo_prefixes', 'One row per repository.'],
   ['server_secrets', 'A fixed set of server keys.'],
@@ -305,8 +161,30 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
   ['queued_messages', 'A transient queue: a row is removed when the message is delivered.'],
   ['upstream_outbox', 'A transient queue: a row is removed when the upstream accepts it.'],
   ['quota_windows', 'Rolling usage windows: a few rows per provider account per week.'],
+  [
+    'operations',
+    "Durable operations (modules/operations/store.ts): single-flight keeps at most one live row per exclusion group, and retention sweeps each kind's finished history to twenty.",
+  ],
   ['offers', 'At most one live offer per session, removed when cleared.'],
+  // Read whole per workspace since the keys lead with workspace_id (POD-7024).
+  ['sync_kind', 'One generation row per record kind per workspace: a few dozen.'],
+  ['workspace_secrets', "A fixed set of a workspace's own keys (POD-7013)."],
+  [
+    'artifact_uploads',
+    'CLI uploads in flight: a row is removed when the upload is published or swept.',
+  ],
   ['tab_order', 'One row per person per worktree they arranged.'],
+  ['pins', 'A few pins per person, read in the order they were made (POD-7024).'],
+  // The end-of-period deletes of these two scan by workspace until the key migration (C1,
+  // POD-7024) leads their keys with workspace_id; then they are keyed range deletes.
+  [
+    'client_sessions',
+    'Sign-ins from before shared sign-in (POD-6751): nothing inserts one any more; a row leaves when it is consumed, expires or the period ends.',
+  ],
+  [
+    'carried_sign_ins',
+    'One carry record per consumed old sign-in, kept ten minutes and swept when it expires.',
+  ],
 ])
 
 /**
@@ -314,10 +192,32 @@ const SMALL_TABLES: ReadonlyMap<string, string> = new Map([
  * Every entry here is bounded by something other than the amount of work: a
  * sort of one key's few rows, a one-time repair behind its receipt.
  */
+const MIN_MAX_SEEK =
+  "A min() or max() over a key that leads with workspace_id: SQLite's min/max optimization " +
+  'reads the one entry at that end of the workspace (measured on a million rows: 4 µs a call, ' +
+  'against 43 ms for a read of the whole workspace). The plan names only the workspace (POD-7024).'
 const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
-    'apps/server/src/store/auth.ts:clientSessionsOfUserNewestFirst',
-    "Sorts one person's sign-ins, found through idx_client_sessions_user: a row per signed-in device or login (POD-6172).",
+    'apps/server/src/store/sessions.ts:anySession',
+    'One-row existence probe for setup: LIMIT 1 stops at the first stored session of the workspace, including tombstones. Reads at most one row regardless of history.',
+  ],
+  [
+    'apps/server/src/store/effects.ts:newestOnTargetIn [active]',
+    "Sorts only the active effect records: the seek on idx_effects_status_deadline reads the pending and running ones, a few in the whole table, never a target's finished history (POD-7031).",
+  ],
+  ['apps/server/src/store/events.ts:highestEventId', MIN_MAX_SEEK],
+  ['packages/sync/src/adapters/sqlite/sync-repository.ts:advanceFloor', MIN_MAX_SEEK],
+  [
+    'packages/sync/src/adapters/sqlite/sync-repository.ts:bumpCapturedKindGenerations',
+    "Retires one write's own change capture (POD-7100): sync_capture holds only the rows the open transaction captured since its last drain and is empty outside a write; the rows above the mark are found by the id range and their distinct kinds sorted in a temporary tree, a few per offline write.",
+  ],
+  [
+    'apps/server/src/store/issues.ts:issuesOfLabels',
+    "The change capture's mapping of renamed labels to the issues carrying them (POD-6920): found through idx_issue_labels_label_id, the distinct issue ids sorted in a temporary tree, a few per label; a label rename is rare.",
+  ],
+  [
+    'apps/server/src/store/workflows.ts:runIdsOfRevisions',
+    "The change capture's mapping of a changed workflow revision to the runs that read it (POD-6920): workflow_runs is a small table (a row per started workflow run), and a revision changes only when it is published.",
   ],
   [
     'apps/server/src/store/automations.ts:lastSpawnedRuns',
@@ -391,10 +291,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'apps/server/src/store/sessions.ts:refBackfillCandidates',
     "Sorts the boot ref backfill's candidates (POD-6222): the ref-less sessions that can still get a birth ref, read by index ranges; a few once the first boot named them.",
   ],
-  [
-    'apps/server/src/store/sessions.ts:pinsOfUser',
-    "Sorts one person's pins by when they were made.",
-  ],
   ['apps/server/src/store/grants.ts:grantsOfResource', 'Sorts the grants on one resource: a few.'],
   [
     'apps/server/src/store/grants.ts:grantsOfResources',
@@ -407,10 +303,6 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
   [
     'apps/server/src/store/interactions.ts:openInteractions',
     'Sorts the open interactions only (status index); answered ones are not read.',
-  ],
-  [
-    'apps/server/src/store/approvals.ts:executingApprovals',
-    'Sorts the approvals executing right now (status index): a handful.',
   ],
   [
     'apps/server/src/store/conversations/registry.ts:nativeIdsOf',
@@ -441,8 +333,20 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     "Reads events after the caller's cursor through the kind index and sorts that page.",
   ],
   [
-    'apps/server/src/store/events.ts:eventIdBeyondCap',
-    'Walks the newest `cap` events by primary key to find where pruning starts; it reads the cap, not the table.',
+    'apps/server/src/store/events.ts:feedWindowRows',
+    "The issue-event feed's window (POD-6766): one arm per feed kind reads that kind's newest `limit` events through the kind index and stops; the sort merges those few hundred rows, never the log.",
+  ],
+  [
+    'apps/server/src/store/events.ts:feedWindowIds',
+    "The issue-event feed's window, ids only (POD-6766): one arm per feed kind reads that kind's newest `limit` events through the kind index and stops; the sort merges those few hundred rows, never the log.",
+  ],
+  [
+    'apps/server/src/store/events.ts:feedEventsOfSubjects',
+    "The feed-window events of the issues in the IN list (POD-6766): read from the window's oldest id up, so bounded by the window, and sorted by id.",
+  ],
+  [
+    'apps/server/src/store/events.ts:eventsAboveId',
+    "Counts the events above the row cap's guess through idx_podium_events_kind, named with INDEXED BY: a kind and a rowid per entry, never a table page, and the log is held to the cap (POD-7035).",
   ],
   [
     'apps/server/src/store/events.ts:deletePruneBatch',
@@ -469,10 +373,17 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'Reads only active orders, through the partial index idx_ship_orders_one_active_issue, and sorts them.',
   ],
   ['apps/server/src/store/shipping.ts:latestAttemptOfOrder', "Sorts one order's attempts: a few."],
-  ['apps/server/src/store/shipping.ts:attemptsOfOrder', "Sorts one order's attempts: a few (POD-6172)."],
+  [
+    'apps/server/src/store/shipping.ts:attemptsOfOrder',
+    "Sorts one order's attempts: a few (POD-6172).",
+  ],
   [
     'apps/server/src/store/shipping.ts:activeOrdersFifo',
     'Walks the partial index idx_ship_orders_one_active_issue (named with INDEXED BY) and sorts what it holds: the active orders only, never the shipped or cancelled history (POD-6172). The plan is asserted below.',
+  ],
+  [
+    'apps/server/src/store/shipping.ts:resumableOrdersFifo',
+    'Walks only the partial index idx_ship_orders_recovery, named with INDEXED BY: unfinished execution states, excluding queued, held, shipped and cancelled orders.',
   ],
   [
     'apps/server/src/store/shipping.ts:activeOrdersOfLane',
@@ -523,6 +434,34 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
     'apps/server/src/store/issues.ts:IssuesRepository.legacyMachine',
     'One-time backfill: runs once per database, behind the legacy_worktree_machine_ids_v1 receipt.',
   ],
+  // The janitor's reads (POD-6993): its raw reads moved into the store with their plans
+  // unchanged. Each runs once per janitor tick, in the janitor's worker on a read session
+  // of its own, never on the server's request path.
+  [
+    'apps/server/src/store/janitor-reads.ts:listWorkspacesWithFeed',
+    'The cross-workspace read of the allowlist: one row per workspace, read along the sync_feed primary key.',
+  ],
+  ['apps/server/src/store/janitor-reads.ts:maxEventIdOf', MIN_MAX_SEEK],
+  [
+    'apps/server/src/store/janitor-reads.ts:eventPruneHeadOf',
+    "Walks the workspace's events oldest first along its key (workspace_id, id) and stops at the first prunable one: the cap is a prefix of the ids and the age cutoff starts at the oldest end, so the head is found at once whenever there is one.",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:eventsAboveGuessOf',
+    "Counts the workspace's events above the row cap's guess on the narrowest index (named on SQLite): a kind and a rowid per entry, never a table page, and the log is held to the cap (POD-7035, as events.ts:eventsAboveId).",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:eventPruneCountOf',
+    'Counts the prunable events (too old, or over the cap): the OR of age and cap has no one index, and the log is bounded by the retention policy it prunes to.',
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:worktreeGcFirst',
+    'Sorts the finished issues still holding a checkout, found through idx_issues_worktree (worktree_path set): bounded by the checkouts on disk.',
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:worktreeGcAfter',
+    'Sorts the finished issues still holding a checkout, found through idx_issues_worktree (worktree_path set): bounded by the checkouts on disk.',
+  ],
 ])
 
 /**
@@ -533,6 +472,62 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([
  * shrink.
  */
 const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|automationRun.page#sorted#]',
+    'The first page of a history collection (POD-7085, brief item 5): the whole collection in its order, walked on its time index, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+  ],
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|conversation.page#sorted#]',
+    'The first page of a history collection (POD-7085, brief item 5): the whole collection in its order, walked on its time index, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+  ],
+  [
+    'apps/server/src/store/collections.ts:collectionRows [|workflowRun.page#sorted#]',
+    'The first page of a history collection (POD-7085, brief item 5): the whole collection in its order, walked on its time index, because the page carries the total the viewer may see. Fetched on demand when a history view opens, never in the first download; later pages seek below their position.',
+  ],
+  [
+    'apps/server/src/store/conversations/index.ts:recordPage',
+    'A keyset page of stored conversation records, bounded by the requested page size, for full truth and bootstrap. The first page walks the id index.',
+  ],
+  [
+    'apps/server/src/store/issue-git-states.ts:pageOf',
+    'A keyset page of stored git observations joined to live issues, bounded by requested page size. The first page walks the observation primary key.',
+  ],
+  [
+    'apps/server/src/store/issue-panel.ts:todoPage',
+    'Bounded keyset panel record page joined to its issue; the first page walks its primary key.',
+  ],
+  [
+    'apps/server/src/store/issue-panel.ts:artifactPage',
+    'Bounded keyset panel record page joined to its issue; the first page walks its primary key.',
+  ],
+  [
+    'apps/server/src/store/issue-panel.ts:deferredPage',
+    'Bounded keyset panel record page joined to its issue; the first page walks its primary key.',
+  ],
+  [
+    'apps/server/src/store/issue-panel.ts:statePage',
+    'Bounded keyset panel record page joined to its issue; the first page walks its primary key.',
+  ],
+  [
+    'apps/server/src/store/machines.ts:machineRecordIds',
+    'An id-only covering walk for a change that affects the entire fleet, including a member joining or leaving.',
+  ],
+  [
+    'apps/server/src/store/machines.ts:machineRecordPage',
+    'A keyset page of stored machine records, bounded by requested page size. The first page walks the id index.',
+  ],
+  [
+    'apps/server/src/store/users.ts:activeRecordMembers',
+    'Enabled members id and role only, for each member machine-access record. The output necessarily covers the enabled membership; no credential or other account data is loaded.',
+  ],
+  [
+    'apps/server/src/store/messages.ts:confirmedChatWindow',
+    "The chat feed's confirmed window as a query (POD-6763, POD-6766): each live session's newest confirmed operator messages, ranked by a window function, which sorts each session's confirmed messages, after a read of `sessions` finds the live ones. Read by the record builder's `streamAll` during client bootstrap, never at server startup or per write (a write reads `confirmedChatTail`). Bounded by live sessions, not by history; the start-up load phase decides whether it stays.",
+  ],
+  [
+    'apps/server/src/store/checkouts.ts:allCheckouts',
+    'The checkout record builder streams stored rows during client bootstrap. Server startup never reads them.',
+  ],
   [
     'apps/server/src/store/issue-listings.ts:issueListing',
     "Whole-table read (POD-6172): an unpaged issue listing reads every issue in its scope (one repository by its index, or all of them) and sorts it; it replaces the issue map's scan of every issue (POD-6191), and paging with a cursor bounds it.",
@@ -563,23 +558,43 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/issues.ts:issueSeqRows',
-    'Whole-table read (POD-6172): the boot repair that renumbers colliding issue sequence numbers walks every issue once per boot (store.ts boot heal).',
+    'Explicit legacy collision-repair test oracle. Migrations enforce UNIQUE(repo_id, seq); server startup never runs this repair.',
   ],
   [
     'apps/server/src/store/issues.ts:allDeps',
-    'Whole-table read (POD-6172): every dependency edge, for the issueDep full-truth reconcile (boot, write-less rebroadcast: it is what notices edges an ON DELETE CASCADE removed) and for the deck (deck.ts), which joins the edges of the issues it shows.',
+    'Whole-table read (POD-6172): every dependency edge, for the issueDep record builder during client bootstrap and for the deck (deck.ts), which joins the edges of the issues it shows.',
   ],
   [
     'apps/server/src/store/issues.ts:commentCountsByIssue',
     'Whole-table read (POD-6172): countIssueCommentsByIssue is a test oracle only; no production code calls it since the legacy report batch went with the issue map (POD-6158).',
   ],
   [
+    'apps/server/src/store/workflows.ts:everyRun',
+    'The workflowRun record builder streams runs during client bootstrap. Server startup never reads stored workflow history.',
+  ],
+  [
+    'apps/server/src/store/workflows.ts:everyRunStep',
+    'The workflowRun record builder joins run steps during client bootstrap. Server startup never reads them.',
+  ],
+  [
+    'apps/server/src/store/sessions.ts:allPins',
+    "The pin record builder streams each person's pins during client bootstrap; never at server startup.",
+  ],
+  [
+    'apps/server/src/store/superagent.ts:allThreads',
+    'The superagentThread record builder streams stored threads during client bootstrap; never at server startup.',
+  ],
+  [
+    'apps/server/src/store/user-preferences.ts:allPreferenceRows',
+    'The userPreferences record builder streams stored preferences during client bootstrap; never at server startup.',
+  ],
+  [
     'apps/server/src/store/issues.ts:allIssueUserStateRows',
-    "Whole-table read (POD-6172): every person's issue state for the issueUserState full-truth reconcile at boot (IssueService.reconcileCompanions).",
+    'The issueUserState record builder streams personal rows during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/issues.ts:deleteOrphanRefLetters',
-    'Whole-table read (POD-6172): the per-boot heal (store.ts healDanglingIssueReferences) drops ref-letter counters whose issue was hard-purged; one sweep per boot, idempotent.',
+    'Explicit legacy repair test oracle. The historical data repair runs once in sync-without-boot-reconcile; server startup never runs it.',
   ],
   [
     'apps/server/src/store/sessions.ts:liveSessions',
@@ -595,15 +610,15 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/sessions.ts:detachDanglingReferences',
-    'Whole-table read (POD-6172): the per-boot heal (store.ts healDanglingIssueReferences) clears session pointers to hard-purged issues; one sweep per boot, idempotent.',
+    'Explicit legacy repair test oracle. The historical data repair runs once in sync-without-boot-reconcile; server startup never runs it.',
   ],
   [
     'apps/server/src/store/sessions.ts:allUserStateRows',
-    "Whole-table read (POD-6172): every person's session state for the sessionUserState full-truth reconcile at boot (modules/sessions/repository.ts), which diffs it against the replica's snapshot.",
+    "Whole-table read (POD-6172): every person's sparse session state for the record builder's current-table startup stream (sync/record-builders.ts).",
   ],
   [
     'apps/server/src/store/sessions.ts:allSnoozeRows',
-    'Whole-table read (POD-6172): every snooze, read with the session states for the same boot reconcile.',
+    'Whole-table read (POD-6172): every snooze, read with the session states for the current-table startup stream.',
   ],
   [
     'apps/server/src/store/sessions.ts:draftTexts',
@@ -618,24 +633,8 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
     'Whole-table read (POD-6172): every stored draft, replayed to a connecting client (session-state replayDrafts); a row exists only while its text is not empty, so it grows with unsent drafts, not with history.',
   ],
   [
-    'packages/sync/src/adapters/sqlite/sync-repository.ts:installedWorld',
-    'Whole-table read (POD-6172): the sync bootstrap of change_latest (sync behaviour, out of POD-6148 scope).',
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id FROM change_latest ORDER BY seq',
-    "Whole-table read (POD-6227): the sync worker's bootstrap, pass one, streams every change_latest ref in seq order on its read-only snapshot (sync behaviour, like installedWorld); a replica's world is every row it may see.",
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq',
-    "Whole-table read (POD-6227): the sync worker's bootstrap, pass two, streams the visible rows' payloads in seq order on the same snapshot (sync behaviour, like installedWorld).",
-  ],
-  [
     'apps/server/src/store/automations.ts:allLiveRuns',
-    'Whole-table read (POD-6172): every live automation run for the automationRun full-truth reconcile at boot (AutomationsService.reconcileFromStore); nothing else reads it.',
-  ],
-  [
-    'apps/server/src/store/conversations/registry.ts:clearStraySubagentPaths',
-    'Whole-table read (POD-6172): one boot repair UPDATE (memory repairSubagentEvidence) clears subagent paths stored on conversation segments; a LIKE on a path built from the row, once per boot.',
+    'The automationRun record builder streams stored runs during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/machines.ts:legacySentinelScan',
@@ -643,19 +642,19 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
   ],
   [
     'apps/server/src/store/shipping.ts:allOrders',
-    "Whole-table read (POD-6172): every ship order, for the order-plane full truth at boot only (relay, ShippingService.reconcile, recoverDescendantInvalidations). The scheduler, its covered-prefix recovery (POD-6207) and train claims read active orders, open trains, lanes and ids; the unused queue listing that also read it is deleted (POD-6209).",
+    'The shipping record builders stream historical orders during client bootstrap; never at server startup. Recovery reads indexed durable debt and unfinished execution states (POD-6797).',
   ],
   [
     'apps/server/src/store/shipping.ts:allStackEdgesOrdered',
-    "Whole-table read (POD-6172): every recorded native-stack edge, for the order-plane full truth at boot (relay and ShippingService.fullProjection) only; a train claim reads its lane's edges.",
+    'The shipLane record builder streams stack edges during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/shipping.ts:allHolds',
-    "Whole-table read (POD-6172): every ship hold, for the order-plane full truth at boot (relay and ShippingService.fullProjection) only; a new hold's generation is one order's MAX through its index.",
+    'The shipping record builders stream hold rows during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/shipping.ts:allReceipts',
-    'Whole-table read (POD-6172): every delivery receipt, for the order-plane full truth at boot only (relay and ShippingService.fullProjection). The scheduler no longer reads it, and the unused queue listing that did is deleted (POD-6209).',
+    'The shipping record builders stream receipt rows during client bootstrap; never at server startup.',
   ],
   [
     'apps/server/src/store/transcript-costs.ts:attributedCosts',
@@ -665,98 +664,25 @@ const WHOLE_TABLE_READS: ReadonlyMap<string, string> = new Map([
     'apps/server/src/store/transcript-costs.ts:ownCohortFolds',
     "Whole-table read (POD-6172): the rate cohort is a statistic over every qualifying, surviving issue: one grouped SQL aggregate, read when one task's comparison is asked for.",
   ],
+  // The janitor's auto-archive candidates (POD-6993): its raw reads since POD-1210,
+  // moved into the store with their plans unchanged, read once per janitor tick in its
+  // worker. Serving their order needs a read_at index on the read state tables, a
+  // schema change for the key and index owner (POD-6959 side); until then they sweep.
+  [
+    'apps/server/src/store/janitor-reads.ts:sessionArchiveOf',
+    "Sweeps session_user_state for owners' reads of stopped sessions, sorted by read time (the janitor's raw read since POD-1210); needs a read_at index to be a seek.",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:issueArchiveFirst',
+    "Reads the top-level issues and their assignee's read state, sorted by read time (the janitor's raw read since POD-1210); needs a read_at index to be a seek.",
+  ],
+  [
+    'apps/server/src/store/janitor-reads.ts:issueArchiveAfter',
+    "Reads the top-level issues and their assignee's read state, sorted by read time (the janitor's raw read since POD-1210); needs a read_at index to be a seek.",
+  ],
   [
     'apps/server/src/store/transcript-costs.ts:costCount',
     'Whole-table read (POD-6172): countAll is a test oracle only; no production code calls it.',
-  ],
-])
-
-/**
- * RAW SQL OUTSIDE THE REPOSITORIES [POD-6227]. A statement handed straight to
- * a database handle (`db.prepare(sql)`) is no `prepared(...)` definition, so
- * the census above never sees it. The raw census (`rawSqlSites`) lists every
- * such statement in the server's and the sync package's production source,
- * and each must be on one of these two lists, keyed `file:sql` (the SQL with
- * its whitespace folded):
- * - PLANNED: run against this database's schema, so the audit plans it like a
- *   repository query and the same lists explain a scan or a sort. The value
- *   says why it is raw rather than a repository query.
- * - EXEMPT (by key, by file, or by directory with a trailing `/`): not a
- *   query on the server's tables at run time, with the reason.
- * A raw statement added anywhere in that source fails the census until it is
- * listed, and a listed key with no site left fails it too.
- */
-const RAW_SQL_PLANNED: ReadonlyMap<string, string> = new Map([
-  [
-    "apps/server/src/sync-worker/producer.ts:SELECT seq FROM sqlite_sequence WHERE name='changes'",
-    "The sync worker's first read on its read-only snapshot: it fixes the snapshot, before any repository exists on the connection.",
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:SELECT min(seq) AS seq FROM changes',
-    "The sync worker's retention floor, read on the snapshot the first read fixed, before the visibility repositories exist.",
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id FROM change_latest ORDER BY seq',
-    'Streamed with a statement iterator (`iterate`), which the repository executor does not offer: the worker never holds the world in memory.',
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq',
-    'Streamed with a statement iterator (`iterate`), which the repository executor does not offer: the worker never holds the world in memory.',
-  ],
-  [
-    "apps/server/src/sync-worker/visibility.ts:SELECT entity_id FROM change_latest WHERE entity = 'issueEvent'",
-    "The issue-event subjects of the worker's snapshot, read once per job on the raw handle before the visibility repositories are composed over it.",
-  ],
-  [
-    'apps/server/src/modules/updates/recovery-store.ts:SELECT value FROM meta WHERE key = ?',
-    "The update coordinator's checkpoint: synchronous by contract (recoveryOnly restores it from a query-only database before the store's executor runs).",
-  ],
-  [
-    'apps/server/src/modules/updates/recovery-store.ts:INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)',
-    "The update coordinator's checkpoint write, synchronous by the same contract as its read.",
-  ],
-])
-
-const RAW_SQL_EXEMPT: ReadonlyMap<string, string> = new Map([
-  [
-    'apps/server/src/store/executor/',
-    'The drivers: they prepare the statements the repositories built, which the audit plans at their definitions.',
-  ],
-  [
-    'apps/server/src/migrations/',
-    'Migration bookkeeping and boot repair (sqlite_master, the migration ledger, VACUUM INTO, quick_check): run once at boot or by a maintenance command before the server serves, on the schema the migrations are building.',
-  ],
-  [
-    'packages/sync/src/adapters/mobile-sqlite/',
-    "The phone replica's own database (its outbox and meta tables), not the server's.",
-  ],
-  [
-    'apps/server/src/installation-identity-import.ts',
-    'One-time data migration at boot, on the exclusive migration connection, behind its receipt (installation_identity_import_v1): meta and server_secrets by primary key.',
-  ],
-  [
-    'apps/server/src/settings-config-import.ts',
-    'One-time data migration at boot of the legacy config.json settings, on the exclusive migration connection, behind its receipt (settings_config_import_v1).',
-  ],
-  [
-    'apps/server/src/enrollment-ledger-import.ts',
-    'One-time data migration at boot of the legacy enrollment ledger file, on the exclusive migration connection, behind its marker (enrollment_ledger_imported).',
-  ],
-  [
-    'apps/server/src/fingerprint-key-import.ts',
-    'One-time data migration at boot of the legacy fingerprint key file, on the exclusive migration connection, behind its receipt (secret_fingerprint_import_v1).',
-  ],
-  [
-    'apps/server/src/relay.ts:input',
-    "Not SQL: the session instruction registry's `prepare(input)`, which builds a session's start instructions.",
-  ],
-  [
-    'apps/server/src/modules/sessions/instructions.ts:context',
-    "Not SQL: an instruction provider's `prepare(context)`, which builds a session's start instructions.",
-  ],
-  [
-    'apps/server/src/sync-worker/producer.ts:sql',
-    "The worker's `iterate` helper prepares the text it is given; its callers' SQL is censused at the `iterate(db, ...)` calls.",
   ],
 ])
 
@@ -785,16 +711,6 @@ const SHAPE_DEBT: ReadonlyMap<string, string> = new Map([
   ],
 ])
 
-function trackedSources(): string[] {
-  const out: string[] = []
-  for (const dir of ['apps/server/src/store', 'packages/sync/src/adapters/sqlite']) {
-    for (const entry of readdirSync(join(REPO_ROOT, dir), { recursive: true })) {
-      out.push(relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry))))
-    }
-  }
-  return censusScope(out.map((path) => path.split('\\').join('/')))
-}
-
 interface AuditedStatement {
   readonly key: string
   readonly shape: string | number | undefined
@@ -803,37 +719,17 @@ interface AuditedStatement {
   readonly findings: readonly PlanFinding[]
 }
 
-
-/** Every raw SQL statement in the server's and the sync package's production source [POD-6227]. */
-function rawSqlCensus(): RawSqlSite[] {
-  const paths: string[] = []
-  for (const dir of ['apps/server/src', 'packages/sync/src']) {
-    for (const entry of readdirSync(join(REPO_ROOT, dir), { recursive: true })) {
-      paths.push(relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry))).split('\\').join('/'))
-    }
-  }
-  return rawSqlScope(paths).flatMap((file) => rawSqlSites(file, readFileSync(join(REPO_ROOT, file), 'utf8')))
-}
-
-const rawKey = (site: RawSqlSite): string => `${site.file}:${site.sql}`
-
-/** Why a raw statement is not planned, or undefined when nothing exempts it. */
-function rawExemption(site: RawSqlSite): string | undefined {
-  const byKey = RAW_SQL_EXEMPT.get(rawKey(site))
-  if (byKey !== undefined) return byKey
-  for (const [key, reason] of RAW_SQL_EXEMPT) {
-    if (key === site.file || (key.endsWith('/') && site.file.startsWith(key))) return reason
-  }
-  return undefined
-}
-
 /** Plan each PLANNED raw statement on the migrated schema, like a repository query. */
 function auditRawSql(sites: readonly RawSqlSite[]): AuditedStatement[] {
   const tables = tablesOf(database)
   return sites
     .filter((site) => RAW_SQL_PLANNED.has(rawKey(site)))
     .map((site) => {
-      const statement: BuiltStatement = { sql: site.sql, params: (site.sql.match(/\?/g) ?? []).length }
+      const statement: BuiltStatement = {
+        sql: site.sql,
+        params: (site.sql.match(/\?/g) ?? []).length,
+        placeholders: [],
+      }
       const plan = explain(database, statement)
       return {
         key: rawKey(site),
@@ -845,144 +741,22 @@ function auditRawSql(sites: readonly RawSqlSite[]): AuditedStatement[] {
     })
 }
 
+/**
+ * The repository as this audit reads it. It reads source it does not import (every
+ * definition site, every raw statement), so it sits in the shard keyed on the whole tree.
+ */
+const SOURCE: SourceTree = {
+  list: (dir) =>
+    readdirSync(join(REPO_ROOT, dir), { recursive: true }).map((entry) =>
+      relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry)))
+        .split('\\')
+        .join('/'),
+    ),
+  read: (file) => readFileSync(join(REPO_ROOT, file), 'utf8'),
+}
+
 let store: SessionStore
 let database: SqlDatabase
-
-/** Run, ignoring the outcome: a definition registers before its statement runs. */
-async function attempt(fn: () => Promise<unknown>): Promise<void> {
-  try {
-    await fn()
-  } catch {
-    // The statement may refuse on these planted rows; the definition was made.
-  }
-}
-
-/**
- * Reach the definitions made inside a method rather than at module level.
- *
- * `IssuesRepository` and `ReposRepository` define their writes inside the
- * method that invalidates their read cache first (see `issueWrites` and
- * `repoWrites`), and `MessagesRepository` defines one status write per move.
- * Such a definition is made the first time its method reaches it, so the
- * audit drives each method once, with rows planted to take the branch that
- * holds it. A new method-level definition that this does not reach fails the
- * coverage check by name.
- */
-async function reachMethodDefinitions(target: SessionStore): Promise<void> {
-  // The full-text tables are made at runtime when search is enabled, not by a migration.
-  await target.conversations.ensureFts(true)
-  const machineId = asMachineId(target.hostMachineId)
-  const now = new Date().toISOString()
-  database
-    .prepare(
-      'INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)',
-    )
-    .run(machineId, 'audit', 'audit', 'audit-token-hash', now, now)
-  const auditIssue = (over: Parameters<typeof issueRowFixture>[0]) =>
-    issueRowFixture({
-      machineId,
-      ownerUserId: firstAdminMemberId(),
-      createdByOnBehalfOf: null,
-      parentId: null,
-      supersededBy: null,
-      duplicateOf: null,
-      coordinatorSessionId: null,
-      startedBySession: null,
-      humanQuestionAskedBy: null,
-      ...over,
-    })
-  await attempt(() =>
-    target.repos.addRepo('/audit/one', machineId, 'https://example.invalid/one.git', 'AUD'),
-  )
-  const issue = auditIssue({
-    id: 'iss_audit',
-    stage: 'review',
-    repoPath: '/audit/repo',
-    repoId: 'repo_audit',
-  })
-  await attempt(() => target.issues.upsertIssue(issue))
-  await attempt(() =>
-    target.issues.transitionShippingStage(
-      asIssueId('iss_audit'),
-      'review',
-      'shipping',
-      issue.createdAt,
-    ),
-  )
-  // Two rows with no repo id and one seq: the legacy collision `renumberCollidingIssueSeqs`
-  // repairs. A write through the repository resolves the repo id, so they are planted.
-  database.exec(`
-    CREATE TEMP TABLE audit_issue AS SELECT * FROM issues WHERE id = 'iss_audit';
-    UPDATE audit_issue SET id = 'iss_audit_a', repo_id = NULL, seq = 7, repo_path = '/audit/one';
-    INSERT INTO issues SELECT * FROM audit_issue;
-    UPDATE audit_issue SET id = 'iss_audit_b';
-    INSERT INTO issues SELECT * FROM audit_issue;
-    DROP TABLE audit_issue;
-  `)
-  await attempt(() => target.issues.renumberCollidingIssueSeqs())
-  // A row under the path whose repo id differs: the one `assignRepoIdToIssuesUnder` moves.
-  await attempt(() =>
-    target.issues.assignRepoIdToIssuesUnder(asRepoId('repo_audit_other'), '/audit/repo'),
-  )
-  // Boot already ran the legacy backfill and left its receipt; remove it so the backfill runs again.
-  database.prepare('DELETE FROM meta WHERE key = ?').run(LEGACY_WORKTREE_MIGRATION)
-  await attempt(() => target.issues.backfillLegacyWorktreeMachineIds(machineId))
-  await attempt(() => target.issues.deleteIssue('iss_audit_b'))
-
-  await attempt(() => target.repos.addRepo('/audit/two', machineId))
-  await attempt(() => target.repos.setRepoPrefix(machineId, '/audit/two', 'AUDB'))
-  // A row stored with a trailing slash: `updateRepoOrigin` renames it to the normalized path.
-  database
-    .prepare('INSERT OR IGNORE INTO repos (machine_id, path, added_at) VALUES (?, ?, ?)')
-    .run(machineId, '/audit/three/', new Date().toISOString())
-  await attempt(() =>
-    target.repos.updateRepoOrigin(machineId, '/audit/three', 'https://example.invalid/three.git'),
-  )
-  // A repo on its path-derived id, with a prefix: gaining an origin re-keys the prefix.
-  await attempt(() => target.repos.addRepo('/audit/four', machineId))
-  await attempt(() =>
-    target.repos.updateRepoOrigin(machineId, '/audit/four', 'https://example.invalid/four.git'),
-  )
-  // A base branch set on a path-derived id whose origin already has a prefix
-  // row elsewhere: gaining that origin carries the base branch across.
-  await attempt(() => target.repos.addRepo('/audit/five', machineId))
-  await attempt(() => target.repos.setRepoDefaultParentBranch(machineId, '/audit/five', 'develop'))
-  await attempt(() =>
-    target.repos.addRepo('/audit/six', machineId, 'https://example.invalid/five.git', 'AUDF'),
-  )
-  await attempt(() =>
-    target.repos.updateRepoOrigin(machineId, '/audit/five', 'https://example.invalid/five.git'),
-  )
-  await attempt(() => target.repos.removeRepo('/audit/one', machineId))
-
-  await attempt(() =>
-    target.messages.addMessage({
-      id: 'msg_audit',
-      threadId: 'msg_audit',
-      fromKind: 'operator',
-      fromId: null,
-      toKind: 'issue',
-      toId: 'iss_audit',
-      body: 'audit',
-      createdAt: issue.createdAt,
-      deliveryStatus: 'stored',
-    } as unknown as Parameters<typeof target.messages.addMessage>[0]),
-  )
-  await attempt(() => target.messages.markCancelled('msg_audit'))
-
-  // Two `ReposRepository` methods each define the same statement into one slot
-  // (`insertPrefixIfAbsent`, `deleteRow`), so whichever runs first makes it and
-  // the other site is never evaluated. Empty those two slots and run the other
-  // method. (Not a second store: every definition site must run exactly once,
-  // because a site evaluated again later may report a different position.)
-  const repoWrites = (target.repos as unknown as { repoWrites: Record<string, unknown> }).repoWrites
-  delete repoWrites.insertPrefixIfAbsent
-  delete repoWrites.deleteRow
-  await attempt(() =>
-    target.repos.ensurePrefixForRepoId(asRepoId('repo_audit_prefix'), 'auditprefix'),
-  )
-  await attempt(() => target.repos.removeRepo('/audit/two', machineId))
-}
 
 /**
  * THE PLANNER'S PICTURE OF A LARGE DATABASE. With no statistics SQLite takes
@@ -996,12 +770,42 @@ async function reachMethodDefinitions(target: SessionStore): Promise<void> {
 function modelLowSelectivity(db: SqlDatabase, options?: { replace?: boolean }): void {
   writeStatistics(
     db,
-    (table, columns) =>
+    (table, columns, unique) =>
       LOW_SELECTIVITY.has(`${table}.${columns[0]}`)
-        ? ['1000000', '250000', ...columns.slice(1).map(() => '1')].join(' ')
+        ? defaultsAfterWorkspace(table, columns, unique)
         : undefined,
     options,
   )
+}
+
+/** SQLite's own guess of the rows per prefix of an index it has no statistics for. */
+const SQLITE_DEFAULT_ROWS = [10, 9, 8, 7, 6]
+
+/**
+ * A million rows under one workspace, then the statistics SQLite assumes without any for the
+ * columns after it (`sqlite3DefaultRowEst`: 10, 9, 8, 7, 6, then 5 rows per prefix, one for the
+ * whole key of a unique index), except that a low-selectivity column holds a quarter of what
+ * its prefix held. So the workspace prefix adds nothing the planner did not already assume of
+ * the index, and it cannot make the column after it look more selective than it is.
+ */
+function defaultsAfterWorkspace(
+  table: string,
+  columns: readonly string[],
+  unique: boolean,
+): string {
+  let rows = 1_000_000
+  let step = 0
+  const perPrefix = columns.map((column, index) => {
+    const low = LOW_SELECTIVITY.has(`${table}.${column}`)
+    if (low) {
+      rows = column === 'workspace_id' && step === 0 ? rows : Math.max(1, Math.floor(rows / 4))
+    } else {
+      rows = Math.min(rows, SQLITE_DEFAULT_ROWS[step] ?? 5)
+      step += 1
+    }
+    return unique && index === columns.length - 1 ? 1 : rows
+  })
+  return ['1000000', ...perPrefix].join(' ')
 }
 
 /**
@@ -1010,8 +814,11 @@ function modelLowSelectivity(db: SqlDatabase, options?: { replace?: boolean }): 
  */
 function writeStatistics(
   db: SqlDatabase,
-  statOf: (table: string, columns: readonly string[]) => string | undefined,
-  { replace = true }: { replace?: boolean } = {},
+  statOf: (table: string, columns: readonly string[], unique: boolean) => string | undefined,
+  {
+    replace = true,
+    only = () => true,
+  }: { replace?: boolean; only?: (index: string) => boolean } = {},
 ): void {
   if (replace) {
     db.exec('ANALYZE')
@@ -1022,10 +829,21 @@ function writeStatistics(
     .all() as { name: string; tableName: string }[]
   const insert = db.prepare('INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES (?, ?, ?)')
   for (const { name, tableName } of indexes) {
+    if (!only(name)) continue
     const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all() as {
       name: string
     }[]
-    const stat = statOf(tableName, columns.map((column) => column.name))
+    const unique =
+      (
+        db
+          .prepare(`SELECT "unique" AS isUnique FROM pragma_index_list(?) WHERE name = ?`)
+          .get(tableName, name) as { isUnique: number } | undefined
+      )?.isUnique === 1
+    const stat = statOf(
+      tableName,
+      columns.map((column) => column.name),
+      unique,
+    )
     if (stat !== undefined) insert.run(tableName, name, stat)
   }
   db.exec('ANALYZE sqlite_schema')
@@ -1034,7 +852,7 @@ function writeStatistics(
 beforeAll(async () => {
   store = await openTestStore(':memory:')
   database = (store as unknown as { db: SqlDatabase }).db
-  await reachMethodDefinitions(store)
+  await reachMethodDefinitions(store, database)
   modelLowSelectivity(database)
 })
 
@@ -1042,160 +860,44 @@ afterAll(async () => {
   await store?.close()
 })
 
-/** A query builder that is not a statement: a subquery another definition embeds. */
-function isFragment(value: unknown): boolean {
-  if (value === null || typeof value !== 'object') return false
-  if (typeof (value as { getSQL?: unknown }).getSQL === 'function') return true
-  const parts = Object.values(value)
-  return parts.length > 0 && parts.every(isFragment)
-}
-
-/** A definition the audit checks, by the key its lists use. */
-interface KeyedDefinition {
-  readonly key: string
-  readonly definition: PreparedDefinition
-}
-
 /**
- * Every registered definition paired with its source site, plus the coverage
- * facts: sites never reached, files whose positions could not be paired.
+ * Build each definition at each of its shapes and read every statement's plan.
+ * `shapesOf` gives a family's shapes; by default those of {@link FAMILY_SHAPES}.
  */
-function keyedDefinitions(sources: readonly string[]): {
-  sites: QueryDefinitionSite[]
-  keyed: KeyedDefinition[]
-  unregisteredSites: string[]
-  unmapped: string[]
-} {
-  const sites = sources.flatMap((file) =>
-    queryDefinitionSites(file, readFileSync(join(REPO_ROOT, file), 'utf8')),
-  )
-  const sitesByFile = new Map<string, QueryDefinitionSite[]>()
-  for (const site of sites)
-    sitesByFile.set(site.file, [...(sitesByFile.get(site.file) ?? []), site])
-  const definitions = preparedDefinitions().map((definition) => ({
-    definition,
-    frame: definitionFrame(definition.site, REPO_ROOT),
-  }))
-  const positionsByFile = new Map<string, { line: number; column: number }[]>()
-  for (const { frame } of definitions) {
-    if (frame && sitesByFile.has(frame.file)) {
-      positionsByFile.set(frame.file, [...(positionsByFile.get(frame.file) ?? []), frame])
-    }
-  }
-  const unmapped: string[] = []
-  const siteAt = new Map<string, Map<string, QueryDefinitionSite>>()
-  for (const [file, fileSites] of sitesByFile) {
-    const matched = matchSites(positionsByFile.get(file) ?? [], fileSites)
-    if (matched) siteAt.set(file, matched)
-    else {
-      const reached = new Set((positionsByFile.get(file) ?? []).map((p) => `${p.line}:${p.column}`))
-        .size
-      const methodSites = fileSites.filter((site) => !site.moduleLevel).map((site) => site.name)
-      const frames = [
-        ...new Set(
-          definitions
-            .filter(({ frame }) => frame?.file === file)
-            .map(
-              ({ definition }) =>
-                (definition.site.stack ?? '').split('\n').find((line) => line.includes(file)) ?? '',
-            ),
-        ),
-      ].slice(0, 6)
-      unmapped.push(
-        `${file}: ${fileSites.length} definition sites, ${reached} positions reached; ` +
-          `method-level sites: ${methodSites.join(', ')}; positions: ${[
-            ...new Set((positionsByFile.get(file) ?? []).map((p) => `${p.line}:${p.column}`)),
-          ].join(
-            ' ',
-          )}; site lines: ${fileSites.map((site) => site.startLine).join(' ')}; sample frames: ${frames.join(' || ')}`,
-      )
-    }
-  }
-  const registered = new Set<QueryDefinitionSite>()
-  const keyed: KeyedDefinition[] = []
-  for (const { definition, frame } of definitions) {
-    const site = frame && siteAt.get(frame.file)?.get(`${frame.line}:${frame.column}`)
-    if (!site) continue
-    registered.add(site)
-    keyed.push({ key: `${site.file}:${site.name}`, definition })
-  }
-  return {
-    sites,
-    keyed,
-    unregisteredSites:
-      siteAt.size === sitesByFile.size
-        ? sites
-            .filter((site) => !registered.has(site))
-            .map((site) => `${site.file}:${site.startLine} ${site.name}`)
-        : [],
-    unmapped,
-  }
-}
-
-/** Build each definition at each of its shapes and read every statement's plan. */
-function auditDefinitions(keyed: readonly KeyedDefinition[]): {
+function auditDefinitions(
+  keyed: readonly KeyedDefinition[],
+  shapesOf: (key: string) => readonly (string | number)[] | undefined = (key) =>
+    FAMILY_SHAPES.get(key),
+): {
   audited: AuditedStatement[]
   fragments: string[]
   missingShapes: string[]
   buildErrors: string[]
   explainErrors: string[]
 } {
-  const recording = recordingDrizzle()
   const tables = tablesOf(database)
+  const { built, fragments, missingShapes, buildErrors } = builtStatements(keyed, shapesOf)
   const audited: AuditedStatement[] = []
-  const fragments = new Set<string>()
-  const missingShapes = new Set<string>()
-  const buildErrors: string[] = []
   const explainErrors: string[] = []
-  const seen = new Set<string>()
-  for (const { key, definition } of keyed) {
-    if (definition.kind === 'family' && !FAMILY_SHAPES.has(key)) missingShapes.add(key)
-    const shapes: readonly (string | number | undefined)[] =
-      definition.kind === 'family' ? (FAMILY_SHAPES.get(key) ?? []) : [undefined]
-    for (const shape of shapes) {
-      let built: unknown
-      let statements: BuiltStatement[]
-      try {
-        built = (definition.build as (db: unknown, key: unknown) => unknown)(recording, shape)
-        statements = statementsOf(built)
-      } catch (error) {
-        buildErrors.push(`${key} [${String(shape)}]: ${(error as Error).message}`)
-        continue
-      }
-      if (statements.length === 0) {
-        if (isFragment(built)) fragments.add(key)
-        else buildErrors.push(`${key} [${String(shape)}]: built no statement`)
-      }
-      for (const statement of statements) {
-        const dedupe = `${key}\u0000${statement.sql}`
-        if (seen.has(dedupe)) continue
-        seen.add(dedupe)
-        let plan: string[]
-        try {
-          plan = explain(database, statement)
-        } catch (error) {
-          explainErrors.push(
-            `${key} [${String(shape)}]: ${(error as Error).message} :: ${statement.sql}`,
-          )
-          continue
-        }
-        audited.push({
-          key,
-          shape,
-          statement,
-          plan,
-          findings: planFindings(plan, statement.sql, tables, LOW_SELECTIVITY),
-        })
-      }
+  for (const { key, shape, statement } of built) {
+    let plan: string[]
+    try {
+      plan = explain(database, statement)
+    } catch (error) {
+      explainErrors.push(
+        `${key} [${String(shape)}]: ${(error as Error).message} :: ${statement.sql}`,
+      )
+      continue
     }
+    audited.push({
+      key,
+      shape,
+      statement,
+      plan,
+      findings: planFindings(plan, statement.sql, tables, LOW_SELECTIVITY),
+    })
   }
-  return {
-    audited,
-    fragments: [...fragments],
-    missingShapes: [...missingShapes],
-    buildErrors,
-    explainErrors,
-  }
+  return { audited, fragments, missingShapes, buildErrors, explainErrors }
 }
 
 /** The tables a plan reads, by name. */
@@ -1239,7 +941,10 @@ const describeEntry = (entry: AuditedStatement): string =>
 
 describe('POD-6148 — every repository query is served by an index', () => {
   it('reaches and builds every query definition in the repositories', () => {
-    const { sites, keyed, unregisteredSites, unmapped } = keyedDefinitions(trackedSources())
+    const { sites, keyed, unregisteredSites, unmapped } = keyedDefinitions(
+      trackedSources(SOURCE),
+      SOURCE,
+    )
     const { audited, fragments, missingShapes, buildErrors, explainErrors } =
       auditDefinitions(keyed)
     // THE REPORT: how much the audit checked.
@@ -1259,8 +964,8 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('finds no scan or sort that is not explained', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
-    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus())]
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus(SOURCE))]
     const flagged = audited.filter((entry) => entry.findings.length > 0)
     const unexplained = flagged.filter((entry) => explanation(entry) === undefined)
     console.log(
@@ -1274,18 +979,24 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('reads the open chat through its partial index (POD-6173)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
-    const openChat = audited.filter((entry) => entry.key === 'apps/server/src/store/messages.ts:openChat')
+    const openChat = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/messages.ts:openChat',
+    )
+    // The partial index leads with the workspace (POD-7024): the read seeks the workspace's
+    // open chat rows instead of walking the whole index.
     expect(openChat.map((entry) => entry.plan)).toEqual([
-      ['SCAN messages USING INDEX idx_messages_open_chat'],
+      ['SEARCH messages USING INDEX idx_messages_open_chat (workspace_id=?)'],
     ])
   })
 
   it('reads the boot ref backfill candidates by index ranges on the ref-less partial indexes (POD-6222)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
-    const candidates = audited.filter((entry) => entry.key === 'apps/server/src/store/sessions.ts:refBackfillCandidates')
+    const candidates = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/sessions.ts:refBackfillCandidates',
+    )
     expect(candidates.map((entry) => entry.plan)).toEqual([
       [
         'SEARCH sessions USING INTEGER PRIMARY KEY (rowid=?)',
@@ -1293,43 +1004,50 @@ describe('POD-6148 — every repository query is served by an index', () => {
         'COMPOUND QUERY',
         'LEFT-MOST SUBQUERY',
         'SCAN b VIRTUAL TABLE INDEX 1:',
-        'SEARCH s USING INDEX idx_sessions_refless_place (machine_id=? AND cwd>? AND cwd<?)',
+        'SEARCH s USING INDEX idx_sessions_refless_place (workspace_id=? AND machine_id=? AND cwd>? AND cwd<?)',
         'UNION ALL',
         'SCAN o VIRTUAL TABLE INDEX 1:',
-        'SEARCH s USING INDEX idx_sessions_refless_place (machine_id=? AND cwd>?)',
+        'SEARCH s USING INDEX idx_sessions_refless_place (workspace_id=? AND machine_id=? AND cwd>?)',
         'UNION ALL',
-        'SEARCH s USING INDEX idx_sessions_refless_issue (issue_id>?)',
-        'SEARCH i EXISTS USING COVERING INDEX sqlite_autoindex_issues_1 (id=?)',
+        'SEARCH s USING INDEX idx_sessions_refless_issue (workspace_id=? AND issue_id>?)',
+        // The probe reads one issue of the workspace, covered by the primary key again since it
+        // leads with `workspace_id` (POD-7024).
+        'SEARCH i EXISTS USING COVERING INDEX sqlite_autoindex_issues_1 (workspace_id=? AND id=?)',
         'USE TEMP B-TREE FOR ORDER BY',
       ],
     ])
   })
 
   it('reads the active ship orders through their partial index (POD-6172)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
-    const active = audited.filter((entry) => entry.key === 'apps/server/src/store/shipping.ts:activeOrdersFifo')
+    const active = audited.filter(
+      (entry) => entry.key === 'apps/server/src/store/shipping.ts:activeOrdersFifo',
+    )
     expect(active.map((entry) => entry.plan)).toEqual([
-      ['SCAN ship_orders USING INDEX idx_ship_orders_one_active_issue', 'USE TEMP B-TREE FOR ORDER BY'],
+      [
+        'SEARCH ship_orders USING INDEX idx_ship_orders_one_active_issue (workspace_id=?)',
+        'USE TEMP B-TREE FOR ORDER BY',
+      ],
     ])
   })
 
   it('reads the open trains of shipped leaders through their partial index (POD-6207)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     const open = audited.filter(
       (entry) => entry.key === 'apps/server/src/store/shipping.ts:shippedLeadersOfOpenTrains',
     )
     expect(open.map((entry) => entry.plan)).toEqual([
       [
-        'SCAN ship_train_manifests USING INDEX idx_ship_train_manifests_open_lane',
-        'SEARCH ship_orders USING INDEX sqlite_autoindex_ship_orders_1 (id=?)',
+        'SEARCH ship_train_manifests USING INDEX idx_ship_train_manifests_open_lane (workspace_id=?)',
+        'SEARCH ship_orders USING INDEX sqlite_autoindex_ship_orders_1 (workspace_id=? AND id=?)',
       ],
     ])
   })
 
   it('reads the subscriptions a steward poll can match, each arm on its own index (POD-6208)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     const searches = (name: string, shape: string | number) =>
       audited
@@ -1343,14 +1061,18 @@ describe('POD-6148 — every repository query is served by an index', () => {
           return match ? [`${match[1]} ${match[2]}`] : []
         })
         .sort()
-    // The explicit sources by event and source; the relationship ones by their
-    // anchor subscriber, never by event alone (which would read every
-    // relationship row of the kind).
+    // The explicit sources by event and source. The relationship ones were read by their
+    // anchor subscriber; since every index leads with the workspace (POD-7024), SQLite's
+    // default statistics, which a table this small keeps (111 rows on the reference database,
+    // below the statistics floor), cost the event index as low as the subscriber index, and it
+    // reads them by event and source kind: every relationship row of the polled kinds in the
+    // workspace. Bounded by the subscriptions people set up; naming the subscriber index is a
+    // follow-up reported to POD-6959, as POD-6599 did for effects.
     expect(searches('matchingSubscriptions', 'ra|4')).toEqual([
       'sessions idx_sessions_issue',
       'subscriptions idx_subscriptions_match',
-      'subscriptions idx_subscriptions_subscriber_event',
-      'subscriptions idx_subscriptions_subscriber_event',
+      'subscriptions idx_subscriptions_match',
+      'subscriptions idx_subscriptions_match',
     ])
     expect(searches('relationshipSubscriptionFor', 4)).toEqual([
       'subscriptions idx_subscriptions_match',
@@ -1358,7 +1080,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('reads each history page through its index, with no scan and no sort (POD-6209)', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     const plans = (key: string) =>
       audited
@@ -1371,14 +1093,16 @@ describe('POD-6148 — every repository query is served by an index', () => {
     expect(recent).toHaveLength(6)
     for (const [, plan] of recent) {
       expect(plan).toEqual([
-        expect.stringMatching(/^SEARCH (conversations AS )?c USING INDEX idx_conversations_top_level_updated \(/),
+        expect.stringMatching(
+          /^SEARCH (conversations AS )?c USING INDEX idx_conversations_top_level_updated \(/,
+        ),
       ])
     }
   })
 
   it('keeps no stale entry: every listed query still scans or sorts, every small table exists', () => {
-    const { keyed } = keyedDefinitions(trackedSources())
-    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus())]
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    const audited = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus(SOURCE))]
     const flaggedKeys = new Set(
       audited
         .filter((entry) => entry.findings.length > 0)
@@ -1401,7 +1125,7 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 
   it('lists every raw SQL statement outside the repositories, and plans the ones on the server schema (POD-6227)', () => {
-    const sites = rawSqlCensus()
+    const sites = rawSqlCensus(SOURCE)
     const planned = sites.filter((site) => RAW_SQL_PLANNED.has(rawKey(site)))
     console.log(
       `raw SQL census: ${sites.length} raw statements in ${new Set(sites.map((s) => s.file)).size} files, ` +
@@ -1409,8 +1133,11 @@ describe('POD-6148 — every repository query is served by an index', () => {
     )
     // A census that read nothing would pass.
     expect(sites.length).toBeGreaterThan(10)
-    const unlisted = sites.filter((site) => !RAW_SQL_PLANNED.has(rawKey(site)) && rawExemption(site) === undefined)
-    for (const site of unlisted) console.log(`UNLISTED RAW SQL ${site.file}:${site.line} ${site.sql}`)
+    const unlisted = sites.filter(
+      (site) => !RAW_SQL_PLANNED.has(rawKey(site)) && rawExemption(site) === undefined,
+    )
+    for (const site of unlisted)
+      console.log(`UNLISTED RAW SQL ${site.file}:${site.line} ${site.sql}`)
     expect(unlisted.map(rawKey)).toEqual([])
     // A planned statement is planned from its text.
     expect(planned.filter((site) => !site.literal).map(rawKey)).toEqual([])
@@ -1429,14 +1156,11 @@ describe('POD-6148 — every repository query is served by an index', () => {
       expect(reason.trim().length).toBeGreaterThan(20)
     }
     // Every planned statement was planned.
-    expect(auditRawSql(sites).map((entry) => entry.key).sort()).toEqual([...RAW_SQL_PLANNED.keys()].sort())
-  })
-
-  it('reads the issue-event subjects of a worker snapshot by the change_latest key (POD-6227)', () => {
-    const subjects = auditRawSql(rawSqlCensus()).filter((entry) =>
-      entry.key.startsWith('apps/server/src/sync-worker/visibility.ts:'),
-    )
-    expect(subjects.map((entry) => entry.findings)).toEqual([[]])
+    expect(
+      auditRawSql(sites)
+        .map((entry) => entry.key)
+        .sort(),
+    ).toEqual([...RAW_SQL_PLANNED.keys()].sort())
   })
 
   it('is armed: a planted raw statement is censused unlisted, and its scan is found', () => {
@@ -1447,11 +1171,13 @@ describe('POD-6148 — every repository query is served by an index', () => {
     expect(site).toMatchObject({ sql: 'SELECT * FROM messages WHERE body = ?', literal: true })
     expect(RAW_SQL_PLANNED.has(rawKey(site!)) || rawExemption(site!) !== undefined).toBe(false)
     const plan = explain(database, { sql: site!.sql, params: 1 })
-    expect(planFindings(plan, site!.sql, tablesOf(database)).map((finding) => finding.kind)).toEqual(['scan'])
+    expect(
+      planFindings(plan, site!.sql, tablesOf(database)).map((finding) => finding.kind),
+    ).toEqual(['scan'])
     // A dynamic statement is censused by its expression, and a query call without SQL is not one.
-    expect(rawSqlSites('apps/server/src/planted.ts', 'db.prepare(text); router.query(handler)')).toMatchObject([
-      { sql: 'text', literal: false },
-    ])
+    expect(
+      rawSqlSites('apps/server/src/planted.ts', 'db.prepare(text); router.query(handler)'),
+    ).toMatchObject([{ sql: 'text', literal: false }])
   })
 
   it('is armed: a planted unindexed lookup fails it, and an indexed one passes', () => {
@@ -1484,7 +1210,6 @@ describe('POD-6148 — every repository query is served by an index', () => {
   })
 })
 
-
 /**
  * STATISTICS OF A TABLE ANALYSED WHILE TINY [POD-6223]. The audit above plans
  * every query on a large database's picture. A real database is analysed at
@@ -1499,16 +1224,14 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
   const analysedAt =
     (rows: number) =>
     (table: string, columns: readonly string[]): string =>
-      [
-        String(rows),
-        // A low-selectivity column holds a quarter of the rows per value, any
-        // other leading column ten (SQLite's own guess), the rest one.
-        String(LOW_SELECTIVITY.has(`${table}.${columns[0]}`) ? Math.max(1, rows / 4) : Math.min(rows, 10)),
-        ...columns.slice(1).map(() => '1'),
-      ].join(' ')
+      // A low-selectivity column holds a quarter of the rows per value, any other leading
+      // column ten (SQLite's own guess), the rest one; the workspace before them all.
+      prefixStatistics(rows, table, columns, (all, low) =>
+        low ? Math.max(1, all / 4) : Math.min(all, 10),
+      )
 
   const unexplained = (): string[] => {
-    const { keyed } = keyedDefinitions(trackedSources())
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)
     return audited
       .filter((entry) => entry.findings.length > 0 && explanation(entry) === undefined)
@@ -1520,15 +1243,15 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
   it('is armed: statistics from one-row tables steer the queries of growing tables into scans', () => {
     writeStatistics(database, analysedAt(1))
     const flagged = unexplained()
-    // The runtime-event drain the bench caught scanning (POD-6216), and the
-    // other tables that start empty and grow.
+    // The tables that start empty and grow.
     expect(flagged).toEqual(
       expect.arrayContaining([
-        'apps/server/src/store/events.ts:runtimeEventsAfter []',
+        // (The runtime-event drain the bench caught scanning, POD-6216, is no longer among
+        // them: its key leads with the workspace, and one-row statistics keep it on the key.)
         'apps/server/src/store/messages.ts:queuedAheadOf []',
-        'apps/server/src/store/conversations/registry.ts:segmentsWithPaths [4]',
         'apps/server/src/store/sessions.ts:liveSessionsOnMachine []',
-        'packages/sync/src/adapters/sqlite/sync-repository.ts:changesAfter []',
+        'apps/server/src/store/issues.ts:issuesByIds [4]',
+        'packages/sync/src/adapters/sqlite/sync-repository.ts:changesWithPrior [1]',
       ]),
     )
     expect(flagged.length).toBeGreaterThan(100)
@@ -1573,13 +1296,18 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
     // `limit` rows back oldest first; that listing must not hide a sort of the
     // session's whole history before the limit.
     const runtimePlans = () => {
-      const { keyed } = keyedDefinitions(trackedSources())
+      const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
       const plans = new Map(
         auditDefinitions(keyed)
-          .audited.filter((entry) => /events\.ts:(recentRuntimeEventPayloads|runtimeTranscriptPayloads)$/.test(entry.key))
+          .audited.filter((entry) =>
+            /events\.ts:(recentRuntimeEventPayloads|runtimeTranscriptPayloads)$/.test(entry.key),
+          )
           .map((entry) => [entry.key.split(':')[1], entry.plan.join(' | ')]),
       )
-      expect([...plans.keys()].sort()).toEqual(['recentRuntimeEventPayloads', 'runtimeTranscriptPayloads'])
+      expect([...plans.keys()].sort()).toEqual([
+        'recentRuntimeEventPayloads',
+        'runtimeTranscriptPayloads',
+      ])
       return plans
     }
     const pictures: [string, () => void][] = [
@@ -1590,10 +1318,678 @@ describe('POD-6223 — statistics of tables analysed while tiny', () => {
     for (const [picture, apply] of pictures) {
       apply()
       const plans = runtimePlans()
-      expect(`${picture}: ${plans.get('recentRuntimeEventPayloads')}`).not.toMatch(/TEMP B-TREE|SCAN/)
+      expect(`${picture}: ${plans.get('recentRuntimeEventPayloads')}`).not.toMatch(
+        /TEMP B-TREE|SCAN/,
+      )
       const [inner, outer] = plans.get('runtimeTranscriptPayloads')!.split('SCAN recent')
       expect(`${picture}: ${inner}`).not.toMatch(/TEMP B-TREE|SCAN/)
       expect(`${picture}: ${outer}`).toMatch(/TEMP B-TREE FOR ORDER BY/)
+    }
+  })
+})
+
+/**
+ * A captured statistics row of an index that now leads with `workspace_id` (POD-7118):
+ * the operator's database is one workspace, so the workspace prefix holds every row,
+ * and the captured numbers describe the columns after it. A row captured with the
+ * workspace already in the index (the sync tables) is used as it is.
+ */
+function workspaceLedStat(db: SqlDatabase, index: string, stat: string): string {
+  const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(index)})`).all() as {
+    name: string
+  }[]
+  const parts = stat.split(' ')
+  if (columns[0]?.name !== 'workspace_id' || parts.length !== columns.length) return stat
+  return [parts[0], parts[0], ...parts.slice(1)].join(' ')
+}
+
+/** A plan's seek terms with the workspace's own term set aside (it holds every row). */
+const WORKSPACE_TERM = 'workspace_id=? AND '
+
+/**
+ * THE EFFECTS SWEEP UNDER THE OPERATOR'S STATISTICS [POD-6970]. ANALYZE counts
+ * each NULL as its own value, so on a real database `idx_effects_deleted`
+ * reads as ten rows per key and `deleted_at IS NULL` looks selective, though
+ * nearly every record is live. These are the `effects` rows of `sqlite_stat1`
+ * on the operator's server (46k records, 41k of them live finished machine
+ * scans), where the sweep's unpinned reads walked every live record and sorted
+ * them, twice a minute, to return none. Each sweep statement must seek its own
+ * index under them, with no scan and no sort.
+ */
+describe('POD-6970 — the effects sweep under real statistics', () => {
+  const OPERATOR_EFFECTS_STATISTICS: readonly (readonly [string, string])[] = [
+    ['idx_effects_unpublished', '0 0'],
+    ['idx_effects_awaiting', '0 0 0'],
+    ['idx_effects_kind_target', '46241 334 251 6 1'],
+    ['idx_effects_target', '46241 1001 11 1'],
+    // Captured as `idx_effects_deleted` `46241 10`, a full index; POD-7034 made
+    // it partial over the tombstones (9236 of them, 2169 distinct times).
+    ['idx_effects_tombstones', '9236 5'],
+    ['idx_effects_status_finished', '46241 334 1'],
+    ['idx_effects_status_deadline', '46241 334 1'],
+    ['sqlite_autoindex_effects_1', '46241 1'],
+  ]
+
+  const useOperatorStatistics = () => {
+    modelLowSelectivity(database)
+    database.exec("DELETE FROM sqlite_stat1 WHERE tbl = 'effects'")
+    const insert = database.prepare(
+      "INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES ('effects', ?, ?)",
+    )
+    for (const [index, stat] of OPERATOR_EFFECTS_STATISTICS)
+      insert.run(index, workspaceLedStat(database, index, stat))
+    database.exec('ANALYZE sqlite_schema')
+  }
+
+  const effectPlans = (): Map<string, string> => {
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    return new Map(
+      auditDefinitions(keyed)
+        .audited.filter((entry) => entry.key.startsWith('apps/server/src/store/effects.ts:'))
+        .map((entry) => [
+          `${entry.key.split(':')[1]}${entry.shape === undefined ? '' : ` [${String(entry.shape)}]`}`,
+          entry.plan.join(' | '),
+        ]),
+    )
+  }
+
+  afterEach(() => modelLowSelectivity(database))
+
+  it('the unpinned status read can no longer walk the live records: the soft-delete index holds only tombstones (POD-7034)', () => {
+    // Before POD-7034 this read walked every live record through the full
+    // `idx_effects_deleted` and sorted them; the walk is armed in the POD-7034
+    // block below with a planted full index.
+    useOperatorStatistics()
+    const plan = (
+      database
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE workspace_id = ? AND status = ? AND deleted_at IS NULL AND (decision IS NULL OR decision <> 'awaiting') ORDER BY deadline_at LIMIT ?",
+        )
+        .all(null, null, null) as { detail: string }[]
+    )
+      .map((row) => row.detail)
+      .join(' | ')
+    expect(plan).not.toMatch(/deleted_at=\?\)/)
+    expect(plan).toMatch(
+      /^SEARCH effects USING INDEX idx_effects_status_deadline \(workspace_id=\? AND status=\?\)/,
+    )
+  })
+
+  it('each sweep statement seeks its own index, with no scan and no sort', () => {
+    useOperatorStatistics()
+    const plans = effectPlans()
+    const expected: readonly (readonly [string, RegExp])[] = [
+      // Both statuses build one statement (the status is bound): the audit
+      // plans it once, under its first shape.
+      [
+        'effectsInStatus [pending]',
+        /^SEARCH effects USING INDEX idx_effects_status_deadline \(workspace_id=\? AND status=\?\)$/,
+      ],
+      [
+        'expireDueEffects',
+        /SEARCH effects USING INDEX idx_effects_status_deadline \(workspace_id=\? AND status=\? AND deadline_at>\? AND deadline_at<\?\)/,
+      ],
+      [
+        'pruneFinishedEffects',
+        /SEARCH effects USING INDEX idx_effects_status_finished \(workspace_id=\? AND status=\? AND finished_at<\?\)/,
+      ],
+      [
+        'purgeTombstones',
+        /SEARCH effects USING INDEX idx_effects_tombstones \(workspace_id=\? AND deleted_at<\?\)/,
+      ],
+      [
+        'purgeOffFeedFinished',
+        /SEARCH candidate USING INDEX idx_effects_kind_target \(workspace_id=\? AND kind=\?\).*SEARCH newer USING INDEX idx_effects_kind_target \(workspace_id=\? AND kind=\? AND target_kind=\? AND target_id=\? AND created_at>\?\)/,
+      ],
+      // A machine's last scan (POD-7031): the target's records newest first,
+      // where the first hit is nearly always the newest succeeded one.
+      [
+        'newestOnTargetIn [succeeded]',
+        /^SEARCH effects USING INDEX idx_effects_kind_target \(workspace_id=\? AND kind=\? AND target_kind=\? AND target_id=\?\)$/,
+      ],
+    ]
+    for (const [name, pattern] of expected) {
+      const plan = plans.get(name)
+      expect(plan, name).toBeDefined()
+      expect(plan, name).toMatch(pattern)
+      expect(`${name}: ${plan}`).not.toMatch(/SCAN (effects|candidate|newer)\b|TEMP B-TREE/)
+    }
+  })
+
+  it("the active lookup seeks the active statuses, not the target's history, and sorts only those", () => {
+    useOperatorStatistics()
+    const plan = effectPlans().get('newestOnTargetIn [active]')
+    expect(plan).toBe(
+      'SEARCH effects USING INDEX idx_effects_status_deadline (workspace_id=? AND status=?) | USE TEMP B-TREE FOR ORDER BY',
+    )
+    // Armed: unpinned, the statistics send it through the target's history.
+    const unpinned = (
+      database
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT * FROM effects WHERE workspace_id = ? AND kind = ? AND target_kind = ? AND target_id = ? AND status IN ('pending', 'running') AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1",
+        )
+        .all(null, null, null, null) as { detail: string }[]
+    )
+      .map((row) => row.detail)
+      .join(' | ')
+    expect(unpinned).toBe(
+      'SEARCH effects USING INDEX idx_effects_kind_target (workspace_id=? AND kind=? AND target_kind=? AND target_id=?)',
+    )
+  })
+
+  /**
+   * THE ROWS THE ACTIVE LOOKUP READS [POD-7031]. A machine kept 24k finished
+   * scans, and the scan the connect path asks about ran through all of them,
+   * each fetched with its result, to find none: 3–16 s a minute on the
+   * operator's server. bun:sqlite exposes no statement counters, so the rows a
+   * SEARCH reads are counted as the entries in the index range its plan seeks:
+   * the plan's index, constrained by its seek columns.
+   */
+  it('reads only the active records, however long the target history', async () => {
+    const seeded = await openTestStore(':memory:')
+    try {
+      const db = (seeded as unknown as { db: SqlDatabase }).db
+      const insert = db.prepare(
+        `INSERT INTO effects (workspace_id, id, kind, target_kind, target_id, input_json, result_json, status,
+           finished_at, created_at, updated_at, revision)
+         VALUES ('${SELF_HOSTED_WORKSPACE_ID}', ?, 'machine.scan', 'machine', ?, '{}', ?, ?, ?, ?, ?, 1)`,
+      )
+      const result = JSON.stringify({ repos: 'x'.repeat(5_000) })
+      const HISTORY = 2_000
+      db.exec('BEGIN')
+      for (let at = 0; at < HISTORY; at++) {
+        insert.run(`eff_old_${at}`, 'mch_busy', result, 'succeeded', at, at, at)
+      }
+      // Another machine's scan is running: the range holds it, the filter drops it.
+      insert.run('eff_elsewhere', 'mch_other', null, 'running', null, HISTORY, HISTORY)
+      db.exec('COMMIT')
+
+      const machine = { kind: 'machine', id: 'mch_busy' } as const
+      expect(await seeded.effects.newestOnTarget('machine.scan', machine, 'active')).toBeUndefined()
+      expect((await seeded.effects.newestOnTarget('machine.scan', machine, 'succeeded'))?.id).toBe(
+        `eff_old_${HISTORY - 1}`,
+      )
+
+      useOperatorStatistics()
+      const plan = effectPlans().get('newestOnTargetIn [active]') ?? ''
+      const seekIndex = /USING INDEX (\S+) \(workspace_id=\? AND status=\?\)/.exec(plan)?.[1] ?? ''
+      expect(seekIndex, plan).toBe('idx_effects_status_deadline')
+      const rangeRows = (from: string, where: string): number =>
+        (
+          db
+            .prepare(
+              `SELECT count(*) AS n FROM effects INDEXED BY ${from} WHERE workspace_id = '${SELF_HOSTED_WORKSPACE_ID}' AND ${where}`,
+            )
+            .get() as {
+            n: number
+          }
+        ).n
+      const active = "status IN ('pending', 'running')"
+      expect(rangeRows(seekIndex, active)).toBe(1)
+      // Armed: the target seek the planner chose before reads the whole history.
+      expect(
+        rangeRows(
+          'idx_effects_kind_target',
+          "kind = 'machine.scan' AND target_kind = 'machine' AND target_id = 'mch_busy'",
+        ),
+      ).toBe(HISTORY)
+
+      // Two active scans on the machine: the newer one, among only the active records.
+      insert.run('eff_pending', 'mch_busy', null, 'pending', null, HISTORY + 1, HISTORY + 1)
+      insert.run('eff_running', 'mch_busy', null, 'running', null, HISTORY + 2, HISTORY + 2)
+      expect((await seeded.effects.newestOnTarget('machine.scan', machine, 'active'))?.id).toBe(
+        'eff_running',
+      )
+      expect(rangeRows(seekIndex, active)).toBe(3)
+    } finally {
+      await seeded.close()
+    }
+  })
+
+  it('no effects statement walks the live records through a soft-delete index', () => {
+    useOperatorStatistics()
+    const walks = [...effectPlans()]
+      .filter(([, plan]) => /\((?:workspace_id=\? AND )?deleted_at=\?\)|SCAN effects\b/.test(plan))
+      .map(([name, plan]) => `${name}: ${plan}`)
+    expect(walks).toEqual([])
+  })
+})
+
+/**
+ * EVERY STATEMENT UNDER THE OPERATOR'S STATISTICS, EVERY IN LIST AT EVERY SIZE
+ * IT CAN TAKE [POD-7034; POD-7027 findings 2 and 3, guard 1]. The audit above
+ * plans on a model of a large database; SQLite plans on `sqlite_stat1`, and the
+ * operator's says something no model did. ANALYZE counts each NULL as its own
+ * value, so `idx_sessions_deleted_at` read as four sessions per key and
+ * `deleted_at IS NULL` as a selective seek: 36 statements walked every live
+ * session or issue through a soft-delete or parent index, and an IN list
+ * multiplies its per-key estimate by its length, so at 16 ids or more the
+ * by-id families flipped to that walk too. Planning only sizes 1 and 4 never
+ * saw it.
+ *
+ * So every statement is planned again under a stored copy of the operator's
+ * statistics (`OPERATOR_PLANNER_STATISTICS`, refreshed at each release), each
+ * IN-list family at every padded size up to the largest its callers pass, and
+ * the audit fails on:
+ * - a seek that reads an `IS NULL` filter's rows through an index that holds
+ *   the NULLs (every column the seek constrains is filtered `IS NULL` and
+ *   compared to no value), under either picture; no list explains one;
+ * - a scan of a growing table, or a sort over one, that the lists above do not
+ *   explain.
+ */
+describe('POD-7034 — every statement under the operator statistics', () => {
+  /**
+   * The largest padded size an IN-list family's callers can pass, where it is
+   * not {@link CHUNK_SIZE}'s: a smaller fixed domain, or a larger chunk.
+   */
+  const LARGEST_IN_LIST: ReadonlyMap<string, number> = new Map<string, number>([
+    // Two arms of candidate keys, chunked at WORKTREE_OWNER_CHUNK (2048).
+    ['apps/server/src/store/issues.ts:worktreeOwnersOf', 2048],
+    // The four persisted session statuses.
+    ['apps/server/src/store/sessions.ts:liveSessionsOfStatuses', 4],
+    // The shipping destinations: at most three.
+    ['apps/server/src/store/shipping.ts:queuedOrdersOfLane', 4],
+    ['apps/server/src/store/shipping.ts:activeOrdersOfLane', 4],
+    // The mail records route takes at most MAIL_RECORDS_MAX_IDS (100) items.
+    ['apps/server/src/store/messages.ts:attachmentMessagesOfItems', 128],
+    // PENDING_PAGES_MAX_TARGETS (256) targets a page.
+    ['apps/server/src/store/messages.ts:pendingPages', 256],
+    ['apps/server/src/store/messages.ts:pendingTargetsAmong', 256],
+    // The change log's insert chunk (100 rows).
+    ['packages/sync/src/adapters/sqlite/sync-repository.ts:insertChangeRows', 128],
+  ])
+  /**
+   * The padded size of the 500-value chunk every batching caller cuts its list
+   * into. A family whose callers pass an unchunked list is planned up to it too:
+   * past the table's size a scan is the right plan, so no larger size tells
+   * the audit anything.
+   */
+  const CHUNK_SIZE = 512
+
+  const paddedSizes = (largest: number): number[] => {
+    const sizes = [1]
+    for (let size = 2; size < largest; size *= 2) sizes.push(size)
+    if (largest > 1) sizes.push(largest)
+    return sizes
+  }
+
+  /** Families whose key names an IN-list size beside other parts, at every padded size. */
+  const SIZED_KEY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = new Map<
+    string,
+    readonly (string | number)[]
+  >([
+    [
+      'apps/server/src/store/messages.ts:openBoundTo',
+      paddedSizes(CHUNK_SIZE).flatMap((size) => [`${size}`, `${size}|issue`]),
+    ],
+    [
+      // CHAT_TAIL_MAX_SESSIONS (256) sessions a chunk.
+      'apps/server/src/store/messages.ts:confirmedChatTail',
+      paddedSizes(256).flatMap((size) => [`live|${size}`, `any|${size}`]),
+    ],
+    [
+      'apps/server/src/store/events.ts:matchingSubscriptions',
+      paddedSizes(CHUNK_SIZE).flatMap((size) => ['r', 'a', 'ra'].map((arms) => `${arms}|${size}`)),
+    ],
+    [
+      'packages/sync/src/adapters/sqlite/sync-repository.ts:serverTableQueries.queuedCounts',
+      ['all', 'one', ...paddedSizes(CHUNK_SIZE)],
+    ],
+  ])
+
+  /** A family's shapes for this picture: an IN-list family at every padded size. */
+  const operatorShapes = (key: string): readonly (string | number)[] | undefined => {
+    const shapes = FAMILY_SHAPES.get(key)
+    if (shapes === SIZES) return paddedSizes(LARGEST_IN_LIST.get(key) ?? CHUNK_SIZE)
+    return SIZED_KEY_SHAPES.get(key) ?? shapes
+  }
+
+  /** Replace the statistics with the operator's, each row whose table and index exist. */
+  const useOperatorStatistics = (): { applied: number; completed: number; skipped: string[] } => {
+    database.exec('ANALYZE')
+    database.exec('DELETE FROM sqlite_stat1')
+    const names = new Set(
+      (
+        database
+          .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'index')")
+          .all() as { name: string }[]
+      ).map((row) => row.name),
+    )
+    const insert = database.prepare('INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES (?, ?, ?)')
+    let applied = 0
+    const skipped: string[] = []
+    for (const [table, index, stat] of OPERATOR_PLANNER_STATISTICS) {
+      if (!names.has(table) || (index !== null && !names.has(index))) {
+        skipped.push(`${table}.${index}`)
+        continue
+      }
+      insert.run(table, index, index === null ? stat : workspaceLedStat(database, index, stat))
+      applied++
+    }
+    // An index the capture predates (dev/mw's of 2026-11-17) has no row; with its
+    // key led by the workspace, SQLite's guess would price that one-workspace prefix
+    // as ten rows. On the operator's database it holds the whole table: the table's
+    // captured row count, then SQLite's own guesses for the columns after it.
+    const described = new Set(
+      OPERATOR_PLANNER_STATISTICS.flatMap(([, index]) => (index === null ? [] : [index])),
+    )
+    const tableRows = new Map<string, number>()
+    for (const [table, , stat] of OPERATOR_PLANNER_STATISTICS) {
+      tableRows.set(table, Math.max(tableRows.get(table) ?? 0, Number(stat.split(' ')[0])))
+    }
+    writeStatistics(
+      database,
+      (table, columns, unique) => {
+        const rows = tableRows.get(table)
+        if (rows === undefined || columns[0] !== 'workspace_id') return undefined
+        const after = columns
+          .slice(1)
+          .map((_, at, rest) =>
+            unique && at === rest.length - 1 ? 1 : Math.min(rows, SQLITE_DEFAULT_ROWS[at] ?? 5),
+          )
+        return [rows, rows, ...after].join(' ')
+      },
+      { replace: false, only: (index) => !described.has(index) },
+    )
+    database.exec('ANALYZE sqlite_schema')
+    const completed =
+      (database.prepare('SELECT COUNT(*) AS n FROM sqlite_stat1').get() as { n: number }).n -
+      applied
+    return { applied, completed, skipped }
+  }
+
+  /** A column reference in the SQL drizzle writes: optionally quoted, optionally qualified. */
+  const columnRef = (column: string): string =>
+    `(?:["\`]?\\w+["\`]?\\.)?["\`]?${column.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["\`]?`
+
+  /** The statement filters `column IS NULL` and compares it to no value. */
+  const filteredNullOnly = (sqlText: string, column: string): boolean =>
+    new RegExp(`${columnRef(column)}\\s+is\\s+null\\b`, 'i').test(sqlText) &&
+    !new RegExp(`${columnRef(column)}\\s*(?:=|<|>|!=|\\bin\\b|\\bis\\s+\\?)`, 'i').test(sqlText)
+
+  /**
+   * The columns whose `IS NULL` selects a large share of the table, as
+   * `table.column`: every soft-delete `deleted_at` (nearly every row is live)
+   * and an issue's parent (a quarter of the operator's issues are top-level).
+   */
+  const mostlyNull = (): Set<string> => {
+    const out = new Set(['issues.parent_id'])
+    for (const table of tablesOf(database)) {
+      const columns = database.prepare(`PRAGMA table_info(${JSON.stringify(table)})`).all() as {
+        name: string
+      }[]
+      if (columns.some((column) => column.name === 'deleted_at')) out.add(`${table}.deleted_at`)
+    }
+    return out
+  }
+
+  let schemaTables: Set<string> | undefined
+
+  /**
+   * The seeks of a plan that read an `IS NULL` filter's rows through a
+   * soft-delete or parent index that holds the NULLs: SQLite prints `IS NULL`
+   * as `column=?`, so a seek all of whose terms are such equalities, on
+   * mostly-NULL columns the statement only filters `IS NULL`, walks every row
+   * the filter keeps.
+   */
+  const nullWalks = (
+    plan: readonly string[],
+    sqlText: string,
+    columns: ReadonlySet<string> = mostlyNull(),
+  ): string[] => {
+    const tables = (schemaTables ??= tablesOf(database))
+    return plan.filter((detail) => {
+      const search = /^SEARCH (\S+)(?: AS \S+)? USING (?:COVERING )?INDEX \S+ \(([^)]*)\)/.exec(
+        detail,
+      )
+      if (!search) return false
+      const table = tables.has(search[1]!)
+        ? search[1]!
+        : planFindings([`SCAN ${search[1]!}`], sqlText, tables)[0]?.table
+      const terms = search[2]!
+        .replace(WORKSPACE_TERM, '')
+        .split(' AND ')
+        .map((term) => /^(\w+)=\?$/.exec(term.trim())?.[1])
+      return terms.every(
+        (column) =>
+          column !== undefined &&
+          columns.has(`${table}.${column}`) &&
+          filteredNullOnly(sqlText, column),
+      )
+    })
+  }
+
+  /**
+   * Every statement planned in both pictures, once for the tests below: the
+   * modelled one at the audit's shapes, the operator's at every IN-list size.
+   */
+  let pictures: { modelled: AuditedStatement[]; operator: AuditedStatement[] } | undefined
+  const bothPictures = (): { modelled: AuditedStatement[]; operator: AuditedStatement[] } => {
+    if (pictures !== undefined) return pictures
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    modelLowSelectivity(database)
+    const modelled = [...auditDefinitions(keyed).audited, ...auditRawSql(rawSqlCensus(SOURCE))]
+    useOperatorStatistics()
+    const operator = [
+      ...auditDefinitions(keyed, operatorShapes).audited,
+      ...auditRawSql(rawSqlCensus(SOURCE)),
+    ]
+    modelLowSelectivity(database)
+    pictures = { modelled, operator }
+    return pictures
+  }
+  /** Planning ~1,900 statements takes seconds on a loaded host. */
+  const PICTURES_TIMEOUT_MS = 180_000
+
+  const named = (entry: AuditedStatement): string => `${entry.key} [${String(entry.shape ?? '')}]`
+
+  afterEach(() => modelLowSelectivity(database))
+
+  it('applies the operator statistics to the schema', () => {
+    const { applied, completed, skipped } = useOperatorStatistics()
+    console.log(
+      `operator statistics (${OPERATOR_STATISTICS_CAPTURED_AT}): ${applied} rows applied, ` +
+        `${completed} completed for indexes the capture predates, ` +
+        `${skipped.length} name an index the schema no longer has: ${skipped.join(', ')}`,
+    )
+    // A fixture that applies nothing plans on the defaults and passes.
+    expect(applied).toBeGreaterThan(100)
+    // Only the indexes dev/mw added after the capture are completed (POD-7118).
+    expect(completed).toBeLessThan(15)
+  })
+
+  it(
+    'reads no IS NULL filter through an index that holds the NULLs, under either picture',
+    () => {
+      const columns = mostlyNull()
+      // A census that found no soft-delete column would find no walk.
+      expect([...columns]).toEqual(
+        expect.arrayContaining(['sessions.deleted_at', 'issues.deleted_at', 'effects.deleted_at']),
+      )
+      const walksOf = (audited: readonly AuditedStatement[]) =>
+        audited.flatMap((entry) =>
+          nullWalks(entry.plan, entry.statement.sql, columns).map(
+            (detail) => `${named(entry)}: ${detail}`,
+          ),
+        )
+      const { modelled, operator } = bothPictures()
+      const modelledWalks = walksOf(modelled)
+      const operatorWalks = walksOf(operator)
+      for (const walk of modelledWalks) console.log(`NULL WALK (modelled) ${walk}`)
+      for (const walk of operatorWalks) console.log(`NULL WALK (operator statistics) ${walk}`)
+      expect(modelledWalks).toEqual([])
+      expect(operatorWalks).toEqual([])
+    },
+    PICTURES_TIMEOUT_MS,
+  )
+
+  /** A finding as the lists decide it: a scan by the table it reads, any sort as one. */
+  const findingClass = (finding: PlanFinding): string =>
+    finding.kind === 'scan' ? `scan ${finding.table}` : 'sort'
+
+  /**
+   * Plans read under the operator statistics that no list above was written
+   * for, keyed `file:name [shape]` or `file:name`, with the reason. An entry on
+   * those lists explains only the findings its statement has in the modelled
+   * picture: a list entry written about a sort of a few rows does not accept a
+   * scan the same statement takes at 512 ids.
+   */
+  const OPERATOR_PLANS: ReadonlyMap<string, string> = new Map<string, string>([
+    [
+      'apps/server/src/store/sessions.ts:readAtOfUser',
+      "One person's read times of every session: on a server with one member every row is theirs, so the scan reads the rows the seek on the (user_id, session_id) key would; with more members the statistics give fewer rows a person and it seeks.",
+    ],
+    [
+      'apps/server/src/store/issue-panel.ts:statePage [start]',
+      "The first keyset page of the issue state panels walks their primary key in order and stops at the page size, probing each row's issue; the other panel pages walk the same way (a whole-table read, listed above).",
+    ],
+    [
+      'apps/server/src/store/issue-panel.ts:artifactPage [start]',
+      "POD-7118: with both keys led by the workspace, the first artifact page joins from the workspace's live issues (the covering projection index) and sorts the artifacts it finds, rather than walking the artifacts' key to the page size; it reads at most every live issue once, and the pages after it seek below their position.",
+    ],
+    [
+      'apps/server/src/store/sessions.ts:liveSessionsOfIssueIds [512]',
+      "POD-7118: at 512 issues the statistics' seven sessions an issue come to half the operator's sessions, so the planner reads the workspace's sessions in key order once instead of seeking 512 times; smaller lists seek idx_sessions_issue.",
+    ],
+    [
+      'apps/server/src/store/sessions.ts:refBackfillCandidates',
+      "The boot ref backfill's third arm walks the partial index idx_sessions_refless_issue, which holds only the ref-less sessions with an issue (none on the operator's server), and sorts the few candidates it finds (POD-6222).",
+    ],
+  ])
+
+  /** The finding classes of each statement key in the modelled picture. */
+  const modelledFindings = (): Map<string, Set<string>> => {
+    const out = new Map<string, Set<string>>()
+    for (const entry of bothPictures().modelled) {
+      const classes = out.get(entry.key) ?? new Set<string>()
+      for (const finding of entry.findings) classes.add(findingClass(finding))
+      out.set(entry.key, classes)
+    }
+    return out
+  }
+
+  /** Each table the operator's statistics describe, by its row count there. */
+  const operatorRows = (): Map<string, number> => {
+    const rows = new Map<string, number>()
+    for (const [table, , stat] of OPERATOR_PLANNER_STATISTICS) {
+      rows.set(table, Math.max(rows.get(table) ?? 0, Number(stat.split(' ')[0])))
+    }
+    return rows
+  }
+
+  /** The IN-list size a shape names: its largest number, if any. */
+  const listSize = (shape: string | number | undefined): number | undefined => {
+    if (typeof shape === 'number') return shape
+    const sizes = (shape ?? '').match(/\d+/g)?.map(Number) ?? []
+    return sizes.length > 0 ? Math.max(...sizes) : undefined
+  }
+
+  /**
+   * Why a plan under the operator statistics is accepted, or undefined.
+   *
+   * - A table their statistics do not describe is below the analysis floor on
+   *   the operator's server (`PLANNER_STATISTICS_ROW_FLOOR`): the planner sizes
+   *   it as it is, here a few planted rows, so its scans are judged by the
+   *   modelled picture alone.
+   * - A list entry explains only the findings its statement has in the
+   *   modelled picture.
+   * - A scan at an IN-list size of at least a quarter of the table's rows reads
+   *   at most four rows for each asked: the planner's choice while the table is
+   *   that small, and it seeks again as the table grows. A per-key estimate
+   *   that only looks large (a few common values, or NULLs counted as values)
+   *   is not this: its list is a small share of the table, and the statement
+   *   names its index.
+   */
+  const operatorExplanation = (
+    entry: AuditedStatement,
+    modelled: ReadonlyMap<string, ReadonlySet<string>>,
+    rows: ReadonlyMap<string, number>,
+  ): string | undefined => {
+    const own = OPERATOR_PLANS.get(named(entry)) ?? OPERATOR_PLANS.get(entry.key)
+    if (own !== undefined) return own
+    const reason = explanation(entry)
+    const known = modelled.get(entry.key) ?? new Set<string>()
+    const size = listSize(entry.shape)
+    const accepted = (finding: PlanFinding): boolean => {
+      if (finding.kind === 'scan' && !rows.has(finding.table!)) return true
+      if (reason === 'small tables only') return true
+      if (reason !== undefined && known.has(findingClass(finding))) return true
+      return finding.kind === 'scan' && size !== undefined && size * 4 >= rows.get(finding.table!)!
+    }
+    return entry.findings.every(accepted) ? (reason ?? 'a list a quarter of the table') : undefined
+  }
+
+  it(
+    'finds no unexplained scan or sort under them, at every IN-list size',
+    () => {
+      const modelled = modelledFindings()
+      const rows = operatorRows()
+      const audited = bothPictures().operator
+      const flagged = audited.filter((entry) => entry.findings.length > 0)
+      const unexplained = flagged.filter(
+        (entry) => operatorExplanation(entry, modelled, rows) === undefined,
+      )
+      console.log(
+        `query-plan audit under the operator statistics: ${audited.length} statements, ` +
+          `${flagged.length} scan or sort, ${unexplained.length} unexplained`,
+      )
+      for (const entry of unexplained) {
+        console.log(`UNEXPLAINED (operator) ${describeEntry(entry)}`)
+      }
+      expect(unexplained.map(named)).toEqual([])
+      // No stale entry: each names a statement that scans or sorts under them.
+      const flaggedNames = new Set(flagged.flatMap((entry) => [entry.key, named(entry)]))
+      expect([...OPERATOR_PLANS.keys()].filter((key) => !flaggedNames.has(key))).toEqual([])
+      for (const reason of OPERATOR_PLANS.values()) {
+        expect(reason.trim().length).toBeGreaterThan(20)
+      }
+    },
+    PICTURES_TIMEOUT_MS,
+  )
+
+  it('is armed: an IN list flips to an IS NULL walk at 16 ids through an index that holds the NULLs', () => {
+    // `idx_sessions_deleted_by_issue` is still a full index over a mostly-NULL
+    // column (6941 rows, 17 a key): what the soft-delete indexes were. No
+    // statement filters it IS NULL; this one does, to show the flip.
+    useOperatorStatistics()
+    const planted = (size: number) =>
+      `SELECT * FROM sessions WHERE workspace_id = ? AND spawned_by IN (${Array.from({ length: size }, () => '?').join(', ')}) AND deleted_by_issue_id IS NULL`
+    const columns = new Set(['sessions.deleted_by_issue_id'])
+    const walks = (size: number) =>
+      nullWalks(explain(database, { sql: planted(size), params: size + 1 }), planted(size), columns)
+    expect(walks(1)).toEqual([])
+    expect(walks(16)).toEqual([
+      'SEARCH sessions USING INDEX idx_sessions_deleted_by_issue (workspace_id=? AND deleted_by_issue_id=?)',
+    ])
+    // An equality on a value is a seek, not a walk; a range is never one.
+    expect(
+      nullWalks(
+        ['SEARCH sessions USING INDEX idx_sessions_spawned_by (spawned_by=?)'],
+        'SELECT * FROM sessions WHERE spawned_by IN (?) AND deleted_at IS NULL',
+      ),
+    ).toEqual([])
+    expect(
+      nullWalks(
+        ['SEARCH sessions USING INDEX idx_sessions_tombstones (deleted_at<?)'],
+        'SELECT id FROM sessions WHERE deleted_at < ?',
+      ),
+    ).toEqual([])
+    // A column the statement also compares to a value is a seek on that value.
+    expect(
+      nullWalks(
+        ['SEARCH issues USING INDEX idx_issues_children (parent_id=?)'],
+        'SELECT * FROM issues WHERE parent_id = ? AND deleted_at IS NULL',
+      ),
+    ).toEqual([])
+  })
+
+  it('plans each IN-list family at every padded size up to its largest', () => {
+    expect(paddedSizes(512)).toEqual([1, 2, 4, 8, 16, 32, 64, 128, 256, 512])
+    expect(paddedSizes(8)).toEqual([1, 2, 4, 8])
+    for (const key of LARGEST_IN_LIST.keys()) expect(FAMILY_SHAPES.get(key), key).toBe(SIZES)
+    // A sized key extends a family's audited shapes, so it covers them.
+    for (const [key, shapes] of SIZED_KEY_SHAPES) {
+      expect(shapes, key).toEqual(expect.arrayContaining([...(FAMILY_SHAPES.get(key) ?? [''])]))
     }
   })
 })

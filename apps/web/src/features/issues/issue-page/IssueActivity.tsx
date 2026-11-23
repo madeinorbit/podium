@@ -38,6 +38,7 @@ import {
   type IssueEventIcon,
   type IssueEventLine,
 } from '@podium/client-core/values'
+import { ISSUE_ASSISTANT_KIND } from '@podium/client-core/spawn-agent'
 import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
 import type { IssueId } from '@podium/model'
 import {
@@ -58,15 +59,21 @@ import {
   Unlock,
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
-import type { IssueViewModel } from '@/app/store'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { IssueWithBodies } from '@/app/store'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
+import { memberMentions } from '@/lib/at-mention/mention-sources'
+import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
+import { useMemberRoster } from '@/lib/member-roster'
 import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
 import type { IssueMailMessage, IssuePageCommands } from '../issue-page-commands'
 import { MACHINE_LABEL, SectionHeading } from './chrome'
 import { IssueAge, IssueDayLabel } from './IssueAge'
+import { type MemberNamer, personName } from './issue-provenance'
 
 /** Agent mail addressed to this issue (issue #103) — durable messages other
  *  agents sent to whoever works it. Read-only operator view; listing here never
@@ -170,13 +177,40 @@ const ActivityEvent = observer(function ActivityEvent({
         )}
       />
       <Icon size={12} aria-hidden="true" className="shrink-0 opacity-70" />
-      <span className="min-w-0 flex-1 break-words">{line.text}</span>
+      <span className="min-w-0 flex-1 break-words">
+        {line.members ? <EventLineText line={line} /> : line.text}
+      </span>
       <span className="shrink-0 font-mono shell-type-micro tabular-nums" title={eventStamp(ts)}>
         {eventClock(ts)}
       </span>
     </div>
   )
 })
+
+/**
+ * A line that names members (POD-6295): who reassigned or revised, and for a
+ * reassignment from whom to whom, by their display names.
+ */
+const EventLineText = observer(function EventLineText({
+  line,
+}: {
+  line: IssueEventLine
+}): JSX.Element {
+  const roster = useMemberRoster()
+  const nameOf = (id: string) => roster?.nameOf(id)
+  return <>{eventLineSentence(line, nameOf)}</>
+})
+
+/** The sentence for a line with members, e.g. `Bob reassigned from Alice to Carol`. */
+export function eventLineSentence(line: IssueEventLine, nameOf?: MemberNamer): string {
+  const m = line.members ?? {}
+  const name = (id: string | undefined) => (id ? personName(id, nameOf) : undefined)
+  const by = name(m.by)
+  const from = name(m.from)
+  const to = name(m.to)
+  const verb = by ? `${by} ${line.text}` : line.text.charAt(0).toUpperCase() + line.text.slice(1)
+  return [verb, from && `from ${from}`, to && `to ${to}`].filter(Boolean).join(' ')
+}
 
 /** A collapsed run of minor events — one line, opened in place. */
 const ActivityRollupRow = observer(function ActivityRollupRow({
@@ -252,18 +286,53 @@ const ActivityRollupRow = observer(function ActivityRollupRow({
  * synthesis A3 forbids. See the ledger for the upstream that would supply it.
  */
 const ActivityComment = observer(function ActivityComment({
-  author,
-  body,
-  ts,
+  entry,
+  busy,
+  onEdit,
 }: {
-  author: string
-  body: string
-  ts: string
+  entry: Extract<ActivityEntry, { kind: 'comment' }>
+  busy: boolean
+  /** Save an edit of this comment; drawn only where the server said the
+   *  reader may (`mayEdit`: their own comments, POD-6295). */
+  onEdit?: (commentId: string, body: string) => void
 }): JSX.Element {
+  const { author, body, ts, commentId, mayEdit, editedAt, editedBy } = entry
+  const [draft, setDraft] = useState<string | null>(null)
+  const roster = useMemberRoster()
+  const editable = mayEdit === true && commentId !== undefined && onEdit !== undefined
+  const save = (): void => {
+    const text = draft?.trim()
+    if (text && text !== body && commentId) onEdit?.(commentId, text)
+    setDraft(null)
+  }
   return (
-    <div className="my-2 ml-[5px] rounded-lg border border-border bg-card px-3 py-2">
+    <div
+      className="group/comment my-2 ml-[5px] rounded-lg border border-border bg-card px-3 py-2"
+      data-testid="activity-comment"
+      // A notice that mentions you opens the task scrolled to this card (POD-6881).
+      data-comment-id={commentId}
+    >
       <div className="mb-1 flex items-center gap-2">
         <span className="font-medium text-[11.5px] text-foreground">{author}</span>
+        {editedAt && (
+          <span className="text-[11px] text-text-faint" data-testid="comment-edited">
+            edited
+            {editedBy ? ` by ${personName(editedBy, (id) => roster?.nameOf(id))}` : ''}
+          </span>
+        )}
+        {editable && draft === null && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            className="h-5 px-1.5 text-[11px] text-text-faint opacity-0 focus-visible:opacity-100 group-hover/comment:opacity-100"
+            onClick={() => setDraft(body)}
+            data-testid="comment-edit"
+          >
+            Edit
+          </Button>
+        )}
         <span
           className="ml-auto shrink-0 font-mono shell-type-micro text-text-faint tabular-nums"
           title={eventStamp(ts)}
@@ -271,17 +340,56 @@ const ActivityComment = observer(function ActivityComment({
           {eventClock(ts)}
         </span>
       </div>
-      <p className="whitespace-pre-wrap break-words text-[13.5px] text-muted-foreground leading-[1.6]">
-        {body}
-      </p>
+      {draft !== null ? (
+        <div className="flex flex-col gap-2">
+          <Textarea
+            value={draft}
+            aria-label="Edit comment"
+            autoFocus
+            className="min-h-[64px] text-[13.5px]"
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault()
+                save()
+              } else if (e.key === 'Escape') {
+                e.preventDefault()
+                setDraft(null)
+              }
+            }}
+          />
+          <div className="flex justify-end gap-2">
+            <Button type="button" size="sm" variant="ghost" onClick={() => setDraft(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy || !draft.trim()}
+              onClick={save}
+              data-testid="comment-save"
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <p className="whitespace-pre-wrap break-words text-[13.5px] text-muted-foreground leading-[1.6]">
+          {body}
+        </p>
+      )}
     </div>
   )
 })
 
 const ActivityEntryRow = observer(function ActivityEntryRow({
   entry,
+  busy,
+  onEditComment,
 }: {
   entry: ActivityEntry
+  busy: boolean
+  onEditComment?: (commentId: string, body: string) => void
 }): JSX.Element | null {
   if (entry.kind === 'rollup') {
     return (
@@ -295,7 +403,13 @@ const ActivityEntryRow = observer(function ActivityEntryRow({
     )
   }
   if (entry.kind === 'comment') {
-    return <ActivityComment author={entry.author} body={entry.body} ts={entry.ts} />
+    return (
+      <ActivityComment
+        entry={entry}
+        busy={busy}
+        {...(onEditComment ? { onEdit: onEditComment } : {})}
+      />
+    )
   }
   return <ActivityEvent line={entry.line} ts={entry.ts} />
 })
@@ -336,19 +450,52 @@ const DayDivider = observer(function DayDivider({ label }: { label: ReactNode })
 })
 
 /** The activity section: assistant note, then the day-grouped feed. */
+/**
+ * Refresh the assistant's notes: an `issue.assistant` record (POD-6526). While
+ * one runs, asked from this device or another, the button spins and waits.
+ */
+const AssistantRefresh = observer(function AssistantRefresh({
+  issueId,
+  busy,
+  onRefresh,
+}: {
+  issueId: string
+  busy: boolean
+  onRefresh: () => void
+}): JSX.Element {
+  const pool = useWorklistPool()
+  const refreshing = pool?.issueObject(issueId).workPending === ISSUE_ASSISTANT_KIND
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      title={refreshing ? 'Refreshing AI notes…' : 'Refresh AI notes'}
+      aria-label="Refresh AI notes"
+      aria-busy={refreshing}
+      disabled={busy || refreshing}
+      onClick={onRefresh}
+    >
+      <RefreshCw size={13} aria-hidden="true" className={refreshing ? 'animate-spin' : undefined} />
+    </Button>
+  )
+})
+
 export const IssueActivitySection = observer(function IssueActivitySection({
   issue,
   busy,
   commands,
   feed,
   history,
+  onEditComment,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssuePageCommands
   feed: ActivityItem[]
   revision?: number
   history?: IssueHistoryView
+  onEditComment?: (commentId: string, body: string) => void
 }): JSX.Element {
   // Days are derived per render against a coarse clock: the only thing `now`
   // decides is whether a group says "Today", so re-deriving on a timer would
@@ -358,17 +505,11 @@ export const IssueActivitySection = observer(function IssueActivitySection({
     <section className="group/section flex flex-col gap-2">
       <SectionHeading
         action={
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            title="Refresh AI notes"
-            aria-label="Refresh AI notes"
-            disabled={busy}
-            onClick={commands.refreshAssistant}
-          >
-            <RefreshCw size={13} aria-hidden="true" />
-          </Button>
+          <AssistantRefresh
+            issueId={issue.id}
+            busy={busy}
+            onRefresh={commands.refreshAssistant}
+          />
         }
       >
         Activity
@@ -399,9 +540,16 @@ export const IssueActivitySection = observer(function IssueActivitySection({
         <div data-testid="activity-feed">
           {days.map((day) => (
             <div key={day.key}>
-              <DayDivider label={<IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} />} />
+              <DayDivider
+                label={<IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} />}
+              />
               {day.entries.map((entry) => (
-                <ActivityEntryRow key={entry.id} entry={entry} />
+                <ActivityEntryRow
+                  key={entry.id}
+                  entry={entry}
+                  busy={busy}
+                  {...(onEditComment ? { onEditComment } : {})}
+                />
               ))}
             </div>
           ))}
@@ -441,6 +589,18 @@ export const CommentComposer = observer(function CommentComposer({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => setFocused(false), [issueId])
   const active = focused || value.trim().length > 0
+  // @NAME COMPLETION (POD-6881): the members who can see this task, which is
+  // every active member (design §2.2). The completed `@Display Name` is what
+  // the server matches when the comment is written, and that member is told.
+  const taRef = useRef<HTMLTextAreaElement | null>(null)
+  const roster = useMemberRoster(true)
+  const trigger = useAtTrigger({ taRef, enabled: !busy })
+  const members = roster?.members
+  const options = useMemo(
+    () => (trigger.query === null ? [] : memberMentions(members ?? [], trigger.query, 8)),
+    [members, trigger.query],
+  )
+  const mention = useAtMenu({ trigger, taRef, value, onChange, options })
   return (
     // RECEDES UNTIL USED (POD-635). Pinned chrome that is always on screen and
     // asks for nothing should not draw a full-contrast field: at rest this is a
@@ -448,10 +608,12 @@ export const CommentComposer = observer(function CommentComposer({
     // taller box — arrives on focus. The band keeps a hairline and a whisper of
     // fill because the document scrolls UNDER it and needs somewhere to stop.
     <div className="flex-none border-border/35 border-t bg-card/15 px-6 py-2.5 md:px-10">
-      <div className="mx-auto flex w-full max-w-[54rem] items-end gap-2">
+      <div className="relative mx-auto flex w-full max-w-[54rem] items-end gap-2">
+        <AtMentionMenu mention={mention} hint="↑↓ to move · ↵ to insert · esc to dismiss" />
         <Textarea
+          ref={taRef}
           value={value}
-          placeholder="Comment, or @mention an agent on this task…"
+          placeholder="Comment, or @mention someone on this task…"
           aria-label="Add a comment"
           disabled={busy}
           className={cn(
@@ -463,8 +625,14 @@ export const CommentComposer = observer(function CommentComposer({
           )}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            onChange(e.target.value)
+            trigger.sync()
+          }}
+          onSelect={() => trigger.sync()}
           onKeyDown={(e) => {
+            // The @ menu takes the keys it uses while it is open.
+            if (mention.onKeyDown(e)) return
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && value.trim()) {
               e.preventDefault()
               onPost()

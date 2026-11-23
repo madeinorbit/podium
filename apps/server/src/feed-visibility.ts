@@ -1,20 +1,18 @@
-import { readIssue, readIssues } from './modules/issues/issue-reader'
+import { readIssue, readIssueAccess, readIssues } from './modules/issues/issue-reader'
 /**
  * THE FEED'S VISIBILITY POLICY (POD-418).
  *
  * Moved out of the composition root verbatim — LOGIC UNCHANGED. This is the
  * implementation of two ports the sync kernel already declares,
- * {@link VisibilityStatePort} and {@link VisibilityAnchorPort}, plus the
- * per-bootstrap read tracing the perf registry wants from around them. The root
- * used to hold all three inline, which made ~300 lines of *policy* — who may
- * read which row, and how few queries it takes to answer — live inside a
- * constructor whose entire claim is that it decides nothing and only wires.
+ * {@link VisibilityStatePort} and {@link VisibilityAnchorPort}. The root used
+ * to hold them inline, which made ~300 lines of *policy* — who may read which
+ * row, and how few queries it takes to answer — live inside a constructor whose
+ * entire claim is that it decides nothing and only wires.
  *
- * It is one job with one piece of protected state: `traces` is the stack a
- * bootstrap pushes so every store read it causes is attributed to a phase. It
- * does not escape this module, and nothing here reaches back into a service —
- * the whole surface is store reads. Since POD-6156 nothing here holds rows
- * either: the anchor port reads the rows a batch names from the database.
+ * Nothing here reaches back into a service — the whole surface is store reads —
+ * and since POD-6156 nothing here holds rows: the anchor port reads the rows a
+ * batch names from the database. (The per-bootstrap read tracing that once
+ * lived here lost its caller with the legacy sync paths and was removed.)
  *
  * WHY IT ALSO REPAIRED THE CONSTRUCTION-ORDER GATE. `forBootstrap` declares a
  * local `const issues` for the prefetched issue rows. Inside the root that name
@@ -28,59 +26,72 @@ import { readIssue, readIssues } from './modules/issues/issue-reader'
 
 import {
   asIssueId,
-  asUserId,
   canonicalShippingDestination,
+  checkoutRowId,
+  ISSUE_BODY_KINDS,
+  ISSUE_PANEL_KINDS,
+  type IssueExecutionFacts,
   type IssueId,
-  issueDepFromPrefix,
+  isIssueBodyKind,
+  isIssuePanelKind,
+  issueDepId,
+  issueEventRowId,
+  issueExecutionAccess,
+  issueExecutionSessionIds,
+  type MachineId,
+  parseCheckoutRowId,
   parseInteractionRowId,
   parseIssueDepId,
   parseIssueEventRowId,
   parseIssueUserStateRowId,
   parseLayoutRowId,
+  parseMachineAccessRowId,
+  parseNoticeRowId,
   parseMessageRecordRowId,
+  parsePinRowId,
   parseReadPositionRowId,
   parseSessionUserStateRowId,
-  type RepoId,
+  parseSubscriptionRowId,
+  parseSuperagentThreadRowId,
+  parseTabOrderRowId,
+  parseUserPreferencesRowId,
+  parseWorkflowBindingRowId,
   shipLaneId,
   type UserId,
+  withoutHiddenEventFields,
+  withoutHiddenExecutionFields,
 } from '@podium/model'
-import type { Principal } from '@podium/protocol'
+import type { MetadataEntityKind } from '@podium/protocol'
 import type {
+  AnchorRef,
   EntityRef,
   VisibilityAnchorPort,
   VisibilityEdge,
   VisibilityStatePort,
 } from '@podium/sync'
-import type { FeedVisibilityStore, GrantRow, IssueRow, SessionRow } from './hot-path-ports'
-import { perfPrincipal } from './modules/perf/principal'
-import { perf } from './modules/perf/registry'
-
-/**
- * The store reads a feed bootstrap can cause, named so each is separately
- * attributable. These are the strings `feedBootstrap.<phase>` is built from —
- * renaming one renames a perf series.
- */
-type BootstrapReadPhase =
-  | 'visibility.issue.getIssue'
-  | 'visibility.session.getSession'
-  | 'visibility.conversation.findSessionByResumeValue'
-  | 'visibility.automation.ownerOf'
-  | 'visibility.automationRun.runOwnerOf'
-  | 'visibility.shipOrder.issueIdForOrder'
-  | 'visibility.shipLane.memberIssueIds'
-  | 'visibility.grants.listForResources'
-
-interface BootstrapReadTrace {
-  readonly phases: Map<BootstrapReadPhase, number>
-}
+import { type CheckoutReach, checkoutReaders, covers } from './checkout-reach'
+import type {
+  EffectAudience,
+  FeedVisibilityStore,
+  GrantRow,
+  IssueAccessRow,
+  IssueRow,
+  SessionRow,
+  WorkflowVisibilityFacts,
+} from './hot-path-ports'
+import { FEED_WINDOW } from './modules/issue-events/feed'
+import { custodianFromEdges, executionPointersOf } from './modules/issues/execution-visibility'
+import { INSTANCE_EFFECT_KINDS } from './modules/operations/instance-effect-kinds'
 
 /**
  * Rows the bootstrap pass already fetched in bulk. Present only on the state
  * built for one serving pass; the root port has none and fails closed.
  */
 type BootstrapVisibilityPrefetch = {
+  readonly panelParents: ReadonlyMap<string, string>
   readonly issueIds: ReadonlySet<string>
-  readonly issues: ReadonlyMap<string, IssueRow>
+  /** What the sharing rules read of each issue, never its bodies (POD-7153). */
+  readonly issues: ReadonlyMap<string, IssueAccessRow>
   readonly shipOrderIds: ReadonlySet<string>
   readonly issueIdsByShipOrder: ReadonlyMap<string, string>
   /** POD-4974 O2: each prefetched lane's member issues, read from the lane's
@@ -94,12 +105,48 @@ type BootstrapVisibilityPrefetch = {
   /** Grant edges for this pass, one grouped read per resource kind.
    * ID sets distinguish an empty answer from an unprepared ref.
    */
-  readonly issueGrants: ReadonlyMap<string, readonly GrantRow[]>
-  readonly sessionGrants: ReadonlyMap<string, readonly GrantRow[]>
+  /** The custodian of every machine a prepared task is homed on (POD-6288);
+   *  absent = nobody holds custody. Issue grants are no longer read: they
+   *  decide nothing about a task. */
+  readonly machineCustodians: ReadonlyMap<string, UserId>
+  /** For each machine a `checkout` in the batch is on, the members holding
+   *  `use` there (POD-6644): an explicit use edge while somebody holds custody. */
+  readonly machineUsers: ReadonlyMap<string, ReadonlySet<string>>
+  /** For each such machine, the members who may MANAGE it: a manage edge
+   *  while somebody holds custody, and the instance's admins (ADR 9). */
+  readonly machineManagers: ReadonlyMap<string, ReadonlySet<string>>
+  /** The registered root paths of those machines: a root (unlike a worktree)
+   *  is readable with MANAGE as well as USE (POD-6644, coordinator decision). */
+  readonly checkoutRoots: ReadonlyMap<string, ReadonlySet<string>>
   readonly automationIds: ReadonlySet<string>
   readonly automationOwners: ReadonlyMap<string, UserId | undefined>
   readonly automationRunIds: ReadonlySet<string>
   readonly automationRunOwners: ReadonlyMap<string, UserId | undefined>
+  /** Each asked effect's creator and target, through the tombstone (POD-6357). */
+  readonly effectAudiences: ReadonlyMap<string, EffectAudience>
+  /** The admins who can act, read only when an instance-wide effect is asked (POD-6358). */
+  readonly adminIds: ReadonlySet<string>
+  /** The owners the workflow kinds are decided by (POD-6676), every asked id
+   *  present when it has a row. */
+  readonly workflowFacts: WorkflowVisibilityFacts
+  /** `user\0kind\0id` for every READ grant on an asked workflow-family row. */
+  readonly workflowReadGrants: ReadonlySet<string>
+  /** The active admins, read only when a workflow-family row is asked: an admin
+   *  reads every one, as `workflowDecision`'s last arm. */
+  readonly workflowAdminIds: ReadonlySet<string>
+}
+
+/** The ownership entity a workflow is decided as: a global one is a library
+ *  entry (`WorkflowAccess.entityFor`). */
+const workflowEntityKind = (scope: string): 'workflow-library-entry' | 'workflow-definition' =>
+  scope === 'global' ? 'workflow-library-entry' : 'workflow-definition'
+
+/** A pass with no workflow-family row reads none of their facts. */
+const NO_WORKFLOW_FACTS: WorkflowVisibilityFacts = {
+  workflows: new Map(),
+  revisions: new Map(),
+  bindings: new Map(),
+  runs: new Map(),
 }
 
 type IssueDepSubject = {
@@ -117,6 +164,16 @@ type ShipLaneSubject = {
   entityId: string
 }
 
+type EffectSubject = {
+  entity: 'effect'
+  entityId: string
+}
+
+type IssueEventSubject = {
+  entity: 'issueEvent'
+  entityId: string
+}
+
 /** The store surface this policy reads. Nothing here writes. */
 export interface FeedVisibilityDeps {
   readonly store: FeedVisibilityStore
@@ -129,29 +186,22 @@ export interface FeedVisibilityDeps {
   ) => Promise<ReadonlyMap<string, readonly string[]>>
   readonly authorizationRevision: () => Promise<number>
   /**
-   * The `issueEvent` rows the feed currently carries for one issue (POD-1772).
-   *
-   * An issue's audience changes by a grant, and every row that rides that
-   * audience has to be re-scoped with it — otherwise a new reader gets the issue
-   * and none of its history. The publisher answers this from its in-memory
-   * window, so the anchor costs no query; it is a FUNCTION because the publisher
-   * needs the ledger this policy is constructed before.
-   *
-   * Omitted in tests that predate the kind: no rows, no subjects.
+   * These records as the database holds them now: the record builders'
+   * `build(ids)` (POD-6770). The sharing rules re-send current values from
+   * it; nothing here reads the stored copy of the last published value.
    */
-  readonly issueEventSubjects?: (issueId: IssueId) => { entity: 'issueEvent'; entityId: string }[]
+  readonly currentRecords: (
+    kind: MetadataEntityKind,
+    ids: readonly string[],
+  ) => Promise<readonly { readonly id: string; readonly value: unknown }[]>
 }
 
-/** What the composition root names: two ports plus the tracing bracket. */
+/** What the composition root names: two ports and two shared answers. */
 export interface FeedVisibility {
   /** The kernel's state port — what `GrantEdgeVisibilityPolicy` is built over. */
   readonly state: VisibilityStatePort
   /** The kernel's anchor port — what the `Ledger` scopes issue fan-out with. */
   readonly anchors: VisibilityAnchorPort
-  /** Open a read-attribution frame for one bootstrap. */
-  readonly beginBootstrapRead: () => void
-  /** Close it and record every phase it accumulated against `principal`. */
-  readonly finishBootstrapRead: (principal: Principal) => void
   /** Authority signal for mutations that can change a scoped answer without
    * moving the change-log head (notably a same-value issue upsert beside a grant
    * revoke). Long-lived world caches validate this as well as the head. */
@@ -167,75 +217,94 @@ export interface FeedVisibility {
 export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   const { store } = deps
 
-  const traces: BootstrapReadTrace[] = []
-  const measure = async <T>(phase: BootstrapReadPhase, fn: () => T | Promise<T>): Promise<T> => {
-    const trace = traces[traces.length - 1]
-    if (trace === undefined) return await fn()
-    const startedAt = performance.now()
-    try {
-      return await fn()
-    } finally {
-      trace.phases.set(phase, (trace.phases.get(phase) ?? 0) + (performance.now() - startedAt))
-    }
-  }
-  const beginBootstrapRead = (): void => {
-    traces.push({ phases: new Map() })
-  }
-  const finishBootstrapRead = (principal: Principal): void => {
-    const trace = traces.pop()
-    if (trace === undefined) return
-    const perfKey = perfPrincipal(principal)
-    for (const [phase, durationMs] of trace.phases) {
-      perf.record('phase', `feedBootstrap.${phase}`, durationMs, perfKey)
-    }
-  }
-
-  const issueGrantAdmits = (edge: GrantRow, userId: string): boolean =>
-    edge.grantee === userId &&
-    (edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-  const sessionGrantAdmits = (edge: GrantRow, userId: string): boolean =>
-    edge.grantee === userId && edge.verb === 'read'
-  const mayReadIssue = async (userId: UserId, issueId: IssueId): Promise<boolean> => {
+  /**
+   * MAY THIS PERSON READ THIS TASK: yes, for every task that exists (design
+   * §2.2, D4; POD-6288). Tasks are shared; issue grants are inert history and
+   * decide nothing. The person is an authenticated member: the feed serves no
+   * other human. The command layer decides the same question the same way
+   * (`IssueCommandCtx.mayReadIssue`, `checkIssueAccess`), so the two never
+   * disagree. What a reader may NOT receive of a task, its execution-private
+   * fields, is `shapeFor`'s business, not this one's.
+   */
+  const mayReadIssue = async (_userId: UserId, issueId: IssueId): Promise<boolean> => {
     // The repository commit installs the owned row map before publication.
     // Open mutation spans still read their own writes through the live fallback.
-    const row = await measure(
-      'visibility.issue.getIssue',
-      async () => await readIssue(store.issues, issueId),
-    )
-    if (row?.ownerUserId === userId) return true
-    return (await store.grants.loadForResource('issue', issueId)).some((edge) =>
-      issueGrantAdmits(edge, userId),
-    )
+    const row = await readIssue(store.issues, issueId)
+    return row !== null
   }
 
   const mayReadIssueFromSnapshot = (
-    userId: string,
+    _userId: string,
     issueId: string,
     snapshot: BootstrapVisibilityPrefetch,
-  ): boolean => {
-    if (!snapshot.issueIds.has(issueId)) return false
-    if (snapshot.issues.get(issueId)?.ownerUserId === userId) return true
+  ): boolean => snapshot.issueIds.has(issueId) && snapshot.issues.has(issueId)
 
-    return (snapshot.issueGrants.get(issueId) ?? []).some((edge) => issueGrantAdmits(edge, userId))
+  /**
+   * MAY THIS PERSON READ THIS WORKFLOW-FAMILY ROW (POD-6676): today's read rule,
+   * `workflowDecision`'s, from one pass's facts. Its owner, a person holding an
+   * explicit read grant on it, or an admin; a row with no owner is the admins'
+   * alone (fail closed, ADR 9 D4). A revision is read as its workflow is.
+   * Workflow rows are never deleted (a workflow archives), so an absent row is
+   * denied.
+   */
+  const mayReadWorkflowRow = (
+    userId: string,
+    entity: 'workflow' | 'workflowRevision' | 'workflowBinding' | 'workflowRun',
+    id: string,
+    snapshot: BootstrapVisibilityPrefetch,
+  ): boolean => {
+    const facts = snapshot.workflowFacts
+    let owner: string | null | undefined
+    let grant: string
+    if (entity === 'workflow' || entity === 'workflowRevision') {
+      const found = entity === 'workflow' ? facts.workflows.get(id) : facts.revisions.get(id)
+      if (found === undefined) return false
+      owner = found.ownerUserId
+      const workflowId = 'workflowId' in found ? found.workflowId : id
+      grant = `${workflowEntityKind(found.scope)}\u0000${workflowId}`
+    } else if (entity === 'workflowBinding') {
+      if (!facts.bindings.has(id)) return false
+      owner = facts.bindings.get(id)
+      grant = `workflow-binding\u0000${id}`
+    } else {
+      if (!facts.runs.has(id)) return false
+      owner = facts.runs.get(id)
+      grant = `workflow-run\u0000${id}`
+    }
+    if (owner != null && owner === userId) return true
+    if (snapshot.workflowReadGrants.has(`${userId}\u0000${grant}`)) return true
+    return snapshot.workflowAdminIds.has(userId)
   }
 
+  /** The facts the execution-private rule reads for one prepared pass. */
+  const executionFactsOf = (snapshot: BootstrapVisibilityPrefetch): IssueExecutionFacts => ({
+    custodianOf: (machineId) => snapshot.machineCustodians.get(machineId) ?? null,
+    sessionOwnerOf: (sessionId) => {
+      const row = snapshot.sessions.get(sessionId)
+      return row === undefined ? undefined : (row.ownerUserId ?? null)
+    },
+  })
+
   const makeVisibilityState = (prefetch?: BootstrapVisibilityPrefetch): VisibilityStatePort => {
-    /** MAY THIS PERSON SEE THIS SESSION — owner, or a read grant on it.
+    /** MAY THIS PERSON SEE THIS SESSION — its owner only (design §2.3,
+     *  POD-6283). A legacy session grant is kept and has no effect.
      *
      *  Extracted (POD-2020) because `pendingInteraction` answers the same question
      *  about the session named in its row id, and two copies of a visibility rule
-     *  is one copy that eventually says yes when the other says no. The body is
-     *  the `session` arm's, unchanged, perf label included. */
+     *  is one copy that eventually says yes when the other says no. */
     const maySeeSession = (userId: string, sessionId: string): boolean => {
       if (!prefetch?.sessionIds.has(sessionId)) return false
-      if (prefetch.sessions.get(sessionId)?.ownerUserId === userId) return true
-      return (prefetch.sessionGrants.get(sessionId) ?? []).some((edge) =>
-        sessionGrantAdmits(edge, userId),
-      )
+      return prefetch.sessions.get(sessionId)?.ownerUserId === userId
     }
     return {
       classOf: (entity) => {
         if (entity === 'repo' || entity === 'machine') return 'deployment-substrate'
+        // Agent profiles are instance substrate (POD-6676, matrix row
+        // `agent-profiles`): every member reads every profile.
+        if (entity === 'agentProfile') return 'deployment-substrate'
+        // The instance settings (POD-6677): matrix row preferences-instance, every
+        // member of the instance reads them. Secrets are never on this record.
+        if (entity === 'instancePreferences') return 'deployment-substrate'
         // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
         // filter. Must NOT fall through to personal or unclassified.
         if (entity === 'userLayout') return 'per-user-state'
@@ -245,9 +314,22 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // avoid.
         if (entity === 'userReadPosition') return 'per-user-state'
         if (entity === 'issueUserState' || entity === 'sessionUserState') return 'per-user-state'
+        // Pins, tab orders and personal preferences (POD-6673): the owner's alone.
+        if (entity === 'pin' || entity === 'tabOrder' || entity === 'userPreferences') {
+          return 'per-user-state'
+        }
+        // A superagent thread (POD-6675): its owner's alone, as ADR 9 D8 S2 says.
+        if (entity === 'superagentThread') return 'per-user-state'
+        // A member's own access to a machine (POD-6644): their row alone.
+        if (entity === 'machineAccess') return 'per-user-state'
+        // A notice (POD-6881, spec §13): private to its recipient.
+        if (entity === 'inboxNotice') return 'per-user-state'
         if (
           entity === 'session' ||
           entity === 'issueProjection' ||
+          // An issue's brief and description (POD-6921): the issue's readers.
+          isIssueBodyKind(entity) ||
+          isIssuePanelKind(entity) ||
           entity === 'issueGitState' ||
           entity === 'issueDep' ||
           // A curated issue event (POD-1772). `personal` and NOT a class of its
@@ -269,17 +351,46 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           entity === 'shipLane' ||
           entity === 'conversation' ||
           entity === 'automation' ||
-          entity === 'automationRun'
+          entity === 'automationRun' ||
+          // A one-shot effect (POD-6357). `personal`: readable by its creator and
+          // by whoever may read its target, the `mayRead` arm below.
+          entity === 'effect' ||
+          // Workflows and trigger subscriptions (POD-6676): `personal`, decided by
+          // their owner (workflows) or their subscriber (subscriptions), below.
+          entity === 'workflow' ||
+          entity === 'workflowRevision' ||
+          entity === 'workflowBinding' ||
+          entity === 'workflowRun' ||
+          entity === 'subscription' ||
+          // A checkout on a machine (POD-6644): a registered root is readable
+          // with MANAGE or USE, a worktree only with USE (ADR 9), the
+          // `mayRead` arm below.
+          entity === 'checkout'
         )
           return 'personal'
         return null
       },
       mayRead: (userId, ref) => {
-        if (userId === 'device:shared-instance-password') return true
         // An unresolved root policy, or a ref outside this pass, denies. The
         // producer must prepare every ref before entering the synchronous loop.
         if (!prefetch) return false
-        if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
+        if (isIssuePanelKind(ref.entity)) {
+          const parent =
+            ref.entity === 'issuePanelState'
+              ? ref.entityId
+              : prefetch.panelParents.get(`${ref.entity}:${ref.entityId}`)
+          // Catch-up evaluates historical upserts too. With no current item
+          // or issue, only a payload-free remove may reach the reader.
+          if (parent === undefined || !prefetch.issues.has(parent)) {
+            return 'op' in ref && ref.op === 'remove'
+          }
+          return mayReadIssueFromSnapshot(userId, parent, prefetch)
+        }
+        if (
+          ref.entity === 'issueProjection' ||
+          isIssueBodyKind(ref.entity) ||
+          ref.entity === 'issueGitState'
+        ) {
           return mayReadIssueFromSnapshot(userId, ref.entityId, prefetch)
         }
         if (ref.entity === 'issueDep') {
@@ -331,14 +442,25 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           }
         }
         if (ref.entity === 'session') return maySeeSession(userId, ref.entityId)
+        if (ref.entity === 'checkout') {
+          try {
+            const { machineId, path } = parseCheckoutRowId(ref.entityId)
+            if (prefetch.machineUsers.get(machineId)?.has(userId) === true) return true
+            // A root is a MANAGE fact too. A checkout whose row is gone (a
+            // removal) is read as a worktree: USE only, never a path leak.
+            return (
+              prefetch.checkoutRoots.get(machineId)?.has(path) === true &&
+              prefetch.machineManagers.get(machineId)?.has(userId) === true
+            )
+          } catch {
+            return false
+          }
+        }
         if (ref.entity === 'conversation') {
           if (!prefetch.resumeValues.has(ref.entityId)) return false
           const row = prefetch.sessionsByResumeValue.get(ref.entityId)
-          if (!row) return false
-          if (row.ownerUserId === userId) return true
-          return (prefetch.sessionGrants.get(row.id) ?? []).some((edge) =>
-            sessionGrantAdmits(edge, userId),
-          )
+          // A conversation is its session's: the owner only (POD-6283).
+          return row?.ownerUserId === userId
         }
         if (ref.entity === 'automation') {
           return (
@@ -351,6 +473,45 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             prefetch.automationRunIds.has(ref.entityId) &&
             prefetch.automationRunOwners.get(ref.entityId) === userId
           )
+        }
+        if (ref.entity === 'effect') {
+          // Its creator, and the readers of what it acts on. A machine target
+          // admits the creator alone until the machine kinds define more.
+          const audience = prefetch.effectAudiences.get(ref.entityId)
+          if (audience === undefined) return false
+          // An instance-wide effect (a software update, a server move) is every
+          // admin's and no member's, even a member who started it as an admin.
+          if (INSTANCE_EFFECT_KINDS.has(audience.kind)) return prefetch.adminIds.has(userId)
+          if (audience.createdBy === userId) return true
+          // A gated record's people (POD-6674): an approval its owner may not
+          // run is routed to the admins who may, who may not read its target.
+          if (audience.deciders?.includes(userId as never) === true) return true
+          if (audience.targetKind === 'issue') {
+            return mayReadIssueFromSnapshot(userId, audience.targetId, prefetch)
+          }
+          if (audience.targetKind === 'session') return maySeeSession(userId, audience.targetId)
+          return false
+        }
+        if (ref.entity === 'subscription') {
+          // Its SUBSCRIBER's audience (design §1.11): a session's owner, or
+          // whoever may read the task (every member). Read from the id, so a
+          // removal is scoped like the row it removes.
+          try {
+            const { subscriberKind, subscriberId } = parseSubscriptionRowId(ref.entityId)
+            return subscriberKind === 'session'
+              ? maySeeSession(userId, subscriberId)
+              : mayReadIssueFromSnapshot(userId, subscriberId, prefetch)
+          } catch {
+            return false
+          }
+        }
+        if (
+          ref.entity === 'workflow' ||
+          ref.entity === 'workflowRevision' ||
+          ref.entity === 'workflowBinding' ||
+          ref.entity === 'workflowRun'
+        ) {
+          return mayReadWorkflowRow(userId, ref.entity, ref.entityId, prefetch)
         }
         // per-user-state is decided by keyedUserOf, not mayRead.
         return false
@@ -377,12 +538,89 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             return null
           }
         }
+        if (ref.entity === 'machineAccess') {
+          try {
+            return parseMachineAccessRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
+        if (ref.entity === 'pin' || ref.entity === 'tabOrder' || ref.entity === 'userPreferences') {
+          try {
+            if (ref.entity === 'pin') return parsePinRowId(ref.entityId).userId
+            if (ref.entity === 'tabOrder') return parseTabOrderRowId(ref.entityId).userId
+            return parseUserPreferencesRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
+        if (ref.entity === 'superagentThread') {
+          try {
+            return parseSuperagentThreadRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
+        if (ref.entity === 'inboxNotice') {
+          try {
+            return parseNoticeRowId(ref.entityId).userId
+          } catch {
+            return null
+          }
+        }
         if (ref.entity !== 'userLayout') return null
         try {
           return parseLayoutRowId(ref.entityId).userId
         } catch {
           return null
         }
+      },
+      /**
+       * A TASK AS THIS PERSON MAY RECEIVE IT (design §4.2, POD-6288): its
+       * worktree and machine only for the machine's custodian, its session
+       * pointers only for those sessions' owners. Everything else on the row
+       * is shared. Decided from this pass's prefetch, like `mayRead`.
+       */
+      shapeFor: (userId, ref, value) => {
+        if (!prefetch || value === null || typeof value !== 'object') return value
+        if (ref.entity === 'issueEvent') {
+          // A task event's payload by the same rule as the task's fields
+          // (POD-6291): `issue.started` names the worktree, `session_attached`
+          // a session. A session the pass did not read points at no person,
+          // so its id goes to the task's assignee alone.
+          let subject: string
+          try {
+            subject = parseIssueEventRowId(ref.entityId).subject
+          } catch {
+            return value
+          }
+          const row = prefetch.issues.get(subject)
+          if (!row) return value
+          const event = value as { kind?: unknown; payload?: unknown }
+          const kind = typeof event.kind === 'string' ? event.kind : ''
+          const payload = withoutHiddenEventFields(
+            kind,
+            event.payload,
+            issueExecutionAccess(userId, executionPointersOf(row), executionFactsOf(prefetch)),
+          )
+          return payload === event.payload ? value : { ...event, payload }
+        }
+        if (ref.entity === 'issuePanelArtifact') {
+          const parent = prefetch.panelParents.get(`${ref.entity}:${ref.entityId}`)
+          const row = parent ? prefetch.issues.get(parent) : undefined
+          if (!row) return undefined
+          return withoutHiddenExecutionFields(
+            { worktreePath: row.worktreePath ?? undefined, panel: { artifacts: [value] } },
+            issueExecutionAccess(userId, executionPointersOf(row), executionFactsOf(prefetch)),
+          ).panel.artifacts[0]
+        }
+        if (ref.entity !== 'issueProjection') return value
+        const row = prefetch.issues.get(ref.entityId)
+        if (!row) return value
+        return withoutHiddenExecutionFields(
+          value,
+          issueExecutionAccess(userId, executionPointersOf(row), executionFactsOf(prefetch)),
+        )
       },
       forBootstrap: (refs: readonly EntityRef[]) => prepareOver(refs),
       /**
@@ -416,14 +654,37 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
    */
   const prepareOver = async (refs: readonly EntityRef[]): Promise<VisibilityStatePort> => {
     const issueIds = new Set<string>()
+    const panelParents = new Map<string, string>()
+    for (const kind of ISSUE_PANEL_KINDS) {
+      const ids = refs.filter((ref) => ref.entity === kind).map((ref) => ref.entityId)
+      if (kind === 'issuePanelState') {
+        for (const id of ids) issueIds.add(id)
+        continue
+      }
+      for (const record of await store.issues.panel.getMany(kind, ids)) {
+        if (!('issueId' in record)) continue
+        panelParents.set(`${kind}:${record.id}`, record.issueId)
+        issueIds.add(record.issueId)
+      }
+    }
     const shipOrderIds = new Set<string>()
     const shipLaneIds = new Set<string>()
     const sessionIds = new Set<string>()
     const resumeValues = new Set<string>()
     const automationIds = new Set<string>()
     const automationRunIds = new Set<string>()
+    const effectIds = new Set<string>()
+    const workflowIds = new Set<string>()
+    const workflowRevisionIds = new Set<string>()
+    const workflowBindingIds = new Set<string>()
+    const workflowRunIds = new Set<string>()
+    const checkoutMachineIds = new Set<string>()
     for (const ref of refs) {
-      if (ref.entity === 'issueProjection' || ref.entity === 'issueGitState') {
+      if (
+        ref.entity === 'issueProjection' ||
+        isIssueBodyKind(ref.entity) ||
+        ref.entity === 'issueGitState'
+      ) {
         issueIds.add(ref.entityId)
       } else if (ref.entity === 'issueDep') {
         const dep = parseIssueDepId(ref.entityId)
@@ -463,90 +724,192 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         automationIds.add(ref.entityId)
       } else if (ref.entity === 'automationRun') {
         automationRunIds.add(ref.entityId)
+      } else if (ref.entity === 'effect') {
+        effectIds.add(ref.entityId)
+      } else if (ref.entity === 'subscription') {
+        // The subscriber is in the id: its session or its task is read with the
+        // rest of the pass (POD-6676).
+        try {
+          const { subscriberKind, subscriberId } = parseSubscriptionRowId(ref.entityId)
+          if (subscriberKind === 'session') sessionIds.add(subscriberId)
+          else issueIds.add(subscriberId)
+        } catch {
+          // Unparseable ids are refused by `mayRead`; nothing to prefetch.
+        }
+      } else if (ref.entity === 'workflow') {
+        workflowIds.add(ref.entityId)
+      } else if (ref.entity === 'workflowRevision') {
+        workflowRevisionIds.add(ref.entityId)
+      } else if (ref.entity === 'workflowBinding') {
+        workflowBindingIds.add(ref.entityId)
+      } else if (ref.entity === 'workflowRun') {
+        workflowRunIds.add(ref.entityId)
+      } else if (ref.entity === 'checkout') {
+        try {
+          checkoutMachineIds.add(parseCheckoutRowId(ref.entityId).machineId)
+        } catch {
+          // Unparseable ids are refused by `mayRead`; nothing to prefetch.
+        }
       }
     }
+    // Effects resolve to their targets before the issue, session and grant reads,
+    // for the reason ship orders do (one read for the whole batch).
+    const effectAudiences: ReadonlyMap<string, EffectAudience> =
+      effectIds.size === 0 ? new Map() : await store.effects.audiencesOf([...effectIds])
+    for (const audience of effectAudiences.values()) {
+      if (audience.targetKind === 'issue') issueIds.add(audience.targetId)
+      else if (audience.targetKind === 'session') sessionIds.add(audience.targetId)
+    }
+    // A software update or a server move is every admin's (POD-6358): one read
+    // of the admins, and only for a batch that holds one.
+    const adminIds: ReadonlySet<string> = [...effectAudiences.values()].some((audience) =>
+      INSTANCE_EFFECT_KINDS.has(audience.kind),
+    )
+      ? await store.users.activeAdminIds()
+      : new Set()
     const issueIdsByShipOrder =
       shipOrderIds.size === 0
         ? new Map<string, string>()
-        : await measure(
-            'visibility.shipOrder.issueIdForOrder',
-            async () => await store.shipping.issueIdsForOrders([...shipOrderIds]),
-          )
+        : await store.shipping.issueIdsForOrders([...shipOrderIds])
     for (const issueId of issueIdsByShipOrder.values()) issueIds.add(issueId)
     // One read for every lane (POD-6149); like ship orders, lanes resolve to
     // issues before the grant read.
     const issueIdsByShipLane: ReadonlyMap<string, readonly string[]> =
-      shipLaneIds.size === 0
-        ? new Map()
-        : await measure(
-            'visibility.shipLane.memberIssueIds',
-            async () => await store.shipping.laneMemberIssueIdsMany(shipLaneIds),
-          )
+      shipLaneIds.size === 0 ? new Map() : await store.shipping.laneMemberIssueIdsMany(shipLaneIds)
     for (const members of issueIdsByShipLane.values()) {
       for (const issueId of members) issueIds.add(issueId)
     }
     const issues =
       issueIds.size === 0
-        ? new Map<string, IssueRow>()
-        : await measure(
-            'visibility.issue.getIssue',
-            async () => await readIssues(store.issues, [...issueIds]),
-          )
+        ? new Map<string, IssueAccessRow>()
+        : await readIssueAccess(store.issues, [...issueIds])
+    // The sessions a task's private fields point at are read with the rest:
+    // their owners decide who receives those pointers (POD-6288).
+    for (const row of issues.values()) {
+      for (const sessionId of issueExecutionSessionIds(executionPointersOf(row))) {
+        sessionIds.add(sessionId)
+      }
+    }
     const sessions =
       sessionIds.size === 0
         ? new Map<string, SessionRow>()
-        : await measure(
-            'visibility.session.getSession',
-            async () => await store.sessions.getSessions([...sessionIds]),
-          )
+        : await store.sessions.getSessions([...sessionIds])
     const sessionsByResumeValue =
       resumeValues.size === 0
         ? new Map<string, SessionRow>()
-        : await measure(
-            'visibility.conversation.findSessionByResumeValue',
-            async () => await store.sessions.findSessionsByResumeValues([...resumeValues]),
-          )
+        : await store.sessions.findSessionsByResumeValues([...resumeValues])
     // The session ids a grant question can be asked about: the ones named
     // directly, plus the ones a conversation resolved to.
-    const grantedSessionIds = new Set<string>(sessionIds)
-    for (const row of sessionsByResumeValue.values()) grantedSessionIds.add(row.id)
     // One read per table for every automation and run in the batch (POD-6149).
     // Every asked id gets an entry, `undefined` for "no owner", as before.
     const ownersOf = async (
       ids: ReadonlySet<string>,
-      label: BootstrapReadPhase,
       read: (ids: readonly string[]) => Promise<ReadonlyMap<string, UserId>>,
     ): Promise<Map<string, UserId | undefined>> => {
       if (ids.size === 0) return new Map()
-      const found = await measure(label, async () => await read([...ids]))
+      const found = await read([...ids])
       return new Map([...ids].map((id) => [id, found.get(id)]))
     }
-    const automationOwners = await ownersOf(automationIds, 'visibility.automation.ownerOf', (ids) =>
-      store.automations.ownersOf(ids),
+    const automationOwners = await ownersOf(automationIds, (ids) => store.automations.ownersOf(ids))
+    const automationRunOwners = await ownersOf(automationRunIds, (ids) =>
+      store.automations.runOwnersOf(ids),
     )
-    const automationRunOwners = await ownersOf(
-      automationRunIds,
-      'visibility.automationRun.runOwnerOf',
-      (ids) => store.automations.runOwnersOf(ids),
-    )
-    // One grouped read for both resource kinds of the whole batch (POD-6217);
-    // every asked id gets an entry, `[]` for "no edges". Through the
-    // operation's loader (POD-6189): a batch published inside the operation
-    // that wrote it asks about the rows that operation already checked.
-    const asked = {
-      ...(issueIds.size > 0 ? { issue: [...issueIds] } : {}),
-      ...(grantedSessionIds.size > 0 ? { session: [...grantedSessionIds] } : {}),
+    // The workflow kinds (POD-6676): one read per kind for their owners, one
+    // grouped read of their READ grants, and the admins, only for a batch that
+    // holds a workflow-family row.
+    const anyWorkflowRow =
+      workflowIds.size + workflowRevisionIds.size + workflowBindingIds.size + workflowRunIds.size >
+      0
+    const workflowFacts: WorkflowVisibilityFacts = anyWorkflowRow
+      ? await store.workflows.visibilityFacts({
+          workflowIds: [...workflowIds],
+          revisionIds: [...workflowRevisionIds],
+          bindings: [...workflowBindingIds].flatMap((id) => {
+            const key = parseWorkflowBindingRowId(id)
+            return key === undefined ? [] : [key]
+          }),
+          runIds: [...workflowRunIds],
+        })
+      : NO_WORKFLOW_FACTS
+    const workflowReadGrants = new Set<string>()
+    let workflowAdminIds: ReadonlySet<string> = new Set()
+    if (anyWorkflowRow) {
+      const definitions = new Set<string>()
+      const libraryEntries = new Set<string>()
+      for (const [id, row] of workflowFacts.workflows) {
+        ;(row.scope === 'global' ? libraryEntries : definitions).add(id)
+      }
+      for (const row of workflowFacts.revisions.values()) {
+        ;(row.scope === 'global' ? libraryEntries : definitions).add(row.workflowId)
+      }
+      const asked: Record<string, string[]> = {
+        'workflow-definition': [...definitions],
+        'workflow-library-entry': [...libraryEntries],
+        'workflow-binding': [...workflowFacts.bindings.keys()],
+        'workflow-run': [...workflowFacts.runs.keys()],
+      }
+      const grants = await store.grants.loadForResourcesOfKinds(asked)
+      for (const [kind, byId] of grants) {
+        for (const [id, edges] of byId) {
+          for (const edge of edges) {
+            if (edge.verb === 'read')
+              workflowReadGrants.add(`${edge.grantee}\u0000${kind}\u0000${id}`)
+          }
+        }
+      }
+      workflowAdminIds = await store.users.activeAdminIds()
     }
-    const found: ReadonlyMap<string, ReadonlyMap<string, readonly GrantRow[]>> =
-      Object.keys(asked).length === 0
-        ? new Map()
-        : await measure(
-            'visibility.grants.listForResources',
-            async () => await store.grants.loadForResourcesOfKinds(asked),
-          )
-    const issueGrants = new Map(found.get('issue') ?? [])
-    const sessionGrants = new Map(found.get('session') ?? [])
+    // One grouped read for the whole batch (POD-6217): the custody edges of
+    // the machines the batch's tasks are homed on. Through the operation's
+    // loader (POD-6189). Issue edges are not read: tasks are shared, so a legacy
+    // issue grant decides nothing (POD-6288); nor session edges (POD-6283).
+    const machineIds = [
+      ...new Set([
+        ...[...issues.values()].flatMap((row) => (row.machineId ? [row.machineId] : [])),
+        ...checkoutMachineIds,
+      ]),
+    ]
+    const found: ReadonlyMap<
+      string,
+      ReadonlyMap<string, readonly GrantRow[]>
+    > = machineIds.length === 0
+      ? new Map()
+      : await store.grants.loadForResourcesOfKinds({ machine: machineIds })
+    const machineCustodians = new Map<string, UserId>()
+    const machineUsers = new Map<string, Set<string>>()
+    const machineManagers = new Map<string, Set<string>>()
+    // Roots are read only for a batch that carries checkouts: one grouped read,
+    // plus the admins (who MANAGE every machine) when one of them is a root.
+    const checkoutRoots: ReadonlyMap<string, ReadonlySet<string>> = checkoutMachineIds.size === 0
+      ? new Map()
+      : await store.checkouts.rootPathsOfMachines([...checkoutMachineIds] as MachineId[])
+    const rootAsked = refs.some((ref) => {
+      if (ref.entity !== 'checkout') return false
+      try {
+        const { machineId, path } = parseCheckoutRowId(ref.entityId)
+        return checkoutRoots.get(machineId)?.has(path) === true
+      } catch {
+        return false
+      }
+    })
+    const checkoutAdmins: ReadonlySet<string> = rootAsked
+      ? adminIds.size > 0
+        ? adminIds
+        : await store.users.activeAdminIds()
+      : new Set()
+    for (const [machineId, edges] of found.get('machine') ?? []) {
+      const custodian = custodianFromEdges(edges)
+      if (custodian) machineCustodians.set(machineId, custodian)
+    }
+    // Who reads each machine's checkouts: the one rule the access-row writer
+    // records each member's reach by (`checkout-reach.ts`).
+    for (const machineId of checkoutMachineIds) {
+      const readers = checkoutReaders(found.get('machine')?.get(machineId) ?? [], checkoutAdmins)
+      machineUsers.set(machineId, new Set(readers.users))
+      machineManagers.set(machineId, new Set(readers.managers))
+    }
     return makeVisibilityState({
+      panelParents,
       issueIds,
       issues,
       shipOrderIds,
@@ -557,110 +920,149 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       sessions,
       resumeValues,
       sessionsByResumeValue,
-      issueGrants,
-      sessionGrants,
+      machineCustodians,
+      machineUsers,
       automationIds,
       automationOwners,
       automationRunIds,
       automationRunOwners,
+      effectAudiences,
+      adminIds,
+      workflowFacts,
+      workflowReadGrants,
+      workflowAdminIds,
+      machineManagers,
+      checkoutRoots,
     })
-  }
-
-  /** One JSON value, or `undefined` for a corrupt payload, as the bootstrap reads it. */
-  const parsedPayload = (payload: string): unknown => {
-    try {
-      return JSON.parse(payload)
-    } catch {
-      return undefined
-    }
   }
 
   /**
    * THE ROWS AN ISSUE'S AUDIENCE CHANGE RE-SCOPES, for every issue in a batch at
    * once [POD-6156].
    *
-   * Read from the database for exactly these issues, where it used to be read
-   * out of an index built over the whole installed world (every row of
-   * `change_latest`) and rebuilt after every append. Each list is in the order
-   * that index gave it: installed rows by seq, sessions in the order the
-   * indexed `issue_id IN (…)` read returns them.
+   * Read from the model tables for exactly these issues (POD-6770; POD-6156
+   * read them from the installed copy by key, and before that from an index
+   * over the whole installed world). Nothing here reads the change log or the
+   * stored copy of the last published values.
    *
    *   sessions        one indexed read of the issues' live sessions;
-   *   dependencies    one primary-key range per issue over the installed
-   *                   `issueDep` ids that start with the issue's escaped id
-   *                   (`issueDepFromPrefix`), kept only where the id parses to it;
+   *   dependencies    the issues' edges from the edge table, in its
+   *                   (from, to, type) order;
    *   ship orders     the issues' orders from `idx_ship_orders_issue` (orders
    *                   are never deleted and never change issue), then their
-   *                   installed rows by key. The issue and the lane come from
-   *                   the installed payload, as they always did.
+   *                   rows by id. A cancelled order has no record; the lane
+   *                   of a queued one comes from its row.
+   *   effects         the live records on the issues and on their sessions,
+   *                   one read of `idx_effects_target` after the sessions are
+   *                   known (POD-6401): an effect is read by whoever reads its
+   *                   target, so it re-scopes with that target's audience.
+   *   issue events    the issues' events the feed's window holds, from the
+   *                   window's query (POD-6766): the window's oldest id, then
+   *                   the issues' feed-kind events from there up.
    */
   const issueEdgeRows = async (issueIds: readonly string[]) => {
     const sessionsByIssue = new Map<string, SessionRow[]>()
     const depsByIssue = new Map<string, IssueDepSubject[]>()
     const ordersByIssue = new Map<string, ShipOrderSubject[]>()
     const lanesByIssue = new Map<string, ShipLaneSubject[]>()
-    if (issueIds.length === 0) return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue }
+    const effectsByIssue = new Map<string, EffectSubject[]>()
+    const eventsByIssue = new Map<string, IssueEventSubject[]>()
+    if (issueIds.length === 0) {
+      return {
+        sessionsByIssue,
+        depsByIssue,
+        ordersByIssue,
+        lanesByIssue,
+        effectsByIssue,
+        eventsByIssue,
+      }
+    }
     const wanted = new Set(issueIds)
-    const [sessionRows, depRows, orderIds] = await Promise.all([
+    const [sessionRows, depRows, orderIds, eventRows] = await Promise.all([
       store.sessions.findSessionsByIssueIds(issueIds.map((id) => asIssueId(id))),
-      store.sync.installedIdsWithPrefixes('issueDep', issueIds.map((id) => issueDepFromPrefix(id))),
+      // The issues' edges, from the edge table (POD-6770).
+      store.issues.depsFromIssues(issueIds),
       store.shipping.orderIdsForIssues(issueIds),
+      store.events.feedWindowOfSubjects(issueIds, FEED_WINDOW),
     ])
+    for (const row of eventRows) {
+      const subjects = eventsByIssue.get(row.subject) ?? []
+      subjects.push({ entity: 'issueEvent', entityId: issueEventRowId(row.id, row.subject) })
+      eventsByIssue.set(row.subject, subjects)
+    }
     for (const row of sessionRows) {
       if (row.issueId == null) continue
       const bucket = sessionsByIssue.get(row.issueId)
       if (bucket) bucket.push(row)
       else sessionsByIssue.set(row.issueId, [row])
     }
-    for (const row of [...depRows].sort((a, b) => a.seq - b.seq)) {
-      const dep = parseIssueDepId(row.entityId)
-      if (dep === null || !wanted.has(dep.fromId)) continue
+    // In the table's (from, to, type) order.
+    for (const dep of depRows) {
+      if (!wanted.has(dep.fromId)) continue
       const subjects = depsByIssue.get(dep.fromId) ?? []
-      subjects.push({ entity: 'issueDep', entityId: row.entityId })
+      subjects.push({ entity: 'issueDep', entityId: issueDepId(dep.fromId, dep.toId, dep.type) })
       depsByIssue.set(dep.fromId, subjects)
     }
-    const orderRows =
+    // Each target's issue, and its place in that issue's list: the issue's own
+    // records first, then each session's in session order.
+    const placeOfTarget = new Map<string, { issueId: string; rank: number }>()
+    for (const id of issueIds) placeOfTarget.set(`issue\u0000${id}`, { issueId: id, rank: 0 })
+    for (const [issueId, sessions] of sessionsByIssue) {
+      for (const [index, session] of sessions.entries()) {
+        placeOfTarget.set(`session\u0000${session.id}`, { issueId, rank: index + 1 })
+      }
+    }
+    const [orderRows, effectRows] = await Promise.all([
       orderIds.length === 0
         ? []
-        : await store.sync.installedStates(
-            orderIds.map((id) => ({ entity: 'shipOrder' as const, entityId: id })),
-          )
-    for (const row of [...orderRows].sort((a, b) => a.seq - b.seq)) {
-      if (row.payload === null) continue
-      const payload = parsedPayload(row.payload) as
-        | {
-            issueId?: unknown
-            repoId?: unknown
-            destination?: unknown
-            targetBranch?: unknown
-            state?: unknown
-          }
-        | null
-        | undefined
-      // A malformed change cannot supply a visibility anchor.
-      if (payload === null || typeof payload !== 'object') continue
-      if (typeof payload.issueId !== 'string' || !wanted.has(payload.issueId)) continue
-      const subjects = ordersByIssue.get(payload.issueId) ?? []
-      subjects.push({ entity: 'shipOrder', entityId: row.entityId })
-      ordersByIssue.set(payload.issueId, subjects)
-      if (
-        payload.state === 'queued' &&
-        typeof payload.repoId === 'string' &&
-        typeof payload.destination === 'string' &&
-        typeof payload.targetBranch === 'string'
-      ) {
-        const lanes = lanesByIssue.get(payload.issueId) ?? []
+        : // The orders' own rows (POD-6770); a cancelled order has no record.
+          store.shipping.ordersByIds(orderIds),
+      store.effects.liveOnTargets([
+        ...issueIds.map((id) => ({ kind: 'issue', id })),
+        ...[...sessionsByIssue.values()]
+          .flat()
+          .map((session) => ({ kind: 'session', id: session.id })),
+      ]),
+    ])
+    const placed = effectRows.flatMap((row) => {
+      const place = placeOfTarget.get(`${row.targetKind}\u0000${row.targetId}`)
+      return place === undefined ? [] : [{ id: row.id, ...place }]
+    })
+    // A stable sort: within one target, the read's oldest-first order stands.
+    for (const { id, issueId } of placed.sort((a, b) => a.rank - b.rank)) {
+      const subjects = effectsByIssue.get(issueId) ?? []
+      subjects.push({ entity: 'effect', entityId: id })
+      effectsByIssue.set(issueId, subjects)
+    }
+    // In order-id order, which `orderIdsForIssues` answers in.
+    const orderById = new Map(orderRows.map((order) => [order.id as string, order]))
+    for (const orderId of orderIds) {
+      const order = orderById.get(orderId)
+      if (order === undefined || order.state === 'cancelled') continue
+      if (!wanted.has(order.issueId)) continue
+      const subjects = ordersByIssue.get(order.issueId) ?? []
+      subjects.push({ entity: 'shipOrder', entityId: order.id })
+      ordersByIssue.set(order.issueId, subjects)
+      if (order.state === 'queued') {
+        const lanes = lanesByIssue.get(order.issueId) ?? []
         lanes.push({
           entity: 'shipLane',
           entityId: shipLaneId(
-            payload.repoId as RepoId,
-            canonicalShippingDestination(payload.destination, payload.targetBranch),
+            order.repoId,
+            canonicalShippingDestination(order.destination, order.targetBranch),
           ),
         })
-        lanesByIssue.set(payload.issueId, lanes)
+        lanesByIssue.set(order.issueId, lanes)
       }
     }
-    return { sessionsByIssue, depsByIssue, ordersByIssue, lanesByIssue }
+    return {
+      sessionsByIssue,
+      depsByIssue,
+      ordersByIssue,
+      lanesByIssue,
+      effectsByIssue,
+      eventsByIssue,
+    }
   }
 
   /**
@@ -683,31 +1085,30 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
   ): Promise<Map<string, VisibilityEdge | null>> => {
     const out = new Map<string, VisibilityEdge | null>(orderIds.map((id) => [id, null]))
     if (orderIds.length === 0) return out
-    const departed = (await store.shipping.ordersByIds(orderIds)).filter((order) => order.state !== 'queued')
+    const departed = (await store.shipping.ordersByIds(orderIds)).filter(
+      (order) => order.state !== 'queued',
+    )
     if (departed.length === 0) return out
     const departedIssueIds = [...new Set(departed.map((order) => order.issueId))]
     const [owners, audiences] = await Promise.all([
-      measure('visibility.issue.getIssue', async () => await readIssues(store.issues, departedIssueIds)),
+      readIssues(store.issues, departedIssueIds),
       deps.audiencesFor('issue', departedIssueIds),
     ])
     const laneOf = new Map(
       departed.map((order) => [
         order.id,
-        shipLaneId(order.repoId, canonicalShippingDestination(order.destination, order.targetBranch)),
+        shipLaneId(
+          order.repoId,
+          canonicalShippingDestination(order.destination, order.targetBranch),
+        ),
       ]),
     )
     const membersByLane = await store.shipping.laneMemberIssueIdsMany(laneOf.values())
     const memberIds = [...new Set([...membersByLane.values()].flat())]
-    const [memberRows, memberGrants] =
+    const memberRows =
       memberIds.length === 0
-        ? [new Map<string, IssueRow>(), new Map<string, GrantRow[]>()]
-        : await Promise.all([
-            measure('visibility.issue.getIssue', async () => await readIssues(store.issues, memberIds)),
-            measure(
-              'visibility.grants.listForResources',
-              async () => await store.grants.listForResources('issue', memberIds),
-            ),
-          ])
+        ? new Map<string, IssueRow>()
+        : await readIssues(store.issues, memberIds)
     for (const order of departed) {
       const owner = owners.get(order.issueId)?.ownerUserId
       const candidates = [
@@ -718,11 +1119,9 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
       const members = membersByLane.get(laneId) ?? []
       const audience: string[] = []
       for (const userId of candidates) {
-        const readable = members.some(
-          (issueId) =>
-            memberRows.get(issueId)?.ownerUserId === userId ||
-            (memberGrants.get(issueId) ?? []).some((edge) => issueGrantAdmits(edge, userId)),
-        )
+        // Every member reads every task (POD-6288), so a lane stays readable
+        // while it holds any task; an empty lane is removed by its own change.
+        const readable = members.some((issueId) => memberRows.has(issueId))
         if (!readable) audience.push(userId)
       }
       if (audience.length > 0) {
@@ -732,27 +1131,201 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     return out
   }
 
+  /**
+   * WHO GAINED OR LOST A MACHINE'S WORKTREE PATHS (POD-6291, design §4.5).
+   *
+   * The custodian of a machine receives the worktree path and machine of every
+   * task homed there; everyone else receives the task without them (§4.2). A
+   * custody change therefore moves those fields between people while the task
+   * rows stay byte-identical, so no task change would ever carry it. The
+   * machine's row names its custodian, and its change anchors the tasks with a
+   * live worktree there for everyone who held a grant on the machine
+   * (`grant_audiences`, revoked custodians included) and for those tasks'
+   * assignees (who receive the fields while nobody holds custody). Each of
+   * them gets the task re-shaped as they may now see it: the path is gone from
+   * a former custodian's clients, and nothing is deleted.
+   */
+  const custodyEdges = async (
+    machineIds: readonly string[],
+  ): Promise<Map<string, VisibilityEdge | null>> => {
+    const out = new Map<string, VisibilityEdge | null>(machineIds.map((id) => [id, null]))
+    if (machineIds.length === 0) return out
+    const [tasks, audiences] = await Promise.all([
+      store.issues.liveWorktreeIssuesOnMachines(machineIds),
+      deps.audiencesFor('machine', machineIds),
+    ])
+    const homedIds = [...tasks.values()].flatMap((rows) => rows.map((row) => row.id))
+    const artifacts = await store.issues.panel.forIssues('issuePanelArtifact', homedIds)
+    for (const machineId of machineIds) {
+      const homed = tasks.get(machineId) ?? []
+      if (homed.length === 0) continue
+      const audience = [
+        ...new Set([...(audiences.get(machineId) ?? []), ...homed.map((task) => task.ownerUserId)]),
+      ]
+      out.set(machineId, {
+        audience,
+        subjects: [
+          ...homed.map((task) => ({ entity: 'issueProjection' as const, entityId: task.id })),
+          ...artifacts
+            .filter(
+              (record) => 'issueId' in record && homed.some((task) => task.id === record.issueId),
+            )
+            .map((record) => ({ entity: 'issuePanelArtifact' as const, entityId: record.id })),
+        ],
+      })
+    }
+    return out
+  }
+
+  /**
+   * Per ref, whether it is a `machine` or `machineAccess` upsert that left the
+   * visibility fact where the row's previous change had it: the custodian for a
+   * machine; for an access row the checkout reach (`recordReach` reads the
+   * same field, absent meaning `none`) and the member's `use` verdict, which is
+   * what a `machine.use` live topic is decided by (POD-6947). Anything else
+   * counts as moved: a ref
+   * without a seq, a remove, a first write, or a previous change no longer in
+   * the log. One read for the batch, and none when it holds no such ref.
+   */
+  const unmovedMachineFacts = async (refs: readonly AnchorRef[]): Promise<boolean[]> => {
+    const parsedPayload = (payload: string): unknown => {
+      try {
+        return JSON.parse(payload)
+      } catch {
+        return undefined
+      }
+    }
+    const seqs = refs.flatMap((ref) =>
+      (ref.entity === 'machine' || ref.entity === 'machineAccess') && ref.seq !== undefined
+        ? [ref.seq]
+        : [],
+    )
+    if (seqs.length === 0) return refs.map(() => false)
+    const logged = await store.sync.changesWithPrior(seqs)
+    return refs.map((ref) => {
+      if (ref.seq === undefined) return false
+      const fact =
+        ref.entity === 'machine'
+          ? (payload: unknown) => (payload as { custodian?: unknown } | null)?.custodian ?? null
+          : ref.entity === 'machineAccess'
+            ? (payload: unknown) => {
+                const row = payload as { checkoutReach?: unknown; use?: unknown } | null
+                return `${String(row?.checkoutReach ?? 'none')}|${String(row?.use ?? '')}`
+              }
+            : undefined
+      const change = logged.get(ref.seq)
+      if (!fact || !change?.prior) return false
+      if (change.op !== 'upsert' || change.prior.op !== 'upsert') return false
+      const now = change.payload == null ? undefined : parsedPayload(change.payload)
+      const before = change.prior.payload == null ? undefined : parsedPayload(change.prior.payload)
+      if (now === undefined || before === undefined) return false
+      return fact(now) === fact(before)
+    })
+  }
+
   const anchors: VisibilityAnchorPort = {
     visibilityEdges: async (refs) => {
       // An issue write is the audience-change edge for its normalized companions;
       // a ship order leaving its queue can take a lane away. Nothing else anchors.
       const issueIds = [
-        ...new Set(refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId)),
+        ...new Set(
+          refs.filter((ref) => ref.entity === 'issueProjection').map((ref) => ref.entityId),
+        ),
       ]
       const orderIds = [
         ...new Set(refs.filter((ref) => ref.entity === 'shipOrder').map((ref) => ref.entityId)),
       ]
-      const [audiences, departures] = await Promise.all([
-        issueIds.length === 0
-          ? new Map<string, readonly string[]>()
-          : deps.audiencesFor('issue', issueIds),
-        laneDepartureEdges(orderIds),
-      ])
+      // A machine's row and its members' access rows are rewritten on every
+      // machine report (version, services, harness sign-in). Only a write that
+      // moved the custodian or the member's checkout reach moves anyone's view;
+      // anchoring every rewrite sent each reader the machine's whole task or
+      // checkout set and, past the rescope threshold, sent every client back to
+      // a full bootstrap (POD-6834).
+      const unmoved = await unmovedMachineFacts(refs)
+      const moved = refs.filter((ref, index) => !unmoved[index])
+      const machineIds = [
+        ...new Set(moved.filter((ref) => ref.entity === 'machine').map((ref) => ref.entityId)),
+      ]
+      // A member's access row moving is the edge for that machine's checkouts
+      // (POD-6644). Its subjects are what the member's recorded reach covers
+      // now (re-admitted) and what the write took away (evicted): never a
+      // checkout the member could not read before or after, whose id alone
+      // would tell them its path.
+      const accessMachines = [
+        ...new Set(
+          moved.flatMap((ref) => {
+            if (ref.entity !== 'machineAccess') return []
+            try {
+              return [parseMachineAccessRowId(ref.entityId).machineId]
+            } catch {
+              return []
+            }
+          }),
+        ),
+      ]
+      const [audiences, departures, custody, checkoutPaths, checkoutReach, checkoutLost] =
+        await Promise.all([
+          issueIds.length === 0
+            ? new Map<string, readonly string[]>()
+            : deps.audiencesFor('issue', issueIds),
+          laneDepartureEdges(orderIds),
+          custodyEdges(machineIds),
+          accessMachines.length === 0
+            ? new Map<string, { path: string; root: boolean }[]>()
+            : store.checkouts.pathsOfMachines(accessMachines as MachineId[]),
+          accessMachines.length === 0
+            ? new Map<string, ReadonlyMap<string, { reach: CheckoutReach }>>()
+            : store.checkouts.reachOfMachines(accessMachines as MachineId[]),
+          accessMachines.length === 0
+            ? new Map<string, ReadonlyMap<string, readonly { path: string; root: boolean }[]>>()
+            : store.checkouts.lostOfMachines(accessMachines as MachineId[]),
+        ])
       // Only an issue with an audience can produce an edge; read for those only.
       const anchored = issueIds.filter((id) => (audiences.get(id) ?? []).length > 0)
       const rows = await issueEdgeRows(anchored)
-      return refs.map((ref): VisibilityEdge | null => {
+      const panelSubjects = new Map<string, EntityRef[]>()
+      for (const kind of ISSUE_PANEL_KINDS) {
+        for (const record of await store.issues.panel.forIssues(kind, anchored)) {
+          const issueId = 'issueId' in record ? record.issueId : record.id
+          const list = panelSubjects.get(issueId) ?? []
+          list.push({ entity: kind, entityId: record.id })
+          panelSubjects.set(issueId, list)
+        }
+      }
+      return refs.map((ref, index): VisibilityEdge | null => {
+        if (unmoved[index]) return null
         if (ref.entity === 'shipOrder') return departures.get(ref.entityId) ?? null
+        if (ref.entity === 'machine') return custody.get(ref.entityId) ?? null
+        if (ref.entity === 'machineAccess') {
+          let key: ReturnType<typeof parseMachineAccessRowId>
+          try {
+            key = parseMachineAccessRowId(ref.entityId)
+          } catch {
+            return null
+          }
+          // What the member reads now (re-admitted), and every checkout a
+          // shrink took from them that their reach has not covered again
+          // (evicted, live or gone): never a checkout they could not read.
+          const reach = checkoutReach.get(key.machineId)?.get(key.userId)?.reach ?? 'none'
+          const lost = checkoutLost.get(key.machineId)?.get(key.userId) ?? []
+          const paths = [
+            ...new Set([
+              ...(checkoutPaths.get(key.machineId) ?? [])
+                .filter((checkout) => covers(reach, checkout))
+                .map((checkout) => checkout.path),
+              ...lost.map((checkout) => checkout.path),
+            ]),
+          ].map((path) => ({ path }))
+          // A moved access row is the member's access move even with no
+          // checkout behind it: their `machine.use` topics are decided again.
+          return {
+            audience: [key.userId],
+            subjects: paths.map((checkout) => ({
+              entity: 'checkout' as const,
+              entityId: checkoutRowId(key.machineId, checkout.path),
+            })),
+          }
+        }
         if (ref.entity !== 'issueProjection') return null
         const audience = audiences.get(ref.entityId) ?? []
         if (audience.length === 0) return null
@@ -761,8 +1334,13 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           audience,
           subjects: [
             { entity: 'issueProjection' as const, entityId: ref.entityId },
+            ...ISSUE_BODY_KINDS.map((entity) => ({ entity, entityId: ref.entityId })),
+            ...(panelSubjects.get(ref.entityId) ?? []),
             { entity: 'issueGitState' as const, entityId: ref.entityId },
-            ...issueSessions.map((session) => ({ entity: 'session' as const, entityId: session.id })),
+            ...issueSessions.map((session) => ({
+              entity: 'session' as const,
+              entityId: session.id,
+            })),
             ...issueSessions.flatMap((session) =>
               session.resumeValue
                 ? [{ entity: 'conversation' as const, entityId: session.resumeValue }]
@@ -772,34 +1350,44 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
             // The issue's feed history rides its audience (POD-1772): a grant that
             // hands somebody the issue and none of its events would give them a
             // chat pane that starts at the moment they were let in.
-            ...(deps.issueEventSubjects?.(asIssueId(ref.entityId)) ?? []),
+            ...(rows.eventsByIssue.get(ref.entityId) ?? []),
             ...(rows.ordersByIssue.get(ref.entityId) ?? []),
             // The lanes of its queued orders: a grant can make a lane readable and a
             // revoke can take the last readable order in it away (POD-4974 O2).
             ...(rows.lanesByIssue.get(ref.entityId) ?? []),
+            // Its effect records and its sessions' (POD-6401): a merge's status is
+            // read by whoever reads the issue, so a grant hands it over at once.
+            ...(rows.effectsByIssue.get(ref.entityId) ?? []),
           ],
         }
       })
     },
-    /** Every subject's installed value in one grouped read (POD-6156). */
+    /**
+     * Every subject's current record, built from the model tables (POD-6770,
+     * design POD-6253 §4): one `build` per kind the subjects name. A subject
+     * with no record is `undefined`.
+     */
     currentValuesOf: async (refs) => {
       if (refs.length === 0) return []
-      const byKey = new Map<string, string>()
-      for (const row of await store.sync.installedStates(refs)) {
-        if (row.payload !== null) byKey.set(`${row.entity}\u0000${row.entityId}`, row.payload)
+      const idsByKind = new Map<MetadataEntityKind, string[]>()
+      for (const ref of refs) {
+        const ids = idsByKind.get(ref.entity)
+        if (ids === undefined) idsByKind.set(ref.entity, [ref.entityId])
+        else ids.push(ref.entityId)
       }
-      return refs.map((ref) => {
-        const payload = byKey.get(`${ref.entity}\u0000${ref.entityId}`)
-        return payload === undefined ? undefined : parsedPayload(payload)
-      })
+      const byKey = new Map<string, unknown>()
+      for (const [kind, ids] of idsByKind) {
+        for (const record of await deps.currentRecords(kind, ids)) {
+          byKey.set(`${kind}\u0000${record.id}`, record.value)
+        }
+      }
+      return refs.map((ref) => byKey.get(`${ref.entity}\u0000${ref.entityId}`))
     },
   }
 
   return {
     state: makeVisibilityState(),
     anchors,
-    beginBootstrapRead,
-    finishBootstrapRead,
     authorizationRevision: deps.authorizationRevision,
     mayReadIssue: (userId, issueId) => mayReadIssue(userId, issueId),
   }

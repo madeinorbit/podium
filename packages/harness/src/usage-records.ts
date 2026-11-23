@@ -14,11 +14,7 @@ import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type {
-  UsageBucketWire,
-  UsageModelTotalWire,
-  UsageSourceWire,
-} from '@podium/model'
+import type { UsageBucketWire, UsageModelTotalWire, UsageSourceWire } from '@podium/model'
 import { LineDecoder } from './jsonl-stream.js'
 
 export interface UsageRecord {
@@ -224,6 +220,7 @@ function foldByModel(buckets: UsageBucketWire[]): UsageModelTotalWire[] {
 
 export function toSource(scan: UsageFileScan, sinceMs: number): UsageSourceWire {
   const all = fileBuckets(scan)
+  const window = windowBuckets(all, sinceMs)
   return {
     path: scan.path,
     harness: scan.harness,
@@ -231,7 +228,8 @@ export function toSource(scan: UsageFileScan, sinceMs: number): UsageSourceWire 
     firstTsMs: scan.firstTsMs,
     lastTsMs: scan.lastTsMs,
     models: foldByModel(all),
-    windowModels: foldByModel(windowBuckets(all, sinceMs)),
+    windowModels: foldByModel(window),
+    windowBuckets: window,
   }
 }
 

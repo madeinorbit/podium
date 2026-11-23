@@ -39,7 +39,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { ApprovalProcedures } from './approvals/trpc'
+import type { InteractionProcedures } from './interactions/trpc'
 
 // ---------------------------------------------------------------------------
 // The helpers
@@ -64,24 +64,25 @@ type OutputOf<P> = P extends { _def: { $types: { output: infer O } } } ? O : nev
 type InputOf<P> = P extends { _def: { $types: { input: infer I } } } ? I : never
 
 // ---------------------------------------------------------------------------
-// The approvals family — one derived MUTATION and one derived QUERY
+// The interactions family — one derived MUTATION and one derived QUERY (the
+// approvals family stood here until its decisions became records, POD-6674)
 // ---------------------------------------------------------------------------
 
-type ApproveOutput = OutputOf<ApprovalProcedures['approve']>
-type ApproveInput = InputOf<ApprovalProcedures['approve']>
-type ListOutput = OutputOf<ApprovalProcedures['list']>
+type ApproveOutput = OutputOf<InteractionProcedures['answer']>
+type ApproveInput = InputOf<InteractionProcedures['answer']>
+type ListOutput = OutputOf<InteractionProcedures['list']>
 
 /**
  * THE POSITIVE ASSERTIONS.
  *
- * `approve` returns the service's `ApprovalWire`, so its output must carry that
- * row's fields. Asserted through a required property rather than by naming the
+ * `answer` returns the service's outcome, so its output must carry that
+ * outcome's fields. Asserted through a required property rather than by naming the
  * whole wire type: this file is guarding the DERIVATION, not restating the wire
  * shape, and a structural restatement here would be the second declaration this
  * phase exists to delete.
  */
-assertExact<Exact<ApproveOutput extends { id: string } ? true : false, true>>()
-assertExact<Exact<ApproveInput, { id: string }>>()
+assertExact<Exact<ApproveOutput extends { ok: boolean } ? true : false, true>>()
+assertExact<Exact<ApproveInput extends { id: string } ? true : false, true>>()
 assertExact<Exact<ListOutput extends readonly unknown[] ? true : false, true>>()
 
 /**
@@ -95,14 +96,14 @@ assertExact<Exact<ListOutput extends readonly unknown[] ? true : false, true>>()
  * So the file fails in both directions: it fails when the types are wrong, and it
  * fails when it has lost the ability to tell.
  */
-// @ts-expect-error `approve`'s output is the approval wire, never `unknown` — if
+// @ts-expect-error `answer`'s output is the service outcome, never `unknown` — if
 // this line stops erroring, the generic solve has widened and AppRouter is dead.
 assertExact<Exact<ApproveOutput, unknown>>()
 // @ts-expect-error nor is its input `unknown`: it is the contract's own schema.
 assertExact<Exact<ApproveInput, unknown>>()
 // @ts-expect-error the derived query's output is an array, not `unknown`.
 assertExact<Exact<ListOutput, unknown>>()
-// @ts-expect-error and `approve` is not typed with some OTHER family's input —
+// @ts-expect-error and `answer` is not typed with some OTHER family's input —
 // a table wired to the wrong contract would still typecheck without this.
 assertExact<Exact<ApproveInput, { sessionId: string }>>()
 

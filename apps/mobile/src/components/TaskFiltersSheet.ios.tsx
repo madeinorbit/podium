@@ -54,6 +54,7 @@ export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
   const { configs, set, reset, activeCount } = useTaskFilterFacets(props)
   const picker = (facet: Facet) => {
     const config = configs[facet]
+    if (!config) return null
     return (
       <Picker
         key={facet}

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { asIssueId, asMachineId, asSessionId, asUserId } from './brands'
+import { asCredentialId, asIssueId, asMachineId, asSessionId, asUserId } from './brands'
 import {
+  ALL_MEMBERS_GRANTEE,
+  ALL_MEMBERS_SUBJECT,
   ENTITY_KINDS,
   type EntityRef,
+  granteeColumnOf,
   joinKeyParts,
   machineScopedKey,
   parseMachineScopedKey,
@@ -149,10 +152,23 @@ describe('subjectResourceKey — the grants-edge key (ADR 9 D2)', () => {
     })
   })
 
-  it('refuses an unknown subject kind and an unknown resource kind — fails closed', () => {
+  it('names the all-members group, stored as group:all-members (credential management §12)', () => {
+    const credential: EntityRef = { kind: 'credential', id: asCredentialId('cred_x') }
+    expect(parseSubjectResourceKey(subjectResourceKey(ALL_MEMBERS_SUBJECT, credential))).toEqual({
+      subject: { kind: 'group', id: 'all-members' },
+      resource: { kind: 'credential', id: 'cred_x' },
+    })
+    expect(ALL_MEMBERS_GRANTEE).toBe('group:all-members')
+    expect(granteeColumnOf(alice)).toBe('alice')
+  })
+
+  it('refuses an unknown subject kind, an unknown group and an unknown resource kind — fails closed', () => {
+    expect(() =>
+      parseSubjectResourceKey(joinKeyParts(':', ['team', 'devs', 'issue', 'i1'])),
+    ).toThrow(/unknown grant subject kind/)
     expect(() =>
       parseSubjectResourceKey(joinKeyParts(':', ['group', 'devs', 'issue', 'i1'])),
-    ).toThrow(/unknown grant subject kind/)
+    ).toThrow(/unknown grant group/)
     expect(() =>
       parseSubjectResourceKey(joinKeyParts(':', ['user', 'alice', 'quokka', 'q1'])),
     ).toThrow(/unknown entity kind/)

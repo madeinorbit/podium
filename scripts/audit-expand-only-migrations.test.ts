@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   APPROVED_CONTRACT_STEPS,
@@ -7,6 +8,50 @@ import {
   runChecks,
   unadmitted,
 } from './audit-expand-only-migrations'
+
+it('admits exactly the preserving tenant feed re-keys', () => {
+  const path = 'apps/server/src/migrations/drizzle/20261111141656_tenant-sync-feed/migration.sql'
+  const sql = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
+  expect(findDestructiveDdl(sql).map((finding) => finding.kind)).toEqual([
+    'table-rebuild',
+    'table-rebuild',
+  ])
+  expect(unadmitted(path, findDestructiveDdl(sql))).toEqual([])
+  expect(unadmitted(path, findDestructiveDdl(`${sql}\nDROP TABLE users;`))).toHaveLength(1)
+})
+
+describe.each([
+  {
+    migration: '20261110205811_issue-panel-records',
+    issue: 'POD-6778',
+    kinds: ['drop-table', 'drop-column', 'drop-column', 'drop-column'],
+  },
+  {
+    migration: '20261111124333_sync-log-only',
+    issue: 'POD-6771',
+    kinds: ['drop-table'],
+  },
+])('POD-6253 contract step $migration', ({ migration, issue, kinds }) => {
+  const path = `apps/server/src/migrations/drizzle/${migration}/migration.sql`
+  const sql = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')
+  const findings = findDestructiveDdl(sql)
+
+  it('admits its intended drops only in its own file, with the authorizing issue', () => {
+    expect(findings.map((finding) => finding.kind)).toEqual(kinds)
+    expect(APPROVED_CONTRACT_STEPS.get(path)?.reason).toContain('POD-6253')
+    expect(APPROVED_CONTRACT_STEPS.get(path)?.reason).toContain(issue)
+    expect(unadmitted(path, findings)).toEqual([])
+    expect(unadmitted('elsewhere.sql', findings)).toEqual(findings)
+  })
+
+  it('still rejects every repeated drop and unrelated destructive DDL', () => {
+    for (const finding of findings) {
+      expect(unadmitted(path, [...findings, finding])).toEqual([finding])
+    }
+    const extra = findDestructiveDdl('ALTER TABLE issues DROP COLUMN brief; DROP TABLE issues;')
+    expect(unadmitted(path, [...findings, ...extra])).toEqual(extra)
+  })
+})
 
 describe('findDestructiveDdl', () => {
   it('passes a plain additive column', () => {
@@ -55,6 +100,17 @@ ALTER TABLE __new_machines RENAME TO machines;`
     expect(findDestructiveDdl('ALTER TABLE machines ADD COLUMN k text NOT NULL;')[0]?.kind).toBe(
       'not-null-without-default',
     )
+  })
+
+  it('distinguishes CHECK predicates from real NOT NULL column constraints', () => {
+    expect(
+      findDestructiveDdl(`ALTER TABLE machines ADD public_key text
+      CHECK (kind = 'key' AND public_key IS NOT NULL);`),
+    ).toEqual([])
+    expect(
+      findDestructiveDdl(`ALTER TABLE machines ADD public_key text
+      CHECK (length(public_key) > 0) NOT NULL;`)[0]?.kind,
+    ).toBe('not-null-without-default')
   })
 
   it('passes NOT NULL WITH a default', () => {
@@ -110,7 +166,8 @@ describe('the expand-only gate probes', () => {
 })
 
 describe('an approved contract step', () => {
-  const [path] = [...APPROVED_CONTRACT_STEPS.keys()]
+  const path =
+    'apps/server/src/migrations/drizzle/20260929145432_drop-legacy-message-status/migration.sql'
   const rebuild = (table: string) => `--> statement-breakpoint
 CREATE TABLE \`__new_${table}\` (id text PRIMARY KEY);
 --> statement-breakpoint

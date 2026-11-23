@@ -320,12 +320,21 @@ describe('workGroupFoldKey', () => {
 })
 
 describe('MobileSearchSections', () => {
+  // Local matching is complete offline. There are no remote hits to hold,
+  // and reading these resident titles needs no refresh.
+  const offlineCollections = () => ({
+    online: false,
+    available: false,
+    holdRecords: (_entity: string, ids: readonly string[]) => expect(ids).toEqual([]),
+    reading: () => 'ready' as const,
+  })
   const titles = new Map([
     ['a', 'alpha'],
     ['b', 'beta'],
   ])
   const pool = () =>
     ({
+      collections: offlineCollections(),
       queries: {
         localTextIds: (needle: string) =>
           new Set([...titles].filter(([, title]) => title.includes(needle)).map(([id]) => id)),
@@ -393,6 +402,7 @@ describe('MobileSearchSections', () => {
       for (const id of closed) titles.set(id, `closed routine ${id}`)
       const calls = { textPasses: 0, issueRows: 0 }
       const graph = {
+        collections: offlineCollections(),
         clock: { current: 0, reached: () => {} },
         selection: {
           keys: (): IterableIterator<string> => [][Symbol.iterator](),

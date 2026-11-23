@@ -1,3 +1,7 @@
+// workspace-scoped (POD-6959)
+import type { WriteScope } from '@podium/sync'
+import { captureWrite } from '../sync/capture-pg'
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
 import { CommittedRows } from './committed-rows'
 /**
  * Messages aggregate — owns the unified `messages` table (#237)
@@ -14,6 +18,8 @@ import {
   asIssueId,
   asSessionId,
   asUserId,
+  HarnessRef,
+  type HarnessRefEntry,
   type IssueId,
   MESSAGE_HANDED_ON,
   MESSAGE_PENDING,
@@ -21,10 +27,8 @@ import {
   type MessageDeliveryStatus,
   type MessageHeld,
   type MoveOutcome,
-  type SessionId,
-  HarnessRef,
-  type HarnessRefEntry,
   mergeHarnessRefs,
+  type SessionId,
   type TranscriptItemRef,
 } from '@podium/model'
 import {
@@ -55,22 +59,28 @@ import {
   sql,
 } from 'drizzle-orm'
 import { alias, type SQLiteUpdateSetSource } from 'drizzle-orm/sqlite-core'
-import {
-  messageReads,
-  messages as messagesTable,
-  messageWakeCooldowns,
-  sessions as sessionsTable,
-} from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { messages as messagesTable } from '../migrations/schema'
+import { dialectOf } from './executor/dialect-prepared'
+import type {
+  StoreDrizzle,
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   placeholdersFor,
   prepared,
   preparedFamily,
+  sameWorkspace,
   shapeOf,
+  storeTables,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 import { moveStatus } from './guarded-move'
 import type { MessageRow, MessageToKind } from './types'
@@ -79,11 +89,11 @@ import type { MessageRow, MessageToKind } from './types'
  *  (issue-addressed only — they are readable via `podium issue mail inbox`). */
 export const INLINE_BODY_MAX = 6_000
 
-/** Longer than {@link INLINE_BODY_MAX} counted as SQLite's `length()` counts
- *  text: in characters (code points), where `.length` counts UTF-16 units and so
- *  counts an emoji twice. Units are never fewer than characters and never more
- *  than twice as many, so only a body between the two bounds is walked. SQLite
- *  also stops counting at a NUL; a body holding one is the one it can misjudge. */
+/** Longer than {@link INLINE_BODY_MAX} counted as the database's `length()`
+ *  counts text: in characters (code points), where `.length` counts UTF-16 units
+ *  and so counts an emoji twice. Units are never fewer than characters and never
+ *  more than twice as many, so only a body between the two bounds is walked. A
+ *  stored body holds no NUL ({@link withoutNul}), where SQLite would stop counting. */
 const longerThanInline = (body: string): boolean => {
   if (body.length <= INLINE_BODY_MAX) return false
   if (body.length > 2 * INLINE_BODY_MAX) return true
@@ -93,6 +103,19 @@ const longerThanInline = (body: string): boolean => {
   }
   return false
 }
+
+/**
+ * TEXT FROM OUTSIDE, WITH EVERY U+0000 AS U+FFFD (POD-6958 design 2.3 rule 9).
+ * Postgres `text` cannot hold the NUL character, and SQLite stores it, so a body
+ * or sender name an agent or person typed is stored without it on both engines.
+ * U+FFFD is Unicode's mark for a character that could not be kept.
+ */
+export const withoutNul = (text: string): string =>
+  text.includes('\u0000') ? text.replaceAll('\u0000', '\uFFFD') : text
+
+/** {@link withoutNul} over a nullable field. */
+const withoutNulOrNull = <T extends string | null | undefined>(text: T): T =>
+  (typeof text === 'string' ? withoutNul(text) : text) as T
 
 /**
  * THE POINTER RULE — one definition, in code and in SQL, here below the
@@ -108,11 +131,8 @@ export const isPointerMessage = (message: Pick<MessageRow, 'toKind' | 'body'>): 
   message.toKind === 'issue' && longerThanInline(message.body)
 
 /** {@link isPointerMessage} as a row predicate. */
-const isPointerRow = (): SQL =>
-  and(
-    eq(messagesTable.toKind, 'issue'),
-    sql`length(${messagesTable.body}) > ${INLINE_BODY_MAX}`,
-  ) as SQL
+const isPointerRow = (t: StoreTables): SQL =>
+  and(eq(t.messages.toKind, 'issue'), sql`length(${t.messages.body}) > ${INLINE_BODY_MAX}`) as SQL
 
 /** Handed on toward a session and not confirmed, or handed on and lost track
  *  of: either way the server has done its part and nothing re-pushes it. */
@@ -123,16 +143,18 @@ const HANDED_ON: readonly MessageDeliveryStatus[] = MESSAGE_HANDED_ON
  *  is on its way into that session's context as a turn [POD-4661]. Written
  *  branch by branch so a NULL column reads as "not handed on", never as
  *  "exclude". */
-const notOnItsWay = (handedToSession: boolean): SQL =>
+const notOnItsWay = (t: StoreTables, handedToSession: boolean): SQL =>
   or(
-    notInArray(messagesTable.deliveryStatus, [...HANDED_ON]),
-    isNull(messagesTable.deliveredTo),
-    ...(handedToSession ? [ne(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId'))] : []),
-    isPointerRow(),
+    notInArray(t.messages.deliveryStatus, [...HANDED_ON]),
+    isNull(t.messages.deliveredTo),
+    ...(handedToSession
+      ? [ne(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId'))]
+      : []),
+    isPointerRow(t),
   ) as SQL
 
 /** Not ended: held, on its way, or lost track of. */
-const pending = (): SQL => inArray(messagesTable.deliveryStatus, [...MESSAGE_PENDING])
+const pending = (t: StoreTables): SQL => inArray(t.messages.deliveryStatus, [...MESSAGE_PENDING])
 
 /**
  * CONFIRMED INTO `sessionId`, read through `idx_messages_delivered_to_time` (POD-5941).
@@ -146,11 +168,19 @@ const pending = (): SQL => inArray(messagesTable.deliveryStatus, [...MESSAGE_PEN
  * 11 ms for the busiest recipient. `messages-golden.test.ts` pins the plan.
  * The session is the `sessionId` placeholder.
  */
-const confirmedInto = (): SQL =>
+const confirmedInto = (db: StoreDrizzle, t: StoreTables): SQL =>
   and(
-    sql`+${messagesTable.deliveryStatus} = ${'confirmed'}`,
-    eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
+    sql`${statusOutOfIndexChoice(db, t)} = ${'confirmed'}`,
+    eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
   ) as SQL
+
+/**
+ * `delivery_status` kept out of SQLite's index choice by a unary `+` (see
+ * {@link confirmedInto}). Postgres has no unary `+` on text, and its planner
+ * reads the column's statistics, so there it is the bare column.
+ */
+const statusOutOfIndexChoice = (db: StoreDrizzle, t: StoreTables): SQL =>
+  dialectOf(db) === 'pg' ? sql`${t.messages.deliveryStatus}` : sql`+${t.messages.deliveryStatus}`
 
 /** The columns a move may set besides the status the move owns. */
 type MoveSet = Omit<SQLiteUpdateSetSource<typeof messagesTable>, 'deliveryStatus' | 'id'>
@@ -186,7 +216,9 @@ export interface PendingMessageSummary {
 }
 
 /** Receives every message row a write touched, inside that write's transaction. */
-export type MessageFeedCapture = (rows: readonly MessageRow[]) => Promise<void>
+/** The change-log commit a message write runs in its own transaction once it
+ *  changed rows: it drains the database's change capture (POD-6920). */
+export type MessageFeedCapture = ChangeLogCommit
 
 /** One `messages` row as the schema types it, before mapping. */
 type MessageSelect = typeof messagesTable.$inferSelect
@@ -304,99 +336,175 @@ type AddressShape = 'no-id' | 'id'
 const addressShape = (to: MessagePrincipalRef): AddressShape =>
   to.kind === 'operator' || (to.id ?? null) === null ? 'no-id' : 'id'
 
-function addressedTo(shape: AddressShape): SQL[] {
+function addressedTo(t: StoreTables, shape: AddressShape): SQL[] {
   return [
-    eq(messagesTable.toKind, param(messagesTable.toKind, 'toKind')),
-    shape === 'no-id' ? isNull(messagesTable.toId) : eq(messagesTable.toId, param(messagesTable.toId, 'toId')),
+    eq(t.messages.toKind, param(t.messages.toKind, 'toKind')),
+    shape === 'no-id'
+      ? isNull(t.messages.toId)
+      : eq(t.messages.toId, param(t.messages.toId, 'toId')),
   ]
 }
 
 /** The placeholder values {@link addressedTo} reads. */
-const addressValues = (to: MessagePrincipalRef): { toKind: MessageToKind; toId: string | null } => ({
+const addressValues = (
+  to: MessagePrincipalRef,
+): { toKind: MessageToKind; toId: string | null } => ({
   toKind: to.kind,
   toId: to.id ?? null,
 })
 
 /** The `(created_at, id)` delivery order every queued scan and cursor shares. */
-const DELIVERY_ORDER = [asc(messagesTable.createdAt), asc(messagesTable.id)] as const
+const DELIVERY_ORDER = (t: StoreTables) => [asc(t.messages.createdAt), asc(t.messages.id)] as const
 
 const boundedLimit = (limit: number | undefined, fallback: number, ceiling: number): number =>
   Math.min(ceiling, Math.max(1, limit ?? fallback))
 
-export type MessageQueueFact = Pick<typeof messagesTable.$inferSelect, 'id' | 'toKind' | 'toId' | 'deliveryStatus'>
+export type MessageQueueFact = Pick<
+  typeof messagesTable.$inferSelect,
+  'id' | 'toKind' | 'toId' | 'deliveryStatus'
+>
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
 /** The row a new message stores; its set keys are its shape (see {@link MessagesRepository.addMessage}). */
-const insertMessage = preparedFamily((db: StoreDrizzle, shape: string) =>
+const insertMessage = preparedFamily((db, t, shape: string) =>
+  captureWrite(
+    db
+      .insert(t.messages)
+      .values({
+        ...placeholdersFor(shape),
+        workspaceId: WORKSPACE,
+      } as unknown as typeof messagesTable.$inferInsert)
+      .onConflictDoNothing({ target: [t.messages.workspaceId, t.messages.id] })
+      .returning(),
+  ).prepare(),
+)
+
+const messageById = prepared((db, t) =>
   db
-    .insert(messagesTable)
-    .values(placeholdersFor(shape) as unknown as typeof messagesTable.$inferInsert)
-    .onConflictDoNothing({ target: messagesTable.id })
-    .returning()
+    .select()
+    .from(t.messages)
+    .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id'))))
     .prepare(),
 )
 
-const messageById = prepared((db: StoreDrizzle) =>
-  db.select().from(messagesTable).where(eq(messagesTable.id, param(messagesTable.id, 'id'))).prepare(),
-)
-
 /** Keyed by the IN list's prepared size ({@link inListSize}); the ids are `ids0`, `ids1`, ... */
-const messagesWithIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select().from(messagesTable).where(inListOf(messagesTable.id, size, 'ids')).prepare(),
+const messagesWithIds = preparedFamily((db, t, size: number) =>
+  db
+    .select()
+    .from(t.messages)
+    .where(inWorkspace(t.messages, inListOf(t.messages.id, size, 'ids')))
+    .prepare(),
 )
 
 /** Operator messages to one session carrying attachments, by transcript item;
  *  the item list is keyed by its padded size. */
-const attachmentMessagesOfItems = preparedFamily((db: StoreDrizzle, size: number) =>
+const attachmentMessagesOfItems = preparedFamily((db, t, size: number) =>
   db
     .select()
-    .from(messagesTable)
-    .where(and(
-      eq(messagesTable.fromKind, 'operator'),
-      eq(messagesTable.toKind, 'session'),
-      eq(messagesTable.toId, param(messagesTable.toId, 'sessionId')),
-      inListOf(messagesTable.transcriptItemId, size, 'items'),
-      isNotNull(messagesTable.attachmentsJson),
-    ))
+    .from(t.messages)
+    .where(
+      inWorkspace(
+        t.messages,
+        eq(t.messages.fromKind, 'operator'),
+        eq(t.messages.toKind, 'session'),
+        eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
+        inListOf(t.messages.transcriptItemId, size, 'items'),
+        isNotNull(t.messages.attachmentsJson),
+      ),
+    )
     .prepare(),
 )
 
-const messagesAddressedTo = preparedFamily((db: StoreDrizzle, shape: AddressShape) =>
+const messagesAddressedTo = preparedFamily((db, t, shape: AddressShape) =>
   db
     .select()
-    .from(messagesTable)
-    .where(and(...addressedTo(shape)))
-    .orderBy(...DELIVERY_ORDER)
+    .from(t.messages)
+    .where(inWorkspace(t.messages, ...addressedTo(t, shape)))
+    .orderBy(...DELIVERY_ORDER(t))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const pendingForSessionProof = prepared((db: StoreDrizzle) =>
+const pendingForSessionProof = prepared((db, t) =>
   db
     .select()
-    .from(messagesTable)
+    .from(t.messages)
     .where(
-      or(
-        and(
-          pending(),
-          or(
-            and(
-              eq(messagesTable.toKind, 'session'),
-              eq(messagesTable.toId, param(messagesTable.toId, 'sessionId')),
+      inWorkspace(
+        t.messages,
+        or(
+          and(
+            pending(t),
+            or(
+              and(
+                eq(t.messages.toKind, 'session'),
+                eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
+              ),
+              eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
             ),
-            eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
           ),
-        ),
-        and(
-          confirmedInto(),
-          isNull(messagesTable.ackedBy),
-          eq(messagesTable.expectsResponse, true),
-          or(isNull(messagesTable.expiresAt), gt(messagesTable.expiresAt, param(messagesTable.expiresAt, 'now'))),
+          and(
+            confirmedInto(db, t),
+            isNull(t.messages.ackedBy),
+            eq(t.messages.expectsResponse, true),
+            or(
+              isNull(t.messages.expiresAt),
+              gt(t.messages.expiresAt, param(t.messages.expiresAt, 'now')),
+            ),
+          ),
         ),
       ),
     )
-    .orderBy(...DELIVERY_ORDER)
+    .orderBy(...DELIVERY_ORDER(t))
+    .prepare(),
+)
+
+/**
+ * {@link pendingForSessionProof} for a known set of sessions (POD-7036): the
+ * host sample checks the terminal proof of every idle candidate at once, and
+ * asked per session it was the audit's burst `#3d3edfd1` (up to 909 statements
+ * in one stall window). One SELECT per way a row names its session, each on its
+ * own index (`idx_messages_recipient_time`, `idx_messages_delivered_to_time`),
+ * joined by `UNION ALL`: a `UNION` would deduplicate in a temporary B-tree, and
+ * the caller attributes and deduplicates by id anyway. The ids are the `ids`
+ * list in both arms.
+ */
+const pendingForSessionsProof = preparedFamily((db, t, size: number) =>
+  db
+    .select()
+    .from(t.messages)
+    .where(
+      inWorkspace(
+        t.messages,
+        eq(t.messages.toKind, 'session'),
+        inListOf(t.messages.toId, size, 'ids'),
+        pending(t),
+      ),
+    )
+    .unionAll(
+      db
+        .select()
+        .from(t.messages)
+        .where(
+          inWorkspace(
+            t.messages,
+            inListOf(t.messages.deliveredTo, size, 'ids'),
+            or(
+              pending(t),
+              and(
+                sql`${statusOutOfIndexChoice(db, t)} = ${'confirmed'}`,
+                isNull(t.messages.ackedBy),
+                eq(t.messages.expectsResponse, true),
+                or(
+                  isNull(t.messages.expiresAt),
+                  gt(t.messages.expiresAt, param(t.messages.expiresAt, 'now')),
+                ),
+              ),
+            ),
+          ),
+        ),
+    )
     .prepare(),
 )
 
@@ -417,62 +525,94 @@ type LedgerShape = 'issue' | 'session' | 'both'
  * `idx_messages_delivered_to_time`, all ending in `created_at, id`), SQLite
  * merges the arms in that order and stops at the limit. `UNION`, not `UNION
  * ALL`: a row an issue both sent and received appears once, as it did.
+ *
+ * Postgres cannot take that `UNION`: it compares whole rows, and `json` has no
+ * equality. There the arms are one `WHERE a OR b OR ...`, which its planner
+ * reads as a bitmap OR of the same indexes, and a row matches once by nature.
  */
-const ledger = preparedFamily((db: StoreDrizzle, shape: LedgerShape) => {
+const ledger = preparedFamily((db, t, shape: LedgerShape) => {
   const arms: SQL[] = []
   if (shape !== 'session') {
     arms.push(
-      eq(messagesTable.fromIssue, param(messagesTable.fromIssue, 'issueId')),
-      and(eq(messagesTable.toKind, 'issue'), eq(messagesTable.toId, param(messagesTable.toId, 'issueId'))) as SQL,
+      eq(t.messages.fromIssue, param(t.messages.fromIssue, 'issueId')),
+      and(
+        eq(t.messages.toKind, 'issue'),
+        eq(t.messages.toId, param(t.messages.toId, 'issueId')),
+      ) as SQL,
     )
   }
   if (shape !== 'issue') {
     arms.push(
-      eq(messagesTable.fromSession, param(messagesTable.fromSession, 'sessionId')),
-      and(eq(messagesTable.toKind, 'session'), eq(messagesTable.toId, param(messagesTable.toId, 'sessionId'))) as SQL,
-      eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
+      eq(t.messages.fromSession, param(t.messages.fromSession, 'sessionId')),
+      and(
+        eq(t.messages.toKind, 'session'),
+        eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
+      ) as SQL,
+      eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
     )
   }
-  const [first, ...rest] = arms.map((where) => db.select().from(messagesTable).where(where))
+  if (dialectOf(db) === 'pg') {
+    return db
+      .select()
+      .from(t.messages)
+      .where(inWorkspace(t.messages, or(...arms)))
+      .orderBy(desc(t.messages.createdAt), desc(t.messages.id))
+      .limit(sql.placeholder('limit'))
+      .prepare()
+  }
+  const [first, ...rest] = arms.map((where) =>
+    // Each arm of the UNION holds its own scope to the workspace.
+    db.select().from(t.messages).where(inWorkspace(t.messages, where)),
+  )
   let union = first!.$dynamic()
   for (const arm of rest) union = union.union(arm).$dynamic()
   return union
-    .orderBy(desc(messagesTable.createdAt), desc(messagesTable.id))
+    .orderBy(desc(t.messages.createdAt), desc(t.messages.id))
     .limit(sql.placeholder('limit'))
     .prepare()
 })
 
 /** Still waiting in the `sessionId` placeholder's queue: `stored`, and addressed
  *  to it or aimed at it by `delivered_to`. */
-const waitingForSession = (): SQL | undefined =>
+const waitingForSession = (t: StoreTables): SQL | undefined =>
   and(
-    eq(messagesTable.deliveryStatus, 'stored'),
+    eq(t.messages.deliveryStatus, 'stored'),
     or(
-      and(eq(messagesTable.toKind, 'session'), eq(messagesTable.toId, param(messagesTable.toId, 'sessionId'))),
-      eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
+      and(
+        eq(t.messages.toKind, 'session'),
+        eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
+      ),
+      eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
     ),
   )
 
-const queuedMessageKey = prepared((db: StoreDrizzle) =>
+const queuedMessageKey = prepared((db, t) =>
   db
-    .select({ createdAt: messagesTable.createdAt, id: messagesTable.id })
-    .from(messagesTable)
-    .where(and(eq(messagesTable.id, param(messagesTable.id, 'messageId')), waitingForSession()))
+    .select({ createdAt: t.messages.createdAt, id: t.messages.id })
+    .from(t.messages)
+    .where(
+      inWorkspace(
+        t.messages,
+        eq(t.messages.id, param(t.messages.id, 'messageId')),
+        waitingForSession(t),
+      ),
+    )
     .prepare(),
 )
 
-const queuedAheadOf = prepared((db: StoreDrizzle) =>
+const queuedAheadOf = prepared((db, t) =>
   db
     .select({ n: count() })
-    .from(messagesTable)
+    .from(t.messages)
     .where(
-      and(
-        waitingForSession(),
+      inWorkspace(
+        t.messages,
+        waitingForSession(t),
         or(
-          lt(messagesTable.createdAt, param(messagesTable.createdAt, 'createdAt')),
+          lt(t.messages.createdAt, param(t.messages.createdAt, 'createdAt')),
           and(
-            eq(messagesTable.createdAt, param(messagesTable.createdAt, 'createdAt')),
-            lte(messagesTable.id, param(messagesTable.id, 'id')),
+            eq(t.messages.createdAt, param(t.messages.createdAt, 'createdAt')),
+            lte(t.messages.id, param(t.messages.id, 'id')),
           ),
         ),
       ),
@@ -502,27 +642,28 @@ const FROM_START: MessagePageCursor = { createdAt: '', id: '' }
  * LIMIT only on the whole. Arm `i` reads the `toKind{i}`, `toId{i}`,
  * `afterCreatedAt{i}` and `afterId{i}` placeholders; `limit` is shared.
  */
-const pendingPages = preparedFamily((db: StoreDrizzle, size: number) => {
+const pendingPages = preparedFamily((db, t, size: number) => {
   const arm = (i: number) =>
     db.select().from(
       db
         .select()
-        .from(messagesTable)
+        .from(t.messages)
         .where(
-          and(
-            eq(messagesTable.toKind, param(messagesTable.toKind, `toKind${i}`)),
-            eq(messagesTable.toId, param(messagesTable.toId, `toId${i}`)),
-            pending(),
+          inWorkspace(
+            t.messages,
+            eq(t.messages.toKind, param(t.messages.toKind, `toKind${i}`)),
+            eq(t.messages.toId, param(t.messages.toId, `toId${i}`)),
+            pending(t),
             or(
-              gt(messagesTable.createdAt, param(messagesTable.createdAt, `afterCreatedAt${i}`)),
+              gt(t.messages.createdAt, param(t.messages.createdAt, `afterCreatedAt${i}`)),
               and(
-                eq(messagesTable.createdAt, param(messagesTable.createdAt, `afterCreatedAt${i}`)),
-                gt(messagesTable.id, param(messagesTable.id, `afterId${i}`)),
+                eq(t.messages.createdAt, param(t.messages.createdAt, `afterCreatedAt${i}`)),
+                gt(t.messages.id, param(t.messages.id, `afterId${i}`)),
               ),
             ),
           ),
         )
-        .orderBy(...DELIVERY_ORDER)
+        .orderBy(...DELIVERY_ORDER(t))
         .limit(sql.placeholder('limit'))
         .as(`page${i}`),
     )
@@ -542,9 +683,12 @@ const pendingPages = preparedFamily((db: StoreDrizzle, size: number) => {
  * for 2 and a page read ({@link pendingPages}) 72 µs for 1, empty. Postgres
  * names VALUES columns `column1`, `column2` as SQLite does.
  */
-const pendingTargetsAmong = preparedFamily((db: StoreDrizzle, size: number) => {
+const pendingTargetsAmong = preparedFamily((db, t, size: number) => {
   const rows = sql.join(
-    Array.from({ length: size }, (_, i) => sql`(${sql.placeholder(`toKind${i}`)}, ${sql.placeholder(`toId${i}`)})`),
+    Array.from(
+      { length: size },
+      (_, i) => sql`(${sql.placeholder(`toKind${i}`)}, ${sql.placeholder(`toId${i}`)})`,
+    ),
     sql`, `,
   )
   const toKind = sql<string>`"target"."column1"`
@@ -556,26 +700,39 @@ const pendingTargetsAmong = preparedFamily((db: StoreDrizzle, size: number) => {
       exists(
         db
           .select({ one: sql`1` })
-          .from(messagesTable)
-          .where(and(eq(messagesTable.toKind, toKind), eq(messagesTable.toId, toId), pending())),
+          .from(t.messages)
+          .where(
+            inWorkspace(
+              t.messages,
+              eq(t.messages.toKind, toKind),
+              eq(t.messages.toId, toId),
+              pending(t),
+            ),
+          ),
       ),
     )
     .prepare()
 })
 
-const latestPendingOperator = prepared((db: StoreDrizzle) =>
+const latestPendingOperator = prepared((db, t) =>
   db
     .select()
-    .from(messagesTable)
+    .from(t.messages)
     .where(
-      and(
-        eq(messagesTable.toKind, 'session'),
-        eq(messagesTable.toId, param(messagesTable.toId, 'sessionId')),
-        eq(messagesTable.fromKind, 'operator'),
-        pending(),
+      inWorkspace(
+        t.messages,
+        eq(t.messages.toKind, 'session'),
+        eq(t.messages.toId, param(t.messages.toId, 'sessionId')),
+        eq(t.messages.fromKind, 'operator'),
+        pending(t),
       ),
     )
-    .orderBy(desc(messagesTable.createdAt), desc(sql`rowid`))
+    // SQLite breaks a same-tick tie by insertion order (rowid). Postgres keeps no
+    // insertion order, so there the tie falls to the primary key.
+    .orderBy(
+      desc(t.messages.createdAt),
+      dialectOf(db) === 'pg' ? desc(t.messages.id) : desc(sql`rowid`),
+    )
     .limit(1)
     .prepare(),
 )
@@ -585,14 +742,38 @@ const latestPendingOperator = prepared((db: StoreDrizzle) =>
  * {@link pendingForSession}. A builder, not a statement: built once per store
  * and rendered into the statements that embed it.
  */
-const readBySession = prepared((db: StoreDrizzle) =>
+const readBySession = prepared((db, t) =>
   db
     .select({ one: sql`1` })
-    .from(messageReads)
+    .from(t.messageReads)
     .where(
       and(
-        eq(messageReads.messageId, messagesTable.id),
-        eq(messageReads.sessionId, param(messageReads.sessionId, 'sessionId')),
+        sameWorkspace(t.messageReads, t.messages),
+        eq(t.messageReads.messageId, t.messages.id),
+        eq(t.messageReads.sessionId, param(t.messageReads.sessionId, 'sessionId')),
+      ),
+    ),
+)
+
+/**
+ * "The `sessionId` placeholder subscribed to this issue's mail", the
+ * subscription POD-6296 delivers another person's task mail by (its own
+ * enabled `issue.mail` row sourced on the `issueId` placeholder). A builder,
+ * like {@link readBySession}.
+ */
+const subscribedToIssueMail = prepared((db, t) =>
+  db
+    .select({ one: sql`1` })
+    .from(t.subscriptions)
+    .where(
+      inWorkspace(
+        t.subscriptions,
+        eq(t.subscriptions.subscriberId, param(t.subscriptions.subscriberId, 'sessionId')),
+        eq(t.subscriptions.sourceKind, 'issue'),
+        eq(t.subscriptions.event, 'issue.mail'),
+        eq(t.subscriptions.subscriberKind, 'session'),
+        eq(t.subscriptions.sourceRef, param(t.subscriptions.sourceRef, 'issueId')),
+        eq(t.subscriptions.enabled, true),
       ),
     ),
 )
@@ -606,25 +787,44 @@ const readBySession = prepared((db: StoreDrizzle) =>
  * nobody has consumed, so it is exactly the held handoff a newly-arrived
  * session must be told about. A session row that is gone (tests, pre-substrate
  * ids) falls back to the message's own timestamp, i.e. counts.
+ *
+ * ONLY MAIL THE READER WOULD BE HANDED (POD-6368, POD-6296's rule): another
+ * person's task mail is published on the task, not addressed to this reader,
+ * so it is not on its pointer. A row counts when no human is behind it (system
+ * mail, older rows), when the session's own human sent it, when it was handed
+ * to this session, or when the session subscribed to the task's mail. A
+ * session row that is gone falls back to the sender, i.e. counts.
  */
-function pendingForSession(db: StoreDrizzle, handedToSession: boolean): SQL {
+function pendingForSession(db: StoreDrizzle, t: StoreTables, handedToSession: boolean): SQL {
   return and(
-    eq(messagesTable.toKind, 'issue'),
-    eq(messagesTable.toId, param(messagesTable.toId, 'issueId')),
-    inArray(messagesTable.deliveryStatus, [...MESSAGE_PENDING, 'confirmed']),
-    or(isNull(messagesTable.fromSession), ne(messagesTable.fromSession, param(messagesTable.fromSession, 'sessionId'))),
+    eq(t.messages.toKind, 'issue'),
+    eq(t.messages.toId, param(t.messages.toId, 'issueId')),
+    inArray(t.messages.deliveryStatus, [...MESSAGE_PENDING, 'confirmed']),
+    or(
+      isNull(t.messages.fromSession),
+      ne(t.messages.fromSession, param(t.messages.fromSession, 'sessionId')),
+    ),
     notExists(readBySession(db)),
     or(
-      pending(),
-      isNull(messagesTable.deliveredTo),
-      ne(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
+      pending(t),
+      isNull(t.messages.deliveredTo),
+      ne(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
     ),
-    notOnItsWay(handedToSession),
+    notOnItsWay(t, handedToSession),
     or(
-      pending(),
+      isNull(t.messages.onBehalfOf),
+      eq(
+        t.messages.onBehalfOf,
+        sql`COALESCE((SELECT ${t.sessions.ownerUserId} FROM ${t.sessions} WHERE ${t.sessions.workspaceId} = ${WORKSPACE} AND ${t.sessions.id} = ${sql.placeholder('sessionId')}), ${sql.identifier('messages')}.${sql.identifier('on_behalf_of')})`,
+      ),
+      eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
+      exists(subscribedToIssueMail(db)),
+    ),
+    or(
+      pending(t),
       gte(
-        messagesTable.createdAt,
-        sql`COALESCE((SELECT ${sessionsTable.createdAt} FROM ${sessionsTable} WHERE ${sessionsTable.id} = ${sql.placeholder('sessionId')}), ${sql.identifier('messages')}.${sql.identifier('created_at')})`,
+        t.messages.createdAt,
+        sql`COALESCE((SELECT ${t.sessions.createdAt} FROM ${t.sessions} WHERE ${t.sessions.workspaceId} = ${WORKSPACE} AND ${t.sessions.id} = ${sql.placeholder('sessionId')}), ${sql.identifier('messages')}.${sql.identifier('created_at')})`,
       ),
     ),
   ) as SQL
@@ -642,108 +842,146 @@ const isSessionSlice = (slice: PendingSlice): slice is 'session' | 'session-blan
 const sessionSlice = (sessionId: SessionId): 'session' | 'session-blank' =>
   sessionId ? 'session' : 'session-blank'
 
+/**
+ * Senders in order, with NULL first as SQLite sorts it ascending; written out
+ * because Postgres puts NULL last.
+ */
+const SENDER_ORDER = (t: StoreTables) =>
+  [
+    asc(t.messages.fromKind),
+    sql`${t.messages.fromIssue} ASC NULLS FIRST`,
+    sql`${t.messages.fromSession} ASC NULLS FIRST`,
+  ] as const
+
 /** Count and group one queued slice in one statement for the inbox nag. */
-const pendingSummaryOf = preparedFamily((db: StoreDrizzle, slice: PendingSlice) =>
+const pendingSummaryOf = preparedFamily((db, t, slice: PendingSlice) =>
   db
     .select({
-      fromKind: messagesTable.fromKind,
-      fromIssue: messagesTable.fromIssue,
-      fromSession: messagesTable.fromSession,
+      fromKind: t.messages.fromKind,
+      fromIssue: t.messages.fromIssue,
+      fromSession: t.messages.fromSession,
       n: count(),
     })
-    .from(messagesTable)
-    .where(isSessionSlice(slice) ? pendingForSession(db, slice === 'session') : and(...addressedTo(slice), pending(), notOnItsWay(false)))
-    .groupBy(messagesTable.fromKind, messagesTable.fromIssue, messagesTable.fromSession)
-    .orderBy(
-      asc(messagesTable.fromKind),
-      asc(messagesTable.fromIssue),
-      asc(messagesTable.fromSession),
+    .from(t.messages)
+    .where(
+      inWorkspace(
+        t.messages,
+        isSessionSlice(slice)
+          ? pendingForSession(db, t, slice === 'session')
+          : and(...addressedTo(t, slice), pending(t), notOnItsWay(t, false)),
+      ),
     )
+    .groupBy(t.messages.fromKind, t.messages.fromIssue, t.messages.fromSession)
+    .orderBy(...SENDER_ORDER(t))
     .prepare(),
 )
 
 /** The DISTINCT sender projection both queued-sender readers share. */
-const pendingSendersOf = preparedFamily((db: StoreDrizzle, slice: PendingSlice) =>
+const pendingSendersOf = preparedFamily((db, t, slice: PendingSlice) =>
   db
     .selectDistinct({
-      fromKind: messagesTable.fromKind,
-      fromIssue: messagesTable.fromIssue,
-      fromSession: messagesTable.fromSession,
+      fromKind: t.messages.fromKind,
+      fromIssue: t.messages.fromIssue,
+      fromSession: t.messages.fromSession,
     })
-    .from(messagesTable)
-    .where(isSessionSlice(slice) ? pendingForSession(db, slice === 'session') : and(...addressedTo(slice), pending()))
-    .orderBy(
-      asc(messagesTable.fromKind),
-      asc(messagesTable.fromIssue),
-      asc(messagesTable.fromSession),
+    .from(t.messages)
+    .where(
+      inWorkspace(
+        t.messages,
+        isSessionSlice(slice)
+          ? pendingForSession(db, t, slice === 'session')
+          : and(...addressedTo(t, slice), pending(t)),
+      ),
+    )
+    .orderBy(...SENDER_ORDER(t))
+    .prepare(),
+)
+
+const pendingCountOf = preparedFamily((db, t, slice: PendingSlice) =>
+  db
+    .select({ n: count() })
+    .from(t.messages)
+    .where(
+      inWorkspace(
+        t.messages,
+        isSessionSlice(slice)
+          ? pendingForSession(db, t, slice === 'session')
+          : and(...addressedTo(t, slice), pending(t)),
+      ),
     )
     .prepare(),
 )
 
-const pendingCountOf = preparedFamily((db: StoreDrizzle, slice: PendingSlice) =>
+const queuedCount = prepared((db, t) =>
   db
     .select({ n: count() })
-    .from(messagesTable)
-    .where(isSessionSlice(slice) ? pendingForSession(db, slice === 'session') : and(...addressedTo(slice), pending()))
+    .from(t.messages)
+    .where(inWorkspace(t.messages, pending(t)))
     .prepare(),
 )
 
-const queuedCount = prepared((db: StoreDrizzle) =>
-  db.select({ n: count() }).from(messagesTable).where(pending()).prepare(),
-)
-
-const insertRead = prepared((db: StoreDrizzle) =>
+const insertRead = prepared((db, t) =>
   db
-    .insert(messageReads)
+    .insert(t.messageReads)
     .values({
+      workspaceId: WORKSPACE,
       messageId: sql.placeholder('messageId'),
       sessionId: sql.placeholder('sessionId'),
       readAt: sql.placeholder('readAt'),
     })
     // DO NOTHING, never DO UPDATE: the FIRST sighting is the one that happened.
-    .onConflictDoNothing({ target: [messageReads.messageId, messageReads.sessionId] })
+    .onConflictDoNothing({
+      target: [t.messageReads.workspaceId, t.messageReads.messageId, t.messageReads.sessionId],
+    })
     .prepare(),
 )
 
-const existingIdsAmong = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select({ id: messagesTable.id }).from(messagesTable).where(inListOf(messagesTable.id, size, 'ids')).prepare(),
+const existingIdsAmong = preparedFamily((db, t, size: number) =>
+  db
+    .select({ id: t.messages.id })
+    .from(t.messages)
+    .where(inWorkspace(t.messages, inListOf(t.messages.id, size, 'ids')))
+    .prepare(),
 )
 
-const receiptsAmong = preparedFamily((db: StoreDrizzle, size: number) =>
+const receiptsAmong = preparedFamily((db, t, size: number) =>
   db
-    .select({ messageId: messageReads.messageId })
-    .from(messageReads)
+    .select({ messageId: t.messageReads.messageId })
+    .from(t.messageReads)
     .where(
-      and(
-        eq(messageReads.sessionId, param(messageReads.sessionId, 'sessionId')),
-        inListOf(messageReads.messageId, size, 'ids'),
+      inWorkspace(
+        t.messageReads,
+        eq(t.messageReads.sessionId, param(t.messageReads.sessionId, 'sessionId')),
+        inListOf(t.messageReads.messageId, size, 'ids'),
       ),
     )
     .prepare(),
 )
 
-const sentAmong = preparedFamily((db: StoreDrizzle, size: number) =>
+const sentAmong = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: messagesTable.id })
-    .from(messagesTable)
+    .select({ id: t.messages.id })
+    .from(t.messages)
     .where(
-      and(
-        eq(messagesTable.fromSession, param(messagesTable.fromSession, 'sessionId')),
-        inListOf(messagesTable.id, size, 'ids'),
+      inWorkspace(
+        t.messages,
+        eq(t.messages.fromSession, param(t.messages.fromSession, 'sessionId')),
+        inListOf(t.messages.id, size, 'ids'),
       ),
     )
     .prepare(),
 )
 
-const communicatedSince = preparedFamily((db: StoreDrizzle, shape: AddressShape) =>
+const communicatedSince = preparedFamily((db, t, shape: AddressShape) =>
   db
     .select({ hit: sql<number>`1` })
-    .from(messagesTable)
+    .from(t.messages)
     .where(
-      and(
-        eq(messagesTable.fromIssue, param(messagesTable.fromIssue, 'fromIssue')),
-        gte(messagesTable.createdAt, param(messagesTable.createdAt, 'sinceIso')),
-        ...addressedTo(shape),
+      inWorkspace(
+        t.messages,
+        eq(t.messages.fromIssue, param(t.messages.fromIssue, 'fromIssue')),
+        gte(t.messages.createdAt, param(t.messages.createdAt, 'sinceIso')),
+        ...addressedTo(t, shape),
       ),
     )
     .limit(1)
@@ -760,15 +998,15 @@ const communicatedSince = preparedFamily((db: StoreDrizzle, shape: AddressShape)
  *  and the conditions that narrow the row past its id and the guard. */
 interface MoveSpec {
   readonly to: MessageDeliveryStatus
-  readonly set?: () => MoveSet
-  readonly where?: () => readonly SQL[]
+  readonly set?: (t: StoreTables) => MoveSet
+  readonly where?: (t: StoreTables) => readonly SQL[]
 }
 
 /** Unaimed, or aimed at the `deliveredTo` placeholder's session. */
-const unaimedOrAimedAt = (): SQL =>
+const unaimedOrAimedAt = (t: StoreTables): SQL =>
   or(
-    isNull(messagesTable.deliveredTo),
-    eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'deliveredTo')),
+    isNull(t.messages.deliveredTo),
+    eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'deliveredTo')),
   ) as SQL
 
 /** Every move this repository makes, one prepared statement each. */
@@ -776,76 +1014,84 @@ const MOVES = {
   dispatched: {
     to: 'dispatched',
     set: () => ({ injectedAt: sql.placeholder('at'), deliveredTo: sql.placeholder('deliveredTo') }),
+    // The retract's ledger write can commit before its queue follow-up runs.
+    // It must win a concurrent first hand-off while the server still owns input.
+    where: (t: StoreTables) => [isNull(t.messages.retractRequestedAt)],
   },
   typed: {
     to: 'typed',
-    set: () => ({
+    set: (t: StoreTables) => ({
       deliveredTo: sql.placeholder('deliveredTo'),
-      injectedAt: sql`COALESCE(${messagesTable.injectedAt}, ${sql.placeholder('at')})`,
+      injectedAt: sql`COALESCE(${t.messages.injectedAt}, ${sql.placeholder('at')})`,
     }),
-    where: () => [unaimedOrAimedAt()],
+    where: (t: StoreTables) => [unaimedOrAimedAt(t)],
   },
   accepted: {
     to: 'accepted',
-    set: () => ({
+    set: (t: StoreTables) => ({
       deliveredTo: sql.placeholder('deliveredTo'),
       deliveryHeld: sql.placeholder('held'),
-      injectedAt: sql`COALESCE(${messagesTable.injectedAt}, ${sql.placeholder('at')})`,
+      injectedAt: sql`COALESCE(${t.messages.injectedAt}, ${sql.placeholder('at')})`,
     }),
-    where: () => [unaimedOrAimedAt()],
+    where: (t: StoreTables) => [unaimedOrAimedAt(t)],
   },
   unknown: {
     to: 'unknown',
-    where: () => [
-      eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'deliveredTo')),
-      or(isNull(messagesTable.deliveryHeld), ne(messagesTable.deliveryHeld, 'durable')) as SQL,
+    where: (t: StoreTables) => [
+      eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'deliveredTo')),
+      or(isNull(t.messages.deliveryHeld), ne(t.messages.deliveryHeld, 'durable')) as SQL,
     ],
   },
   abandoned: {
     to: 'failed',
-    set: () => ({
+    set: (t: StoreTables) => ({
       deadLetteredAt: sql.placeholder('at'),
       deliveryDeferredAt: sql.placeholder('at'),
       deliveryDeferredReason: sql.placeholder('reason'),
-      deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${sql.placeholder('deliveredTo')})`,
+      deliveredTo: sql`COALESCE(${t.messages.deliveredTo}, ${sql.placeholder('deliveredTo')})`,
     }),
   },
   delivered: {
     to: 'confirmed',
-    set: () => ({ deliveredAt: sql.placeholder('deliveredAt'), deliveredTo: sql.placeholder('deliveredTo') }),
+    set: () => ({
+      deliveredAt: sql.placeholder('deliveredAt'),
+      deliveredTo: sql.placeholder('deliveredTo'),
+    }),
   },
   cancelled: { to: 'cancelled' },
   cancelledFrom: {
     to: 'cancelled',
-    where: () => [eq(messagesTable.deliveryStatus, param(messagesTable.deliveryStatus, 'onlyFrom'))],
+    where: (t: StoreTables) => [
+      eq(t.messages.deliveryStatus, param(t.messages.deliveryStatus, 'onlyFrom')),
+    ],
   },
   typing: { to: 'typing' },
   pulledByReader: {
     to: 'confirmed',
-    set: () => ({
+    set: (t: StoreTables) => ({
       deliveredAt: sql.placeholder('deliveredAt'),
-      deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${sql.placeholder('reader')})`,
+      deliveredTo: sql`COALESCE(${t.messages.deliveredTo}, ${sql.placeholder('reader')})`,
     }),
-    where: () => [
+    where: (t: StoreTables) => [
       or(
-        isNull(messagesTable.deliveredTo),
-        eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'brandedReader')),
+        isNull(t.messages.deliveredTo),
+        eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'brandedReader')),
       ) as SQL,
     ],
   },
   pulledUnnamed: {
     to: 'confirmed',
-    set: () => ({
+    set: (t: StoreTables) => ({
       deliveredAt: sql.placeholder('deliveredAt'),
-      deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${sql.placeholder('reader')})`,
+      deliveredTo: sql`COALESCE(${t.messages.deliveredTo}, ${sql.placeholder('reader')})`,
     }),
-    where: () => [isNull(messagesTable.deliveredTo)],
+    where: (t: StoreTables) => [isNull(t.messages.deliveredTo)],
   },
   read: {
     to: 'confirmed',
-    set: () => ({
+    set: (t: StoreTables) => ({
       readAt: sql.placeholder('readAt'),
-      deliveredTo: sql`COALESCE(${messagesTable.deliveredTo}, ${sql.placeholder('deliveredTo')})`,
+      deliveredTo: sql`COALESCE(${t.messages.deliveredTo}, ${sql.placeholder('deliveredTo')})`,
     }),
   },
   deadLetter: {
@@ -862,19 +1108,19 @@ const MOVES = {
   },
   expired: {
     to: 'expired',
-    where: () => [
-      eq(messagesTable.createdAt, param(messagesTable.createdAt, 'createdAt')),
-      eq(messagesTable.lifecycle, param(messagesTable.lifecycle, 'lifecycle')),
-      eq(messagesTable.expiresAt, param(messagesTable.expiresAt, 'expiresAt')),
+    where: (t: StoreTables) => [
+      eq(t.messages.createdAt, param(t.messages.createdAt, 'createdAt')),
+      eq(t.messages.lifecycle, param(t.messages.lifecycle, 'lifecycle')),
+      eq(t.messages.expiresAt, param(t.messages.expiresAt, 'expiresAt')),
     ],
   },
   expiredWithoutExpiry: {
     to: 'expired',
-    where: () => [
-      eq(messagesTable.createdAt, param(messagesTable.createdAt, 'createdAt')),
-      eq(messagesTable.lifecycle, param(messagesTable.lifecycle, 'lifecycle')),
+    where: (t: StoreTables) => [
+      eq(t.messages.createdAt, param(t.messages.createdAt, 'createdAt')),
+      eq(t.messages.lifecycle, param(t.messages.lifecycle, 'lifecycle')),
       // `IS`, NOT `=`: see {@link MessagesRepository.expireObserved}.
-      isNull(messagesTable.expiresAt),
+      isNull(t.messages.expiresAt),
     ],
   },
 } as const satisfies Record<string, MoveSpec>
@@ -886,73 +1132,97 @@ interface MoveWrite {
   all(values: Record<string, unknown>): Promise<(typeof messagesTable.$inferSelect)[]>
 }
 
-const statusOf = prepared((db: StoreDrizzle) =>
+const statusOf = prepared((db, t) =>
   db
-    .select({ status: messagesTable.deliveryStatus })
-    .from(messagesTable)
-    .where(eq(messagesTable.id, param(messagesTable.id, 'id')))
+    .select({ status: t.messages.deliveryStatus })
+    .from(t.messages)
+    .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id'))))
     .prepare(),
 )
 
-const nameTranscriptItemOnce = prepared((db: StoreDrizzle) =>
+const nameTranscriptItemOnce = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({
+        transcriptItemId: sql.placeholder('transcriptItemId'),
+        transcriptItemCursor: sql.placeholder('transcriptItemCursor'),
+      })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.transcriptItemId),
+          or(
+            isNull(t.messages.deliveredTo),
+            eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'deliveredTo')),
+          ),
+          notInArray(t.messages.deliveryStatus, ['failed', 'cancelled', 'expired']),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+const harnessRefOf = prepared((db, t) =>
   db
-    .update(messagesTable)
-    .set({ transcriptItemId: sql.placeholder('transcriptItemId'), transcriptItemCursor: sql.placeholder('transcriptItemCursor') })
-    .where(
-      and(
-        eq(messagesTable.id, param(messagesTable.id, 'id')),
-        isNull(messagesTable.transcriptItemId),
-        or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'deliveredTo'))),
-        notInArray(messagesTable.deliveryStatus, ['failed', 'cancelled', 'expired']),
-      ),
-    )
-    .returning()
+    .select({ harnessRefJson: t.messages.harnessRefJson })
+    .from(t.messages)
+    .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id'))))
     .prepare(),
 )
 
-const harnessRefOf = prepared((db: StoreDrizzle) =>
-  db
-    .select({ harnessRefJson: messagesTable.harnessRefJson })
-    .from(messagesTable)
-    .where(eq(messagesTable.id, param(messagesTable.id, 'id')))
-    .prepare(),
+/** Compare-and-set on the stored text; keyed by whether there is any (`null`).
+ *  The JSON column is compared as text, which Postgres's `json` needs. */
+const swapHarnessRef = preparedFamily((db, t, stored: 'null' | 'text') =>
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ harnessRefJson: sql.placeholder('harnessRefJson') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          stored === 'null'
+            ? isNull(t.messages.harnessRefJson)
+            : sql`CAST(${t.messages.harnessRefJson} AS TEXT) = ${sql.placeholder('stored')}`,
+          or(
+            isNull(t.messages.deliveredTo),
+            eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'deliveredTo')),
+          ),
+          notInArray(t.messages.deliveryStatus, ['cancelled', 'expired']),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
-/** Compare-and-set on the stored text; keyed by whether there is any (`null`). */
-const swapHarnessRef = preparedFamily((db: StoreDrizzle, stored: 'null' | 'text') =>
-  db
-    .update(messagesTable)
-    .set({ harnessRefJson: sql.placeholder('harnessRefJson') })
-    .where(
-      and(
-        eq(messagesTable.id, param(messagesTable.id, 'id')),
-        stored === 'null'
-          ? isNull(messagesTable.harnessRefJson)
-          : eq(messagesTable.harnessRefJson, param(messagesTable.harnessRefJson, 'stored')),
-        or(isNull(messagesTable.deliveredTo), eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'deliveredTo'))),
-        notInArray(messagesTable.deliveryStatus, ['cancelled', 'expired']),
-      ),
-    )
-    .returning()
-    .prepare(),
+const stampRetractRequest = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({
+        retractRequestedAt: sql`COALESCE(${t.messages.retractRequestedAt}, ${sql.placeholder('at')})`,
+      })
+      .where(inWorkspace(t.messages, eq(t.messages.id, param(t.messages.id, 'id')), pending(t)))
+      .returning(),
+  ).prepare(),
 )
 
-const stampRetractRequest = prepared((db: StoreDrizzle) =>
-  db
-    .update(messagesTable)
-    .set({ retractRequestedAt: sql`COALESCE(${messagesTable.retractRequestedAt}, ${sql.placeholder('at')})` })
-    .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), pending()))
-    .returning()
-    .prepare(),
-)
-
-const stampFirstRead = prepared((db: StoreDrizzle) =>
-  db
-    .update(messagesTable)
-    .set({ readAt: sql.placeholder('readAt') })
-    .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), isNull(messagesTable.readAt)))
-    .returning()
-    .prepare(),
+const stampFirstRead = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ readAt: sql.placeholder('readAt') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.readAt),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /**
@@ -960,44 +1230,51 @@ const stampFirstRead = prepared((db: StoreDrizzle) =>
  * ended issue is named (`|issue`). The sessions fill `sessions0`, `sessions1`,
  * ... in both IN lists.
  */
-const openBoundTo = preparedFamily((db: StoreDrizzle, key: `${number}${'' | '|issue'}`) => {
+const openBoundTo = preparedFamily((db, t, key: `${number}${'' | '|issue'}`) => {
   const [sizeText, ended] = key.split('|')
   const size = Number(sizeText)
   const bound = [
     ...(size === 0
       ? []
       : [
-          and(eq(messagesTable.toKind, 'session'), inListOf(messagesTable.toId, size, 'sessions')),
+          and(eq(t.messages.toKind, 'session'), inListOf(t.messages.toId, size, 'sessions')),
           and(
-            inListOf(messagesTable.deliveredTo, size, 'sessions'),
-            inArray(messagesTable.deliveryStatus, [...HANDED_ON]),
+            inListOf(t.messages.deliveredTo, size, 'sessions'),
+            inArray(t.messages.deliveryStatus, [...HANDED_ON]),
           ),
         ]),
     ...(ended === undefined
       ? []
-      : [and(eq(messagesTable.toKind, 'issue'), eq(messagesTable.toId, param(messagesTable.toId, 'endedIssueId')))]),
+      : [
+          and(
+            eq(t.messages.toKind, 'issue'),
+            eq(t.messages.toId, param(t.messages.toId, 'endedIssueId')),
+          ),
+        ]),
   ]
   return db
     .select()
-    .from(messagesTable)
-    .where(and(pending(), or(...bound)))
-    .orderBy(...DELIVERY_ORDER)
+    .from(t.messages)
+    .where(inWorkspace(t.messages, pending(t), or(...bound)))
+    .orderBy(...DELIVERY_ORDER(t))
     .prepare()
 })
 
-const dismissNoticeOnce = prepared((db: StoreDrizzle) =>
-  db
-    .update(messagesTable)
-    .set({ noticeDismissedAt: sql.placeholder('at') })
-    .where(
-      and(
-        eq(messagesTable.id, param(messagesTable.id, 'id')),
-        isNull(messagesTable.noticeDismissedAt),
-        inArray(messagesTable.deliveryStatus, ['failed', 'expired', 'unknown']),
-      ),
-    )
-    .returning()
-    .prepare(),
+const dismissNoticeOnce = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ noticeDismissedAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.noticeDismissedAt),
+          inArray(t.messages.deliveryStatus, ['failed', 'expired', 'unknown']),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /**
@@ -1006,12 +1283,13 @@ const dismissNoticeOnce = prepared((db: StoreDrizzle) =>
  * table's own columns over a raw FROM, so each is a fragment mapped with its
  * column.
  */
-const MESSAGE_COLUMNS = Object.fromEntries(
-  Object.entries(getColumns(messagesTable)).map(([key, column]) => [
-    key,
-    sql`${sql.identifier(column.name)}`.mapWith(column),
-  ]),
-) as { [K in keyof MessageSelect]: SQL<MessageSelect[K]> }
+const MESSAGE_COLUMNS = (t: StoreTables) =>
+  Object.fromEntries(
+    Object.entries(getColumns(t.messages)).map(([key, column]) => [
+      key,
+      sql`${sql.identifier(column.name)}`.mapWith(column),
+    ]),
+  ) as { [K in keyof MessageSelect]: SQL<MessageSelect[K]> }
 
 /**
  * The chat feed's boot read, through the partial index idx_messages_open_chat
@@ -1026,54 +1304,159 @@ const MESSAGE_COLUMNS = Object.fromEntries(
  * index is, by `created_at` then rowid, so the walk needs no sort; the feed
  * keys the rows by id, so the order of rows tied on `created_at` does not
  * matter there. The query-plan audit asserts this plan.
+ *
+ * Postgres has no INDEXED BY and no rowid: it reads the same partial index from
+ * the same literal terms, and the tie falls to the primary key.
  */
-const openChat = prepared((db: StoreDrizzle) =>
-  db
-    .select(MESSAGE_COLUMNS)
-    .from(sql`${messagesTable} INDEXED BY idx_messages_open_chat`)
-    .where(
-      sql`${messagesTable.fromKind} = 'operator' AND ${messagesTable.toKind} = 'session' AND ${messagesTable.noticeDismissedAt} IS NULL AND ${messagesTable.deliveryStatus} NOT IN ('confirmed', 'cancelled')`,
-    )
-    .orderBy(asc(messagesTable.createdAt), asc(sql`rowid`))
-    .limit(sql.placeholder('limit'))
-    .prepare(),
-)
-
-/** Keyed by whether a cursor is given. */
-const queuedPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') => {
-  const where: SQL[] = [pending()]
-  if (from === 'after') where.push(afterCursor())
+const openChat = prepared((db, t) => {
+  const pg = dialectOf(db) === 'pg'
   return db
-    .select()
-    .from(messagesTable)
-    .where(and(...where))
-    .orderBy(...DELIVERY_ORDER)
+    .select(MESSAGE_COLUMNS(t))
+    .from(pg ? t.messages : sql`${t.messages} INDEXED BY idx_messages_open_chat`)
+    .where(
+      inWorkspace(
+        t.messages,
+        sql`${t.messages.fromKind} = 'operator' AND ${t.messages.toKind} = 'session' AND ${t.messages.noticeDismissedAt} IS NULL AND ${t.messages.deliveryStatus} NOT IN ('confirmed', 'cancelled')`,
+      ),
+    )
+    .orderBy(asc(t.messages.createdAt), pg ? asc(t.messages.id) : asc(sql`rowid`))
     .limit(sql.placeholder('limit'))
     .prepare()
 })
 
-const upsertWakeCooldown = prepared((db: StoreDrizzle) =>
+/**
+ * THE CONFIRMED HALF OF THE CHAT FEED'S WINDOW, AS A QUERY (POD-6763, design
+ * POD-6253 §1): every live session's newest `perSession` confirmed operator
+ * messages. A live session is not exited, not archived and not deleted
+ * (`isLiveConversation` in `modules/message-feed`). The live ones are found
+ * first (a read of `sessions`), then each one's messages through the
+ * recipient index; the rank is a window function, which Postgres has too.
+ * The start-up truth of the window; a write reads only the sessions it
+ * touched ({@link confirmedChatTail}).
+ */
+/** `archived`'s false: the integer 0 on SQLite, the boolean on Postgres. */
+const notArchived = (db: StoreDrizzle): SQL => (dialectOf(db) === 'pg' ? sql`false` : sql`0`)
+
+const confirmedChatWindow = prepared((db, t) =>
   db
-    .insert(messageWakeCooldowns)
-    .values({ key: sql.placeholder('key'), attemptedAt: sql.placeholder('attemptedAt') })
-    .onConflictDoUpdate({ target: messageWakeCooldowns.key, set: { attemptedAt: sql.placeholder('attemptedAt') } })
+    .select(MESSAGE_COLUMNS(t))
+    .from(
+      sql`(SELECT m.*, row_number() OVER (PARTITION BY m.to_id ORDER BY m.created_at DESC, m.id DESC) AS window_rank
+        FROM ${t.messages} m
+        WHERE m.workspace_id = ${WORKSPACE} AND m.from_kind = 'operator' AND m.to_kind = 'session' AND m.delivery_status = 'confirmed'
+          AND m.to_id IN (SELECT s.id FROM ${t.sessions} s
+            WHERE s.workspace_id = ${WORKSPACE} AND s.status <> 'exited' AND s.archived = ${notArchived(db)} AND s.deleted_at IS NULL)) ranked`,
+    )
+    .where(sql`window_rank <= ${sql.placeholder('perSession')}`)
+    .orderBy(asc(sql`created_at`), asc(sql`id`))
     .prepare(),
 )
 
-const wakeCooldownOf = prepared((db: StoreDrizzle) =>
+/** Most sessions one {@link confirmedChatTail} statement reads: one arm each,
+ *  under SQLite's limit of 500 terms in one compound SELECT. */
+const CHAT_TAIL_MAX_SESSIONS = 256
+
+/**
+ * THE CONFIRMED TAIL OF EACH NAMED SESSION, IN ONE STATEMENT (POD-6766): each
+ * session's newest `perSession` confirmed operator messages, newest first.
+ * The chat feed's window is a session's newest `CONFIRMED_PER_SESSION`
+ * (`modules/message-feed`) of these while the session is a live conversation; the publisher reads it
+ * inside each write, so it must not grow with a session's history. One arm
+ * per session, each walking `idx_messages_recipient_time` newest first and
+ * stopping at its LIMIT, joined by `UNION ALL` (the LIMIT sits in a subquery,
+ * as in {@link pendingPages}). Keyed `live|<size>` (only sessions that are
+ * live conversations: not exited, archived or deleted) or `any|<size>`.
+ */
+const confirmedChatTail = preparedFamily((db, t, key: string) => {
+  const [liveness, sizeText] = key.split('|')
+  const size = Number(sizeText)
+  const arm = (i: number) => {
+    const where: SQL[] = [
+      eq(t.messages.toKind, 'session'),
+      eq(t.messages.toId, param(t.messages.toId, `ids${i}`)),
+      eq(t.messages.fromKind, 'operator'),
+      eq(t.messages.deliveryStatus, 'confirmed'),
+    ]
+    if (liveness === 'live') {
+      where.push(
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(t.sessions)
+            .where(
+              inWorkspace(
+                t.sessions,
+                eq(t.sessions.id, param(t.sessions.id, `ids${i}`)),
+                ne(t.sessions.status, 'exited'),
+                eq(t.sessions.archived, false),
+                isNull(t.sessions.deletedAt),
+              ),
+            ),
+        ),
+      )
+    }
+    return db.select().from(
+      db
+        .select()
+        .from(t.messages)
+        .where(inWorkspace(t.messages, ...where))
+        .orderBy(desc(t.messages.createdAt), desc(t.messages.id))
+        .limit(sql.placeholder('perSession'))
+        .as(`tail${i}`),
+    )
+  }
+  let union = arm(0).$dynamic()
+  for (let i = 1; i < size; i++) union = union.unionAll(arm(i)).$dynamic()
+  return union.prepare()
+})
+
+/** Keyed by whether a cursor is given. */
+const queuedPage = preparedFamily((db, t, from: 'start' | 'after') => {
+  const where: SQL[] = [pending(t)]
+  if (from === 'after') where.push(afterCursor(t))
+  return db
+    .select()
+    .from(t.messages)
+    .where(inWorkspace(t.messages, ...where))
+    .orderBy(...DELIVERY_ORDER(t))
+    .limit(sql.placeholder('limit'))
+    .prepare()
+})
+
+const upsertWakeCooldown = prepared((db, t) =>
   db
-    .select({ attemptedAt: messageWakeCooldowns.attemptedAt })
-    .from(messageWakeCooldowns)
-    .where(eq(messageWakeCooldowns.key, param(messageWakeCooldowns.key, 'key')))
+    .insert(t.messageWakeCooldowns)
+    .values({
+      workspaceId: WORKSPACE,
+      key: sql.placeholder('key'),
+      attemptedAt: sql.placeholder('attemptedAt'),
+    })
+    .onConflictDoUpdate({
+      target: [t.messageWakeCooldowns.workspaceId, t.messageWakeCooldowns.key],
+      set: { attemptedAt: sql.placeholder('attemptedAt') },
+    })
+    .prepare(),
+)
+
+const wakeCooldownOf = prepared((db, t) =>
+  db
+    .select({ attemptedAt: t.messageWakeCooldowns.attemptedAt })
+    .from(t.messageWakeCooldowns)
+    .where(
+      inWorkspace(
+        t.messageWakeCooldowns,
+        eq(t.messageWakeCooldowns.key, param(t.messageWakeCooldowns.key, 'key')),
+      ),
+    )
     .prepare(),
 )
 
 /** Keyed by the IN list's prepared size ({@link inListSize}); the keys are `keys0`, `keys1`, ... */
-const wakeCooldownsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const wakeCooldownsOf = preparedFamily((db, t, size: number) =>
   db
-    .select({ key: messageWakeCooldowns.key, attemptedAt: messageWakeCooldowns.attemptedAt })
-    .from(messageWakeCooldowns)
-    .where(inListOf(messageWakeCooldowns.key, size, 'keys'))
+    .select({ key: t.messageWakeCooldowns.key, attemptedAt: t.messageWakeCooldowns.attemptedAt })
+    .from(t.messageWakeCooldowns)
+    .where(inWorkspace(t.messageWakeCooldowns, inListOf(t.messageWakeCooldowns.key, size, 'keys')))
     .prepare(),
 )
 
@@ -1082,75 +1465,100 @@ const wakeCooldownsOf = preparedFamily((db: StoreDrizzle, size: number) =>
  * order, read through `idx_messages_delivered_to_time` [POD-6174]. The unary
  * `+` keeps the status IN list out of index selection, as in
  * {@link confirmedInto}: the session's own rows are the walk, never the whole
- * pending queue.
+ * pending queue ({@link statusOutOfIndexChoice}).
  */
-const pendingDeliveredToPage = preparedFamily((db: StoreDrizzle, from: 'start' | 'after') => {
+const pendingDeliveredToPage = preparedFamily((db, t, from: 'start' | 'after') => {
   const where: SQL[] = [
-    eq(messagesTable.deliveredTo, param(messagesTable.deliveredTo, 'sessionId')),
-    sql`+${messagesTable.deliveryStatus} in ${[...MESSAGE_PENDING]}`,
+    eq(t.messages.deliveredTo, param(t.messages.deliveredTo, 'sessionId')),
+    sql`${statusOutOfIndexChoice(db, t)} in ${[...MESSAGE_PENDING]}`,
   ]
-  if (from === 'after') where.push(afterCursor())
+  if (from === 'after') where.push(afterCursor(t))
   return db
     .select()
-    .from(messagesTable)
-    .where(and(...where))
-    .orderBy(...DELIVERY_ORDER)
+    .from(t.messages)
+    .where(inWorkspace(t.messages, ...where))
+    .orderBy(...DELIVERY_ORDER(t))
     .limit(sql.placeholder('limit'))
     .prepare()
 })
 
-const stampAckOnce = prepared((db: StoreDrizzle) =>
-  db
-    .update(messagesTable)
-    .set({ ackedBy: sql.placeholder('ackedBy') })
-    .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), isNull(messagesTable.ackedBy))).returning().prepare(),
+const stampAckOnce = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ ackedBy: sql.placeholder('ackedBy') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.ackedBy),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 /** The shared "still owes a reply" predicate of the two ack readers, over the
  *  `sessionId` and `now` placeholders. */
-const unackedRequest = (): SQL =>
+const unackedRequest = (db: StoreDrizzle, t: StoreTables): SQL =>
   and(
-    confirmedInto(),
-    isNull(messagesTable.ackedBy),
-    eq(messagesTable.expectsResponse, true),
-    or(isNull(messagesTable.expiresAt), gt(messagesTable.expiresAt, param(messagesTable.expiresAt, 'now'))),
+    confirmedInto(db, t),
+    isNull(t.messages.ackedBy),
+    eq(t.messages.expectsResponse, true),
+    or(isNull(t.messages.expiresAt), gt(t.messages.expiresAt, param(t.messages.expiresAt, 'now'))),
   ) as SQL
 
-const deliveredUnacked = prepared((db: StoreDrizzle) =>
+const deliveredUnacked = prepared((db, t) =>
   db
     .select()
-    .from(messagesTable)
+    .from(t.messages)
     // The agent has it either way — pushed or pulled; both confirm.
-    .where(and(unackedRequest()))
-    .orderBy(...DELIVERY_ORDER)
+    .where(inWorkspace(t.messages, unackedRequest(db, t)))
+    .orderBy(...DELIVERY_ORDER(t))
     .prepare(),
 )
 
-const settleNotifiable = prepared((db: StoreDrizzle) => {
-  const notice = alias(messagesTable, 'n')
+const settleNotifiable = prepared((db, t) => {
+  const notice = alias(t.messages, 'n')
   return db
     .select()
-    .from(messagesTable)
+    .from(t.messages)
     .where(
-      and(
-        unackedRequest(),
+      inWorkspace(
+        t.messages,
+        unackedRequest(db, t),
         notExists(
           db
             .select({ one: sql`1` })
             .from(notice)
-            .where(and(eq(notice.kind, 'notification'), eq(notice.inReplyTo, messagesTable.id))),
+            .where(
+              and(
+                sameWorkspace(notice, t.messages),
+                eq(notice.kind, 'notification'),
+                eq(notice.inReplyTo, t.messages.id),
+              ),
+            ),
         ),
       ),
     )
-    .orderBy(...DELIVERY_ORDER)
+    .orderBy(...DELIVERY_ORDER(t))
     .prepare()
 })
 
-const stampRemindedOnce = prepared((db: StoreDrizzle) =>
-  db
-    .update(messagesTable)
-    .set({ remindedAt: sql.placeholder('at') })
-    .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), isNull(messagesTable.remindedAt))).returning().prepare(),
+const stampRemindedOnce = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.messages)
+      .set({ remindedAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.messages,
+          eq(t.messages.id, param(t.messages.id, 'id')),
+          isNull(t.messages.remindedAt),
+        ),
+      )
+      .returning(),
+  ).prepare(),
 )
 
 export class MessagesRepository {
@@ -1161,15 +1569,15 @@ export class MessagesRepository {
    * This aggregate opens no span today, but both members are retained so adding
    * one later does not change constructor arity or the composition root.
    */
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /** The chat feed's capture, run inside every write's transaction [POD-4764]. */
   private feedCapture: MessageFeedCapture | undefined
 
-  constructor(queries: StoreQueries) {
+  constructor(queries: WorkspaceQueries) {
     this.committed = new CommittedRows(queries.createOrJoinTransaction, 'messages')
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -1190,15 +1598,16 @@ export class MessagesRepository {
 
   /** The one write funnel: the committed-rows publication plus the feed capture. */
   private async write(
+    _scope: WriteScope,
     query: () => Promise<MessageSelect[]>,
     operation: 'upsert' | 'delete',
   ): Promise<{ changes: number }> {
-    return await this.committed.write(async () => {
-      const rows = await query()
-      const capture = this.feedCapture
-      if (capture !== undefined && rows.length > 0) await capture(rows.map(mapMessage))
-      return rows
-    }, operation)
+    // The change-log commit, when installed, is the write's transaction; the
+    // committed-rows publication joins it (POD-6920).
+    return await throughChangeLog(
+      this.feedCapture,
+      async () => await this.committed.write(query, operation),
+    )
   }
 
   /**
@@ -1207,8 +1616,8 @@ export class MessagesRepository {
    * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
    * B1 changes this one line rather than 39 fields.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Store a new message, ONCE PER ID (POD-4763). Every row starts `stored`:
@@ -1220,7 +1629,7 @@ export class MessagesRepository {
    *  error and not a second row: the insert does nothing and this answers
    *  `false`, in the same statement, so two attempts racing each other cannot
    *  both see "absent". The caller reads the stored row to answer the repeat. */
-  async addMessage(m: MessageRow): Promise<boolean> {
+  async addMessage(scope: WriteScope, m: MessageRow): Promise<boolean> {
     if (m.deliveryStatus !== 'stored') {
       throw new Error(`message ${m.id} must be stored before it moves (got ${m.deliveryStatus})`)
     }
@@ -1228,13 +1637,14 @@ export class MessagesRepository {
     if (m.toKind === 'operator' && m.toId !== null) {
       throw new Error(`message ${m.id} to the operator must carry no recipient id (got ${m.toId})`)
     }
-    const values: typeof messagesTable.$inferInsert = {
+    // The handle fills the workspace (POD-6959): a caller never names it.
+    const values: Omit<typeof messagesTable.$inferInsert, 'workspaceId'> = {
       id: m.id,
       threadId: m.threadId,
       inReplyTo: m.inReplyTo,
       fromKind: m.fromKind,
       fromSession: m.fromSession,
-      fromName: m.fromName ?? null,
+      fromName: withoutNulOrNull(m.fromName ?? null),
       fromIssue: m.fromIssue,
       actorKind: m.attribution?.actor.kind ?? null,
       actorId:
@@ -1252,7 +1662,7 @@ export class MessagesRepository {
       kind: m.kind,
       urgency: m.urgency,
       lifecycle: m.lifecycle,
-      body: m.body,
+      body: withoutNul(m.body),
       attachmentsJson: m.attachments?.length ? JSON.stringify(m.attachments) : null,
       expiresAt: m.expiresAt,
       createdAt: m.createdAt,
@@ -1267,6 +1677,7 @@ export class MessagesRepository {
       factTarget: m.factTarget ?? null,
     }
     const { changes } = await this.write(
+      scope,
       async () => await insertMessage(this.db, shapeOf(values)).all(values),
       'upsert',
     )
@@ -1283,35 +1694,47 @@ export class MessagesRepository {
   /** The rows with these ids, in one read; an id with no row is absent. The
    *  caller bounds how many it asks for. */
   async getMessages(ids: readonly string[]): Promise<MessageRow[]> {
-    if (ids.length === 0) return []
     const unique = [...new Set(ids)]
-    const size = inListSize(unique.length)
-    return (await messagesWithIds(this.db, size).all(inListValues(unique, size, 'ids')))
-      .map(mapMessage)
+    const rows: MessageRow[] = []
+    // A session batch can name many confirmed windows at once. Bound each
+    // statement's variables as the other id-set readers do.
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      rows.push(
+        ...(await messagesWithIds(this.db, size).all(inListValues(chunk, size, 'ids'))).map(
+          mapMessage,
+        ),
+      )
+    }
+    return rows
   }
 
   /** Saved attachment messages for a bounded transcript window, including
    * sessions whose confirmation records have left the live feed. */
-  async getTranscriptAttachmentMessages(sessionId: SessionId, itemIds: readonly string[]): Promise<MessageRow[]> {
+  async getTranscriptAttachmentMessages(
+    sessionId: SessionId,
+    itemIds: readonly string[],
+  ): Promise<MessageRow[]> {
     if (itemIds.length === 0) return []
     const unique = [...new Set(itemIds)]
     const size = inListSize(unique.length)
-    return (await attachmentMessagesOfItems(this.db, size).all({
-      sessionId,
-      ...inListValues(unique, size, 'items'),
-    })).map(mapMessage)
+    return (
+      await attachmentMessagesOfItems(this.db, size).all({
+        sessionId,
+        ...inListValues(unique, size, 'items'),
+      })
+    ).map(mapMessage)
   }
 
   /** All messages addressed to a principal, oldest first. */
-  async listMessagesFor(
-    to: MessagePrincipalRef,
-    opts?: { limit?: number },
-  ): Promise<MessageRow[]> {
-    return (await messagesAddressedTo(this.db, addressShape(to)).all({
-      ...addressValues(to),
-      limit: boundedLimit(opts?.limit, 200, 500),
-    }))
-      .map(mapMessage)
+  async listMessagesFor(to: MessagePrincipalRef, opts?: { limit?: number }): Promise<MessageRow[]> {
+    return (
+      await messagesAddressedTo(this.db, addressShape(to)).all({
+        ...addressValues(to),
+        limit: boundedLimit(opts?.limit, 200, 500),
+      })
+    ).map(mapMessage)
   }
 
   /** Exact, unbounded safety projection of work still pending for one session. */
@@ -1319,20 +1742,74 @@ export class MessagesRepository {
     return (await pendingForSessionProof(this.db).all({ sessionId, now })).map(mapMessage)
   }
 
+  /**
+   * {@link pendingForSessionProof} for each of a known set of sessions, one
+   * statement per 500 ids (POD-7036). A row reaches every session of the set it
+   * names the way the one-session read does: addressed to it while pending, or
+   * handed to it while pending or owed a reply. Each session's rows keep the
+   * one-session read's order.
+   */
+  async pendingForSessionsProof(
+    sessionIds: readonly SessionId[],
+    now: string,
+  ): Promise<Map<SessionId, MessageRow[]>> {
+    const unique = [...new Set(sessionIds)]
+    const out = new Map<SessionId, MessageRow[]>(unique.map((id) => [id, []]))
+    const pendingStatuses = new Set<string>(MESSAGE_PENDING)
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      const rows = await pendingForSessionsProof(this.db, size).all({
+        ...inListValues(chunk, size, 'ids'),
+        now,
+      })
+      const seen = new Set<string>()
+      for (const row of rows) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        const message = mapMessage(row)
+        const isPending = pendingStatuses.has(message.deliveryStatus)
+        const owesReply =
+          message.deliveryStatus === 'confirmed' &&
+          message.ackedBy == null &&
+          message.expectsResponse === true &&
+          (message.expiresAt == null || message.expiresAt > now)
+        const names = new Set<SessionId>()
+        if (isPending && message.toKind === 'session') names.add(message.toId as SessionId)
+        if ((isPending || owesReply) && message.deliveredTo)
+          names.add(message.deliveredTo as SessionId)
+        for (const id of names) out.get(id)?.push(message)
+      }
+    }
+    for (const list of out.values()) {
+      list.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+    }
+    return out
+  }
+
   /** The delivery ledger for one issue or session (#237) [spec:SP-34d7 web]:
    *  every row the principal SENT or was ADDRESSED (issue box / session box /
    *  delivered-to), newest first — the "what happened to my message" view. */
-  async listLedger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
+  async listLedger(q: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    limit?: number
+  }): Promise<MessageRow[]> {
     const shape: LedgerShape | undefined = q.issueId
-      ? q.sessionId ? 'both' : 'issue'
-      : q.sessionId ? 'session' : undefined
+      ? q.sessionId
+        ? 'both'
+        : 'issue'
+      : q.sessionId
+        ? 'session'
+        : undefined
     if (shape === undefined) return []
-    return (await ledger(this.db, shape).all({
-      issueId: q.issueId,
-      sessionId: q.sessionId,
-      limit: boundedLimit(q.limit, 200, 500),
-    }))
-      .map(mapMessage)
+    return (
+      await ledger(this.db, shape).all({
+        issueId: q.issueId,
+        sessionId: q.sessionId,
+        limit: boundedLimit(q.limit, 200, 500),
+      })
+    ).map(mapMessage)
   }
 
   /**
@@ -1346,10 +1823,17 @@ export class MessagesRepository {
    * The SQL ordering is the same `(created_at, id)` ordering used by the ledger
    * and its high-water cursors.
    */
-  async queuedPositionForSession(sessionId: SessionId, messageId: string): Promise<number | undefined> {
+  async queuedPositionForSession(
+    sessionId: SessionId,
+    messageId: string,
+  ): Promise<number | undefined> {
     const row = await queuedMessageKey(this.db).get({ sessionId, messageId })
     if (!row?.createdAt || !row.id) return undefined
-    const ahead = await queuedAheadOf(this.db).get({ sessionId, createdAt: row.createdAt, id: row.id })
+    const ahead = await queuedAheadOf(this.db).get({
+      sessionId,
+      createdAt: row.createdAt,
+      id: row.id,
+    })
     return Number(ahead?.n ?? 0)
   }
 
@@ -1359,7 +1843,9 @@ export class MessagesRepository {
    * `targets[i]`. The delivery flush asks it before reading pages, so a
    * target with nothing pending costs one covering-index seek.
    */
-  async pendingTargets(targets: readonly { kind: MessageToKind; id: string }[]): Promise<boolean[]> {
+  async pendingTargets(
+    targets: readonly { kind: MessageToKind; id: string }[],
+  ): Promise<boolean[]> {
     const hits = new Set<string>()
     const keyOf = (kind: string, id: string | null) => `${kind}\u0000${id ?? ''}`
     for (let start = 0; start < targets.length; start += PENDING_PAGES_MAX_TARGETS) {
@@ -1371,7 +1857,8 @@ export class MessagesRepository {
         values[`toKind${i}`] = chunk[i]?.kind ?? ''
         values[`toId${i}`] = chunk[i]?.id ?? ''
       }
-      for (const row of await pendingTargetsAmong(this.db, size).all(values)) hits.add(keyOf(row.toKind, row.toId))
+      for (const row of await pendingTargetsAmong(this.db, size).all(values))
+        hits.add(keyOf(row.toKind, row.toId))
     }
     return targets.map((to) => hits.has(keyOf(to.kind, to.id)))
   }
@@ -1488,7 +1975,9 @@ export class MessagesRepository {
   async readReceipts(sessionId: SessionId, messageIds: string[]): Promise<Set<string>> {
     if (messageIds.length === 0) return new Set()
     const size = inListSize(messageIds.length)
-    const rows = await receiptsAmong(this.db, size).all(inListValues(messageIds, size, 'ids', { sessionId }))
+    const rows = await receiptsAmong(this.db, size).all(
+      inListValues(messageIds, size, 'ids', { sessionId }),
+    )
     return new Set(rows.map((r) => r.messageId))
   }
 
@@ -1497,16 +1986,24 @@ export class MessagesRepository {
   async selfSentIds(sessionId: SessionId, messageIds: string[]): Promise<Set<string>> {
     if (messageIds.length === 0) return new Set()
     const size = inListSize(messageIds.length)
-    const rows = await sentAmong(this.db, size).all(inListValues(messageIds, size, 'ids', { sessionId }))
+    const rows = await sentAmong(this.db, size).all(
+      inListValues(messageIds, size, 'ids', { sessionId }),
+    )
     return new Set(rows.map((r) => r.id))
   }
 
   /** Count and group one reader-scoped pending slice in one statement. */
-  async pendingSummaryForSession(issueId: IssueId, sessionId: SessionId): Promise<PendingMessageSummary> {
+  async pendingSummaryForSession(
+    issueId: IssueId,
+    sessionId: SessionId,
+  ): Promise<PendingMessageSummary> {
     return await this.pendingSummaryOf(sessionSlice(sessionId), { issueId, sessionId })
   }
 
-  private async pendingSummaryOf(slice: PendingSlice, values: Record<string, unknown>): Promise<PendingMessageSummary> {
+  private async pendingSummaryOf(
+    slice: PendingSlice,
+    values: Record<string, unknown>,
+  ): Promise<PendingMessageSummary> {
     const rows = await pendingSummaryOf(this.db, slice).all(values)
     return {
       count: rows.reduce((total, row) => total + Number(row.n), 0),
@@ -1519,13 +2016,15 @@ export class MessagesRepository {
   }
 
   /** The DISTINCT sender projection both queued-sender readers share. */
-  private async distinctSenders(slice: PendingSlice, values: Record<string, unknown>): Promise<PendingMessageSender[]> {
-    return (await pendingSendersOf(this.db, slice).all(values))
-      .map((row) => ({
-        fromKind: row.fromKind as MessageRow['fromKind'],
-        fromIssue: row.fromIssue,
-        fromSession: row.fromSession,
-      }))
+  private async distinctSenders(
+    slice: PendingSlice,
+    values: Record<string, unknown>,
+  ): Promise<PendingMessageSender[]> {
+    return (await pendingSendersOf(this.db, slice).all(values)).map((row) => ({
+      fromKind: row.fromKind as MessageRow['fromKind'],
+      fromIssue: row.fromIssue,
+      fromSession: row.fromSession,
+    }))
   }
 
   async countPendingForSession(issueId: IssueId, sessionId: SessionId): Promise<number> {
@@ -1533,7 +2032,10 @@ export class MessagesRepository {
     return Number(row?.n ?? 0)
   }
 
-  async listPendingSendersForSession(issueId: IssueId, sessionId: SessionId): Promise<PendingMessageSender[]> {
+  async listPendingSendersForSession(
+    issueId: IssueId,
+    sessionId: SessionId,
+  ): Promise<PendingMessageSender[]> {
     return await this.distinctSenders(sessionSlice(sessionId), { issueId, sessionId })
   }
 
@@ -1543,7 +2045,11 @@ export class MessagesRepository {
    *  it directly? Existence-only (any status), since even a still-queued row
    *  proves the producer already acted — the steward's notice would just be a
    *  duplicate waiting to happen. */
-  async alreadyCommunicated(fromIssue: string, to: MessagePrincipalRef, sinceIso: string): Promise<boolean> {
+  async alreadyCommunicated(
+    fromIssue: string,
+    to: MessagePrincipalRef,
+    sinceIso: string,
+  ): Promise<boolean> {
     // EXTERNAL INPUT BRAND DECODE: the steward compatibility port supplies a
     // raw issue id; schema-branded from_issue makes this query narrow it here.
     const brandedFromIssue = asIssueId(fromIssue)
@@ -1569,6 +2075,7 @@ export class MessagesRepository {
    * the statement every later call with the same key would have built.
    */
   private async move(
+    scope: WriteScope,
     id: string,
     to: MessageDeliveryStatus,
     opts: { variant?: MoveVariant; values?: Record<string, unknown> } = {},
@@ -1577,23 +2084,37 @@ export class MessagesRepository {
     const key = `${opts.variant ?? 'plain'}|${to}`
     return await moveStatus({
       machine: MessageDelivery,
-      column: messagesTable.deliveryStatus,
+      column: storeTables(this.scope.drizzle).messages.deliveryStatus,
       to,
       write: async (guard) => {
         let statement = this.moveWrites.get(key)
         if (statement === undefined) {
-          statement = prepared((db: StoreDrizzle) =>
-            db
-              .update(messagesTable)
-              .set({ ...spec.set?.(), deliveryStatus: to })
-              .where(and(eq(messagesTable.id, param(messagesTable.id, 'id')), guard, ...(spec.where?.() ?? [])))
-              .returning()
-              .prepare(),
+          statement = prepared((db, t) =>
+            captureWrite(
+              db
+                .update(t.messages)
+                .set({ ...spec.set?.(t), deliveryStatus: to })
+                .where(
+                  inWorkspace(
+                    t.messages,
+                    eq(t.messages.id, param(t.messages.id, 'id')),
+                    guard,
+                    ...(spec.where?.(t) ?? []),
+                  ),
+                )
+                .returning(),
+            ).prepare(),
           )
           this.moveWrites.set(key, statement)
         }
         const write = statement
-        return (await this.write(async () => await write(this.db).all({ ...opts.values, id }), 'upsert')).changes
+        return (
+          await this.write(
+            scope,
+            async () => await write(this.db).all({ ...opts.values, id }),
+            'upsert',
+          )
+        ).changes
       },
       read: async () => (await statusOf(this.db).get({ id }))?.status ?? null,
     })
@@ -1601,14 +2122,15 @@ export class MessagesRepository {
 
   /** {@link move} by its {@link MOVES} entry, which names the target status. */
   private async moveBy(
+    scope: WriteScope,
     variant: MoveVariant,
     values: { id: string } & Record<string, unknown>,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.move(values.id, MOVES[variant].to, { variant, values })
+    return await this.move(scope, values.id, MOVES[variant].to, { variant, values })
   }
 
   /** The prepared status writes, one per (variant, to); see {@link move}. */
-  private readonly moveWrites = new Map<string, (db: StoreDrizzle) => MoveWrite>()
+  private readonly moveWrites = new Map<string, (db: WorkspaceDb) => MoveWrite>()
 
   /** stored → dispatched: handed to `deliveredTo`'s delivery path (its durable
    *  queue, or a direct push toward its machine) without claiming the agent has
@@ -1616,22 +2138,24 @@ export class MessagesRepository {
    *  settlement, a receipt, the transcript echo, a turn boundary or an inbox
    *  read moves it on. */
   async markDispatched(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId | null,
     at: string,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('dispatched', { id, at, deliveredTo })
+    return await this.moveBy(scope, 'dispatched', { id, at, deliveredTo })
   }
 
   /** → typed: its bytes crossed into `deliveredTo`'s CLI, which may still park
    *  them until the running turn ends (POD-1242). Only for the session it was
    *  handed to, or an unaimed row. */
   async markTyped(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     at: string,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('typed', { id, deliveredTo, at })
+    return await this.moveBy(scope, 'typed', { id, deliveredTo, at })
   }
 
   /**
@@ -1641,12 +2165,13 @@ export class MessagesRepository {
    * A repeat finds the row there already and changes nothing, `held` included.
    */
   async markAccepted(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     held: MessageHeld,
     at: string,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('accepted', { id, deliveredTo, held, at })
+    return await this.moveBy(scope, 'accepted', { id, deliveredTo, held, at })
   }
 
   /**
@@ -1663,10 +2188,11 @@ export class MessagesRepository {
    * forget it.
    */
   async markUnknown(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('unknown', { id, deliveredTo })
+    return await this.moveBy(scope, 'unknown', { id, deliveredTo })
   }
 
   /**
@@ -1685,6 +2211,7 @@ export class MessagesRepository {
    * exactly one transition — and stores at most one `notice` — per turn.
    */
   async markDeliveryAbandoned(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     at: string,
@@ -1692,9 +2219,9 @@ export class MessagesRepository {
     notice?: MessageRow | null,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     return await this.failWith(
+      scope,
       notice,
-      async () =>
-        await this.moveBy('abandoned', { id, at, reason, deliveredTo }),
+      async () => await this.moveBy(scope, 'abandoned', { id, at, reason, deliveredTo }),
     )
   }
 
@@ -1707,12 +2234,13 @@ export class MessagesRepository {
    * the delivery path takes it from there, across restarts, once per id.
    */
   private async failWith(
+    scope: WriteScope,
     notice: MessageRow | null | undefined,
     fail: () => Promise<MoveOutcome<MessageDeliveryStatus>>,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     return await this.createOrJoinTransaction(async () => {
       const outcome = await fail()
-      if (notice && moved(outcome)) await this.addMessage(notice)
+      if (notice && moved(outcome)) await this.addMessage(scope, notice)
       return outcome
     })
   }
@@ -1721,6 +2249,7 @@ export class MessagesRepository {
    *  boundary, the driver's acceptance or settlement, an ack [POD-834]. A
    *  duplicate or late confirmation is "already there" and changes nothing. */
   async markDelivered(
+    scope: WriteScope,
     id: string,
     deliveredTo: string | null,
     deliveredAt: string,
@@ -1728,7 +2257,11 @@ export class MessagesRepository {
     // EXTERNAL INPUT BRAND DECODE: transcript echo compatibility callers still
     // supply strings, so narrow once before writing the branded column.
     const brandedDeliveredTo = deliveredTo ? asSessionId(deliveredTo) : null
-    const outcome = await this.moveBy('delivered', { id, deliveredAt, deliveredTo: brandedDeliveredTo })
+    const outcome = await this.moveBy(scope, 'delivered', {
+      id,
+      deliveredAt,
+      deliveredTo: brandedDeliveredTo,
+    })
     // The echo proves it is in THAT session's context [POD-1379] — receipt it,
     // or the per-reader nag keeps asking the session to read what it just saw.
     if (brandedDeliveredTo) await this.recordRead(id, brandedDeliveredTo, deliveredAt)
@@ -1747,11 +2280,13 @@ export class MessagesRepository {
    * became no entry at all (POD-4840). Answers whether THIS call wrote it.
    */
   async nameTranscriptItem(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     item: TranscriptItemRef,
   ): Promise<boolean> {
     const written = await this.write(
+      scope,
       async () =>
         await nameTranscriptItemOnce(this.db).all({
           id,
@@ -1777,6 +2312,7 @@ export class MessagesRepository {
    * other's ids. Answers whether THIS call changed the list.
    */
   async recordHarnessRef(
+    scope: WriteScope,
     id: string,
     deliveredTo: SessionId,
     harnessRef: HarnessRef,
@@ -1789,6 +2325,7 @@ export class MessagesRepository {
       if (!merged || merged.length === (known?.length ?? 0)) return false
       const stored = current.harnessRefJson ?? null
       const written = await this.write(
+        scope,
         async () =>
           await swapHarnessRef(this.db, stored === null ? 'null' : 'text').all({
             id,
@@ -1810,18 +2347,19 @@ export class MessagesRepository {
   /** → cancelled: withdrawn before it was typed — the daemon holding it said
    *  so, or nothing past the server ever held it (POD-4776). */
   async markCancelled(
+    scope: WriteScope,
     id: string,
     opts: { onlyFrom?: MessageDeliveryStatus } = {},
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     return await (opts.onlyFrom
-      ? this.moveBy('cancelledFrom', { id, onlyFrom: opts.onlyFrom })
-      : this.moveBy('cancelled', { id }))
+      ? this.moveBy(scope, 'cancelledFrom', { id, onlyFrom: opts.onlyFrom })
+      : this.moveBy(scope, 'cancelled', { id }))
   }
 
   /** → typing: the agent's machine said it has started typing it — today only
    *  in its answer to a retract that came too late (POD-4776). */
-  async markTyping(id: string): Promise<MoveOutcome<MessageDeliveryStatus>> {
-    return await this.moveBy('typing', { id })
+  async markTyping(scope: WriteScope, id: string): Promise<MoveOutcome<MessageDeliveryStatus>> {
+    return await this.moveBy(scope, 'typing', { id })
   }
 
   /**
@@ -1830,8 +2368,12 @@ export class MessagesRepository {
    * `cancelled`. Stamped only while the message is still pending, and the first
    * request's time is kept. Answers whether the row carries a stamp now.
    */
-  async requestRetract(id: string, at: string): Promise<boolean> {
-    const r = await this.write(async () => await stampRetractRequest(this.db).all({ id, at }), 'upsert')
+  async requestRetract(scope: WriteScope, id: string, at: string): Promise<boolean> {
+    const r = await this.write(
+      scope,
+      async () => await stampRetractRequest(this.db).all({ id, at }),
+      'upsert',
+    )
     return r.changes === 1
   }
 
@@ -1844,14 +2386,15 @@ export class MessagesRepository {
    *  only the READER's receipt. Confirm ONLY the push this reader answers:
    *  unpushed (name the reader) or pushed to this reader. */
   async markDeliveredByPull(
+    scope: WriteScope,
     id: string,
     reader: string | null,
     deliveredAt: string,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     const brandedReader = reader ? asSessionId(reader) : null
     const outcome = await (brandedReader
-      ? this.moveBy('pulledByReader', { id, deliveredAt, reader, brandedReader })
-      : this.moveBy('pulledUnnamed', { id, deliveredAt, reader }))
+      ? this.moveBy(scope, 'pulledByReader', { id, deliveredAt, reader, brandedReader })
+      : this.moveBy(scope, 'pulledUnnamed', { id, deliveredAt, reader }))
     // The pull proves THIS reader has it, whoever the row was pushed to.
     // Recorded even when the guarded move declines (a peer's pull of a row
     // pushed to another session): the receipt is about THIS reader, not about
@@ -1866,15 +2409,20 @@ export class MessagesRepository {
    *  delivered message, not a state after it. `firstRead` says whether THIS call
    *  stamped the first read, which is what a caller announces. */
   async markRead(
+    scope: WriteScope,
     id: string,
     deliveredTo: string | null,
     readAt: string,
   ): Promise<{ outcome: MoveOutcome<MessageDeliveryStatus>; firstRead: boolean }> {
-    const outcome = await this.moveBy('read', { id, readAt, deliveredTo })
+    const outcome = await this.moveBy(scope, 'read', { id, readAt, deliveredTo })
     let firstRead = outcome.kind === 'applied'
     if (outcome.kind === 'already-there') {
       // A stamp, not a move: `delivery_status` is untouched. First read wins.
-      const stamped = await this.write(async () => await stampFirstRead(this.db).all({ id, readAt }), 'upsert')
+      const stamped = await this.write(
+        scope,
+        async () => await stampFirstRead(this.db).all({ id, readAt }),
+        'upsert',
+      )
       firstRead = stamped.changes === 1
     }
     // The PULL proves this reader has it [POD-1379]. Recorded even when the
@@ -1895,17 +2443,19 @@ export class MessagesRepository {
    *  {@link markDeliveryAbandoned} uses. Without one they are LEFT ALONE rather
    *  than cleared. */
   async markDeadLetter(
+    scope: WriteScope,
     id: string,
     at: string,
     cause?: MessageFailedCause,
     notice?: MessageRow | null,
   ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     return await this.failWith(
+      scope,
       notice,
       async () =>
         await (cause
-          ? this.moveBy('deadLetterWithCause', { id, at, cause })
-          : this.moveBy('deadLetter', { id, at })),
+          ? this.moveBy(scope, 'deadLetterWithCause', { id, at, cause })
+          : this.moveBy(scope, 'deadLetter', { id, at })),
     )
   }
 
@@ -1925,9 +2475,10 @@ export class MessagesRepository {
   ): Promise<MessageRow[]> {
     if (sessionIds.length === 0 && endedIssueId === undefined) return []
     const size = inListSize(sessionIds.length)
-    const rows = await openBoundTo(this.db, endedIssueId === undefined ? `${size}` : `${size}|issue`).all(
-      inListValues(sessionIds, size, 'sessions', { endedIssueId }),
-    )
+    const rows = await openBoundTo(
+      this.db,
+      endedIssueId === undefined ? `${size}` : `${size}|issue`,
+    ).all(inListValues(sessionIds, size, 'sessions', { endedIssueId }))
     return rows.map(mapMessage)
   }
 
@@ -1939,8 +2490,12 @@ export class MessagesRepository {
    * a repeat changes nothing. Who may dismiss is the caller's question (the
    * sender only). Answers whether THIS call wrote it.
    */
-  async dismissNotice(id: string, at: string): Promise<boolean> {
-    const r = await this.write(async () => await dismissNoticeOnce(this.db).all({ id, at }), 'upsert')
+  async dismissNotice(scope: WriteScope, id: string, at: string): Promise<boolean> {
+    const r = await this.write(
+      scope,
+      async () => await dismissNoticeOnce(this.db).all({ id, at }),
+      'upsert',
+    )
     return r.changes === 1
   }
 
@@ -1951,7 +2506,45 @@ export class MessagesRepository {
    * touched. The feed's boot read.
    */
   async listOpenChat(limit = 2000): Promise<MessageRow[]> {
-    return (await openChat(this.db).all({ limit: boundedLimit(limit, 2000, 10_000) })).map(mapMessage)
+    return (await openChat(this.db).all({ limit: boundedLimit(limit, 2000, 10_000) })).map(
+      mapMessage,
+    )
+  }
+
+  /** The confirmed half of the chat feed's window ({@link confirmedChatWindow}):
+   *  every live session's newest `perSession`. Oldest first. */
+  async confirmedChatWindow(perSession: number): Promise<MessageRow[]> {
+    return (await confirmedChatWindow(this.db).all({ perSession })).map(mapMessage)
+  }
+
+  /**
+   * Each named session's newest `perSession` confirmed operator messages,
+   * newest first within a session ({@link confirmedChatTail}). `live` keeps
+   * only sessions that are live conversations; `any` reads every named one.
+   */
+  async confirmedChatTail(
+    perSession: number,
+    sessionIds: readonly string[],
+    liveness: 'live' | 'any',
+  ): Promise<MessageRow[]> {
+    const unique = [...new Set(sessionIds)]
+    const out: MessageRow[] = []
+    const seen = new Set<string>()
+    for (let at = 0; at < unique.length; at += CHAT_TAIL_MAX_SESSIONS) {
+      const chunk = unique.slice(at, at + CHAT_TAIL_MAX_SESSIONS)
+      // Keyed by the bucketed size; a padded arm repeats the last session, and
+      // its rows are dropped below as the repeats they are.
+      const size = inListSize(chunk.length)
+      const values: Record<string, unknown> = { perSession }
+      for (let i = 0; i < size; i++) values[`ids${i}`] = chunk[Math.min(i, chunk.length - 1)]
+      const rows = await confirmedChatTail(this.db, `${liveness}|${size}`).all(values)
+      for (const row of rows) {
+        if (seen.has(row.id)) continue
+        seen.add(row.id)
+        out.push(mapMessage(row))
+      }
+    }
+    return out
   }
 
   /** Every pending row, oldest first — the slow sweep's retry set. */
@@ -1960,12 +2553,15 @@ export class MessagesRepository {
   }
 
   /** One bounded keyset page of the global pending delivery set. */
-  async listQueuedPage(opts: { after?: MessagePageCursor; limit?: number } = {}): Promise<MessageRow[]> {
-    return (await queuedPage(this.db, opts.after ? 'after' : 'start').all({
-      ...(opts.after ? afterCursorValues(opts.after) : {}),
-      limit: boundedLimit(opts.limit, 500, 2000),
-    }))
-      .map(mapMessage)
+  async listQueuedPage(
+    opts: { after?: MessagePageCursor; limit?: number } = {},
+  ): Promise<MessageRow[]> {
+    return (
+      await queuedPage(this.db, opts.after ? 'after' : 'start').all({
+        ...(opts.after ? afterCursorValues(opts.after) : {}),
+        limit: boundedLimit(opts.limit, 500, 2000),
+      })
+    ).map(mapMessage)
   }
 
   /** Persist a keyed wake attempt before its external side effect. */
@@ -1985,7 +2581,9 @@ export class MessagesRepository {
     if (keys.length === 0) return out
     const unique = [...new Set(keys)]
     const size = inListSize(unique.length)
-    for (const row of await wakeCooldownsOf(this.db, size).all(inListValues(unique, size, 'keys'))) {
+    for (const row of await wakeCooldownsOf(this.db, size).all(
+      inListValues(unique, size, 'keys'),
+    )) {
       out.set(row.key, row.attemptedAt)
     }
     return out
@@ -1997,35 +2595,52 @@ export class MessagesRepository {
     sessionId: SessionId,
     opts: { after?: MessagePageCursor; limit?: number } = {},
   ): Promise<MessageRow[]> {
-    return (await pendingDeliveredToPage(this.db, opts.after ? 'after' : 'start').all({
-      sessionId,
-      ...(opts.after ? afterCursorValues(opts.after) : {}),
-      limit: boundedLimit(opts.limit, 200, 500),
-    }))
-      .map(mapMessage)
+    return (
+      await pendingDeliveredToPage(this.db, opts.after ? 'after' : 'start').all({
+        sessionId,
+        ...(opts.after ? afterCursorValues(opts.after) : {}),
+        limit: boundedLimit(opts.limit, 200, 500),
+      })
+    ).map(mapMessage)
   }
 
   /** Apply one janitor-observed expiry only if every observed durable fact is
    * still current. Server time eligibility is checked by MaintenanceService
    * immediately before this conditional write in the same transaction. */
-  async expireObserved(input: {
-    id: string
-    createdAt: string
-    lifecycle: MessageRow['lifecycle']
-    expiresAt: string | null
-  }): Promise<MoveOutcome<MessageDeliveryStatus>> {
+  async expireObserved(
+    scope: WriteScope,
+    input: {
+      id: string
+      createdAt: string
+      lifecycle: MessageRow['lifecycle']
+      expiresAt: string | null
+    },
+  ): Promise<MoveOutcome<MessageDeliveryStatus>> {
     // Only a row the server still holds can expire: once handed on, the machine
     // may still type it, so a timer cannot say it will not arrive [POD-4765].
-    const values = { id: input.id, createdAt: input.createdAt, lifecycle: input.lifecycle, expiresAt: input.expiresAt }
+    const values = {
+      id: input.id,
+      createdAt: input.createdAt,
+      lifecycle: input.lifecycle,
+      expiresAt: input.expiresAt,
+    }
     // `IS`, NOT `=`. SQL `=` never matches null, and most rows have no
     // expiry — emitting `=` here would silently stop expiring them while
     // the non-null case kept working. `isNull` is the `IS ?` null arm.
-    return await this.moveBy(input.expiresAt === null ? 'expiredWithoutExpiry' : 'expired', values)
+    return await this.moveBy(
+      scope,
+      input.expiresAt === null ? 'expiredWithoutExpiry' : 'expired',
+      values,
+    )
   }
 
   /** Stamp the ack message id onto the original (first ack wins). */
-  async markAcked(id: string, ackedBy: string): Promise<boolean> {
-    const r = await this.write(async () => await stampAckOnce(this.db).all({ id, ackedBy }), 'upsert')
+  async markAcked(scope: WriteScope, id: string, ackedBy: string): Promise<boolean> {
+    const r = await this.write(
+      scope,
+      async () => await stampAckOnce(this.db).all({ id, ackedBy }),
+      'upsert',
+    )
     return r.changes === 1
   }
 
@@ -2055,20 +2670,24 @@ export class MessagesRepository {
   }
 
   /** Stamp the ONE stop-hook reminder (never repeats: guarded on NULL). */
-  async markReminded(id: string, at: string): Promise<boolean> {
-    const r = await this.write(async () => await stampRemindedOnce(this.db).all({ id, at }), 'upsert')
+  async markReminded(scope: WriteScope, id: string, at: string): Promise<boolean> {
+    const r = await this.write(
+      scope,
+      async () => await stampRemindedOnce(this.db).all({ id, at }),
+      'upsert',
+    )
     return r.changes === 1
   }
 }
 
 /** `(created_at, id) > cursor` — the keyset step both forward pagers share,
  *  over the `afterCreatedAt` / `afterId` placeholders ({@link afterCursorValues}). */
-function afterCursor(): SQL {
+function afterCursor(t: StoreTables): SQL {
   return or(
-    gt(messagesTable.createdAt, param(messagesTable.createdAt, 'afterCreatedAt')),
+    gt(t.messages.createdAt, param(t.messages.createdAt, 'afterCreatedAt')),
     and(
-      eq(messagesTable.createdAt, param(messagesTable.createdAt, 'afterCreatedAt')),
-      gt(messagesTable.id, param(messagesTable.id, 'afterId')),
+      eq(t.messages.createdAt, param(t.messages.createdAt, 'afterCreatedAt')),
+      gt(t.messages.id, param(t.messages.id, 'afterId')),
     ),
   ) as SQL
 }

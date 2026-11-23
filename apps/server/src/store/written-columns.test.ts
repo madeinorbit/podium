@@ -7,24 +7,22 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
 import { WrittenColumns } from './written-columns'
 
-let db: SqlDatabase
+let slice: SliceStore
 let span: <T>(fn: () => Promise<T>) => Promise<T>
 let known: WrittenColumns<string>
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  const queries = createBunStoreExecutor({ database: db }).queries
-  if (!queries) throw new Error('the synchronous query capability is absent on this handle')
-  span = queries.createOrJoinTransaction
+// The spans are the run's engine's: SQLite on the store shard, Postgres on
+// `server-store-pg` (POD-6983). The rules are the hint's own, so they hold on both.
+beforeEach(async () => {
+  slice = await openSliceStore()
+  span = slice.queries.createOrJoinTransaction
   known = new WrittenColumns<string>('test:written-columns')
 })
 
-afterEach(() => db.close())
+afterEach(async () => await slice.close())
 
 const inSpan = (id: string) => span(async () => known.get(id))
 
@@ -84,5 +82,25 @@ describe('WrittenColumns', () => {
     expect(await inSpan('b')).toBe('v1')
     await known.aside('all', async () => {})
     expect(await inSpan('b')).toBeUndefined()
+  })
+})
+
+describe('WrittenColumns on Postgres (POD-6983)', () => {
+  it('is off: it knows no write or read, so every upsert sets every column', async () => {
+    const off = WrittenColumns.forDialect<string>('pg', 'test:written-columns-off')
+    await span(async () => off.wrote('a', 'v1'))
+    expect(await span(async () => off.get('a'))).toBeUndefined()
+    off.read([['b', 'stored']], off.mark)
+    expect(await span(async () => off.get('b'))).toBeUndefined()
+    await span(async () => {
+      off.wrote('c', 'v1')
+      expect(off.get('c')).toBeUndefined()
+    })
+  })
+
+  it('is on for SQLite', async () => {
+    const on = WrittenColumns.forDialect<string>('sqlite', 'test:written-columns-on')
+    await span(async () => on.wrote('a', 'v1'))
+    expect(await span(async () => on.get('a'))).toBe('v1')
   })
 })

@@ -1,7 +1,7 @@
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { superagentCursor, superagentFeed } from '@podium/client-graph/superagent'
 import { FEED_EVENT_KINDS } from '@podium/model'
 import { useEffect, useRef, useState } from 'react'
-import type { Store } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
 /** Re-exported for the surfaces that name the vocabulary. It is `@podium/model`'s
@@ -20,7 +20,7 @@ export interface FeedEvent {
   payload: unknown
 }
 
-function usePoolFeed(_readPosition: Store['readPosition']) {
+function usePoolFeed(_readPosition: ClientRuntime['readPosition']) {
   const feed = useWorklistPoolProjection(superagentFeed, { events: [], loading: true })
   const position = useWorklistPoolProjection(superagentCursor, {
     cursor: { lastEventId: 0, seenAt: null },
@@ -51,7 +51,7 @@ function usePoolFeed(_readPosition: Store['readPosition']) {
  * so a stream read on a laptop is read on a phone.
  */
 export function useIssueEvents(
-  readPosition: Store['readPosition'],
+  readPosition: ClientRuntime['readPosition'],
   visible: boolean,
 ): { events: FeedEvent[]; unread: boolean; dividerId: number; dividerTs: string | null } {
   const { events, cursor, loading } = usePoolFeed(readPosition)

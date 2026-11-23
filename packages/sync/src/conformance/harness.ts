@@ -22,20 +22,21 @@
  * fallback on the durable path IS the D10 non-compliance; the Replica now refuses that
  * configuration at construction, so this harness cannot express it even by accident.
  *
- * The retirement batch is deduplicated, in feed order, and derived from envelope
- * provenance only (ADR 2 D8). Value comparison is never used: that would be the
- * replica arbitrating.
+ * What a commit retires is decided by evidence only: the envelope provenance it
+ * applied, deduplicated and in feed order (ADR 2 D8), and the cursor it certifies
+ * against each applied entry's receipt (ADR 12). Value comparison is never used:
+ * that would be the replica arbitrating.
  */
 
 import type { MutationId } from '@podium/model'
 import { Outbox } from '../outbox/outbox'
-import type { OutboxEvent } from '../outbox/ports'
-import type { OutboxAttribution, OutboxRecord } from '../outbox/records'
-import type { OptimisticOverlayPort, PendingMutation } from '../replica/overlay'
+import type { OutboxEvent, OutboxSubmitPort } from '../outbox/ports'
+import type { ConfirmationEvidence, OutboxAttribution, OutboxRecord } from '../outbox/records'
+import type { OptimisticOverlayPort, PendingMutation, RetirementEvidence } from '../replica/overlay'
 import { Replica } from '../replica/replica'
 import type { DeltaFrame, EntityRecord, ReplicaEvent, ServerFrame } from '../replica/types'
 import type { ConformanceAuthority, ConformancePrincipal } from './authority'
-import { attributionOf, requireHuman, keyOf } from './authority'
+import { attributionOf, keyOf, requireHuman } from './authority'
 import type { ConformanceStorage, ConformanceStorageView } from './instantiation'
 
 /** D10's age ceiling. ADR 3 D10 owns the value; the suite only needs it to be finite. */
@@ -69,6 +70,13 @@ export interface ClientOptions {
   readonly clock: Clock
   /** Shared across recoveries, so a re-issued id is never a repeat of a retired one. */
   readonly newMutationId: () => MutationId
+  /**
+   * The submit transport, when a case needs a server that behaves differently: a
+   * write the authority suppressed as a no-op, or a reply that arrives late.
+   * Default: the authority's own transport, with the receipt `sync.submit` replies
+   * with ({@link withReceipt}).
+   */
+  readonly submit?: OutboxSubmitPort
 }
 
 /**
@@ -88,7 +96,7 @@ export async function openClient(options: ClientOptions): Promise<ConformanceCli
 
   const outbox = await Outbox.open({
     store: view.outbox,
-    submit: authority.transportFor(principal),
+    submit: options.submit ?? withReceipt(authority, authority.transportFor(principal)),
     principal: requireHuman(principal),
     now: clock.now,
     maxAgeMs: MAX_AGE_MS,
@@ -131,23 +139,22 @@ export async function openClient(options: ClientOptions): Promise<ConformanceCli
     // something different (render as pending, change nothing) and quietly alter what
     // every scoped case exercises.
     reduce: (base) => ({ kind: 'value', value: base }),
+    // Both halves are the outbox's own coverage rule (POD-6275), so they cannot
+    // disagree about what a commit covers: `covers` decides, from memory, whether
+    // the Replica opens a unit of work at all, and `retire` does the retiring
+    // inside it.
+    covers: (evidence) => outbox.isConfirmable(confirmationOf(evidence)),
     // RETURNED, not fired and forgotten. The Replica awaits this inside
     // `SyncUnitOfWork.transact`'s body, so the retirement enrols in the SAME
     // transaction as the entity operations and the cursor advance (ADR 2 D10). This
     // return value is the whole seam: before POD-1158 `retire` was `void`, and an
     // async store had no instant at which it could enrol.
-    retire: (matches, span) => {
-      const ids = mutationIdsOf(matches)
-      if (ids.length === 0) return
-      return (async () => {
-        // An entry must be `applied` before it may retire — D9 invariant 1's
-        // covering-truth licence. Both steps happen inside the transaction.
-        for (const id of ids) {
-          if (outbox.find(id)?.state === 'accepted') await outbox.noteApplied(id)
-        }
-        const applied = ids.filter((id) => outbox.find(id)?.state === 'applied')
-        if (applied.length > 0) await outbox.retireAllApplied(applied, span)
-      })()
+    //
+    // `confirm` covers an in-flight entry its provenance names (applied, then
+    // retired), an applied entry whose receipt the cursor reaches, and, for an
+    // install, a receipt from another epoch. All of it lands in this one draft.
+    retire: async (evidence, span) => {
+      await outbox.confirm(confirmationOf(evidence), span)
     },
   }
 
@@ -190,6 +197,29 @@ export async function openClient(options: ClientOptions): Promise<ConformanceCli
   return client
 }
 
+/**
+ * The authority's transport, with the receipt the sync entry point replies with
+ * (ADR 12 Decisions 1 and 2): the change-log head right after the call's commit.
+ *
+ * Without it every applied entry in this suite would be a receipt-less LEGACY entry,
+ * which any confirmation retires, and the suite would exercise only the fallback
+ * rule. The authority applies synchronously inside `submit`, so the head read after
+ * it is exactly the call's covering seq.
+ */
+export function withReceipt(
+  authority: ConformanceAuthority,
+  inner: OutboxSubmitPort,
+): OutboxSubmitPort {
+  return {
+    submit: async (envelope) => {
+      const outcome = await inner.submit(envelope)
+      if (outcome.kind !== 'applied') return outcome
+      const receipt = { feedId: authority.feedId, epoch: authority.epoch, seq: authority.head() }
+      return { ...outcome, receipt }
+    },
+  }
+}
+
 /** The narrowed handle most cases use. */
 export type Client = Awaited<ReturnType<typeof openClient>> & {
   settle(): Promise<void>
@@ -211,6 +241,17 @@ export const mutationIdsOf = (
   matches
     .map((match) => match.mutationId ?? match.causationId)
     .filter((id): id is string => id !== undefined) as unknown as readonly MutationId[]
+
+/**
+ * The Replica's report of one commit, as the outbox's evidence. The two shapes are
+ * the same facts on either side of the direction lint: the replica may not import
+ * the outbox, so the integrator translates.
+ */
+export const confirmationOf = (evidence: RetirementEvidence): ConfirmationEvidence => ({
+  confirmed: mutationIdsOf(evidence.matches),
+  through: evidence.through,
+  install: evidence.install,
+})
 
 /** The command every case enqueues. `offline-eligible` is the only enqueueable class. */
 export function command(name = 'issues.close'): {

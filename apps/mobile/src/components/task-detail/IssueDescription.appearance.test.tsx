@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { processColor } from 'react-native'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -46,7 +46,7 @@ function setup() {
   const view = render(
     <DetailSection label="Description" testID="description-section">
       <IssueDescription
-        issue={{ description: 'Keep **this description** open.' } as IssueViewModel}
+        issue={{ description: 'Keep **this description** open.' } as IssueWithBodies}
         busy={false}
         commands={{ commitDescription: vi.fn() } as never}
       />
@@ -80,7 +80,7 @@ it('refreshes the grouped reference background while keeping its expanded descri
   render(
     <ReferenceGroup>
       <IssueDescriptionPreview
-        issue={{ description: 'Read **this description**.' } as IssueViewModel}
+        issue={{ description: 'Read **this description**.' } as IssueWithBodies}
         busy={false}
         commands={{ commitDescription: vi.fn() } as never}
       />

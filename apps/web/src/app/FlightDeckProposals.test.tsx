@@ -5,7 +5,7 @@ import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
@@ -16,24 +16,31 @@ import { ON_SCREEN, PANE, stubTipVisibility } from '@/features/tips/test-visibil
 import { TipContext } from '@/features/tips/tip-context'
 import { TipEngine } from '@/features/tips/tip-engine'
 import { closeMiniview, getMiniviewState } from '@/lib/ref-activation'
+import { fixtureRuntimeRender } from '@/test-support/fixture-runtime-render'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 import { FlightDeckProposals } from './FlightDeckProposals'
 import { OPEN_RIGHT_PANEL_EVENT } from './shell-state'
 
 const commands = vi.hoisted(() => ({ promote: vi.fn(), start: vi.fn(), close: vi.fn() }))
-vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (value: unknown) => unknown) =>
-    read({
-      renameSession: vi.fn(),
-      trpc: {
-        issues: {
-          promote: { mutate: commands.promote },
-          start: { mutate: commands.start },
-          close: { mutate: commands.close },
-        },
-      },
-    }),
-}))
+// The deck reads its commands from the runtime root (792821bc50).
+const render = fixtureRuntimeRender({
+  renameSession: vi.fn(),
+  trpc: {
+    issues: {
+      promote: { mutate: commands.promote },
+      close: { mutate: commands.close },
+    },
+  },
+  // Start is an `issue.begin` effect record (POD-6526): settled once queued.
+  startIssueSession: (args: { issueId: string; mutationId?: string }) => ({
+    sessionId: 'session',
+    effectId: 'effect',
+    mode: 'begin',
+    settled: Promise.resolve(
+      commands.start({ id: args.issueId, mutationId: args.mutationId }),
+    ).then(() => true),
+  }),
+})
 vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
@@ -250,7 +257,7 @@ it.each([
 it.each([
   undefined,
   'proposal-profile',
-])('hands profile resolution to issues.start with profile %s', async (agentProfileId) => {
+])('hands profile resolution to the issue.begin record with profile %s', async (agentProfileId) => {
   const f = await open([], { agentProfileId })
   fireEvent.click(within(f.proposal()!).getByRole('button', { name: 'Start' }))
   await waitFor(() => expect(commands.start).toHaveBeenCalledTimes(1))

@@ -33,7 +33,6 @@ describe('mission task counts', () => {
     ['live', 'working', true],
     ['live', 'compacting', true],
     ['starting', 'idle', true],
-    ['reconnecting', 'idle', true],
     ['live', 'idle', false],
     ['live', 'needs_user', false],
     ['live', 'errored', false],

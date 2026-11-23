@@ -1,4 +1,6 @@
-import type { SessionResurrectionResult } from '@podium/client-core/engine'
+/** What `sessions.resurrect` answers, as the hibernated-chat seam sees it. */
+type SessionResurrectionResult = { ok: true } | { ok: false; reason?: string; detail?: string }
+
 import type { SessionView } from '@podium/client-core/session-values'
 import type { TranscriptItem } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
@@ -127,22 +129,26 @@ describe('hibernated conversation notice', () => {
     expect(screen.getByPlaceholderText('Message to wake it')).toBeTruthy()
   })
 
-  it('calls resurrectSession and keeps Waking until the session becomes live', async () => {
-    let finish: ((result: SessionResurrectionResult) => void) | undefined
-    const resurrect = vi.fn(
-      () =>
-        new Promise<SessionResurrectionResult>((resolve) => {
-          finish = resolve
-        }),
-    )
-    const { replica } = await openConversation({ resurrect })
+  it('resumes as a queued desired-running edit and keeps Waking until the session is live', async () => {
+    const view = await openConversation()
     const button = screen.getByRole('button', { name: 'Resume' })
     fireEvent.click(button)
-    await waitFor(() => expect(resurrect).toHaveBeenCalledWith({ sessionId: parked.sessionId }))
+    // Upstream resumes by editing the session record (POD-6399), queued durably.
+    await waitFor(() =>
+      expect(
+        view.runtime.services.outbox.queue
+          .pending()
+          .some(
+            (entry) =>
+              JSON.stringify(entry).includes(parked.sessionId) &&
+              JSON.stringify(entry).includes('"desired":"running"'),
+          ),
+      ).toBe(true),
+    )
     expect(button.textContent).toBe('Waking…')
-    await act(async () => finish?.({ ok: true }))
-    expect(button.textContent).toBe('Waking…')
-    await act(async () => replica.applyChanges('sessions', [{ ...parked, status: 'live' }], []))
+    await act(async () =>
+      view.replica.applyChanges('sessions', [{ ...parked, status: 'live' } as never], []),
+    )
     expect(screen.queryByTestId('hibernated-notice')).toBeNull()
   })
 

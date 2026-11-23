@@ -25,6 +25,7 @@ import {
   type LastAnswer,
   type TranscriptSearchState,
 } from '../values/compose/chat'
+import { isToolResultOnly, withToolResult } from '../values/tool-execution'
 import {
   promptsBeforeTheirReplies,
   type TranscriptComputeResult,
@@ -58,7 +59,7 @@ interface ToolMembers {
 function relationship(item: TranscriptItem): string {
   const marker = isUserMediaMarker(item)
   const fileOnly = marker && !!item.tags?.length && item.tags.every((tag) => tag.kind === 'file')
-  return `${item.role}\0${item.toolUseId ?? ''}\0${item.toolResult !== undefined}\0${marker}\0${fileOnly}\0${item.event ?? ''}\0${item.ts ?? ''}`
+  return `${item.role}\0${item.toolUseId ?? ''}\0${isToolResultOnly(item)}\0${marker}\0${fileOnly}\0${item.event ?? ''}\0${item.ts ?? ''}`
 }
 
 /** A block's structural signature. `batchable` is part of it: an in-place
@@ -198,11 +199,13 @@ export class TranscriptGraph {
     if (!children?.length)
       return presentToolBlock(harnessSummary ? { item, harnessSummary } : { item })
     if (item.role === 'tool' && item.toolUseId) {
-      const result = this.items.get(children.at(-1)!)?.toolResult
+      const resultItem = this.items.get(children.at(-1)!)
+      const result = resultItem?.toolResult
+      const paired = resultItem ? withToolResult(item, resultItem) : item
       const effectId = this.effectChildren.get(id)?.at(-1)
       const effects = effectId === undefined ? undefined : this.items.get(effectId)?.toolEffects
       return presentToolBlock({
-        item: effects ? { ...item, toolEffects: effects } : item,
+        item: effects ? { ...paired, toolEffects: effects } : paired,
         result,
         ...(harnessSummary ? { harnessSummary } : {}),
       })
@@ -215,10 +218,12 @@ export class TranscriptGraph {
     return pairToolResults(related)[0]
   }
   private harnessSummary(item: TranscriptItem): ChatBlock['harnessSummary'] {
-    if (item.role !== 'tool' || !item.toolUseId || item.toolResult !== undefined) return undefined
+    if (item.role !== 'tool' || !item.toolUseId || isToolResultOnly(item)) return undefined
     const id = this.summaryByToolUse.get(item.toolUseId)
     const text = id === undefined ? undefined : this.items.get(id)?.text
-    return id === undefined || !text ? undefined : { id, text }
+    return id === undefined || !text
+      ? undefined
+      : { id, text, toolUseIds: this.items.get(id)?.summarizes }
   }
 
   deriveRow(id: string): ChatRow | undefined {
@@ -647,7 +652,7 @@ export class TranscriptGraph {
       members = { calls: [], results: [] }
       this.toolMembers.set(item.toolUseId, members)
     }
-    if (item.toolResult !== undefined) {
+    if (isToolResultOnly(item)) {
       members.results.splice(this.insertionPoint(members.results, id), 0, id)
       const at = this.insertionPoint(members.calls, id)
       this.attach(id, members.calls[at - 1], dirty)
@@ -861,6 +866,9 @@ export class TranscriptGraph {
         block.item.text,
         block.item.toolName ?? '',
         block.item.toolInput ?? '',
+        ...(block.item.toolExecution?.inputs?.map(
+          (input) => `${input.description ?? ''}\n${input.text}`,
+        ) ?? []),
         block.result ?? block.item.toolResult ?? '',
         block.harnessSummary?.text ?? '',
       ].join('\n'),

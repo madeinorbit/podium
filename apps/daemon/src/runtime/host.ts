@@ -18,30 +18,33 @@ import { DriverRefusalError } from '@podium/harness/driver/host'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { discoveryRoots, resolveWithinRoots } from '@podium/harness'
+import type { AcceptedDriverId, HarnessContext } from '@podium/harness'
+import { discoveryRoots, harnessChildEnv, resolveWithinRoots } from '@podium/harness'
 import type {
   AttachmentStager,
   CodexRawSocket,
   OpencodeEngineClientTerminals,
+  TerminalHostPorts,
 } from '@podium/harness/driver/host'
-import { scopeUnitName } from '@podium/process/durable'
-import { instanceRuntimeSocketRoot } from '@podium/runtime/unix-socket'
-import { resolveInstanceId } from '@podium/runtime/instance'
-import WebSocket from 'ws'
+import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import type { AgentKind, SessionId } from '@podium/model'
-import { serverChildEnv } from '../control/session-env'
-import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
-import type { AcceptedDriverId } from '@podium/harness'
+import { scopeUnitName } from '@podium/process/durable'
+import { resolveInstanceId } from '@podium/runtime/instance'
+import { instanceRuntimeSocketRoot } from '@podium/runtime/unix-socket'
+import WebSocket from 'ws'
 import type { DaemonContext } from '../control/context'
-import { launchTerminalProcess, recoverTerminalProcess, stopSessionProcess } from '../control/session'
+import {
+  launchTerminalProcess,
+  recoverTerminalProcess,
+  stopSessionProcess,
+} from '../control/session'
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
-import { stageRuntimeAttachment } from './attachment-staging'
 import { reportHarnessProbe } from '../harness-version-reporting'
-import type { TerminalHostPorts } from '@podium/harness/driver/host'
-import { installTerminalInstrumentation } from '@podium/harness/driver/host'
-import { terminalInstrumentationSectionsFor } from './registry'
+import { stageRuntimeAttachment } from './attachment-staging'
 import { driverTiming } from './driver-timing'
+import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
+import { terminalInstrumentationSectionsFor } from './registry'
 
 /**
  * Adapt one daemon context into the driver's host port.
@@ -64,8 +67,10 @@ export function daemonRuntimeHost(
     foreignWrites: {
       count: (sessionId) => ctx.sessions.foreignWrites(sessionId),
       orderTrustworthy: (sessionId) => ctx.sessions.orderTrustworthy(sessionId),
-      markTyping: (sessionId, turnId) => ctx.sessions.get(sessionId)?.foreignWrites.markTyping(turnId),
-      typingMark: (sessionId, turnId) => ctx.sessions.get(sessionId)?.foreignWrites.typingMark(turnId),
+      markTyping: (sessionId, turnId) =>
+        ctx.sessions.get(sessionId)?.foreignWrites.markTyping(turnId),
+      typingMark: (sessionId, turnId) =>
+        ctx.sessions.get(sessionId)?.foreignWrites.typingMark(turnId),
     },
     proofWatches: {
       load: (sessionId) => ctx.bindingStore.terminalProofWatches(sessionId),
@@ -93,6 +98,11 @@ export function daemonRuntimeHost(
       const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
       return stopSessionProcess(ctx, { sessionId, durableLabel: label })
     },
+    // Instrumentation and launch are separate driver calls over ONE spec, and
+    // both read the session's pinned context off it (POD-6533): the hooks gate
+    // on the version of the executable the launch binds, in the folders the
+    // observer reads. Neither asks the inventory, so a refresh between them
+    // changes nothing for this session.
     installInstrumentation: (sessionId, spec) =>
       installTerminalInstrumentation({
         sessionId,
@@ -100,14 +110,20 @@ export function daemonRuntimeHost(
         spec,
         sections: terminalInstrumentationSectionsFor(spec.harness),
         settingsDir: ctx.settingsDir,
-        ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
         reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
+        // Hooks at launch in a Podium home need Codex's trust (§10).
+        ...(ctx.codexHookTrust
+          ? { launchHookTrust: ctx.codexHookTrust.trustFor.bind(ctx.codexHookTrust) }
+          : {}),
       }),
     launch: (input) => launchTerminalProcess(ctx, input),
     readHistory: async (session, range) => {
       const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
       if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
-        throw new DriverRefusalError({ reason: 'invalid_value', detail: 'foreign history cursor' }, 'transcript.history')
+        throw new DriverRefusalError(
+          { reason: 'invalid_value', detail: 'foreign history cursor' },
+          'transcript.history',
+        )
       }
       const source = await sourceForRead(ctx, session)
       const slice = await source.readSlice({
@@ -136,7 +152,10 @@ export function daemonRuntimeHost(
       // (control/transcripts.ts), and refuse anything outside with a typed
       // error. The driver passes only the path the locator just returned, but
       // the guard is what makes that a fact rather than a promise.
-      const real = await resolveWithinRoots(path, discoveryRoots(ctx.homeDir ?? homedir()))
+      const real = await resolveWithinRoots(path, [
+        ...discoveryRoots(ctx.homeDir ?? homedir()),
+        ...(ctx.homes?.list().map((home) => home.dir) ?? []),
+      ])
       if (!real) {
         throw new DriverRefusalError(
           { reason: 'invalid_value', detail: 'archive path outside transcript roots' },
@@ -257,36 +276,40 @@ export type SessionProcessEnv = (
 ) => Readonly<Record<string, string>>
 
 /**
- * The engine families' `buildEnv`: an engine child's whole environment. The
- * same stored-login precedence merge every other child gets (instance overlay,
- * managed credentials, inherited overrides stripped) PLUS the session's
- * Podium env — owned here so no family re-derives either, and built from a
- * {@link SessionProcessEnv} so no wiring can hand a family a builder that
- * leaves the relay out. The harness identity arrives as a value the families
- * read off their own adapter sections; no literal here.
+ * The engine families' `buildEnv`: an engine child's whole environment, from
+ * the one recipe every harness child gets (`harnessChildEnv`, POD-6535) PLUS
+ * the session's Podium env — owned here so no family re-derives either, and
+ * built from a {@link SessionProcessEnv} so no wiring can hand a family a
+ * builder that leaves the relay out. The harness identity arrives as a value
+ * the families read off their own adapter sections; no literal here.
+ *
+ * The base is the session's pinned context (POD-6546): the recovered command
+ * environment for this account, never a GUI-launched daemon's own
+ * `process.env`. HOME is the context's account home.
  */
 export function engineEnvBuilder(podium: SessionProcessEnv) {
   return (input: {
     sessionId: SessionId
     agentKind: AgentKind
-    homeDir?: string
+    /** The session's pinned harness context (POD-6546). */
+    harnessContext: HarnessContext
+    /** The spawn frame's env (`spec.env`): the only explicitly chosen keys. */
     sessionEnv?: Readonly<Record<string, string>>
+    /** Driver-composed config env (e.g. codex MCP config): wiring. */
     harnessEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
-  }): Record<string, string> => {
-    const env = serverChildEnv({
-      ...(input.instanceUuid ? { instanceUuid: input.instanceUuid } : {}),
-      sessionId: input.sessionId,
-      agentKind: input.agentKind,
-      podiumEnv: podium(input.sessionId, input.agentKind),
-      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+  }): Record<string, string> =>
+    harnessChildEnv(input.harnessContext, {
       ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
-      ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
-    })
-    const out: Record<string, string> = {}
-    for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
-    return out
-  }
+      ...(input.harnessEnv ? { wiringEnv: input.harnessEnv } : {}),
+      podiumEnv: {
+        ...podium(input.sessionId, input.agentKind),
+        // Immutable daemon ownership stamp for orphan attribution, and the
+        // exact Podium session this child serves.
+        ...(input.instanceUuid ? { PODIUM_INSTANCE_UUID: input.instanceUuid } : {}),
+        PODIUM_SESSION_ID: input.sessionId,
+      },
+    }).env
 }
 
 /**
@@ -310,12 +333,9 @@ export function engineClientTerminals(
           driverId: input.target.driverId as AcceptedDriverId,
         },
       }),
-    adopt: (sessionId, kind) =>
-      terminals.adopt(sessionId, kind as ClientTerminalKind | undefined),
-    close: (sessionId, kind) =>
-      terminals.close(sessionId, kind as ClientTerminalKind | undefined),
-    relaunch: (sessionId, kind) =>
-      terminals.relaunch(sessionId, kind as ClientTerminalKind),
+    adopt: (sessionId, kind) => terminals.adopt(sessionId, kind as ClientTerminalKind | undefined),
+    close: (sessionId, kind) => terminals.close(sessionId, kind as ClientTerminalKind | undefined),
+    relaunch: (sessionId, kind) => terminals.relaunch(sessionId, kind as ClientTerminalKind),
   }
 }
 

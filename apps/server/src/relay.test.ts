@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { postureNotices, sessionModeReadout } from '@podium/client-core/values'
 import {
   type AgentPhase,
   type AgentRuntimeState,
@@ -12,22 +13,37 @@ import {
   asSessionId,
   asUserId,
   firstAdminMemberId,
+  type MachineAccessWire,
+  machineAccessRowId,
   resolveTelegramPrincipal,
   type SessionId,
+  type SessionMeta,
 } from '@podium/model'
-import { asDelegationRef, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import {
+  asDelegationRef,
+  CLIENT_WIRE_VERSION,
+  DriverSelectedMessage,
+  type ServerMessage,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { memberFacts } from './store/fixtures/test-support'
+import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
+import { testStoreRecords } from './test-support/record-writer'
 import { clientSessionViews } from './test-support/session-views'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */
 const TEST_MACHINE = asMachineId('machine-under-test')
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { resolvePrincipalAsync, userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
+import { CredentialHealth } from './modules/credentials/health'
 import { MessageDeliveryService } from './modules/messages/service'
-import { machinesForPrincipal, sessionCommandCtx } from './modules/sessions/command-ctx'
+import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
+import { SessionRuntimeGateway } from './modules/sessions/runtime-gateway'
+import { ShippingService } from './modules/shipping/service'
 import { SessionRegistry } from './relay'
 import type { SessionRow } from './store'
 import { SessionStore } from './store'
@@ -36,6 +52,7 @@ import { attachTestClient } from './test-support/client-transport'
 import { attachDaemonWithInventory, fixtureInventory } from './test-support/daemon-inventory'
 import { assignHostMachine, attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { seedRows } from './test-support/seed-rows'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -53,6 +70,54 @@ function sink() {
   const sent: ServerMessage[] = []
   return { send: (m: ServerMessage) => sent.push(m), sent }
 }
+
+it('serves after hydration while recovery passes run, then drains them before disposal', async () => {
+  let release!: () => void
+  const held = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const passes = [
+    vi.spyOn(SessionRuntimeGateway.prototype, 'replayBoardProjection').mockReturnValue(held),
+    vi.spyOn(ShippingService.prototype, 'reconcile').mockReturnValue(held),
+    vi.spyOn(CredentialHealth.prototype, 'checkExpiry').mockReturnValue(held),
+  ]
+  const store = await openTestStore(':memory:')
+  let registry: SessionRegistry | undefined
+  let failure: unknown
+  const creating = SessionRegistry.create(store, undefined, { instanceId: 'startup-ownership' })
+    .then((value) => {
+      registry = value
+    })
+    .catch((error: unknown) => {
+      failure = error
+    })
+  let disposal: Promise<void> | undefined
+  try {
+    await vi.waitFor(
+      () => {
+        expect(failure).toBeUndefined()
+        expect(registry).toBeDefined()
+      },
+      { timeout: 5000 },
+    )
+    for (const pass of passes) expect(pass).toHaveBeenCalledTimes(1)
+    let disposed = false
+    disposal = registry!.dispose().then(() => {
+      disposed = true
+    })
+    await Promise.resolve()
+    expect(disposed).toBe(false)
+    release()
+    await disposal
+    expect(disposed).toBe(true)
+  } finally {
+    release()
+    await creating
+    await (disposal ?? registry?.dispose())
+    for (const pass of passes) pass.mockRestore()
+    await store.close()
+  }
+})
 
 async function attachCurrent(
   reg: SessionRegistry,
@@ -97,7 +162,7 @@ const CONTINUE_IN_SHORT_FRAME = expect.stringMatching(
 )
 
 describe('SessionRegistry', () => {
-  it('assembles recovery-only over a query-only store without running writable boot repairs', async () => {
+  it('serves recovery reads from a query-only store without mutating durable state', async () => {
     const file = join(trackTmp('podium-recovery-only-'), 'podium.db')
     const nativeId = 'subagent-under-test'
     const stalePath = '/project/subagents/stale-name.jsonl'
@@ -127,17 +192,23 @@ describe('SessionRegistry', () => {
     expect(await queryOnly.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(
       stalePath,
     )
-    expect(await recovery.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
+    expect(await recovery.modules.sessions.listSessions(undefined, 'rpc')).toEqual([
+      expect.objectContaining({ sessionId }),
+    ])
+    // Reads remain available, while recovery may not repair or mutate the row.
+    await expect(
+      queryOnly.sessions.markSessionRead(
+        fixtureWriteScope(),
+        await firstAdminMemberId(queryOnly),
+        sessionId,
+        new Date().toISOString(),
+      ),
+    ).rejects.toThrow()
+    expect(
+      await queryOnly.sessions.getReadAt(await firstAdminMemberId(queryOnly), sessionId),
+    ).toBeNull()
     await recovery.dispose()
     await queryOnly.close()
-
-    const writable = await SessionStore.open(file, TEST_MACHINE)
-    const ordinary = await SessionRegistry.create(writable, undefined, { instanceId: 'writable' })
-    expect(
-      await writable.conversations.registry.segmentPath(TEST_MACHINE, nativeId),
-    ).toBeUndefined()
-    await ordinary.dispose()
-    await writable.close()
   })
 
   it('create spawns via the daemon and lists the session as starting', async () => {
@@ -189,11 +260,14 @@ describe('SessionRegistry', () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       await attachHostDaemon(reg, () => {}, { repos: ['/proj'] })
-      const issue = await reg.modules.issues.crud.create({
-        repoPath: '/proj',
-        title: 'Coordinator default',
-        startNow: false,
-      })
+      const issue = await reg.modules.issues.crud.create(
+        reg.modules.issues.reports.store.serverWriter,
+        {
+          repoPath: '/proj',
+          title: 'Coordinator default',
+          startNow: false,
+        },
+      )
       const first = (
         await reg.modules.sessions.createSession({
           agentKind: 'codex',
@@ -201,10 +275,12 @@ describe('SessionRegistry', () => {
           issueId: issue.id,
         })
       ).sessionId
-      await reg.modules.issues.crud.claim(issue.id, asUserId('agent:codex'), { actorSessionId: first })
+      await reg.modules.issues.crud.claim(reg.modules.issues.reports.store.serverWriter, issue.id, {
+        actorSessionId: first,
+      })
       expect((await reg.modules.issues.reports.get(issue.id))?.coordinatorSessionId).toBeUndefined()
 
-      await reg.modules.issues.crud.create({
+      await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
         repoPath: '/proj',
         title: 'First split',
         startNow: false,
@@ -276,16 +352,22 @@ describe('SessionRegistry', () => {
         answerRepoOps(store.hostMachineId, host),
         inventory,
       )
-      const hostIssue = await reg.modules.issues.crud.create({
-        repoPath: '/host/project',
-        title: 'Host routed',
-        startNow: false,
-      })
-      const remoteIssue = await reg.modules.issues.crud.create({
-        repoPath: '/remote/project',
-        title: 'Remote routed',
-        startNow: false,
-      })
+      const hostIssue = await reg.modules.issues.crud.create(
+        reg.modules.issues.reports.store.serverWriter,
+        {
+          repoPath: '/host/project',
+          title: 'Host routed',
+          startNow: false,
+        },
+      )
+      const remoteIssue = await reg.modules.issues.crud.create(
+        reg.modules.issues.reports.store.serverWriter,
+        {
+          repoPath: '/remote/project',
+          title: 'Remote routed',
+          startNow: false,
+        },
+      )
 
       const hostStarted = await reg.modules.issues.gitWorkflow.start(hostIssue.id)
       const remoteStarted = await reg.modules.issues.gitWorkflow.start(remoteIssue.id)
@@ -490,11 +572,14 @@ describe('SessionRegistry', () => {
   const adopting = async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
-    const issue = await reg.modules.issues.crud.create({
-      repoPath: '/repo',
-      title: 'Adopt me',
-      startNow: false,
-    })
+    const issue = await reg.modules.issues.crud.create(
+      reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: '/repo',
+        title: 'Adopt me',
+        startNow: false,
+      },
+    )
     // Born at the repo root, the way every session in POD-664 was: no worktree of
     // its own, so nothing stops the harness from making one.
     const { sessionId } = await reg.modules.sessions.createSession({
@@ -541,12 +626,19 @@ describe('SessionRegistry', () => {
   it('never steals a worktree another issue already owns', async () => {
     // A `cd` into a sibling's workspace to read something must not hand it over.
     const { reg, cwdMsg, read } = await adopting()
-    const sibling = await reg.modules.issues.crud.create({
-      repoPath: '/repo',
-      title: 'Sibling',
-      startNow: false,
-    })
-    await reg.modules.issues.crud.update(sibling.id, { worktreePath: '/repo/.worktrees/sibling' })
+    const sibling = await reg.modules.issues.crud.create(
+      reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: '/repo',
+        title: 'Sibling',
+        startNow: false,
+      },
+    )
+    await reg.modules.issues.crud.update(
+      reg.modules.issues.reports.store.serverWriter,
+      sibling.id,
+      { worktreePath: '/repo/.worktrees/sibling' },
+    )
     await cwdMsg({ cwd: '/repo/.worktrees/sibling', branch: 'issue/sibling' })
     await expect.poll(read).toMatchObject({ worktreePath: null })
   })
@@ -559,7 +651,7 @@ describe('SessionRegistry', () => {
 
   it('leaves an issue that already has a worktree alone', async () => {
     const { reg, issue, cwdMsg, read } = await adopting()
-    await reg.modules.issues.crud.update(issue.id, {
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, {
       worktreePath: '/repo/.worktrees/mine',
       branch: 'mine',
     })
@@ -600,11 +692,14 @@ describe('SessionRegistry', () => {
     // real git: `git -C /link/repo rev-parse --show-toplevel` prints /real/repo.
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {}, { repos: ['/link/repo'] })
-    const issue = await reg.modules.issues.crud.create({
-      repoPath: '/link/repo', // registered through a symlink…
-      title: 'Symlinked',
-      startNow: false,
-    })
+    const issue = await reg.modules.issues.crud.create(
+      reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: '/link/repo', // registered through a symlink…
+        title: 'Symlinked',
+        startNow: false,
+      },
+    )
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/link/repo',
@@ -681,11 +776,11 @@ describe('SessionRegistry', () => {
       ],
     })
     await reg.modules.workflows.execute(operator, 'publish', { revisionId: created.revision.id })
-    await reg.modules.workflows.execute(operator, 'assign', {
+    // A binding is the generic edit's record (POD-6676); `assign` runs its checks.
+    await reg.modules.workflows.assign(operator, {
       targetKind: 'global',
       targetId: '',
       revisionId: created.revision.id,
-      onBehalfOf: firstAdminMemberId(),
     })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -908,7 +1003,10 @@ describe('SessionRegistry', () => {
     const spawnOf = (sessionId: string) =>
       daemon.find((m) => m.type === 'spawn' && m.sessionId === sessionId)
 
-    const fromProfile = await reg.modules.sessions.createSession({ cwd: '/proj', agentProfileId: review.id })
+    const fromProfile = await reg.modules.sessions.createSession({
+      cwd: '/proj',
+      agentProfileId: review.id,
+    })
     const spawn = spawnOf(fromProfile.sessionId)
     expect(spawn).toMatchObject({ type: 'spawn', agentKind: 'codex' })
     const instructions = spawn?.type === 'spawn' ? (spawn.instructions ?? []) : []
@@ -928,7 +1026,10 @@ describe('SessionRegistry', () => {
     expect(spawnOf(overridden.sessionId)).toMatchObject({ agentKind: 'claude-code' })
 
     // No profile, no profile source.
-    const plain = await reg.modules.sessions.createSession({ cwd: '/proj', agentKind: 'claude-code' })
+    const plain = await reg.modules.sessions.createSession({
+      cwd: '/proj',
+      agentKind: 'claude-code',
+    })
     const plainSpawn = spawnOf(plain.sessionId)
     expect(
       (plainSpawn?.type === 'spawn' ? (plainSpawn.instructions ?? []) : []).map((i) => i.source),
@@ -1075,7 +1176,7 @@ describe('SessionRegistry', () => {
     const c = sink()
     const id = attachTestClient(reg.clientGateway, c.send)
     await reg.clientGateway.routeClientFrame(id, { type: 'ping' })
-    expect(c.sent).toContainEqual({ type: 'pong' })
+    expect(c.sent).toContainEqual({ type: 'pong', serverTime: expect.any(Number) })
   })
 
   it('routes frames only to clients attached to that session (ISOLATION)', async () => {
@@ -1105,58 +1206,6 @@ describe('SessionRegistry', () => {
     const frames = c.sent.filter((m) => m.type === 'outputFrame')
     expect(frames).toHaveLength(1)
     expect(frames[0]).toMatchObject({ sessionId: s1, data: 'QQ==' })
-  })
-
-  it('replays buffered output to a client that attaches after frames were produced', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await attachHostDaemon(reg, () => {})
-    const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }))
-      .sessionId
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
-    // Frames arrive before any client attaches (e.g. a boot session, or a re-mount).
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'agentFrame',
-      sessionId: s1,
-      seq: 0,
-      data: 'QQ==',
-    })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'agentFrame',
-      sessionId: s1,
-      seq: 1,
-      data: 'Qg==',
-    })
-    const c = sink()
-    const id = await attachCurrent(reg, c.send)
-    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
-    const frames = c.sent.filter((m) => m.type === 'outputFrame')
-    expect(frames.map((f) => (f as { data: string }).data)).toEqual(['QQ==', 'Qg=='])
-  })
-
-  it('resets the replay buffer on a screen clear so replay starts from the clear', async () => {
-    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-    await attachHostDaemon(reg, () => {})
-    const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }))
-      .sessionId
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(s1))
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'agentFrame',
-      sessionId: s1,
-      seq: 0,
-      data: Buffer.from('stale', 'latin1').toString('base64'),
-    })
-    const clearFrame = Buffer.from('\x1b[2Jfresh', 'latin1').toString('base64')
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'agentFrame',
-      sessionId: s1,
-      seq: 1,
-      data: clearFrame,
-    })
-    const c = sink()
-    const id = await attachCurrent(reg, c.send)
-    await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
-    const frames = c.sent.filter((m) => m.type === 'outputFrame')
-    expect(frames.map((f) => (f as { data: string }).data)).toEqual([clearFrame])
   })
 
   it('routes controller input to the daemon tagged with the right sessionId', async () => {
@@ -1195,10 +1244,7 @@ describe('SessionRegistry', () => {
     const id = attachTestClient(reg.clientGateway, c.send)
     await reg.clientGateway.routeClientFrame(id, { type: 'attach', sessionId: s1 })
     await reg.clientGateway.routeClientFrame(id, { type: 'requestControl', sessionId: s1 })
-    expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((m) => m.sessionId === s2)
-        ?.epoch,
-    ).toBe(0)
+    expect(reg.modules.sessions.sessions.get(s2)?.terminal.epoch).toBe(0)
   })
 
   it('heals a foreground resize that arrives before its viewState (quarter-size bug)', async () => {
@@ -1262,7 +1308,7 @@ describe('SessionRegistry', () => {
     await attachHostDaemon(reg, (m) => daemon.push(m))
     const s1 = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/a' }))
       .sessionId
-    await reg.modules.sessions.killSession({ sessionId: s1 })
+    await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, { sessionId: s1 })
     expect(daemon).toContainEqual({
       type: 'sessionBindingRetire',
       sessionId: s1,
@@ -1328,7 +1374,10 @@ describe('SessionRegistry', () => {
   it('the boot probe carries the owner so the daemon can adopt a pre-binding survivor', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const id = 'orphan-adopt'
-    await store.sessions.upsertSession(exitedRow(id))
+    await seedRows(
+      store,
+      async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)),
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     const rows = await reg.modules.machines.ownershipRows()
@@ -1362,7 +1411,10 @@ describe('SessionRegistry', () => {
   it('probes an exited session on boot and reattaches it when the master is alive', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const id = 'orphan-1'
-    await store.sessions.upsertSession(exitedRow(id))
+    await seedRows(
+      store,
+      async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)),
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
@@ -1403,7 +1455,10 @@ describe('SessionRegistry', () => {
   it('leaves a dead exited session exited and untouched when its master is gone', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     const id = 'dead-1'
-    await store.sessions.upsertSession(exitedRow(id))
+    await seedRows(
+      store,
+      async () => await store.sessions.upsertSession(fixtureWriteScope(), exitedRow(id)),
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     // The durable host has no such session → reattachFailed. An already-exited row
@@ -1423,7 +1478,14 @@ describe('SessionRegistry', () => {
 
   it('does not probe an archived exited session', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    await store.sessions.upsertSession(exitedRow('arch-1', { archived: true }))
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(
+          fixtureWriteScope(),
+          exitedRow('arch-1', { archived: true }),
+        ),
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon.push(m))
@@ -1434,12 +1496,15 @@ describe('SessionRegistry', () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     // Insert out of recency order to prove the order is by lastActiveAt, not insertion.
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       exitedRow('mid', { lastActiveAt: '2026-03-02T00:00:00.000Z' }),
     )
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       exitedRow('newest', { lastActiveAt: '2026-03-09T00:00:00.000Z' }),
     )
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       exitedRow('oldest', { lastActiveAt: '2026-01-01T00:00:00.000Z' }),
     )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -1456,15 +1521,19 @@ describe('SessionRegistry', () => {
     // most-recently-used.
     const store = await openTestStore(':memory:', TEST_MACHINE)
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       exitedRow('recent', { lastActiveAt: '2026-03-09T00:00:00.000Z' }),
     )
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       exitedRow('focused', { lastActiveAt: '2026-01-02T00:00:00.000Z' }),
     )
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       exitedRow('visible', { lastActiveAt: '2026-01-01T00:00:00.000Z' }),
     )
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       exitedRow('idle', { lastActiveAt: '2026-02-01T00:00:00.000Z' }),
     )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -1482,7 +1551,7 @@ describe('SessionRegistry', () => {
     expect(order).toEqual(['focused', 'visible', 'recent', 'idle'])
   })
 
-  it('daemon disconnect drops live sessions to reconnecting so the next daemon re-binds them', async () => {
+  it('daemon disconnect marks live sessions awaiting a rebind so the next daemon re-binds them', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
@@ -1493,9 +1562,7 @@ describe('SessionRegistry', () => {
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
     // Daemon-only restart: its WS closes while the server keeps running.
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe(
-      'reconnecting',
-    )
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
     // A fresh daemon attaches with no bridges → it must be asked to reattach.
     const daemon2: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon2.push(m))
@@ -1534,7 +1601,14 @@ describe('SessionRegistry', () => {
     })
     const c = sink()
     const id = await attachCurrent(reg, c.send)
-    expect(c.sent).toContainEqual({ type: 'welcome', clientId: id })
+    // The welcome names a shape token for every synced kind.
+    expect(c.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'welcome',
+        clientId: id,
+        kindTokens: expect.objectContaining({ session: expect.any(String) }),
+      }),
+    )
     const principal = reg.clientGateway.principalOf(id)
     if (!principal) throw new Error('missing authenticated principal')
     const authority = reg.syncDelta.authority
@@ -1561,7 +1635,7 @@ describe('SessionRegistry', () => {
     )
   })
 
-  it('scopes machine bootstrap and broadcasts to each authenticated principal', async () => {
+  it("scopes each member's machine access rows to that member", async () => {
     const colleague = asUserId('colleague')
     const store = await openTestStore(':memory:', TEST_MACHINE)
     // The host's own row, as setup enrollment writes it (boot no longer does,
@@ -1603,45 +1677,41 @@ describe('SessionRegistry', () => {
       actorId: colleague,
       onBehalfOf: colleague,
     })
+    // The colleague is a member, so the server writes their access rows too.
+    await memberFacts(store).create(
+      {
+        id: colleague,
+        displayName: 'Colleague',
+        role: 'member',
+        createdAt: '2026-08-02T00:00:00.000Z',
+        disabledAt: null,
+      },
+      'hash',
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-    const owner = sink()
-    const other = sink()
-    attachTestClient(reg.clientGateway, {
-      send: owner.send,
-      machines: await machinesForPrincipal(
-        reg.modules,
-        userCommandPrincipal(firstAdminMemberId(), 'admin'),
-      ),
-    })
-    attachTestClient(reg.clientGateway, {
-      send: other.send,
-      machines: await machinesForPrincipal(reg.modules, userCommandPrincipal(colleague, 'member')),
-      userId: colleague,
-      userRole: 'member',
-    })
 
-    const lastMachines = (sent: ServerMessage[]) =>
-      sent
-        .filter(
-          (message): message is Extract<ServerMessage, { type: 'machinesChanged' }> =>
-            message.type === 'machinesChanged',
+    // Each member's machines are their own `machineAccess` rows (POD-6644).
+    const rawIds = (await reg.modules.machines.listMachines()).map((machine) => machine.id).sort()
+    const accessOf = async (user: string) =>
+      (
+        await testStoreRecords(store).build(
+          'machineAccess',
+          rawIds.map((machine) => machineAccessRowId(asUserId(user), asMachineId(machine))),
         )
-        .at(-1)?.machines ?? []
+      ).map((row) => {
+        const access = row.value as MachineAccessWire
+        return { ...access, id: access.machineId, online: false }
+      })
 
     // The admin SEES every machine (80bc92021 POD-3960: administration grants
     // see and manage, never execution consent); the member sees only what it
-    // owns or was granted. So the two bootstraps still differ, by principal.
-    await expect.poll(() => lastMachines(owner.sent).length).toBe(3)
-    await expect.poll(() => lastMachines(other.sent).length).toBe(2)
-    const ownerInitial = lastMachines(owner.sent)
-    const otherInitial = lastMachines(other.sent)
-    const rawIds = (await reg.modules.machines.listMachines()).map((machine) => machine.id).sort()
+    // owns or was granted. So the two members' rows differ, by principal.
+    const ownerInitial = await accessOf(firstAdminMemberId())
+    const otherInitial = await accessOf(colleague)
 
     expect(rawIds).toEqual(['hidden', TEST_MACHINE, 'shared'])
     expect(ownerInitial.map((machine) => machine.id).sort()).toEqual(rawIds)
     expect(otherInitial.map((machine) => machine.id).sort()).toEqual(['hidden', 'shared'])
-    expect(ownerInitial.every((machine) => machine.use !== undefined)).toBe(true)
-    expect(otherInitial.every((machine) => machine.use !== undefined)).toBe(true)
     // Seeing is not using: the colleague's machines, granted `see` or not, are
     // denied to the admin, and a denied row carries no inventory (paths and
     // provider identities need USE even for an admin).
@@ -1658,28 +1728,22 @@ describe('SessionRegistry', () => {
 
     const denied = ownerInitial.find((machine) => machine.id === 'shared')
     const hostRow = ownerInitial.find((machine) => machine.id === TEST_MACHINE)
-    expect(denied).toMatchObject({ online: false, use: 'denied' })
-    expect(hostRow).toMatchObject({ online: false, use: 'granted' })
+    expect(denied).toMatchObject({ use: 'denied' })
+    expect(hostRow).toMatchObject({ use: 'granted' })
     expect(agentCapabilityRejection(denied!, 'shell')).toBe('unauthorized')
     // THREE ANSWERS NOW, NOT TWO (POD-2700). `TEST_MACHINE` runs the server
     // only: agent execution is not assigned to it, so the honest answer is that
-    // it runs no daemon — NOT that it is offline, which would tell its user to
-    // wait for something that will never come. The unauthorized-vs-not
-    // distinction this test exists for is unchanged and asserted above; what
-    // follows pins the split so the two cannot quietly collapse back into one.
-    // Since 34aa06cf2 the structural axis reads the ASSIGNMENT, not the
-    // observed components (`structuralRejection`).
+    // it runs no daemon, NOT that it is offline. The structural axis reads the
+    // ASSIGNMENT (34aa06cf2).
     expect(hostRow?.components).toEqual(['server'])
     expect(hostRow?.serviceAssignment?.agentExecution).toBe(false)
     expect(agentCapabilityRejection(hostRow!, 'shell')).toBe('no-daemon')
     // A machine ASSIGNED to run agents whose daemon is merely disconnected
-    // still answers `offline` — the distinction, stated as a comparison against
-    // the SAME row rather than asserted about one of them in isolation.
+    // still answers `offline`.
     expect(
       agentCapabilityRejection(
         {
           ...hostRow!,
-          id: TEST_MACHINE,
           online: false,
           serviceAssignment: { ...hostRow!.serviceAssignment!, agentExecution: true },
         },
@@ -1687,18 +1751,9 @@ describe('SessionRegistry', () => {
       ),
     ).toBe('offline')
 
-    owner.sent.length = 0
-    other.sent.length = 0
-    reg.modules.machines.broadcastMachines()
-
-    await expect.poll(() => lastMachines(owner.sent).length).toBe(3)
-    await expect.poll(() => lastMachines(other.sent).length).toBe(2)
-    const ownerBroadcast = lastMachines(owner.sent)
-    const otherBroadcast = lastMachines(other.sent)
-    expect(ownerBroadcast).toEqual(ownerInitial)
-    expect(otherBroadcast).toEqual(otherInitial)
-    expect(ownerBroadcast).not.toEqual(otherBroadcast)
-    expect(otherBroadcast.map((machine) => machine.id).sort()).not.toEqual(rawIds)
+    expect(await accessOf(firstAdminMemberId())).toEqual(ownerInitial)
+    expect(await accessOf(colleague)).toEqual(otherInitial)
+    expect(otherInitial.map((machine) => machine.id).sort()).not.toEqual(rawIds)
   })
 
   it('broadcasts updated metas when a session gains a resume ref (resumable → hibernate)', async () => {
@@ -1900,7 +1955,7 @@ describe('SessionRegistry', () => {
     // of the title, and it is stripped before anything is stored or sent
     // (POD-1607) — otherwise each frame is a different string and every frame is
     // a broadcast to every client.
-    expect(c.sent.map(m => m.type)).not.toContain('sessionTitleChanged')
+    expect(c.sent.map((m) => m.type)).not.toContain('sessionTitleChanged')
     // Not a full list rebroadcast.
     expect(c.sent.map((m) => m.type)).not.toContain('sessionsChanged')
     // Late joiners see it via listSessions() — also without the frame, so the
@@ -1931,8 +1986,12 @@ describe('SessionRegistry', () => {
     }
 
     // The stored title remains stable across every spinner frame.
-    expect(c.sent.map(m => m.type)).not.toContain('sessionTitleChanged')
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)?.title).toBe('rename functionality')
+    expect(c.sent.map((m) => m.type)).not.toContain('sessionTitleChanged')
+    expect(
+      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )?.title,
+    ).toBe('rename functionality')
   })
 
   it('a re-reported identical title still locks, so no prompt renames the session', async () => {
@@ -1986,9 +2045,7 @@ describe('SessionRegistry', () => {
         (s) => s.sessionId === sessionId,
       ),
     ).toMatchObject({ title: 'rename functionality' })
-    expect(
-      c.sent.filter((m) => ['sessionTitleChanged'].includes(m.type)),
-    ).toEqual([])
+    expect(c.sent.filter((m) => ['sessionTitleChanged'].includes(m.type))).toEqual([])
   })
 
   it('ignores a title for an unknown session', async () => {
@@ -2036,7 +2093,7 @@ describe('SessionRegistry', () => {
       status: 'exited',
       exitCode: 0,
     })
-    await reg.modules.sessions.killSession({ sessionId })
+    await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, { sessionId })
     expect(await store.sessions.loadSessions()).toEqual([])
   })
 
@@ -2075,12 +2132,9 @@ describe('SessionRegistry', () => {
       sessionId,
       data: Buffer.from('ls\r').toString('base64'),
     })
-    expect(
-      (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
-        (m) => m.sessionId === sessionId,
-      )?.busy,
-    ).toBe(true)
-    expect(spy).toHaveBeenCalled()
+    expect(reg.modules.sessions.sessions.get(sessionId)?.terminal.busy).toBe(true)
+    // The activity write is coalesced; nothing here awaits a listing any more.
+    await vi.waitFor(() => expect(spy).toHaveBeenCalled())
   })
 
   it('queues semantic activity while the transfer fence is read-only, then flushes it', async () => {
@@ -2185,12 +2239,16 @@ describe('SessionRegistry', () => {
         (m) => m.sessionId === sessionId,
       ),
     ).toMatchObject({
-      status: 'reconnecting',
+      status: 'live',
       title: 'old',
       origin: { kind: 'resume', conversationId: 'c9' },
-      geometry: { cols: 173, rows: 47 },
     })
-    // Attaching the daemon fires a reattach for the reconnecting session.
+    // The size is not a record field (POD-6764): the terminal state topic
+    // answers it, from the stored column after the restart.
+    expect(
+      await reg2.modules.sessions.liveTopics.snapshot('session.terminalState', sessionId),
+    ).toMatchObject({ geometry: { cols: 173, rows: 47 } })
+    // Attaching the daemon fires a reattach for the session awaiting its rebind.
     const control: import('@podium/protocol/daemon').ControlMessage[] = []
     await attachHostDaemon(reg2, (m) => control.push(m))
     expect(control).toContainEqual(
@@ -2225,7 +2283,7 @@ describe('SessionRegistry', () => {
     await store2.close()
   })
 
-  it('reattach success: bind on a reconnecting session makes it live', async () => {
+  it('reattach success: bind on a session awaiting its rebind binds it live', async () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = await openTestStore(file, TEST_MACHINE)
     const reg1 = await SessionRegistry.create(store1, undefined, { instanceId: 'default' })
@@ -2241,9 +2299,7 @@ describe('SessionRegistry', () => {
       instanceId: 'default',
     })
     await attachHostDaemon(reg2, () => {})
-    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe(
-      'reconnecting',
-    )
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
     await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
     expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live')
   })
@@ -2251,7 +2307,7 @@ describe('SessionRegistry', () => {
   /**
    * POD-2290 ROUND 2, the seam the reviewer DROVE rather than read.
    *
-   * A server restart rehydrates persisted live/starting rows as `reconnecting`.
+   * A server restart rehydrates persisted live/starting rows awaiting a rebind.
    * Round two held the driver decision in memory only, so after a restart a
    * headless session came back with no driver family at all — and the web panel
    * reads a family-unknown live row as "assume a terminal", which is the
@@ -2290,12 +2346,156 @@ describe('SessionRegistry', () => {
       instanceId: 'default',
     })
     const restored = (await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)
-    expect(restored?.status).toBe('reconnecting')
+    // Its stored status, unchanged by the boot (it never bound before the restart).
+    expect(restored?.status).toBe('starting')
     expect(restored?.driverFamily).toBe('server')
     // …and still no claim that a live handle exists, which is the other half:
     // `driverId` names a driver we are currently driving through, and after a
     // restart with the daemon away we are driving through nothing.
     expect(restored?.driverId).toBeUndefined()
+  })
+
+  /**
+   * THE LAUNCH'S APPLIED TERMS (POD-6858 Task 11). The daemon repeats its
+   * decision with `posture` once the launch's terms are applied: the session
+   * then carries the mode Podium asked for and one entry per requirement the
+   * launch cannot meet, which the clients turn into one notice each. A new
+   * decision (no `posture`) drops the previous launch's report.
+   */
+  it('keeps the launch report from the repeated decision, and drops it on the next decision', async () => {
+    const store = await openTestStore(':memory:', TEST_MACHINE)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      await attachHostDaemon(reg, () => {})
+      const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'pi', cwd: '/a' })
+      const meta = async () =>
+        (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (s) => s.sessionId === sessionId,
+        )
+      const decision = { type: 'driverSelected' as const, sessionId, driverId: 'generic-pty' }
+      const report = {
+        requestedMode: null,
+        unmet: [
+          {
+            requirement: 'autonomy' as const,
+            reason: 'Pi has no approval gate, so it cannot ask first',
+          },
+        ],
+      }
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, decision)
+      expect((await meta())?.launchPosture).toBeUndefined()
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        ...decision,
+        posture: report,
+      })
+      const reported = await meta()
+      expect(reported?.launchPosture).toEqual(report)
+      expect(reported?.driverFamily).toBe('terminal')
+      expect(postureNotices(reported as SessionMeta)).toEqual([
+        'Pi cannot run in the chosen mode here: Pi has no approval gate, so it cannot ask first',
+      ])
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, decision)
+      expect((await meta())?.launchPosture).toBeUndefined()
+    } finally {
+      await reg.dispose()
+      await store.close()
+    }
+  })
+
+  /**
+   * AN OLDER SERVER READS THE REPEAT AS THE SAME DECISION (POD-6858 Task 11).
+   * Its schema has no `posture`, so the field is stripped on parse and the
+   * repeat is the decision frame again: the stored row is the same after it.
+   */
+  it('stores the same row when a server without posture reads the repeated decision', async () => {
+    const store = await openTestStore(':memory:', TEST_MACHINE)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      await attachHostDaemon(reg, () => {})
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/a',
+      })
+      const decision = { type: 'driverSelected' as const, sessionId, driverId: 'codex-app-server' }
+      const repeat = {
+        ...decision,
+        posture: {
+          requestedMode: 'never',
+          unmet: [
+            { requirement: 'autonomy' as const, reason: 'a one-shot turn has nobody to ask' },
+          ],
+        },
+      }
+      // The frame as a server that predates the field parses it.
+      const preposture = DriverSelectedMessage.omit({ posture: true })
+      const asOldServerReadsIt = preposture.parse(repeat)
+      expect(asOldServerReadsIt).toEqual(decision)
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, preposture.parse(decision))
+      const row = async () => (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
+      const before = await row()
+      const metaBefore = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, asOldServerReadsIt)
+      expect(await row()).toEqual(before)
+      const metaAfter = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+        (s) => s.sessionId === sessionId,
+      )
+      expect(metaAfter?.driverFamily).toBe(metaBefore?.driverFamily)
+      expect(metaAfter?.status).toBe(metaBefore?.status)
+    } finally {
+      await reg.dispose()
+      await store.close()
+    }
+  })
+
+  /**
+   * THE MODE THE HARNESS REPORTS WINS (POD-6858 Task 11, §4.9). Podium asked
+   * for `auto`; the harness reports `default` (auto mode is not available to
+   * it), and the session shows `default`.
+   */
+  it('shows the mode the harness reports over the one Podium asked for', async () => {
+    const store = await openTestStore(':memory:', TEST_MACHINE)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    try {
+      await attachHostDaemon(reg, () => {})
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/a',
+      })
+      const meta = async () =>
+        (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+          (s) => s.sessionId === sessionId,
+        )
+      const decision = { type: 'driverSelected' as const, sessionId, driverId: 'generic-pty' }
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, decision)
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        ...decision,
+        posture: { requestedMode: 'auto', unmet: [] },
+      })
+      expect(sessionModeReadout((await meta()) as SessionMeta)).toEqual({
+        mode: 'auto',
+        source: 'requested',
+      })
+
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentMode',
+        sessionId,
+        mode: 'default',
+        source: 'transcript',
+      })
+      expect(sessionModeReadout((await meta()) as SessionMeta)).toEqual({
+        mode: 'default',
+        source: 'observed',
+      })
+    } finally {
+      await reg.dispose()
+      await store.close()
+    }
   })
 
   it('lets a bind correct the persisted decision when the launch fell back', async () => {
@@ -2388,9 +2588,7 @@ describe('SessionRegistry', () => {
       instanceId: 'default',
     })
     await attachHostDaemon(reg2, () => {})
-    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe(
-      'reconnecting',
-    ) // handler must drive the transition
+    expect((await reg2.modules.sessions.listSessions(undefined, 'rpc')).at(0)?.status).toBe('live') // handler must drive the transition
     await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'reattachFailed',
       sessionId,
@@ -2403,55 +2601,63 @@ describe('SessionRegistry', () => {
 
   it('skips a persisted session with an invalid agentKind on load', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    await store.sessions.upsertSession({
-      id: asSessionId('good'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/a',
-      title: 'good',
-      name: null,
-      archived: false,
-      workState: null,
-      machineId: TEST_MACHINE,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'live',
-      exitCode: null,
-      durableLabel: 'podium-good',
-      createdAt: '2026-06-09T00:00:00.000Z',
-      lastActiveAt: '2026-06-09T00:00:00.000Z',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-    })
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('good'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/a',
+          title: 'good',
+          name: null,
+          archived: false,
+          workState: null,
+          machineId: TEST_MACHINE,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'live',
+          exitCode: null,
+          durableLabel: 'podium-good',
+          createdAt: '2026-06-09T00:00:00.000Z',
+          lastActiveAt: '2026-06-09T00:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+        }),
+    )
     // upsertSession now refuses an out-of-enum agentKind (write-side guard), so a
     // legacy/externally-corrupted row is simulated by writing a valid row and then
     // corrupting the persisted agent_kind directly — the exact loadFromStore scenario.
-    await store.sessions.upsertSession({
-      id: asSessionId('bad'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/b',
-      title: 'bad',
-      name: null,
-      archived: false,
-      workState: null,
-      machineId: TEST_MACHINE,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'live',
-      exitCode: null,
-      durableLabel: 'podium-bad',
-      createdAt: '2026-06-09T00:00:00.000Z',
-      lastActiveAt: '2026-06-09T00:00:00.000Z',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-    })
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('bad'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/b',
+          title: 'bad',
+          name: null,
+          archived: false,
+          workState: null,
+          machineId: TEST_MACHINE,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'live',
+          exitCode: null,
+          durableLabel: 'podium-bad',
+          createdAt: '2026-06-09T00:00:00.000Z',
+          lastActiveAt: '2026-06-09T00:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+        }),
+    )
     ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
       .prepare("UPDATE sessions SET agent_kind = 'bogus-agent' WHERE id = 'bad'")
       .run()
@@ -2613,7 +2819,7 @@ describe('agent state', () => {
       sessionId,
       state: STATE,
     })
-    expect(client.sent.map(m => m.type)).not.toContain('sessionAgentStateChanged')
+    expect(client.sent.map((m) => m.type)).not.toContain('sessionAgentStateChanged')
     // Hook events fire often — this must NOT re-broadcast the whole session list.
     expect(client.sent.map((m) => m.type)).not.toContain('sessionsChanged')
     // Late joiners still see the state via listSessions().
@@ -2657,7 +2863,7 @@ describe('agent state', () => {
     await send('working', 0, '2026-06-12T10:01:00.000Z')
     await send('idle', 2_000, '2026-06-12T10:01:02.000Z')
 
-    expect(client.sent.map(m => m.type)).not.toContain('sessionAgentStateChanged')
+    expect(client.sent.map((m) => m.type)).not.toContain('sessionAgentStateChanged')
     expect(
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
         (s) => s.sessionId === sessionId,
@@ -2707,14 +2913,22 @@ describe('agent state', () => {
         cwd: '/proj',
       })
       // not errored yet → refused, and nothing is sent
-      expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: false })
+      expect(
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId,
+        }),
+      ).toEqual({ ok: false })
       expect(runtimeSends(sessionId)).toEqual([])
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
         type: 'agentState',
         sessionId,
         state: STATE,
       })
-      expect(await reg.modules.sessions.continueSession({ sessionId })).toEqual({ ok: true })
+      expect(
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId,
+        }),
+      ).toEqual({ ok: true })
       // One durable row, like every agent send (POD-4795).
       await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
       expect(durableSends(daemon, sessionId)).toEqual([
@@ -2734,7 +2948,11 @@ describe('agent state', () => {
         cmd: 'bash',
         agentKind: 'shell',
       })
-      expect(await reg.modules.sessions.continueSession({ sessionId: shell })).toEqual({
+      expect(
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId: shell,
+        }),
+      ).toEqual({
         ok: false,
       })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -2742,12 +2960,18 @@ describe('agent state', () => {
         sessionId: shell,
         state: STATE,
       })
-      expect(await reg.modules.sessions.continueSession({ sessionId: shell })).toEqual({ ok: true })
+      expect(
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId: shell,
+        }),
+      ).toEqual({ ok: true })
       expect(ptyInputs(shell)).toEqual([{ inputOrigin: 'auto_continue', data: 'continue\r' }])
       expect(runtimeSends(shell)).toEqual([])
 
       expect(
-        await reg.modules.sessions.continueSession({ sessionId: asSessionId('ghost') }),
+        await reg.modules.sessions.continueSession(reg.modules.sessions.serverWriter, {
+          sessionId: asSessionId('ghost'),
+        }),
       ).toEqual({
         ok: false,
       })
@@ -2826,15 +3050,19 @@ describe('agent state', () => {
         })
       // The client event goes out before the external pushes, which follow the
       // owner's telegram binding read: wait for them rather than racing it.
-      await expect.poll(() => ntfy).toHaveBeenCalledWith('podium-topic', {
-        title: 'keyboard needs you',
-        body: 'SQLite or Postgres?',
-      })
-      await expect.poll(() => telegramRequest).toHaveBeenCalledWith({
-        ownerUserId: firstAdminMemberId(),
-        sessionId,
-        text: 'keyboard needs you\n\nSQLite or Postgres?',
-      })
+      await expect
+        .poll(() => ntfy)
+        .toHaveBeenCalledWith('podium-topic', {
+          title: 'keyboard needs you',
+          body: 'SQLite or Postgres?',
+        })
+      await expect
+        .poll(() => telegramRequest)
+        .toHaveBeenCalledWith({
+          ownerUserId: firstAdminMemberId(),
+          sessionId,
+          text: 'keyboard needs you\n\nSQLite or Postgres?',
+        })
       expect(telegram).not.toHaveBeenCalled()
 
       ntfy.mockClear()
@@ -2905,37 +3133,6 @@ describe('agent state', () => {
     }
   })
 
-  it('suppresses configured notification delivery while the feature is disabled', async () => {
-    const store = await openTestStore(':memory:', TEST_MACHINE)
-    // POD-419: the bot token is a server-owned secret and lives in the keyed
-    // store, not the blob. Written through the repository here for the same
-    // reason the preferences below are: this fixture is arranging state, not
-    // exercising the command surface (`service.commands.test.ts` does that).
-    await store.secrets.set(
-      'notifications.telegramBotToken',
-      '123456:secret',
-      '2026-07-30T00:00:00.000Z',
-    )
-    const settings = await store.settings.getSettings()
-    await store.settings.setSettings({
-      ...settings,
-      notifications: {
-        ...settings.notifications,
-        ntfyTopic: 'podium-topic',
-        telegramChatId: '-100123',
-      },
-    })
-    const ntfy = vi.fn(async () => {})
-    const telegram = vi.fn(async () => {})
-    try {
-      const reg = await SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
-      await reg.modules.notify.notifyExternal({ title: 'hidden', body: 'hidden' })
-      expect(ntfy).not.toHaveBeenCalled()
-      expect(telegram).not.toHaveBeenCalled()
-    } finally {
-      await store.close()
-    }
-  })
   it('connects Telegram from a start-code update', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
@@ -2987,7 +3184,10 @@ describe('agent state', () => {
         expiresAt: new Date(301_000).toISOString(),
       })
 
-      const result = await reg.modules.settings.pollTelegramSetup(setup.setupId)
+      const result = await reg.modules.settings.pollTelegramSetup(
+        setup.setupId,
+        firstAdminMemberId(),
+      )
 
       expect(result.status).toBe('connected')
       if (result.status !== 'connected') throw new Error('expected setup to connect')
@@ -3239,8 +3439,10 @@ describe('structured transcript channel', () => {
       tail: 'c1',
     })
     // First-prompt fallback names the session from the first user prompt.
-    expect(client.sent.map(m => m.type)).not.toContain('sessionTitleChanged')
-    const titled = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)
+    expect(client.sent.map((m) => m.type)).not.toContain('sessionTitleChanged')
+    const titled = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(titled?.title).toContain('Refactor')
   })
 
@@ -3278,7 +3480,9 @@ describe('structured transcript channel', () => {
       items: [{ id: 'u2', role: 'user', text: 'Refactor the transcript reader', cursor: 'c2' }],
       tail: 'c2',
     })
-    const titled = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)
+    const titled = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
+      (s) => s.sessionId === sessionId,
+    )
     expect(titled?.title).toContain('Refactor')
     expect(titled?.title).not.toContain('command-name')
   })
@@ -3523,7 +3727,13 @@ describe('sendText (chat send path)', () => {
         cmd: 'grok',
         agentKind: 'grok',
       })
-      expect(await reg.modules.sessions.sendText({ sessionId, text: 'start this chat' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId,
+          text: 'start this chat',
+        }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -3552,7 +3762,11 @@ describe('sendText (chat send path)', () => {
       const shell = await liveShell(reg)
 
       expect(
-        await reg.modules.sessions.sendText({ sessionId: agent, text: 'run the tests' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: agent,
+          text: 'run the tests',
+        }),
       ).toEqual({
         ok: true,
         queued: true,
@@ -3575,7 +3789,11 @@ describe('sendText (chat send path)', () => {
 
       // The shell's answer is a plain ok: the bytes are on the wire already.
       expect(
-        await reg.modules.sessions.sendText({ sessionId: shell, text: 'run the tests' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: shell,
+          text: 'run the tests',
+        }),
       ).toEqual({
         ok: true,
       })
@@ -3600,7 +3818,13 @@ describe('sendText (chat send path)', () => {
       const agent = await liveAgent(reg)
       const shell = await liveShell(reg)
 
-      expect(await reg.modules.sessions.sendText({ sessionId: agent, text: 'a\nb' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: agent,
+          text: 'a\nb',
+        }),
+      ).toEqual({
         ok: true,
         queued: true,
       })
@@ -3610,7 +3834,13 @@ describe('sendText (chat send path)', () => {
       // The embedded newline must never be the thing that submits a
       // half-written message: it stays inside the envelope, and the one CR
       // after it is the submit.
-      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'a\nb' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: shell,
+          text: 'a\nb',
+        }),
+      ).toEqual({
         ok: true,
       })
       expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
@@ -3637,6 +3867,7 @@ describe('sendText (chat send path)', () => {
       // nothing at all reaches the PTY, and the caller hears "no", not "later".
       expect(
         await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
           sessionId: shell,
           text: 'this must NOT submit the menu',
         }),
@@ -3648,7 +3879,11 @@ describe('sendText (chat send path)', () => {
       // does not hold the send on it (cfb9924a7). The row goes to the driver,
       // which owns the menu guard.
       expect(
-        await reg.modules.sessions.sendText({ sessionId: agent, text: 'for the driver' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: agent,
+          text: 'for the driver',
+        }),
       ).toEqual({
         ok: true,
         queued: true,
@@ -3684,7 +3919,11 @@ describe('sendText (chat send path)', () => {
       )
 
       expect(
-        await reg.modules.sessions.queueText({ sessionId: shell, text: 'queued before the menu' }),
+        await reg.modules.sessions.queueText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: shell,
+          text: 'queued before the menu',
+        }),
       ).toEqual({
         ok: true,
         queued: true,
@@ -3719,9 +3958,15 @@ describe('sendText (chat send path)', () => {
         reg.sessionStore.hostMachineId,
         agentStateMsg(shell, 'needs_user', { need: { kind: 'question' } }),
       )
-      expect((await reg.modules.sessions.sendText({ sessionId: shell, text: 'held' })).ok).toBe(
-        false,
-      )
+      expect(
+        (
+          await reg.modules.sessions.sendText({
+            writer: reg.modules.sessions.serverWriter,
+            sessionId: shell,
+            text: 'held',
+          })
+        ).ok,
+      ).toBe(false)
       // Human answers the menu → phase → idle.
       await reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
@@ -3729,7 +3974,13 @@ describe('sendText (chat send path)', () => {
       )
       // ACCEPTED now, because the menu is gone — and the refusal above is the
       // proof nothing was swallowed on the way: only this send is typed.
-      expect(await reg.modules.sessions.sendText({ sessionId: shell, text: 'now ok' })).toEqual({
+      expect(
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId: shell,
+          text: 'now ok',
+        }),
+      ).toEqual({
         ok: true,
       })
       expect(readInputs(daemon)).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
@@ -3751,7 +4002,11 @@ describe('sendText (chat send path)', () => {
       daemon.length = 0
 
       expect(
-        await reg.modules.sessions.interruptText({ sessionId, text: 'stop and read this' }),
+        await reg.modules.sessions.interruptText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId,
+          text: 'stop and read this',
+        }),
       ).toEqual({ ok: true, queued: true })
       await vi.waitFor(() => expect(durableSends(daemon, sessionId)).toHaveLength(1))
       // The row carries the mode; the daemon's queue decides whether there is
@@ -3780,7 +4035,13 @@ describe('sendText (chat send path)', () => {
       sessionId,
       code: 0,
     })
-    expect(await reg.modules.sessions.sendText({ sessionId, text: 'hello?' })).toEqual({
+    expect(
+      await reg.modules.sessions.sendText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'hello?',
+      }),
+    ).toEqual({
       ok: false,
     })
   })
@@ -3825,7 +4086,11 @@ describe('queueText drain (the server hands rows on at once — no readiness win
           data: 'eA==',
         })
       }
-      await reg.modules.sessions.queueText({ sessionId, text: 'deferred-msg' })
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'deferred-msg',
+      })
       await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
       expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual(['deferred-msg'])
       expect(ptyInputsWith(daemon, 'deferred-msg')).toEqual([])
@@ -3845,7 +4110,11 @@ describe('queueText drain (the server hands rows on at once — no readiness win
         agentKind: 'codex',
         cwd: '/w',
       }) // 'starting'
-      await reg.modules.sessions.queueText({ sessionId, text: 'too-early' })
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'too-early',
+      })
       await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
       // 4bd403fed: a new session (no transcript yet) forwards from admission;
       // the daemon's delivery queue holds it until the CLI is up.
@@ -3871,7 +4140,11 @@ describe('queueText drain (the server hands rows on at once — no readiness win
         cwd: '/w',
       })
       await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, codexBind(sessionId)) // live, never emits output
-      await reg.modules.sessions.queueText({ sessionId, text: 'silent-msg' })
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'silent-msg',
+      })
       await vi.advanceTimersByTimeAsync(NO_WINDOW_MS)
       expect(durableSends(daemon, sessionId).map((send) => send.text)).toEqual(['silent-msg'])
       expect(ptyInputsWith(daemon, 'silent-msg')).toEqual([])
@@ -3983,7 +4256,10 @@ describe('hibernation', () => {
         ),
       ).toBeUndefined()
       expect(killSession).toHaveBeenCalledOnce()
-      expect(killSession).toHaveBeenCalledWith({ sessionId })
+      expect(killSession).toHaveBeenCalledWith(
+        expect.objectContaining({ origin: 'sessions.lifecycle', commit: expect.any(Function) }),
+        { sessionId },
+      )
     } finally {
       await reg.dispose()
       await store.close()
@@ -4122,11 +4398,9 @@ describe('hibernation', () => {
       reason: 'the durable host is still running',
     })
 
-    // Reconnecting, not live: the daemon disposed the PTY bridge when it took the
-    // kill, so the row is only honest once the reattach below binds a new one.
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe(
-      'reconnecting',
-    )
+    // Live and awaiting a rebind (server-only): the daemon disposed the PTY bridge
+    // when it took the kill, so the reattach below binds a new one.
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
@@ -4256,9 +4530,7 @@ describe('hibernation', () => {
       labels: [`podium-${sessionId}`],
     })
 
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe(
-      'reconnecting',
-    )
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
@@ -4415,9 +4687,7 @@ describe('hibernation', () => {
     daemon.length = 0
     await unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
 
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe(
-      'reconnecting',
-    )
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('live')
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
@@ -4425,8 +4695,24 @@ describe('hibernation', () => {
   // parked session leaves memory, and a restart drops every live handle; the
   // row's bound driver id answers both times, as the live handle did.
   for (const { name, agentKind, driverId, resume, label, status, reattach } of [
-    { name: 'an EMBEDDED driver is held', agentKind: 'claude-code' as const, driverId: 'claude-sdk', resume: { kind: 'claude-session', value: 'emb-1' }, label: (id: SessionId) => `podium-${id}`, status: 'hibernated', reattach: false },
-    { name: 'a TERMINAL driver is revived', agentKind: 'codex' as const, driverId: 'generic-pty', resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805193' }, label: (id: SessionId) => `podium-${id}`, status: 'reconnecting', reattach: true },
+    {
+      name: 'an EMBEDDED driver is held',
+      agentKind: 'claude-code' as const,
+      driverId: 'claude-sdk',
+      resume: { kind: 'claude-session', value: 'emb-1' },
+      label: (id: SessionId) => `podium-${id}`,
+      status: 'hibernated',
+      reattach: false,
+    },
+    {
+      name: 'a TERMINAL driver is revived',
+      agentKind: 'codex' as const,
+      driverId: 'generic-pty',
+      resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805193' },
+      label: (id: SessionId) => `podium-${id}`,
+      status: 'live',
+      reattach: true,
+    },
   ]) {
     it(`${name} out of memory and after a restart, as while resident [POD-6160]`, async () => {
       const park = async (reg: SessionRegistry): Promise<SessionId> => {
@@ -4437,10 +4723,16 @@ describe('hibernation', () => {
           agentKind,
           driverId,
         })
-        await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'sessionResumeRef', sessionId, resume })
+        await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          type: 'sessionResumeRef',
+          sessionId,
+          resume,
+        })
         expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
         await reg.modules.sessions.flushActivity()
-        expect((await reg.sessionStore.sessions.getSession(sessionId))?.boundDriverId).toBe(driverId)
+        expect((await reg.sessionStore.sessions.getSession(sessionId))?.boundDriverId).toBe(
+          driverId,
+        )
         return sessionId
       }
       const outcome = async (reg: SessionRegistry, sessionId: SessionId) => {
@@ -4455,7 +4747,11 @@ describe('hibernation', () => {
       }
 
       // Out of memory: the parked session left the map with its live handle.
-      const reg = await SessionRegistry.create(await openTestStore(':memory:', TEST_MACHINE), undefined, { instanceId: 'default' })
+      const reg = await SessionRegistry.create(
+        await openTestStore(':memory:', TEST_MACHINE),
+        undefined,
+        { instanceId: 'default' },
+      )
       await attachHostDaemon(reg)
       const evicted = await park(reg)
       expect(reg.modules.sessions.sessions.has(evicted)).toBe(false)
@@ -4521,7 +4817,7 @@ describe('hibernation', () => {
         s.status,
       ]),
     )
-    expect(byId.get(ghost)).toBe('reconnecting')
+    expect(byId.get(ghost)).toBe('live')
     // Absent from the census = the park told the truth. It must stay parked, or
     // every deliberate hibernation would come back on the next daemon connect.
     expect(byId.get(reallyParked)).toBe('hibernated')
@@ -4858,7 +5154,11 @@ describe('hibernation', () => {
     })
 
     expect(
-      await reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' }),
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'accepted before exit projection',
+      }),
     ).toEqual({ ok: true, queued: true })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
@@ -4980,10 +5280,10 @@ describe('hibernation', () => {
       code: 139,
       observerGeneration: retryGeneration,
     })
-    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     await vi.waitFor(() =>
       expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(2),
     )
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc'))[0]?.status).toBe('starting')
     const postBindSpawns = daemon.filter(
       (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
         message.type === 'spawn' && message.sessionId === sessionId,
@@ -5057,7 +5357,11 @@ describe('hibernation', () => {
       },
     })
     expect(
-      await reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' }),
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'durable process event recovery',
+      }),
     ).toEqual({ ok: true, queued: true })
     // The ordinary agentExit frame is intentionally absent: it is the frame
     // that the daemon/server disconnect can drop after the child closes.
@@ -5134,7 +5438,11 @@ describe('hibernation', () => {
     })
     daemon.length = 0
     expect(
-      await reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' }),
+      await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
+        sessionId,
+        text: 'legacy exit compatibility',
+      }),
     ).toEqual({ ok: true, queued: true })
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -5213,6 +5521,7 @@ describe('hibernation', () => {
     }
     expect(
       await reg.modules.sessions.queueText({
+        writer: reg.modules.sessions.serverWriter,
         sessionId,
         text: 'delegation revoked before process exit',
         principal,
@@ -5222,7 +5531,9 @@ describe('hibernation', () => {
     // Removing the delegated actor revokes the reference before the target's
     // death applies. Exit recovery must re-resolve it live, refuse the wake,
     // and retain the durable row for an explicit authorized recovery.
-    await reg.modules.sessions.killSession({ sessionId: actorSessionId })
+    await reg.modules.sessions.killSession(reg.modules.sessions.serverWriter, {
+      sessionId: actorSessionId,
+    })
     daemon.length = 0
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
@@ -5391,7 +5702,14 @@ describe('hibernation', () => {
     // 'bound' back — see `store.test.ts`.)
     const stored = await store.sessions.getSession(sessionId)
     if (!stored) throw new Error('the forged row went missing')
-    await store.sessions.upsertSession({ ...stored, conversationBinding: null })
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          ...stored,
+          conversationBinding: null,
+        }),
+    )
 
     await reg.dispose()
     await reg.sessionStore.close()
@@ -6230,7 +6548,10 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     })
     // Exactly what the old build persisted: text and updated_at, no rev, no
     // origin, no history.
-    await store.sessions.setDraft(sessionId, 'written before the upgrade')
+    await seedRows(
+      store,
+      async () => await store.sessions.setDraft(sessionId, 'written before the upgrade'),
+    )
     await reg.dispose()
     await store.close()
 
@@ -6366,7 +6687,11 @@ describe('SessionRegistry read state (#124)', () => {
     expect(before?.readAt).toBeNull()
     expect(before?.unread).toBe(true)
 
-    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
+    await reg.modules.sessions.markSessionRead(
+      reg.modules.sessions.serverWriter,
+      firstAdminMemberId(),
+      sessionId,
+    )
     const after = (await clientSessionViews(reg))[0]
     expect(after?.readAt).not.toBeNull()
     expect(after?.unread).toBe(false)
@@ -6390,7 +6715,11 @@ describe('SessionRegistry read state (#124)', () => {
     await attachCurrent(reg, c.send)
     c.sent.length = 0
 
-    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
+    await reg.modules.sessions.markSessionRead(
+      reg.modules.sessions.serverWriter,
+      firstAdminMemberId(),
+      sessionId,
+    )
     await reg.modules.sessions.flushBroadcasts()
 
     await expect
@@ -6414,13 +6743,21 @@ describe('SessionRegistry read state (#124)', () => {
       cwd: '/p',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
+    await reg.modules.sessions.markSessionRead(
+      reg.modules.sessions.serverWriter,
+      firstAdminMemberId(),
+      sessionId,
+    )
     expect((await clientSessionViews(reg))[0]?.unread).toBe(false)
 
     const c = sink()
     await attachCurrent(reg, c.send)
     c.sent.length = 0
-    await reg.modules.sessions.markSessionUnread(firstAdminMemberId(), sessionId)
+    await reg.modules.sessions.markSessionUnread(
+      reg.modules.sessions.serverWriter,
+      firstAdminMemberId(),
+      sessionId,
+    )
     await reg.modules.sessions.flushBroadcasts()
 
     const after = (await clientSessionViews(reg))[0]
@@ -6461,13 +6798,21 @@ describe('SessionRegistry snooze', () => {
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
-    await reg.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    await reg.modules.sessions.setSnooze(reg.modules.sessions.serverWriter, {
+      userId: firstAdminMemberId(),
+      sessionId,
+      until: null,
+    })
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({
       [sessionId]: null,
     })
     expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeNull()
 
-    await reg.modules.sessions.clearSnooze(firstAdminMemberId(), sessionId)
+    await reg.modules.sessions.clearSnooze(
+      reg.modules.sessions.serverWriter,
+      firstAdminMemberId(),
+      sessionId,
+    )
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
     expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeUndefined()
   })
@@ -6480,9 +6825,17 @@ describe('SessionRegistry snooze', () => {
       cwd: '/p',
     })
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-    await reg.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    await reg.modules.sessions.setSnooze(reg.modules.sessions.serverWriter, {
+      userId: firstAdminMemberId(),
+      sessionId,
+      until: null,
+    })
 
-    await reg.modules.sessions.sendText({ sessionId, text: 'hi' })
+    await reg.modules.sessions.sendText({
+      writer: reg.modules.sessions.serverWriter,
+      sessionId,
+      text: 'hi',
+    })
     expect(await reg.sessionStore.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
   })
 
@@ -6498,7 +6851,11 @@ describe('SessionRegistry snooze', () => {
       'local',
       agentState(sessionId, 'needs_user', { need: { kind: 'question' } }),
     )
-    await reg.modules.sessions.setSnooze({ userId: firstAdminMemberId(), sessionId, until: null })
+    await reg.modules.sessions.setSnooze(reg.modules.sessions.serverWriter, {
+      userId: firstAdminMemberId(),
+      sessionId,
+      until: null,
+    })
 
     // needs_user -> idle/question is still attention: snooze survives.
     await reg.gateway.routeDaemonFrame(
@@ -6519,32 +6876,88 @@ describe('SessionRegistry snooze', () => {
 
   it('seeds snoozedUntil from the store at load', async () => {
     const store = await openTestStore(':memory:', TEST_MACHINE)
-    await store.sessions.upsertSession({
-      id: asSessionId('s1'),
-      ownerUserId: firstAdminMemberId(),
-      agentKind: 'claude-code',
-      cwd: '/p',
-      title: 't',
-      name: null,
-      machineId: TEST_MACHINE,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'hibernated',
-      exitCode: null,
-      durableLabel: 'd',
-      createdAt: '2026-06-19T00:00:00.000Z',
-      lastActiveAt: '2026-06-19T00:00:00.000Z',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-      archived: false,
-      workState: null,
-    })
-    await store.sessions.setSnooze(firstAdminMemberId(), asSessionId('s1'), null)
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('s1'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/p',
+          title: 't',
+          name: null,
+          machineId: TEST_MACHINE,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'hibernated',
+          exitCode: null,
+          durableLabel: 'd',
+          createdAt: '2026-06-19T00:00:00.000Z',
+          lastActiveAt: '2026-06-19T00:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+          archived: false,
+          workState: null,
+        }),
+    )
+    await store.sessions.setSnooze(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('s1'),
+      null,
+    )
     const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect((await clientSessionViews(reg))[0]?.snoozedUntil).toBeNull()
+  })
+})
+
+describe('SessionRegistry boot over model rows at feed head 0', () => {
+  it('raises the head to 1 so the start-up load carries the rows (ADR 2 D12)', async () => {
+    const store = await openTestStore(':memory:', TEST_MACHINE)
+    // Written without an append, as setup, migrations and backfills may: head stays 0.
+    await seedRows(
+      store,
+      async () =>
+        await store.sessions.upsertSession(fixtureWriteScope(), {
+          id: asSessionId('s1'),
+          ownerUserId: firstAdminMemberId(),
+          agentKind: 'claude-code',
+          cwd: '/p',
+          title: 't',
+          name: null,
+          machineId: TEST_MACHINE,
+          originKind: 'spawn',
+          conversationId: null,
+          resumeKind: null,
+          resumeValue: null,
+          status: 'hibernated',
+          exitCode: null,
+          durableLabel: 'd',
+          createdAt: '2026-06-19T00:00:00.000Z',
+          lastActiveAt: '2026-06-19T00:00:00.000Z',
+          lastOutputAt: null,
+          lastInputAt: null,
+          lastResumedAt: null,
+          archived: false,
+          workState: null,
+        }),
+    )
+    await store.sessions.setSnooze(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('s1'),
+      null,
+    )
+    expect((await store.sync.readFeedState()).headSeq).toBe(0)
+    const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    expect(await store.sync.readFeedState()).toEqual({ headSeq: 1, floorSeq: 1 })
+    // The load is stamped at head 1 and the client accepts it.
+    expect(await clientSessionViews(reg)).toEqual([
+      expect.objectContaining({ sessionId: 's1', snoozedUntil: null }),
+    ])
   })
 })
 
@@ -6976,6 +7389,7 @@ describe('runtime queue abandonment composition [POD-2202]', () => {
       })
 
       const sent = await registry.modules.messages.send(
+        registry.modules.sessions.serverWriter,
         {
           kind: 'superagent',
           attribution: {
@@ -7053,6 +7467,7 @@ describe('codex app-server first-prompt delivery [POD-2291]', () => {
 
   const sendFirstPrompt = async (registry: SessionRegistry, sessionId: SessionId) =>
     await registry.modules.messages.send(
+      registry.modules.sessions.serverWriter,
       { kind: 'operator' },
       { to: { kind: 'session', id: sessionId }, body: 'first prompt', urgency: 'next-turn' },
     )
@@ -7214,7 +7629,9 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         workingState(sessionId),
       )
 
-      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+      const answer = registry.modules.sessions.interruptTurn({
+        sessionId,
+      })
 
       await expect
         .poll(() =>
@@ -7265,7 +7682,9 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         workingState(sessionId),
       )
 
-      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+      const answer = registry.modules.sessions.interruptTurn({
+        sessionId,
+      })
       await expect
         .poll(() =>
           daemon.some(
@@ -7322,7 +7741,9 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         codexBind(sessionId),
       )
 
-      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+      const answer = registry.modules.sessions.interruptTurn({
+        sessionId,
+      })
 
       await expect
         .poll(() =>
@@ -7381,6 +7802,7 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
 
   const sendPrompt = async (registry: SessionRegistry, sessionId: SessionId) =>
     await registry.modules.messages.send(
+      registry.modules.sessions.serverWriter,
       { kind: 'operator' },
       { to: { kind: 'session', id: sessionId }, body: 'skewed prompt', urgency: 'next-turn' },
     )
@@ -7516,7 +7938,11 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       )
 
       expect(
-        await reg.modules.sessions.sendText({ sessionId, text: 'typed at a server session' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId,
+          text: 'typed at a server session',
+        }),
       ).toEqual({ ok: true, queued: true })
       await vi.waitFor(() =>
         expect(durableSendsWith(daemon, 'typed at a server session')).toHaveLength(1),
@@ -7542,7 +7968,11 @@ describe('binds this build cannot classify fail toward keep-queued [POD-2327]', 
       )
 
       expect(
-        await reg.modules.sessions.sendText({ sessionId, text: 'typed at a skewed session' }),
+        await reg.modules.sessions.sendText({
+          writer: reg.modules.sessions.serverWriter,
+          sessionId,
+          text: 'typed at a skewed session',
+        }),
       ).toEqual({ ok: true, queued: true })
       await vi.waitFor(() =>
         expect(durableSendsWith(daemon, 'typed at a skewed session')).toHaveLength(1),
@@ -7573,12 +8003,11 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
    * under this test's control, and `…Async` because the delivery path awaits.
    */
   it('delivers once when bind/live metadata makes queued issue mail eligible', async () => {
-    vi.useFakeTimers()
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
       await attachHostDaemon(registry, (message) => daemon.push(message), { repos: ['/repo'] })
-      const issue = await registry.issues.crud.create({
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'Mail target',
         startNow: false,
@@ -7588,7 +8017,9 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         cwd: '/repo',
         issueId: issue.id,
       })
+      vi.useFakeTimers()
       const sent = await registry.modules.messages.send(
+        registry.modules.sessions.serverWriter,
         {
           kind: 'superagent',
           attribution: {
@@ -7655,6 +8086,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
 
       const ghost = 'sess_no_such_session'
       await registry.modules.sessions.queueText({
+        writer: registry.modules.sessions.serverWriter,
         sessionId,
         text: 'from a session that is gone',
         principal: {
@@ -7668,6 +8100,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         },
       })
       await registry.modules.sessions.queueText({
+        writer: registry.modules.sessions.serverWriter,
         sessionId,
         text: 'the row behind it',
         principal: {
@@ -7705,22 +8138,27 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
    * contract request (PTY input before 358ad0ffb, POD-4427).
    */
   it("delivers a child worker's queued reply to the coordinator on the parent issue", async () => {
-    vi.useFakeTimers()
     const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
       await attachHostDaemon(registry, (message) => daemon.push(message), { repos: ['/repo'] })
-      const parent = await registry.modules.issues.crud.create({
-        repoPath: '/repo',
-        title: 'Epic',
-        startNow: false,
-      })
-      const child = await registry.modules.issues.crud.create({
-        repoPath: '/repo',
-        title: 'Child',
-        startNow: false,
-        parentId: parent.id,
-      })
+      const parent = await registry.modules.issues.crud.create(
+        registry.modules.issues.reports.store.serverWriter,
+        {
+          repoPath: '/repo',
+          title: 'Epic',
+          startNow: false,
+        },
+      )
+      const child = await registry.modules.issues.crud.create(
+        registry.modules.issues.reports.store.serverWriter,
+        {
+          repoPath: '/repo',
+          title: 'Child',
+          startNow: false,
+          parentId: parent.id,
+        },
+      )
       const coordinator = (
         await registry.modules.sessions.createSession({
           agentKind: 'claude-code',
@@ -7741,7 +8179,9 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
         bind(coordinator),
       )
 
+      vi.useFakeTimers()
       await registry.modules.sessions.queueText({
+        writer: registry.modules.sessions.serverWriter,
         sessionId: coordinator,
         text: 'reply from the child worker',
         principal: {
@@ -7821,7 +8261,7 @@ describe('pending interrupt retraction wiring', () => {
           },
         }),
       ).rejects.toThrow('wired pending cancellation write failed')
-      expect(cancel).toHaveBeenCalledWith(sessionId, undefined)
+      expect(cancel).toHaveBeenCalledWith(expect.anything(), sessionId, undefined)
     } finally {
       await registry.dispose()
     }

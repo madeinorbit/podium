@@ -1,4 +1,5 @@
 import { syncFeedPrincipal } from '../sync/route-support'
+
 /**
  * THE ONE DERIVED-FAMILY BUILDER (POD-314, the 3.4 cutover).
  *
@@ -57,14 +58,13 @@ import { syncFeedPrincipal } from '../sync/route-support'
  * objects, not by grepping for an absence.
  */
 
-import type { UserId } from '@podium/model'
 import type { AnyCommandContract, TransportTag } from '@podium/commands'
-import {
-  type Principal,
-} from '@podium/protocol'
+import type { UserId } from '@podium/model'
+import type { Principal } from '@podium/protocol'
 import type { TRPCMutationProcedure, TRPCQueryProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import type { Capability } from '../issue-authz'
+import { type PrivateResourceAccess, privateResourceAccess } from '../private-resources'
 import type { RegistryModules, SessionRegistry } from '../relay'
 import type { RepoRegistry } from '../repo-registry'
 import type { UsersRepository } from '../store/users'
@@ -135,9 +135,13 @@ export interface FamilyState {
    * rather than inventing an account (see `InstanceService.requireAccountStore`).
    */
   readonly users?: UsersRepository | undefined
+  /** A member's password and address, through their account (POD-6746). */
+  readonly credentials?: import('../identity/member-credentials').MemberCredentials | undefined
   /** Is login required on this instance — `credentialsRequired()` from server.ts,
    *  the ONE joined reader of open mode and per-user credentials. */
   readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
+  readonly loginPolicy?: Context['loginPolicy'] | undefined
+  readonly hostLocalRequest?: boolean | undefined
   /**
    * The hosted-runtime provider, absent on deployments with no cloud. On the
    * bundle for `repos`' reason — one family needs it — and left OPTIONAL rather
@@ -209,11 +213,20 @@ export interface FamilyState {
     readonly actorSessionId: Capability['actorSessionId']
   }
   readonly feedPrincipal?: import('@podium/protocol').Principal
-  /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional, so
-   *  callers that do not exercise discovery need not construct one — which is
-   *  the shipped shape, and why `discovery.lastMachineScan` answers null rather
-   *  than throwing when it is absent. */
-  readonly discovery?: Context['discovery']
+  /**
+   * THE CALLER'S PRIVATE-CLASS DECISIONS (POD-6284), bound to this request's
+   * principal: does the caller own this session, may it read checkouts on this
+   * machine. A decision function rather than the capability, so a handler can
+   * ask about one resource and still cannot see or widen the authority itself.
+   */
+  readonly privateAccess: PrivateResourceAccess
+  /**
+   * Who is asking, whole, for a family whose write is a record created AS the
+   * caller through the entry point (`interactions.answer` creates a
+   * `session.answer` effect record, POD-6415). The entry point decides on it;
+   * the handler only passes it on, so this is not a decision made here.
+   */
+  readonly principal: Context['principal']
   /** The superagent service. On the bundle because it is a request-context
    *  service like the others and two reads need it; it is NOT on
    *  `RegistryModules`, which is why it is named here rather than selected
@@ -266,12 +279,12 @@ export interface DerivedQuery<Svc> {
 // biome-ignore lint/suspicious/noExplicitAny: see the note above — the service
 // parameter is deliberately unconstrained here so it stays inferrable from the
 // selector; each family's registry pins it with `satisfies`.
-type AnyDerivedCommand = {
+export type AnyDerivedCommand = {
   readonly contract: AnyCommandContract
   readonly handler: (...args: any[]) => unknown
 }
 // biome-ignore lint/suspicious/noExplicitAny: as above.
-type AnyDerivedQuery = {
+export type AnyDerivedQuery = {
   readonly input: z.ZodTypeAny
   readonly exposure: readonly TransportTag[]
   readonly run: (...args: any[]) => unknown
@@ -330,7 +343,22 @@ export interface DerivedFamily<
   readonly service: (state: FamilyState) => Svc
   readonly commands: C
   readonly queries: Q
+  /**
+   * REFUSE A COMMAND BELOW ITS CONTRACT'S `roleFloor` before the handler runs
+   * (POD-6298). For a family whose service does not check the floor itself: a
+   * human caller (or an agent, through its human) whose live account role is
+   * below `admin` is refused an admin-floor command. A system principal passes.
+   * Opt-in per family, so a family that already gates in its service or its
+   * own authz is not checked twice.
+   */
+  readonly enforceRoleFloor?: boolean
 }
+
+/** A family as the query builder reads it: its queries and their service. */
+export type DerivedQueryFamily<Svc, Q extends Record<string, AnyDerivedQuery>> = Omit<
+  DerivedFamily<Svc, Record<never, AnyDerivedCommand>, Q>,
+  'commands'
+>
 
 // ---------------------------------------------------------------------------
 // The builder
@@ -349,7 +377,7 @@ export interface DerivedFamily<
  * at runtime is the "green gate that stopped looking" failure mode, and it looks
  * identical to a procedure nobody happened to call.
  */
-function assertSurfaceMatchesDeclarations(
+export function assertSurfaceMatchesDeclarations(
   family: string,
   commands: Record<string, AnyDerivedCommand>,
   queries: Record<string, AnyDerivedQuery>,
@@ -425,13 +453,27 @@ const callerUserId = (ctx: Context): UserId => {
   throw new Error('authenticated human principal is required')
 }
 
+/** The private-class decisions for this request's caller, over the live rows. */
+export const privateResourceAccessFor = (ctx: Context): PrivateResourceAccess =>
+  privateResourceAccess(
+    {
+      sessionOwnerUserId: async (sessionId) =>
+        (await ctx.registry.sessionStore.sessions.getSession(sessionId))?.ownerUserId,
+      machines: mods(ctx).machines,
+    },
+    ctx.principal,
+  )
+
 export const familyState = (ctx: Context): FamilyState => ({
   modules: mods(ctx),
   repos: ctx.repos,
   telemetry: ctx.telemetry,
   store: ctx.registry.sessionStore,
   ...(ctx.users ? { users: ctx.users } : {}),
+  ...(ctx.registry.memberCredentials ? { credentials: ctx.registry.memberCredentials } : {}),
   ...(ctx.loginRequired ? { loginRequired: ctx.loginRequired } : {}),
+  ...(ctx.loginPolicy ? { loginPolicy: ctx.loginPolicy } : {}),
+  hostLocalRequest: ctx.hostLocalRequest,
   cloud: ctx.cloud,
   ...(ctx.readiness ? { readiness: ctx.readiness } : {}),
   ...(ctx.requestCoordinatorRestart
@@ -446,41 +488,37 @@ export const familyState = (ctx: Context): FamilyState => ({
     actorSessionId: ctx.capability.actorSessionId,
   },
   feedPrincipal: syncFeedPrincipal(ctx.principal),
-  discovery: ctx.discovery,
+  privateAccess: privateResourceAccessFor(ctx),
+  principal: ctx.principal,
   superagent: ctx.superagent,
 })
 
-export function derivedFamilyProcedures<
-  Svc,
-  C extends Record<string, AnyDerivedCommand>,
-  Q extends Record<string, AnyDerivedQuery>,
->(spec: DerivedFamily<Svc, C, Q>): FamilyProcedures<C, Q> {
+/**
+ * A family's QUERIES, built from its query table. Its writes are not built here
+ * (ADR 12 D9, POD-6593): every write route is generated from a registration by
+ * `write-routes/`, and a family composes those routes beside these and checks
+ * the whole surface with {@link assertSurfaceMatchesDeclarations}.
+ */
+export function derivedFamilyProcedures<Svc, Q extends Record<string, AnyDerivedQuery>>(
+  spec: DerivedQueryFamily<Svc, Q>,
+): QueryProcedures<Q> {
   const built: Record<string, unknown> = {}
-
-  for (const [name, command] of Object.entries(spec.commands)) {
-    if (!command.contract.exposure.includes('trpc')) continue
-    built[name] = t.procedure
-      .input(command.contract.input)
-      // THE ONE ACCESS PATTERN: the seam is read here, the service is handed to
-      // the handler, and the handler never sees a ctx. `input` is erased at this
-      // point because the table is heterogeneous — each pairing is checked where
-      // it is declared, and re-derived for the client by `MutationProcedures`.
-      .mutation(({ ctx, input }) => command.handler(spec.service(familyState(ctx)), input))
-  }
 
   for (const [name, query] of Object.entries(spec.queries)) {
     if (!query.exposure.includes('trpc')) continue
+    // THE ONE ACCESS PATTERN: the seam is read here, the service is handed to
+    // the query, and the query never sees a ctx.
     built[name] = t.procedure
       .input(query.input)
       .query(({ ctx, input }) => query.run(spec.service(familyState(ctx)), input))
   }
 
-  assertSurfaceMatchesDeclarations(spec.family, spec.commands, spec.queries, built)
-  return built as FamilyProcedures<C, Q>
+  assertSurfaceMatchesDeclarations(spec.family, {}, spec.queries, built)
+  return built as QueryProcedures<Q>
 }
 
 /**
- * A QUERY-ONLY SURFACE — the same builder with an empty contract table.
+ * A QUERY-ONLY SURFACE — the same builder over the state bundle itself.
  *
  * Most of what `router.ts` still declares is reads: routers whose writes another
  * issue already derived (`superagent`, `specs`, `settings`, `automations`,
@@ -489,18 +527,10 @@ export function derivedFamilyProcedures<
  * every derived family — same state bundle, same both-directions membership
  * check — rather than a second, laxer one, because a query-only shortcut is
  * exactly where a mutation would eventually be added without anyone noticing.
- *
- * The empty commands table is written out rather than defaulted, so "this family
- * has no writes" is a statement rather than an omission.
  */
 export function queryProcedures<Q extends Record<string, AnyDerivedQuery>>(
   family: string,
   queries: Q,
 ): QueryProcedures<Q> {
-  return derivedFamilyProcedures({
-    family,
-    service: (state) => state,
-    commands: {},
-    queries,
-  }) as QueryProcedures<Q>
+  return derivedFamilyProcedures({ family, service: (state) => state, queries })
 }

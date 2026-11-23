@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { type IssueNavigationModel, sessionTitle, taskOpenSeat } from '@podium/client-core/values'
@@ -12,9 +13,10 @@ import { usePreventRemove } from 'expo-router/react-navigation'
 import { observer } from 'mobx-react-lite'
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Keyboard, type LayoutChangeEvent, Platform, StyleSheet, View } from 'react-native'
-import { useMissionOpening, useStoreActions, useTaskSeatMemory } from '../client/hooks'
+import { useMissionOpening, useTaskSeatMemory } from '../client/hooks'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
+import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextChromeIssue,
   useSessionContextSession,
@@ -36,6 +38,7 @@ import {
 } from '../components/icons'
 import { MissionBar } from '../components/MissionBar'
 import { MissionDeck, useRevealSeat } from '../components/MissionDeck'
+import { MissionNotFound } from '../components/MissionNotFound'
 import { Screen, type ScreenAction, type ScreenMenuEntry } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
@@ -75,7 +78,7 @@ export const MissionScreen = observer(function MissionScreen() {
   const raw = Array.isArray(params.missionId) ? params.missionId[0] : (params.missionId ?? '')
   const selectedId = asIssueId(decodeURIComponent(raw))
   const router = useRootScreenRouter()
-  const store = useStoreActions()
+  const store = useCommands<MobileTrpc>()
   // The mission is the whole subtree above and below the selected task, exactly
   // as the desktop resolves it — open a child from a notification and you land
   // on the same deck the sidebar would have given you.
@@ -286,7 +289,7 @@ export const MissionScreen = observer(function MissionScreen() {
             icon: pinned ? PinOff : Pin,
             onPress: () => {
               if (!headerIssue) return
-              void store.updateIssue(headerIssue.id, { pinned: !headerIssue.pinned })
+              void store.preferences.setPinned('issue', headerIssue.id, !headerIssue.pinned)
             },
           },
           {
@@ -379,6 +382,7 @@ export const MissionScreen = observer(function MissionScreen() {
 
   return (
     <Screen
+      refreshing={screen?.refreshing ?? false}
       title={onDeck ? (root?.title ?? 'Flight deck') : chatTitle}
       onBack={goBack}
       backLabel={Platform.OS === 'web' ? 'Back' : 'Work'}
@@ -409,7 +413,7 @@ export const MissionScreen = observer(function MissionScreen() {
           chatPage
         )
       ) : resolved ? (
-        <EmptyState title="Mission not found." />
+        <MissionNotFound />
       ) : null}
 
       <TaskSheet

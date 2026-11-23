@@ -11,6 +11,8 @@ fn main() {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "enable_hosting",
+            "client_registration_status",
+            "register_client",
             "begin_cloud_sign_in",
             "daemon_connectivity",
             "runtime_probe_report",

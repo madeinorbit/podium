@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { SettingsRepository } from '../../store/settings'
+import type { UserAccountRow } from '../../store/users'
+
 /**
  * THE INSTANCE SERVICE — one L3 seam over the deployment's own configuration.
  *
@@ -21,9 +23,10 @@ import type { SettingsRepository } from '../../store/settings'
  * shipped function; there is no logic in this file, deliberately.
  */
 
+import { IdentityRefused } from '@podium/identity'
 import type { ServerReadiness, UserId } from '@podium/model'
 import { LoginEmail } from '@podium/model'
-import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
+import { hashPassword } from '@podium/runtime/auth-store'
 import {
   type FleetUpdateChannel,
   LAYERED_KEYS,
@@ -51,11 +54,17 @@ import type { TelemetryEmitter, TelemetryStarEvent, TelemetryStarSurface } from 
 import { readTelemetryState, shouldAskForConsent } from '@podium/telemetry'
 import { TRPCError } from '@trpc/server'
 import { serverBuildVersion } from '../../build-version'
+import { type MemberCredentials, MemberHasNoAccount } from '../../identity/member-credentials'
 
 /** The one optional dependency that is genuinely per-request rather than
  *  process-wide: the telemetry emitter, present only when the server was
  *  assembled with one. `telemetry.preview` renders the REAL pending report from
  *  it so what the user is shown cannot drift from what is sent. */
+export interface InstanceLoginPolicy {
+  loginRequired: boolean
+  loginRequiredReason: 'hosted' | 'several-members' | null
+}
+
 export interface InstanceDeps {
   readonly onSettingsChanged?:
     | ((
@@ -74,8 +83,16 @@ export interface InstanceDeps {
    */
   readonly users?: InstanceAccountStore | undefined
   readonly callerUserId?: UserId | undefined
+  /**
+   * The caller's password and address, through their account of the identity
+   * package (POD-6746). Absent, which is a server assembled without an identity
+   * core: every credential write refuses and nobody has a password.
+   */
+  readonly credentials?: MemberCredentials | undefined
   /** `credentialsRequired()` from the composition root — see AuthRouteOptions.loginRequired. */
   readonly loginRequired?: (() => boolean | Promise<boolean>) | undefined
+  readonly loginPolicy?: (() => Promise<InstanceLoginPolicy>) | undefined
+  readonly hostLocalRequest?: boolean | undefined
   /**
    * Called after the fleet default channel is written (POD-1882). Machines with
    * no pin of their own resolve against that value, so their projected channel
@@ -96,7 +113,9 @@ export interface InstanceDeps {
    */
   readonly onPublicUrlChanged?: (() => void) | undefined
   /** The Connect stable link, when this server has one to offer (POD-5921). */
-  readonly tunnelHealth?: (() => import('@podium/runtime/tunnel-health').TunnelHealth | null) | undefined
+  readonly tunnelHealth?:
+    | (() => import('@podium/runtime/tunnel-health').TunnelHealth | null)
+    | undefined
   readonly stableLink?: (() => string | undefined) | undefined
   /**
    * Live readiness, for `setup.activate` (POD-2766). READ AT APPLY, not captured
@@ -130,26 +149,16 @@ export interface InstanceDeps {
    * the row is still unowned. Optional: an instance assembled without machines
    * (tests, the in-process MCP caller) simply records nothing.
    */
-  readonly completeHostSetup?: ((ownerUserId: UserId, agentExecution: boolean, passwordHash?: string) => Promise<void>) | undefined
+  readonly completeHostSetup?:
+    | ((ownerUserId: UserId, agentExecution: boolean, passwordHash?: string) => Promise<void>)
+    | undefined
   readonly grantHostMachine?: ((ownerUserId: UserId) => Promise<boolean>) | undefined
 }
 
 /** The slice of `UsersRepository` the auth commands need. */
 export interface InstanceAccountStore {
-  get(
-    userId: UserId,
-  ):
-    | { role: string; email?: string | null }
-    | undefined
-    | Promise<{ role: string; email?: string | null } | undefined>
-  credentialFor(
-    userId: UserId,
-  ):
-    | { passwordHash: string | null }
-    | undefined
-    | Promise<{ passwordHash: string | null } | undefined>
-  setEmail(userId: UserId, email: string): void | Promise<void>
-  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void | Promise<void>
+  get(userId: UserId): UserAccountRow | undefined | Promise<UserAccountRow | undefined>
+  writeProfile(userId: UserId, name: string, avatar: string | null): void | Promise<void>
 }
 
 /** The native updater must use the deployment's advertised HTTPS edge, not the page origin.
@@ -179,7 +188,7 @@ export class InstanceService {
   // ---- setup ----
 
   /**
-   * Current deployment identity, for Settings → Network.
+   * Current deployment identity, for Settings → Access.
    *
    * Every layered value is reported with the LAYER that answered (PDM-26), so a
    * control can render disabled and say which variable is holding it rather than
@@ -219,7 +228,9 @@ export class InstanceService {
        * when Connect publishing is off or this box is not a server.
        */
       stableLink: this.deps.stableLink?.() ?? null,
-      ...(c.networkOption === 'cloudflare-tunnel' ? { tunnelHealth: this.deps.tunnelHealth?.() ?? null } : {}),
+      ...(c.networkOption === 'cloudflare-tunnel'
+        ? { tunnelHealth: this.deps.tunnelHealth?.() ?? null }
+        : {}),
       // Must stay the literal `process.env.PODIUM_APP_VERSION` read (build-bun
       // --define); the Machines panel compares each daemon's reported version
       // against this. [POD-838]
@@ -355,7 +366,7 @@ export class InstanceService {
     // the string as typed and `auth.setPassword` hashes it as given. Trimming only here meant a
     // password pasted with a leading or trailing space — the ordinary password-manager case —
     // was stored as a string its owner could never enter again, and made this command and
-    // Settings → Security store DIFFERENT credentials for identical keystrokes. Trimming at
+    // Settings → Account store DIFFERENT credentials for identical keystrokes. Trimming at
     // login instead would be worse: it would silently rewrite what people already have and
     // break any password that legitimately contains whitespace. Empty is still no password.
     const password = input.password
@@ -364,11 +375,7 @@ export class InstanceService {
     // later from Settings → Machines). It is only a mandatory choice on a fresh,
     // password-less instance.
     // "Already set" is now the CALLER having a credential, not a file existing.
-    if (
-      !password &&
-      !input.acknowledgeNoPassword &&
-      !(await this.callerCredential())?.passwordHash
-    ) {
+    if (!password && !input.acknowledgeNoPassword && !(await this.callerHasPassword())) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Confirm running without a login password.',
@@ -390,8 +397,8 @@ export class InstanceService {
       await this.deps.completeHostSetup(this.deps.callerUserId, cfg.mode !== 'server', passwordHash)
     } else {
       if (passwordHash) {
-        const { users, callerUserId } = this.requireAccountStore()
-        await users.setPasswordHash(callerUserId, passwordHash, new Date().toISOString())
+        const { credentials, callerUserId } = this.requireCredentials()
+        await this.credentialWrite(() => credentials.setPasswordHash(callerUserId, passwordHash))
       }
       if (this.deps.grantHostMachine && this.deps.callerUserId) {
         await this.deps.grantHostMachine(this.deps.callerUserId)
@@ -531,20 +538,51 @@ export class InstanceService {
    * no authenticated human. That throw is why nothing below re-checks for one: an
    * unauthenticated caller cannot reach these methods at all.
    */
-  private async callerCredential() {
+  private async callerHasPassword(): Promise<boolean> {
     const userId = this.deps.callerUserId
-    return userId ? await this.deps.users?.credentialFor(userId) : undefined
+    return userId ? ((await this.deps.credentials?.hasPassword(userId)) ?? false) : false
   }
 
-  /** `{ loginRequired }` is instance policy; the other two are about the CALLER.
-   *  Still never the password or its hash — there is nothing else to return. */
+  /**
+   * "Confirm with your current password": refused when the caller has a
+   * password and `current` is not it. A caller without one passes (bootstrap).
+   */
+  private async confirmCurrentPassword(
+    credentials: MemberCredentials,
+    callerUserId: UserId,
+    current: string | undefined,
+  ): Promise<void> {
+    if (!(await credentials.hasPassword(callerUserId))) return
+    if (!(current && (await credentials.verifyPassword(callerUserId, current)))) {
+      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
+    }
+  }
+
+  /** A member whose row has no account yet cannot hold a password or an address. */
+  private async credentialWrite(write: () => Promise<void>): Promise<void> {
+    try {
+      await write()
+    } catch (error) {
+      if (error instanceof MemberHasNoAccount) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
+      }
+      throw error
+    }
+  }
+
+  /** Instance policy and whether this caller can change it. Never credential material. */
   async status() {
-    return {
+    const policy = (await this.deps.loginPolicy?.()) ?? {
       loginRequired: (await this.deps.loginRequired?.()) ?? false,
+      loginRequiredReason: null,
+    }
+    return {
+      ...policy,
+      hostLocalRequest: this.deps.hostLocalRequest === true,
       loginPolicySource: (
         this.deps.settings?.resolve('authOpenMode') ?? resolveSetting('authOpenMode')
       ).source,
-      hasOwnCredential: Boolean((await this.callerCredential())?.passwordHash),
+      hasOwnCredential: await this.callerHasPassword(),
       canManageInstance:
         this.deps.callerUserId !== undefined &&
         (await this.deps.users?.get(this.deps.callerUserId))?.role === 'admin',
@@ -555,19 +593,41 @@ export class InstanceService {
     const { users, callerUserId } = this.requireAccountStore()
     const member = await users.get(callerUserId)
     if (!member) throw new TRPCError({ code: 'UNAUTHORIZED' })
-    return { email: member.email ?? null }
+    // This is the same public member record used by Members; no credentials.
+    return member
+  }
+
+  /** A member edits only their own name; keep their existing avatar. */
+  async setDisplayName(input: { displayName: string }) {
+    const { users, callerUserId } = this.requireAccountStore()
+    const member = await users.get(callerUserId)
+    if (!member) throw new TRPCError({ code: 'UNAUTHORIZED' })
+    const displayName = input.displayName.trim()
+    if (!displayName || displayName.length > 200) {
+      throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter a name of 1–200 characters.' })
+    }
+    await users.writeProfile(callerUserId, displayName, member.avatar ?? null)
+    return { displayName }
   }
 
   async setEmail(input: { email: string; current?: string | undefined }) {
-    const { users, callerUserId } = this.requireAccountStore()
+    const { credentials, callerUserId } = this.requireCredentials()
     const email = LoginEmail.parse(input.email)
-    const existing = (await users.credentialFor(callerUserId))?.passwordHash
-    if (existing && !(input.current && (await verifyPasswordHash(input.current, existing)))) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
-    }
+    await this.confirmCurrentPassword(credentials, callerUserId, input.current)
     try {
-      await users.setEmail(callerUserId, email)
+      // The address is the account's identifier; apply-membership copies it to
+      // the member row in the same transaction.
+      await this.credentialWrite(() => credentials.setEmail(callerUserId, email))
     } catch (error) {
+      if (error instanceof IdentityRefused && error.code === 'email-taken') {
+        throw new TRPCError({
+          code: 'CONFLICT',
+          message: 'Email is already used in this workspace.',
+        })
+      }
+      if (error instanceof IdentityRefused && error.code === 'email-invalid') {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Enter a valid email address.' })
+      }
       // Drizzle may wrap SQLite's constraint error in a query error.
       let cause: unknown = error
       while (cause instanceof Error) {
@@ -588,16 +648,9 @@ export class InstanceService {
    *  credential — defends against a hijacked session. A caller with none yet skips
    *  the check (bootstrap). Shipped behaviour, now scoped to one account. */
   async setPassword(input: { current?: string | undefined; next: string }) {
-    const { users, callerUserId } = this.requireAccountStore()
-    const existing = (await users.credentialFor(callerUserId))?.passwordHash
-    if (existing && !(input.current && (await verifyPasswordHash(input.current, existing)))) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
-    }
-    await users.setPasswordHash(
-      callerUserId,
-      await hashPassword(input.next),
-      new Date().toISOString(),
-    )
+    const { credentials, callerUserId } = this.requireCredentials()
+    await this.confirmCurrentPassword(credentials, callerUserId, input.current)
+    await this.credentialWrite(() => credentials.setPassword(callerUserId, input.next))
     return { loginRequired: (await this.deps.loginRequired?.()) ?? true }
   }
 
@@ -613,17 +666,20 @@ export class InstanceService {
     current: string
     acknowledgeNoPassword?: true | undefined
   }) {
+    if (!input.required && this.deps.hostLocalRequest !== true) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'Turn off sign-in from the server machine itself.',
+      })
+    }
     if (!input.required && !input.acknowledgeNoPassword) {
       throw new TRPCError({
         code: 'BAD_REQUEST',
         message: 'Confirm running without a login password.',
       })
     }
-    const { users, callerUserId } = this.requireAccountStore()
-    const existing = (await users.credentialFor(callerUserId))?.passwordHash
-    if (existing && !(await verifyPasswordHash(input.current, existing))) {
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: 'current password is incorrect' })
-    }
+    const { credentials, callerUserId } = this.requireCredentials()
+    await this.confirmCurrentPassword(credentials, callerUserId, input.current)
     this.assertNotForced('authOpenMode', 'login policy')
     await this.updateDeployment({ authOpenMode: !input.required })
     return { loginRequired: (await this.deps.loginRequired?.()) ?? input.required }
@@ -651,6 +707,16 @@ export class InstanceService {
       throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'account store unavailable' })
     }
     return { users, callerUserId }
+  }
+
+  /** The same refusal for a server assembled without an identity core. */
+  private requireCredentials() {
+    const credentials = this.deps.credentials
+    const callerUserId = this.deps.callerUserId
+    if (!credentials || !callerUserId) {
+      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: 'account store unavailable' })
+    }
+    return { credentials, callerUserId }
   }
 
   // ---- telemetry ----

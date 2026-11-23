@@ -71,6 +71,7 @@ function port() {
       readSessionFactsWithStatuses,
     },
     rpc: { readTranscript },
+    machines: { hasDaemon: () => true },
   } as unknown as RegistryModules
   const store = { users: { roleOf: async (id: string) => roles.get(id) } } as never
   return directSessionPort(modules, store)
@@ -146,7 +147,7 @@ describe('directSessionPort', () => {
     rows.set(asSessionId('hidden'), facts(asSessionId('hidden'), { headless: true }))
     const listed = await port().listRunning(ADA)
     rows.delete(asSessionId('hidden'))
-    expect(readSessionFactsWithStatuses).toHaveBeenCalledWith(['live', 'starting', 'reconnecting'])
+    expect(readSessionFactsWithStatuses).toHaveBeenCalledWith(['live', 'starting'])
     expect(listed.map((s) => s.sessionId)).toEqual([MINE, MINE_TOO])
   })
 

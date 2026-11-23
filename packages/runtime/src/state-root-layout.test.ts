@@ -1,22 +1,35 @@
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { saveConfig } from './config'
 import { writeConnectivity } from './connectivity'
-import { readMachineState, readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
-import { createMachineCredential } from './machine-credential'
+import { prepareInstanceStateIdentity } from './instance'
+import {
+  loadMachineState,
+  readMachineState,
+  readOrCreateDaemonSecret,
+  readOrCreateLocalMachineId,
+} from './local-machine'
+import {
+  createMachineCredential,
+  machinePublicKeyWire,
+  readMachineCredential,
+} from './machine-credential'
 import { loadSupervisorState, saveSupervisorState } from './machine-supervisor'
-import { saveCachedSessionToken } from './session-mint'
+import { saveCachedSessionToken } from './session-token'
 
 const failures = vi.hoisted(() => ({ unlink: undefined as string | undefined }))
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
-  return { ...actual, unlinkSync: (path: import('node:fs').PathLike) => {
-    if (path === failures.unlink) throw new Error('simulated cleanup crash')
-    return actual.unlinkSync(path)
-  } }
+  return {
+    ...actual,
+    unlinkSync: (path: import('node:fs').PathLike) => {
+      if (path === failures.unlink) throw new Error('simulated cleanup crash')
+      return actual.unlinkSync(path)
+    },
+  }
 })
 
 // POD-3957 ruling: daemon.secret remains the box-bound maintenance credential
@@ -24,6 +37,8 @@ vi.mock('node:fs', async (importOriginal) => {
 const ALLOWED_PERSISTENT_FILES = [
   'cli-session.json',
   'config.json',
+  // Cross-process serialization belongs to the live config path.
+  'config.json.write-lock.sqlite',
   'daemon.secret',
   'instance.json',
   'machine.json',
@@ -59,9 +74,21 @@ it('fresh machine writers create only the approved transitional state-root files
 it('imports all four legacy files without changing credentials and removes them only after publication', () => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-state-upgrade-'))
   roots.push(dir)
-  const daemon = { machineId: 'machine-upgrade', token: 'original-token', updatePubkey: 'original-pin' }
-  const supervisor = { ...daemon, generation: 7, assignment: { server: true, agentExecution: true } }
-  const connectivity = { state: 'disconnected', updatedAt: '2026-09-01T00:00:00Z', lastHelloOkAt: '2026-08-31T00:00:00Z' }
+  const daemon = {
+    machineId: 'machine-upgrade',
+    token: 'original-token',
+    updatePubkey: 'original-pin',
+  }
+  const supervisor = {
+    ...daemon,
+    generation: 7,
+    assignment: { server: true, agentExecution: true },
+  }
+  const connectivity = {
+    state: 'disconnected',
+    updatedAt: '2026-09-01T00:00:00Z',
+    lastHelloOkAt: '2026-08-31T00:00:00Z',
+  }
   writeFileSync(join(dir, 'machine.id'), daemon.machineId)
   writeFileSync(join(dir, 'daemon.json'), JSON.stringify(daemon))
   writeFileSync(join(dir, 'supervisor.json'), JSON.stringify(supervisor))
@@ -81,11 +108,55 @@ it('imports all four legacy files without changing credentials and removes them 
   expect(readFileSync(join(dir, 'machine.json'), 'utf8')).toBe(persisted)
 })
 
+it('retains old startup bytes through refusal and refreshes rollback inputs before accepted retirement', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-admission-'))
+  roots.push(dir)
+  const files = {
+    'instance.json': '{"version":1,"instanceId":"blue"}\n',
+    'config.json': '{"mode":"daemon","serverUrl":"ws://old.example.test"}\n',
+    'machine.id': 'legacy-machine\n',
+    'daemon.json': '{"machineId":"legacy-machine","token":"old-token"}\n',
+    'supervisor.json': '{"machineId":"legacy-machine","generation":1}\n',
+    'connectivity.json': '{"state":"connected"}\n',
+  }
+  for (const [name, bytes] of Object.entries(files)) writeFileSync(join(dir, name), bytes)
+  const first = loadMachineState(dir)
+  expect(first.daemon?.token).toBe('old-token')
+  writeConnectivity({ state: 'blocked', blockedReason: 'protocol mismatch' }, dir)
+  for (const [name, bytes] of Object.entries(files))
+    expect(readFileSync(join(dir, name), 'utf8')).toBe(bytes)
+
+  // The genuine old daemon is allowed to run again. Its retained startup files
+  // change while this candidate was never admitted; the next attempt must use
+  // those bytes, including a newly issued credential, instead of its stale copy.
+  const daemon = '{"machineId":"legacy-machine","token":"rollback-token"}\n'
+  writeFileSync(join(dir, 'daemon.json'), daemon)
+  writeFileSync(join(dir, 'connectivity.json'), '{"state":"disconnected"}\n')
+  const retry = loadMachineState(dir)
+  expect(retry.machineId).toBe('legacy-machine')
+  expect(retry.daemon?.token).toBe('rollback-token')
+  expect(retry.connectivity?.state).toBe('disconnected')
+  expect(retry.importedFiles['daemon.json']).not.toBe(first.importedFiles['daemon.json'])
+  expect(readFileSync(join(dir, 'daemon.json'), 'utf8')).toBe(daemon)
+
+  const admitted = prepareInstanceStateIdentity({ instanceId: 'blue', dir })
+  admitted.commit()
+  const accepted = loadMachineState(dir)
+  expect(accepted.daemon?.token).toBe('rollback-token')
+  const remaining = readdirSync(dir)
+  for (const name of ['machine.id', 'daemon.json', 'supervisor.json', 'connectivity.json'])
+    expect(remaining).not.toContain(name)
+  expect(readFileSync(join(dir, 'config.json'), 'utf8')).toBe(files['config.json'])
+})
+
 it('resumes a crash after durable publication and before legacy removal', () => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-state-crash-'))
   roots.push(dir)
   writeFileSync(join(dir, 'machine.id'), 'machine-crash')
-  writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'machine-crash', token: 'keep-me' }))
+  writeFileSync(
+    join(dir, 'daemon.json'),
+    JSON.stringify({ machineId: 'machine-crash', token: 'keep-me' }),
+  )
   failures.unlink = join(dir, 'machine.id')
   expect(() => readOrCreateLocalMachineId(dir)).toThrow('simulated cleanup crash')
   expect(readMachineState(dir)?.machineId).toBe('machine-crash')
@@ -110,21 +181,24 @@ it('refuses changed cleanup inputs instead of deleting data written after public
 })
 
 it('resolves disagreeing legacy identities by credential: supervisor, then daemon, then machine.id', () => {
-  // ludovico's real state root on 2026-09-18: machine.id and supervisor.json name the
+  // A legacy server state root: machine.id and supervisor.json name the
   // server's row, daemon.json a stale row from an earlier pairing. The dev.166 daemon
   // refused this shape at first boot and every updated machine went dark.
   const dir = mkdtempSync(join(tmpdir(), 'podium-state-disagree-'))
   roots.push(dir)
   writeFileSync(join(dir, 'machine.id'), 'host-id')
   writeFileSync(join(dir, 'supervisor.json'), JSON.stringify({ machineId: 'host-id', token: 's' }))
-  writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'stale-daemon-id', token: 'd' }))
+  writeFileSync(
+    join(dir, 'daemon.json'),
+    JSON.stringify({ machineId: 'stale-daemon-id', token: 'd' }),
+  )
   expect(readOrCreateLocalMachineId(dir)).toBe('host-id')
   const state = readMachineState(dir)
   expect(state?.machineId).toBe('host-id')
   expect(state?.daemon).toEqual({ machineId: 'stale-daemon-id', token: 'd' })
   expect(state?.supervisor).toEqual({ machineId: 'host-id', token: 's' })
 
-  // flatblock's real state root: a re-paired legacy daemon with no supervisor keeps a
+  // A re-paired legacy daemon with no supervisor keeps a
   // stale machine.id while daemon.json names the live row. The credential wins.
   const dir2 = mkdtempSync(join(tmpdir(), 'podium-state-disagree2-'))
   roots.push(dir2)
@@ -150,9 +224,15 @@ it('keeps machine.id over a daemon.json that carries no credential (0.1.0 all-in
   const dir = mkdtempSync(join(tmpdir(), 'podium-state-aio-010-'))
   roots.push(dir)
   writeFileSync(join(dir, 'machine.id'), 'host-row')
-  writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'unused-daemon-id', updatePubkey: 'k' }))
+  writeFileSync(
+    join(dir, 'daemon.json'),
+    JSON.stringify({ machineId: 'unused-daemon-id', updatePubkey: 'k' }),
+  )
   expect(readOrCreateLocalMachineId(dir)).toBe('host-row')
-  expect(readMachineState(dir)?.daemon).toEqual({ machineId: 'unused-daemon-id', updatePubkey: 'k' })
+  expect(readMachineState(dir)?.daemon).toEqual({
+    machineId: 'unused-daemon-id',
+    updatePubkey: 'k',
+  })
 
   // With nothing else to go on, a token-less daemon.json still names the machine.
   const dir2 = mkdtempSync(join(tmpdir(), 'podium-state-aio-010b-'))
@@ -174,15 +254,24 @@ describe('a 0.1.0 server host stages its own re-key at import (POD-5931)', () =>
   it('an all-in-one asks for an agent-running key for its machine.id row, once', () => {
     const dir = legacyRoot('all-in-one', { machineId: 'unused-id', updatePubkey: 'k' })
     const request = loadSupervisorState(dir).setupEnrollment
-    expect(request).toMatchObject({ machineId: 'host-row', agentExecution: true, preauthorized: false })
-    expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toContain(request!.publicKey.slice(-12))
+    expect(request).toMatchObject({
+      machineId: 'host-row',
+      agentExecution: true,
+      preauthorized: false,
+    })
+    const credential = readMachineCredential(dir)
+    if (!credential) throw new Error('legacy import must persist its new credential')
+    expect(machinePublicKeyWire(credential)).toBe(request?.publicKey)
     // The import ran once; later reads see the same request rather than a new one.
     expect(loadSupervisorState(dir).setupEnrollment).toEqual(request)
   })
 
   it('a hub asks for a server-only key', () => {
     const dir = legacyRoot('server')
-    expect(loadSupervisorState(dir).setupEnrollment).toMatchObject({ machineId: 'host-row', agentExecution: false })
+    expect(loadSupervisorState(dir).setupEnrollment).toMatchObject({
+      machineId: 'host-row',
+      agentExecution: false,
+    })
   })
 
   it('a joined machine keeps its token and stages nothing', () => {
@@ -208,14 +297,29 @@ it('a simultaneous cold start publishes one complete identity with no staging fi
   roots.push(dir)
   const modulePath = new URL('./local-machine.ts', import.meta.url).pathname
   const source = `import { readOrCreateLocalMachineId } from ${JSON.stringify(modulePath)}; console.log(readOrCreateLocalMachineId(${JSON.stringify(dir)}))`
-  const ids = await Promise.all(Array.from({ length: 4 }, () => new Promise<string>((resolve, reject) => {
-    const child = spawn('bun', ['--conditions=@podium/source', '-e', source], { stdio: ['ignore', 'pipe', 'pipe'] })
-    let output = '', errors = ''
-    child.stdout.on('data', (data) => { output += data })
-    child.stderr.on('data', (data) => { errors += data })
-    child.on('error', reject)
-    child.on('exit', (code) => code === 0 ? resolve(output.trim()) : reject(new Error(errors)))
-  })))
+  const ids = await Promise.all(
+    Array.from(
+      { length: 4 },
+      () =>
+        new Promise<string>((resolve, reject) => {
+          const child = spawn('bun', ['--conditions=@podium/source', '-e', source], {
+            stdio: ['ignore', 'pipe', 'pipe'],
+          })
+          let output = '',
+            errors = ''
+          child.stdout.on('data', (data) => {
+            output += data
+          })
+          child.stderr.on('data', (data) => {
+            errors += data
+          })
+          child.on('error', reject)
+          child.on('exit', (code) =>
+            code === 0 ? resolve(output.trim()) : reject(new Error(errors)),
+          )
+        }),
+    ),
+  )
   expect(new Set(ids).size).toBe(1)
   expect(readMachineState(dir)?.machineId).toBe(ids[0])
   expect(readdirSync(dir)).toEqual(['machine.json'])

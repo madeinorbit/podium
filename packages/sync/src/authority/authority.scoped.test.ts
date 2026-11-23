@@ -36,28 +36,27 @@
  * unit test with no server, no socket and no clock.
  */
 
+import type { VisibilityClass } from '@podium/model'
 import {
   asAgentIdentityId,
   asCapabilityRef,
   asDelegationRef,
   asDeviceId,
   asUserId,
+  type Principal,
 } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
-import { type Principal } from '@podium/protocol'
-import { Authority } from './authority'
-import type { ChangeLogReadRow, StagedChangeSpec } from './change-lifecycle'
 import type { ChangeLogStore } from '../change-log'
+import { ModelAuthority as Authority } from '../conformance/model-records'
 import {
-  GrantEdgeVisibilityPolicy,
-  type EntityRef,
-  type VisibilityAnchorPort,
   type DelegatedScope,
   type DelegationScopePort,
+  type EntityRef,
+  GrantEdgeVisibilityPolicy,
+  type VisibilityAnchorPort,
   type VisibilityStatePort,
 } from '../feed/visibility'
-import type { VisibilityClass } from '@podium/model'
-import { installedWorldOver } from '../conformance/installed-reads'
+import type { ChangeLogReadRow, StagedChangeSpec } from './change-lifecycle'
 
 function memoryStore(): ChangeLogStore {
   const rows: ChangeLogReadRow[] = []
@@ -85,11 +84,6 @@ function memoryStore(): ChangeLogStore {
     // overwrites an earlier one in the fold) and became wrong the moment
     // `bootstrap` read it as a world: every historical write reappeared as its
     // own row, and a deleted entity came back alive under its stale upsert.
-    ...installedWorldOver(async () => {
-      const latest = new Map<string, (typeof rows)[number]>()
-      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
-      return [...latest.values()]
-    }),
   }
 }
 
@@ -217,8 +211,8 @@ describe('three subscribers, three principals, three slices', () => {
     const grace = collect(authority, GRACE)
     const anonymous = collect(authority, ANON)
 
-    await authority.capture([upsert('ada-private', { owner: 'ada' })])
-    await authority.capture([upsert('grace-private', { owner: 'grace' })])
+    await authority.save([upsert('ada-private', { owner: 'ada' })])
+    await authority.save([upsert('grace-private', { owner: 'grace' })])
 
     expect(ada.flatMap((d) => d.ids)).toEqual(['ada-private'])
     expect(grace.flatMap((d) => d.ids)).toEqual(['grace-private'])
@@ -236,8 +230,8 @@ describe('three subscribers, three principals, three slices', () => {
     tables.grant('ada', ref('ada-private'))
     const anonymous = collect(authority, ANON)
 
-    await authority.capture([upsert('ada-private', { owner: 'ada' })])
-    await authority.capture([upsert('another', { owner: 'ada' })])
+    await authority.save([upsert('ada-private', { owner: 'ada' })])
+    await authority.save([upsert('another', { owner: 'ada' })])
 
     expect(anonymous.map((d) => [d.ids.length, d.throughSeq])).toEqual([
       [0, 1],
@@ -248,8 +242,8 @@ describe('three subscribers, three principals, three slices', () => {
   it('changesSince serves ONE principal its slice, certified to the log head', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('ada-private'))
-    await authority.capture([upsert('ada-private', { owner: 'ada' })])
-    await authority.capture([upsert('grace-private', { owner: 'grace' })])
+    await authority.save([upsert('ada-private', { owner: 'ada' })])
+    await authority.save([upsert('grace-private', { owner: 'grace' })])
 
     const mine = await authority.changesSince(0, ADA)
     expect(mine?.kind === 'batch' && mine.changes.map((c) => c.entityId)).toEqual(['ada-private'])
@@ -271,8 +265,8 @@ describe('three subscribers, three principals, three slices', () => {
     tables.grant('ada', ref('mine'))
     const live = collect(authority, ADA)
 
-    await authority.capture([upsert('mine', { n: 1 })])
-    await authority.capture([upsert('theirs', { n: 2 })])
+    await authority.save([upsert('mine', { n: 1 })])
+    await authority.save([upsert('theirs', { n: 2 })])
 
     const healed = []
     for await (const page of authority.changesRange(ADA, 0, await authority.captureHead(), 1)) {
@@ -291,7 +285,7 @@ describe('three subscribers, three principals, three slices', () => {
     const store = memoryStore()
     const { authority, tables } = build(32, store)
     tables.grant('ada', ref('mine'))
-    await authority.capture([upsert('mine', { n: 1 }), upsert('hidden', { n: 2 })])
+    await authority.save([upsert('mine', { n: 1 }), upsert('hidden', { n: 2 })])
     const through = await authority.captureHead()
     const read = store.changesInRange.bind(store)
     let appended = false
@@ -422,14 +416,14 @@ describe('a visibility change is DERIVED, and it is never a remove (D14)', () =>
   it('a revoke anchors an EVICT at the seq of the change that caused it', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('shared'))
-    await authority.capture([upsert('shared', { n: 1 })])
+    await authority.save([upsert('shared', { n: 1 })])
     const ada = collect(authority, ADA)
 
     // The grant row: a durable change that MOVES visibility. The policy is
     // updated first — the authority reads the world as it is after the write.
     tables.revoke('ada', ref('shared'))
     tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
-    await authority.capture([upsert('grant-row', { revoked: 'shared' })])
+    await authority.save([upsert('grant-row', { revoked: 'shared' })])
 
     const [delivery] = ada
     expect(delivery?.ops).toEqual(['evict'])
@@ -443,13 +437,13 @@ describe('a visibility change is DERIVED, and it is never a remove (D14)', () =>
 
   it('a grant anchors a RE-ADMITTING UPSERT carrying the current value', async () => {
     const { authority, tables } = build()
-    await authority.capture([upsert('shared', { n: 1 })])
+    await authority.save([upsert('shared', { n: 1 })])
     tables.value(ref('shared'), { n: 1 })
     const ada = collect(authority, ADA)
 
     tables.grant('ada', ref('shared'))
     tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
-    await authority.capture([upsert('grant-row', { granted: 'shared' })])
+    await authority.save([upsert('grant-row', { granted: 'shared' })])
 
     expect(ada[0]?.ops).toEqual(['upsert'])
     expect(ada[0]?.ids).toEqual(['shared'])
@@ -462,12 +456,12 @@ describe('a visibility change is DERIVED, and it is never a remove (D14)', () =>
     // no parameter by which one could.
     const run = async (granted: boolean) => {
       const { authority, tables } = build()
-      await authority.capture([upsert('subject', { n: 1 })])
+      await authority.save([upsert('subject', { n: 1 })])
       tables.value(ref('subject'), { n: 1 })
       if (granted) tables.grant('ada', ref('subject'))
       const ada = collect(authority, ADA)
       tables.edge(ref('grant-row'), ['ada'], [ref('subject')])
-      await authority.capture([upsert('grant-row', { touched: 'subject' })])
+      await authority.save([upsert('grant-row', { touched: 'subject' })])
       return ada[0]?.ops ?? []
     }
 
@@ -481,12 +475,12 @@ describe('a visibility change is DERIVED, and it is never a remove (D14)', () =>
     // nothing in it.
     const { authority, tables } = build()
     tables.grant('ada', ref('shared'))
-    await authority.capture([upsert('shared', { n: 1 })])
+    await authority.save([upsert('shared', { n: 1 })])
     const grace = collect(authority, GRACE)
 
     tables.revoke('ada', ref('shared'))
     tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
-    await authority.capture([upsert('grant-row', { revoked: 'shared' })])
+    await authority.save([upsert('grant-row', { revoked: 'shared' })])
 
     expect(grace).toEqual([{ kind: 'batch', throughSeq: 2, ids: [], ops: [] }])
   })
@@ -494,15 +488,15 @@ describe('a visibility change is DERIVED, and it is never a remove (D14)', () =>
   it('a re-grant re-admits the same entity — eviction is REVERSIBLE (D14.2)', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('shared'))
-    await authority.capture([upsert('shared', { n: 1 })])
+    await authority.save([upsert('shared', { n: 1 })])
     tables.value(ref('shared'), { n: 1 })
     const ada = collect(authority, ADA)
     tables.edge(ref('grant-row'), ['ada'], [ref('shared')])
 
     tables.revoke('ada', ref('shared'))
-    await authority.capture([upsert('grant-row', { revoked: 'shared' })])
+    await authority.save([upsert('grant-row', { revoked: 'shared' })])
     tables.grant('ada', ref('shared'))
-    await authority.capture([upsert('grant-row', { granted: 'shared' })])
+    await authority.save([upsert('grant-row', { granted: 'shared' })])
 
     expect(ada.map((d) => d.ops)).toEqual([['evict'], ['upsert']])
   })
@@ -516,7 +510,7 @@ describe('rescope is derived from the SIZE of the derived set (D14.4)', () => {
     const ada = collect(authority, ADA)
 
     tables.edge(ref('role-change'), ['ada'], subjects)
-    await authority.capture([upsert('role-change', { role: 'member' })])
+    await authority.save([upsert('role-change', { role: 'member' })])
 
     expect(ada[0]?.kind).toBe('rescope')
     // Still carries the range, so the rescope cannot be mistaken for silence.
@@ -526,7 +520,7 @@ describe('rescope is derived from the SIZE of the derived set (D14.4)', () => {
   it('ends a paged range immediately after a rescope delivery', async () => {
     const { authority, tables } = build(0)
     tables.edge(ref('role-change'), ['ada'], [ref('a')])
-    await authority.capture([upsert('role-change', {}), upsert('later', {}), upsert('last', {})])
+    await authority.save([upsert('role-change', {}), upsert('later', {}), upsert('last', {})])
     const pages = []
     for await (const page of authority.changesRange(ADA, 0, 3, 1)) pages.push(page)
     expect(pages).toHaveLength(1)
@@ -546,7 +540,7 @@ describe('rescope is derived from the SIZE of the derived set (D14.4)', () => {
     const ada = collect(authority, ADA)
 
     tables.edge(ref('role-change'), ['ada'], subjects)
-    await authority.capture([upsert('role-change', { role: 'member' })])
+    await authority.save([upsert('role-change', { role: 'member' })])
 
     expect(ada[0]?.kind).toBe('batch')
     expect(ada[0]?.ids).toEqual(['a', 'b', 'c', 'd'])
@@ -571,8 +565,8 @@ describe('bootstrap — the installed world for ONE principal', () => {
   it('serves the current value of every row the principal may see', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('a'))
-    await authority.capture([upsert('a', { v: 1 })])
-    await authority.capture([upsert('a', { v: 2 })])
+    await authority.save([upsert('a', { v: 1 })])
+    await authority.save([upsert('a', { v: 2 })])
 
     const world = await authority.bootstrap(ADA)
     // ONE row per entity, carrying the LATEST value — not a replay of both writes.
@@ -583,8 +577,8 @@ describe('bootstrap — the installed world for ONE principal', () => {
   it('is read at the head, so the delta stream resumes with no gap', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('a'))
-    await authority.capture([upsert('a', { v: 1 })])
-    await authority.capture([upsert('grace-only', { v: 1 })])
+    await authority.save([upsert('a', { v: 1 })])
+    await authority.save([upsert('grace-only', { v: 1 })])
 
     // The head, NOT the last visible row's seq. A bootstrap certified at seq 1
     // would leave seq 2 uncertified for Ada forever: she was evaluated for it and
@@ -595,8 +589,8 @@ describe('bootstrap — the installed world for ONE principal', () => {
   it('suppresses a row the principal may not see', async () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('ada-private'))
-    await authority.capture([upsert('ada-private', { owner: 'ada' })])
-    await authority.capture([upsert('grace-private', { owner: 'grace' })])
+    await authority.save([upsert('ada-private', { owner: 'ada' })])
+    await authority.save([upsert('grace-private', { owner: 'grace' })])
 
     expect((await authority.bootstrap(ADA)).changes.map((c) => c.entityId)).toEqual(['ada-private'])
     // The paired half. Without it, "Ada sees hers" passes against an
@@ -611,9 +605,9 @@ describe('bootstrap — the installed world for ONE principal', () => {
     const { authority, tables } = build()
     tables.grant('ada', ref('a'))
     tables.grant('ada', ref('b'))
-    await authority.capture([upsert('a', { v: 1 })])
-    await authority.capture([upsert('b', { v: 1 })])
-    await authority.capture([{ entity: 'session', entityId: 'a', op: 'remove' }])
+    await authority.save([upsert('a', { v: 1 })])
+    await authority.save([upsert('b', { v: 1 })])
+    await authority.save([{ entity: 'session', entityId: 'a', op: 'remove' }])
 
     const world = await authority.bootstrap(ADA)
     expect(world.changes.map((c) => c.entityId)).toEqual(['b'])
@@ -633,11 +627,11 @@ describe('bootstrap — the installed world for ONE principal', () => {
     const subjects = ['a', 'b', 'c', 'd'].map(ref)
     for (const s of subjects) {
       tables.grant('ada', s)
-      await authority.capture([upsert(s.entityId, { id: s.entityId })])
+      await authority.save([upsert(s.entityId, { id: s.entityId })])
     }
     tables.edge(ref('role-change'), ['ada'], subjects)
     tables.grant('ada', ref('role-change'))
-    await authority.capture([upsert('role-change', { role: 'member' })])
+    await authority.save([upsert('role-change', { role: 'member' })])
 
     const world = await authority.bootstrap(ADA)
     expect(world.changes.map((c) => c.entityId)).toEqual(['a', 'b', 'c', 'd', 'role-change'])

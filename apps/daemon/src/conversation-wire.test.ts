@@ -1,5 +1,5 @@
 import type { AgentConversationSummary } from '@podium/harness'
-import { ConversationSummaryWire } from '@podium/model'
+import { ConversationDiscoveryWire } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { summaryToWire } from './conversation-wire'
 
@@ -20,16 +20,16 @@ const summary = (extra: Partial<AgentConversationSummary> = {}): AgentConversati
 })
 
 describe('summaryToWire', () => {
-  it('carries sizeBytes onto the wire and it parses as ConversationSummaryWire', () => {
+  it('carries sizeBytes onto the wire and it parses as ConversationDiscoveryWire', () => {
     const wire = summaryToWire(summary({ sizeBytes: 12345 }))
     expect(wire.sizeBytes).toBe(12345)
     expect(wire.path).toBe('/home/u/.claude/projects/-p/native-1.jsonl')
-    expect(ConversationSummaryWire.parse(wire)).toEqual(wire)
+    expect(ConversationDiscoveryWire.parse(wire)).toEqual(wire)
   })
 
   it('omits sizeBytes when discovery did not report one (size-less providers)', () => {
     const wire = summaryToWire(summary())
     expect('sizeBytes' in wire).toBe(false)
-    expect(ConversationSummaryWire.parse(wire)).toEqual(wire)
+    expect(ConversationDiscoveryWire.parse(wire)).toEqual(wire)
   })
 })

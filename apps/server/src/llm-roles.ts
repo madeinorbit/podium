@@ -1,81 +1,11 @@
-// The one-shot (non-harness) LLM primitive for background features (issue
-// assistant, title generation, summaries). Features build on completeForRole
-// instead of reaching for llmClient directly, so role → backend → account
-// resolution lives in one place (SP-6454, stream B1).
-//
-// Interactive-session roles (coding sessions, superagent turns) run through the
-// daemon harness path, not here.
-import { type PodiumSettings, roleApiBackend } from '@podium/runtime'
+// Structured answers from Podium's own model calls. The calls themselves run
+// through `modules/inference/complete.ts`, which chooses the credential.
 import type { z } from 'zod'
-import { type LlmClient, type LlmMessage, llmClient } from './llm'
-
-/** Roles that make a one-shot completion. */
-export type OneShotRole = 'background' | 'superagent'
-
-/** Resolve a role's one-shot (api) backend from the unified role model. A role
- *  whose account is a harness yields kind:'harness', which llmClient rejects
- *  (harness-print one-shot is still "coming soon"). */
-export function resolveOneShotBackend(settings: PodiumSettings, role: OneShotRole) {
-  return roleApiBackend(settings, role)
-}
-
-export interface CompleteForRoleDeps {
-  settings: PodiumSettings
-  /**
-   * Resolve the API key for a provider, at the moment of use — POD-419.
-   *
-   * REQUIRED, and that is the point. It used to be read off `settings.apiKeys`,
-   * which no longer carries material: the secrets moved to the server-only keyed
-   * store. Optional-with-a-default would mean a caller that forgot to inject it
-   * silently loses every one-shot completion with a "no API key configured"
-   * error that looks like an unconfigured instance — so the composition root is
-   * made to name its source. A provider with no configured secret answers
-   * `undefined`, which is a real "not configured" and fails closed.
-   */
-  apiKey: (provider: string) => string | undefined | Promise<string | undefined>
-  /** Injectable client factory (tests / alternate transports). */
-  llm?: typeof llmClient
-}
-
-interface BaseOpts {
-  role: OneShotRole
-  messages: LlmMessage[]
-  /** Accepted for forward-compat; the api path wires effort in B3
-   *  (RoleBackend.effort). Ignored today. */
-  effort?: string
-}
-
-/**
- * Resolve a role's backend + account, run a single completion, and optionally
- * parse the response into structured data. With `parse`, `data` is the parsed
- * value (or null when the model's output can't be parsed); without it, `data`
- * is the raw text. Throws on config/network errors — callers decide whether to
- * treat a failure as a no-op (as the issue assistant does).
- */
-export async function completeForRole(
-  deps: CompleteForRoleDeps,
-  opts: BaseOpts,
-): Promise<{ text: string; data: string; label: string }>
-export async function completeForRole<T>(
-  deps: CompleteForRoleDeps,
-  opts: BaseOpts & { parse: (text: string) => T | null },
-): Promise<{ text: string; data: T | null; label: string }>
-export async function completeForRole<T>(
-  deps: CompleteForRoleDeps,
-  opts: BaseOpts & { parse?: (text: string) => T | null },
-): Promise<{ text: string; data: T | null | string; label: string }> {
-  const backend = resolveOneShotBackend(deps.settings, opts.role)
-  const factory = deps.llm ?? llmClient
-  const client: LlmClient = factory(backend, await deps.apiKey(backend.provider))
-  const resp = await client.complete(opts.messages, [])
-  const data = opts.parse ? opts.parse(resp.text) : resp.text
-  return { text: resp.text, data, label: client.label }
-}
 
 /**
  * Adapt a zod schema into a lenient `parse` function: pull the first fenced or
  * braced JSON object out of the model's text and validate it. New structured
- * features (title generation) pass `jsonSchema(MySchema)` as `parse`.
+ * features (the issue assistant, shipwright) pass `jsonSchema(MySchema)` as `parse`.
  */
 export function jsonSchema<T>(schema: z.ZodType<T>): (text: string) => T | null {
   return (text: string) => {

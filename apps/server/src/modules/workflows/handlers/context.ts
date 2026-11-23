@@ -37,7 +37,6 @@
  * survive this function.
  */
 
-import type { SessionId, MachineId, IssueId } from '@podium/model'
 import {
   canReadWorkflowEntity,
   type PlacementDecision,
@@ -50,6 +49,7 @@ import {
   type WorkflowVerb,
   workflowDecision,
 } from '@podium/commands'
+import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type {
   WorkflowBindingWire,
   WorkflowRunStepWire,
@@ -79,6 +79,25 @@ import type { WorkflowCaller, WorkflowEngine, WorkflowServiceDeps } from '../ser
  * "outside this session" confirms the row exists. Converging the other way
  * would have produced two identical strings that both leak.
  */
+/**
+ * A write the workflow rules refuse, with the words the caller is shown
+ * (POD-6418). A definitive answer, not a failure: through the sync write entry
+ * point it is the reply's refusal (`sync-write.ts`); every other caller sees the
+ * same message it always saw, from an `Error` like any other.
+ *
+ * `not-found` covers a record that is missing and one the caller may not see
+ * alike: one answer for both (ADR 3 Amendment 1 D20.2). The `name` stays
+ * `Error` on purpose, so nothing that compared these errors before can tell.
+ */
+export class WorkflowRefusal extends Error {
+  constructor(
+    readonly kind: 'not-found' | 'unauthorized' | 'conflict' | 'invalid',
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
 export const unknownWorkflow = (id: string): string => `unknown workflow: ${id}`
 export const unknownRevision = (id: string): string => `unknown workflow revision: ${id}`
 
@@ -238,6 +257,15 @@ export interface WorkflowHandlerContext {
    * POD-730's oracle, which is the one thing that must not happen.
    */
   engine: WorkflowEngine
+  /**
+   * Run work outside the database once the command's write has committed, and
+   * never if it rolls back. Through the sync write entry point this is the
+   * unit of work's own `afterCommit` (POD-6418), which also runs the step
+   * outside the write's provenance: a coordinator notice is not part of the
+   * checkpoint the receipt covers. Absent on the other doors (the approval
+   * broker's server ops), which fall back to the store's post-commit hook.
+   */
+  afterCommit?: (step: () => void | Promise<void>, label: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -447,7 +475,7 @@ export class WorkflowAccess {
     const workflow = await this.deps.store.getWorkflow(workflowId)
     const ownership = await this.ownershipFor(workflow ? [this.entityFor(workflow)] : [])
     if (!workflow || !(await this.canReadWorkflow(caller, workflow, ownership))) {
-      throw new Error(unknownWorkflow(workflowId))
+      throw new WorkflowRefusal('not-found', unknownWorkflow(workflowId))
     }
     return workflow
   }
@@ -455,7 +483,7 @@ export class WorkflowAccess {
   /** The write decision, converged onto the same message for the same reason. */
   async assertWorkflowWrite(caller: WorkflowCaller, workflowId: string): Promise<WorkflowWire> {
     const workflow = await this.deps.store.getWorkflow(workflowId)
-    if (!workflow) throw new Error(unknownWorkflow(workflowId))
+    if (!workflow) throw new WorkflowRefusal('not-found', unknownWorkflow(workflowId))
     const entity = this.entityFor(workflow)
     if (this.decide(caller, entity, 'write', await this.ownershipFor([entity])) === 'denied') {
       // A global library entry is the one case whose refusal is about GRADE and
@@ -463,11 +491,13 @@ export class WorkflowAccess {
       // says so, rather than pretending the row does not exist. That is not a
       // D20.2 exception: nothing is disclosed that a read did not already give.
       if (entity.kind === 'workflow-library-entry') {
-        throw new Error('approval required to change a global workflow')
+        throw new WorkflowRefusal('unauthorized', 'approval required to change a global workflow')
       }
-      throw new Error(unknownWorkflow(workflowId))
+      throw new WorkflowRefusal('not-found', unknownWorkflow(workflowId))
     }
-    if (!(await this.inWriteScope(caller, workflow))) throw new Error(unknownWorkflow(workflowId))
+    if (!(await this.inWriteScope(caller, workflow))) {
+      throw new WorkflowRefusal('not-found', unknownWorkflow(workflowId))
+    }
     return workflow
   }
 
@@ -480,7 +510,7 @@ export class WorkflowAccess {
   ): Promise<void> {
     if (scope === 'global') {
       if (this.principal(caller).role !== 'admin') {
-        throw new Error('approval required to create a global workflow')
+        throw new WorkflowRefusal('unauthorized', 'approval required to create a global workflow')
       }
       return
     }
@@ -489,7 +519,7 @@ export class WorkflowAccess {
     if (!session) throw new Error('workflow creation lost its session context')
     if (scope === 'task' && (scopeRef === session.sessionId || scopeRef === session.issueId)) return
     if (scope === 'repository' && scopeRef === (await this.deps.repoIdForPath(session.cwd))) return
-    throw new Error(`${scope} workflow is outside this session`)
+    throw new WorkflowRefusal('unauthorized', `${scope} workflow is outside this session`)
   }
 
   /** The issue-target arm of `assign`. Unchanged apart from its operator early
@@ -499,7 +529,10 @@ export class WorkflowAccess {
     if (!this.hasAgentScope(caller) || caller.overrideScope) return
     const scope = caller.capability?.scope
     if (scope?.kind === 'subtree' && scope.rootId === issueId) return
-    throw new Error(`issue ${issueId} is outside this agent's workflow scope`)
+    throw new WorkflowRefusal(
+      'unauthorized',
+      `issue ${issueId} is outside this agent's workflow scope`,
+    )
   }
 
   /**
@@ -539,7 +572,10 @@ export class WorkflowAccess {
   assertCoordinator(run: WorkflowRunWire, caller: WorkflowCaller): void {
     if (caller.actor.id !== null && caller.actor.id === run.coordinatorSessionId) return
     if (caller.actor.id === null && this.principal(caller).role === 'admin') return
-    throw new Error('only the workflow coordinator may perform this transition')
+    throw new WorkflowRefusal(
+      'unauthorized',
+      'only the workflow coordinator may perform this transition',
+    )
   }
 
   /**
@@ -650,7 +686,9 @@ export class WorkflowAccess {
     // authorize placement on any machine.
     const access = await this.machinesFor(this.principal(caller))
     const decision: PlacementDecision = placementDecision(machineId, access)
-    if (decision === 'unauthorized') throw new Error(machineUnauthorized(machineId))
+    if (decision === 'unauthorized') {
+      throw new WorkflowRefusal('unauthorized', machineUnauthorized(machineId))
+    }
     if (decision === 'unreachable') throw new Error(machineUnreachable(machineId))
   }
 

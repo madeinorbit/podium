@@ -7,24 +7,41 @@ import {
   ISSUE_CONTRACTS,
   type IssueContractName,
 } from '@podium/commands'
-import type { SessionId } from '@podium/model'
+import type {
+  IssueAllowedActions,
+  IssueId,
+  IssueSessionSummaryEntry,
+  MutationId,
+  SessionId,
+  UserId,
+} from '@podium/model'
 import {
   actorAgent,
   actorSystem,
   actorUser,
   asAgentIdentityId,
   asIssueId,
+  asUserId,
+  authorize,
   isAgentComputing,
   isDecisionIssue,
   isIssueClosed,
+  isPersonCapability,
+  issueAllowedActions,
+  SHARED_MACHINE_ACCOUNT_WARNING,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
-import { attributionOf } from '../../command-principal'
+import { attributionOf, onBehalfOfUser } from '../../command-principal'
 import { checkIssueAccess } from '../../issue-authz'
+import type { IssueMessageRow } from '../../store'
 import { withReadScope } from '../../store/executor/read-scope'
 import { ShippingOrderAccessError } from '../shipping/service'
+import { artifactEffectCommitOf } from './artifact-effect-record'
 import type { IssueCaller, IssueCommandAccess, IssueCommandCtx } from './command-ctx'
+import { eventsForMember } from './event-visibility'
+import { isCommentAuthor } from './service/mail'
+import { IssueNotFound } from './service/not-found'
 import type { IssueCommandResult } from './service/reads'
 import { IssueRefusal } from './service/refusal'
 import { becameCoordinatorText, seatRefusal, seatText } from './service/seat'
@@ -95,11 +112,301 @@ import { becameCoordinatorText, seatRefusal, seatText } from './service/seat'
  * compile error in both directions.
  */
 
+/**
+ * THE D13 SUMMARY of every agent session on a task (design §2.3, POD-6288):
+ * whose it is, its title, and whether it is working. What a task reader learns
+ * about sessions that are not theirs; never their content, ids or controls.
+ */
+async function sessionSummaries(
+  ctx: IssueCommandCtx,
+  issue: { id: IssueId; worktreePath: string | null },
+): Promise<IssueSessionSummaryEntry[]> {
+  const all = (await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id)).filter(
+    (session) => session.agentKind !== 'shell',
+  )
+  if (all.length === 0) return []
+  const rows = await ctx.deps.executionFacts.store.sessions.getSessions(
+    all.map((session) => session.sessionId),
+  )
+  return all.map((session) => ({
+    owner: rows.get(session.sessionId)?.ownerUserId ?? null,
+    title: session.name ?? session.title,
+    state: isAgentComputing(session) ? 'live' : 'idle',
+  }))
+}
+
+/**
+ * WHAT THIS READER MAY DO FROM THE TASK PAGE (POD-6295): the `write` decision
+ * the dispatcher would make for this task, without `--outside-scope` (the page
+ * cannot confirm one), and whether the reader is a person in person.
+ */
+async function allowedActions(ctx: IssueCommandCtx, id: IssueId): Promise<IssueAllowedActions> {
+  const capability = ctx.caller.capability
+  const write = authorize(
+    capability,
+    'write',
+    capability.scope.kind === 'subtree'
+      ? { id, ancestorIds: await ctx.hierarchy.ancestorIds(id) }
+      : { id },
+  )
+  return issueAllowedActions(write, personHuman(ctx) !== undefined)
+}
+
+/** What `issues.share` and `issues.unshare` answer (POD-6288). */
+export const TASKS_VISIBLE_TO_ALL_MEMBERS =
+  'tasks are visible to all members; there is nothing to share or unshare'
+
+async function refuseTaskSharing(ctx: IssueCommandCtx, id: string): Promise<never> {
+  // An unknown task answers as one, like every other targeted command.
+  if (!(await ctx.reports.getMeta(id))) throw new IssueNotFound(id)
+  throw new IssueRefusal(TASKS_VISIBLE_TO_ALL_MEMBERS)
+}
+
+/**
+ * THE ASSIGNEE A COMMAND NAMES (POD-6287, design §2.2, §4.3).
+ *
+ * The assignee is the task's owner, its one accountable human. Only a person
+ * changes it, to any active member; `me` is that person. An agent never does,
+ * not even to its own human: an agent acting does not change who answers for
+ * the task (MU-24). The refusal names the rule, because an agent following an
+ * old habit (`claim --assignee me`) is told what happened instead of guessing.
+ */
+/** Who an edit is recorded under (POD-6289): the caller's actor and the human
+ *  it acts for, from the authenticated principal; nothing when there is none. */
+function textAttribution(ctx: IssueCommandCtx): {
+  attribution?: { actor: string | null; onBehalfOf: string | null }
+} {
+  const principal = ctx.caller.principal
+  return principal ? { attribution: attributionOf(principal) } : {}
+}
+
+async function assigneeNamed(ctx: IssueCommandCtx, raw: string): Promise<UserId> {
+  const human = personHuman(ctx)
+  if (human === undefined) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message:
+        "an agent cannot change a task's assignee: the assignee is a person, and only a person reassigns",
+    })
+  }
+  const target = raw.trim() === 'me' ? human : asUserId(raw.trim())
+  if (!(await ctx.crud.isActiveMember(target))) {
+    throw new TRPCError({
+      code: 'BAD_REQUEST',
+      message: `cannot assign to ${raw}: the assignee must be an active member (a member id, or "me")`,
+    })
+  }
+  return target
+}
+
+/**
+ * `--assignee me|all|<member>` (POD-6296), resolved here so every transport
+ * (CLI, relay, MCP) narrows the same way: `me` is the caller's own human, for
+ * an agent the human it acts for. `fallback` is the listing's default.
+ */
+async function assigneeScope(
+  ctx: IssueCommandCtx,
+  raw: string | undefined,
+  fallback: 'me' | 'all',
+): Promise<UserId | undefined> {
+  return await ctx.reports.assigneeScope(raw, ctx.markerUser(), fallback)
+}
+
+/** A search filter with its assignee resolved to a member id, or dropped for `all`. */
+async function assigneeFiltered<T extends { assignee?: string | undefined }>(
+  ctx: IssueCommandCtx,
+  filter: T,
+): Promise<Omit<T, 'assignee'> & { assignee?: UserId }> {
+  const { assignee, ...rest } = filter
+  const scope = await assigneeScope(ctx, assignee, 'all')
+  return scope ? { ...rest, assignee: scope } : rest
+}
+
+/** An agent's write scope as its root's ref, or `null` when it has none. */
+async function agentScopeRef(ctx: IssueCommandCtx): Promise<string | null> {
+  const scope = ctx.caller.capability.scope
+  if (scope.kind !== 'subtree') return null
+  const row = await ctx.reports.getMeta(scope.rootId)
+  return row ? await ctx.reports.niceRef(row) : null
+}
+
+/**
+ * A REASSIGNING WRITE'S MUTATION ID, PER MEMBER (POD-6287, MU-17). The
+ * mutation ledger keys a receipt on the id alone, so a second member sending
+ * the same id would be answered with the first member's recorded result and
+ * have nothing applied. A reassignment is keyed to the member who sent it:
+ * each member's own retry still replays, and nobody is answered with someone
+ * else's receipt.
+ */
+function memberMutationId(
+  ctx: IssueCommandCtx,
+  mutationId: MutationId | undefined,
+): MutationId | undefined {
+  const human = ctx.markerUser()
+  return mutationId && human ? (`${mutationId}@${human}` as MutationId) : mutationId
+}
+
+/** The person calling, in person (not an agent): whose subscriptions a
+ *  subscription command may touch (POD-6288). */
+function personHuman(ctx: IssueCommandCtx): UserId | undefined {
+  return isPersonCapability(ctx.caller.capability) ? ctx.markerUser() : undefined
+}
+
+async function sessionOwnedBy(
+  ctx: IssueCommandCtx,
+  sessionId: string,
+  human: UserId,
+): Promise<boolean> {
+  const rows = await ctx.deps.executionFacts.store.sessions.getSessions([sessionId])
+  return rows.get(sessionId)?.ownerUserId === human
+}
+
+/**
+ * A SUBSCRIBER IS A PERSON'S OWN (POD-6288) when it is a session they own or a
+ * task assigned to them. Per-user state (design §4.1): admins get the same.
+ * Returns the subscriber with a task ref resolved to its id, or refuses.
+ */
+async function ownSubscriberOrRefuse(
+  ctx: IssueCommandCtx,
+  subscriber: { kind: 'session' | 'issue'; id: string },
+  human: UserId,
+): Promise<{ kind: 'session' | 'issue'; id: string }> {
+  if (subscriber.kind === 'session') {
+    if (await sessionOwnedBy(ctx, subscriber.id, human)) return subscriber
+  } else {
+    const row = await ctx.reports.getMeta(subscriber.id).catch(() => null)
+    if (row && row.ownerUserId === human) return { kind: 'issue', id: row.id }
+  }
+  throw new TRPCError({
+    code: 'FORBIDDEN',
+    message: 'you may subscribe only your own sessions or tasks assigned to you',
+  })
+}
+
+/** The human starting a session on a task (POD-6283): the person, or the human
+ *  at the root of an agent's delegation. That session is theirs, whoever owns
+ *  the task. A system job has no human, and the task's owner stands in. */
+function startedOnBehalfOf(ctx: IssueCommandCtx): { onBehalfOf?: UserId } {
+  const principal = ctx.caller.principal
+  const human = principal ? attributionOf(principal).onBehalfOf : ctx.caller.capability.onBehalfOf
+  return human ? { onBehalfOf: human } : {}
+}
+
+/**
+ * WORKING IN A TASK'S WORKTREE NEEDS `use` ON ITS MACHINE (POD-6296, design §5
+ * Q4). A task keeps one worktree on one machine. Bob may start work in Alice's
+ * task only where he holds `use`; reading or editing her task grants nothing
+ * on a machine (§2.4). Without it he works through his own sub-task, which
+ * gets its own worktree on his own machine. With it, the run goes ahead with
+ * the shared-machine warning: both people's agents share that OS account.
+ *
+ * The gate is the caller's human's own standing, narrowed by an agent's
+ * delegation; the assignee's rights are never consulted, so no start adopts
+ * them. It applies to work on someone else's task and to work on a machine in
+ * someone else's custody; a person's own task on their own machine (every task
+ * on a one-member instance) is untouched.
+ */
+async function workMachineGate(
+  ctx: IssueCommandCtx,
+  id: string,
+  verb: string,
+): Promise<{ warning?: string }> {
+  const principal = ctx.caller.principal
+  const human = principal ? (onBehalfOfUser(principal) ?? undefined) : undefined
+  if (!principal || !human || !ctx.deps.machineStanding) return {}
+  const row = await ctx.reports.getMeta(id)
+  if (!row) return {}
+  const machineId = await ctx.gitWorkflow.workMachine(row.id, human)
+  const standing = await ctx.deps.machineStanding(principal, machineId)
+  const theirs = row.ownerUserId !== human
+  const elsewhere = standing.custodian !== null && standing.custodian !== human
+  if (!theirs && !elsewhere) return {}
+  const ref = await ctx.reports.niceRef(row)
+  if (!standing.use) {
+    throw new IssueRefusal(
+      theirs
+        ? `cannot ${verb} ${ref}: its worktree is on ${standing.name}, where you have no \`use\`. ` +
+            `Work on it through your own sub-task instead; it gets its own worktree on your machine: ` +
+            `\`podium issue create --parent-id ${ref} --title "…" --machine <your machine> --start\``
+        : `cannot ${verb} ${ref}: it is homed on ${standing.name}, where you have no \`use\`. ` +
+            `Start it on your own machine: \`podium issue start ${ref} --machine <your machine>\``,
+    )
+  }
+  if (!elsewhere) return {}
+  return {
+    warning: `${ref} runs on ${standing.name}, a machine in someone else's custody. ${SHARED_MACHINE_ACCOUNT_WARNING}`,
+  }
+}
+
+/**
+ * A COORDINATOR SEAT IS ITS OWN HUMAN'S (POD-6296, MU-21). The coordinator
+ * marker decides whom sessions on a task ask and where its mail goes first, so
+ * setting it is an effect on the session it names. Bob may name only a session
+ * of his own human, and may not replace or clear a coordinator that acts for
+ * someone else while it still exists: Alice's agent keeps the seat she gave it.
+ * Bob coordinates his own work through his own sub-task. On a one-member
+ * instance every session is the caller's, and nothing changes.
+ */
+async function assertOwnCoordinatorSeat(
+  ctx: IssueCommandCtx,
+  id: string,
+  next: SessionId | null,
+): Promise<void> {
+  const human = ctx.markerUser()
+  if (!human) return
+  const row = await ctx.reports.getMeta(id)
+  if (!row) return
+  const current = row.coordinatorSessionId ?? null
+  const ids = [...new Set([next, current].filter((s): s is SessionId => s !== null))]
+  if (ids.length === 0) return
+  const sessions = await ctx.deps.executionFacts.store.sessions.getSessions(ids)
+  const ref = await ctx.reports.niceRef(row)
+  if (next !== null && sessions.get(next) && sessions.get(next)?.ownerUserId !== human) {
+    throw new IssueRefusal(
+      `cannot make ${next} the coordinator of ${ref}: that session is another person's. A coordinator acts for the person whose session it is`,
+    )
+  }
+  const holder = current !== null && current !== next ? sessions.get(current) : undefined
+  if (holder && !holder.deletedAt && !holder.archived && holder.ownerUserId !== human) {
+    throw new IssueRefusal(
+      `cannot change the coordinator of ${ref}: another person's session holds it. Coordinate your own work through your own sub-task: \`podium issue create --parent-id ${ref} --title "…"\``,
+    )
+  }
+}
+
+/** The gate's warning on a start's result, which the CLI prints after it. */
+function withWarning<T>(gate: { warning?: string }, result: T): T {
+  if (!gate.warning || !result || typeof result !== 'object') return result
+  return { ...result, warning: gate.warning }
+}
+
 /** Guardrail 2 [spec:SP-6144]: lifecycle moves on a proposed issue are
  *  operator-only, and the check FAILS CLOSED — an id that doesn't resolve is
  *  rejected too, so a bad ref (or a hub mirror the local get() can't see) can
- *  never dodge the lane. Operator callers (scope 'all') pass through untouched.
+ *  never dodge the lane. A person (any member, POD-6288) passes through untouched.
  *  `verb` completes "only an operator may <verb> a proposed issue". */
+/**
+ * M5 [spec:SP-6144]: who may start this issue. The whole proposal SUBTREE is
+ * inert: a sub-issue filed under a proposed parent cannot be started to run
+ * work under an unapproved proposal, so the ancestor chain is checked, not
+ * just the row. The `start` handler, and its answer with no machine
+ * (`work-effects.ts`, POD-6603).
+ */
+export async function assertStartable(
+  ctx: {
+    reports: { get(id: string): Promise<{ stage: string } | null> }
+    hierarchy: { ancestorIds(id: string): Promise<readonly string[]> }
+    caller: IssueCaller
+  },
+  id: string,
+): Promise<void> {
+  await assertNotProposedForAgent(ctx, id, 'start')
+  if (isPersonCapability(ctx.caller.capability)) return
+  for (const anc of await ctx.hierarchy.ancestorIds(id)) {
+    await assertNotProposedForAgent(ctx, anc, 'start work under')
+  }
+}
+
 async function assertNotProposedForAgent(
   ctx: {
     reports: { get(id: string): Promise<{ stage: string } | null> }
@@ -108,7 +415,7 @@ async function assertNotProposedForAgent(
   id: string,
   verb: string,
 ): Promise<void> {
-  if (ctx.caller.capability.scope.kind === 'all') return
+  if (isPersonCapability(ctx.caller.capability)) return
   let stage: string | undefined
   try {
     stage = (await ctx.reports.get(id))?.stage
@@ -137,7 +444,7 @@ async function assertNoWorkingSessionsForAgentClose(
   id: string,
   confirmInterrupt: boolean | undefined,
 ): Promise<void> {
-  if (ctx.caller.capability.scope.kind === 'all' || confirmInterrupt) return
+  if (isPersonCapability(ctx.caller.capability) || confirmInterrupt) return
   const issue = await ctx.reports.get(id)
   if (!issue) return
   const working = (
@@ -172,7 +479,7 @@ async function assertDecisionNotClosedByAgent(
   id: string,
   verb: string,
 ): Promise<void> {
-  if (ctx.caller.capability.scope.kind === 'all') return
+  if (isPersonCapability(ctx.caller.capability)) return
   const issue = await ctx.reports.get(id)
   if (!issue || !isDecisionIssue(issue)) return
   throw new TRPCError({
@@ -286,6 +593,16 @@ type ContractDeclaresConflict<C> = C extends { readonly conflict: 'cmd' }
     ? unknown
     : { readonly __mutationContractMustDeclareARealConflictClassNotNA: never }
 
+/** The git actions' effect port (`git-effects.ts`); the composed server always
+ *  wires it, and a context without it has no git action to run. */
+function gitEffectsOf(ctx: IssueCommandCtx): NonNullable<IssueCommandCtx['deps']['gitEffects']> {
+  const port = ctx.deps.gitEffects
+  if (port === undefined) {
+    throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'the git effects are not wired' })
+  }
+  return port
+}
+
 function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
   name: N,
   d: {
@@ -306,7 +623,9 @@ function def<N extends IssueContractName, K extends IssueCommandKind, Out>(
       // checks share one batched grant read (POD-6149, server-data rule 2).
       if (d.kind === 'query') return await withReadScope(async () => await d.handler(ctx, input))
       const result = await d.handler(ctx, input)
-      return d.kind === 'mutation' ? await ctx.reports.commandResult(result) : result
+      return d.kind === 'mutation'
+        ? await ctx.reports.commandResult(result, ctx.markerUser())
+        : result
     },
     input: contract.input,
     action: contract.policy.action,
@@ -350,7 +669,12 @@ const defs = {
 
   list: def('list', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.list(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) =>
+      await ctx.reports.list(
+        input.repoPath,
+        ctx.issueReader(),
+        await assigneeScope(ctx, input.assignee, 'all'),
+      ),
   }),
   prime: def('prime', {
     kind: 'query',
@@ -362,6 +686,10 @@ const defs = {
             ctx.caller.capability.scope.kind === 'subtree'
               ? ctx.caller.capability.scope.rootId
               : null,
+          // Who is who on a shared instance (POD-6296), all server-stamped.
+          ...(ctx.markerUser() ? { human: ctx.markerUser()! } : {}),
+          ...(isPersonCapability(ctx.caller.capability) ? {} : { scope: await agentScopeRef(ctx) }),
+          assignee: await assigneeScope(ctx, input?.assignee, 'me'),
           // Per-reader mail count [POD-1379]; server-stamped, never from input.
           ...(ctx.caller.capability.actorSessionId
             ? { sessionId: ctx.caller.capability.actorSessionId }
@@ -372,7 +700,12 @@ const defs = {
   }),
   ready: def('ready', {
     kind: 'query',
-    handler: async (ctx, input) => await ctx.reports.readyList(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) =>
+      await ctx.reports.readyList(
+        input.repoPath,
+        ctx.issueReader(),
+        await assigneeScope(ctx, input.assignee, 'me'),
+      ),
   }),
   blocked: def('blocked', {
     kind: 'query',
@@ -388,8 +721,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.readIssue(
         input.id,
-        async () =>
-          await ctx.reports.epicStatus(input.id, ctx.issueReader()),
+        async () => await ctx.reports.epicStatus(input.id, ctx.issueReader()),
       ),
   }),
   children: def('children', {
@@ -398,11 +730,7 @@ const defs = {
       await ctx.readIssue(
         input.id,
         async () =>
-          await ctx.reports.children(
-            input.id,
-            input.recursive ?? false,
-            ctx.issueReader(),
-          ),
+          await ctx.reports.children(input.id, input.recursive ?? false, ctx.issueReader()),
       ),
   }),
   tree: def('tree', {
@@ -413,6 +741,7 @@ const defs = {
         {
           ...(input.maxDepth != null ? { maxDepth: input.maxDepth } : {}),
           ...(input.maxNodes != null ? { maxNodes: input.maxNodes } : {}),
+          assignee: await assigneeScope(ctx, input.assignee, 'all'),
         },
         ctx.issueReader(),
       ),
@@ -420,20 +749,20 @@ const defs = {
   deck: def('deck', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.deck(input.id, ctx.issueReader()),
+      await ctx.reports.deck(
+        input.id,
+        ctx.issueReader(),
+        await assigneeScope(ctx, input.assignee, 'all'),
+      ),
   }),
   depReport: def('depReport', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.depReport(input, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.depReport(input, ctx.issueReader()),
   }),
   closeEligibleEpics: def('closeEligibleEpics', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.closeEligibleEpics(
-        input.repoPath,
-        ctx.issueReader(),
-      ),
+      await ctx.reports.closeEligibleEpics(input.repoPath, ctx.issueReader()),
   }),
   labelList: def('labelList', {
     kind: 'query',
@@ -442,31 +771,20 @@ const defs = {
   findDuplicates: def('findDuplicates', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.findDuplicates(
-        input.repoPath,
-        input.threshold,
-        ctx.issueReader(),
-      ),
+      await ctx.reports.findDuplicates(input.repoPath, input.threshold, ctx.issueReader()),
   }),
   stale: def('stale', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.staleList(
-        input.repoPath,
-        input.days,
-        Date.now(),
-        ctx.issueReader(),
-      ),
+      await ctx.reports.staleList(input.repoPath, input.days, Date.now(), ctx.issueReader()),
   }),
   doctor: def('doctor', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.doctor(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.doctor(input.repoPath, ctx.issueReader()),
   }),
   preflight: def('preflight', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.preflight(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.preflight(input.repoPath, ctx.issueReader()),
   }),
   deliveryReceipt: def('deliveryReceipt', {
     kind: 'query',
@@ -484,40 +802,50 @@ const defs = {
   search: def('search', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.search(input, ctx.issueReader()),
+      await ctx.reports.search(await assigneeFiltered(ctx, input), ctx.issueReader()),
   }),
   searchNormalized: def('searchNormalized', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.reports.searchNormalized(input, ctx.issueReader()),
+      await ctx.reports.searchNormalized(await assigneeFiltered(ctx, input), ctx.issueReader()),
   }),
   count: def('count', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.count(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.count(input.repoPath, ctx.issueReader()),
   }),
   stats: def('stats', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.stats(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.stats(input.repoPath, ctx.issueReader()),
   }),
   orphans: def('orphans', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.orphans(input.repoPath, ctx.issueReader()),
+    handler: async (ctx, input) => await ctx.reports.orphans(input.repoPath, ctx.issueReader()),
   }),
   get: def('get', {
     kind: 'query',
     handler: async (ctx, input) =>
       await ctx.readIssue(input.id, async () => {
-        const issue = await ctx.reports.get(input.id)
+        // The reader's own markers ride the report (POD-6288).
+        const issue = await ctx.reports.get(input.id, ctx.issueReader())
         if (!issue) return null
         // The issue's live sessions ride the read (ab75ab1e). `shell` panes are
         // not agents on the issue, so they are not listed as such.
-        const sessions = (await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id)).filter(
-          (session) => session.agentKind !== 'shell',
-        )
-        return { ...issue, sessions }
+        // Only the sessions this reader may read (POD-6285): sessions are private.
+        const reader = ctx.issueReader().viewer() ?? undefined
+        const sessions = (
+          await ctx.deps.listSessionsForIssue(issue.worktreePath, issue.id, reader)
+        ).filter((session) => session.agentKind !== 'shell')
+        // The human the caller acts for (an agent's, or the person themself):
+        // the CLI names that person's own records with it, such as the pin
+        // record `update --pinned` creates (POD-6692).
+        const viewerUserId = ctx.markerUser()
+        return {
+          ...issue,
+          sessions,
+          sessionSummaries: await sessionSummaries(ctx, issue),
+          allowed: await allowedActions(ctx, issue.id),
+          ...(viewerUserId !== undefined ? { viewerUserId } : {}),
+        }
       }),
   }),
   resolveRefs: def('resolveRefs', {
@@ -556,12 +884,20 @@ const defs = {
   comments: def('comments', {
     kind: 'query',
     handler: async (ctx, input) =>
-      await ctx.readIssue(input.id, async () => await ctx.commentsMail.comments(input.id)),
+      await ctx.readIssue(input.id, async () => {
+        // Each comment says whether it is the reader's own (POD-6295): the
+        // page offers edit on those only.
+        const principal = ctx.caller.principal
+        return (await ctx.commentsMail.comments(input.id)).map((comment) => ({
+          ...comment,
+          mayEdit: principal ? isCommentAuthor(comment.authorId, principal) : false,
+        }))
+      }),
   }),
   events: def('events', {
     kind: 'query',
-    handler: async (ctx, input) =>
-      await ctx.reports.listEvents(input.since, {
+    handler: async (ctx, input) => {
+      const events = await ctx.reports.listEvents(input.since, {
         ...(input.kinds ? { kinds: input.kinds } : {}),
         ...(input.excludeKinds ? { excludeKinds: input.excludeKinds } : {}),
         ...(input.repoPath ? { repoPath: input.repoPath } : {}),
@@ -569,7 +905,22 @@ const defs = {
         ...(input.limit != null ? { limit: input.limit } : {}),
         ...(input.before != null ? { before: input.before } : {}),
         ...(input.order ? { order: input.order } : {}),
-      }),
+      })
+      // The log holds every member's history (POD-6291): a person, or an agent
+      // for one, reads only what is theirs to see. See `event-visibility.ts`.
+      const member = ctx.markerUser()
+      if (member === undefined) return events
+      const visibleMail = ctx.deps.mailVisibleIds
+      return await eventsForMember(events, member, {
+        ...ctx.deps.executionFacts,
+        ...(visibleMail
+          ? {
+              visibleMessageIds: async (ids: readonly string[]) =>
+                await visibleMail(ctx.caller.capability, ids),
+            }
+          : {}),
+      })
+    },
   }),
   // hits the external Linear API — 'write' keeps read-only callers from driving it
   linearSearch: def('linearSearch', {
@@ -590,11 +941,38 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      // Artifact ops route through the permanent-store paths ([spec:SP-0fc9]):
-      // add pulls a snapshot from the owning daemon before the panel commit;
-      // remove also deletes the snapshot dir.
+      if (input.op === 'artifact-add' || input.op === 'artifact-remove') {
+        // The commit of an artifact effect (POD-6420), on the entry point: the
+        // entry comes from the record, never from the call.
+        if (input.effectId !== undefined) {
+          const port = ctx.deps.artifactEffects
+          if (port === undefined) throw new IssueRefusal('artifact effects are not served here')
+          const issueId = await ctx.reports.resolveRef(input.id)
+          const change = artifactEffectCommitOf(await port.record(input.effectId), {
+            issueId,
+            op: input.op,
+            principal: ctx.caller.principal,
+          })
+          return await ctx.crud.panelApply(
+            issueId,
+            change.op === 'artifact-add' ? { op: 'artifact-add', ...change.entry } : change,
+          )
+        }
+      }
+      // An upload's byte packets (`begin`, `chunk`, `abort`) are transport into
+      // private staging: no issue write, so no writer (POD-6605). Served, every
+      // other artifact op is an effect record and never runs below.
       if (input.op === 'artifact-upload') {
         if (!input.upload) throw new IssueRefusal('artifact-upload requires an upload packet')
+        if (input.upload.action !== 'commit') {
+          return await ctx.crud.stageArtifactUpload(input.id, input.upload)
+        }
+      }
+      // Inline: an artifact op in a dispatcher a test builds by hand, with no
+      // effect records wired (POD-6420): the permanent-store paths
+      // ([spec:SP-0fc9]). Add pulls a snapshot from the owning daemon before the
+      // panel commit; remove also deletes the snapshot dir.
+      if (input.op === 'artifact-upload' && input.upload) {
         return await ctx.crud.panelArtifactTransfer(input.id, input.upload)
       }
       if (input.op === 'artifact-add') {
@@ -614,11 +992,15 @@ const defs = {
         )
       }
       if (input.op === 'artifact-remove') {
-        if (input.index == null) throw new IssueRefusal('artifact-remove requires an index')
+        if (input.itemId)
+          return await ctx.crud.panelArtifactRemove(input.id, { itemId: input.itemId })
+        if (input.index == null)
+          throw new IssueRefusal('artifact-remove requires an index or itemId')
         return await ctx.crud.panelArtifactRemove(input.id, input.index)
       }
       return await ctx.crud.panelApply(input.id, {
         op: input.op,
+        itemId: input.itemId,
         text: input.text,
         index: input.index,
         path: input.path,
@@ -640,7 +1022,7 @@ const defs = {
       //
       // Top-level agent discoveries are human-facing proposals. Stage, audience,
       // and start behavior are forced at this authenticated boundary. [spec:SP-6144]
-      const isOperator = ctx.caller.capability.scope.kind === 'all'
+      const isOperator = isPersonCapability(ctx.caller.capability)
       const origin: 'human' | 'agent' = isOperator ? 'human' : 'agent'
       // B3 [spec:SP-6144]: a parentId is validated BEFORE anything persists.
       // Previously the row was persisted+broadcast first and reparent threw
@@ -655,7 +1037,7 @@ const defs = {
         } catch {
           parent = null
         }
-        if (!parent) {
+        if (!parent || parent.deletedAt) {
           throw new TRPCError({
             code: 'BAD_REQUEST',
             message: `unknown parent issue ${input.parentId} — nothing was created`,
@@ -704,13 +1086,23 @@ const defs = {
             code: 'FORBIDDEN',
             message: 'issue creation requires an accountable human owner',
           })
+        // THE ASSIGNEE OF A NEW TASK (POD-6287): the creating human, or for an
+        // agent its delegating human. A person may name another member; an
+        // agent naming anyone but its own human is refused like a reassignment.
+        const { assignee, ...fields } = input
+        const named =
+          assignee === undefined ||
+          (personHuman(ctx) === undefined &&
+            (assignee.trim() === 'me' || assignee.trim() === attribution.onBehalfOf))
+            ? attribution.onBehalfOf
+            : await assigneeNamed(ctx, assignee)
         const created = await ctx.gitWorkflow.createAndMaybeStart(
           {
-            ...input,
+            ...fields,
             origin,
             audience,
             startedBySession,
-            ownerUserId: attribution.onBehalfOf,
+            ownerUserId: named,
             visibility: 'personal' as const,
             createdByActor: attribution.actor,
             createdByOnBehalfOf: attribution.onBehalfOf,
@@ -751,23 +1143,24 @@ const defs = {
       // M5 [spec:SP-6144]: the whole proposal SUBTREE is inert — a sub-issue
       // filed under a proposed parent cannot be started to run work under an
       // unapproved proposal, so the ancestor chain is checked, not just the row.
-      await assertNotProposedForAgent(ctx, input.id, 'start')
-      if (ctx.caller.capability.scope.kind !== 'all') {
-        for (const anc of await ctx.hierarchy.ancestorIds(input.id)) {
-          await assertNotProposedForAgent(ctx, anc, 'start work under')
-        }
-      }
-      return await ctx.withMutation(
-        input.mutationId,
-        async () =>
+      await assertStartable(ctx, input.id)
+      const gate = await workMachineGate(ctx, input.id, 'start')
+      return await ctx.withMutation(input.mutationId, async () =>
+        withWarning(
+          gate,
           await ctx.gitWorkflow.start(input.id, input.agentKind, {
             spawnedBy: ctx.spawnProvenance(),
+            ...startedOnBehalfOf(ctx),
             // Explicit per-launch choice (POD-1545); persists onto the issue profile.
             ...(input.defaultModel ? { model: input.defaultModel } : {}),
             ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
             ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
             ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+            ...(input.sessionId ? { sessionId: input.sessionId as SessionId } : {}),
+            // Launch-only (credential management §9): resolved for the starter.
+            ...(input.credential ? { credential: input.credential } : {}),
           }),
+        ),
       )
     },
   }),
@@ -775,27 +1168,64 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) =>
+      await ctx.withMutation(
+        input.patch.assignee !== undefined
+          ? memberMutationId(ctx, input.mutationId)
+          : input.mutationId,
+        async () => {
+          // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
+          // lane through MORE than `stage` — archived (dismissal), closedReason
+          // (close), parentId (no longer top-level). All of them are lifecycle
+          // moves and all take the same operator-only guard.
+          const p = input.patch
+          const movesLifecycle =
+            (p.stage != null && p.stage !== 'proposed') ||
+            p.archived !== undefined ||
+            p.closedReason !== undefined ||
+            p.parentId !== undefined
+          if (movesLifecycle) await assertNotProposedForAgent(ctx, input.id, 'promote')
+          if (p.stage === 'done' || p.closedReason !== undefined) {
+            await assertDecisionNotClosedByAgent(ctx, input.id, 'close')
+            await assertNoWorkingSessionsForAgentClose(ctx, input.id, input.confirmInterrupt)
+          }
+          if (p.type !== undefined && p.type !== 'decision') {
+            await assertDecisionNotClosedByAgent(ctx, input.id, 'retype')
+          }
+          // `assignee` is a REASSIGNMENT, not a free-text field (POD-6287): it
+          // moves the owner, with the reassignment's rules.
+          const { assignee, ...patch } = p
+          const owner = assignee === undefined ? undefined : await assigneeNamed(ctx, assignee)
+          const viewer = ctx.markerUser()
+          return await ctx.crud.update(input.id, patch, {
+            actorSessionId: ctx.caller.capability.actorSessionId,
+            ...(viewer ? { caller: viewer } : {}),
+            ...(owner ? { owner } : {}),
+            ...textAttribution(ctx),
+          })
+        },
+      ),
+  }),
+  // A task's description or brief history (POD-6289): read like the task.
+  textRevisions: def('textRevisions', {
+    kind: 'query',
+    handler: async (ctx, input) =>
+      await ctx.readIssue(
+        input.id,
+        async () => await ctx.crud.textRevisions(input.id, input.field),
+      ),
+  }),
+  // Restoring is an edit like any other (POD-6289): anyone who may edit the
+  // task may, under its revision, and it appends a revision of its own.
+  restoreTextRevision: def('restoreTextRevision', {
+    kind: 'mutation',
+    target: targetId,
+    handler: async (ctx, input) =>
       await ctx.withMutation(input.mutationId, async () => {
-        // B1/B2 [spec:SP-6144]: the update patch can move an issue out of the
-        // lane through MORE than `stage` — archived (dismissal), closedReason
-        // (close), parentId (no longer top-level). All of them are lifecycle
-        // moves and all take the same operator-only guard.
-        const p = input.patch
-        const movesLifecycle =
-          (p.stage != null && p.stage !== 'proposed') ||
-          p.archived !== undefined ||
-          p.closedReason !== undefined ||
-          p.parentId !== undefined
-        if (movesLifecycle) await assertNotProposedForAgent(ctx, input.id, 'promote')
-        if (p.stage === 'done' || p.closedReason !== undefined) {
-          await assertDecisionNotClosedByAgent(ctx, input.id, 'close')
-          await assertNoWorkingSessionsForAgentClose(ctx, input.id, input.confirmInterrupt)
-        }
-        if (p.type !== undefined && p.type !== 'decision') {
-          await assertDecisionNotClosedByAgent(ctx, input.id, 'retype')
-        }
-        return await ctx.crud.update(input.id, input.patch, {
+        const viewer = ctx.markerUser()
+        return await ctx.crud.restoreTextRevision(input.id, input.revisionId, {
           actorSessionId: ctx.caller.capability.actorSessionId,
+          ...(viewer ? { viewer, caller: viewer } : {}),
+          ...textAttribution(ctx),
         })
       }),
   }),
@@ -803,7 +1233,7 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      if (ctx.caller.capability.scope.kind !== 'all') {
+      if (!isPersonCapability(ctx.caller.capability)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'only an operator may promote a proposed issue',
@@ -831,8 +1261,9 @@ const defs = {
   attachSession: def('attachSession', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      const origin: 'human' | 'agent' =
-        ctx.caller.capability.scope.kind === 'all' ? 'human' : 'agent'
+      const origin: 'human' | 'agent' = isPersonCapability(ctx.caller.capability)
+        ? 'human'
+        : 'agent'
       // B2/M5 [spec:SP-6144]: a session may not re-home onto (or file a
       // sub-issue under) a proposed issue — the proposal subtree is inert.
       if (input.targetId != null) {
@@ -856,9 +1287,10 @@ const defs = {
       // The scope guard stays OUTSIDE the ledger, like `update`'s does: a
       // replayed archive must not be waved through on a cached receipt minted
       // when the subtree looked different (D8 re-authorizes at every apply).
+      // The archiver's own sessions go with the task, nobody else's (POD-6368).
       return await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.archive(input.id),
+        async () => await ctx.attention.archive(input.id, ctx.markerUser()),
       )
     },
   }),
@@ -884,7 +1316,9 @@ const defs = {
   action: def('action', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) => await ctx.gitWorkflow.action(input.id, input.kind),
+    // An effect record (POD-6394): every device sees it run; the reply is as
+    // before. The command never runs the git work itself (POD-6603).
+    handler: async (ctx, input) => await gitEffectsOf(ctx).run(ctx.caller, input.kind, input.id),
   }),
   // Write, not manage: heavily guarded (closed + merged + clean only), so a
   // closing agent may clean up after itself. Acts on LOCAL git state — it removes a
@@ -907,9 +1341,13 @@ const defs = {
           message: 'stopIssueSessions is not wired',
         })
       }
+      // Stopping a task stops the CALLER's sessions on it, nobody else's
+      // (POD-6287, MU-24): a person's own, or for an agent its human's.
+      const ownedBy = ctx.markerUser()
       const r = await ctx.deps.stopIssueSessions({
         issueId: input.id,
         principal: ctx.requirePrincipal(),
+        ...(ownedBy ? { ownedBy } : {}),
         ...(input.force ? { force: true } : {}),
         ...(ctx.caller.capability.actorSessionId
           ? { callerSessionId: ctx.caller.capability.actorSessionId }
@@ -931,8 +1369,8 @@ const defs = {
   integrate: def('integrate', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.gitWorkflow.integrate(input.id, ctx.requirePrincipal()),
+    // An effect record (POD-6394), like `action`.
+    handler: async (ctx, input) => await gitEffectsOf(ctx).run(ctx.caller, 'integrate', input.id),
   }),
   ship: def('ship', {
     kind: 'mutation',
@@ -981,17 +1419,34 @@ const defs = {
   addSession: def('addSession', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
-        spawnedBy: ctx.spawnProvenance(),
-        ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
-      }),
+    handler: async (ctx, input) => {
+      const gate = await workMachineGate(ctx, input.id, 'add a session to')
+      return withWarning(
+        gate,
+        await ctx.gitWorkflow.addSession(input.id, input.agentKind, {
+          spawnedBy: ctx.spawnProvenance(),
+          ...startedOnBehalfOf(ctx),
+          ...(input.sessionId ? { sessionId: input.sessionId as SessionId } : {}),
+          ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
+          ...(input.credential ? { credential: input.credential } : {}),
+        }),
+      )
+    },
   }),
   addShell: def('addShell', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.gitWorkflow.addShell(input.id, { spawnedBy: ctx.spawnProvenance() }),
+    handler: async (ctx, input) => {
+      const gate = await workMachineGate(ctx, input.id, 'add a shell to')
+      return withWarning(
+        gate,
+        await ctx.gitWorkflow.addShell(input.id, {
+          spawnedBy: ctx.spawnProvenance(),
+          ...startedOnBehalfOf(ctx),
+          ...(input.sessionId ? { sessionId: input.sessionId as SessionId } : {}),
+        }),
+      )
+    },
   }),
   applySuggestion: def('applySuggestion', {
     kind: 'mutation',
@@ -1019,7 +1474,7 @@ const defs = {
       // createLabels; the operator creates-or-picks.
       await ctx.crud.refuseUnknownLabels(
         input.labels,
-        ctx.caller.capability.scope.kind === 'all' || input.createLabels === true,
+        isPersonCapability(ctx.caller.capability) || input.createLabels === true,
       )
       return await ctx.withMutation(
         input.mutationId,
@@ -1027,24 +1482,19 @@ const defs = {
       )
     },
   }),
+  // Tasks are visible to all members (design §2.2, §4.1, POD-6288): there is
+  // no per-task grant to write or remove, and existing issue grants are inert
+  // history. Both commands answer that, after the usual checks, and write
+  // nothing.
   share: def('share', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) =>
-      await ctx.crud.share(
-        input.id,
-        input.grantee,
-        input.verb,
-        await ctx.ownerAttribution(input.id),
-      ),
+    handler: async (ctx, input) => await refuseTaskSharing(ctx, input.id),
   }),
   unshare: def('unshare', {
     kind: 'mutation',
     target: targetId,
-    handler: async (ctx, input) => {
-      await ctx.ownerAttribution(input.id)
-      return await ctx.crud.unshare(input.id, input.grantee, input.verb)
-    },
+    handler: async (ctx, input) => await refuseTaskSharing(ctx, input.id),
   }),
   addComment: def('addComment', {
     kind: 'mutation',
@@ -1054,6 +1504,33 @@ const defs = {
         input.mutationId,
         async () =>
           await ctx.commentsMail.addCallerComment(input.id, input.body, ctx.requirePrincipal()),
+      ),
+  }),
+  // Only a comment's author edits or deletes it; an admin may moderate,
+  // audited, and the comment keeps its author (POD-6289).
+  editComment: def('editComment', {
+    kind: 'mutation',
+    target: targetId,
+    handler: async (ctx, input) =>
+      await ctx.withMutation(
+        input.mutationId,
+        async () =>
+          await ctx.commentsMail.editComment(
+            input.id,
+            input.commentId,
+            input.body,
+            ctx.requirePrincipal(),
+          ),
+      ),
+  }),
+  deleteComment: def('deleteComment', {
+    kind: 'mutation',
+    target: targetId,
+    handler: async (ctx, input) =>
+      await ctx.withMutation(
+        input.mutationId,
+        async () =>
+          await ctx.commentsMail.deleteComment(input.id, input.commentId, ctx.requirePrincipal()),
       ),
   }),
   depAdd: def('depAdd', {
@@ -1101,7 +1578,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.markIssueRead(input.id, input.readAt),
+        async () => await ctx.attention.markIssueRead(input.id, input.readAt, ctx.markerUser()),
       ),
   }),
   // Mark an issue UNREAD again (issue #138): clear read_at, flipping derived
@@ -1111,7 +1588,7 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.markIssueUnread(input.id),
+        async () => await ctx.attention.markIssueUnread(input.id, ctx.markerUser()),
       ),
   }),
   // Tuck a finished issue into the sidebar's Closed fold, or bring it back
@@ -1122,8 +1599,44 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.withMutation(
         input.mutationId,
-        async () => await ctx.attention.setIssueTucked(input.id, input.tucked),
+        async () => await ctx.attention.setIssueTucked(input.id, input.tucked, ctx.markerUser()),
       ),
+  }),
+  // PERSONAL RECORDS (POD-6290): join a task you can read. It enters your own
+  // sidebar set and you become a collaborator; nothing else changes and no
+  // access follows. An agent joining records its human's, as the agent's.
+  join: def('join', {
+    kind: 'mutation',
+    handler: async (ctx, input) =>
+      await ctx.withMutation(
+        input.mutationId,
+        async () =>
+          await ctx.readIssue(
+            input.id,
+            async () =>
+              await ctx.attention.joinIssue(
+                input.id,
+                ctx.requireMarkerUser(),
+                ctx.caller.principal?.kind === 'agent' ? 'agent' : 'join',
+              ),
+          ),
+      ),
+  }),
+  // Remove your own "assigned to you by X" row (POD-6290). The task stays
+  // assigned to you, and your start or join record, if any, stays.
+  dismissAssignment: def('dismissAssignment', {
+    kind: 'mutation',
+    handler: async (ctx, input) =>
+      await ctx.withMutation(
+        input.mutationId,
+        async () => await ctx.attention.dismissAssignment(input.id, ctx.requireMarkerUser()),
+      ),
+  }),
+  // A task's collaborators (POD-6290): read like the task.
+  collaborators: def('collaborators', {
+    kind: 'query',
+    handler: async (ctx, input) =>
+      await ctx.readIssue(input.id, async () => await ctx.attention.collaborators(input.id)),
   }),
   setNeedsHuman: def('setNeedsHuman', {
     kind: 'mutation',
@@ -1142,7 +1655,7 @@ const defs = {
       // check protects, and the forwarded-node path depends on it.
       const actor = ctx.caller.capability.actorSessionId
       const askedBy = input.askedBy ?? actor
-      if (askedBy && ctx.caller.capability.scope.kind !== 'all' && askedBy !== actor) {
+      if (askedBy && !isPersonCapability(ctx.caller.capability) && askedBy !== actor) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message:
@@ -1173,7 +1686,8 @@ const defs = {
    *  or dead session never silently drops the question. */
   answerQuestion: def('answerQuestion', {
     kind: 'mutation',
-    target: targetId,
+    // No task target (POD-6283): the gate is the ASKING session's owner, decided
+    // by `answerSessionQuestion` before anything is typed into it.
     handler: async (ctx, input) => {
       const issue = await ctx.reports.getMeta(input.id)
       if (!issue) {
@@ -1199,6 +1713,7 @@ const defs = {
         })
       }
       const r = await ctx.deps.answerSessionQuestion(
+        ctx.writer,
         issue.humanQuestionAskedBy,
         input.answer,
         ctx.caller,
@@ -1255,7 +1770,7 @@ const defs = {
     kind: 'mutation',
     target: targetId,
     handler: async (ctx, input) => {
-      if (ctx.caller.capability.scope.kind !== 'all') {
+      if (!isPersonCapability(ctx.caller.capability)) {
         throw new TRPCError({
           code: 'FORBIDDEN',
           message: 'only an operator may decide where discovered work lives',
@@ -1294,11 +1809,19 @@ const defs = {
     handler: async (ctx, input) => {
       await assertNotProposedForAgent(ctx, input.id, 'claim')
       const actorSessionId = ctx.caller.capability.actorSessionId
-      return await ctx.crud.claim(
-        input.id,
-        input.assignee,
-        actorSessionId ? { actorSessionId } : undefined,
-      )
+      // An AGENT's claim starts work and leaves the assignee alone, whatever it
+      // names (POD-6287): agents never change the human assignee, and
+      // `claim --assignee me` is every agent's habit. A PERSON's claim names
+      // the assignee, `me` by default.
+      const person = personHuman(ctx)
+      const owner =
+        person === undefined ? undefined : await assigneeNamed(ctx, input.assignee ?? 'me')
+      const caller = ctx.markerUser()
+      return await ctx.crud.claim(input.id, {
+        ...(actorSessionId ? { actorSessionId } : {}),
+        ...(owner ? { owner } : {}),
+        ...(caller ? { caller, participation: person === undefined ? 'agent' : 'join' } : {}),
+      })
     },
   }),
   /** Claim / set / clear the issue's designated coordinator session
@@ -1326,6 +1849,7 @@ const defs = {
           message: 'pass claim:true, sessionId:<id>, or sessionId:null to clear',
         })
       }
+      await assertOwnCoordinatorSeat(ctx, input.id, sessionId)
       return await ctx.crud.setCoordinator(input.id, sessionId)
     },
   }),
@@ -1343,8 +1867,10 @@ const defs = {
       return await ctx.withMutation(input.mutationId, async () => {
         const before = declined ? await ctx.reports.get(input.id) : null
         const wasOpen = before != null && !isIssueClosed(before)
+        const caller = ctx.markerUser()
         const closed = await ctx.crud.close(input.id, declined ? 'cancelled' : input.reason, {
           actorSessionId: ctx.caller.capability.actorSessionId,
+          ...(caller ? { caller } : {}),
         })
         return wasOpen
           ? await ctx.commentsMail.addCallerComment(input.id, 'Declined.', ctx.requirePrincipal())
@@ -1391,10 +1917,13 @@ const defs = {
       // The one send path (POD-4846): there is no second, direct mailbox write.
       const send = ctx.deps.sendMessage
       if (!send) throw new Error('mail sending is not wired on this server')
-      const r = await send(ctx.messageSender(), {
+      const r = await send(ctx.writer, ctx.messageSender(), {
         to: { kind: 'issue', id: input.id },
         body: input.body,
         ...(input.messageId ? { messageId: input.messageId } : {}),
+        // On the sync write entry point (POD-6525) an address that can never be
+        // delivered to is answered with its dead letter in the write.
+        terminalInUnit: true,
       })
       // Surface the honest disposition (#834): held / dead_letter must never be a
       // bare success. The old code discarded r.ok/queued/reason and returned only
@@ -1424,24 +1953,7 @@ const defs = {
   // a 'read' — mailbox bookkeeping, not issue mutation. Viewers may check mail.
   mailInbox: def('mailInbox', {
     kind: 'mutation',
-    handler: async (ctx, input) => {
-      const id = ctx.mailOwnIssue(input?.id)
-      // Only the recipient consumes unread status: an agent reading its own
-      // mailbox (scope root = the issue). Operator/other-agent peeks must not
-      // mark mail read, or delivery to the real recipient is suppressed.
-      const markRead =
-        ctx.caller.capability.scope.kind === 'subtree' &&
-        (await ctx.reports.resolveRef(id)) === ctx.caller.capability.scope.rootId
-      // WHICH session is reading [POD-1379]: the mailbox is shared by every
-      // agent on the issue, so the read is consumed per reader. Server-stamped
-      // from the caller (mailIdentity pattern); client input never contributes.
-      return await ctx.commentsMail.mailInbox(asIssueId(id), {
-        markRead,
-        ...(ctx.caller.capability.actorSessionId
-          ? { sessionId: ctx.caller.capability.actorSessionId }
-          : {}),
-      })
-    },
+    handler: async (ctx, input) => await readMailInbox(ctx, input?.id, { consume: true }),
   }),
   // Write, scoped to the caller's own subtree; the target issue lives behind the
   // MESSAGE id, which a pure input extractor cannot resolve — `target` returns
@@ -1523,20 +2035,35 @@ const defs = {
   subscriptionAdd: def('subscriptionAdd', {
     kind: 'mutation',
     handler: async (ctx, input) => {
-      // Operator (scope 'all') may create a subscription for an explicit subscriber
-      // (#129 Phase C — the Automations UI); constrained agents always subscribe
-      // THEMSELVES, so an agent-supplied subscriber is ignored, not an error.
-      const subscriber =
-        input.subscriber && ctx.caller.capability.scope.kind === 'all'
-          ? input.subscriber
-          : ctx.deriveSubscriber()
-      // Constrained callers may only watch a source WITHIN their subtree; the
-      // operator (scope 'all') is unconstrained. Relationship sources resolve
-      // dynamically against the subscriber's own subtree, so they are always in-scope.
-      if (ctx.caller.capability.scope.kind !== 'all' && input.source.kind !== 'relationship') {
-        await ctx.assertSourceInSubtree(input.source)
+      // A PERSON names the subscriber (#129 Phase C — the Automations UI), but
+      // only one of their own: a session they own or a task assigned to them.
+      // Subscriptions are per-user state and a nudge drives the subscriber's
+      // agent, so nobody subscribes another member's session, admins included
+      // (design §4.1, POD-6288). Agents always subscribe THEMSELVES, so an
+      // agent-supplied subscriber is ignored, not an error.
+      const human = personHuman(ctx)
+      let subscriber: { kind: 'session' | 'issue'; id: string }
+      if (human !== undefined && input.subscriber) {
+        subscriber = await ownSubscriberOrRefuse(ctx, input.subscriber, human)
+        // A person watches any task (tasks are shared) but only their own
+        // sessions: another member's session events are private.
+        if (
+          input.source.kind === 'session' &&
+          !(await sessionOwnedBy(ctx, input.source.ref, human))
+        ) {
+          throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'you may watch only your own sessions',
+          })
+        }
+      } else {
+        subscriber = ctx.deriveSubscriber()
+        // Constrained callers may only watch a source WITHIN their subtree.
+        // Relationship sources resolve dynamically against the subscriber's own
+        // subtree, so they are always in-scope.
+        if (input.source.kind !== 'relationship') await ctx.assertSourceInSubtree(input.source)
       }
-      return await ctx.attention.subscriptionAdd({
+      return await ctx.attention.subscriptionAdd(ctx.writer, {
         subscriberKind: subscriber.kind,
         subscriberId: subscriber.id,
         event: input.event,
@@ -1547,57 +2074,18 @@ const defs = {
       })
     },
   }),
-  subscriptionRemove: def('subscriptionRemove', {
-    kind: 'mutation',
-    handler: async (ctx, input) => {
-      // Constrained callers may only remove their OWN subscriptions.
-      if (ctx.caller.capability.scope.kind !== 'all') {
-        const subscriber = ctx.deriveSubscriber()
-        const owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
-          (s) => s.id === input.id,
-        )
-        if (!owned) {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'not allowed to remove a subscription you do not own',
-          })
-        }
-      }
-      return await ctx.attention.subscriptionRemove(input.id)
-    },
-  }),
-  /** Toggle a subscription on/off (#129 Phase C, Automations UI). Custom
-   *  subscriptions only affect the additive dispatcher pass, so disabling one never
-   *  touches the built-in handlers — safe and reversible. */
-  subscriptionSetEnabled: def('subscriptionSetEnabled', {
-    kind: 'mutation',
-    handler: async (ctx, input) => {
-      // Constrained callers may only toggle their OWN subscriptions.
-      if (ctx.caller.capability.scope.kind !== 'all') {
-        const subscriber = ctx.deriveSubscriber()
-        const owned = (await ctx.attention.subscriptionList({ subscriberId: subscriber.id })).some(
-          (s) => s.id === input.id,
-        )
-        if (!owned) {
-          throw new TRPCError({
-            code: 'FORBIDDEN',
-            message: 'not allowed to toggle a subscription you do not own',
-          })
-        }
-      }
-      return ctx.attention.subscriptionSetEnabled(input.id, input.enabled)
-    },
-  }),
+  // `subscriptionRemove` and `subscriptionSetEnabled` are the synced record's
+  // generic edits since POD-6676 (`records.subscription.*`,
+  // `subscription-record.ts`), under the same own-subscriber rule.
   subscriptionList: def('subscriptionList', {
     kind: 'query',
     // The input is optional, so `query()` (no args) stays valid on every client.
     handler: async (ctx, input) => {
-      // Operator sees every subscription, one keyset page at a time (POD-6208;
-      // the first page when it names none, POD-6209). A constrained caller sees
-      // only its own.
-      if (ctx.caller.capability.scope.kind === 'all') {
-        return await ctx.attention.subscriptionPage(input ?? {})
-      }
+      // A person sees their own subscriptions, one keyset page at a time
+      // (POD-6208; the first page when it names none, POD-6209; narrowed to
+      // their own by POD-6288). An agent sees its own.
+      const human = personHuman(ctx)
+      if (human !== undefined) return await ctx.attention.subscriptionOwnPage(human, input ?? {})
       const subscriber = ctx.deriveSubscriber()
       return await ctx.attention.subscriptionList({ subscriberId: subscriber.id })
     },
@@ -1633,8 +2121,12 @@ export async function guardIssueCommand(
   def: Pick<AnyIssueCommandDef, 'action' | 'target'>,
   rawInput: unknown,
 ): Promise<void> {
-  // Target extraction: only for constrained caps writing an existing target issue.
-  const extract = caller.capability.scope.kind !== 'all' ? def.target : undefined
+  // Target extraction: only for constrained caps writing an existing target
+  // issue. A member's own scope (a person's, or a legacy persisted `all`)
+  // reaches every task (design §4.1, POD-6288), so its target decides nothing.
+  const memberScope =
+    caller.capability.scope.kind === 'owned' || caller.capability.scope.kind === 'all'
+  const extract = memberScope ? undefined : def.target
   let targetId: string | undefined
   if (extract) {
     const rawTarget = extract((rawInput ?? {}) as Record<string, unknown>)
@@ -1652,4 +2144,51 @@ export async function guardIssueCommand(
   }
   // The shared decision + throw shape (#25) — also used by the in-handler mailClaim gate.
   await checkIssueAccess(caller, reports, name, def.action, targetId)
+}
+
+/**
+ * An issue mailbox as `issues.mailInbox` answers it. `consume` is the command's
+ * own read; without it the read writes nothing, which is how a replay rebuilds
+ * the answer from its receipt's digest (POD-7035, `receipt-digest.ts`).
+ */
+export async function readMailInbox(
+  ctx: IssueCommandCtx,
+  ref: string | undefined,
+  opts: { consume: boolean },
+): Promise<Array<IssueMessageRow & { wasUnread: boolean }>> {
+  const id = ctx.mailOwnIssue(ref)
+  // Only the recipient consumes unread status: an agent reading its own
+  // mailbox (scope root = the issue). Operator/other-agent peeks must not
+  // mark mail read, or delivery to the real recipient is suppressed.
+  const markRead =
+    opts.consume &&
+    ctx.caller.capability.scope.kind === 'subtree' &&
+    (await ctx.reports.resolveRef(id)) === ctx.caller.capability.scope.rootId
+  // WHICH session is reading [POD-1379]: the mailbox is shared by every
+  // agent on the issue, so the read is consumed per reader. Server-stamped
+  // from the caller (mailIdentity pattern); client input never contributes.
+  const member = ctx.markerUser()
+  const rows = await ctx.commentsMail.mailInbox(asIssueId(id), {
+    markRead,
+    ...(ctx.caller.capability.actorSessionId
+      ? { sessionId: ctx.caller.capability.actorSessionId }
+      : {}),
+    // The reading agent's human (POD-6291): their read marker, nobody else's.
+    ...(member ? { member } : {}),
+  })
+  // MAIL IS PRIVATE (POD-6284, POD-6288). An agent reads its own subtree's
+  // boxes whole; anyone else, a person included, sees only the rows the mail
+  // read rule gives them, the same as show, status, the ledger and inbox.
+  const scope = ctx.caller.capability.scope
+  const resolved = await ctx.reports.resolveRef(id)
+  const inSubtree =
+    scope.kind === 'subtree' &&
+    (scope.rootId === resolved ||
+      (await ctx.hierarchy.ancestorIds(resolved)).includes(scope.rootId))
+  if (inSubtree || !ctx.deps.mailVisibleIds) return rows
+  const visible = await ctx.deps.mailVisibleIds(
+    ctx.caller.capability,
+    rows.map((row) => row.id),
+  )
+  return rows.filter((row) => visible.has(row.id))
 }

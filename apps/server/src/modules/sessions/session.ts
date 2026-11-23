@@ -1,26 +1,36 @@
 import { createLogger } from '@podium/logger'
-import {
-  type AccountId,
-  type AgentKind,
-  type AgentRuntimeState,
-  type Attribution,
-  type ConversationId,
-  type Geometry,
-  type HarnessAgent,
-  type IssueId,
-  type MachineId,
-  type ResumeRef,
-  type SessionId,
-  type SessionMeta,
-  type SessionOffer,
-  type SessionOrigin,
-  type UserId,
-  type WorkState,
+import type {
+  AccountId,
+  AgentKind,
+  AgentRuntimeState,
+  Attribution,
+  ConversationId,
+  CredentialId,
+  CredentialMismatch,
+  EffectiveAuth,
+  Geometry,
+  HarnessAgent,
+  IssueId,
+  LaunchPostureReport,
+  MachineId,
+  ResumeRef,
+  SessionId,
+  SessionMeta,
+  SessionOffer,
+  SessionOrigin,
+  UserId,
+  WorkState,
 } from '@podium/model'
 import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { driverFamilyForId } from '../../harness-manifest'
-import type { ConversationBinding, SessionRow } from '../../store'
+import type {
+  ConversationBinding,
+  SessionDriverCapabilities,
+  SessionLifecycleRow,
+  SessionRow,
+} from '../../store'
+import { NO_LIFECYCLE } from '../../store/types'
 import {
   applyObservationCheckpointTo,
   durableStateFromInit,
@@ -36,7 +46,6 @@ import { SessionTerminal } from './terminal'
 import { turnPreviewEnabled } from './turn-preview-flag'
 
 const log = createLogger('server:sessions')
-
 
 export type Send<T> = (msg: T) => void
 
@@ -66,7 +75,10 @@ export interface SessionInit {
    *  nobody has changed anything yet. */
   requestedModel?: string
   requestedEffort?: string
+  effectiveAuth?: EffectiveAuth
+  credentialMismatch?: CredentialMismatch
   accountId?: AccountId
+  credentialId?: CredentialId
   /** Native harness whose interactive login owns this shell, when applicable. */
   loginHarness?: HarnessAgent
   origin: SessionOrigin
@@ -96,7 +108,10 @@ export interface SessionInit {
   lastOutputAt?: string | null
   lastInputAt?: string | null
   lastResumedAt?: string | null
-  status?: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+  status?: 'starting' | 'live' | 'hibernated' | 'exited'
+  /** A boot restore of a running row: no daemon has bound it since the restart
+   *  ({@link Session.awaitingRebind}). */
+  awaitingRebind?: boolean
   exitCode?: number
   spawnFailure?: string
   name?: string
@@ -120,6 +135,18 @@ export interface SessionInit {
   requestedDriverId?: string
   /** The driver a daemon last bound, restored from the row (POD-6160 D2g). */
   boundDriverId?: string
+  boundDriverCapabilities?: SessionDriverCapabilities
+  /** Restored from the row (POD-6764): what a daemon last reported and the
+   *  transcript tail last showed, and a move still in flight. */
+  draftSyncEngine?: boolean
+  agentState?: AgentRuntimeState
+  agentColor?: string
+  observedModel?: string
+  observedEffort?: string
+  /** The harness-reported mode and the last launch's applied terms (POD-6858). */
+  observedMode?: string
+  launchPosture?: LaunchPostureReport
+  handoffTargetMachineId?: MachineId
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: IssueId
   /** Birth-issue nice-name fields (#474). Absent = not yet named. */
@@ -136,6 +163,8 @@ export interface SessionInit {
   stopReason?: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | null
   /** Event time of the last kernel OOM kill observed in this session's scope. */
   oomKilledAt?: string | null
+  /** The lifecycle as desired state (POD-6356); absent = nothing recorded. */
+  lifecycle?: SessionLifecycleRow
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
@@ -176,12 +205,13 @@ export type SessionDurableFields = Omit<SessionDurableState, 'terminal'>
 /** Mutable metadata covered by draft installation and rollback.
  * Row launch identity (model, effort, accountId, loginHarness, workflowRunId,
  * workflowStepId, agentProfileId) is readonly and constructor-only.
- * Transient driver handles and capabilities are not row columns. */
+ * Live driver handles stay transient; their last reported facts are durable. */
 export interface SessionDurableState {
   selectedDriverId: string | undefined
   requestedDriverId: string | undefined
   /** The driver a daemon last bound (durable twin of the transient `driverId`). */
   boundDriverId: string | undefined
+  boundDriverCapabilities: SessionDriverCapabilities | undefined
   cwd: string
   issueId: IssueId | undefined
   refIssueId: IssueId | null
@@ -200,8 +230,11 @@ export interface SessionDurableState {
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
   oomKilledAt: string | undefined
   workState: WorkState | undefined
+  /** Desired state, spec revision and the controller's acknowledgement
+   *  (POD-6356). Replaced whole on every change, never mutated in place. */
+  lifecycle: SessionLifecycleRow
   cmd: string
-  status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+  status: 'starting' | 'live' | 'hibernated' | 'exited'
   exitCode: number | undefined
   spawnFailure: string | undefined
   agentState: AgentRuntimeState | undefined
@@ -210,9 +243,17 @@ export interface SessionDurableState {
   agentColor: string | undefined
   observedModel: string | undefined
   observedEffort: string | undefined
+  observedMode: string | undefined
+  launchPosture: LaunchPostureReport | undefined
   requestedModel: string | undefined
   requestedEffort: string | undefined
-  contextUsagePercent: number | undefined
+  effectiveAuth: EffectiveAuth | undefined
+  credentialMismatch: CredentialMismatch | undefined
+  /** The credential the session runs on; a switch changes it (credential management §9). */
+  credentialId: CredentialId | undefined
+  /** Whether the daemon runs the composer engine for this session, as its last
+   *  bind reported (POD-859). Stored with the binding (POD-6764). */
+  draftSyncEngine: boolean
   handoffTargetMachineId: MachineId | undefined
   conversationPodiumId: ConversationId | undefined
   draftUpdatedAt: string | undefined
@@ -242,6 +283,9 @@ export class Session {
   readonly model: string | undefined
   readonly effort: string | undefined
   readonly accountId: AccountId | undefined
+  /** The credential the session runs on; absent: none (the harness login), or a legacy `accountId`.
+   *  Durable, not identity: `sessions.switchCredential` changes it (§9). */
+  credentialId: CredentialId | undefined
   /** Durable purpose marker: login shells must outlive ordinary idle-shell reaping. */
   readonly loginHarness: HarnessAgent | undefined
   /** Workflow pass-through metadata (#285) — immutable, uninterpreted. */
@@ -356,8 +400,9 @@ export class Session {
    */
   oomKilledAt: string | undefined
   workState: WorkState | undefined
+  lifecycle: SessionLifecycleRow = NO_LIFECYCLE
   cmd = ''
-  status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
+  status: 'starting' | 'live' | 'hibernated' | 'exited' = 'starting'
   exitCode: number | undefined
   /** Exact daemon diagnosis when a spawn never reached a running process. */
   spawnFailure: string | undefined
@@ -380,13 +425,31 @@ export class Session {
   /** The effort tier OBSERVED on assistant turns (transcript top-level `effort`),
    *  learned alongside observedModel. */
   observedEffort: string | undefined
+  /** The permission mode the HARNESS reports it is in (POD-6858 Task 11),
+   *  learned from its own records. Stored, like the observed model. */
+  observedMode: string | undefined
+  /** What the last launch asked for and could not meet, as the daemon reported
+   *  it before the process started (POD-6858 Task 11). Stored: it describes
+   *  the session until it launches again. */
+  launchPosture: LaunchPostureReport | undefined
   /** The model/effort this session was last ASKED for through `sessions.configure`
    *  (POD-3081). Undefined until someone changes it, and then the launch pair
    *  above is still the record of how it started — see `SessionLiveOverlay`. */
   requestedModel: string | undefined
   requestedEffort: string | undefined
-  /** Latest exact harness-reported context-window usage, if this harness exposes it. */
-  contextUsagePercent: number | undefined
+  /** What the harness reported it authenticated with after its last start
+   *  (credential management §9 "Launching"). Persisted: a parked session keeps
+   *  showing what it last ran on. */
+  effectiveAuth: EffectiveAuth | undefined
+  /** Set while the harness answers on another identity than `credentialId`. */
+  credentialMismatch: CredentialMismatch | undefined
+  /**
+   * Latest exact harness-reported context-window usage, if this harness exposes
+   * it. A LIVE reading (POD-6764): never stored and never on the record; it
+   * goes out on the `session.condition` topic and is re-learned from the
+   * transcript tail after a restart.
+   */
+  contextUsagePercent: number | undefined = undefined
   /** Transient UI overlay while the canonical row moves machines ([spec:SP-3f7a]). */
   handoffTargetMachineId: MachineId | undefined
   /** Stable Podium conversation identity (conversation registry). Stamped by the
@@ -399,8 +462,9 @@ export class Session {
    *  and lift the session in NEEDS YOUR ATTENTION by when its prompt was edited. */
   draftUpdatedAt: string | undefined = undefined
   /** Draft Sync v2 (POD-859): true when this session's daemon runs the composer
-   *  scrape/inject engine (reported on bind). Transient — not persisted; re-set on
-   *  every (re)bind. Surfaced in toMeta so a client retires its own sampler/flush. */
+   *  scrape/inject engine (reported on bind). Stored with the binding
+   *  (POD-6764) and re-stated by every (re)bind. Surfaced in toMeta so a client
+   *  retires its own sampler/flush. */
   draftSyncEngine = false
   /**
    * HAS A BOUND DRIVER (POD-1761 W4, renamed POD-4440): true when this
@@ -425,6 +489,18 @@ export class Session {
    * keeping it would read as though that gate survived.
    */
   hasBoundDriver = false
+  /**
+   * NO DAEMON HOLDS THIS RUNNING SESSION'S PTY BRIDGE RIGHT NOW: its daemon went
+   * away, or the server restarted, and no reattach has bound it since. The next
+   * daemon to attach probes exactly these rows ({@link SessionMachineReconciler}),
+   * and the bind ({@link markLive}) clears it.
+   *
+   * SERVER-ONLY, never stored and never on the wire (ADR 12 D1, POD-6646). The
+   * status stays `live`/`starting`: the agent is still meant to run. What a
+   * reader shows as reconnecting is the machine's live connection, derived by
+   * `isSessionReconnecting`, not this flag.
+   */
+  awaitingRebind = false
   /** Runtime driver actually bound by the daemon. Transient like
    * `hasBoundDriver`: the live handle owns this fact, so it is re-established
    * by every bind and is never reconstructed from the spawn request. */
@@ -446,18 +522,19 @@ export class Session {
   /**
    * THE DRIVER A DAEMON LAST BOUND, DURABLY (POD-6160 D2g). `driverId` above is
    * the live handle and dies with the process (and with eviction and restart);
-   * this is the measured binding the row keeps, for the one decision that must
-   * not depend on residency: whether a parked-but-alive row may be revived.
+   * this is the measured binding the row keeps for publication and for deciding
+   * whether a parked-but-alive row may be revived.
    */
   boundDriverId: string | undefined = undefined
+  /** The daemon's capability report belongs to the measured binding, not server residency. */
+  boundDriverCapabilities: SessionDriverCapabilities | undefined = undefined
   /**
    * WHAT THIS SESSION'S LIVE DRIVER CAN CHANGE ON A RUNNING SESSION (POD-3087),
    * as its `configure.fields` declare — reported by the daemon on bind.
    *
-   * TRANSIENT, EXACTLY LIKE `driverId`, and for the same reason stated a
-   * different way: this describes a LIVE HANDLE, and a value that outlived the
-   * process that made it would offer a model control for a driver that is gone.
-   * Re-established by every bind.
+   * These fields describe the live handle and are re-established by every bind.
+   * The last report is also retained in `boundDriverCapabilities`, so restoring
+   * a server-side session does not erase the unchanged daemon's capabilities.
    *
    * UNDEFINED vs EMPTY is the distinction consumers must keep. Undefined = we
    * have not been told (an older daemon, or a row that has not bound yet), so a
@@ -529,6 +606,7 @@ export class Session {
     this.selectedDriverId = d.selectedDriverId
     this.requestedDriverId = d.requestedDriverId
     this.boundDriverId = d.boundDriverId
+    this.boundDriverCapabilities = d.boundDriverCapabilities
     this.cwd = d.cwd
     this.issueId = d.issueId
     this.refIssueId = d.refIssueId
@@ -546,12 +624,26 @@ export class Session {
     this.stopReason = d.stopReason
     this.oomKilledAt = d.oomKilledAt
     this.workState = d.workState
+    this.lifecycle = d.lifecycle
     this.status = d.status
+    this.awaitingRebind =
+      init.awaitingRebind === true && (d.status === 'live' || d.status === 'starting')
     this.exitCode = d.exitCode
     this.spawnFailure = d.spawnFailure
     this.workingMsTotal = d.workingMsTotal
     this.requestedModel = d.requestedModel
     this.requestedEffort = d.requestedEffort
+    this.agentState = d.agentState
+    this.agentColor = d.agentColor
+    this.observedModel = d.observedModel
+    this.observedEffort = d.observedEffort
+    this.observedMode = d.observedMode
+    this.launchPosture = d.launchPosture
+    this.draftSyncEngine = d.draftSyncEngine
+    this.handoffTargetMachineId = d.handoffTargetMachineId
+    this.effectiveAuth = d.effectiveAuth
+    this.credentialMismatch = d.credentialMismatch
+    this.credentialId = d.credentialId
     this.onUnreadRearm = init.onUnreadRearm
   }
 
@@ -658,6 +750,7 @@ export class Session {
     // exited row as a driver family that never ran.
     d.selectedDriverId = undefined
     d.boundDriverId = undefined
+    d.boundDriverCapabilities = undefined
     this.driverId = undefined
     // …and the capability that came with the handle. Same reason: an exited row
     // must not describe what a driver that never ran could have changed.
@@ -761,6 +854,36 @@ export class Session {
     return true
   }
 
+  /** Adopt the permission mode the harness reports it is in (POD-6858 Task 11).
+   *  Returns true when it actually changed. */
+  setObservedMode(mode: string, d: SessionDurableFields = this): boolean {
+    const next = mode.trim()
+    if (!next || next === d.observedMode) return false
+    d.observedMode = next
+    return true
+  }
+
+  /**
+   * Adopt a launch's applied terms (POD-6858 Task 11), or drop the previous
+   * launch's with `undefined` when a new launch decision is announced. A new
+   * launch also forgets the mode the old process reported. Returns true when
+   * anything changed.
+   */
+  setLaunchPosture(
+    report: LaunchPostureReport | undefined,
+    d: SessionDurableFields = this,
+  ): boolean {
+    if (report === undefined) {
+      if (d.launchPosture === undefined && d.observedMode === undefined) return false
+      d.launchPosture = undefined
+      d.observedMode = undefined
+      return true
+    }
+    if (JSON.stringify(report) === JSON.stringify(d.launchPosture)) return false
+    d.launchPosture = structuredClone(report)
+    return true
+  }
+
   /**
    * Record a sticky change the DRIVER GRANTED (POD-3081). Returns true when it
    * actually moved, so the caller can skip a redundant broadcast.
@@ -787,11 +910,32 @@ export class Session {
     return true
   }
 
-  setContextUsagePercent(percent: number, d: SessionDurableFields = this): boolean {
+  /**
+   * Adopt what the harness reported it authenticated with, and whether that
+   * disagrees with the session's credential (credential management §9). A
+   * report that agrees clears an earlier mismatch. Returns true when either
+   * actually changed.
+   */
+  setEffectiveAuth(
+    auth: EffectiveAuth,
+    mismatch: CredentialMismatch | undefined,
+    d: SessionDurableFields = this,
+  ): boolean {
+    const same =
+      JSON.stringify(auth) === JSON.stringify(d.effectiveAuth) &&
+      JSON.stringify(mismatch) === JSON.stringify(d.credentialMismatch)
+    if (same) return false
+    d.effectiveAuth = structuredClone(auth)
+    d.credentialMismatch = mismatch ? structuredClone(mismatch) : undefined
+    return true
+  }
+
+  /** A live reading, set on the session itself: there is no row to write. */
+  setContextUsagePercent(percent: number): boolean {
     if (!Number.isFinite(percent)) return false
     const next = Math.min(100, Math.max(0, percent))
-    if (next === d.contextUsagePercent) return false
-    d.contextUsagePercent = next
+    if (next === this.contextUsagePercent) return false
+    this.contextUsagePercent = next
     return true
   }
 
@@ -814,10 +958,11 @@ export class Session {
     // marked exited — its attach client died on a daemon restart while the agent
     // survived in its scope. The live master is authoritative, so clear the stale
     // exit and bring the session back.
-    if (d.status === 'starting' || d.status === 'reconnecting' || d.status === 'exited') {
+    if (d.status === 'starting' || d.status === 'exited') {
       d.status = 'live'
       d.exitCode = undefined
     }
+    this.awaitingRebind = false
     // THE BIND IS A FULL STATEMENT from the daemon (POD-4771, design rev 3):
     // its size, when it carries one, is the kernel's, read by the host. The
     // terminal writes it (broadcasting only a change), resets what it last
@@ -829,13 +974,14 @@ export class Session {
 
   /**
    * The daemon holding this session's PTY bridge went away (daemon restart/crash —
-   * the durable master survives in its own scope). Drop a live/starting session to
-   * 'reconnecting' so the next daemon to attach re-binds it (markLive brings it back
-   * on the resulting bind). Returns true if the status changed.
+   * the durable master survives in its own scope). Mark a live/starting session
+   * {@link awaitingRebind} so the next daemon to attach re-binds it (markLive
+   * clears it on the resulting bind). The status does not change. Returns true
+   * if the session was marked.
    */
-  markReconnecting(d: SessionDurableFields = this): boolean {
-    if (d.status === 'live' || d.status === 'starting') {
-      d.status = 'reconnecting'
+  markAwaitingRebind(): boolean {
+    if (this.status === 'live' || this.status === 'starting') {
+      this.awaitingRebind = true
       return true
     }
     return false
@@ -848,6 +994,7 @@ export class Session {
       selectedDriverId: this.selectedDriverId,
       requestedDriverId: this.requestedDriverId,
       boundDriverId: this.boundDriverId,
+      boundDriverCapabilities: this.boundDriverCapabilities,
       cwd: this.cwd,
       issueId: this.issueId,
       refIssueId: this.refIssueId,
@@ -866,6 +1013,7 @@ export class Session {
       stopReason: this.stopReason,
       oomKilledAt: this.oomKilledAt,
       workState: this.workState,
+      lifecycle: this.lifecycle,
       cmd: this.cmd,
       status: this.status,
       exitCode: this.exitCode,
@@ -876,9 +1024,16 @@ export class Session {
       agentColor: this.agentColor,
       observedModel: this.observedModel,
       observedEffort: this.observedEffort,
+      observedMode: this.observedMode,
+      launchPosture: this.launchPosture ? structuredClone(this.launchPosture) : undefined,
       requestedModel: this.requestedModel,
       requestedEffort: this.requestedEffort,
-      contextUsagePercent: this.contextUsagePercent,
+      draftSyncEngine: this.draftSyncEngine,
+      effectiveAuth: this.effectiveAuth ? structuredClone(this.effectiveAuth) : undefined,
+      credentialMismatch: this.credentialMismatch
+        ? structuredClone(this.credentialMismatch)
+        : undefined,
+      credentialId: this.credentialId,
       handoffTargetMachineId: this.handoffTargetMachineId,
       conversationPodiumId: this.conversationPodiumId,
       draftUpdatedAt: this.draftUpdatedAt,
@@ -919,6 +1074,7 @@ export class Session {
     this.selectedDriverId = state.selectedDriverId
     this.requestedDriverId = state.requestedDriverId
     this.boundDriverId = state.boundDriverId
+    this.boundDriverCapabilities = state.boundDriverCapabilities
     this.cwd = state.cwd
     this.issueId = state.issueId
     this.refIssueId = state.refIssueId
@@ -940,6 +1096,7 @@ export class Session {
     this.stopReason = state.stopReason
     this.oomKilledAt = state.oomKilledAt
     this.workState = state.workState
+    this.lifecycle = state.lifecycle
     this.cmd = state.cmd
     if (!preserve.has('status')) this.status = state.status
     this.exitCode = state.exitCode
@@ -950,9 +1107,16 @@ export class Session {
     this.agentColor = state.agentColor
     this.observedModel = state.observedModel
     this.observedEffort = state.observedEffort
+    this.observedMode = state.observedMode
+    this.launchPosture = state.launchPosture ? structuredClone(state.launchPosture) : undefined
     this.requestedModel = state.requestedModel
     this.requestedEffort = state.requestedEffort
-    this.contextUsagePercent = state.contextUsagePercent
+    this.draftSyncEngine = state.draftSyncEngine
+    this.effectiveAuth = state.effectiveAuth ? structuredClone(state.effectiveAuth) : undefined
+    this.credentialMismatch = state.credentialMismatch
+      ? structuredClone(state.credentialMismatch)
+      : undefined
+    this.credentialId = state.credentialId
     if (!preserve.has('handoffTargetMachineId')) {
       this.handoffTargetMachineId = state.handoffTargetMachineId
     }
@@ -977,7 +1141,10 @@ export class Session {
       // the transcript tail).
       requestedModel: d.requestedModel ?? null,
       requestedEffort: d.requestedEffort ?? null,
+      effectiveAuth: d.effectiveAuth ?? null,
+      credentialMismatch: d.credentialMismatch ?? null,
       accountId: this.accountId ?? null,
+      credentialId: d.credentialId ?? null,
       loginHarness: this.loginHarness ?? null,
       cwd: d.cwd,
       title: d.title,
@@ -996,6 +1163,18 @@ export class Session {
       selectedDriverId: d.selectedDriverId ?? null,
       requestedDriverId: d.requestedDriverId ?? null,
       boundDriverId: d.boundDriverId ?? null,
+      boundDriverCapabilities: d.boundDriverCapabilities ?? null,
+      // Stored so the record builds from the row alone (POD-6764): the daemon's
+      // last bind report, what the transcript tail last showed, and a move in
+      // flight. A bind and the tail's seed window restate them after a restart.
+      draftSyncEngine: d.draftSyncEngine,
+      agentState: d.agentState ?? null,
+      agentColor: d.agentColor ?? null,
+      observedModel: d.observedModel ?? null,
+      observedEffort: d.observedEffort ?? null,
+      observedMode: d.observedMode ?? null,
+      launchPosture: d.launchPosture ?? null,
+      handoffTargetMachineId: d.handoffTargetMachineId ?? null,
       conversationBinding: d.conversationBinding ?? null,
       status: d.status,
       exitCode: d.exitCode ?? null,
@@ -1023,6 +1202,7 @@ export class Session {
       stoppedAt: d.stoppedAt ?? null,
       stopReason: d.stopReason ?? null,
       oomKilledAt: d.oomKilledAt ?? null,
+      lifecycle: d.lifecycle,
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
       agentProfileId: this.agentProfileId ?? null,
@@ -1063,7 +1243,7 @@ export class Session {
    */
   toMeta(d: SessionDurableFields = this): SessionMeta {
     this.freshenDurable()
-    return projectSessionMeta(this, d, this.liveView())
+    return projectSessionMeta(this, d)
   }
 
   private durableRepair: (() => void) | undefined
@@ -1078,23 +1258,6 @@ export class Session {
    */
   freshenDurable(): void {
     this.durableRepair?.()
-  }
-
-  /** What the wire reads off the terminal and the bound driver right now. */
-  liveView(): SessionLiveView {
-    return {
-      controllerId: this.terminal.controllerId,
-      geometry: this.terminal.geometry,
-      requestsGated: this.terminal.requestsGated,
-      epoch: this.terminal.epoch,
-      clientCount: this.terminal.clientCount,
-      lastInputAtMs: this.terminal.lastInputAtMs,
-      busy: this.terminal.busy,
-      configureFields: this.configureFields,
-      attachKinds: this.attachKinds,
-      draftSyncEngine: this.draftSyncEngine,
-      driverId: this.driverId,
-    }
   }
 
   /** Parse a persisted work_state column; unknown strings read as unsorted. */

@@ -44,10 +44,6 @@ export function createSendsFixture(options: FixtureOptions) {
       read: async () => ({ items: [], hasMore: false }),
       subscribe: () => () => {},
     },
-    cache: {
-      read: () => ({ items: [...options.transcript.getSnapshot().items], savedAt: 0 }),
-      write: () => {},
-    },
     onChange: (change) => {
       if (graph) {
         if (change.rebuild) graph.reset(transcript.items)
@@ -56,6 +52,9 @@ export function createSendsFixture(options: FixtureOptions) {
       if (active) sends?.reconcile(change)
     },
   })
+  // The legacy port's first snapshot is held before start, as a stored page was.
+  const seed = options.transcript.getSnapshot().items
+  if (seed.length > 0) transcript.merge([...seed])
   graph = new TranscriptGraph(transcript.items)
   // Standalone fixture record store; production supplies the application pool.
   const looked = observable.map<string, MessageRecordWire>(undefined, { deep: false })

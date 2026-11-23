@@ -1,18 +1,18 @@
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { checkNotices } from '../../../tests/worklist/diagnostics/notice-check'
-import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { checkNotices } from '../../../tests/worklist/diagnostics/notice-check'
+import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
-import { MessageNoticeIndicator } from '../src/features/chat/MessageNotices'
+import { MessageNoticeList } from '../src/features/chat/MessageNotices'
 import { PendingInteractionBar } from '../src/features/chat/PendingInteractionBar'
-import { OutboxRecoveryIndicator } from '../src/features/machines/OutboxRecovery'
+import { OutboxRecoveryList } from '../src/features/machines/OutboxRecovery'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 
@@ -79,7 +79,7 @@ let owner: ClientRuntime,
   commitMs = 0
 storeStats.enable()
 function Surface() {
-  owner = useStoreHandle() as ClientRuntime
+  owner = useClientRuntime() as ClientRuntime
   const currentPool = useWorklistPool()
   pool = currentPool
   useEffect(() => {
@@ -101,10 +101,11 @@ function Surface() {
           commitMs += ms
         }}
       >
-        <header className="mb-6 flex gap-5">
-          <MessageNoticeIndicator />
-          <OutboxRecoveryIndicator />
-        </header>
+        {/* The sync panel's review section (POD-6852), rendered open. */}
+        <section className="mb-6 flex max-w-md flex-col gap-5">
+          <MessageNoticeList />
+          <OutboxRecoveryList />
+        </section>
         <PendingInteractionBar sessionId={'synthetic-session-0' as never} />
       </Profiler>
     </main>
@@ -141,7 +142,7 @@ root.render(
       }) as never
     }
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.hub)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >
@@ -152,7 +153,7 @@ const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => r
 const driver = {
   ready: () =>
     ready &&
-    !!document.querySelector('[data-testid="message-notice-chip"]') &&
+    !!document.querySelector('[data-testid="message-notice-list"]') &&
     !!document.querySelector('[data-testid="pending-interaction"]'),
   reset() {
     storeStats.reset()
@@ -189,12 +190,16 @@ const driver = {
       commitMs,
       failures: failures.length,
       actions,
-      parked: owner.outbox.deadLetters().length,
+      parked: owner.services.outbox.queue.deadLetters().length,
       opened: referenceState(owner).paneA,
     }
   },
   check() {
-    return pool ? checkNotices(pool, referenceState(owner), ['synthetic-session-0']) : null
+    return pool
+      ? checkNotices(pool, { ...referenceState(owner), outbox: owner.live.outbox }, [
+          'synthetic-session-0',
+        ])
+      : null
   },
   close: () => root.unmount(),
 }

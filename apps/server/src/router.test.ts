@@ -4,11 +4,11 @@ import { join } from 'node:path'
 import { asSessionId, firstAdminMemberId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
-import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { artifactStoreOnDisk } from './test-support/artifact-store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { clientSessionViews } from './test-support/session-views'
@@ -174,13 +174,13 @@ describe('appRouter', () => {
     const { call, registry } = await caller()
     const base = mkdtempSync(join(tmpdir(), 'podium-artifact-read-'))
     try {
-      mkdirSync(join(base, 'iss_1', 'abc123'), { recursive: true })
-      writeFileSync(join(base, 'iss_1', 'abc123', 'entry.html'), '<h1>hi</h1>')
+      mkdirSync(join(base, 'artifacts', 'iss_1', 'abc123'), { recursive: true })
+      writeFileSync(join(base, 'artifacts', 'iss_1', 'abc123', 'entry.html'), '<h1>hi</h1>')
       const stubRpc = {
         readAsset: async () => ({ ok: false, error: 'unused' }),
         listDir: async () => ({ ok: false, path: '', entries: [], error: 'unused' }),
       }
-      registry.modules.issueArtifacts = new IssueArtifactStore(base, stubRpc)
+      registry.modules.issueArtifacts = artifactStoreOnDisk(base, stubRpc)
       // No daemon round-trip, no root allowlist: the bytes come from the store.
       const r = await call.files.read({
         issueId: 'iss_1',
@@ -408,7 +408,7 @@ describe('repos router', () => {
   // doesn't silently bless the new shape without review.
   it.skip('discovery.refreshRepos enriches registered roots in place (no home walk)', async () => {
     const { call, repos, registry, daemon } = await repoCaller()
-    await repos.add('/abs/app')
+    await repos.add(repos.serverWriter, '/abs/app')
     const p = call.discovery.refreshRepos()
     await Promise.resolve()
     const req = daemon.find((m) => m.type === 'scanReposRequest') as ReposReq
@@ -452,10 +452,10 @@ describe('repos router', () => {
     await expect(p).resolves.toEqual({ repositories: [], diagnostics: [] })
   })
 
-  it('superagent.listThreads includes the global thread', async () => {
-    const { call } = await caller()
-    const threads = await call.superagent.listThreads()
-    expect(threads.some((t) => t.id === 'global')).toBe(true)
+  it('the server makes the global thread: no read creates it (POD-6675)', async () => {
+    const { registry } = await caller()
+    const global = await registry.sessionStore.superagent.getSuperagentThread('global')
+    expect(global?.kind).toBe('global')
   })
 
   it('superagent.startBtw re-opens an existing btw thread without re-seeding', async () => {
@@ -513,14 +513,20 @@ describe('repos router', () => {
     expect(await call.automations.list()).toEqual([])
   })
   it('automations.create accepts a future one-off and rejects an incomplete one', async () => {
-    const { call } = await caller()
+    const { call, registry } = await caller()
     const runAt = '2099-07-17T02:00:00.000Z'
+    // A target must be one of the caller's own sessions (POD-6284).
+    const { sessionId: sleeping } = await registry.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/p',
+      ownerUserId: TEST_PRINCIPAL.user,
+    })
     const created = await call.automations.create({
       name: 'One night wake',
       scheduleKind: 'once',
       cron: null,
       runAt,
-      targetSessionId: 'sess_sleeping',
+      targetSessionId: sleeping,
       repoPath: '/repos/podium',
       agentKind: 'codex',
       prompt: 'Continue.',
@@ -532,7 +538,7 @@ describe('repos router', () => {
       cron: null,
       runAt,
       nextRunAt: runAt,
-      targetSessionId: 'sess_sleeping',
+      targetSessionId: sleeping,
     })
 
     await expect(

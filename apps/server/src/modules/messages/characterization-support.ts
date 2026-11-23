@@ -32,12 +32,14 @@ import {
   type MachineId,
   type SessionId,
   type SessionMeta,
+  type UserId,
 } from '@podium/model'
 import type { TurnReceipt } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
-import type { SessionStore } from '../../store'
 import { isMemberCwd, sessionsForIssue } from '../../issue-util'
+import type { SessionStore } from '../../store'
+import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
 import { openTestStore } from '../../test-support/open-test-store'
 import { metaAsFacts, sessionReadPorts } from '../../test-support/session-facts'
 import { type IssueDeps, IssueService } from '../issues/service'
@@ -105,6 +107,9 @@ export interface ReceiptBehaviour {
 
 export interface SessionFixture {
   sessionId: SessionId
+  /** Whose session it is (POD-6283: only its owner's mail reaches it).
+   *  Default: the first admin, the human every `agentCap` acts for. */
+  ownerUserId?: UserId
   status?: SessionMeta['status']
   phase?: AgentPhase
   cwd?: string
@@ -136,10 +141,6 @@ export function session(f: SessionFixture): SessionMeta {
     title: f.title ?? f.sessionId,
     cwd: f.cwd ?? '/repo',
     status: f.status ?? 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-07-01T00:00:00.000Z',
     lastActiveAt: f.lastActiveAt ?? '2026-07-01T00:00:00.000Z',
     origin: { kind: 'spawn' as const },
@@ -164,8 +165,8 @@ export interface HarnessOptions {
   /** Gate spawn seam override — e.g. to characterize an unreachable machine. */
   spawnSession?: MessageGateDeps['spawnSession']
   resolveWorkflowStepLaunch?: MessageGateDeps['resolveWorkflowStepLaunch']
-  /** A session's owner and grants (POD-2143); absent = `mayView` alone. */
-  sessionOwner?: MessageGateDeps['sessionOwner']
+  /** A session's own owner (POD-2143, POD-6284); absent = no session end admits anyone. */
+  sessionOwnerUserId?: MessageGateDeps['sessionOwnerUserId']
   /** Omit the wake-spawn seam entirely (the unwired-server arm). */
   omitSpawnOnWake?: boolean
   /** Flag-on variant: wire the receipt-shaped transport (POD-1761 W4). Absent =
@@ -260,6 +261,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   // A reported repo carries a prefix (`REP`), so issue labels read `REP-<seq>`.
   await store.repos.addRepo('/repo', store.hostMachineId)
   const sessions: SessionMeta[] = []
+  const owners = new Map<string, UserId>()
   const pushes: Push[] = []
   const wakeSpawns: Record<string, unknown>[] = []
   const gateSpawns: Record<string, unknown>[] = []
@@ -275,6 +277,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     readSessionFacts: factReads.readSessionFacts,
     readSessionFactsById: factReads.readSessionFactsById,
     readSessionFactsByIssue: factReads.readSessionFactsByIssue,
+    readSessionFactsByIssues: factReads.readSessionFactsByIssues,
     sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
     listSessionsForIssue: async (worktreePath, issueId) =>
       sessionsForIssue(worktreePath, sessions, issueId),
@@ -286,22 +289,24 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: DEFAULT_HARNESS_AGENT },
       }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing(),
+    ...issueTestPlumbing(undefined, { store }),
     now,
   }
   const issues = await IssueService.create(issueDeps)
 
   const record =
     (fn: Push['fn']) =>
-    async (i: { sessionId: SessionId; text: string; inputOrigin?: string }) => {
-      pushes.push({ fn, ...i })
+    async (i: { sessionId: SessionId; text: string; inputOrigin?: string; writer?: unknown }) => {
+      // What was pushed, not whose write it was (POD-6602: every push carries
+      // its delivering write's writer).
+      const { writer: _writer, ...pushed } = i
+      pushes.push({ fn, ...pushed })
       const fails =
         transport.ok === false &&
         (transport.failSessions === undefined || transport.failSessions.includes(i.sessionId))
@@ -355,7 +360,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   }
 
   const svc = new MessageDeliveryService({
-      firstAdminMemberId: () => firstAdminMemberId(store),
+    soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
+    legacyRowOwner: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,
@@ -364,7 +370,9 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       readSessionFactsByIssue: async (worktreePath, issueId) =>
         sessionsForIssue(worktreePath, sessions.map(metaAsFacts), issueId),
       readSessionFactsByWorktree: async (worktreePath) =>
-        worktreePath ? sessions.map(metaAsFacts).filter((s) => isMemberCwd(worktreePath, s.cwd)) : [],
+        worktreePath
+          ? sessions.map(metaAsFacts).filter((s) => isMemberCwd(worktreePath, s.cwd))
+          : [],
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       listSessionsForIssue: async (worktreePath, issueId) =>
         sessionsForIssue(worktreePath, sessions, issueId),
@@ -382,8 +390,13 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     // Production wires both legacy-mirror seams; the #463 regression class and
     // the read-consumption semantics both run through them.
     mirrorIssueMail: async (row) => await store.issues.addIssueMessage(row),
-    mirrorMarkIssueMailRead: async (issueId, ids) =>
-      await store.issues.markIssueMessagesRead(firstAdminMemberId(), issueId, ids, now()),
+    mirrorMarkIssueMailRead: async (issueId, ids, reader) =>
+      await store.issues.markIssueMessagesRead(
+        reader ? ((await store.sessions.getSession(reader))?.ownerUserId ?? null) : null,
+        issueId,
+        ids,
+        now(),
+      ),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
     ...(opts?.isAgentDriven ? { isAgentDriven: opts.isAgentDriven } : {}),
     // POD-1193: when a test supplies machines (or an explicit port), the wake
@@ -395,7 +408,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
             placementAtWake: (_message, machineId) => placementDecision(machineId, opts.machines!),
           }
         : {}),
-    transact: async (fn) => await store.transact(fn),
+    writers: messageTestWriters(store),
     ...(opts?.omitSpawnOnWake
       ? {}
       : {
@@ -422,6 +435,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
   const gate = new MessageGate(
     {
       messages: svc,
+      directWriter: messageTestWriter(),
       issues,
       sessionById: async (sessionId) => sessions.find((s) => s.sessionId === sessionId),
       messageRecords: async (userId, ids, transcriptSessionId) =>
@@ -449,8 +463,15 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       ...(opts?.resolveWorkflowStepLaunch
         ? { resolveWorkflowStepLaunch: opts.resolveWorkflowStepLaunch }
         : {}),
-      ...(opts?.sessionOwner ? { sessionOwner: opts.sessionOwner } : {}),
-      createIssue: async (input) => await issues.crud.create({ ...input, startNow: false }),
+      // The session's owner, as the session's row answers it: a test's own
+      // port, else the seeded fixture's owner (POD-6283).
+      sessionOwnerUserId:
+        opts?.sessionOwnerUserId ??
+        (async (id) =>
+          sessions.some((s) => s.sessionId === id)
+            ? (owners.get(id) ?? firstAdminMemberId())
+            : undefined),
+      createIssue: async (writer, input) => await issues.crud.create(writer, { ...input, startNow: false }),
       appendEvent: async (e) => {
         await store.events.appendEvent(e)
       },
@@ -514,7 +535,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       nowMs = Date.parse(iso)
     },
     createIssue: async (input) => {
-      const wire = await issues.crud.create({
+      const wire = await issues.crud.create(issues.reports.store.serverWriter, {
         repoPath: input.repoPath ?? '/repo',
         title: input.title,
         ...(input.parentId ? { parentId: input.parentId } : {}),
@@ -523,12 +544,13 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       return { id: wire.id, seq: wire.seq }
     },
     setWorktree: async (issueId, worktreePath) => {
-      await issues.crud.update(issueId, { worktreePath })
+      await issues.crud.update(issues.reports.store.serverWriter, issueId, { worktreePath })
     },
     archive: async (issueId) => {
-      await issues.crud.update(issueId, { archived: true })
+      await issues.crud.update(issues.reports.store.serverWriter, issueId, { archived: true })
     },
     put: (...fixtures) => {
+      for (const f of fixtures) if (f.ownerUserId) owners.set(f.sessionId, f.ownerUserId)
       const created = fixtures.map(session)
       sessions.push(...created)
       return created
@@ -540,8 +562,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
       onBehalfOf: firstAdminMemberId(),
     }),
     events: async (kinds) =>
-      (await store.events
-        .listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 }))
-        .map((e) => ({ kind: e.kind, subject: e.subject, payload: e.payload })),
+      (await store.events.listEventsSince(0, kinds ? { kinds, limit: 5000 } : { limit: 5000 })).map(
+        (e) => ({ kind: e.kind, subject: e.subject, payload: e.payload }),
+      ),
   }
 }

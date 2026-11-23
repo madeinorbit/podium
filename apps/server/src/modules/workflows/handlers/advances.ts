@@ -16,8 +16,6 @@
  * (the run-scoped idempotency the registry applies before any of these runs).
  */
 
-import { asIssueId } from '@podium/model'
-import { afterCommit } from '../../../store/executor/executor'
 import type {
   ContractInput,
   workflowAdoptContract,
@@ -26,7 +24,9 @@ import type {
   workflowRetryContract,
   workflowSkipContract,
 } from '@podium/commands'
-import { unknownRevision, type WorkflowHandlerContext } from './context'
+import { asIssueId } from '@podium/model'
+import { afterCommit } from '../../../store/executor/executor'
+import { unknownRevision, type WorkflowHandlerContext, WorkflowRefusal } from './context'
 
 export async function checkpointHandler(
   ctx: WorkflowHandlerContext,
@@ -60,15 +60,15 @@ export async function checkpointHandler(
     )
   }
   const current = engine.currentStep(run)
-  if (!current) throw new Error('workflow has no remaining step')
+  if (!current) throw new WorkflowRefusal('conflict', 'workflow has no remaining step')
   const step = input.stepId
     ? run.steps.find((candidate) => candidate.stepId === input.stepId)
     : current
-  if (!step) throw new Error(`workflow has no step ${input.stepId}`)
+  if (!step) throw new WorkflowRefusal('invalid', `workflow has no step ${input.stepId}`)
   if (step.stepId !== current.stepId)
-    throw new Error(`step ${step.stepId} is not the current linear step`)
+    throw new WorkflowRefusal('conflict', `step ${step.stepId} is not the current linear step`)
   if (!access.mayCheckpoint(run, step, caller)) {
-    throw new Error('session is not assigned to this workflow step')
+    throw new WorkflowRefusal('unauthorized', 'session is not assigned to this workflow step')
   }
   const observation = input.observation ?? null
   const warnings = await engine.observationWarningsForRun(
@@ -121,7 +121,8 @@ export async function checkpointHandler(
     // nudge is sent, not whether it survives a restart.
     const notify = deps.notifyCoordinator
     const text = `Workflow step "${step.title}" ${input.status}: ${input.summary || '(no summary)'}`
-    afterCommit(() => notify(run.coordinatorSessionId, text), 'workflow-coordinator-notice')
+    const later = ctx.afterCommit ?? afterCommit
+    later(() => notify(run.coordinatorSessionId, text), 'workflow-coordinator-notice')
   }
   const message =
     input.status === 'complete'
@@ -143,7 +144,7 @@ export async function assignStepHandler(
   access.assertCoordinator(run, caller)
   const current = engine.currentStep(run)
   if (!current || current.stepId !== input.stepId)
-    throw new Error('only the current step may be assigned')
+    throw new WorkflowRefusal('conflict', 'only the current step may be assigned')
   // PLACEMENT (readiness §3.1.4 M5). This is the assign-time half of the check;
   // the apply-time half runs when the step is checkpointed. Both are needed
   // because a run is long-lived and a `use` grant can be revoked between them.
@@ -175,7 +176,7 @@ export async function skipHandler(
   access.assertCoordinator(run, caller)
   const current = engine.currentStep(run)
   if (!current || current.stepId !== input.stepId)
-    throw new Error('only the current step may be skipped')
+    throw new WorkflowRefusal('conflict', 'only the current step may be skipped')
   const now = deps.now()
   await deps.store.updateStep({
     runId: run.id,
@@ -215,11 +216,13 @@ export async function retryHandler(
   const run = await engine.runFor(caller, input.runId)
   access.assertCoordinator(run, caller)
   const target = run.steps.find((step) => step.stepId === input.stepId)
-  if (!target) throw new Error(`workflow has no step ${input.stepId}`)
+  if (!target) throw new WorkflowRefusal('invalid', `workflow has no step ${input.stepId}`)
   const laterStarted = run.steps.some(
     (step) => step.position > target.position && step.status !== 'pending',
   )
-  if (laterStarted) throw new Error('cannot retry a step after a later step has started')
+  if (laterStarted) {
+    throw new WorkflowRefusal('conflict', 'cannot retry a step after a later step has started')
+  }
   await deps.store.resetStep(run.id, target.stepId)
   await deps.store.updateRunStatus(run.id, 'active', null)
   await deps.store.appendEvent({
@@ -242,16 +245,16 @@ export async function adoptHandler(
   const current = await engine.runFor(caller, input.runId)
   access.assertCoordinator(current, caller)
   if (current.status !== 'active' && current.status !== 'blocked')
-    throw new Error('only an active workflow run may adopt a revision')
+    throw new WorkflowRefusal('conflict', 'only an active workflow run may adopt a revision')
   const coordinatorSessionId = caller.actor.id ?? current.coordinatorSessionId
   const session = await deps.readSession(coordinatorSessionId)
   if (!session) throw new Error('coordinator session no longer exists')
   const revision = await deps.store.getRevision(input.revisionId)
-  if (!revision) throw new Error(unknownRevision(input.revisionId))
+  if (!revision) throw new WorkflowRefusal('not-found', unknownRevision(input.revisionId))
   try {
     await access.assertWorkflowRead(caller, revision.workflowId)
   } catch {
-    throw new Error(unknownRevision(input.revisionId))
+    throw new WorkflowRefusal('not-found', unknownRevision(input.revisionId))
   }
   const issueId = current.subjectKind === 'issue' ? asIssueId(current.subjectId) : undefined
   // EVERYTHING VALIDATES BEFORE THE SUPERSEDE (POD-730 §8). The order below is
@@ -263,7 +266,7 @@ export async function adoptHandler(
     ...(issueId ? { issueId } : {}),
   })
   if (input.startStepId && !revision.steps.some((step) => step.id === input.startStepId))
-    throw new Error(`workflow has no step ${input.startStepId}`)
+    throw new WorkflowRefusal('invalid', `workflow has no step ${input.startStepId}`)
   const now = deps.now()
   await deps.store.updateRunStatus(current.id, 'superseded', now)
   return engine.startRun({

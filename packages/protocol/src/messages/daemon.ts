@@ -1,9 +1,10 @@
-import { NativeBindingReceipt } from './native-binding'
 import { ResumeRef, SessionIdField } from '@podium/model'
 import { z } from 'zod'
+import { TopicPublishMessage } from '../planes/topics'
 import { ApprovalExecResultMessage } from './approvals'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import { CodexCompleteResultMessage } from './codex'
+import { ConversationPrepareResultMessage } from './conversation'
 import { CredentialExportResultMessage, CredentialInstallResultMessage } from './credentials'
 import {
   BrowseDirsResultMessage,
@@ -36,6 +37,11 @@ import {
   HeadlessTurnResultMessage,
 } from './headless'
 import {
+  CredentialRemoveResultMessage,
+  HomeEnsureResultMessage,
+  HomeRemoveResultMessage,
+} from './homes'
+import {
   AgentQuotaResultMessage,
   HostMetricsMessage,
   MachineDiagnosticMessage,
@@ -47,6 +53,8 @@ import {
 } from './host'
 import { InventoryReportMessage, ModelProbeResultMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
+import { NativeBindingReceipt } from './native-binding'
+import { OauthLoopbackCallbackMessage, OauthLoopbackResultMessage } from './oauth-loopback'
 import {
   RuntimeAnswerResultMessage,
   RuntimeConfigureResultMessage,
@@ -68,6 +76,7 @@ import {
   AgentStateMessage,
 } from './runtime-state'
 import { ServerEndpointResultMessage, ServerTransferResultMessage } from './server-transfer'
+import { SessionAuthMessage } from './session-auth'
 import {
   ShippingEvidenceResultMessage,
   ShippingJobResultMessage,
@@ -80,6 +89,7 @@ import {
   AgentFrameBatchMessage,
   AgentFrameMessage,
   AgentModelMessage,
+  AgentModeMessage,
   BindMessage,
   DriverSelectedMessage,
   DurableSessionCensusMessage,
@@ -181,6 +191,8 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   RepoOpResultMessage,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
+  OauthLoopbackResultMessage,
+  OauthLoopbackCallbackMessage,
   GitHubCliResultMessage,
   AgentRelayRequestMessage,
   ApprovalExecResultMessage,
@@ -226,6 +238,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   AgentColorMessage,
   AgentContextMessage,
   AgentModelMessage,
+  AgentModeMessage,
   ScanResultMessage,
   ConversationsChangedMessage,
   ScanReposResultMessage,
@@ -277,5 +290,36 @@ export const DaemonMessage = z.discriminatedUnion('type', [
    *  (POD-4750), appended at the END so the golden corpus's index-sampled
    *  arms stay byte-identical. */
   CodexCompleteResultMessage,
+  /** A daemon-produced topic value (ADR 7 Amendment 2 D21), appended at the END
+   *  so the golden corpus's index-sampled arms stay byte-identical. */
+  TopicPublishMessage,
+  /** What a harness says it authenticated with after it started (credential
+   *  management §9, epic Task 10), appended at the END so the golden corpus's
+   *  index-sampled arms stay byte-identical. */
+  SessionAuthMessage,
+  /** Replies to the harness-home requests (credential management §10, epic
+   *  Task 8), appended at the END for index stability. */
+  HomeEnsureResultMessage,
+  HomeRemoveResultMessage,
+  CredentialRemoveResultMessage,
+  /** Reply to `conversationPrepareRequest` (credential management §9, epic
+   *  Task 11), appended at the END for index stability. */
+  ConversationPrepareResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
+
+/**
+ * THE DAEMON FRAMES THAT CAN CARRY A SECRET (credential management §8, "Never
+ * logged"): the login-file export, whose `bundles` hold a harness's login file.
+ * The twin of `SECRET_CARRYING_CONTROL_TYPES` for the other direction. Such a
+ * frame is named by its type only in a log or a dropped-frame warning. Pinned
+ * against the union's shapes by `session-access.test.ts`.
+ */
+export const SECRET_CARRYING_DAEMON_TYPES: ReadonlySet<DaemonMessage['type']> = new Set([
+  'credentialExportResult',
+] as const satisfies readonly DaemonMessage['type'][])
+
+/** Can a daemon frame of this type carry a secret? Log it by type only. */
+export function daemonFrameCarriesSecret(type: string): boolean {
+  return (SECRET_CARRYING_DAEMON_TYPES as ReadonlySet<string>).has(type)
+}

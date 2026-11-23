@@ -1,14 +1,13 @@
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import {
-  fileTranscript,
-  supported,
-  transcriptFileExists,
   type Declared,
+  fileTranscript,
   type HarnessHandoffTranscript,
   type HarnessTranscript,
+  supported,
   type TranscriptSourceInput,
+  transcriptFileExists,
 } from '../../manifest.js'
 import { isRecord, stringField } from '../shared/json-util.js'
 
@@ -59,7 +58,7 @@ export async function fixtureChainPaths(input: TranscriptSourceInput): Promise<s
   // Same contract as every file harness: no resume value names no
   // conversation (a cwd bucket holds many), so there is nothing to chain.
   if (!input.resumeValue) return []
-  const home = input.homeDir ?? homedir()
+  const home = input.account.home
   const path = fixtureSessionPath(home, input.resumeValue)
   return (await transcriptFileExists(path)) ? [path] : []
 }
@@ -75,4 +74,17 @@ export const fixtureHandoffTranscript: HarnessHandoffTranscript = {
     if (!(await transcriptFileExists(path))) throw new Error('Fixture transcript not found')
     return { path }
   },
+  // A fixture home is `<dir>/.fixture` as its state root (credential switch,
+  // epic Task 11): the conversation is `sessions/<resume>.jsonl` under it.
+  async locateInHome({ stateDir, resumeValue }) {
+    const path = join(stateDir, 'sessions', `${resumeValue}.jsonl`)
+    return (await transcriptFileExists(path)) ? path : undefined
+  },
+  // The fixture's stand-in for account-bound hidden reasoning (Codex's
+  // encrypted reasoning, POD-6893 §3): a `reasoning` record carries over only
+  // on the account that wrote it.
+  carryRecord: (record, change) =>
+    change.accountChanged && isRecord(record) && stringField(record, 'role') === 'reasoning'
+      ? undefined
+      : record,
 }

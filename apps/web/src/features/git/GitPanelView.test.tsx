@@ -46,7 +46,7 @@ const uiState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
+  readFixture: (sel: (s: unknown) => unknown) =>
     sel({
       gitStatus,
       gitLog,

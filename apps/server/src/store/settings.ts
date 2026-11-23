@@ -1,7 +1,15 @@
+// workspace-scoped (POD-6959)
+import { captureWrite } from '../sync/capture-pg'
 /**
- * Settings/meta aggregate — owns the `meta` key/value table: the settings blob and
- * the live model-catalog SWR cache. (It also owned the node⇄hub sync cursor and the
+ * Settings/meta aggregate — owns the workspace's key/value rows (`workspace_meta`):
+ * the settings blob, the live model-catalog SWR cache, the membership cursor and
+ * the workspace's upgrade receipts. (It also owned the node⇄hub sync cursor and the
  * received-state blobs until POD-309 retired the dialer that produced them.)
+ *
+ * ONE WORKSPACE'S ROWS (POD-7013, POD-6959 design 2.1). The repository is built for
+ * one workspace, and every key it reads or writes is that workspace's, except one:
+ * the legacy identity links receipt, which the migrator itself reads and so stays an
+ * install key of `meta`, through a global definition.
  *
  * ---------------------------------------------------------------------------
  * THE BLOB IS NO LONGER THE WHOLE ANSWER (POD-1213)
@@ -32,22 +40,25 @@
 
 import { randomUUID } from 'node:crypto'
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
-import { asUserId, type MachineId, type UserId } from '@podium/model'
+import { asUserId, type MachineId, type UserId, type UserPreferencesWire } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
-import { TIER_DEFAULTS } from '@podium/telemetry'
-import { applyAfterCommit, spanOpen } from './executor'
-import { operationLoader } from './executor/operation-loader'
 import {
-  resolveSetting,
-  loadConfig,
   type LayeredKey,
   type LayeredSettings,
+  loadConfig,
   type PodiumConfig,
+  resolveSetting,
 } from '@podium/runtime/config'
+import { TIER_DEFAULTS } from '@podium/telemetry'
 import { eq, sql } from 'drizzle-orm'
-import { meta } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import { applyAfterCommit, spanOpen } from './executor'
+import { operationLoader } from './executor/operation-loader'
+import type {
+  LegacyWorkspaceQueries,
+  TransactionRunner,
+  WorkspaceDb,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedGlobal, WORKSPACE } from './executor/sync-drizzle'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
 
 /** What the environment and config.json say about telemetry; `undefined` = no say. */
@@ -77,21 +88,74 @@ function needsTelemetryIdentity(
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-/** One `meta` value by key: every read here, whichever key it names. */
-const metaValue = prepared((db: StoreDrizzle) =>
-  db.select({ value: meta.value }).from(meta).where(eq(meta.key, param(meta.key, 'key'))).prepare(),
-)
+const APPLIED_MEMBERSHIP_VERSION_KEY = 'identity.appliedMembershipVersion'
+/** An install key of `meta`: the migrator reads it before any repository exists. */
+const LEGACY_LINKS_IMPORTED_KEY = 'identity.legacyLinksImported'
 
-const upsertMeta = prepared((db: StoreDrizzle) =>
+/** One workspace key's value: every workspace read here, whichever key it names. */
+const workspaceValue = prepared((db, t) =>
   db
-    .insert(meta)
-    .values({ key: sql.placeholder('key'), value: sql.placeholder('value') })
-    .onConflictDoUpdate({ target: meta.key, set: { value: sql.placeholder('value') } })
+    .select({ value: t.workspaceMeta.value })
+    .from(t.workspaceMeta)
+    .where(inWorkspace(t.workspaceMeta, eq(t.workspaceMeta.key, param(t.workspaceMeta.key, 'key'))))
     .prepare(),
 )
 
+const upsertWorkspaceValue = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.workspaceMeta)
+      .values({
+        workspaceId: WORKSPACE,
+        key: sql.placeholder('key'),
+        value: sql.placeholder('value'),
+      })
+      .onConflictDoUpdate({
+        target: [t.workspaceMeta.workspaceId, t.workspaceMeta.key],
+        set: { value: sql.placeholder('value') },
+      }),
+  ).prepare(),
+)
+
+/** The install's identity links receipt (`meta`), read by the migrator too. */
+const legacyLinksReceipt = preparedGlobal((db, t) =>
+  db
+    .select({ value: t.meta.value })
+    .from(t.meta)
+    .where(eq(t.meta.key, LEGACY_LINKS_IMPORTED_KEY))
+    .prepare(),
+)
+
+const recordLegacyLinksReceipt = preparedGlobal((db, t) =>
+  captureWrite(
+    db
+      .insert(t.meta)
+      .values({ key: LEGACY_LINKS_IMPORTED_KEY, value: '1' })
+      .onConflictDoUpdate({ target: t.meta.key, set: { value: '1' } }),
+  ).prepare(),
+)
+
+/**
+ * Runs the blob write for the feed, inside that write's transaction (POD-6677):
+ * the `instancePreferences` feed capture. It is handed the write itself and
+ * runs it as a change-log commit (POD-6920).
+ */
+export type InstancePreferencesFeedCapture = (
+  write: () => Promise<void>,
+  next?: PodiumSettings,
+) => Promise<void>
+
 export class SettingsRepository {
   private committed = normalizeSettings(undefined)
+  private instanceFeedCapture: InstancePreferencesFeedCapture | undefined
+
+  /** Install the instance preferences feed capture, run inside every blob write. */
+  setInstanceFeedCapture(capture: InstancePreferencesFeedCapture): () => void {
+    this.instanceFeedCapture = capture
+    return () => {
+      if (this.instanceFeedCapture === capture) this.instanceFeedCapture = undefined
+    }
+  }
 
   async initializeSnapshot(): Promise<void> {
     this.committed = await this.getSettings()
@@ -197,7 +261,7 @@ export class SettingsRepository {
    *  resolver that lived above them both would be a third place that knows which
    *  tier a key is in. */
   readonly userPreferences: UserPreferencesRepository
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /**
@@ -208,9 +272,12 @@ export class SettingsRepository {
    * repository to take `StoreQueries` while this file, wave 2's, still passed it a
    * raw handle — so neither branch typechecked alone. Both landed in one window
    * and this line is the join.
+   *
+   * The queries are one workspace's (POD-7013); `rootDb` rides along only for the
+   * preference repository, whose own scoping task narrows it.
    */
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: LegacyWorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     this.userPreferences = new UserPreferencesRepository(queries, () => this.settingsWritten())
   }
@@ -220,8 +287,8 @@ export class SettingsRepository {
    * construction, so rule 35's ambient transaction routing has one line to
    * change at B1 and no call site does.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -234,21 +301,79 @@ export class SettingsRepository {
    */
   /** Immutable migration fact, never inferred from the current member roster. */
   async retiredSoloMemberId(): Promise<UserId | null> {
-    const row = await metaValue(this.db).get({ key: 'retired_solo_member_id' })
+    const row = await workspaceValue(this.db).get({ key: 'retired_solo_member_id' })
     return row?.value ? asUserId(row.value) : null
+  }
+
+  /** Immutable upgrade boundary: later raw receipts are never treated as solo-era receipts. */
+  async legacyMutationReceiptCutoff(now: number): Promise<number> {
+    return await this.createOrJoinTransaction(async () => {
+      const key = 'legacy_mutation_receipt_cutoff'
+      const row = await workspaceValue(this.db).get({ key })
+      if (row !== undefined) return Number(row.value)
+      await this.writeMeta(key, String(now))
+      return now
+    })
   }
 
   /** Setup enrollment receipts share the database transaction with their machine row. */
   async setupEnrollmentReceipt(key: string): Promise<string | undefined> {
-    return (await metaValue(this.db).get({ key: `setup_enrollment:${key}` }))?.value
+    return (await workspaceValue(this.db).get({ key: `setup_enrollment:${key}` }))?.value
   }
 
   async recordSetupEnrollment(key: string, receipt: string): Promise<void> {
     await this.writeMeta(`setup_enrollment:${key}`, receipt)
   }
 
+  /**
+   * The workspace's setup completion receipt, read afresh by every server process.
+   * A workspace key (WORKSPACE_META_KEYS): its setup is the workspace's own.
+   */
+  async setupFinished(): Promise<boolean> {
+    return (await workspaceValue(this.db).get({ key: 'setup_finished' })) !== undefined
+  }
+
+  async finishSetup(): Promise<void> {
+    await this.writeMeta('setup_finished', '1')
+  }
+
+  /** Receipt for a historical upgrade that must use the normal write funnel.
+   * Row writes are idempotent and commit before this receipt; an interrupted
+   * upgrade retries, while subsequent starts perform only this key lookup. */
+  async dataMigrationComplete(name: string): Promise<boolean> {
+    return (await workspaceValue(this.db).get({ key: `data_migration:${name}` })) !== undefined
+  }
+
+  async completeDataMigration(name: string): Promise<void> {
+    await this.writeMeta(`data_migration:${name}`, '1')
+  }
+
+  /**
+   * The cursor of a hosted workspace (people and sign-in specification,
+   * section 11): every membership change up to this version has been applied
+   * to the member rows. A self-hosted server never reads or writes it.
+   */
+  async appliedMembershipVersion(): Promise<number> {
+    const row = await workspaceValue(this.db).get({ key: APPLIED_MEMBERSHIP_VERSION_KEY })
+    const version = Number(row?.value ?? 0)
+    return Number.isSafeInteger(version) && version > 0 ? version : 0
+  }
+
+  async recordAppliedMembershipVersion(version: number): Promise<void> {
+    await this.writeMeta(APPLIED_MEMBERSHIP_VERSION_KEY, String(version))
+  }
+
+  /** Import receipt: prevents replay and permits retirement of the source storage. */
+  async legacyIdentityLinksImported(): Promise<boolean> {
+    return (await legacyLinksReceipt(this.db).get())?.value === '1'
+  }
+
+  async recordLegacyIdentityLinksImported(): Promise<void> {
+    await recordLegacyLinksReceipt(this.db).run()
+  }
+
   async getSettings(): Promise<PodiumSettings> {
-    const row = await metaValue(this.db).get({ key: 'settings' })
+    const row = await workspaceValue(this.db).get({ key: 'settings' })
     if (!row) return normalizeSettings(undefined)
     try {
       return normalizeSettings(JSON.parse(row.value))
@@ -257,11 +382,23 @@ export class SettingsRepository {
     }
   }
 
+  /**
+   * THE ONE BLOB WRITE (POD-6677). `meta['settings']` is the home of the synced
+   * `instancePreferences` record: the write runs through the feed capture in
+   * the same transaction, so the record reaches every member's devices from
+   * the write path, whoever wrote it, and the row and the change log commit or
+   * roll back together.
+   */
   async setSettings(settings: PodiumSettings): Promise<void> {
     const next = normalizeSettings(settings)
     await this.createOrJoinTransaction(async () => {
-      await this.writeMeta('settings', JSON.stringify(next))
-      this.settingsWritten()
+      const write = async (): Promise<void> => {
+        await this.writeMeta('settings', JSON.stringify(next))
+        this.settingsWritten()
+      }
+      const capture = this.instanceFeedCapture
+      if (capture === undefined) await write()
+      else await capture(write, next)
       applyAfterCommit(() => {
         this.committed = next
       }, 'settings-snapshot')
@@ -269,15 +406,15 @@ export class SettingsRepository {
   }
 
   /**
-   * The one `meta` write, shared by {@link setSettings} and
-   * {@link setModelCatalog}.
+   * The one workspace key write, shared by {@link setSettings},
+   * {@link setModelCatalog} and the receipts.
    *
-   * `meta` carries its `key` primary key and NO second uniqueness constraint, so
-   * `ON CONFLICT` on that key is `INSERT OR REPLACE` exactly (checklist item 1,
-   * as amended: every column is named).
+   * `workspace_meta` carries its `(workspace_id, key)` primary key and NO second
+   * uniqueness constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE`
+   * exactly (checklist item 1, as amended: every column is named).
    */
   private async writeMeta(key: string, value: string): Promise<void> {
-    await upsertMeta(this.db).run({ key, value })
+    await upsertWorkspaceValue(this.db).run({ key, value })
   }
 
   // -------------------------------------------------------------------------
@@ -328,7 +465,8 @@ export class SettingsRepository {
   /** A settings blob or preference write: invalidated after it and, inside a span, after its commit. */
   private settingsWritten(): void {
     this.settingsOfOperation.invalidate()
-    if (spanOpen()) applyAfterCommit(() => this.settingsOfOperation.invalidate(), 'settings:resolved-for')
+    if (spanOpen())
+      applyAfterCommit(() => this.settingsOfOperation.invalidate(), 'settings:resolved-for')
   }
 
   /**
@@ -351,6 +489,33 @@ export class SettingsRepository {
    * `settings.changed` event pair.
    */
   async setSettingsFor(
+    userId: UserId,
+    next: PodiumSettings,
+    updatedAt: string,
+  ): Promise<PodiumSettings> {
+    return await this.inSettingsCommit(
+      async () => await this.writeSettingsFor(userId, next, updatedAt),
+    )
+  }
+
+  /**
+   * A preference write as one change-log commit (POD-6920): the person's
+   * preference rows and the instance blob reach the log together. Without a
+   * capture installed (a store-level test) the write runs as is.
+   */
+  private async inSettingsCommit<T>(write: () => Promise<T>): Promise<T> {
+    const capture = this.instanceFeedCapture
+    if (capture === undefined) return await write()
+    let result: { value: T } | undefined
+    await capture(async () => {
+      result = { value: await write() }
+    })
+    if (result === undefined)
+      throw new Error('settings: the change-log commit did not run its write')
+    return result.value
+  }
+
+  private async writeSettingsFor(
     userId: UserId,
     next: PodiumSettings,
     updatedAt: string,
@@ -378,7 +543,8 @@ export class SettingsRepository {
 
   /**
    * Apply a path-addressed patch, each path routed by its own tier — the storage
-   * half of `settings.updatePersonal` / `settings.updateInstance`.
+   * half of the two preference records' edits (`records.userPreferences.edit`,
+   * `records.instancePreferences.edit`).
    *
    * The commands' input schemas have already refused every path outside their
    * tier, so this cannot be reached with a mixed patch from them; routing per
@@ -390,20 +556,32 @@ export class SettingsRepository {
     values: Readonly<Record<string, unknown>>,
     updatedAt: string,
   ): Promise<PodiumSettings> {
-    const instancePatch: Record<string, unknown> = {}
-    for (const [path, value] of Object.entries(values)) {
-      if (isPersonalPreferenceKey(path)) {
-        await this.userPreferences.set(userId, path, value, updatedAt)
-        continue
+    return await this.inSettingsCommit(async () => {
+      const instancePatch: Record<string, unknown> = {}
+      for (const [path, value] of Object.entries(values)) {
+        if (isPersonalPreferenceKey(path)) {
+          await this.userPreferences.set(userId, path, value, updatedAt)
+          continue
+        }
+        instancePatch[path] = value
       }
-      instancePatch[path] = value
-    }
-    if (Object.keys(instancePatch).length > 0) {
-      await this.setSettings(
-        normalizeSettings(applySettingsPatch(await this.getSettings(), instancePatch)),
-      )
-    }
-    return await this.getSettingsFor(userId)
+      if (Object.keys(instancePatch).length > 0) {
+        await this.setSettings(
+          normalizeSettings(applySettingsPatch(await this.getSettings(), instancePatch)),
+        )
+      }
+      return await this.getSettingsFor(userId)
+    })
+  }
+
+  /** One person's `userPreferences` record: the leaves they chose (POD-6673). */
+  async preferenceRecordFor(userId: UserId): Promise<UserPreferencesWire> {
+    return await this.userPreferences.recordFor(userId)
+  }
+
+  /** Every person's record, for the boot reconcile. */
+  async allPreferenceRecordsForBootReconcile(): Promise<UserPreferencesWire[]> {
+    return await this.userPreferences.allRecordsForBootReconcile()
   }
 
   /** One person's value for one dotted path, resolved: their row, else the blob.
@@ -417,7 +595,7 @@ export class SettingsRepository {
   // ---- live model catalog (SWR cache, persisted so it survives restarts and the
   //      first picker-open after a redeploy is instant, not a cold ~2s probe).
   //      KEYED BY machineId: which models a harness offers is a per-machine fact
-  //      (ADR 1 Amendment 1 D13.5). The meta key is `model_catalog:<machineId>`
+  //      (ADR 1 Amendment 1 D13.5). The workspace key is `model_catalog:<machineId>`
   //      so two machines never share a row. Pre-split unkeyed `model_catalog`
   //      rows are left inert — MODEL_CATALOG_VERSION bumps discard them. ----
   async getModelCatalog(machineId: MachineId): Promise<{
@@ -426,7 +604,7 @@ export class SettingsRepository {
     fetchedAt: number
     version?: number
   } | null> {
-    const row = await metaValue(this.db).get({ key: `model_catalog:${machineId}` })
+    const row = await workspaceValue(this.db).get({ key: `model_catalog:${machineId}` })
     if (!row) return null
     try {
       const parsed = JSON.parse(row.value) as {
@@ -461,8 +639,8 @@ export class SettingsRepository {
 
   // RETIRED at POD-309: the node⇄hub cursor (`upstream_sync_cursor`) and the
   // last-known replica blobs (`upstream_sessions` / `upstream_conversations` /
-  // `upstream_issues`) were read and written by `UpstreamSync` alone. The meta ROWS
-  // are left in place rather than deleted — an operator's last-known hub state is data,
+  // `upstream_issues`) were read and written by `UpstreamSync` alone. The ROWS (in
+  // `workspace_meta` since POD-7013) are left in place rather than deleted — an operator's last-known hub state is data,
   // and ADR 5 D8 forbids silently discarding parked federation work — but nothing
   // reads them, so they are inert until POD-353 decides their fate.
 }

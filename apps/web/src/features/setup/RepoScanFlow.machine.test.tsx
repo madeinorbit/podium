@@ -72,9 +72,10 @@ const store = {
     },
     discovery: {
       scanMachine: { mutate: scanMachine },
+      // The explicit rescan (POD-6644): its finds arrive as checkout records.
+      refreshRepos: { mutate: refreshRepos },
     },
   },
-  refreshRepos,
   uiState: {
     get: (key: string) => uiValues.get(key) ?? null,
     set: (key: string, value: string | null) => {
@@ -84,7 +85,9 @@ const store = {
     },
     subscribe: (listener: (keys: ReadonlySet<string>) => void) => {
       uiListeners.add(listener)
-      return () => { uiListeners.delete(listener) }
+      return () => {
+        uiListeners.delete(listener)
+      }
     },
   },
 }
@@ -93,7 +96,7 @@ vi.mock('@/app/store', () => {
   const useStore = () => store
   return {
     useStore,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -103,11 +106,13 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
-  const renderWarnings = vi.mocked(console.error).mock.calls.filter(
-    ([message]) =>
-      String(message).includes('Cannot update a component') &&
-      String(message).includes('while rendering a different component'),
-  )
+  const renderWarnings = vi
+    .mocked(console.error)
+    .mock.calls.filter(
+      ([message]) =>
+        String(message).includes('Cannot update a component') &&
+        String(message).includes('while rendering a different component'),
+    )
   try {
     expect(renderWarnings).toEqual([])
   } finally {

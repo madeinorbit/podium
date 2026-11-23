@@ -18,7 +18,7 @@ function build(material: readonly Material[]) {
   const missing = empty()
   const cwds: string[] = []
   for (const s of material) {
-    if (s.status !== 'live' && s.status !== 'starting' && s.status !== 'reconnecting') continue
+    if (s.status !== 'live' && s.status !== 'starting') continue
     // Occupancy intentionally includes archived and unattributed residents.
     cwds.push(s.cwd)
     if (!s.machineId || s.archived) continue

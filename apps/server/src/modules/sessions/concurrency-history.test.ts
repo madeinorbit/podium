@@ -5,6 +5,7 @@ import type { SessionStore } from '../../store'
 import type { PodiumEventRecord } from '../../store/events'
 import { probeStatements, type StatementProbeHolder } from '../../store/executor/statement-probe'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreEngine } from '../../test-support/pg-test-database'
 import { EventBus } from '../bus'
 import {
   AGENT_CONCURRENCY_BUCKET_MS,
@@ -35,6 +36,7 @@ function state(phase: AgentRuntimeState['phase']): AgentRuntimeState {
 
 interface FakeSession {
   status: Session['status']
+  awaitingRebind: boolean
   archived: boolean
   lastActiveAt: string
   /** Non-optional so these rows can also stand in as a `stateChanged` payload's
@@ -45,6 +47,7 @@ interface FakeSession {
 function live(phase: AgentRuntimeState['phase']): FakeSession {
   return {
     status: 'live',
+    awaitingRebind: false,
     archived: false,
     lastActiveAt: new Date(NOW).toISOString(),
     agentState: state(phase),
@@ -232,22 +235,27 @@ describe('AgentConcurrencyHistory against the real event log', () => {
     return { store, history }
   }
 
-  it('serves every read from an index search, with no scan and no sort', async () => {
-    const { store, history } = await seeded()
-    const reads = [
-      ...(await eventReads(store, () => history.history())),
-      ...(await eventReads(store, () => history.history())),
-    ]
+  // SQLite's own plan (EXPLAIN QUERY PLAN). On Postgres every definition's plan is audited by
+  // store/query-plan-audit.pg.test.ts.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'serves every read from an index search, with no scan and no sort',
+    async () => {
+      const { store, history } = await seeded()
+      const reads = [
+        ...(await eventReads(store, () => history.history())),
+        ...(await eventReads(store, () => history.history())),
+      ]
 
-    expect(reads.length).toBeGreaterThan(0)
-    for (const read of reads) {
-      const plan = planOf(store, read.sql)
-      expect(plan, read.sql).toMatch(/SEARCH podium_events USING (?:COVERING )?INDEX/)
-      expect(plan, read.sql).not.toContain('SCAN podium_events')
-      expect(plan, read.sql).not.toContain('TEMP B-TREE')
-    }
-    history.dispose()
-  })
+      expect(reads.length).toBeGreaterThan(0)
+      for (const read of reads) {
+        const plan = planOf(store, read.sql)
+        expect(plan, read.sql).toMatch(/SEARCH podium_events USING (?:COVERING )?INDEX/)
+        expect(plan, read.sql).not.toContain('SCAN podium_events')
+        expect(plan, read.sql).not.toContain('TEMP B-TREE')
+      }
+      history.dispose()
+    },
+  )
 
   it('reads only the rows appended since its last read, and answers the same', async () => {
     const { store, history } = await seeded()
@@ -285,7 +293,7 @@ describe('workingAgentCount', () => {
           { ...live('working'), status: 'starting' },
           // Neither a launching process nor a dropped daemon link is confirmed
           // current work, even if an earlier working phase is preserved.
-          { ...live('working'), status: 'reconnecting' },
+          { ...live('working'), awaitingRebind: true },
         ],
         NOW,
       ),

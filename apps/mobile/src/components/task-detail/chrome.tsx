@@ -229,6 +229,7 @@ export function InlineEditable({
   render,
   textStyle,
   dynamicTypeRamp,
+  loading = false,
 }: {
   value: string
   placeholder: string
@@ -239,6 +240,9 @@ export function InlineEditable({
   render?: (text: string) => ReactNode
   textStyle?: TextProps['style']
   dynamicTypeRamp?: TextProps['dynamicTypeRamp']
+  /** The value is still on its way: shown, not edited, so no edit starts
+   *  from a stale or empty text. */
+  loading?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const { fontScale } = useWindowDimensions()
@@ -255,6 +259,9 @@ export function InlineEditable({
         accessibilityLabel={ariaLabel}
         accessibilityValue={{ text: filled ? value : placeholder }}
         accessibilityHint="Opens a text editor"
+        accessibilityState={{ disabled: loading, busy: loading }}
+        aria-busy={loading}
+        disabled={loading}
         onPress={() => {
           setDraft(value)
           setEditing(true)
@@ -270,7 +277,7 @@ export function InlineEditable({
             lineBreakStrategyIOS="standard"
             style={[styles.editText, textStyle, { color: ink }, !filled && styles.editPlaceholder]}
           >
-            {filled ? value : placeholder}
+            {filled ? value : loading ? 'Loading…' : placeholder}
           </Text>
         )}
       </PressableScale>

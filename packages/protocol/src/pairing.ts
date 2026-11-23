@@ -443,28 +443,25 @@ export const MobilePairCompleteResult = z.union([
 ])
 export type MobilePairCompleteResult = z.infer<typeof MobilePairCompleteResult>
 
-export const MobileClientSession = z.object({
-  sessionId: z.string(),
-  userId: z.string(),
-  label: z.literal('mobile'),
-  deviceId: safeDeviceId,
-  deviceName: safeDeviceName,
-  platform: MobilePlatform,
+/** The public description of a device sign-in. It holds no credential. */
+export const DeviceSignInKind = z.enum(['browser', 'desktop', 'phone', 'host'])
+export type DeviceSignInKind = z.infer<typeof DeviceSignInKind>
+export const DeviceSignInView = z.object({
+  id: z.string().min(1),
+  kind: DeviceSignInKind,
+  deviceName: z.string(),
+  platform: z.string(),
   createdAt: z.string().datetime(),
   expiresAt: z.string().datetime(),
   lastSeenAt: z.string().datetime().nullable(),
   current: z.boolean(),
 })
-export type MobileClientSession = z.infer<typeof MobileClientSession>
+export type DeviceSignInView = z.infer<typeof DeviceSignInView>
 
-export const MobileClientSessionsResponse = z.object({
-  sessions: z.array(MobileClientSession),
-})
-export type MobileClientSessionsResponse = z.infer<typeof MobileClientSessionsResponse>
-export const RevokeMobileClientSessionRequest = z.object({
-  sessionId: z.string().regex(/^[A-Za-z0-9_-]{20,64}$/),
-})
-export type RevokeMobileClientSessionRequest = z.infer<typeof RevokeMobileClientSessionRequest>
+export const DeviceSignInsResponse = z.object({ signIns: z.array(DeviceSignInView) })
+export type DeviceSignInsResponse = z.infer<typeof DeviceSignInsResponse>
+export const RevokeDeviceSignInRequest = z.object({ id: z.string().min(1).max(128) })
+export type RevokeDeviceSignInRequest = z.infer<typeof RevokeDeviceSignInRequest>
 
 export const NativeClientLoginRequest = z.object({
   delivery: z.literal('native'),

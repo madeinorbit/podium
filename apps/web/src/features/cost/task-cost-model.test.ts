@@ -2,22 +2,42 @@ import type { TaskCostComparisonWire } from '@podium/model/browser'
 import { afterEach, expect, it, vi } from 'vitest'
 import { TaskCostModel } from './task-cost-model'
 
-export const answer = (inputTokens = 1_000_000): TaskCostComparisonWire => ({
+const answer = (inputTokens = 1_000_000): TaskCostComparisonWire => ({
   task: {
-    issueId: 'cost-model' as TaskCostComparisonWire['task']['issueId'], state: 'costed',
+    issueId: 'cost-model' as TaskCostComparisonWire['task']['issueId'],
+    state: 'costed',
     own: { models: [], messages: 0, sessionCount: 0 },
-    rollup: { models: [{ model: 'claude-opus-5', inputTokens, outputTokens: 0,
-      cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, messages: 25 }],
-      messages: 25, sessionCount: 1 },
-    descendantCount: 1, provisional: false, floor: 'none', harnesses: [],
-    uncostedSessionCount: 0, sessions: [],
+    rollup: {
+      models: [
+        {
+          model: 'claude-opus-5',
+          inputTokens,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          cacheCreation1hTokens: 0,
+          messages: 25,
+        },
+      ],
+      messages: 25,
+      sessionCount: 1,
+    },
+    descendantCount: 1,
+    provisional: false,
+    floor: 'none',
+    harnesses: [],
+    uncostedSessionCount: 0,
+    sessions: [],
   },
   cohort: { medianUsdPerReply: 0.1, taskCount: 3 },
 })
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: Error) => void
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes
+    reject = no
+  })
   return { promise, resolve, reject }
 }
 afterEach(() => vi.useRealTimers())
@@ -40,11 +60,11 @@ it('requests only while open and visible, then drops the answer on close', async
   model.setVisible(true)
   await Promise.resolve()
   await vi.advanceTimersByTimeAsync(90_000)
-  expect(read).toHaveBeenCalledTimes(3)
+  expect(read).toHaveBeenCalledTimes(2)
   model.close()
   expect(model.view).toBeNull()
   await vi.advanceTimersByTimeAsync(180_000)
-  expect(read).toHaveBeenCalledTimes(3)
+  expect(read).toHaveBeenCalledTimes(2)
 })
 
 it('ignores superseded responses and a response after close', async () => {
@@ -52,25 +72,36 @@ it('ignores superseded responses and a response after close', async () => {
   const second = deferred<TaskCostComparisonWire>()
   const read = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
   const model = new TaskCostModel(read, 'cost-model')
-  model.open(); model.setVisible(true)
+  model.open()
+  model.setVisible(true)
   const fresh = model.refresh()
-  second.resolve(answer(2_000_000)); await fresh
-  first.resolve(answer()); await Promise.resolve()
+  second.resolve(answer(2_000_000))
+  await fresh
+  first.resolve(answer())
+  await Promise.resolve()
   expect(model.view?.rollup.estCostUsd).toBe(10)
   const late = deferred<TaskCostComparisonWire>()
   read.mockReturnValueOnce(late.promise)
   const pending = model.refresh()
-  model.close(); late.resolve(answer()); await pending
+  model.close()
+  late.resolve(answer())
+  await pending
   expect(model.view).toBeNull()
   expect(model.loading).toBe(false)
 })
 
 it('keeps the last total on a failed refresh and retries, including sync throws', async () => {
-  const read = vi.fn().mockResolvedValueOnce(answer()).mockImplementationOnce(() => {
-    throw new Error('offline')
-  }).mockResolvedValueOnce(answer(2_000_000))
+  const read = vi
+    .fn()
+    .mockResolvedValueOnce(answer())
+    .mockImplementationOnce(() => {
+      throw new Error('offline')
+    })
+    .mockResolvedValueOnce(answer(2_000_000))
   const model = new TaskCostModel(read, 'cost-model')
-  model.open(); model.setVisible(true); await Promise.resolve()
+  model.open()
+  model.setVisible(true)
+  await Promise.resolve()
   await model.refresh()
   expect(model.error).toBe('offline')
   expect(model.loading).toBe(false)
@@ -79,4 +110,26 @@ it('keeps the last total on a failed refresh and retries, including sync throws'
   expect(model.error).toBeNull()
   expect(model.view?.rollup.estCostUsd).toBe(10)
   model.close()
+})
+
+it('takes a new priced answer after the related session turn ends and releases the signal', async () => {
+  let changed!: () => void
+  const stop = vi.fn()
+  const read = vi.fn().mockResolvedValueOnce(answer()).mockResolvedValueOnce(answer(2_000_000))
+  const model = new TaskCostModel(read, 'cost-model', false, (notify) => {
+    changed = notify
+    return stop
+  })
+  model.open()
+  model.setVisible(true)
+  await Promise.resolve()
+  expect(model.view?.rollup.estCostUsd).toBe(5)
+  changed()
+  await Promise.resolve()
+  expect(model.view?.rollup.estCostUsd).toBe(10)
+  model.close()
+  expect(stop).toHaveBeenCalledTimes(1)
+  changed()
+  await Promise.resolve()
+  expect(read).toHaveBeenCalledTimes(2)
 })

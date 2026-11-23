@@ -107,10 +107,21 @@ describe('tauri desktop config', () => {
     expect(mainSource.match(/\.permission\("opener:allow-default-urls"\)/g)).toHaveLength(2)
   })
 
-  it('keeps stable as the packaged fallback endpoint', () => {
-    expect(conf.plugins.updater.endpoints).toEqual([
-      'https://github.com/madeinorbit/podium/releases/latest/download/latest.json',
-    ])
+  it('uses the selected channel authority for every updater request', () => {
+    // The packaged updater has no autonomous network authority. Runtime channel
+    // selection supplies its endpoints before constructing the updater.
+    expect(conf.plugins.updater.endpoints).toEqual([])
+    const updater = readFileSync(join(__dirname, 'src/updater.rs'), 'utf8')
+    const build = updater.slice(
+      updater.indexOf('fn updater_for_channel('),
+      updater.indexOf('/// Classify failures'),
+    )
+    expect(build).toContain('UpdateChannel::Dev')
+    expect(build).toContain('release_origins::endpoints(channel.as_str())')
+    expect(build.indexOf('.endpoints(endpoints)')).toBeGreaterThan(
+      build.indexOf('release_origins::endpoints'),
+    )
+    expect(build).toContain('.build()')
   })
   it('bundles native icon formats for every desktop platform', () => {
     expect(conf.bundle.icon).toEqual([
@@ -276,7 +287,7 @@ describe('tauri desktop config', () => {
     expect(windowRouting).toContain('(bootstrap::local_window_target(port, ready), injection)')
     expect(windowRouting).toContain('(webview_url, remote_init_injection)')
     expect(mainSource).toContain('window.__PODIUM_PAYLOAD_ERROR__ = {error_literal}')
-    expect(mainSource).toContain('app.restart();')
+    expect(mainSource).toContain('app.request_restart();')
     expect(webMainSource).toContain('<PayloadUnavailablePage reason={payloadStartupError} />')
     expect(webMainSource).toContain("label: 'Startup failure'")
   })

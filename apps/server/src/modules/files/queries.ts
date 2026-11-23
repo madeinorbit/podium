@@ -2,9 +2,10 @@
  * THE FILE QUERIES — `read`, `list` and `search`.
  *
  * A table rather than read contracts: a `visibility` class describes what a
- * command WRITES and a read writes nothing. All three run the SAME root
- * allowlist the write does (`assertAllowedRoot`), shared from `registry.ts` so
- * the four procedures cannot drift into four notions of "an allowed root".
+ * command WRITES and a read writes nothing. All three run the SAME gates the
+ * write does (`assertReadableRoot`, `assertOwnsSessionFiles`), shared from
+ * `registry.ts` so the four procedures cannot drift into four notions of "an
+ * allowed root" or of whose files these are.
  */
 
 import type { TransportTag } from '@podium/commands'
@@ -12,7 +13,12 @@ import { ArtifactIdField, IssueIdField, MachineIdField, SessionIdField } from '@
 import type { FileReadResultMessage } from '@podium/protocol'
 import { z } from 'zod'
 import { PathIndex, rankPaths } from './path-search'
-import { assertAllowedRoot, type FileState } from './registry'
+import {
+  assertAllowedRoot,
+  assertOwnsSessionFiles,
+  assertReadableRoot,
+  type FileState,
+} from './registry'
 
 const SERVED_ON: readonly TransportTag[] = ['trpc']
 
@@ -39,17 +45,27 @@ export const FILE_QUERIES = {
       z.object({ machineId: MachineIdField.optional(), root: z.string(), path: z.string() }),
     ]),
     async (state, input): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> => {
-      // Artifact snapshots ([spec:SP-0fc9] #441) serve from the server-local
-      // store — no daemon round-trip, no root allowlist (there is no root), and
+      // Artifact snapshots ([spec:SP-0fc9] #441) serve from this workspace's
+      // artifact store, the one `/files/artifact` streams from (POD-6963 design
+      // 2.7) — no daemon round-trip, no root allowlist (there is no root), and
       // no baseHash: snapshots are immutable and writes against them are
-      // rejected. Moved verbatim from the router procedure.
+      // rejected. The editor needs the text whole, so the stream is read out.
       if ('artifactId' in input) {
-        const r = await state.artifacts.read(input.issueId, input.artifactId, input.path)
+        const r = await state.artifacts.readStream(input.issueId, input.artifactId, input.path)
         return r
-          ? { ok: true, path: input.path, content: r.bytes.toString('utf8') }
+          ? {
+              ok: true,
+              path: input.path,
+              // Buffer decoding keeps a leading BOM, as the editor always got it.
+              content: Buffer.from(await new Response(r.body).arrayBuffer()).toString('utf8'),
+            }
           : { ok: false, path: input.path, error: 'artifact file not found' }
       }
-      if ('root' in input) await assertAllowedRoot(state, input.root)
+      if ('root' in input) {
+        const machineId = await assertReadableRoot(state, input.root, input.machineId)
+        return await state.rpc.readFile({ ...input, machineId })
+      }
+      await assertOwnsSessionFiles(state, input.sessionId)
       return await state.rpc.readFile(input)
     },
   ),
@@ -60,8 +76,8 @@ export const FILE_QUERIES = {
       path: z.string().optional(),
     }),
     async (state, input) => {
-      await assertAllowedRoot(state, input.root)
-      return await state.rpc.listDir(input)
+      const machineId = await assertReadableRoot(state, input.root, input.machineId)
+      return await state.rpc.listDir({ ...input, machineId })
     },
   ),
   /**
@@ -86,10 +102,14 @@ export const FILE_QUERIES = {
       limit: z.number().int().positive().max(50).default(10),
     }),
     async (state, input): Promise<{ paths: string[] }> => {
-      await assertAllowedRoot(state, input.root)
-      const key = { ...(input.machineId ? { machineId: input.machineId } : {}), root: input.root }
-      const paths = await PATH_INDEX.paths(key, async () =>
-        await state.rpc.repoOp('lsFiles', input.root, undefined, input.machineId),
+      // Someone else's machine is an unreadable checkout: no hits, no error.
+      const machineId = input.machineId ?? (await state.rpc.answeringMachineId(input.root))
+      if (!(await state.access.mayReadMachineFiles(machineId))) return { paths: [] }
+      await assertAllowedRoot(state, input.root, machineId)
+      const key = { machineId, root: input.root }
+      const paths = await PATH_INDEX.paths(
+        key,
+        async () => await state.rpc.repoOp('lsFiles', input.root, undefined, machineId),
       )
       return { paths: rankPaths(paths, input.query.trim(), input.limit).map((hit) => hit.path) }
     },

@@ -30,7 +30,7 @@ describe('sessionWord (D5)', () => {
     expect(sessionWord(live('working'))).toBe('working')
     expect(sessionWord(live('compacting'))).toBe('working')
     expect(sessionWord({ status: 'starting' })).toBe('working')
-    expect(sessionWord({ status: 'reconnecting', agentState: { phase: 'idle' } })).toBe('working')
+    expect(sessionWord({ status: 'live', reconnecting: true, agentState: { phase: 'idle' } })).toBe('working')
   })
 
   it('a parked or exited process is never Working, however stale its phase', () => {
@@ -476,7 +476,7 @@ describe('coordinatedSeat: one seat\u2019s whole verdict on a coordinated task (
 
 describe('the verdict is unambiguous (review round 3)', () => {
   const stale = [
-    { status: 'reconnecting', agentState: { phase: 'idle', idle: { kind: 'done' } } },
+    { status: 'live', reconnecting: true, agentState: { phase: 'idle', idle: { kind: 'done' } } },
     { status: 'starting', agentState: { phase: 'idle', idle: { kind: 'open_todos' } } },
     { status: 'starting', agentState: { phase: 'ended' } },
   ] as const

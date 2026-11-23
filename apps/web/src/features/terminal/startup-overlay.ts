@@ -110,7 +110,7 @@ export function startupOverlay(input: {
    * Null the rest of the time, which is almost always.
    *
    * THE SEAM ROUND TWO MISSED, found by driving it (POD-2290). A server restart
-   * rehydrates live rows as `reconnecting`, and the reviewer held the daemon
+   * left live rows unbound (then shown as `reconnecting`), and the reviewer held the daemon
    * down and watched a headless session sit on "Starting OpenCode… / no output
    * yet · 4:35 / Still attached — some CLIs update themselves…". Every clause of
    * that is false: nothing is starting, nothing is attached, and the reason is

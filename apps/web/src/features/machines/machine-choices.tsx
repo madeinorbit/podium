@@ -35,7 +35,7 @@ import { useMemo } from 'react'
 
 /**
  * The least a picker's machine must carry: enough for the predicate, plus a
- * name to say it by. GENERIC rather than pinned to `MachineWire` because
+ * name to say it by. GENERIC rather than pinned to `MachineFacts` because
  * several screens narrow the wire to a `Pick<…>` of their own, and forcing them
  * to widen it back would be a type change made to satisfy a helper.
  */

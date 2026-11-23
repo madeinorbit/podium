@@ -47,7 +47,9 @@ const fakeHub = {
 
 const reads: ReadCall[] = []
 const sendText = vi.fn(async (_input: Record<string, unknown>) => ({ disposition: 'delivered' }))
-const answerAsk = vi.fn(async (_input: Record<string, unknown>) => {})
+const answerAsk = vi.fn(
+  async (_sessionId: unknown, _answer: Record<string, unknown>) => 'eff_answer',
+)
 const fakeTrpc = {
   sessions: {
     transcriptRead: {
@@ -58,7 +60,7 @@ const fakeTrpc = {
       },
     },
     sendText: { mutate: sendText },
-    answerAskUserQuestion: { mutate: answerAsk },
+
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
 }
@@ -69,8 +71,6 @@ let exits: Record<string, 'removed' | 'evicted'> = {}
 
 const fakeReplica = {
   available: false,
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
   exitKind: (_entity: string, id: string) => exits[id],
 }
 
@@ -81,6 +81,7 @@ vi.mock('@/app/store', () => {
   const useStore = () => ({
     hub: fakeHub,
     trpc: fakeTrpc,
+    answerSession: answerAsk,
     replica: fakeReplica,
     sessions: storeSessions,
     drafts: storeDrafts,
@@ -95,7 +96,7 @@ vi.mock('@/app/store', () => {
     httpOrigin: 'http://x',
     getUserFocus: () => ({ view: 'chat' }),
     issues: [],
-    superThreads: [],
+    superagentThreads: [],
   })
   return {
     useStore,
@@ -103,7 +104,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (storeDrafts[id] ?? '')),
     useSessionExitKind: (id: string | undefined) => (id === undefined ? undefined : exits[id]),
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -127,10 +128,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -173,7 +170,7 @@ async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -340,13 +337,19 @@ describe('no chat payload carries attribution', () => {
     })
     await flush()
     expect(answerAsk).toHaveBeenCalledTimes(1)
-    const payload = answerAsk.mock.calls[0]?.[0] ?? {}
+    const payload = answerAsk.mock.calls[0]?.[1] ?? {}
     // interactionId is question identity (POD-4292: which menu is answered, so a
     // stale card cannot answer a newer question), not actor attribution — the
     // authority still stamps who answered (doc §3.1.3 A3). It is optional on the
     // wire and undefined for a transcript-only question with no pending row.
-    const keys = Object.keys(payload).sort()
-    expect(['choices,sessionId', 'choices,interactionId,sessionId']).toContain(keys.join(','))
+    expect(answerAsk.mock.calls[0]?.[0]).toBe(asSessionId('s1'))
+    // Menu option indices on the command wire are one-based.
+    expect(payload).toMatchObject({ via: 'menu', choices: [{ optionIndices: [1] }] })
+    expect(
+      Object.keys(payload).filter((key) => !['via', 'choices', 'interactionId'].includes(key)),
+    ).toEqual([])
+    for (const field of ['actor', 'actorKind', 'actorId', 'onBehalfOf', 'userId'])
+      expect(Object.hasOwn(payload, field)).toBe(false)
     expect(
       (payload as { interactionId?: unknown }).interactionId === undefined ||
         typeof (payload as { interactionId?: unknown }).interactionId === 'string',

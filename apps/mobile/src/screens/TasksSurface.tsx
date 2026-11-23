@@ -59,6 +59,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
       grouped
       large
       title="Tasks"
+      refreshing={props.board?.refreshing ?? false}
       subtitle={<TasksSubtitle board={board} onProject={props.onFilters} />}
       right={
         <>

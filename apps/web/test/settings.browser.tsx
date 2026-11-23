@@ -1,13 +1,13 @@
-import { preferenceSource } from '@podium/client-graph/preference-source'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { asUserId } from '@podium/model/browser'
 import { normalizeSettings } from '@podium/runtime'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { SettingsView } from '../src/features/settings/SettingsView'
 import { ColdStartComposer } from '../src/features/setup/ColdStartComposer'
@@ -66,7 +66,7 @@ let changePrincipal = () => {}
 storeStats.enable()
 
 function Surface() {
-  const runtime = useStoreHandle() as ClientRuntime
+  const runtime = useClientRuntime() as ClientRuntime
   const currentPool = useWorklistPool()
   owner = runtime
   pool = currentPool
@@ -76,9 +76,8 @@ function Surface() {
       if (!active) return
       // Provider start installs the real hub listeners in its passive effect.
       fixture.publishMachines()
-      await referenceState(runtime).refreshRepos()
       if (!active) return
-      referenceState(runtime).setSettingsTab('accounts')
+      referenceState(runtime).setSettingsTab('credentials')
       ready = currentPool !== null
     })
     return () => {
@@ -119,7 +118,7 @@ function App() {
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.hub)
+        fixture.bindHub(runtime.services.connection.hub, runtime.live)
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
     >
@@ -148,8 +147,8 @@ const driver = {
   },
   async preferences() {
     for (let step = 0; step < 20; step++) {
-      owner.ui.set('podium.sounds.enabled', step % 2 ? 'true' : 'false')
-      referenceState(owner).setSettingsTab(step % 2 ? 'accounts' : 'notifications')
+      owner.deviceState.set('podium.sounds.enabled', step % 2 ? 'true' : 'false')
+      referenceState(owner).setSettingsTab(step % 2 ? 'credentials' : 'notifications')
       await nextFrame()
     }
   },
@@ -165,7 +164,7 @@ const driver = {
       commits,
       commitMs,
       failures,
-      preferenceLoads: (pool ? (preferenceSource(pool)?.counts ?? null) : undefined),
+      preferenceLoads: pool ? (preferenceSource(pool)?.counts ?? null) : undefined,
       generation,
     }
   },
@@ -174,7 +173,7 @@ const driver = {
     const { checkSettings } = await import('../../../tests/worklist/diagnostics/settings-check')
     return checkSettings(pool, owner)
   },
-  sound: () => owner.ui.get('podium.sounds.enabled'),
+  sound: () => owner.deviceState.get('podium.sounds.enabled'),
   switchPrincipal: () => changePrincipal(),
   close: () => root.unmount(),
 }

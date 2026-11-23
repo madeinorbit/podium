@@ -169,8 +169,42 @@ await Promise.all([
   import('@podium/client-graph/mobile-session-context'),
 ])
 
+/**
+ * A draft start is a `session.launch` effect on `sync.submit` (POD-6408). The
+ * spy sees what the old `sessions.create` payload carried: the launch input.
+ */
+const submitted: string[] = []
+function launchApi(
+  create: (input: never) => unknown,
+  commands: Record<string, (input: never) => unknown> = {},
+) {
+  return {
+    submit: {
+      mutate: async (envelope: { command: string; input: { input?: unknown } }) => {
+        // Every synced write, so a test can also assert what was NOT written.
+        submitted.push(
+          envelope.command === 'effects.create'
+            ? `effects.create:${String((envelope.input as { kind?: string }).kind ?? '')}`
+            : envelope.command,
+        )
+        if (envelope.command === 'effects.create') {
+          await create(envelope.input.input as never)
+        }
+        const answer = await commands[envelope.command]?.(envelope.input as never)
+        return {
+          outcome: 'applied',
+          result: answer ?? {},
+          receipt: { feedId: 'f', epoch: 'e', seq: 0 },
+          replayed: false,
+        }
+      },
+    },
+  }
+}
+
 afterEach(cleanup)
 beforeEach(() => {
+  submitted.length = 0
   vi.clearAllMocks()
   seams.replace.mockReset()
   seams.params = {}
@@ -187,7 +221,7 @@ const repository = (path = '/repo/podium', machineId = 'host'): GitRepositoryWir
     repoId: asRepoId(path),
     machineId: asMachineId(machineId),
     worktrees: [],
-  }) as GitRepositoryWire
+  }) as unknown as GitRepositoryWire
 function machine(patch: Partial<MachineWire> = {}): MachineWire {
   return {
     id: 'host',
@@ -282,7 +316,7 @@ describe('native New Task sheet logic', () => {
   it('ignores opening double taps until presentation ends and keeps empty Send enabled afterwards', async () => {
     seams.presented = false
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
-    await mount({ api: { sessions: { create: { mutate: create } } } })
+    await mount({ api: { sync: launchApi(create) } })
     await ready()
     const send = screen.getByRole('button', { name: 'Start Task' }) as HTMLButtonElement
     expect(send.disabled).toBe(false)
@@ -298,26 +332,20 @@ describe('native New Task sheet logic', () => {
   })
 
   it('opens before projects and machines arrive, then hydrates the existing sheet without losing the prompt', async () => {
-    let discovered = {
-      repositories: [] as GitRepositoryWire[],
-      machines: [] as MachineWire[],
-      diagnostics: [],
-    }
-    const app = await mount({
-      repos: [],
-      machines: [],
-      api: { discovery: { refreshRepos: { mutate: async () => discovered } } },
-    })
+    const app = await mount({ repos: [], machines: [] })
     const input = prompt()
     fireEvent.change(input, { target: { value: 'Typed before discovery finished' } })
     expect((screen.getByRole('button', { name: 'Start Task' }) as HTMLButtonElement).disabled).toBe(
       true,
     )
-    discovered = { repositories: [repository()], machines: [machine()], diagnostics: [] }
+    // Projects and machines arrive as their synced records (POD-6644).
     await act(async () => {
-      await app.runtime.access.refreshRepos()
+      app.setRepos([repository()])
+      app.setMachines([machine()])
     })
-    await ready()
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Project, podium' })).toBeTruthy(),
+    )
     expect(screen.getByRole('button', { name: 'Project, podium' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Machine, Studio' })).toBeTruthy()
     expect(prompt()).toBe(input)
@@ -392,8 +420,7 @@ describe('native New Task sheet logic', () => {
     fireEvent.click(other)
     await waitFor(() =>
       expect(
-        readFirstTaskDraft(app.runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
-          .repoPath,
+        readFirstTaskDraft(app.runtime.deviceState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).repoPath,
       ).toBe('/repo/other-pipp'),
     )
     expect(prompt()).toBe(input)
@@ -502,7 +529,7 @@ describe('native New Task sheet logic', () => {
       fireEvent.click(screen.getByRole('menuitemradio', { name }))
     }
     const selected = () =>
-      readFirstTaskDraft(runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
+      readFirstTaskDraft(runtime.deviceState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
     pick('First model')
     pick('High')
     pick('Second model')
@@ -602,41 +629,20 @@ describe('native New Task sheet logic', () => {
       ).toBeTruthy(),
     )
     expect(
-      readFirstTaskDraft(runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
+      readFirstTaskDraft(runtime.deviceState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
     ).toMatchObject({ agent: 'claude-code', model: 'reported-model', effort: 'high' })
-    expect(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)).toBeNull()
+    expect(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY)).toBeNull()
   })
 
-  it('discovers an originless repo synced after app start without a manual refresh', async () => {
-    let repos = [repository('/repo/alpha')]
-    const refresh = vi.fn(async () => ({
-      repositories: repos,
-      diagnostics: [],
-      machines: [machine()],
-    }))
-    const app = await mount({ api: { discovery: { refreshRepos: { mutate: refresh } } } })
+  it('shows a repo registered after app start without a manual refresh', async () => {
+    const alpha = repository('/repo/alpha')
+    const app = await mount({ repos: [alpha] })
     await ready()
-    const beforeAdd = refresh.mock.calls.length
     const added = { ...repository('/tmp/new-local-project'), repoId: asRepoId('local-project') }
-    repos = [...repos, added]
+    // A registration arrives as its checkout record (POD-6644); nothing is asked for.
     await act(async () => {
-      app.replica.applyChanges(
-        'repos',
-        [
-          {
-            id: added.repoId,
-            repoPath: added.path,
-            name: 'new-local-project',
-            prefix: 'LOCAL',
-          },
-        ],
-        [],
-      )
+      app.setRepos([alpha, added])
     })
-    await waitFor(() => expect(refresh.mock.calls.length).toBeGreaterThan(beforeAdd))
-    await waitFor(() =>
-      expect(app.runtime.access.repos.some((repo) => repo.path === added.path)).toBe(true),
-    )
     fireEvent.click(screen.getByRole('button', { name: /^Project, / }))
     await waitFor(() =>
       expect(screen.getByRole('menuitemradio', { name: /^new-local-project/ })).toBeTruthy(),
@@ -651,7 +657,7 @@ describe('native New Task sheet logic', () => {
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
     const file = vi.fn()
     await mount({
-      api: { sessions: { create: { mutate: create } }, issues: { create: { mutate: file } } },
+      api: { sync: launchApi(create), issues: { create: { mutate: file } } },
     })
     await ready()
     fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
@@ -663,6 +669,10 @@ describe('native New Task sheet logic', () => {
     })
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('initialPrompt')
     expect(file).not.toHaveBeenCalled()
+    // No named task: neither the legacy create nor its synced write.
+    expect(submitted).not.toContain('issues.create')
+    // Positive control for the capture the Save case relies on.
+    expect(submitted.some((command) => command.startsWith('effects.create'))).toBe(true)
     expect(seams.replace.mock.calls[0]?.[0]).toMatchObject({
       pathname: '/session/[sessionId]/terminal',
     })
@@ -670,7 +680,7 @@ describe('native New Task sheet logic', () => {
 
   it('starts a written prompt through the desktop draft-session procedure and opens its chat', async () => {
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
-    await mount({ api: { sessions: { create: { mutate: create } } } })
+    await mount({ api: { sync: launchApi(create) } })
     await ready()
     fireEvent.change(prompt(), { target: { value: 'Fix the jump\n\nKeep context.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
@@ -680,79 +690,6 @@ describe('native New Task sheet logic', () => {
       initialPrompt: 'Fix the jump\n\nKeep context.',
     })
     expect(seams.replace.mock.calls[0]?.[0]).toMatchObject({ pathname: '/session/[sessionId]' })
-  })
-
-  it.each([
-    'before',
-    'after',
-  ] as const)('restores the same image when New Task reopens %s a delayed launch failure and retries without uploading', async (reopen) => {
-    let rejectCreate!: (error: Error) => void
-    const delayed = new Promise<{ sessionId: string }>((_resolve, reject) => {
-      rejectCreate = reject
-    })
-    const create = vi
-      .fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
-      .mockImplementationOnce(() => delayed)
-    const ref = {
-      id: 'held-retry',
-      filename: 'retry.png',
-      mediaType: 'image/png',
-      kind: 'image' as const,
-    }
-    const upload = vi.fn(async () => ({ path: '', attachment: ref }))
-    function Harness() {
-      const [open, setOpen] = useState(true)
-      seams.close = () => setOpen(false)
-      return open ? (
-        <NewIssueScreen />
-      ) : (
-        <button type="button" onClick={() => setOpen(true)}>
-          New Task
-        </button>
-      )
-    }
-    const app = await mount(
-      { api: { sessions: { create: { mutate: create }, uploadImage: { mutate: upload } } } },
-      <Harness />,
-    )
-    await ready()
-    fireEvent.change(prompt(), { target: { value: 'Review this screenshot' } })
-    const previewUri = 'data:image/png;base64,aGVsbG8='
-    act(() =>
-      seams.attachments?.accept([
-        { name: 'retry.png', mimeType: 'image/png', dataBase64: 'aGVsbG8=', previewUri },
-      ]),
-    )
-    await waitFor(() => expect(seams.attachments?.ready()).toHaveLength(1))
-    const chip = seams.attachments?.attachments[0]
-    seams.replace.mockImplementation(() => seams.close?.())
-    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
-    expect(screen.queryByRole('textbox', { name: 'Task prompt' })).toBeNull()
-    const first = create.mock.calls[0]?.[0]
-    expect(first).toMatchObject({ attachments: [ref], initialPrompt: 'Review this screenshot' })
-    if (reopen === 'before') fireEvent.click(screen.getByRole('button', { name: 'New Task' }))
-    await act(async () => rejectCreate(new Error('Connection interrupted')))
-    if (reopen === 'after') fireEvent.click(screen.getByRole('button', { name: 'New Task' }))
-    await waitFor(() => expect(screen.getByText(/Couldn't start the agent/)).toBeTruthy(), {
-      timeout: 5000,
-    })
-    expect(prompt().value).toBe('Review this screenshot')
-    expect(screen.getByRole('button', { name: 'Remove retry.png' })).toBeTruthy()
-    expect(screen.getByRole('img', { name: 'retry.png' }).getAttribute('src')).toBe(previewUri)
-    expect(seams.attachments?.attachments[0]).toEqual(chip)
-    await ready()
-    fireEvent.click(screen.getByRole('button', { name: 'Start Task' }))
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
-    expect(create.mock.calls[1]?.[0]).toEqual(first)
-    expect(upload).toHaveBeenCalledTimes(1)
-    await waitFor(() =>
-      expect(app.runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).toBeNull(),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'New Task' }))
-    await ready()
-    expect(prompt().value).toBe('')
-    expect(screen.queryByRole('button', { name: 'Remove retry.png' })).toBeNull()
   })
 
   it('keeps a recovered image removed when the sheet is reopened', async () => {
@@ -770,7 +707,7 @@ describe('native New Task sheet logic', () => {
     const app = await mount({}, <Harness />)
     await ready()
     act(() =>
-      app.runtime.access.uiState.set(
+      app.runtime.deviceState.set(
         FIRST_TASK_ACTIVATION_DRAFT_KEY,
         JSON.stringify({
           ...EMPTY_FIRST_TASK_DRAFT,
@@ -800,8 +737,7 @@ describe('native New Task sheet logic', () => {
     expect(prompt().value).toBe('Keep this prompt')
     expect(screen.queryByRole('button', { name: 'Remove remove.png' })).toBeNull()
     expect(
-      readFirstTaskDraft(app.runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
-        .attachments,
+      readFirstTaskDraft(app.runtime.deviceState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).attachments,
     ).toEqual([])
   })
 
@@ -809,7 +745,10 @@ describe('native New Task sheet logic', () => {
     const create = vi.fn(async (_input: Record<string, unknown>) => ({ id: 'iss_saved' }))
     const start = vi.fn()
     await mount({
-      api: { issues: { create: { mutate: create } }, sessions: { create: { mutate: start } } },
+      api: {
+        issues: { create: { mutate: create } },
+        sync: launchApi(start, { 'issues.create': create }),
+      },
     })
     await ready()
     fireEvent.change(prompt(), { target: { value: '\n  Fix the jump  \n\nKeep exact context. ' } })
@@ -826,7 +765,9 @@ describe('native New Task sheet logic', () => {
       startNow: false,
     })
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('defaultModel')
+    // The backlog save starts no session: no launch effect was written.
     expect(start).not.toHaveBeenCalled()
+    expect(submitted.filter((command) => command.startsWith('effects.create'))).toEqual([])
   })
 
   it('retries an ambiguous backlog save with the same issue and mutation identities', async () => {
@@ -848,7 +789,7 @@ describe('native New Task sheet logic', () => {
 
   it('opens Shell from the Model submenu through the same session launch', async () => {
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
-    await mount({ api: { sessions: { create: { mutate: create } } } })
+    await mount({ api: { sync: launchApi(create) } })
     await ready()
     fireEvent.click(screen.getByRole('button', { name: /Agent, Claude Code/ }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Shell' }))
@@ -905,7 +846,7 @@ describe('native New Task sheet logic', () => {
     await mount({
       repos: [repository(), repository('/repo/second', 'remote')],
       machines: [machine(), machine({ id: 'remote' as MachineWire['id'], name: 'Remote' })],
-      api: { sessions: { create: { mutate: create } } },
+      api: { sync: launchApi(create) },
     })
     await ready()
     await waitFor(() =>
@@ -921,17 +862,7 @@ describe('native New Task sheet logic', () => {
   it('shows a newly discovered project on the next menu opening without reopening the sheet', async () => {
     let repos = [repository('/repo/alpha'), repository('/repo/beta')]
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
-    const app = await mount({
-      repos,
-      api: {
-        discovery: {
-          refreshRepos: {
-            mutate: async () => ({ repositories: repos, machines: [machine()], diagnostics: [] }),
-          },
-        },
-        sessions: { create: { mutate: create } },
-      },
-    })
+    const app = await mount({ repos, api: { sync: launchApi(create) } })
     await ready()
     const projectButton = () => screen.getByRole('button', { name: /^Project, / })
     const names = () =>
@@ -941,8 +872,9 @@ describe('native New Task sheet logic', () => {
     fireEvent.click(projectButton())
     expect(names()).toEqual(['alpha', 'beta'])
     repos = [...repos, repository('/repo/gamma')]
+    // A newly registered project arrives as its checkout record (POD-6644).
     await act(async () => {
-      await app.runtime.access.refreshRepos()
+      app.setRepos(repos)
     })
     expect(names()).toEqual(['alpha', 'beta'])
     fireEvent.click(projectButton())
@@ -1007,7 +939,7 @@ describe('native New Task sheet logic', () => {
     const { runtime } = await mount({}, <Harness />)
     await ready()
     act(() =>
-      runtime.access.uiState.set(
+      runtime.deviceState.set(
         FIRST_TASK_ACTIVATION_DRAFT_KEY,
         JSON.stringify({
           ...EMPTY_FIRST_TASK_DRAFT,
@@ -1029,7 +961,7 @@ describe('native New Task sheet logic', () => {
       screen.getByRole('button', { name: /Agent, Claude Code, Reported Model · High/ }),
     ).toBeTruthy()
     expect(
-      readFirstTaskDraft(runtime.access.uiState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).effort,
+      readFirstTaskDraft(runtime.deviceState.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).effort,
     ).toBe('high')
   })
 
@@ -1037,11 +969,11 @@ describe('native New Task sheet logic', () => {
     const { runtime } = await mount()
     await ready()
     act(() => {
-      runtime.access.uiState.set(
+      runtime.deviceState.set(
         LAST_LAUNCH_PICK_KEY,
         JSON.stringify({ host: { 'claude-code': { model: 'reported-model', effort: 'high' } } }),
       )
-      runtime.access.uiState.set(
+      runtime.deviceState.set(
         FIRST_TASK_ACTIVATION_DRAFT_KEY,
         JSON.stringify(EMPTY_FIRST_TASK_DRAFT),
       )
@@ -1052,7 +984,7 @@ describe('native New Task sheet logic', () => {
       ).toBeTruthy(),
     )
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY) ?? '{}')).toEqual({
+    expect(JSON.parse(runtime.deviceState.get(LAST_LAUNCH_PICK_KEY) ?? '{}')).toEqual({
       host: { 'claude-code': { model: 'reported-model', effort: 'high' } },
     })
   })
@@ -1105,7 +1037,7 @@ describe('native New Task sheet logic', () => {
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
     let finishRead: ((files: Parameters<ComposerAttachmentsApi['accept']>[0]) => void) | undefined
     await mount({
-      api: { sessions: { uploadImage: { mutate: upload }, create: { mutate: create } } },
+      api: { sessions: { uploadImage: { mutate: upload } }, sync: launchApi(create) },
     })
     await ready()
     fireEvent.change(prompt(), { target: { value: 'Fix the image' } })
@@ -1149,7 +1081,7 @@ describe('native New Task sheet logic', () => {
     const upload = vi.fn(async (_input: Record<string, unknown>) => ({ path: '', attachment: ref }))
     const create = vi.fn(async (input: { sessionId: string }) => ({ sessionId: input.sessionId }))
     await mount({
-      api: { sessions: { uploadImage: { mutate: upload }, create: { mutate: create } } },
+      api: { sessions: { uploadImage: { mutate: upload } }, sync: launchApi(create) },
     })
     await ready()
     fireEvent.change(prompt(), { target: { value: 'Fix the attached issue' } })

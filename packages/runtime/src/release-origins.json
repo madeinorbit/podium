@@ -1,0 +1,29 @@
+{
+  "mirrorReadEnabled": true,
+  "redirectHops": 3,
+  "stableInstallerUrl": "https://podium.do/install.sh",
+  "paths": {
+    "latest": "latest/",
+    "download": "download/",
+    "edge": "download/edge/",
+    "dev": "download/dev/"
+  },
+  "origins": [
+    {
+      "id": "github",
+      "baseUrl": "https://github.com/madeinorbit/podium/releases/",
+      "latestPath": "latest/download/",
+      "redirectHosts": [
+        "github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com"
+      ]
+    },
+    {
+      "id": "mirror",
+      "baseUrl": "https://releases.podium.do/",
+      "latestPath": "latest/",
+      "redirectHosts": ["releases.podium.do"]
+    }
+  ]
+}

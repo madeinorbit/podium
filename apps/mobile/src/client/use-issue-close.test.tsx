@@ -1,7 +1,4 @@
 import { MobxPool } from '@podium/client-graph/pool'
-import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
-import { createColdIndex } from '@podium/client-graph/shared/cold-index'
-import { SCHEMA } from '@podium/client-graph/shared/schema'
 import type { RowRecord, RowSourceEvent } from '@podium/client-graph/shared/source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -37,13 +34,11 @@ function fixture(scale: 1 | 4) {
     ...Array.from({ length: scale * 128 }, (_, i) => issue(`foreign-${i}`, { archived: true })),
     ...Array.from({ length: scale * 128 }, (_, i) => session(`foreign-seat-${i}`, { issueId: `foreign-${i}`, archived: true, status: 'exited' })),
   ]
-  const source = createColdIndex(SCHEMA, ISSUE_PAGE_SUMMARIES)
-  source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }, undefined, {
-    cold: () => source, load: () => undefined, summaries: ISSUE_PAGE_SUMMARIES, worklist: 'demand', schedule: () => () => {},
+    load: () => undefined, worklist: 'demand', schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows }); state.pool = pool
-  return { pool, publish(event: RowSourceEvent) { source.apply(event); pool.apply(event) } }
+  return { pool, publish(event: RowSourceEvent) { pool.apply(event) } }
 }
 function Probe() {
   const guard = useIssueCloseGuard()

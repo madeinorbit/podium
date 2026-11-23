@@ -33,6 +33,7 @@ export const DAEMON_PORT_IDS = [
   'approvals',
   'updates',
   'logs',
+  'topics',
 ] as const
 export type DaemonPortId = (typeof DAEMON_PORT_IDS)[number]
 
@@ -59,6 +60,8 @@ export const DAEMON_FRAME_PORTS = {
   agentState: ['sessions'],
   agentColor: ['sessions'],
   agentModel: ['sessions'],
+  agentMode: ['sessions'],
+  sessionAuth: ['sessions'],
   agentContext: ['sessions'],
   agentObservation: ['sessions'],
   agentObservationRebind: ['sessions'],
@@ -138,6 +141,14 @@ export const DAEMON_FRAME_PORTS = {
   workspaceCleanResult: ['rpc'],
   credentialExportResult: ['rpc'],
   credentialInstallResult: ['rpc'],
+  // Sign in with ChatGPT (credential management §11): the listener's answer, and
+  // the callback it relays, which goes to the listener the rpc module opened.
+  oauthLoopbackResult: ['rpc'],
+  oauthLoopbackCallback: ['rpc'],
+  homeEnsureResult: ['rpc'],
+  conversationPrepareResult: ['rpc'],
+  homeRemoveResult: ['rpc'],
+  credentialRemoveResult: ['rpc'],
   serverTransferResult: ['rpc'],
   serverEndpointResult: ['rpc'],
   shippingJobResult: ['rpc'],
@@ -168,6 +179,9 @@ export const DAEMON_FRAME_PORTS = {
 
   // ---- THE AGENT COMMAND RELAY, and nothing else (ADR 7 D2 / ADR 5 D7) ----
   agentRelayRequest: ['agentRelay'],
+
+  // ---- topics (ADR 7 Amendment 2 D21): a daemon-produced value, by key ----
+  topicPublish: ['topics'],
 } as const satisfies Record<DaemonMessage['type'], readonly [DaemonPortId, ...DaemonPortId[]]>
 
 /** The session-owned subset, as a type — the sessions port's frame argument. */
@@ -232,6 +246,8 @@ export const MACHINE_SCOPE_CARRIER = {
   // Filed UNDER the machine, so the machine had better not come from the frame.
   daemonLogBatch: 'principal',
   hostMetrics: 'principal',
+  // The key names a machine-produced topic; the port checks it against THIS machine.
+  topicPublish: 'principal',
   memoryBreakdownResult: 'request-correlated',
   reclaimDiskEstimateResult: 'request-correlated',
   scanResult: 'principal',

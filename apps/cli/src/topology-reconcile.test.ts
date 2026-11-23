@@ -6,7 +6,7 @@ import { writeRecord } from '@podium/runtime/run-registry'
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderParentUnit } from './cli-systemd'
 import { fakeSystemctl } from './test-support/systemctl'
-import { machineTopologyReport, reconcileSupervision } from './topology-reconcile'
+import { machineTopologyReport, observeTopology, reconcileSupervision } from './topology-reconcile'
 
 const previousStateDir = process.env.PODIUM_STATE_DIR
 const dirs: string[] = []
@@ -97,6 +97,20 @@ function fixture() {
 }
 
 describe('reconcileSupervision', () => {
+  it('recognizes a fenced legacy unit as managed when a masked manager reports it disabled', () => {
+    const { deps, installed } = fixture()
+    installed.add('podium.service')
+    const observed = observeTopology({
+      ...deps,
+      unitActive: () => false,
+      unitEnabled: () => false,
+      unitMasked: (unit) => unit === 'podium-server.service',
+    })
+    expect(observed.enabledUnits).toEqual(['podium-server.service'])
+    expect(observed.maskedUnits).toEqual(['podium-server.service'])
+    expect(observed.parentUnitEnabled).toBe(false)
+  })
+
   it.skipIf(process.platform === 'win32')(
     'enables an active-but-disabled canonical parent before declaring it armed',
     async () => {

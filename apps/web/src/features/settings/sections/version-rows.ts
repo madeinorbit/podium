@@ -115,10 +115,8 @@ export function componentVersions(input: ComponentVersionsInput): ComponentVersi
     interfaceRow.mark = 'expected'
     interfaceRow.note = page.source.note
   }
-  // Only the baked copy is a genuinely different artefact — it can be frozen at
-  // whatever shipped. A cached copy of the SAME build is the offline layer doing
-  // its job, and its build stamp is already compared above.
-  if (page.source.kind === 'baked') divergent = true
+  // A built-in or cached copy with matching build identity still agrees.
+  // Source alone does not open the version breakdown.
   rows.push(interfaceRow)
 
   if (phone?.present) {

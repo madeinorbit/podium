@@ -1,17 +1,17 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { attachSettingsSource } from '@podium/client-graph/settings-source'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { settingsView } from '@podium/client-graph/settings-views'
 import type { SessionView } from '@podium/client-core/session-values'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
-import { checkSettings } from '../../../../../tests/worklist/diagnostics/settings-check'
+import { omitGone } from '@podium/client-graph/lookup'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { settingsView } from '@podium/client-graph/settings-views'
 import type { SliceSession } from '@podium/client-graph/shared/slice-types'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { dedupeSessionsByResume } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { checkSettings } from '../../../../../tests/worklist/diagnostics/settings-check'
+import { attachSettingsSource } from '../../test-support/settings-source.test.fixture'
 
 const disposals: (() => void)[] = []
 afterEach(() => {
@@ -47,20 +47,27 @@ function fixture(sessions: SliceSession[] = []) {
   let state = {
     machines: [{ id: 'host', name: 'Host' }],
     repos: [{ path: '/project', kind: 'repository', worktrees: [] }],
-    settingsTab: 'accounts',
+    settingsTab: 'credentials',
     sessions: dedupeSessionsByResume(sessions as unknown as SessionView[]),
   }
   const read = vi.fn(() => state as object)
-  const owner = withKeyedInputs({
+  const screen = fixtureUi(ui)
+  screen.patch({ settingsTab: state.settingsTab })
+  Object.defineProperty(screen, 'screen', { get: () => state })
+  const owner = {
     getSnapshot: read,
-    ui,
+    get access() {
+      return state
+    },
+    ui: screen,
+    deviceState: ui,
     subscribe: (wake: () => void) => {
       listeners.add(wake)
       return () => {
         listeners.delete(wake)
       }
     },
-  })
+  }
   const feed = new Map(sessions.map((row) => [row.sessionId, row]))
   const load = vi.fn((_entity: string, id: string) => feed.get(id))
   const pool = new MobxPool(
@@ -68,13 +75,19 @@ function fixture(sessions: SliceSession[] = []) {
     undefined,
     { settings: true, load, schedule: () => () => {} },
   )
-  attachSettingsSource(pool, owner)
-  attachPreferenceSource(pool, ui)
+  // The whole-pool install first: the settings fixture then adds the machine
+  // records (POD-6644), which a later replace would remove.
   pool.apply({
     type: 'replace',
     rows: sessions.map((row) => ({ kind: 'session' as const, id: row.sessionId, value: row })),
   })
+  attachSettingsSource(pool, owner)
+  attachPreferenceSource(pool, ui)
   disposals.push(() => pool.dispose())
+  // Attaching feeds the live machine list into the pool at once (c7efbe9cac):
+  // that is the machines' own path. The reads these tests count are the
+  // settings rows', which load in a batch and never after disposal.
+  read.mockClear()
   return {
     pool,
     read,
@@ -87,6 +100,7 @@ function fixture(sessions: SliceSession[] = []) {
     state: () => state,
     publish(patch: Partial<typeof state>) {
       state = { ...state, ...patch }
+      screen.patch({ settingsTab: state.settingsTab })
       for (const wake of listeners) wake()
     },
   }
@@ -141,11 +155,10 @@ describe('declared settings readers', () => {
     expect(omitGone(pool.row('setupSession', 'cold'))).not.toHaveProperty('privatePayload')
     expect(payloadReads).toBe(0)
     expect(load).not.toHaveBeenCalled()
-    expect(pool.tables.session.has('cold')).toBe(false)
   })
 
   it('batches requested rows, returns loading first, and invalidates only changed rows', async () => {
-    const { pool, read, publish } = fixture()
+    const { pool, read, publish, owner } = fixture()
     const initialView = createPoolProjection(pool, (current) => ({
       catalog: omitGone(current.row('settingsCatalog', 'catalog')),
       window: omitGone(current.row('settingsWindow', 'window')),
@@ -155,15 +168,19 @@ describe('declared settings readers', () => {
     disposals.push(initialStop)
     const initial = initialView.getSnapshot()
     expect(initial.catalog).toBe(LOADING)
-    expect(initial.window).toBe(LOADING)
+    expect(initial.window).toBe(owner.ui)
+    expect(initial.window).toMatchObject({ settingsTab: 'credentials' })
     expect(initial.machine).toBe(LOADING)
     expect(read).not.toHaveBeenCalled()
     await Promise.resolve()
     // One batch; it reads the catalog and window by key (POD-5433).
     expect(read).toHaveBeenCalled()
-    expect(omitGone(pool.row('settingsWindow', 'window'))).toEqual({ settingsTab: 'accounts' })
+    expect(omitGone(pool.row('settingsWindow', 'window'))).toBe(owner.ui)
+    expect(owner.ui.settingsTab).toBe('credentials')
     expect(omitGone(pool.row('settingsMachine', 'missing'))).toBeUndefined()
-    const view = createPoolProjection(pool, (current) => omitGone(current.row('settingsMachine', 'host')))
+    const view = createPoolProjection(pool, (current) =>
+      omitGone(current.row('settingsMachine', 'host')),
+    )
     const wake = vi.fn(),
       stop = view.subscribe(wake)
     disposals.push(stop)
@@ -180,25 +197,6 @@ describe('declared settings readers', () => {
     expect(omitGone(pool.row('settingsCatalog', 'catalog'))).toMatchObject({ machines: [] })
   })
 
-  it('preserves default-agent ties across hot and cold summaries, updates and hydration', () => {
-    const { pool, load, feed } = fixture([
-      session('z-cold', 'codex', true),
-      session('a-hot', 'claude-code'),
-    ])
-    expect(pool.residency?.isCold('session', 'z-cold')).toBe(true)
-    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
-    expect(load).not.toHaveBeenCalled()
-    expect(omitGone(pool.row('setupSession', 'z-cold'))).not.toHaveProperty('title')
-    const next = { ...feed.get('z-cold')!, title: 'not a summary field' }
-    feed.set('z-cold', next)
-    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'z-cold', value: next }] })
-    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
-    expect(omitGone(pool.row('session', 'z-cold'))).toBe(LOADING)
-    expect(pool.hydrate()).toBe(1)
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(settingsView(pool).setup().defaultAgent).toBe('codex')
-  })
-
   it('compares catalog, tab, resume twins, usage, agent and demanded preferences with no differences', async () => {
     const a = session('older', 'codex', true),
       b = { ...session('newer', 'claude-code', true), lastActiveAt: '2021-01-01T00:00:00.000Z' }
@@ -209,20 +207,27 @@ describe('declared settings readers', () => {
       session('shell', 'shell'),
       { ...session('headless', 'codex'), headless: true },
     ])
-    f.owner.ui.set('podium.sounds.enabled', 'false')
-    expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toBe(LOADING)
-    expect(
-      checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]).pending,
-    ).toBeGreaterThan(0)
+    const requested = createPoolProjection(f.pool, (pool) => checkSettings(pool, f.owner as never))
+    disposals.push(requested.subscribe(() => {}))
+    requested.getSnapshot()
+    f.owner.deviceState.set('podium.sounds.enabled', 'false')
+    expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toMatchObject({
+      key: 'podium.sounds.enabled',
+      value: 'false',
+    })
+    // A component observes catalog demand; imperative oracle reads are immediate.
+    expect(requested.getSnapshot().pending).toBeGreaterThan(0)
     await Promise.resolve()
     const result = checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1])
     expect(result).toMatchObject({ differences: 0, pending: 0, first: null })
-    expect(result.positions).toBeGreaterThan(3)
+    // The compared rows: the machine and the repository. Settings lists no
+    // sessions since POD-7088; the twins reach it only as the default agent.
+    expect(result.positions).toBeGreaterThanOrEqual(2)
     expect(f.load).not.toHaveBeenCalled()
     expect(settingsView(f.pool).sessionPresent('older')).toBe(false)
     expect(settingsView(f.pool).sessionPresent('newer')).toBe(true)
     f.publish({ settingsTab: 'updates', repos: [], machines: [] })
-    f.owner.ui.set('podium.sounds.enabled', 'true')
+    f.owner.deviceState.set('podium.sounds.enabled', 'true')
     await Promise.resolve()
     expect(
       checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]),
@@ -231,12 +236,14 @@ describe('declared settings readers', () => {
 
   it('detaches the existing owners and refuses stale reads and queued loads after disposal', async () => {
     const f = fixture()
-    const catalog = createPoolProjection(f.pool, (pool) => omitGone(pool.row('settingsCatalog', 'catalog')))
+    const catalog = createPoolProjection(f.pool, (pool) =>
+      omitGone(pool.row('settingsCatalog', 'catalog')),
+    )
     disposals.push(catalog.subscribe(() => {}))
     expect(catalog.getSnapshot()).toBe(LOADING)
     omitGone(f.pool.row('preference', 'podium.sounds.enabled'))
     expect(f.listeners.size).toBe(1)
-    expect(f.uiListeners.size).toBe(1)
+    expect(f.uiListeners.size).toBe(0)
     f.pool.dispose()
     expect(f.listeners.size).toBe(0)
     expect(f.uiListeners.size).toBe(0)

@@ -15,6 +15,13 @@ export function residentRecords(sessions: ReadonlyMap<SessionId, Session>): Sess
   return {
     all: async () => where(() => true),
     issueMembers: async (worktreePath, issueId) => where((s) => isIssueMember(worktreePath, issueId, s)),
+    issueMembersMany: async (issues) =>
+      new Map(
+        issues.map((issue) => [
+          issue.issueId,
+          where((s) => isIssueMember(issue.worktreePath, issue.issueId, s)),
+        ]),
+      ),
     underPath: async (worktreePath) => (worktreePath ? where((s) => isMemberCwd(worktreePath, s.cwd)) : []),
     onMachine: async (machineId) => where((s) => s.machineId === machineId),
     withStatuses: async (statuses) => where((s) => statuses.includes(s.status)),

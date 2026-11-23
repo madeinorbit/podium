@@ -103,7 +103,7 @@ describe('registerWebStatic', () => {
     })
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toContain('text/html')
-    expect(res.headers.get('cache-control')).toBe('no-cache')
+    expect(res.headers.get('cache-control')).toBe('no-store')
     expect(await res.text()).toContain('Podium')
   })
   it('does not shadow API routes', async () => {
@@ -230,9 +230,9 @@ describe('registerWebStatic', () => {
     const asset = await app.request('/assets/index-RR9HhGf3.js')
     expect(asset.headers.get('cache-control')).toBe('public, max-age=31536000, immutable')
     const shell = await app.request('/')
-    expect(shell.headers.get('cache-control')).toBe('no-cache')
+    expect(shell.headers.get('cache-control')).toBe('no-store')
     const unhashed = await app.request('/assets/app.js')
-    expect(unhashed.headers.get('cache-control')).toBe('no-cache')
+    expect(unhashed.headers.get('cache-control')).toBe('no-store')
   })
   it('serves both classic Apple touch-icon names at the root [POD-421]', async () => {
     // iOS asks for exactly these when a page's declared icon cannot be used;
@@ -284,6 +284,34 @@ describe('registerWebStatic', () => {
         expect(res.headers.get('Cross-Origin-Opener-Policy'), path).toBe('same-origin')
         expect(res.headers.get('Cross-Origin-Embedder-Policy'), path).toBe('credentialless')
         expect(res.headers.get('Cross-Origin-Resource-Policy'), path).toBe('same-origin')
+      }
+    } finally {
+      rmSync(mobile, { recursive: true, force: true })
+    }
+  })
+
+  it("lets the phone's worker control /mobile itself, and nothing else gets the header [POD-7179]", async () => {
+    // A worker at /mobile/sw.js may by default control only /mobile/…; the
+    // phone's page is /mobile, so an offline reload of it needs the wider scope.
+    const mobile = mkdtempSync(join(tmpdir(), 'podium-mobile-sw-'))
+    try {
+      writeFileSync(join(mobile, 'index.html'), '<!doctype html><title>Podium Mobile</title>')
+      writeFileSync(join(mobile, 'sw.js'), 'self.addEventListener("fetch", () => {})')
+      writeFileSync(join(mobile, 'app.js'), 'console.log(1)')
+      const app = new Hono()
+      registerWebStatic(app, mobile, {
+        basePath: '/mobile',
+        crossOriginIsolated: true,
+        serviceWorkerScope: '/mobile',
+      })
+      const worker = await app.request('/mobile/sw.js')
+      expect(worker.status).toBe(200)
+      expect(worker.headers.get('content-type')).toContain('javascript')
+      expect(worker.headers.get('Service-Worker-Allowed')).toBe('/mobile')
+      expect(worker.headers.get('Cache-Control')).toBe('no-store')
+      expect(worker.headers.get('Cross-Origin-Embedder-Policy')).toBe('credentialless')
+      for (const path of ['/mobile', '/mobile/app.js']) {
+        expect((await app.request(path)).headers.get('Service-Worker-Allowed'), path).toBeNull()
       }
     } finally {
       rmSync(mobile, { recursive: true, force: true })

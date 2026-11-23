@@ -28,6 +28,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { systemPrincipal } from '../../command-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { SessionStore } from '../../store'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { attachHostDaemon } from '../../test-support/host-daemon'
@@ -112,12 +113,12 @@ async function makeRegistry(statusImpl: () => Promise<{ ok: boolean; output: str
 }
 
 async function makeIssueWithWorktree(reg: SessionRegistry): Promise<string> {
-  const issue = await reg.modules.issues.crud.create({
+  const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
     repoPath: '/r',
     title: 'Dock shell home',
     startNow: false,
   })
-  await reg.modules.issues.crud.update(issue.id, { worktreePath: WT, branch: 'issue/a' })
+  await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, { worktreePath: WT, branch: 'issue/a' })
   return issue.id
 }
 
@@ -194,13 +195,13 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
    */
   async function setupMappedStop(mapped: boolean) {
     const { reg, store } = await makeRegistry(async () => ({ ok: true, output: '## issue/a\n' }))
-    const issueA = await reg.modules.issues.crud.create({
+    const issueA = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Owner',
       startNow: false,
     })
-    await reg.modules.issues.crud.update(issueA.id, { worktreePath: WT, branch: 'issue/a' })
-    const issueB = await reg.modules.issues.crud.create({
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issueA.id, { worktreePath: WT, branch: 'issue/a' })
+    const issueB = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Binding',
       startNow: false,
@@ -212,7 +213,7 @@ describe('stopSession answers the policy from the mapping (step 3)', () => {
       cwd: '/r',
       issueId: issueB.id,
     })
-    await reg.modules.issues.crud.update(issueA.id, { stage: 'done' })
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issueA.id, { stage: 'done' })
     await vi.waitFor(async () => {
       expect((await reg.modules.issues.reports.getMeta(issueA.id))?.stage).toBe('done')
     })
@@ -263,6 +264,7 @@ describe('freeWorktreeKeepBranch runs the shell lifetime policy (POD-4525)', () 
       id,
       principal: testClientPrincipal(id),
       send: (m: ServerMessage) => sent.push(m),
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       viewports: new Map(),
       attached: new Set(),
       caps: new Set(),

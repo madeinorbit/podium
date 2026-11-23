@@ -1,5 +1,4 @@
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
-import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { MobxPool } from '@podium/client-graph/pool'
 import { type Worklist, worklistView } from '@podium/client-graph/worklist/view-model'
@@ -855,7 +854,6 @@ it('native placeholders activate a bounded window both ways; only age labels rea
     },
   }))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    summaries: MOBILE_SCREEN_SUMMARIES,
     load: (kind, id) => rows.find((row) => row.kind === kind && row.id === id)?.value,
   })
   state.pool = pool

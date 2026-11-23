@@ -20,13 +20,13 @@
  * resume. The second test pins that half.
  */
 
-import { asSessionId, firstAdminMemberId } from '@podium/model'
-import { actorAgent, asAgentIdentityId } from '@podium/model'
+import { actorAgent, asAgentIdentityId, asSessionId, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { describe, expect, it, afterEach, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { openTestStore } from '../../test-support/open-test-store'
 import { attachHostDaemon } from '../../test-support/host-daemon'
+import { messageTestWriter, messageTestWriters } from '../../test-support/message-writer'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 
@@ -48,13 +48,22 @@ async function makeRegistry() {
   registries.push(reg)
   const toDaemon: ControlMessage[] = []
   await attachHostDaemon(reg, (m) => toDaemon.push(m))
-  await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId, 'git@github.com:example/r.git')
-  const rpc = (reg.modules.sessions as unknown as {
-    rpc: {
-      repoOp: (...args: unknown[]) => Promise<{ ok: boolean; output: string }>
-      runtimeLifecycle: (input: { sessionId: string; verb: string }, machineId: string) => Promise<{ sessionId: string; result: { ok: true; retirement?: 'confirmed' } }>
+  await reg.sessionStore.repos.addRepo(
+    '/r',
+    reg.sessionStore.hostMachineId,
+    'git@github.com:example/r.git',
+  )
+  const rpc = (
+    reg.modules.sessions as unknown as {
+      rpc: {
+        repoOp: (...args: unknown[]) => Promise<{ ok: boolean; output: string }>
+        runtimeLifecycle: (
+          input: { sessionId: string; verb: string },
+          machineId: string,
+        ) => Promise<{ sessionId: string; result: { ok: true; retirement?: 'confirmed' } }>
+      }
     }
-  }).rpc
+  ).rpc
   rpc.repoOp = async () => ({ ok: true, output: '' })
   rpc.runtimeLifecycle = async (input) => {
     return { sessionId: input.sessionId, result: { ok: true, retirement: 'confirmed' } }
@@ -118,12 +127,16 @@ describe('POD-5284: stopping an unresumable session settles its dispatched mail'
     })
     await bindLiveNoResume(reg, sessionId)
 
-    const sent = await reg.modules.messages.send(AGENT_SENDER as never, {
-      to: { kind: 'session', id: sessionId },
-      body: 'Start now: read your newest message from the coordinator',
-      urgency: 'next-turn',
-      lifecycle: 'wake',
-    })
+    const sent = await reg.modules.messages.send(
+      reg.modules.sessions.serverWriter,
+      AGENT_SENDER as never,
+      {
+        to: { kind: 'session', id: sessionId },
+        body: 'Start now: read your newest message from the coordinator',
+        urgency: 'next-turn',
+        lifecycle: 'wake',
+      },
+    )
     expect(sent.ok).toBe(true)
     const before = await store.messages.getMessage(sent.message.id)
     expect(before?.deliveryStatus).toBe('dispatched')
@@ -152,11 +165,15 @@ describe('POD-5284: stopping an unresumable session settles its dispatched mail'
     })
     await bindLiveResumable(reg, sessionId)
 
-    const sent = await reg.modules.messages.send(AGENT_SENDER as never, {
-      to: { kind: 'session', id: sessionId },
-      body: 'hibernated mail waits for resume',
-      urgency: 'fyi',
-    })
+    const sent = await reg.modules.messages.send(
+      reg.modules.sessions.serverWriter,
+      AGENT_SENDER as never,
+      {
+        to: { kind: 'session', id: sessionId },
+        body: 'hibernated mail waits for resume',
+        urgency: 'fyi',
+      },
+    )
     expect(sent.ok).toBe(true)
     await vi.waitFor(() => expect(durableSends(toDaemon, sessionId)).toHaveLength(1))
     expect(durableSends(toDaemon, sessionId)[0]).toMatchObject({

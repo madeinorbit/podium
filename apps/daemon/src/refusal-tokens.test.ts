@@ -342,11 +342,11 @@ describe('every refusal a daemon can produce is classified by the shared table',
    * above: the publishing server sees the mismatch first and answers a
    * fail-closed 404 carrying {@link UPDATE_ARTIFACT_REFUSAL_HEADER}. Without
    * that marker the sentence is `artifact download returned 404`, which is
-   * `download-failed` — a network problem, to whoever reads it. Both arms are
+   * a pending publication. The marker must still classify as an integrity refusal. Both arms are
    * driven through the real producer here, because the whole point is that the
    * two 404s must not classify alike.
    */
-  it('classifies an integrity-marked 404 as a rejected artifact, and a bare one as transport', async () => {
+  it('classifies an integrity-marked 404 as a rejected artifact, and a bare one as pending publication', async () => {
     const download = async (headers: Record<string, string>): Promise<string> => {
       try {
         await fetchArtifact(
@@ -369,8 +369,8 @@ describe('every refusal a daemon can produce is classified by the shared table',
     expect(classifyUpdateFailureDetail(marked), marked).toBe('machine-artifact-rejected')
 
     const bare = await download({})
-    expect(matchUpdateFailureToken(bare), bare).toBe('download-http-status')
-    expect(classifyUpdateFailureDetail(bare), bare).toBe('download-failed')
+    expect(matchUpdateFailureToken(bare), bare).toBe('artifact-not-published')
+    expect(classifyUpdateFailureDetail(bare), bare).toBe('artifact-not-published')
   })
 
   it('classifies the delivery misconfigurations as unavailable rather than unreachable', async () => {
@@ -401,7 +401,7 @@ describe('every refusal a daemon can produce is classified by the shared table',
         { url: 'https://example/a.tgz', digest: 'd' } as never,
         {
           pubkey: 'k',
-          fetch: async () => ({ ok: false, status: 404 }),
+          fetch: async () => ({ ok: false, status: 503 }),
         } as never,
       )
     } catch (error) {
@@ -420,6 +420,7 @@ describe('every refusal a daemon can produce is classified by the shared table',
           digest: 'd',
         } as never,
         {
+          pubkey: 'k',
           fetch: async () => {
             throw Object.assign(new Error('host lookup failed'), { code: 'ENOTFOUND' })
           },

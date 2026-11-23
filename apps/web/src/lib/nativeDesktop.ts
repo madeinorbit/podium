@@ -14,6 +14,19 @@ export interface NativeDaemonConnectivity {
   updatedAt: string
 }
 
+/** Runtime-owned public enrollment status. `target` is an opaque native receipt. */
+export interface NativeClientRegistrationRequest {
+  target: string
+  machineId: string
+  publicKey?: string
+}
+
+export type NativeClientRegistrationStatus =
+  | { state: 'not-applicable' | 'starting' | 'pending' | 'enrolled' }
+  | ({ state: 'needed' } & NativeClientRegistrationRequest)
+  | { state: 'rejected'; message: string; retry?: NativeClientRegistrationRequest }
+  | { state: 'unavailable'; message: string }
+
 export interface NativeDesktopUpdateInfo {
   current_version: string
   version: string
@@ -30,7 +43,7 @@ export interface NativeDesktopBridge {
   /** Versioned contract for methods and payloads on this injected bridge. */
   bridgeVersion?: number
   launchMode?: NativeDesktopLaunchMode
-  /** This device's paired machine id (~/.podium/daemon.json), if it ever paired. [spec:SP-3701] */
+  /** This installation's canonical machine id, when the supervisor has initialized. */
   machineId?: MachineId
   minimize: () => Promise<void>
   toggleMaximize: () => Promise<void>
@@ -80,7 +93,10 @@ export interface NativeDesktopBridge {
    * hub-minted pairing code. Caller restarts the shell afterwards (window.__PODIUM_RESTART__).
    */
   enableHosting?: (pairCode: string) => Promise<void>
-  /** Reads this shell's daemon-owned durable connection status. */
+  /** Client-only, optional on older shells; neither method accepts a server URL. */
+  clientRegistrationStatus?: () => Promise<NativeClientRegistrationStatus>
+  registerClient?: (pairCode: string, target: string) => Promise<void>
+  /** Reads this shell's canonical public connection status. */
   daemonConnectivity?: () => Promise<NativeDaemonConnectivity | null>
   /**
    * POD-5921, remote modes only: the installation this window's server is, from the shell's

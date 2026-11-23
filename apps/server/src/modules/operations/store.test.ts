@@ -2,7 +2,7 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
-import { syncQueriesOver } from '../../store/executor/sync-drizzle'
+import { selfHostedQueriesOver } from '../../test-support/self-hosted-queries'
 import { OperationStore, type PersistedOperation } from './store'
 
 /** A real database over the real migration chain — the operations table has to
@@ -24,7 +24,7 @@ function store(): OperationStore {
 function storeWithHandle(): [OperationStore, SqlDatabase] {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  return [new OperationStore(syncQueriesOver(db)), db]
+  return [new OperationStore(selfHostedQueriesOver(db)), db]
 }
 
 const op = (over: Partial<PersistedOperation> = {}): PersistedOperation => ({
@@ -112,7 +112,7 @@ describe('OperationStore round-trip', () => {
 
   it('joins an enclosing transaction and rolls back its payload and columns', async () => {
     const [, db] = storeWithHandle()
-    const queries = syncQueriesOver(db)
+    const queries = selfHostedQueriesOver(db)
     const s = new OperationStore(queries)
     await s.insert({ ...op(), future: 'keep' })
     const before = await s.get('op_1')
@@ -447,7 +447,7 @@ describe('durable update approvals', () => {
     const db = openDatabase(':memory:')
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
     try {
-      const s = new OperationStore(syncQueriesOver(db))
+      const s = new OperationStore(selfHostedQueriesOver(db))
       const approval = (
         id: string,
         version: string,
@@ -466,10 +466,10 @@ describe('durable update approvals', () => {
       await s.insert(approval('a', 'A', 1))
       await s.insert(approval('b', 'B', 2, 'running'))
       await s.sweepRetention('update', 0)
-      expect((await new OperationStore(syncQueriesOver(db)).approvedTarget('dev'))?.version).toBe('B')
+      expect((await new OperationStore(selfHostedQueriesOver(db)).approvedTarget('dev'))?.version).toBe('B')
       await s.update(approval('b', 'B', 2, 'canceled'))
       await s.sweepRetention('update', 0)
-      expect((await new OperationStore(syncQueriesOver(db)).approvedTarget('dev'))?.version).toBe('A')
+      expect((await new OperationStore(selfHostedQueriesOver(db)).approvedTarget('dev'))?.version).toBe('A')
       expect(await s.approvedTarget('edge')).toBeUndefined()
       await s.insert({ ...approval('system', 'C', 3), createdBy: 'system' })
       expect((await s.approvedTarget('dev'))?.version).toBe('A')

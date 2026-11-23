@@ -166,8 +166,12 @@ describe('TranscriptFeed — the streaming caret', () => {
 
   it('marks in-progress text so it can carry a caret', () => {
     render([say('a', 'one')], { text: 'half a thou' })
-    act(() => host.querySelector<HTMLButtonElement>('[data-testid="turn-line"] > button')!.click())
-    expect(streaming()?.querySelector('.chat-md')?.className).toContain('chat-md--streaming')
+    expect(streaming()?.textContent).toContain('half a thou')
+    expect(
+      host.querySelector(
+        '[data-testid="streaming-text"].chat-md--streaming, [data-testid="streaming-text"] .chat-md--streaming',
+      ),
+    ).not.toBeNull()
   })
 
   it('leaves settled transcript text unmarked — only the overlay is in progress', () => {

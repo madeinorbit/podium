@@ -228,10 +228,13 @@ it.each([
     }
     cells.push(
       await measured('catalog', () => {
-        data.repos = data.repos.map((repo, at) =>
-          at === 0 ? { ...repo, branch: 'updated' } : repo,
-        )
-        return app.runtime.access.refreshRepos()
+        const checkout = app.replica
+          .rows('checkouts')
+          .find((row) => row.machineId === 'mine' && row.path === data.repos[0]!.path)
+        if (!checkout) throw new Error('The measured repository has no checkout record')
+        // A branch change publishes this checkout, as the server feed does.
+        // Replacing every repository manufactured a corpus-sized change set.
+        app.replica.applyChanges('checkouts', [{ ...checkout, branch: 'updated' }], [])
       }),
     )
     expect(attached.row('repository', JSON.stringify(['mine', data.repos[0]!.path]))).toMatchObject(
@@ -316,9 +319,10 @@ it.each([
     JSON.stringify(
       samples.map((sample) => ({
         ...sample,
-        cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({
+        cells: sample.cells.map(({ action, rows, rowsBy, derivations, elements, elementsBy }) => ({
           action,
           rows,
+          rowsBy,
           derivations,
           elements,
           elementsBy,

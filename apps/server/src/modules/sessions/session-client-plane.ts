@@ -19,7 +19,7 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { machineUseDecision, ownershipSnapshotFromMachines } from '../../machine-access'
 import type { DaemonRpcService } from '../machines/rpc'
-import type { MachineListing, MachinesService } from '../machines/service'
+import type { MachinesService } from '../machines/service'
 import { authorReattachBinding } from './binding-mint'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { Session } from './session'
@@ -209,9 +209,8 @@ export class SessionClientPlane {
   async onClientAttached(
     principal: ClientPrincipal,
     client: ClientConn,
-    machines: readonly MachineListing[],
   ): Promise<void> {
-    await this.ports.clientControl.onAttached(principal, client, machines)
+    await this.ports.clientControl.onAttached(principal, client)
   }
 
   /** Feature-owned consequence of a successful stream-room join. */

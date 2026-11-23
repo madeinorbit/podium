@@ -11,8 +11,16 @@ const api = vi.hoisted(() => ({
     start: { mutate: vi.fn(async () => {}) },
   },
 }))
-const settings = vi.hoisted(() => ({ model: { codingHarness: 'codex' } }))
-vi.mock('../client/use-settings-record', () => ({ useSettingsRecord: () => settings }))
+// The spawn is the task's effect record (POD-6526): begin or add, never the routes.
+const startIssueSession = vi.hoisted(() =>
+  vi.fn((_args: unknown) => ({ settled: Promise.resolve(true) })),
+)
+// My coding default is my synced settings record (POD-6673).
+vi.mock('../client/my-preferences', () => ({ useMyCodingHarness: () => 'codex' }))
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useCommands: () => ({ sessions: { startIssueSession } }),
+}))
 vi.mock('../client/hooks', () => ({ useTrpc: () => api }))
 vi.mock('./PressableScale', () => ({
   PressableScale: ({
@@ -59,7 +67,6 @@ vi.mock('./LaunchConfigurationFields', () => ({
 import { ConfiguredIssueLaunchSheet } from './ConfiguredIssueLaunchSheet'
 
 it('starts proposed work through the shared launch path after saving the native sheet draft', async () => {
-  api.issues.addSession.mutate.mockRejectedValueOnce(new Error('issue not started'))
   const record = observable({
     id: 'iss_proposed',
     title: 'Proposed task',
@@ -75,11 +82,13 @@ it('starts proposed work through the shared launch path after saving the native 
   render(<ConfiguredIssueLaunchSheet issue={record as never} onClose={close} />)
   fireEvent.click(screen.getByRole('button', { name: 'Choose high' }))
   fireEvent.click(screen.getByRole('button', { name: 'Start agent' }))
+  // One record starts it: upstream's default mode begins a never-started issue.
   await waitFor(() =>
-    expect(api.issues.start.mutate).toHaveBeenCalledExactlyOnceWith({ id: record.id }),
+    expect(startIssueSession).toHaveBeenCalledExactlyOnceWith({ issueId: record.id }),
   )
+  expect(api.issues.start.mutate).not.toHaveBeenCalled()
   expect(api.issues.update.mutate.mock.invocationCallOrder[0]).toBeLessThan(
-    api.issues.start.mutate.mock.invocationCallOrder[0]!,
+    startIssueSession.mock.invocationCallOrder[0]!,
   )
   expect(close).toHaveBeenCalledOnce()
 })
@@ -103,7 +112,8 @@ it('uses Settings for auto and saves a harness pin before spawning an effort ove
   render(<ConfiguredIssueLaunchSheet issue={record as never} onClose={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: 'Choose high' }))
   fireEvent.click(screen.getByRole('button', { name: 'Start agent' }))
-  await waitFor(() => expect(api.issues.addSession.mutate).toHaveBeenCalledWith({ id: record.id }))
+  await waitFor(() => expect(startIssueSession).toHaveBeenCalledWith({ issueId: record.id }))
+  expect(api.issues.addSession.mutate).not.toHaveBeenCalled()
   expect(api.issues.update.mutate).toHaveBeenCalledExactlyOnceWith({
     id: record.id,
     patch: { defaultAgent: 'codex', defaultEffort: 'high' },
@@ -145,13 +155,13 @@ it('keeps untouched launch values live, drops edits on reopen and saves only tou
   fireEvent.click(screen.getByRole('button', { name: 'Choose high' }))
   fireEvent.click(screen.getByRole('button', { name: 'Start agent' }))
   await waitFor(() =>
-    expect(api.issues.addSession.mutate).toHaveBeenCalledExactlyOnceWith({ id: record.id }),
+    expect(startIssueSession).toHaveBeenCalledExactlyOnceWith({ issueId: record.id }),
   )
   expect(api.issues.update.mutate).toHaveBeenCalledExactlyOnceWith({
     id: record.id,
     patch: { defaultEffort: 'high' },
   })
   expect(api.issues.update.mutate.mock.invocationCallOrder[0]).toBeLessThan(
-    api.issues.addSession.mutate.mock.invocationCallOrder[0]!,
+    startIssueSession.mock.invocationCallOrder[0]!,
   )
 })

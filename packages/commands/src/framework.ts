@@ -202,8 +202,8 @@ export type ContractConflictClass = ConflictClass | 'n/a'
  *   - {@link commandVisibility} resolves an absent declaration to `personal` —
  *     private to its owner, never tenant-visible. The SEMANTIC backstop, which
  *     holds with every test deleted.
- *   - `scripts/audit-session-commands.ts` FAILS THE BUILD when a session-family
- *     command omits it. Forgetting to classify must fail toward privacy AND
+ *   - `framework-facet-rules.test.ts` FAILS THE BUILD when a def in any
+ *     `defineCommands` table omits it. Forgetting to classify must fail toward privacy AND
  *     toward a red build; neither substitutes for the other.
  *
  * It is a DECLARATION, not a derivation from `policy.resource`, even though the

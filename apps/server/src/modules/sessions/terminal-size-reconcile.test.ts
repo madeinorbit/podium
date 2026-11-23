@@ -1,4 +1,5 @@
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 /**
  * The server's two sizing rules (POD-4771, POD-3190 design rev 3).
  *
@@ -51,6 +52,7 @@ function makeClient(id: string): Sent {
     id,
     principal: userClientPrincipal(id, OWNER, 'admin'),
     send: (m: ServerMessage) => sent.push(m),
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
@@ -320,14 +322,14 @@ describe('rule 2 on bind, and rule 3 (report and bind broadcast only on change)'
     expect(await rows()).toBe(0)
   })
 
-  it('a CHANGED report writes the copy, sends one geometry frame with no revision, and republishes the row', async () => {
+  it('a CHANGED report writes the copy and sends one geometry frame with no revision; the record is not republished (the size is a live reading, POD-6764)', async () => {
     const { reg, sessionId, session, client, rows } = await watched()
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, report(sessionId, BOX))
     expect(session.terminal.geometry).toEqual(BOX)
     expect(client.sent.filter((m) => m.type === 'geometry')).toEqual([
       { type: 'geometry', sessionId, cols: BOX.cols, rows: BOX.rows },
     ])
-    expect(await rows()).toBe(1)
+    expect(await rows()).toBe(0)
   })
 
   it('a report never forwards: forwards come only from statements, controller changes and binds', async () => {

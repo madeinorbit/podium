@@ -1,45 +1,15 @@
+import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-/**
- * THE ARBITRATION HOOK (POD-408) — the store/effect half of `panel-surface.ts`.
- *
- * `panelSurface` names the STATES. This hook owns the TRANSITIONS: what fetches
- * the configurable default, what materializes the derived mode back into the
- * store (which is what the engine's `reportViewState` reads to tell the server
- * which sessions are rendering native), what a mode pick persists, and — the one
- * transition that carries product behaviour rather than bookkeeping — chat →
- * native, which re-arms the chat draft flush.
- *
- * TRANSITIONS, NAMED:
- *   mount            → the surface is arbitrated for the first time; the mode is
- *                      written back to the store so viewState reports it.
- *   pick(chat|native)→ persists per-session (#35) AND as the per-device default.
- *   chat → native    → `onEnterNative` fires. The terminal stays MOUNTED across
- *                      the toggle (the warm toggle), so the mount effect's
- *                      one-shot draft flush does not re-fire on its own; this is
- *                      the edge that re-arms it. Mount-in-native is deliberately
- *                      NOT this edge (the mount effect already armed it).
- *   native → chat    → nothing here: the terminal simply stops being `active`.
- *   pane shown/hidden→ nothing here either; `paneActive` flows into the gates.
- *
- * The startScreen fetch and the panelMode write both live here rather than in
- * `AgentPanel` so that the component holds no arbitration state at all.
- */
-import { shallowEqual } from '@podium/client-core/shallow-equal'
-import {
-  effectivePanelMode,
-  PANEL_MODE_DEFAULT_KEY,
-  type PanelMode,
-} from '@podium/client-core/ui-state'
+import { effectivePanelMode, type PanelMode } from '@podium/client-core/ui-state'
 import {
   defaultChatCapable,
   sessionTerminalOutlook,
   type TerminalOutlook,
 } from '@podium/client-core/values'
 import { createLogger } from '@podium/logger'
-import type { SessionId} from '@podium/model/browser'
-import { useEffect, useRef, useState } from 'react'
-import { useRuntimeSelector } from '@/app/store'
-import { usePaneMachines, usePanePanelModes } from './use-session-pane-inputs'
+import type { SessionId } from '@podium/model/browser'
+import { useEffect, useRef } from 'react'
+import { useMyStartScreen } from '@/lib/my-preferences'
 import {
   type PanelGates,
   type PanelSurface,
@@ -48,6 +18,7 @@ import {
   panelOfflineMachine,
   panelSurface,
 } from './panel-surface'
+import { usePaneMachines, usePanePanelModes } from './use-session-pane-inputs'
 
 const log = createLogger('web:panel-mode')
 
@@ -64,7 +35,6 @@ type PanelModeProducer =
   | 'not-chat-capable'
   | 'saved'
   | 'server-family'
-  | 'device-default'
   | 'start-screen'
 
 function panelModeProducer(input: {
@@ -73,14 +43,12 @@ function panelModeProducer(input: {
   chatCapable: boolean
   saved: PanelMode | undefined
   serverFamily: boolean
-  deviceDefault: string | null | undefined
 }): PanelModeProducer {
   if (input.loginRequired) return 'login-required'
   if (!input.terminalCapable) return 'no-terminal'
   if (!input.chatCapable) return 'not-chat-capable'
   if (input.saved === 'native' || input.saved === 'chat') return 'saved'
   if (input.serverFamily) return 'server-family'
-  if (input.deviceDefault === 'native' || input.deviceDefault === 'chat') return 'device-default'
   return 'start-screen'
 }
 
@@ -114,14 +82,7 @@ export function usePanelSurface(input: {
   /** Fired on a chat → native transition, never on mount-in-native. */
   onEnterNative?: () => void
 }): PanelArbitration {
-  const { setPanelMode, uiState, trpc } = useRuntimeSelector(
-    (s) => ({
-      setPanelMode: s.setPanelMode,
-      uiState: s.uiState,
-      trpc: s.trpc,
-    }),
-    shallowEqual,
-  )
+  const setPanelMode = useUiValue('setPanelMode')
   const panelMode = usePanePanelModes()
   const machines = usePaneMachines()
   const { sessionId, session, paneActive, spawnConfirmed, inTransit, onEnterNative } = input
@@ -133,36 +94,20 @@ export function usePanelSurface(input: {
   const terminal = sessionTerminalOutlook(session)
   const terminalCapable = terminal !== 'none'
 
-  // Fetch the startScreen setting once; default to 'native' while loading. This
-  // drives the configurable default mode for sessions the user has never toggled.
-  const [startScreen, setStartScreen] = useState<'native' | 'chat' | 'auto'>('native')
-  const [startScreenSettled, setStartScreenSettled] = useState(false)
-  useEffect(() => {
-    let cancelled = false
-    trpc.settings.get
-      .query()
-      .then((s) => {
-        if (cancelled) return
-        setStartScreen(s.roles.coding.startScreen)
-        setStartScreenSettled(true)
-      })
-      .catch(() => {
-        if (!cancelled) setStartScreenSettled(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
+  // My startScreen setting, from my synced settings (POD-6673); 'native'
+  // until my settings are in the pool. This drives the configurable default
+  // mode for sessions the user has never toggled.
+  const syncedStartScreen = useMyStartScreen()
+  const startScreen = syncedStartScreen ?? 'native'
+  const startScreenSettled = syncedStartScreen !== undefined
 
   // Per-session mode is restored from the store (persisted via ui-state) so a
   // reload returns this session to the view it was last left in (#35). A session
-  // the user never toggled falls back to the configurable default: the per-device
-  // pick (PANEL_MODE_DEFAULT_KEY) → the `startScreen` setting →
+  // the user never toggled follows the live `startScreen` setting →
   // chat-on-mobile/native-on-desktop. ONE derivation (client-core ui-state) makes
   // the modeled, persisted and reported mode the same value.
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
   const savedMode = panelMode[sessionId]
-  const deviceDefault = uiState.get(PANEL_MODE_DEFAULT_KEY)
   // A login failure is only actionable in the native terminal, where the user
   // can run the agent's login command. Force that surface transiently; do not
   // persist the forced mode over the user's chat preference.
@@ -176,29 +121,21 @@ export function usePanelSurface(input: {
         terminalCapable,
         serverFamily: session?.driverFamily === 'server',
         saved: savedMode,
-        deviceDefault,
       })
-  // Shells cannot show chat, and explicit per-session/device choices are already
+  // Shells cannot show chat, and explicit per-session choices are already
   // authoritative. Fresh chat-capable sessions wait for the setting request so
   // the provisional native fallback cannot pull xterm into a chat-first load.
   //
   // A forced login surface is settled by the same rule: the mode is not a
   // provisional fallback there, it is the one surface the failure is actionable
   // on, so it must not wait on a setting it will ignore.
-  const modeSettled =
-    loginRequired ||
-    !chatCapable ||
-    savedMode !== undefined ||
-    deviceDefault === 'chat' ||
-    deviceDefault === 'native' ||
-    startScreenSettled
+  const modeSettled = loginRequired || !chatCapable || savedMode !== undefined || startScreenSettled
   const producer = panelModeProducer({
     loginRequired,
     terminalCapable,
     chatCapable,
     saved: savedMode,
     serverFamily: session?.driverFamily === 'server',
-    deviceDefault,
   })
   // One line per EFFECTIVE change, naming the rule and every input it read.
   // Debug: it fires on user picks too, and a flip the user did not ask for is
@@ -214,7 +151,6 @@ export function usePanelSurface(input: {
       to: mode,
       producer,
       saved: savedMode ?? null,
-      deviceDefault: deviceDefault ?? null,
       startScreen,
       startScreenSettled,
       chatCapable,
@@ -228,7 +164,6 @@ export function usePanelSurface(input: {
     mode,
     producer,
     savedMode,
-    deviceDefault,
     startScreen,
     startScreenSettled,
     chatCapable,
@@ -237,31 +172,10 @@ export function usePanelSurface(input: {
     session?.condition,
     session?.status,
   ])
-  // Effects can run after a newer render has already handled a user click. Read
-  // the current saved value at effect time so the initial materialization cannot
-  // write the mode captured by an older render back over that pick.
-  const savedModeRef = useRef(savedMode)
-  savedModeRef.current = savedMode
-  useEffect(() => {
-    if (!modeSettled) return
-    // An explicit per-session choice is already durable. Rewriting it from the
-    // derived fallback creates a stale writer when a warm/hidden panel mounts
-    // while another panel is being switched.
-    if (savedModeRef.current !== undefined) return
-    if (loginRequired) return
-    // This write replicates to the person's other devices (PANEL_MODE_KEY is
-    // per-user), so it is one of the writers that can overwrite a pick made
-    // elsewhere — name it.
-    log.debug('panel mode materialized from fallback', { sessionId, mode, producer })
-    setPanelMode(sessionId, mode)
-  }, [sessionId, mode, loginRequired, modeSettled, setPanelMode, producer])
-
   const pickMode = (m: PanelMode): void => {
     log.debug('panel mode picked', { sessionId, from: mode, to: m })
-    // Persist the per-session override in the store (#35)…
+    // Only an explicit choice is durable. Other sessions keep following Agents.
     setPanelMode(sessionId, m)
-    // …and remember the latest pick as the per-device default for not-yet-seen sessions.
-    uiState.set(PANEL_MODE_DEFAULT_KEY, m)
   }
 
   // chat → native. Read `onEnterNative` through a ref so a caller that passes an

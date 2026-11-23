@@ -9,7 +9,7 @@ import { type KeyboardEvent, LayoutAnimation, Platform, StyleSheet, View } from 
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useConnected, useHub } from '../client/hooks'
 import {
-  useSessionContextSession,
+  useSessionContextGeometry,
   useSessionContextSpawnPending as useSpawnPending,
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
@@ -58,9 +58,10 @@ export function TerminalPane({
   const hub = useHub()
   const connected = useConnected()
   const spawnPending = useSpawnPending(sessionId)
-  // The row this pane's grid comes from (POD-3239 B1), marshalled to the DOM
-  // component as two primitives — see TerminalDomProps.
-  const session = useSessionContextSession(sessionId)
+  // The live grid this pane opens at (POD-3239 B1), marshalled to the DOM
+  // component as two primitives. Its shared terminal hook waits briefly when
+  // these have not arrived yet — see TerminalDomProps.
+  const geometry = useSessionContextGeometry(sessionId)
   const insets = useSafeAreaInsets()
   const reduceMotion = useReduceMotion()
   const animateKeyboard = useCallback(
@@ -201,8 +202,8 @@ export function TerminalPane({
         active={active}
         connected={connected}
         spawnPending={spawnPending}
-        cols={session?.geometry.cols}
-        rows={session?.geometry.rows}
+        cols={geometry?.cols}
+        rows={geometry?.rows}
         onAttachTerminal={onAttachTerminal}
         onDetachTerminal={onDetachTerminal}
         onSendInput={onSendInput}

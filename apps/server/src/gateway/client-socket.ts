@@ -22,7 +22,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { MachineWire, UserId, UserRole } from '@podium/model'
+import type { UserId, UserRole } from '@podium/model'
 import {
   ClientPtyInputMetadata,
   decodeBinaryEnvelope,
@@ -44,7 +44,6 @@ export interface ClientAuthorityOptions {
   /** Account resolved from the authenticated upgrade cookie. */
   userId?: UserId
   userRole?: UserRole
-  machines?: readonly MachineWire[]
 }
 
 /**
@@ -77,13 +76,13 @@ export function wireClientSocket(
   const id = registry.clientGateway.attachClient({
     send: sink.send,
     terminate: () => ws.terminate(),
+    endSignIn: ({ code, reason }) => (ws.end ? ws.end(code, reason) : ws.terminate()),
     sendStream: sink.sendLossy,
     sendBinary: sink.sendBinary,
     sendBinaryStream: sink.sendBinaryLossy,
     sendSequence: sink.sendSequence,
     userId: auth.userId,
     userRole: auth.userRole,
-    machines: auth.machines ?? [],
   })
   sink.describe(id)
   let failed = false
@@ -91,14 +90,16 @@ export function wireClientSocket(
     if (failed) return
     try {
       if (typeof raw !== 'string') {
-        const principal = registry.clientGateway.principalOf(id)
+        const client = registry.clientGateway.registry.get(id)
+        const perfKey =
+          client && perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal))
         if (!registry.clientGateway.acceptsClientInputBinary(id)) {
-          if (principal) {
+          if (perfKey) {
             perf.record(
               'phase',
               'terminal.input.client.protocol.unnegotiatedBinary',
               0,
-              perfPrincipal(feedPrincipalOf(principal)),
+              perfKey,
               raw.byteLength,
             )
           }
@@ -110,12 +111,12 @@ export function wireClientSocket(
         try {
           const decoded = decodeBinaryEnvelope(raw, ClientPtyInputMetadata)
           if (decoded.payload.byteLength === 0) return
-          if (principal) {
+          if (perfKey) {
             perf.record(
               'phase',
               'terminal.input.client.binary',
               0,
-              perfPrincipal(feedPrincipalOf(principal)),
+              perfKey,
               decoded.payload.byteLength,
             )
           }
@@ -125,12 +126,12 @@ export function wireClientSocket(
             Uint8Array.from(decoded.payload),
           )
         } catch (error) {
-          if (principal) {
+          if (perfKey) {
             perf.record(
               'phase',
               'terminal.input.client.protocol.malformedBinary',
               0,
-              perfPrincipal(feedPrincipalOf(principal)),
+              perfKey,
               raw.byteLength,
             )
           }

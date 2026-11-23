@@ -1,5 +1,4 @@
-import { DiffView } from './diff-view'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useCommands } from '@podium/client-core/react'
 import { DIFF_SHEET_WRAP_KEY } from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
 import type { MachineId } from '@podium/model'
@@ -8,8 +7,10 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import type { Trpc } from '@/app/trpc'
+import { useCheckoutSignal } from '@/lib/use-checkout-signal'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { type DiffRow, splitPath } from './diff-model'
+import { DiffView } from './diff-view'
 import { entryBadge, entryStatus, entryTone, type StatusEntry } from './git-panel'
 
 const BINARY_FILE = 'A binary file — there are no text lines to diff.'
@@ -467,7 +468,12 @@ function useDiffs({
   sources?: Record<string, string>
   commit?: { sha: string }
 }): DiffView {
-  const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreHandle<Trpc>().access
+  const refreshSignal = useCheckoutSignal(machineId, cwd)
+  const {
+    diff: gitDiffFile,
+    commitDiffFile: gitCommitDiffFile,
+    read: readFileScoped,
+  } = useCommands<Trpc>().files
   const commitSha = commit?.sha
   // biome-ignore lint/correctness/useExhaustiveDependencies: the inventory is part of this opening's identity.
   const view = useMemo(
@@ -475,15 +481,26 @@ function useDiffs({
       new DiffView(
         cwd,
         machineId,
-        { gitDiffFile, gitCommitDiffFile, readFileScoped },
+        { gitDiffFile, gitCommitDiffFile, readFileScoped, refreshSignal },
         sources,
         commitSha,
       ),
-    [entries, cwd, machineId, sources, commitSha, gitDiffFile, gitCommitDiffFile, readFileScoped],
+    [
+      refreshSignal,
+      entries,
+      cwd,
+      machineId,
+      sources,
+      commitSha,
+      gitDiffFile,
+      gitCommitDiffFile,
+      readFileScoped,
+    ],
   )
-  const lifetime = useMemo(() => ({ mounted: false }), [view])
+  const lifetime = useMemo(() => ({ view, mounted: false }), [view])
   useEffect(() => {
     lifetime.mounted = true
+    view.open()
     return () => {
       lifetime.mounted = false
       // Effect replay reopens the same owner synchronously. Retire real closes

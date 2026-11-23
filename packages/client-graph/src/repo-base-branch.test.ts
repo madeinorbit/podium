@@ -130,7 +130,7 @@ it('tells apart unrelated repos at the same path on two machines', () => {
   }
 })
 
-it('gives every same-path band its own repository, through the sidebar pipeline', () => {
+it('keeps same-path project bands distinct without inventing one from an unbound session', () => {
   const NOW = Date.parse('2026-10-26T12:00:00Z')
   const p = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
   const [a, b, c] = [asRepoId('repo-a'), asRepoId('repo-b'), asRepoId('repo-c')]
@@ -217,10 +217,16 @@ it('gives every same-path band its own repository, through the sidebar pipeline'
     })
     try {
       const bands = Object.fromEntries(sections.bands.map((band) => [band.key, band]))
+      expect(bands[c!]).toBeUndefined()
+      expect(repositoryScanOf(p, c!, '/src/app')?.machineId).toBe(three)
+      const free = p.sessionObject('free')
+      expect(free.known).toBe(true)
+      expect(free.cwd).toBe('/src/app/.wt/c')
+      expect(free.issueId).toBeNull()
+      expect(free.status).toBe('live')
       for (const [repoId, machineId] of [
         [a, one],
         [b, two],
-        [c, three],
       ] as const) {
         const band = bands[repoId]
         expect(band?.repoId).toBe(repoId)

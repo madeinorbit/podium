@@ -9,21 +9,24 @@
  * generic server reattach arm, which also refuses a row naming a different
  * conversation.
  */
+
+import type { TerminalHostPorts } from '@podium/harness/driver/host'
 import {
   type ClaudeEngineJournalEntry,
   claudeEngineProcessKey,
+  createClaudeSdkSessionRuntime,
   pageHistory,
 } from '@podium/harness/driver/host'
+import { testHarnessContext, testPodiumGrants, testSessionTerms } from '@podium/harness/driver/testing'
 import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import { createClaudeSdkSessionRuntime } from '@podium/harness/driver/host'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { sessionHandlers } from '../control/session'
-import { createDaemonMachineRuntime } from './machine-runtime'
-import type { TerminalHostPorts } from '@podium/harness/driver/host'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
+import { createDaemonMachineRuntime } from './machine-runtime'
 
 const SESSION_ID = 'claude-adapter-session' as SessionId
 const RESUME: ResumeRef = { kind: 'claude-session', value: 'claude-native-thread' }
@@ -115,6 +118,11 @@ function claudeWorld(journalled?: ClaudeEngineJournalEntry) {
       },
       stopEngine: async () => {},
       releaseEngines: () => {},
+      // The engine host's port for a journal adopt with no spec in hand
+      // (POD-6546): the context the rebuilt spec carries.
+      harnessContextFor: async () => testHarnessContext({ kind: 'claude-code' }),
+      // And Podium's grants for that adopt (POD-6858).
+      podiumGrantsFor: async () => testPodiumGrants(),
     },
     transcript: {
       readHistory: host([]).readHistory,
@@ -159,6 +167,8 @@ describe('Claude SDK sessions through the machine root', () => {
       RESUME,
       {
         harness: 'claude-code',
+        ...testSessionTerms(),
+        harnessContext: testHarnessContext({ kind: 'claude-code' }),
         selection: {
           auth: 'unknown',
           platform: 'linux',
@@ -241,6 +251,7 @@ describe('a surviving Claude engine rejoins through the generic server arm', () 
         runSystemctl: vi.fn(async () => {}),
         sleep: async () => {},
       },
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     sessionHandlers.reattach(ctx, {
       type: 'reattach',

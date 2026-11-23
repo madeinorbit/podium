@@ -39,11 +39,6 @@ vi.mock('expo-router', () => ({
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
-vi.mock('lucide-react-native', () => ({
-  ChevronLeft: () => null,
-  MoreVertical: () => null,
-  SquareTerminal: () => null,
-}))
 vi.mock('../components/SessionConversation', () => ({ SessionConversation: () => null }))
 vi.mock('../components/AgentMark', () => ({ HarnessChip: () => null }))
 vi.mock('../components/WorkingMark', () => ({ WorkingMark: () => null }))
@@ -62,10 +57,6 @@ const live = (): SessionMeta =>
     agentKind: 'claude-code',
     cwd: '/home/dev/podium',
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-09-23T10:00:00.000Z',
     lastActiveAt: '2026-09-23T10:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -111,7 +102,9 @@ describe('a short session id in the phone route', () => {
   it('says the prefix is ambiguous and names why', async () => {
     routeSessionId = '2'
     const message = "ambiguous session id prefix '2' matches 2 sessions: 2a, 2b"
-    await mount(Promise.resolve({ kind: 'ambiguous', prefix: '2', candidates: ['2a', '2b'], message }))
+    await mount(
+      Promise.resolve({ kind: 'ambiguous', prefix: '2', candidates: ['2a', '2b'], message }),
+    )
     await screen.findByText('Several sessions match this link.')
     expect(screen.getByText(message)).toBeTruthy()
     expect(screen.queryByText('Session not here yet.')).toBeNull()

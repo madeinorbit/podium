@@ -1,6 +1,7 @@
 import { sessionView } from '@podium/client-core/session-values'
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { poolRoute } from '../../test/pool-routes'
+import { poolRoute, poolRouteFixture } from '../../test/pool-routes'
 import {
   followPodiumLink,
   internalPodiumTarget,
@@ -116,9 +117,24 @@ describe('poolRoute', () => {
     ).toBeNull()
   })
 
-  it('routes nothing for a row this phone has not received', () => {
-    expect(poolRoute({ kind: 'issue', issue: 'POD-9999' }, { issues, sessions })).toBeNull()
-    expect(poolRoute({ kind: 'session', session: 'POD-9999-A' }, { issues, sessions })).toBeNull()
+  it('waits for an unknown issue reference and routes nothing after an authoritative miss', async () => {
+    const fixture = poolRouteFixture({ issues, sessions })
+    try {
+      const route = fixture.views.resolveRoute({ kind: 'issue', issue: 'POD-9999' })
+      if (!(route instanceof Promise))
+        throw new Error('unknown references must resolve asynchronously')
+      let resolved = false
+      void route.then(() => {
+        resolved = true
+      })
+      await Promise.resolve()
+      expect(resolved).toBe(false)
+      referenceView(fixture.pool).resolved('POD-9999', null)
+      expect(await route).toBeNull()
+      expect(fixture.route({ kind: 'session', session: 'POD-9999-A' })).toBeNull()
+    } finally {
+      fixture.dispose()
+    }
   })
 
   it('does not claim a typed target when doing so would drop its detail', () => {

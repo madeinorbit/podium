@@ -628,12 +628,15 @@ export type Drift = {
   namingGained: Member[]
 }
 
-export function censusDrift(markdown = readFileSync(join(repoRoot, censusDoc), 'utf8')): Drift {
-  const derived = enumerateMembers()
+export function censusDrift(
+  markdown = readFileSync(join(repoRoot, censusDoc), 'utf8'),
+  population?: { members: Member[]; named: ReadonlyMap<string, readonly string[]> },
+): Drift {
+  const derived = population?.members ?? enumerateMembers()
   const committed = parseCommittedRows(markdown)
   const committedByKey = new Map(committed.map((r) => [memberKey(r), r]))
   const derivedByKey = new Map(derived.map((m) => [memberKey(m), m]))
-  const named = namedIn(derived)
+  const named = population?.named ?? namedIn(derived)
   const derivedFiles = new Set(derived.map((m) => m.file))
   const committedFiles = new Set(committed.map((r) => r.file))
   const isNamed = (row: Row) => row.named !== '—'

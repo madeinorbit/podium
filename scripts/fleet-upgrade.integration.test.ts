@@ -42,11 +42,11 @@
  * event or a sleep.
  */
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
@@ -55,10 +55,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId, firstAdminMemberId, type MachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import type { MachineId } from '@podium/model'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
+import { readMachineState, readOrCreateLocalMachineId } from '../packages/runtime/src/local-machine'
+import { createMachineCredential } from '../packages/runtime/src/machine-credential'
 
 const ROOT = join(import.meta.dirname, '..')
 const FIXTURE = join(ROOT, 'scripts/fixtures/parent-stack-fixture.ts')
@@ -177,27 +179,6 @@ function readJsonAt(path: string): string {
  * anything. A fresh directory gets `machine.id` written now, which is what
  * `readOrCreateLocalMachineId` would do at boot anyway.
  */
-function resolveOrMintMachineId(stateDir: string): MachineId {
-  for (const file of ['supervisor.json', 'daemon.json']) {
-    const path = join(stateDir, file)
-    if (!existsSync(path)) continue
-    try {
-      const id = (JSON.parse(readFileSync(path, 'utf8')) as { machineId?: string }).machineId
-      if (id) return id as MachineId
-    } catch {
-      /* fall through to the next candidate */
-    }
-  }
-  const idPath = join(stateDir, 'machine.id')
-  if (existsSync(idPath)) {
-    const existing = readFileSync(idPath, 'utf8').trim()
-    if (existing) return existing as MachineId
-  }
-  const minted = randomUUID()
-  mkdirSync(stateDir, { recursive: true })
-  writeFileSync(idPath, `${minted}\n`)
-  return minted as MachineId
-}
 
 async function temporaryRoot(tag: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), `podium-fleet-${tag}-`))
@@ -253,8 +234,12 @@ class Coordinator {
     return this.handle.registry.modules.machines
   }
 
-  pairCode(): string {
-    return this.machines.mintPairingCode()
+  async pairCode(): Promise<string> {
+    const ownerUserId = await firstAdminMemberId(this.handle.registry.sessionStore)
+    return this.machines.mintPairingCode({
+      ownerUserId,
+      ownerAuthzGeneration: await this.machines.ownerAuthzGeneration(ownerUserId),
+    })
   }
 
   async rows(): Promise<MachineRow[]> {
@@ -296,7 +281,7 @@ class Coordinator {
    * different quantity, and it has to be: the child is a cold `bun` that
    * transpiles and imports the whole runtime before it can dial, which on a
    * loaded box with a cold module cache is tens of seconds. Measured here on
-   * ludovico: 2.8s for the whole of ARM A with a warm cache, and over 30s for
+   * a fixture VM: 2.8s for the whole of ARM A with a warm cache, and over 30s for
    * one attach on the first run after `setup:worktree`. Sharing one budget
    * between the two made a cold cache look exactly like a fence that refused
    * the peer.
@@ -346,6 +331,8 @@ class Coordinator {
 interface FleetParentOptions {
   /** Reuse an existing state directory — how an upgrade keeps its identity. */
   stateDir?: string
+  /** Known legacy identity, so its first importer runs inside the child. */
+  machineId?: MachineId
   /** A parent from BEFORE the fence: no incarnation claimed, none on the wire. */
   legacy?: boolean
   pairCode?: string
@@ -382,6 +369,8 @@ interface FleetParent {
   supervisorState: () => {
     machineId: string
     token?: string
+    enrolledPublicKey?: string
+    registration?: { state: string }
     updatePubkey?: string
     generation?: number
   }
@@ -416,13 +405,15 @@ async function startFleetParent(
   // every real install — `machine.id` is minted at setup, not at boot. Doing it
   // here rather than reading it back afterwards is what lets the attach listener
   // be registered before the process that causes the attach exists.
-  const machineId = resolveOrMintMachineId(stateDir)
+  const machineId = options.machineId ?? readOrCreateLocalMachineId(stateDir)
+  // Fresh setup creates its key before the parent dials with a pairing code.
+  if (options.pairCode) createMachineCredential(stateDir)
   const inherited = { ...process.env }
   delete inherited.PODIUM_AGENT_RELAY
   delete inherited.NOTIFY_SOCKET
   let output = ''
   const context = (): string =>
-    `${output}\nconnectivity.json: ${readJsonAt(join(stateDir, 'connectivity.json'))}`
+    `${output}\nmachine.json: ${readJsonAt(join(stateDir, 'machine.json'))}`
   const attached = coordinator.observes('machine.connected', machineId, {
     context,
     ms: Coordinator.SPAWN_BUDGET_MS,
@@ -462,9 +453,13 @@ async function startFleetParent(
     }
   }
   const supervisorState = () =>
-    (readJson('supervisor.json') ?? {}) as {
+    ((readJson('machine.json')?.supervisor as object | undefined) ??
+      readJson('supervisor.json') ??
+      {}) as {
       machineId: string
       token?: string
+      enrolledPublicKey?: string
+      registration?: { state: string }
       updatePubkey?: string
       generation?: number
     }
@@ -496,8 +491,7 @@ async function startFleetParent(
     },
     supervisorState,
     connectivity: () => readJson('connectivity.json'),
-    legacyState: () =>
-      readJson('daemon.json') as { machineId: string; token?: string } | undefined,
+    legacyState: () => readJson('daemon.json') as { machineId: string; token?: string } | undefined,
   }
 }
 
@@ -652,30 +646,46 @@ afterEach(async () => {
  * machine that comes back is the same machine to the server — which is the
  * thing being proved, not something being arranged.
  */
-/**
- * Wait for a machine that PAIRED to have written its issued token.
- *
- * The credential is durable state belonging to the machine, and the coordinator
- * attaching is not evidence that it exists yet. The two are in different
- * processes and in this order: the server sends the handshake reply, attaches,
- * and emits `machine.connected`, while the machine is still on its way to
- * handling that same reply and writing the token to `supervisor.json`. So an
- * attach can be — and on a busy box is — observed before the file exists.
- *
- * Only pairing needs this. A machine that already had a credential loaded it
- * before it dialled, so for every other case the file is older than the attach.
- */
+/** Wait for the enrolled public key and acknowledgement to reach machine.json. */
 async function awaitPersistedCredential(parent: FleetParent): Promise<void> {
   await until(
-    () => parent.supervisorState().token,
+    () => {
+      const state = parent.supervisorState()
+      return state.enrolledPublicKey && state.registration?.state === 'enrolled'
+    },
     () =>
-      `the machine to persist its coordinator-issued token; state dir holds ${readdirSync(
-        parent.stateDir,
-      ).join(', ')} | supervisor.json: ${readJsonAt(
-        join(parent.stateDir, 'supervisor.json'),
-      )}\npeer log:\n${parent.output()}`,
+      `the machine to persist its enrolled key; machine.json: ${readJsonAt(join(parent.stateDir, 'machine.json'))}\npeer log:\n${parent.output()}`,
     15_000,
   )
+}
+
+/** A credential row and files written by the bearer-based release. */
+async function legacyInstall(
+  coordinator: Coordinator,
+): Promise<{ stateDir: string; machineId: MachineId; token: string }> {
+  const stateDir = await temporaryRoot('legacy-machine')
+  const machineId = asMachineId(randomUUID())
+  const token = randomUUID()
+  const ownerUserId = await firstAdminMemberId(coordinator.handle.registry.sessionStore)
+  expect(
+    await coordinator.handle.registry.sessionStore.machines.enrollMachine({
+      id: machineId,
+      name: 'Legacy machine',
+      hostname: 'legacy-machine',
+      credentialKind: 'bearer-hash',
+      publicKey: null,
+      tokenHash: createHash('sha256').update(token).digest('hex'),
+      ownerUserId,
+      podiumManaged: true,
+      assignment: { server: true, agentExecution: true },
+      assignmentEvidence: { version: 1, source: 'setup', requestId: machineId },
+    }),
+  ).toBe(true)
+  writeFileSync(join(stateDir, 'machine.id'), machineId)
+  writeFileSync(join(stateDir, 'daemon.json'), JSON.stringify({ machineId, token }), {
+    mode: 0o600,
+  })
+  return { stateDir, machineId, token }
 }
 
 async function rewindToLegacyInstall(parent: FleetParent): Promise<{
@@ -683,8 +693,12 @@ async function rewindToLegacyInstall(parent: FleetParent): Promise<{
   token: string
   updatePubkey: string
 }> {
-  await awaitPersistedCredential(parent)
+  await until(
+    () => parent.supervisorState().updatePubkey,
+    'the legacy handshake to persist its update key',
+  )
   const current = parent.supervisorState()
+  expect(current.token, 'the preexisting bearer credential survives authentication').toBeTruthy()
   // THE UPDATE KEY IS PART OF THE CREDENTIAL, and the acceptance sentence names
   // it: a machine that pinned the coordinator's update key on the old build must
   // carry that pin across the upgrade. It is also the half that can lock a
@@ -692,14 +706,20 @@ async function rewindToLegacyInstall(parent: FleetParent): Promise<{
   // outright when a pinned key does not match what the server offers — so
   // importing it is not merely tidy, it is the difference between an upgrade and
   // a machine that can never speak again.
-  expect(current.updatePubkey, 'the coordinator pinned an update key at pairing').toBeTruthy()
+  expect(
+    current.updatePubkey,
+    'the coordinator pinned an update key during the legacy handshake',
+  ).toBeTruthy()
   const legacy = {
     machineId: current.machineId,
     token: current.token as string,
     updatePubkey: current.updatePubkey as string,
   }
   writeFileSync(join(parent.stateDir, 'daemon.json'), JSON.stringify(legacy, null, 2))
-  unlinkSync(join(parent.stateDir, 'supervisor.json'))
+  unlinkSync(join(parent.stateDir, 'machine.json'))
+  if (existsSync(join(parent.stateDir, 'supervisor.json')))
+    unlinkSync(join(parent.stateDir, 'supervisor.json'))
+  writeFileSync(join(parent.stateDir, 'machine.id'), legacy.machineId)
   return legacy
 }
 
@@ -712,18 +732,20 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
    * old build left behind. The operator's fleet grows a ghost, the real row goes
    * stale, and nothing repairs either.
    *
-   * The legacy state is not hand-written: the machine really pairs first, then
-   * its directory is rewound to the 0.1.0 shape with the token the coordinator
-   * really issued, and the new build is started on it.
+   * Seed the old bearer credential row and files, authenticate it through the
+   * compatibility path, then upgrade from those files through the real importer.
+   * Current pairing is keyed and must never be used to manufacture an old token.
    */
   it('ARM A — a 0.1.0 install keeps its identity, imports its credential, and attaches as generation 1', async () => {
     const coordinator = await Coordinator.start()
 
     // The machine as it was on the old stable: a parent that has never heard of
-    // the fence, pairing with the coordinator for the first time.
+    // the fence, authenticating with its already-issued bearer credential.
+    const installed = await legacyInstall(coordinator)
     const beforeUpgrade = await startFleetParent(coordinator, {
+      stateDir: installed.stateDir,
+      machineId: installed.machineId,
       legacy: true,
-      pairCode: coordinator.pairCode(),
       version: '0.1.0',
     })
     await beforeUpgrade.attached
@@ -746,6 +768,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // THE UPGRADE: the new payload, on the same state directory.
     const upgraded = await startFleetParent(coordinator, {
       stateDir: beforeUpgrade.stateDir,
+      machineId: asMachineId(legacy.machineId),
       version: '0.2.0-new-supervisor',
     })
     await upgraded.attached
@@ -762,9 +785,13 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
       'and so was the pinned update key, which the new build must honour rather than replace',
     ).toBe(legacy.updatePubkey)
     expect(
-      upgraded.legacyState(),
-      'daemon.json is left in place, because an older build may still read it',
-    ).toMatchObject({ machineId: legacy.machineId })
+      readMachineState(upgraded.stateDir)?.daemon,
+      'the compatibility importer preserves the old credential section in consolidated state',
+    ).toMatchObject(legacy)
+    expect(
+      existsSync(join(upgraded.stateDir, 'daemon.json')),
+      'the imported split file is retired',
+    ).toBe(false)
     expect(
       upgraded.supervisorState().generation,
       'the first incarnation under the new build is 1',
@@ -806,15 +833,15 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
 
     const unstamped = await startFleetParent(coordinator, {
       legacy: true,
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '0.1.0',
     })
     const stampedOne = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '0.2.0',
     })
     const stampedTwo = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '0.2.0',
     })
     for (const machine of [unstamped, stampedOne, stampedTwo]) await machine.attached
@@ -822,9 +849,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // THE WAVE'S STARTING POSITION: every machine present, every row its own
     // version. The unstamped one is a peer, not a casualty.
     expect(
-      Object.fromEntries(
-        (await coordinator.fleet()).map((row) => [row.id, row.appVersion]),
-      ),
+      Object.fromEntries((await coordinator.fleet()).map((row) => [row.id, row.appVersion])),
     ).toEqual({
       [unstamped.machineId]: '0.1.0',
       [stampedOne.machineId]: '0.2.0',
@@ -839,10 +864,12 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     // Copying the credential is copying a FILE, so it has to exist: the same
     // cross-process ordering as the upgrade case.
     await awaitPersistedCredential(unstamped)
-    writeFileSync(
-      join(takeoverDir, 'supervisor.json'),
-      JSON.stringify(unstamped.supervisorState(), null, 2),
-    )
+    const state = readMachineState(unstamped.stateDir)!
+    delete state.supervisor!.generation
+    writeFileSync(join(takeoverDir, 'machine.json'), JSON.stringify(state, null, 2), {
+      mode: 0o600,
+    })
+    copyFileSync(join(unstamped.stateDir, 'machine.key'), join(takeoverDir, 'machine.key'))
     // NOT waited on as a disconnect: displacement does not close the loser's
     // socket. `attachSupervisor` replaces the map entry, and the unstamped
     // parent's socket stays open until its next frame meets the message-path
@@ -887,8 +914,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
     const daemonSpawnsBefore = unstamped.spawns('daemon').length
     process.kill(daemonPid, 'SIGKILL')
     await until(
-      () =>
-        unstamped.spawns('daemon').length > daemonSpawnsBefore ? true : undefined,
+      () => (unstamped.spawns('daemon').length > daemonSpawnsBefore ? true : undefined),
       `the superseded parent to restart its daemon, and so to report; log:\n${unstamped.output()}`,
       30_000,
     )
@@ -931,9 +957,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
 
     // The rest of the fleet never noticed any of it.
     expect(
-      Object.fromEntries(
-        (await coordinator.fleet()).map((row) => [row.id, row.appVersion]),
-      ),
+      Object.fromEntries((await coordinator.fleet()).map((row) => [row.id, row.appVersion])),
     ).toEqual({
       [unstamped.machineId]: '0.1.0',
       [stampedOne.machineId]: '0.2.0',
@@ -956,7 +980,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
   it('ARM C — a self-update handover settles on the successor and the row never regresses', async () => {
     const coordinator = await Coordinator.start()
     const machine = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '1.0.0',
     })
     await machine.attached
@@ -1058,7 +1082,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
   it('ARM E — a same-version handover advances the incarnation the coordinator holds, though the version cannot', async () => {
     const coordinator = await Coordinator.start()
     const machine = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '1.0.0',
     })
     await machine.attached
@@ -1137,7 +1161,7 @@ describe('upgrade proof: the old stable and mixed fleets (real instances)', () =
   it('ARM D — a killed successor hands the machine back, and the outgoing parent reattaches', async () => {
     const coordinator = await Coordinator.start()
     const machine = await startFleetParent(coordinator, {
-      pairCode: coordinator.pairCode(),
+      pairCode: await coordinator.pairCode(),
       version: '1.0.0',
       env: { FIXTURE_HANDOVER_TIMEOUT_MS: '8000' },
     })

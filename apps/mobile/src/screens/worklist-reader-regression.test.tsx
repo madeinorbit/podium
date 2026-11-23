@@ -1,10 +1,11 @@
+import { refreshClocks } from '@podium/mobx-helpers'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
-/** Cumulative derivations, not a subscription guard: enable before bootstrap
+
+/** Cumulative derivations and actual React commits: enable before bootstrap
  * and retain counts across updates, gestures, idle and provider rebuilds.
  * All data is synthetic. The real slice hooks/publisher are never mocked. */
 
-import type { ClientRuntime } from '@podium/client-core/engine'
-import { storeStats } from '@podium/client-core/perf'
+import { recordStoreReactCommit, storeStats } from '@podium/client-core/perf'
 import {
   createKernelReplica,
   createSideCache,
@@ -14,10 +15,12 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import { reposToViews } from '@podium/client-core/values'
 import type { EntityRecord } from '@podium/sync/replica'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { Profiler, type ReactNode } from 'react'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture'
 import type { MobilePool } from '../client/mobile-pool'
@@ -33,7 +36,13 @@ const state = vi.hoisted(() => ({
 vi.mock('expo-router', async () => {
   const { useEffect } = await import('react')
   return {
-    useRouter: () => ({ push: () => {}, replace: () => {}, back: () => {}, dismissTo: () => {}, setParams: () => {} }),
+    useRouter: () => ({
+      push: () => {},
+      replace: () => {},
+      back: () => {},
+      dismissTo: () => {},
+      setParams: () => {},
+    }),
     useLocalSearchParams: () => ({ missionId: state.missionId }),
     usePathname: () => '/work',
     Stack: { SearchBar: () => null },
@@ -50,8 +59,6 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
       state.host!.host.usePoolProjection(read, empty),
   }
 })
-
-
 
 // Native sheet/navigator containers are boundaries, not worklist readers.
 vi.mock('../components/PressableScale', () => ({
@@ -172,7 +179,7 @@ const { MissionDetailsScreen } = await import('./MissionDetailsScreen')
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
+function kernelFixture(corpus: ReturnType<typeof buildCorpus>, principal: string) {
   const records = new Map<string, EntityRecord>()
   let seq = 1
   const key = (entity: string, id: string) => `${entity}:${id}`
@@ -189,6 +196,12 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
   install('repos', corpus.repoProjections)
   install('issueDeps', corpus.issueDeps)
   install('sessions', corpus.sessions)
+  for (const record of machineAndRepoRecords({
+    userId: principal,
+    machines: corpus.machines,
+    repos: corpus.repos,
+  }))
+    records.set(key(record.entity, record.entityId), { ...record, provenance: { seq } })
   const replica = createKernelReplica({
     cache: {
       readCursor: () => ({ seq }),
@@ -248,18 +261,14 @@ describe('mobile pool-only worklist regressions', () => {
     state.host = createMobilePool(false)
 
     const now = vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
-    const ticks: (() => void)[] = []
-    const realInterval = globalThis.setInterval
-    vi.spyOn(globalThis, 'setInterval').mockImplementation((handler, delay, ...args) => {
-      if (delay === 60_000 && typeof handler === 'function') ticks.push(() => handler(...args))
-      return realInterval(handler, delay, ...args)
-    })
     const phases: { phase: string; worklist: number }[] = []
     function checkpoint(phase: string) {
       const stats = storeStats.snapshot()
       expect(stats.enabled).toBe(true)
       expect(stats.dropped).toBe(0)
-      expect(stats.runtimes.reduce((sum, runtime) => sum + runtime.publishes, 0)).toBeGreaterThan(0)
+      expect(
+        stats.runtimes.reduce((sum, runtime) => sum + runtime.reactCommits, 0),
+      ).toBeGreaterThan(0)
       const worklist = stats.runtimes.reduce(
         (sum, runtime) => sum + (runtime.slices.worklist ?? 0),
         0,
@@ -273,12 +282,17 @@ describe('mobile pool-only worklist regressions', () => {
       release = resolve
     })
     async function mount(principal: string) {
-      const feed = kernelFixture(corpus)
+      const feed = kernelFixture(corpus, principal)
       const view = await renderWithMobileStore(
-        <>
+        <Profiler
+          id="phone-readers"
+          onRender={() => {
+            if (state.runtime) recordStoreReactCommit(state.runtime)
+          }}
+        >
           <WorkScreen />
           <MissionDetailsScreen />
-        </>,
+        </Profiler>,
         {
           replica: feed.replica,
           principal,
@@ -337,8 +351,9 @@ describe('mobile pool-only worklist regressions', () => {
 
     let action!: Promise<void>
     await act(async () => {
-      action = referenceState(state.runtime!)
-        .updateIssue(root.id, { title: 'Mobile optimistic title' })
+      action = referenceState(state.runtime!).updateIssue(root.id, {
+        title: 'Mobile optimistic title',
+      })
       await Promise.resolve()
     })
     await waitFor(() => expect(view.container.textContent).toContain('Mobile optimistic title'))
@@ -355,14 +370,13 @@ describe('mobile pool-only worklist regressions', () => {
     })
     checkpoint('server echo')
 
-    const clockBefore = referenceState(state.runtime!).coarseNow
-    expect(ticks.length).toBeGreaterThan(0)
+    // Clocks are demanded by labels/deadlines, not by a store-wide interval.
+    // Wake those actual readers after an idle minute and retain the zero-worklist gate.
     now.mockReturnValue(corpus.fixedNow + 60_000)
     await act(async () => {
-      for (const tick of ticks) tick()
+      refreshClocks()
     })
-    expect(referenceState(state.runtime!).coarseNow).toBeGreaterThan(clockBefore)
-    checkpoint('real idle clock callback')
+    checkpoint('idle minute clock wake')
 
     const before = state.runtime
     view.unmount()

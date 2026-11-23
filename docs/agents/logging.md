@@ -225,8 +225,8 @@ Three things about it are load-bearing:
   are what separates "this client had nothing to say" from "this client was
   never turned up".
 
-The user at the client can do the same thing from **Settings → Privacy →
-Diagnostic detail** ("turn up for 30 minutes"), which drives the identical knob —
+The user at the client can do the same thing from **Settings → Updates → Troubleshooting →
+Log detail** ("turn up for 30 minutes"), which drives the identical knob —
 for hosted installs, phones, and anyone you cannot give a shell command to.
 
 ### Raising a daemon on a machine you have no shell on

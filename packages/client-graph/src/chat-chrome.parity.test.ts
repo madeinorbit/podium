@@ -1,7 +1,7 @@
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
-import { createMobileSessionReader } from './mobile-session-context.before.test.fixture'
 import { mobileSessionChromeIssue } from './mobile-session-chrome'
+import { createMobileSessionReader } from './mobile-session-context.before.test.fixture'
 import { MobxPool } from './pool'
 
 const issue = (id: string, title = 'Task', pinned = false) => ({
@@ -23,6 +23,13 @@ const issue = (id: string, title = 'Task', pinned = false) => ({
     createdAt: '2026-10-01',
     updatedAt: '2026-10-01',
   } as never,
+})
+/** My pin of a task: a `pin` record (POD-6692). The frozen oracle still reads
+ *  the row's own `pinned`, so a pinned fixture task carries both. */
+const pin = (id: string) => ({
+  kind: 'pin' as const,
+  id: `issue:${id}`,
+  value: { userId: 'u1', kind: 'issue', entityId: id, pinnedAt: '2026-10-01' } as never,
 })
 const answer = (row: any) =>
   row && typeof row !== 'symbol'
@@ -60,7 +67,7 @@ it('matches the old phone chrome answers without spreading the issue', () => {
   const before = createMobileSessionReader(pool)
   for (const id of [undefined, 'shown', 'other'])
     expect(answer(mobileSessionChromeIssue(pool, id))).toEqual(answer(before.chromeIssue(id)))
-  pool.apply({ type: 'update', rows: [issue('shown', 'Renamed', true)] })
+  pool.apply({ type: 'update', rows: [issue('shown', 'Renamed', true), pin('shown')] })
   expect(answer(mobileSessionChromeIssue(pool, 'shown'))).toEqual(
     answer(before.chromeIssue('shown')),
   )

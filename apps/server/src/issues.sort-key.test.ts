@@ -12,6 +12,7 @@ import { resolvePrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { pinIssueFor } from './test-support/issue-pin'
 
 const ctx = (registry: SessionRegistry) =>
   appRouter.createCaller({
@@ -36,9 +37,24 @@ describe('sortKey minting on create (POD-168)', () => {
     const reg = await newRegistry()
     try {
       const op = ctx(reg)
-      const a = await op.issues.create({ repoPath: '/r', title: 'first', startNow: false })
-      const b = await op.issues.create({ repoPath: '/r', title: 'second', startNow: false })
-      const c = await op.issues.create({ repoPath: '/r', title: 'third', startNow: false })
+      const a = await op.issues.create({
+        repoPath: '/r',
+        title: 'first',
+        startNow: false,
+        parentBranch: 'main',
+      })
+      const b = await op.issues.create({
+        repoPath: '/r',
+        title: 'second',
+        startNow: false,
+        parentBranch: 'main',
+      })
+      const c = await op.issues.create({
+        repoPath: '/r',
+        title: 'third',
+        startNow: false,
+        parentBranch: 'main',
+      })
       const [ka, kb, kc] = [a.sortKey ?? '', b.sortKey ?? '', c.sortKey ?? '']
       expect(ka).toBeTruthy()
       expect(kb).toBeTruthy()
@@ -55,20 +71,37 @@ describe('sortKey minting on create (POD-168)', () => {
     const reg = await newRegistry()
     try {
       const op = ctx(reg)
-      const first = await op.issues.create({ repoPath: '/r', title: 'top A', startNow: false })
-      await op.issues.create({ repoPath: '/r', title: 'top B', startNow: false })
-      const parent = await op.issues.create({ repoPath: '/r', title: 'parent', startNow: false })
+      const first = await op.issues.create({
+        repoPath: '/r',
+        title: 'top A',
+        startNow: false,
+        parentBranch: 'main',
+      })
+      await op.issues.create({
+        repoPath: '/r',
+        title: 'top B',
+        startNow: false,
+        parentBranch: 'main',
+      })
+      const parent = await op.issues.create({
+        repoPath: '/r',
+        title: 'parent',
+        startNow: false,
+        parentBranch: 'main',
+      })
       const c1 = await op.issues.create({
         repoPath: '/r',
         title: 'child one',
         parentId: parent.id,
         startNow: false,
+        parentBranch: 'main',
       })
       const c2 = await op.issues.create({
         repoPath: '/r',
         title: 'child two',
         parentId: parent.id,
         startNow: false,
+        parentBranch: 'main',
       })
       // The child scope starts from the same empty-scope seed the very first
       // top-level issue got — proof it never saw the top-level keys.
@@ -83,8 +116,18 @@ describe('sortKey minting on create (POD-168)', () => {
     const reg = await newRegistry()
     try {
       const op = ctx(reg)
-      const a = await op.issues.create({ repoPath: '/r1', title: 'repo1 top', startNow: false })
-      const b = await op.issues.create({ repoPath: '/r2', title: 'repo2 top', startNow: false })
+      const a = await op.issues.create({
+        repoPath: '/r1',
+        title: 'repo1 top',
+        startNow: false,
+        parentBranch: 'main',
+      })
+      const b = await op.issues.create({
+        repoPath: '/r2',
+        title: 'repo2 top',
+        startNow: false,
+        parentBranch: 'main',
+      })
       // Second repo's first issue seeds fresh — not below repo1's key.
       expect(b.sortKey).toBe(a.sortKey)
     } finally {
@@ -98,7 +141,12 @@ describe('sortKey update patch (POD-168)', () => {
     const reg = await newRegistry()
     try {
       const op = ctx(reg)
-      const a = await op.issues.create({ repoPath: '/r', title: 'movable', startNow: false })
+      const a = await op.issues.create({
+        repoPath: '/r',
+        title: 'movable',
+        startNow: false,
+        parentBranch: 'main',
+      })
       const updated = await op.issues.update({ id: a.id, patch: { sortKey: 'x2c' } })
       expect((updated as { sortKey?: string }).sortKey).toBe('x2c')
       const listed = await op.issues.list({ repoPath: '/r' })
@@ -112,25 +160,15 @@ describe('sortKey update patch (POD-168)', () => {
     const reg = await newRegistry()
     try {
       const op = ctx(reg)
-      const a = await op.issues.create({ repoPath: '/r', title: 'guarded', startNow: false })
+      const a = await op.issues.create({
+        repoPath: '/r',
+        title: 'guarded',
+        startNow: false,
+        parentBranch: 'main',
+      })
       await expect(op.issues.update({ id: a.id, patch: { sortKey: 'ABC' } })).rejects.toThrow()
       await expect(op.issues.update({ id: a.id, patch: { sortKey: 'a0' } })).rejects.toThrow()
       await expect(op.issues.update({ id: a.id, patch: { sortKey: '' } })).rejects.toThrow()
-    } finally {
-      await reg.dispose()
-    }
-  })
-
-  it('pin/unpin leaves the sortKey untouched (unpin returns to its position)', async () => {
-    const reg = await newRegistry()
-    try {
-      const op = ctx(reg)
-      const a = await op.issues.create({ repoPath: '/r', title: 'pin me', startNow: false })
-      const key = a.sortKey
-      const pinned = await op.issues.update({ id: a.id, patch: { pinned: true } })
-      expect((pinned as { sortKey?: string }).sortKey).toBe(key)
-      const unpinned = await op.issues.update({ id: a.id, patch: { pinned: false } })
-      expect((unpinned as { sortKey?: string }).sortKey).toBe(key)
     } finally {
       await reg.dispose()
     }
@@ -172,6 +210,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
           repoPath: '/r',
           title: `task ${i}`,
           startNow: false,
+          parentBranch: 'main',
         })
         ids.push(issue.id)
       }
@@ -203,7 +242,12 @@ describe('sortKey scope compaction (POD-1102)', () => {
     try {
       const op = ctx(reg)
       for (let i = 0; i < 12; i++) {
-        await op.issues.create({ repoPath: '/r', title: `task ${i}`, startNow: false })
+        await op.issues.create({
+          repoPath: '/r',
+          title: `task ${i}`,
+          startNow: false,
+          parentBranch: 'main',
+        })
       }
       const before = (await op.issues.list({ repoPath: '/r' }))
         .slice()
@@ -246,7 +290,12 @@ describe('sortKey scope compaction (POD-1102)', () => {
     try {
       const op = ctx(reg)
       for (let i = 0; i < 12; i++) {
-        await op.issues.create({ repoPath: '/r', title: `task ${i}`, startNow: false })
+        await op.issues.create({
+          repoPath: '/r',
+          title: `task ${i}`,
+          startNow: false,
+          parentBranch: 'main',
+        })
       }
       const before = (await op.issues.list({ repoPath: '/r' }))
         .slice()
@@ -273,7 +322,12 @@ describe('sortKey scope compaction (POD-1102)', () => {
       )
       // The next CREATE is what shortens the scope back down — and it must not
       // disturb where that drop put the row.
-      await op.issues.create({ repoPath: '/r', title: 'fresh', startNow: false })
+      await op.issues.create({
+        repoPath: '/r',
+        title: 'fresh',
+        startNow: false,
+        parentBranch: 'main',
+      })
       const healed = (await op.issues.list({ repoPath: '/r' }))
         .slice()
         .sort((a, b) => (a.sortKey ?? '').localeCompare(b.sortKey ?? ''))
@@ -305,6 +359,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
           repoPath: '/r',
           title: `task ${i}`,
           startNow: false,
+          parentBranch: 'main',
         })
         ids.push(issue.id)
       }
@@ -314,8 +369,13 @@ describe('sortKey scope compaction (POD-1102)', () => {
         .map((r) => r.id)
       // Pin one from the middle, then let the next create compact the scope.
       const pinnedId = order[5]!
-      await op.issues.update({ id: pinnedId, patch: { pinned: true } })
-      await op.issues.create({ repoPath: '/r', title: 'trigger', startNow: false })
+      await pinIssueFor(reg.sessionStore, pinnedId, true)
+      await op.issues.create({
+        repoPath: '/r',
+        title: 'trigger',
+        startNow: false,
+        parentBranch: 'main',
+      })
 
       const after = await op.issues.list({ repoPath: '/r' })
       // Nothing in the space is left long — the pinned row included.
@@ -324,7 +384,7 @@ describe('sortKey scope compaction (POD-1102)', () => {
       )
       // Unpinned, it comes back exactly where it was: still after order[4] and
       // still before order[6].
-      await op.issues.update({ id: pinnedId, patch: { pinned: false } })
+      await pinIssueFor(reg.sessionStore, pinnedId, false)
       const restored = (await op.issues.list({ repoPath: '/r' }))
         .slice()
         .sort((a, b) => (a.sortKey ?? '').localeCompare(b.sortKey ?? ''))
@@ -341,9 +401,24 @@ describe('sortKey scope compaction (POD-1102)', () => {
     const reg = await newRegistry()
     try {
       const op = ctx(reg)
-      const a = await op.issues.create({ repoPath: '/r', title: 'one', startNow: false })
-      const b = await op.issues.create({ repoPath: '/r', title: 'two', startNow: false })
-      await op.issues.create({ repoPath: '/r', title: 'three', startNow: false })
+      const a = await op.issues.create({
+        repoPath: '/r',
+        title: 'one',
+        startNow: false,
+        parentBranch: 'main',
+      })
+      const b = await op.issues.create({
+        repoPath: '/r',
+        title: 'two',
+        startNow: false,
+        parentBranch: 'main',
+      })
+      await op.issues.create({
+        repoPath: '/r',
+        title: 'three',
+        startNow: false,
+        parentBranch: 'main',
+      })
       const rows = await op.issues.list({ repoPath: '/r' })
       expect(rows.find((r) => r.id === a.id)?.sortKey).toBe(a.sortKey)
       expect(rows.find((r) => r.id === b.id)?.sortKey).toBe(b.sortKey)

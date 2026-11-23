@@ -1,26 +1,32 @@
-import { observable, runInAction } from 'mobx'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { referenceView } from '@podium/client-graph/issue-reference'
-import { headerEntities } from '@podium/client-graph/header-entities'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { createHeaderPollingService } from '@podium/client-core/engine'
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
+// Machines are read as machine models (POD-6644): their classes load with the fixture.
+import '@podium/client-graph/synced-models'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerRequests } from '@podium/client-graph/header-requests'
+import { referenceView } from '@podium/client-graph/issue-reference'
+import { liveFixture, seedFixtureMachines } from '@podium/client-graph/live-fixture'
+import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { asUserId, pinRowId, resolveUserPreferences } from '@podium/model'
+import { observable, runInAction } from 'mobx'
+
 /** Historical synthetic UI fixtures feed the real pool at the test boundary. */
 
-import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
-
-import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { reposToViews } from '@podium/client-core/values'
 import type { RowSourceEvent } from '@podium/client-graph'
 import { MobxPool } from '@podium/client-graph'
 import { attachHeaderSource } from '@podium/client-graph/header-source'
+import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
-import { useRuntimeSelector as readFixtureSnapshot } from '@/app/store'
+import { fixtureSnapshot as readFixtureSnapshot } from '@/test-support/fixture-snapshot'
+import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 import { fixtureStoreSnapshot } from './fixture-store'
 import { poolFixtureStore } from './pool-issue-fixture'
 
@@ -72,18 +78,23 @@ export function publishPoolFixture() {
 }
 
 /** Fake actions publish through the same boundary as a render's snapshot. */
-export function syncPoolFixture(input: import("@podium/client-core/engine").Store, sidebarGesture = false) {
+export function syncPoolFixture(
+  input: import('@podium/client-core/ui').ScreenState,
+  sidebarGesture = false,
+) {
   const state = input as unknown as Store & {
     issues?: readonly unknown[]
     selectedIssueWasFolded?: boolean
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]
+    /** Test inputs in the listing shape; seeded as records and conditions (POD-6644). */
+    machines?: import('@podium/model/browser').MachineFacts[]
+    repos?: import('@podium/model/browser').GitRepositoryWire[]
   }
   fixtureState = fixtureStoreSnapshot({
     ...state,
     view: state.view ?? 'workspace',
     paneA: state.paneA ?? null,
     fileTabs: state.fileTabs ?? [],
-    outboxSize: state.outboxSize ?? 0,
     machines: state.machines ?? [],
     repos: state.repos ?? [],
   } as Store)
@@ -99,17 +110,36 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
     state.selectedIssueWasFolded,
     state.coarseNow,
     state.hostMetrics,
+    state.userPreferences,
   ])
   if (!pool) {
     pool = new MobxPool({
       selectedIssueId: state.selectedIssueId ?? null,
       coarseNow: state.coarseNow ?? Date.now(),
     })
-    if (state.uiState) attachPreferenceSource(pool, state.uiState as RoutedUiState)
+    seedInstancePreferences(pool)
+    const userId = asUserId('fixture-user')
+    pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'userPreferences',
+          id: userId,
+          value: { ...resolveUserPreferences(undefined, userId), id: userId } as never,
+        },
+      ],
+    })
+    if (state.uiState) {
+      const keys = observableFixtureKeys(state.uiState as RoutedUiState)
+      attachPreferenceSource(pool, keys)
+      pool.sources.view('test.fixture.preferences', () => keys)
+    }
     pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
     // POD-3911: the fixture authority supplies the same exit evidence as the live source.
     pool.sources.register(['issueExit'], {
-      read: (_entity, id) => ({ kind: fixtureState.replica?.exitKind?.('issueProjection', id) ?? fixtureExits.get(id) }),
+      read: (_entity, id) => ({
+        kind: fixtureState.replica?.exitKind?.('issueProjection', id) ?? fixtureExits.get(id),
+      }),
       dispose() {},
     })
   }
@@ -148,9 +178,38 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
         projectRoot: true,
       },
     }))
+    const personal = state.userPreferences?.[0]
+    const personalId = personal?.userId ?? asUserId('fixture-user')
     const rows: RowSourceEvent['rows'] = [
+      {
+        kind: 'userPreferences',
+        id: personalId,
+        value: { ...resolveUserPreferences(personal, personalId), id: personalId } as never,
+      },
+      ...normalized.replica.rows('pins').map((value) => ({
+        kind: 'pin' as const,
+        id: pinRowId(value.userId, value.kind, value.entityId),
+        value: { ...value, id: pinRowId(value.userId, value.kind, value.entityId) },
+      })),
       ...repoWorktrees,
       ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+      // The bodies and the panel are records of their own (POD-6764, POD-6767).
+      ...(
+        [
+          ['issueBriefs', 'issueBrief'],
+          ['issueDescriptions', 'issueDescription'],
+          ['issuePanelTodos', 'issuePanelTodo'],
+          ['issuePanelArtifacts', 'issuePanelArtifact'],
+          ['issuePanelDeferreds', 'issuePanelDeferred'],
+          ['issuePanelStates', 'issuePanelState'],
+        ] as const
+      ).flatMap(([slice, kind]) =>
+        (normalized.replica.rows(slice) as { id: string }[]).map((value) => ({
+          kind,
+          id: value.id,
+          value: value as never,
+        })),
+      ),
       ...(state.sessions ?? []).map((value) => ({
         kind: 'session' as const,
         id: value.sessionId,
@@ -177,14 +236,15 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
       ],
     })
     previousRows = nextRows
-    const selectionChanged =
-      (worklistView(pool).selectedId) !== (state.selectedIssueId ?? null)
+    const selectionChanged = worklistView(pool).selectedId !== (state.selectedIssueId ?? null)
     pool.clock.advance(state.coarseNow ?? Date.now())
     pool.applyLocals(
       {
         selectedIssueId: state.selectedIssueId ?? null,
         coarseNow: state.coarseNow ?? Date.now(),
-        selectedIssueWasFolded: sidebarGesture ? undefined : state.selectedIssueWasFolded ?? false,
+        selectedIssueWasFolded: sidebarGesture
+          ? undefined
+          : (state.selectedIssueWasFolded ?? false),
       },
       new Set(
         selectionChanged
@@ -196,9 +256,7 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
             : ['coarseNow'],
       ),
     )
-    headerEntities(pool).apply(
-      (state.machines ?? []).map((value) => ({ kind: 'machine', id: value.id, value })),
-    )
+    headerEntities(pool).apply(seedFixtureMachines(pool, state.machines ?? []) as never)
     headerEntities(pool).order(
       'machine',
       (state.machines ?? []).map((value) => value.id),
@@ -213,6 +271,16 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
       'repository',
       repositories.map((value) => value.id),
     )
+    // POD-5798: host samples are LiveStore readings, not header rows.
+    const live = liveFixture(pool)
+    const sampled = new Set<string>()
+    for (const metric of state.hostMetrics ?? []) {
+      const id = String(metric.machineId ?? metric.hostname)
+      sampled.add(id)
+      live.metric(id, metric)
+    }
+    for (const id of [...live.live.machineMetrics.keys()])
+      if (!sampled.has(id)) live.metric(id, undefined)
     queueMicrotask(() => {
       for (const listener of headerListeners) listener()
     })
@@ -228,21 +296,46 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
       getSnapshot: () => fixtureState,
       subscribe,
       replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
-      hostMetrics: {
-        getSnapshot: () => (fixtureState as typeof state).hostMetrics ?? [],
-        subscribe,
-      },
-      hub: {
-        connectionHealth: () => ({ status: 'ok', rttMs: null, since: Date.now() }),
-        onConnectionHealth: () => () => {},
-      },
+      access: { trpc: fixtureState.trpc },
     })
-    const polling = createHeaderPollingService({ api: fixtureState.trpc, replica: owner.replica })
-    Object.assign(owner, { headerInputs: polling.inputs })
     const detach = attachHeaderSource(pool, owner as never)
-    polling.inputs.retain()
-    polling.start()
-    stopHeader = () => { detach(); polling.destroy() }
+    const release = headerRequests(pool)?.retain()
+    // Quota and usage are pushed (POD-5798): a fixture's `quota.summary` and
+    // `usage.summary` answers stand in for the server's account.quota value.
+    const api = fixtureState.trpc as {
+      quota?: { summary?: { query?: () => Promise<unknown> } }
+      usage?: { summary?: { query?: () => Promise<unknown> } }
+    }
+    const fixturePool = pool as MobxPool
+    // The instance settings are a synced record (POD-6677): a fixture's
+    // `settings.get` answer stands in for the record the feed would deliver.
+    const settingsApi = fixtureState.trpc as {
+      settings?: { get?: { query?: () => Promise<unknown> } }
+    }
+    if (settingsApi.settings?.get?.query)
+      void Promise.resolve(settingsApi.settings.get.query())
+        .then((groups) => {
+          if (groups && typeof groups === 'object') {
+            seedInstancePreferences(
+              fixturePool,
+              groups as Parameters<typeof seedInstancePreferences>[1],
+            )
+          }
+        })
+        .catch(() => undefined)
+    if (api.quota?.summary?.query || api.usage?.summary?.query)
+      void Promise.all([
+        Promise.resolve(api.quota?.summary?.query?.()).catch(() => undefined),
+        Promise.resolve(api.usage?.summary?.query?.()).catch(() => undefined),
+      ]).then(([machines, usage]) => {
+        const live = liveFixture(fixturePool)
+        live.quota({ machines: Array.isArray(machines) ? machines : [] })
+        live.usage((usage as never) ?? null)
+      })
+    stopHeader = () => {
+      release?.()
+      detach()
+    }
   }
   return pool
 }

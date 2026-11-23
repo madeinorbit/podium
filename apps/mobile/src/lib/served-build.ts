@@ -19,17 +19,21 @@
  * (§2.2b). An unstamped page reports the honest `dev` and never offers anything:
  * a page that cannot say what it is running cannot claim something newer exists.
  *
- * WHY REFRESH IS JUST A RELOAD. `/mobile` ships no service worker: the Expo
- * export registers none, and the desktop app's worker explicitly refuses to
- * answer `/mobile` navigations (`NAVIGATION_FALLBACK_DENYLIST`). The server
- * serves `index.html` as `no-cache` and every asset under a content-hashed
- * name, so a reload IS the swap here — there is no waiting worker to hand over
- * to. If the phone ever gets its own worker, this is the one place that changes.
+ * WHAT REFRESH DOES (POD-7179). `/mobile` has its own precaching service
+ * worker now (`phone-service-worker.ts`), so a reload alone would only reload
+ * the precached old page. Refresh runs the desktop's reload handshake: it
+ * revalidates the worker, hands over to the one that installed the served
+ * build, and reloads once that one controls the page. A page no worker serves
+ * still just reloads: the server serves `index.html` as `no-cache` and every
+ * asset under a content-hashed name.
+ *
+ * The stamp itself is never precached (the worker precaches no JSON), so the
+ * `no-store` read below always reaches the server, or fails offline.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Platform } from 'react-native'
 import { appVersion } from './logging'
-import { useContentVisible } from './visible-content'
+import { refreshPhoneBuild } from './phone-service-worker'
 
 /** The stamp file the built dist carries, as far as this comparison cares. */
 export interface ServedBuild {
@@ -38,9 +42,6 @@ export interface ServedBuild {
 
 /** Where the served phone dist keeps its stamp, on the origin that served us. */
 export const SERVED_BUILD_STAMP_URL = '/mobile/podium-build.json'
-
-/** How often the page asks. The same cadence the desktop update surface uses. */
-export const SERVED_BUILD_POLL_MS = 60_000
 
 /**
  * The version an unstamped build honestly reports. It means "I do not know what
@@ -77,16 +78,10 @@ export async function readServedBuild(
   }
 }
 
-/**
- * Take the refresh. A reload is the whole mechanism here (see the header), so
- * this is one line plus the guard that keeps it out of a native build.
- */
-export function refreshToServedBuild(
-  target: { location: { reload(): void } } | undefined = typeof window === 'undefined'
-    ? undefined
-    : window,
-): void {
-  if (Platform.OS === 'web') target?.location.reload()
+/** Take the refresh: the worker handshake on the web (see the header). */
+export function refreshToServedBuild(): void {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return
+  void refreshPhoneBuild()
 }
 
 export interface ServedBuildRefresh {
@@ -95,41 +90,42 @@ export interface ServedBuildRefresh {
   refresh: () => void
 }
 
+/**
+ * WHEN THE PAGE ASKS (POD-5798): no timer. The server names its build in every
+ * `welcome`, so a redeploy shows up as a new `serverBuild` on the reconnect
+ * that follows it, and that is when the stamp is read. The phone also asks once
+ * each time it comes back to the foreground, where a suspended page catches up.
+ */
 export function useServedBuildRefresh(
+  serverBuild: string | undefined,
   read: () => Promise<ServedBuild | undefined> = readServedBuild,
   pageVersion: string = appVersion(),
 ): ServedBuildRefresh {
   const [needsRefresh, setNeedsRefresh] = useState(false)
-  const visible = useContentVisible()
 
   useEffect(() => {
     // Only the web build has a served dist to be behind. A native app updates
     // through its store and has no stamp file to read.
     if (Platform.OS !== 'web' || typeof window === 'undefined') return
-    if (needsRefresh || !visible) return // The answer cannot become false; stop asking.
+    if (needsRefresh) return // The answer cannot become false; stop asking.
     let cancelled = false
     const check = async (): Promise<void> => {
       const served = await read()
       if (!cancelled && servesNewerBuild(pageVersion, served)) setNeedsRefresh(true)
     }
-    let timer: number | undefined
+    void check()
     // The decisive moment for an installed phone app: it comes back to the
-    // foreground, which is where hours of missed polls are made up in one ask.
+    // foreground, after however long suspended, and asks once.
     const onVisible = (): void => {
-      window.clearInterval(timer)
-      timer = undefined
-      if (document.visibilityState !== 'visible') return
-      void check()
-      timer = window.setInterval(() => void check(), SERVED_BUILD_POLL_MS)
+      if (document.visibilityState === 'visible') void check()
     }
-    onVisible()
     document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [needsRefresh, pageVersion, read, visible])
+    // `serverBuild` is the trigger: each build the server names is asked about once.
+  }, [needsRefresh, pageVersion, read, serverBuild])
 
   const refresh = useCallback(() => refreshToServedBuild(), [])
   return { needsRefresh, refresh }

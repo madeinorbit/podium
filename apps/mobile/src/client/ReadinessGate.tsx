@@ -1,17 +1,44 @@
 import type { ServerReadiness } from '@podium/model'
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { type ReadinessDisplayState, ReadinessScreen } from '../components/ReadinessScreen'
 import { startupTiming } from '../lib/startup-timing'
 import { demoEnabled } from './demoData'
+import { heldOfflineStatus } from './held-offline'
 import { LaunchReadyView } from './launch-ready'
-import { fetchServerReadiness, readinessRecheckDelayMs } from './readiness'
+import { createPlatformConnectivity } from './platform-connectivity'
+import { fetchServerReadiness, ReadinessAnswerError, readinessRecheckDelayMs } from './readiness'
 import { useOptionalServerProfile } from './server-profile-context'
 import { readServerConfig } from './trpc'
 
-type GateState = 'checking' | 'unreachable' | ServerReadiness
+/** `offline`: no answer, and the device holds data it may open (POD-7176). */
+type GateState = 'checking' | 'unreachable' | 'offline' | ServerReadiness
+
+/**
+ * Call `listener` each time the network comes back: the browser's `online` on
+ * the web, NetInfo on a phone (the same connectivity the live connection
+ * uses). Returns the unsubscribe.
+ */
+function onNetworkReturn(listener: () => void): () => void {
+  const native = createPlatformConnectivity()
+  if (native) {
+    native.onlineEvents.add(listener)
+    return () => {
+      native.onlineEvents.remove(listener)
+      native.dispose()
+    }
+  }
+  if (typeof window === 'undefined') return () => {}
+  window.addEventListener('online', listener)
+  return () => window.removeEventListener('online', listener)
+}
 
 /** The first network boundary in Expo web and native. No auth, replica, socket,
- * or route mounts until the server has explicitly opened its data plane. */
+ * or route mounts until the server has explicitly opened its data plane, or
+ * until the server could not be asked at all and this device already holds a
+ * replica it may open: then the app opens on that data offline, as the
+ * desktop shell does (SetupGate). Only a device holding nothing it may open
+ * shows "Cannot reach this Podium server". An answer that is not a readiness
+ * fact still fails closed. */
 export function ReadinessGate({ children }: { children: ReactNode }) {
   const fallbackConfig = useMemo(readServerConfig, [])
   const serverProfile = useOptionalServerProfile()
@@ -22,6 +49,8 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
   )
   const [attempt, setAttempt] = useState(0)
   const [acceptedDegraded, setAcceptedDegraded] = useState(false)
+  const profileRef = useRef(serverProfile?.profile)
+  profileRef.current = serverProfile?.profile
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is the manual-Retry trigger — bumping it re-runs the probe
   useEffect(() => {
@@ -42,8 +71,15 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
         (readiness) => {
           if (alive) setState(readiness)
         },
-        () => {
-          if (alive) setState('unreachable')
+        async (cause: unknown) => {
+          // No answer at all (no network, a timeout): open what this device
+          // holds. The profile is read at failure time, not a dependency: a new
+          // profile write must not re-ask the server.
+          const held =
+            cause instanceof ReadinessAnswerError
+              ? undefined
+              : await heldOfflineStatus(profileRef.current)
+          if (alive) setState(held ? 'offline' : 'unreachable')
         },
       )
     return () => {
@@ -69,6 +105,7 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
     !acceptedDegraded &&
     state !== 'checking' &&
     state !== 'unreachable' &&
+    state !== 'offline' &&
     state.state === 'degraded' &&
     state.reason === 'agent_unavailable'
   useEffect(() => {
@@ -99,8 +136,45 @@ export function ReadinessGate({ children }: { children: ReactNode }) {
     }
   }, [polling, config.httpOrigin])
 
+  /**
+   * BACK ONLINE, ASK AGAIN (POD-7179). Opened offline on the data it holds, or
+   * parked on "Cannot reach this Podium server", the gate asked once and got no
+   * answer. When the network returns it asks again, quietly: the running app
+   * reconnects by itself, and the gate's state now follows the server's answer
+   * instead of staying `offline` for good. Never through `checking`, which
+   * would unmount the open app; a re-ask that again gets no answer changes
+   * nothing. An app already open offline stays open on a degraded answer (its
+   * person is already reviewing work); a blocked server closes it, as it would
+   * have at launch.
+   */
+  const stateRef = useRef(state)
+  stateRef.current = state
+  const awaitingNetwork = !demo && (state === 'offline' || state === 'unreachable')
+  useEffect(() => {
+    if (!awaitingNetwork) return
+    let alive = true
+    const reask = () => {
+      fetchServerReadiness(config.httpOrigin).then(
+        (readiness) => {
+          if (!alive) return
+          if (stateRef.current === 'offline' && readiness.state === 'degraded') {
+            setAcceptedDegraded(true)
+          }
+          setState(readiness)
+        },
+        () => {},
+      )
+    }
+    const unsubscribe = onNetworkReturn(reask)
+    return () => {
+      alive = false
+      unsubscribe()
+    }
+  }, [awaitingNetwork, config.httpOrigin])
+
   const retry = useCallback(() => setAttempt((value) => value + 1), [])
   if (state === 'checking') return null
+  if (state === 'offline') return <>{children}</>
   if (state !== 'unreachable') {
     if (state.state === 'ready') return <>{children}</>
     if (state.state === 'degraded' && acceptedDegraded) return <>{children}</>

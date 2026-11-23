@@ -1,3 +1,4 @@
+export * from './byte-source'
 export * from './cursor-codec'
 export * from './file-chain'
 export * from './runtime'

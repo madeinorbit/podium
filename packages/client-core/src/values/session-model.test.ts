@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CONFIGURE_WRITE_FAILED,
   canConfigureModel,
   compactModelId,
-  configureResultNotice,
+  configureEndingNotice,
   menuEffort,
   menuModel,
   modelReadoutReason,
@@ -115,20 +116,28 @@ describe('canConfigureModel', () => {
 })
 
 describe('chip sentences shared by web and phone (POD-2380)', () => {
-  it('says what a configure answer means', () => {
-    expect(configureResultNotice({ ok: true, effective: 'next-turn' })).toEqual({
+  it('says how a configure change ended', () => {
+    const ended = (status: string, result?: unknown, error?: { message?: string }) =>
+      configureEndingNotice({ status, result, error })
+    expect(ended('succeeded', { ok: true, effective: 'next-turn' })).toEqual({
       ok: true,
       text: 'The change applies from the next turn.',
     })
-    expect(configureResultNotice({ ok: true, effective: 'now' }).text).toBe(
+    expect(ended('succeeded', { ok: true, effective: 'now' })?.text).toBe(
       'The running session changed.',
     )
-    expect(configureResultNotice({ reason: 'busy' })).toEqual({
+    expect(ended('failed', { reason: 'busy' })).toEqual({
       ok: false,
       text: 'Could not change the running session (busy).',
     })
-    expect(configureResultNotice({ reason: 'busy', detail: 'Try later.' }).text).toBe('Try later.')
-    expect(configureResultNotice(undefined).ok).toBe(false)
+    expect(ended('failed', { reason: 'busy', detail: 'Try later.' })?.text).toBe('Try later.')
+    expect(ended('expired')?.text).toBe(
+      'The change was not made in time; the session runs as before.',
+    )
+    expect(ended('failed', undefined, { message: 'Driver gone.' })?.text).toBe('Driver gone.')
+    expect(ended('unknown')).toEqual({ ok: false, text: CONFIGURE_WRITE_FAILED })
+    // A cancel is the person's own choice: nothing to say.
+    expect(ended('cancelled')).toBeNull()
   })
 
   it('names the source of the shown model, then what stops a change', () => {

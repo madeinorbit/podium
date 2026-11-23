@@ -1,65 +1,53 @@
-import { bootStage } from './boot-timing'
-import { readNewestTargetPromotionMetadata } from './modules/server-transfer/target-status'
-import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
-import { requestParentEnrollment } from '@podium/runtime/parent-control'
-import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
-import { readLegacyInstancePasswordHash, deleteLegacyInstancePasswordFile, hashPassword } from '@podium/runtime/auth-store'
-import { registerSyncRoutes } from './sync/routes'
-import { syncFeedPrincipal } from './sync/route-support'
-import { MemberInvites } from './member-invites'
-import { registerMemberRoutes, type MemberInviteMail } from './member-routes'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { hostname } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
+import type { WorkspaceIdentity } from '@podium/identity'
 import { createLogger } from '@podium/logger'
-import {
-  asMachineId,
-  asUserId,
-  controlPlaneAvailable,
-} from '@podium/model'
+import { asMachineId, asUserId, controlPlaneAvailable } from '@podium/model'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CLIENT_WIRE_VERSION,
   type DaemonPtyInputBatch,
   type LocalDaemonLink,
   MIN_CLIENT_WIRE_VERSION,
   type MobileWebIdentity,
   PeerHelloReply,
   type ServedWebIdentity,
+  SIGN_IN_ENDED_CLOSE,
   type UpdateTarget,
-  CLIENT_WIRE_VERSION,
   wireSchemaDigest,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import {
+  deleteLegacyInstancePasswordFile,
+  hashPassword,
+  readLegacyInstancePasswordHash,
+} from '@podium/runtime/auth-store'
+import {
   assertAppUrlCompatible,
   loadConfig,
   resolveAllowedOrigins,
-  resolveAuthMode,
-  resolveAuthSignInUrl,
   resolveAppUrl,
   resolveConnectBaseUrl,
   resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
+  resolveFileStorage,
   resolveInstanceId,
   resolveMode,
   resolveProfileOnStall,
   resolveProfileStallMs,
   resolvePublicUrl,
   resolveTranscriptLake,
+  resolveUpdateFeedPolling,
   resolveUpdateScope,
 } from '@podium/runtime/config'
 import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
 import { installationPublicKeyWire } from '@podium/runtime/installation-identity'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
-import {
-  readOrCreateDaemonSecret,
-  readOrCreateLocalMachineId,
-  stateDir,
-} from '@podium/runtime/local-machine'
+import { readOrCreateLocalMachineId, stateDir } from '@podium/runtime/local-machine'
 import {
   addLoopAccounting,
   type LoopAccountingHandle,
@@ -72,16 +60,25 @@ import {
   type LoopProfileCapture,
   takeProfileRequest,
 } from '@podium/runtime/loop-profile-capture'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import {
-  targetTransferRecovery,
-} from '@podium/runtime/machine-supervisor'
-import { clearParentOutcome, readParentOutcome } from '@podium/runtime/parent-control'
+  clearParentOutcome,
+  readParentOutcome,
+  requestParentEnrollment,
+} from '@podium/runtime/parent-control'
+import {
+  drainHeavyStatementReads,
+  formatQueryCost,
+  queryAttributionSnapshot,
+} from '@podium/runtime/query-attribution'
+import { applyPublicUrl } from '@podium/runtime/setup'
 import {
   formatTopQueries,
   queryAttributionTotals,
   queryCallerStacks,
   resetQueryAttribution,
 } from '@podium/runtime/sqlite'
+import { createStallWatch, type StallWatch } from '@podium/runtime/stall-watch'
 import {
   attributeTasks,
   formatTopTasks,
@@ -89,23 +86,21 @@ import {
   taskAttributionCoverage,
   taskAttributionTotals,
 } from '@podium/runtime/task-attribution'
+import { listenUserSocket, serverControlSocketPath } from '@podium/runtime/user-socket'
 import { prepareLedgerBoot } from '@podium/sync'
 import { Hono } from 'hono'
-import {
-  type ClientCredentialHeaders,
-  clientAuthGuard,
-  isSecureRequest,
-  maintainClientCredentialByHash,
-  perRequestCredential,
-  registerAuthRoute,
-  requestUserId,
-} from './auth-route'
+import { registerAdminRoutes } from './admin-routes'
+import { clientAuthGuard, registerAuthRoute } from './auth-route'
+import { bootStage } from './boot-timing'
 import { captureServerBuildVersion, serverBuildSourceDigest } from './build-version'
-import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { createCloudRuntimeProviderFromEnv } from './cloud-runtime'
 import { userCommandPrincipal } from './command-principal'
-import { registerArtifactRoute } from './file-artifact-route'
+import { controlSocketHandler } from './control-socket'
+import { registerArtifactRoute, selfHostedArtifacts } from './file-artifact-route'
 import { registerAssetRoute } from './file-asset-route'
+import { createServerFileStorage } from './file-storage'
+import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
+import { daemonLinkFactsOf, IN_PROCESS_DAEMON_LINK } from './gateway/daemon-link-kind'
 import {
   createDaemonAcceptor,
   prepareDaemonFrame,
@@ -117,19 +112,35 @@ import {
   type NativeServer,
   serveNative,
 } from './gateway/ws-server'
-import { podiumCors } from './http-cors'
+import { hostSignIns } from './host-sign-ins'
+import { isAllowedHttpOrigin, podiumCors } from './http-cors'
+import { httpsSignInWarning, registerHttpsRequiredPage } from './https-required'
 import { PairingManager } from './hub/pairing'
-import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './first-admin-password'
+import { MemberHasNoAccount, memberCredentials } from './identity/member-credentials'
+import { createMemberOfRequest, refusalAnswer } from './identity/member-of-request'
+import {
+  type MembershipCatchUpScheduler,
+  startMembershipCatchUp,
+} from './identity/membership-catch-up'
+import {
+  type IdentitySeam,
+  openServerIdentity,
+  type ServerIdentity,
+} from './identity/server-identity'
 import { IssueToolProvider } from './issue-mcp'
+import { registerLocateProofRoute } from './locate-proof-route'
 import { registerMcpRoute } from './mcp-route'
-import { MobilePairingManager } from './mobile-pairing'
-import { clientAddressForRequest, registerMobilePairingRoutes } from './mobile-pairing-route'
+import { memberLinks } from './member-links'
+import { registerMemberRoutes } from './member-routes'
+import {
+  convertArtifactKeys,
+  convertPendingUploadRecords,
+} from './migrations/artifact-key-conversion'
+import { ConvertingLake } from './migrations/lake-parts-conversion'
+import { registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
-import { controlSocketHandler } from './control-socket'
-import { applyPublicUrl } from '@podium/runtime/setup'
-import { TunnelHealthStore } from './tunnel-health'
-import { listenUserSocket, serverControlSocketPath } from '@podium/runtime/user-socket'
+import { connectScanThroughEffect } from './modules/fleet/discovery-effects'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { directSessionPort, MessagingService } from './modules/messaging'
@@ -144,6 +155,7 @@ import {
 import { serverMoveFaultHook } from './modules/server-transfer/operation'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import {
+  readNewestTargetPromotionMetadata,
   readPromotedTargetMetadata,
 } from './modules/server-transfer/target-status'
 import { SuperagentService } from './modules/superagent'
@@ -159,12 +171,9 @@ import {
 } from './modules/updates/installed-restart'
 import { startLocalUpdateParticipant } from './modules/updates/local-participant'
 import type { UpdateReality } from './modules/updates/operation'
-import type { ServerPlacement } from './modules/updates/service'
 import type { ChannelFeed } from './modules/updates/release-target'
-import {
-  readOrCreateDevArtifactToken,
-  readOrCreateUpdateSigningKey,
-} from './modules/updates/signing-key'
+import type { ServerPlacement } from './modules/updates/service'
+import { readOrCreateDevArtifactToken } from './modules/updates/signing-key'
 import { createSourceRedeployRequest } from './modules/updates/source-redeploy'
 import {
   refreshTargetsOnBoot,
@@ -173,8 +182,8 @@ import {
 } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
 import { originRefusalReporter } from './origin-refusal'
-import { enabledProviderPrincipal, type ProviderPrincipal, createPluginAuth } from './plugin-auth'
 import type { PodiumPlugin } from './plugins'
+import { privateResourceAccess } from './private-resources'
 import {
   authReadinessBoundary,
   isHostLocalRequest,
@@ -183,18 +192,27 @@ import {
 } from './readiness-boundary'
 import { registerReadinessRoute } from './readiness-route'
 import { SessionRegistry } from './relay'
-import { MachineRepoDiscovery } from './repo-discovery'
 import { RepoRegistry } from './repo-registry'
+import { clientAddressForRequest } from './request-scheme'
 import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { createServerReadiness } from './server-readiness'
+import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
 import { registerSetupRoute } from './setup-route'
 import { closeServerFast } from './shutdown'
+import { createSignInCarryOver, type SignInCarryOver } from './sign-in-carry-over'
+import { registerSignInRoutes } from './sign-in-routes'
 import { registerDesktopWebStatic, registerMobileRouting, registerWebStatic } from './static-web'
-import { defaultDbPath, SessionStore } from './store'
+import { StoreDatabase, storeLocation, storeMigratesAtBoot } from './store'
+import { syncFeedPrincipal } from './sync/route-support'
+import { registerSyncRoutes } from './sync/routes'
 import type { SyncWorkerClient } from './sync-worker/worker-client'
 import { wireTelemetry } from './telemetry'
+import { logProcedureFailure } from './trpc'
+import { TunnelHealthStore } from './tunnel-health'
+import { updateParticipantSkip, updateParticipantSkipNote } from './update-participant-skip'
 import { reportParkedUpstreamMutations } from './upstream-retirement'
 import {
   describeBundleDiagnostic,
@@ -203,13 +221,11 @@ import {
   servedWebSourceDigest,
 } from './web-bundle-stamp'
 import { registerWellKnownRoute } from './well-known-route'
-import { registerLocateProofRoute } from './locate-proof-route'
 
 const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
 // (PODIUM_LOG='server:loop=debug') without also turning up request logging.
 const loopLog = createLogger('server:loop')
-const repoDiscoveryLog = createLogger('server:repo-discovery')
 /**
  * The served-website identity. `server:updates` rather than `server:http`,
  * because the reader is somebody following an update end to end and this is the
@@ -248,6 +264,16 @@ export interface ServerHandle {
   instanceId: string
   port: number
   registry: SessionRegistry
+  /**
+   * The identity this server signs people in with and resolves requests
+   * through: built on its own database, or handed in by a hosted root.
+   */
+  identity: WorkspaceIdentity
+  /**
+   * The sign-in carry-over (POD-6751): present on a server that built its own
+   * identity core and can write its store. For the hourly sweep and for tests.
+   */
+  signInCarryOver?: SignInCarryOver
   /** True when this process exposes only durable server-move recovery APIs. */
   recoveryOnly: boolean
   /** Server-owned maintenance channel credential; never accepted for machine authentication. */
@@ -570,6 +596,9 @@ function tlsFromEnv(
   }
 }
 
+/** How often expired invitations and one-time codes are deleted. */
+const IDENTITY_SWEEP_INTERVAL_MS = 60 * 60 * 1000
+
 export async function startServer(
   opts: {
     port?: number
@@ -579,7 +608,21 @@ export async function startServer(
     plugins?: PodiumPlugin[]
     /** Stable hosted workspace identity carried by pairing commands. */
     workspaceId?: string
-    sendMemberInviteMail?: MemberInviteMail
+    /**
+     * THE IDENTITY SEAM (docs/design/people-and-sign-in.md, section 3). Absent,
+     * which is every self-hosted server: the server builds the identity core on
+     * its own database. Present: a hosted composition root hands the server the
+     * workspace half of a core it built on Postgres. A function, because the
+     * member rows port exists only after the server has opened its store.
+     */
+    identity?: IdentitySeam
+    /** Fake only the membership timer; database and transport behavior stays real. */
+    membershipCatchUpSchedulerForTests?: MembershipCatchUpScheduler
+    /**
+     * Tests only: the ids of the members this server mints when it built its
+     * own identity core, so a fixture's members have ids a test can name.
+     */
+    newMemberIdForTests?: () => string
     /** Keep `/` on the web shell while still serving Expo at `/mobile` (browser harness). */
     redirectPhoneRootToMobile?: boolean
     /**
@@ -610,9 +653,6 @@ export async function startServer(
 ): Promise<ServerHandle> {
   const rehearsal = process.env.PODIUM_REHEARSAL === '1'
   const config = loadConfig()
-  // Fail invalid deployment overrides before allocating server resources.
-  resolveAuthMode(config)
-  resolveAuthSignInUrl(config)
   // A promoted server's durable listen contract outranks the target daemon's
   // process environment; an explicit caller option still wins.
   const host = resolveBindHost({
@@ -643,6 +683,7 @@ export async function startServer(
   // Fails the boot rather than advertising a UI origin whose browser could never
   // hold this server's session cookie (PDM-26).
   assertAppUrlCompatible(config, process.env)
+  const feedPollingEnabled = resolveUpdateFeedPolling(config, process.env)
   const updateScope = resolveUpdateScope(config, process.env)
   const fleetOnly = updateScope === 'fleet-only'
   ensureInstanceStateIdentity({ instanceId })
@@ -664,48 +705,83 @@ export async function startServer(
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
   if (recoveryOnly) await portableStateFence.acquire()
-  const store = await SessionStore.open(undefined, asMachineId(hostMachineId), {
-    queryOnly: recoveryOnly,
+  // WHERE USER FILES LIVE (POD-6963 design 2.8): the state directory or one
+  // bucket, resolved once from PODIUM_FILE_STORAGE_* → config.fileStorage. A
+  // misconfigured bucket fails the boot here, before anything listens. Each
+  // workspace's service graph takes its own handle (`forWorkspace`) below.
+  const fileStorage = createServerFileStorage(resolveFileStorage(config, process.env), {
+    stateDir: stateDir(),
+    fence: portableStateFence,
   })
+  if (!recoveryOnly) {
+    const removed = await fileStorage.removeLeftoverTempFiles()
+    if (removed > 0) log.info('removed temp files left by interrupted file writes', { removed })
+  }
+  // One database, and this install's one workspace over it (POD-7010). Its
+  // location names its engine (POD-6994): the state directory's SQLite file, or
+  // the Postgres database PODIUM_DATABASE_URL names. The sync worker and the
+  // janitor open their read sessions on the same location.
+  const databaseLocation = storeLocation(process.env, config)
+  const database = await StoreDatabase.open(databaseLocation, asMachineId(hostMachineId), {
+    queryOnly: recoveryOnly,
+    bootWorkspace: SELF_HOSTED_WORKSPACE_ID,
+    migrateAtBoot: storeMigratesAtBoot(),
+  })
+  const store = await database.workspace(SELF_HOSTED_WORKSPACE_ID)
+  // Artifacts stored before the blob store under names that are not key segments move to
+  // their encoded keys, once, before anything serves them (POD-7054).
+  if (!recoveryOnly && fileStorage.backend === 'local') {
+    await convertArtifactKeys({ stateDir: stateDir(), log, fence: portableStateFence })
+    // Composer uploads kept their records in meta.json files; those become rows (POD-7055).
+    await convertPendingUploadRecords({
+      stateDir: stateDir(),
+      records: store.pendingUploads,
+      log,
+      fence: portableStateFence,
+    })
+  }
+  const workspaceFiles = fileStorage.storage.forWorkspace(SELF_HOSTED_WORKSPACE_ID)
+  // Legacy reads remain available while the background pass splits the lake.
+  // Mirror writes join the same per-file conversion before touching its parts.
+  const lakeConversionAbort = new AbortController()
+  const convertingLake = !recoveryOnly
+    ? new ConvertingLake({
+        stateDir: stateDir(),
+        rows: store.conversations.mirror,
+        blobs: workspaceFiles,
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        log,
+        fence: portableStateFence,
+        signal: lakeConversionAbort.signal,
+        // Parts on a bucket take no local disk, so there is nothing to preflight.
+        ...(fileStorage.backend === 'local' ? {} : { freeBytes: undefined }),
+      })
+    : undefined
+  let lakeConversionWork: Promise<unknown> | undefined
   // The installation identity follows server authority across transfers.
   const installation = await store.secrets.installationIdentity()
   const installationPublicKey = installationPublicKeyWire(installation)
-  // Keeps Connect's record of where this server is reachable current. Started
-  // once the listener is up (below); reads PODIUM_CONNECT and the public URL
-  // per tick, so both land without a restart. The base URL is a boot fact.
-  // The address this server claims: what the Connect publisher sends and what
-  // the locate proof signs over (POD-5921) — one reader, so the two never differ.
-  const claimedPublicUrl = (): string | undefined =>
-    serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env)
-  const tunnelHealth = new TunnelHealthStore()
-  const readTunnelHealth = () => tunnelHealth.read(claimedPublicUrl())
-  const connectPublisher = new ConnectPublisher({
-    client: connectClient({
-      baseUrl: resolveConnectBaseUrl(config, process.env),
-      identity: () => installation,
-    }),
-    identity: () => installation,
-    publicUrl: claimedPublicUrl,
-    enabled: () => store.settings.resolve('connectEnabled').value,
-    log: createLogger('server:connect'),
-    baseUrl: resolveConnectBaseUrl(config, process.env),
-  })
-  const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
+  // In the store's server_secrets, read through its lifecycle port (POD-6994).
+  const updateSigningKey = await database.updateSigningKey({
     allowCreate: !recoveryOnly && (await store.machines.listMachines()).length === 0,
   })
   const activeServerMove = (await store.operations.active()).find(
     (row) => row.kind === 'server-move',
   )?.operation
   reconcileSafeServerTransferBoot(stateDir(), activeServerMove)
-  // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
-  // route, the status route and the exposure warning cannot answer it differently.
-  const credentialsRequired = async (): Promise<boolean> =>
-    resolveAuthMode() === 'cloud' ||
-    (!store.settings.resolve('authOpenMode').value && (await store.users.hasPerUserCredentials()))
-  const mobilePairing = new MobilePairingManager()
+  // THE IDENTITY OF THIS SERVER (POD-6746) opens once the registry exists,
+  // below. The registry holds two of its handles, a member's account
+  // credentials and the relocation codes, and reads them only when a request
+  // or a server move uses them, after the boot.
+  let openedIdentity: ServerIdentity | undefined
+  const serverIdentity = (): ServerIdentity => {
+    if (!openedIdentity) throw new Error('the server identity is read before it is open')
+    return openedIdentity
+  }
+  const credentials = memberCredentials(store.users, () => serverIdentity().workspace.core.accounts)
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
-  // bounded, yielding units before SessionRegistry constructs its Ledger and
-  // folds/reconciles the retained rows. The server does not listen meanwhile.
+  // bounded, yielding units before the server starts serving catch-up reads.
+  // The server does not listen meanwhile.
   if (!recoveryOnly) {
     const bootPrune = await prepareLedgerBoot({
       repo: store.sync,
@@ -741,9 +817,6 @@ export async function startServer(
         process.env,
       )) === 'on'
 
-  // The transcript lake lives in the state dir next to podium.db (transcript-mirror
-  // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
-  // SessionRegistry without it produce no mirror traffic.
   /**
    * LATE-BOUND, because the two halves are constructed in this order and cannot
    * be reordered: the updates service (inside the registry) owns the resolver,
@@ -770,6 +843,8 @@ export async function startServer(
   const registry: SessionRegistry = await SessionRegistry.create(store, undefined, {
     serverPlacement,
     instanceId,
+    memberCredentials: credentials,
+    clientRelocationCodes: () => serverIdentity().workspace.core.codes,
     devChannelFeed: () => devChannelFeed?.(),
     recoveryOnly,
     rehearseBoot: rehearsal,
@@ -780,13 +855,29 @@ export async function startServer(
     // TranscriptLake already supports — the mirror and the indexer are simply
     // never constructed. Spread rather than `undefined` so its absence keeps
     // meaning exactly what it means for every test that omits it today.
-    ...(lakeEnabled ? { mirrorLakeDir: join(stateDir(), 'transcripts') } : {}),
+    // The lake keeps its parts in this workspace's files (transcript-mirror
+    // spec §2.1, POD-6963 design 2.3): `<state>/transcripts` on local disk, the
+    // workspace's prefix on a bucket.
+    ...(lakeEnabled
+      ? {
+          transcriptLake: {
+            blobs: workspaceFiles,
+            workspaceId: SELF_HOSTED_WORKSPACE_ID,
+            lake: convertingLake,
+          },
+        }
+      : {}),
+    files: workspaceFiles,
     portableStateFence,
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
     // local daemon's `hello` path is untouched.
-    ...(role.hub ? { pairing: new PairingManager({ installationId: installation.installationId }) } : {}),
+    ...(role.hub
+      ? { pairing: new PairingManager({ installationId: installation.installationId }) }
+      : {}),
+    // The fleet's hub-only writes on `sync.submit` follow the role too (POD-6417).
+    servesHub: role.hub,
     installationId: installation.installationId,
     updatePubkey: () => updateSigningKey.publicKey,
     // Under `updateScope: 'fleet-only'` this server's binary belongs to the
@@ -821,36 +912,117 @@ export async function startServer(
     // which is also the auth the agents on that machine actually run under.
     modelProbe: async (machineId) => await registry.modules.rpc.modelProbe(machineId),
   })
+  // THE IDENTITY OF THIS SERVER (POD-6746): one workspace-bound core, built on
+  // this store or handed in through the seam. Everything below that signs
+  // someone in or asks who a request is goes through it.
+  //
+  // OPENED AFTER THE REGISTRY, BEFORE THE SERVER SERVES (POD-6939). Opening it
+  // writes member rows: the hosted boot catch-up applies the memberships that
+  // changed while the server was down, the seam's own membership operations
+  // apply theirs, and a self-hosted upgrade adopts its member. A member write is
+  // a change-log commit, and the registry is what wires it (POD-6920); before
+  // it, the store captures the write with nothing to drain it and refuses it.
+  const identity = await openServerIdentity(store, {
+    seam: opts.identity,
+    readOnly: recoveryOnly,
+    newMemberId: opts.newMemberIdForTests,
+  })
+  openedIdentity = identity
+  const membershipCatchUp =
+    !identity.local && !recoveryOnly && !rehearsal
+      ? startMembershipCatchUp(identity.workspace, opts.membershipCatchUpSchedulerForTests)
+      : undefined
+  // Expired invitations and one-time codes are deleted hourly (section 2.3).
+  // Not on a store that cannot be written, and not in a boot rehearsal.
+  // LEGACY(remove-after: 2027-06): bootstrap and sweep pre-upgrade device sign-ins.
+  // The sign-in carry-over (POD-6751) is built below, once the request
+  // resolver exists; the same hourly timer sweeps its leftovers.
+  let signInCarryOver: SignInCarryOver | undefined
+  let stopIdentitySweep = (): void => {}
+  if (!recoveryOnly && !rehearsal) {
+    const sweep = setInterval(() => {
+      void identity.workspace.core
+        .sweep()
+        .catch((err) => log.warn('identity sweep failed; the next hour retries', { err }))
+      void signInCarryOver
+        ?.sweep()
+        .catch((err) => log.warn('sign-in carry-over sweep failed; the next hour retries', { err }))
+    }, IDENTITY_SWEEP_INTERVAL_MS)
+    sweep.unref?.()
+    stopIdentitySweep = () => clearInterval(sweep)
+  }
+  // IS SIGN-IN REQUIRED: one answer, the package's (section 5.5), read by the
+  // status route, pairing, the tRPC `auth.*` procedures and the exposure
+  // warning. It is not a gate: a request is admitted by `memberOfRequest` alone.
+  const credentialsRequired = (): Promise<boolean> => identity.workspace.signInRequired()
+  // WHY sign-in is mandatory, for Access to explain. Reporting only: the answer
+  // is the package's. A hosted workspace always requires it; a second active
+  // member ends open mode whatever `authOpenMode` says (POD-6285).
+  const loginPolicy = async (): Promise<
+    import('./modules/instance/service').InstanceLoginPolicy
+  > => {
+    const loginRequired = await credentialsRequired()
+    const loginRequiredReason = !identity.local
+      ? 'hosted'
+      : loginRequired && (await store.users.hasSeveralActiveMembers())
+        ? 'several-members'
+        : null
+    return { loginRequired, loginRequiredReason }
+  }
   const adoptionStarted = performance.now()
   const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
-  // Maintenance is a separate server-owned channel; this secret is never a machine credential.
-  const maintenanceToken = recoveryOnly ? '' : readOrCreateDaemonSecret()
+  // The owned worker receives this capability only through workerData. Each
+  // generation replaces it, so neither a persisted fleet secret nor an old
+  // worker's credential authorizes the private maintenance channel.
+  let maintenanceToken = recoveryOnly ? '' : randomBytes(32).toString('base64url')
+  const rotateMaintenanceToken = (): string => {
+    maintenanceToken = randomBytes(32).toString('base64url')
+    return maintenanceToken
+  }
   const setupStarted = performance.now()
   if (!recoveryOnly) {
     const supervisorSetup = loadSupervisorState(stateDir())
     const setupRequest = supervisorSetup.setupEnrollment
     if (setupRequest && !supervisorSetup.enrolledPublicKey) {
       const stagedHash = readLegacyInstancePasswordHash()
-      const passwordHash = stagedHash ?? (process.env.PODIUM_PASSWORD ? await hashPassword(process.env.PODIUM_PASSWORD) : undefined)
-      const receipt = await completePreauthorizedSetup(store, installation.installationId, setupRequest, passwordHash)
+      const passwordHash =
+        stagedHash ??
+        (process.env.PODIUM_PASSWORD ? await hashPassword(process.env.PODIUM_PASSWORD) : undefined)
+      const receipt =
+        (await completePreauthorizedSetup(
+          store,
+          credentials,
+          installation.installationId,
+          setupRequest,
+          passwordHash,
+        )) ??
         // A host upgraded from 0.1.0 staged this request to re-key its legacy row (POD-5931).
-        ?? await adoptLegacyHostMachine(store, installation.installationId, setupRequest)
+        (await adoptLegacyHostMachine(store, installation.installationId, setupRequest))
       if (receipt) {
         // Credential activation and enrollment committed together. Files and parent RPC happen afterwards.
-        if (stagedHash && receipt.actor && (await store.users.credentialFor(receipt.actor))?.passwordHash === stagedHash) deleteLegacyInstancePasswordFile()
+        // The actor has a password now: the staged one, or an earlier one that wins.
+        // Either way the staged file has nothing left to give.
+        if (stagedHash && receipt.actor && (await credentials.hasPassword(receipt.actor)))
+          deleteLegacyInstancePasswordFile()
         try {
-          if (!rehearsal) await requestParentEnrollment({ action: 'confirm', agentExecution: receipt.agentExecution,
-            setupRequestId: receipt.requestId, publicKey: receipt.publicKey, installationId: receipt.installationId })
+          if (!rehearsal)
+            await requestParentEnrollment({
+              action: 'confirm',
+              agentExecution: receipt.agentExecution,
+              setupRequestId: receipt.requestId,
+              publicKey: receipt.publicKey,
+              installationId: receipt.installationId,
+            })
         } catch (error) {
           log.warn('setup enrollment committed; parent confirmation will retry', { err: error })
         }
       }
     } else if (!setupRequest) {
       // Existing installations may still have a staged login password. This never creates a machine.
-      const adopted = await adoptStagedFirstAdminPassword({ users: store.users })
+      const adopted = await adoptStagedFirstAdminPassword({ users: store.users, credentials })
       if (adopted.outcome === 'adopted' && adopted.userId)
         await registry.modules.machines.grantHostMachineIfUnowned(adopted.userId)
-      const applied = await applyEnvFirstAdminPassword({ users: store.users })
+      const applied = await applyEnvFirstAdminPassword({ users: store.users, credentials })
       if (applied.applied && applied.userId)
         await registry.modules.machines.grantHostMachineIfUnowned(applied.userId)
     }
@@ -890,32 +1062,11 @@ export async function startServer(
     loadConfig: () => store.settings.telemetryConfig(),
   })
   const repos = new RepoRegistry(registry, store)
-  // Tiered per-machine repo discovery (POD-787) [spec:SP-3701]: probes + shallow walks
-  // on machine.connected (never awaited by the attach path), deep sweep on explicit ask.
-  const repoDiscovery = new MachineRepoDiscovery({
-    listRepos: async () => await store.repos.listRepos(),
-    addRepo: async (path, machineId, originUrl) =>
-      await store.repos.addRepo(path, machineId, originUrl),
-    removeRepo: async (path, machineId) => await store.repos.removeRepo(path, machineId),
-    // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
-    // browseDirs answers from that daemon's own filesystem, and a directory that is
-    // gone comes back without a listing. Any failure to answer is treated as "cannot
-    // tell" by the caller, which then declines to heal.
-    pathExists: async (path, machineId) => {
-      const res = await registry.modules.rpc.browseDirs(path, {}, machineId)
-      return Boolean(res.listing)
-    },
-    scanRepos: async (roots, opts, machineId) =>
-      await registry.modules.rpc.scanRepos(roots, opts, machineId),
-    machineNames: async (ids) => await registry.modules.machines.machineNames(ids),
-    localMachineId: asMachineId(hostMachineId),
-    log: (message) => repoDiscoveryLog.info(message),
-  })
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
   // janitor issues connect-scan commands; deep scans stay interactive via API.
   const superagent = await SuperagentService.create(registry.modules, repos, store)
-  // Its turn reaper is a periodic write; the registry's dispose is what stops it
-  // before `store.close()` on every close path (POD-2772).
+  // The registry owns disposal on failed listen and in test harnesses. Normal
+  // shutdown also settles its reaper before store.close starts scheduler drain.
   registry.adoptSuperagent(superagent)
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
@@ -932,11 +1083,21 @@ export async function startServer(
       // POD-419: the bot token is server-only material; the chat id stays routing.
     },
     telegramBotToken: async () => await store.secrets.getOrEmpty('notifications.telegramBotToken'),
-    superagent,
+    // A chat message carries no client command: the bridge's sends write as the
+    // bridge (`superagent.bridge`, ADR 12 D9, POD-6606).
+    superagent: {
+      sendTurn: async (input) =>
+        await superagent.sendTurn(registry.modules.superagentBridgeWriter, input),
+      interruptTurn: (input) => superagent.interruptTurn(input),
+      restartThread: (input) => superagent.restartThread(input),
+      startBtwTurn: async (input) => await superagent.startBtwTurn(input),
+      ensureConciergeThread: async (input) => await superagent.ensureConciergeThread(input),
+    },
     issues: registry.modules.issues.reports,
     sessions: registry.modules.sessions,
     topics: store.messagingTopics,
-    sessionIssueId: async (sessionId) => await registry.modules.sessions.readSessionIssueId(sessionId),
+    sessionIssueId: async (sessionId) =>
+      await registry.modules.sessions.readSessionIssueId(sessionId),
     // Issue-topic entry recap [spec:SP-62c3]: last messages from the bound
     // superagent (or btw origin) session transcript.
     topicRecap: {
@@ -1002,16 +1163,20 @@ export async function startServer(
   const devPublisher = await wireDevBundlePublisher({
     sourceRoot: rehearsal ? undefined : developmentSourceRoot,
     instanceId,
-    artifactOrigin: !rehearsal && developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
+    artifactOrigin:
+      !rehearsal && developmentSourceRoot ? resolveDevArtifactOrigin(config) : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
     hasRemoteUpdateConsumers: async () =>
-      (await store.machines.listMachines()).some((machine) =>
-        !machine.revokedAt && isRemoteUpdateConsumer(machine, hostMachineId),
+      (await store.machines.listMachines()).some(
+        (machine) => !machine.revokedAt && isRemoteUpdateConsumer(machine, hostMachineId),
       ),
     // FLEET-SCOPED darwin production [spec:SP-6144 section 8b]: this host mints a Mac
     // bundle when a Mac has enrolled, and not otherwise. Read at build time, from the
     // inventories the daemons themselves reported.
-    fleetPlatforms: async () => fleetHeadlessPlatforms((await store.machines.listMachines()).filter((machine) => !machine.revokedAt)),
+    fleetPlatforms: async () =>
+      fleetHeadlessPlatforms(
+        (await store.machines.listMachines()).filter((machine) => !machine.revokedAt),
+      ),
     // A proposal answers what THIS running server would change by building HEAD.
     // Fleet skew belongs to rollout; it must never move the build's changelog baseline.
     proposalRunningVersion: appVersion,
@@ -1035,7 +1200,8 @@ export async function startServer(
   /** One real host participant when an installed parent can apply its grants. */
   const localUpdateParticipant =
     process.env.PODIUM_MACHINE_UPDATE_OWNER !== 'supervisor' &&
-    !recoveryOnly && !rehearsal &&
+    !recoveryOnly &&
+    !rehearsal &&
     process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT !== '1' &&
     !developmentRuntime.runningFromSource &&
     prepareCoordinatorUpdate &&
@@ -1238,6 +1404,27 @@ export async function startServer(
       { resume: !rehearsal },
     )
   if (!recoveryOnly && parentReport) clearParentOutcome()
+  // THE UPDATE EFFECT'S PORTS (POD-6358). An update request is an effect record
+  // the Operations engine runs; a record from any client runs with the same
+  // process ports a request carries on its tRPC context (below). Bound after
+  // adoption, so a record that waited through a restart starts on the server
+  // that will serve it; until now it stays pending.
+  if (!recoveryOnly)
+    registry.modules.updateEffects?.bindPorts({
+      updates: registry.modules.updates,
+      operations: registry.modules.operations,
+      store: registry.sessionStore,
+      serverPlacement,
+      serverInstallKind: developmentRuntime.runningFromSource ? 'source' : 'installed',
+      ...(desktopSupervised ? { desktopSupervised: true } : {}),
+      ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
+      ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
+      ...(devPublisher.requestWebRebuild
+        ? { requestWebRebuild: devPublisher.requestWebRebuild }
+        : {}),
+      servedWebDigest: () => servedWebSourceDigest(desktopWebDir()),
+      servedMobileWeb: () => servedWebIdentity(phoneWebDir()),
+    })
 
   bootStage('machines updates adoption', adoptionStarted)
   const deferredSourceJournal = registry.modules.serverTransfer.status()
@@ -1259,6 +1446,26 @@ export async function startServer(
       ? bootTargetPromotion
       : undefined
   let serverMoveDataPlaneDeferred = deferredPromotion !== undefined
+  // Keeps Connect's record of where this server is reachable current. Started
+  // once the listener is up (below); reads PODIUM_CONNECT and the public URL
+  // per tick, so both land without a restart. The base URL is a boot fact.
+  // The address this server claims: what the Connect publisher sends and what
+  // the locate proof signs over (POD-5921) — one reader, so the two never differ.
+  const claimedPublicUrl = (): string | undefined =>
+    serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env)
+  const tunnelHealth = new TunnelHealthStore()
+  const readTunnelHealth = () => tunnelHealth.read(claimedPublicUrl())
+  const connectPublisher = new ConnectPublisher({
+    client: connectClient({
+      baseUrl: resolveConnectBaseUrl(config, process.env),
+      identity: () => installation,
+    }),
+    identity: () => installation,
+    publicUrl: claimedPublicUrl,
+    enabled: () => store.settings.resolve('connectEnabled').value,
+    log: createLogger('server:connect'),
+    baseUrl: resolveConnectBaseUrl(config, process.env),
+  })
   let stopDeferredPromotionPoll = (): void => {}
   if (deferredPromotion) {
     let settling = false
@@ -1500,23 +1707,29 @@ export async function startServer(
         : undefined,
   })
   registerMaintenanceRoute(app, {
-    // The maintenance realm is THIS HOST's credential, named by its real id rather
-    // than by a constant that stood for it.
-    authenticateToken: async (token) =>
-      await store.machines.getMachineByToken(hostMachineId, token),
+    authenticateToken: async (token) => {
+      const expected = Buffer.from(maintenanceToken)
+      const received = Buffer.from(token)
+      return (
+        (expected.length > 0 &&
+          expected.length === received.length &&
+          timingSafeEqual(expected, received)) ||
+        (await store.machines.getMachineByToken(hostMachineId, token))
+      )
+    },
     service: new MaintenanceService(store, registry.modules.funnel, {
       issues: registry.modules.issues,
       sessions: registry.modules.sessions,
       automations: registry.modules.automations,
+      messages: registry.modules.messages,
       // Read per handshake, never captured: a settings flip must reach the next
       // lease, not wait for a server restart (POD-564).
       worktreeGcPolicy: async () => (await store.settings.getSettings()).worktreeGc,
       liveSessionIds: async () =>
         new Set(registry.modules.sessions.runningSessionFacts().map((s) => s.sessionId)),
       stewardTick: async () => await registry.runStewardTick(),
-      connectScan: async (machineId) => {
-        void (await repoDiscovery.scan(machineId, { deep: false }))
-      },
+      // A `machine.scan` effect record under a system principal (POD-6396).
+      connectScan: async (machineId) => await connectScanThroughEffect(registry.modules, machineId),
       localMachineId: asMachineId(hostMachineId),
     }),
   })
@@ -1534,104 +1747,50 @@ export async function startServer(
   // /trpc guard below. The /daemon link and /mcp keep their own credentials. Guards are
   // registered BEFORE their handlers so Hono runs them first.
   /**
-   * OPEN MODE IS A POLICY ON A MEMBER, NOT A SPECIAL USER [A2, spec §8].
+   * WHO A REQUEST IS: ONE FUNCTION FOR EVERY TRANSPORT (POD-6746).
    *
-   * It used to synthesise `FIRST_ADMIN_USER_ID` — a principal named by the
-   * build, which no row had to exist for. Now it RESOLVES the earliest admin
-   * member of this instance, so an unauthenticated request in open mode acts as
-   * an ordinary member row, and an instance with no member that may act (every
-   * admin disabled) serves nobody rather than serving a ghost.
+   * HTTP, tRPC, the file routes, sync, the socket upgrade and the auth routes
+   * all call `memberOfRequest`: device sign-in, account, active membership,
+   * member. A request without a sign-in is the sole active member only under
+   * the same-machine rule, which lives in the identity package (section 5.5)
+   * and ends when a second membership is active.
    *
-   * AND THE REQUEST MUST BE LOCAL, which is the one behavioural change. Open
-   * mode exists for loopback — the all-in-one desktop's embedded server, where
-   * there is no second human and a password would be theatre. Off-box it was an
-   * unauthenticated data plane that the boot log could only WARN about ("anyone
-   * who can reach this host can control your agents and shell"). A warning is
-   * what you write when you cannot refuse; the spec makes locality part of the
-   * policy, so now we can. A remote caller on a password-less instance gets the
-   * same answer as any other unauthenticated caller: no principal, and the login
-   * screen — which is the correct prompt, because setting a password is exactly
-   * what that instance has to do.
-   *
-   * `request` is optional because one caller — `/auth/status`, reporting whether
-   * this browser is signed in — is upstream of any transport that must be
-   * authorized. Absent, the open-mode arm does not fire: a resolver that cannot
-   * see where the request came from cannot claim it came from here.
+   * The request must be the one the HTTP app sees (`observedRequest`): its
+   * `x-podium-peer-address` is the peer the native server reported.
    */
-  const auth = createPluginAuth(store.users)
-  // Installed before the core routes; plugins supply the callback before listen.
-  // Never run this for socket heartbeats or platform auth routes (which own cookies).
-  for (const path of ['/trpc/*', '/auth/status']) {
-    app.use(path, async (c, next) => {
-      const headers =
-        c.req.method === 'OPTIONS' ? undefined : await auth.sessionResponseHeaders?.(c.req.raw)
-      await next()
-      for (const cookie of headers?.getSetCookie() ?? [])
-        c.header('set-cookie', cookie, { append: true })
-      if (headers?.has('set-cookie')) c.header('cache-control', 'no-store')
-    })
-  }
-  // The HTTP guard and tRPC context share one provider lookup per request.
-  const sourcePrincipals = new WeakMap<Request, Promise<ProviderPrincipal>>()
-  const sourcePrincipal = (request: Request) => {
-    let resolved = sourcePrincipals.get(request)
-    if (!resolved) {
-      resolved = Promise.resolve().then(async () =>
-        enabledProviderPrincipal(
-          await auth.principalSource?.({
-            cookieHeader: request.headers.get('cookie') ?? undefined,
-            authorizationHeader: request.headers.get('authorization') ?? undefined,
-            url: request.url,
-          }),
-          store.users,
-        ),
-      )
-      sourcePrincipals.set(request, resolved)
-    }
-    return resolved
-  }
-  // ...and one credential resolution per request (POD-6220): the guard resolves it, the
-  // principal behind it reads the same answer instead of the session row again.
-  const requestCredential = perRequestCredential(store.auth)
-  const credentialPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
-    const supplied = request ? await sourcePrincipal(request) : undefined
-    if (supplied === false) return undefined
-    if (supplied) return userCommandPrincipal(asUserId(supplied.memberId), supplied.role)
-    const credentialed = request
-      ? (await requestCredential(request))?.session.userId
-      : await requestUserId(
-          store.auth,
-          headers.cookieHeader,
-          Date.now(),
-          headers.authorizationHeader,
-        )
-    if (credentialed === undefined) return undefined
-    const account = await store.users.get(asUserId(credentialed))
-    return account ? userCommandPrincipal(asUserId(credentialed), account.role) : undefined
-  }
-  const requestPrincipal = async (headers: ClientCredentialHeaders, request?: Request) => {
-    const credentialed = await credentialPrincipal(headers, request)
-    if (credentialed) return credentialed
-    // An invalid provider identity cannot fall through to open-mode authorization.
-    if (request && (await sourcePrincipal(request)) === false) return undefined
-    const openMode =
-      request !== undefined && isHostLocalRequest(request) && !(await credentialsRequired())
-    const userId = openMode ? (await store.users.earliestAdmin())?.id : undefined
-    if (userId === undefined) return undefined
-    const account = await store.users.get(asUserId(userId))
-    return account ? userCommandPrincipal(asUserId(userId), account.role) : undefined
-  }
-  const guard = clientAuthGuard({
-    principalForRequest: sourcePrincipal,
-    store: store.auth,
-    credentialForRequest: requestCredential,
+  const memberOfRequest = createMemberOfRequest({
+    identity: identity.workspace,
     users: store.users,
-    loginRequired: credentialsRequired,
     trustedProxyHops,
-    // The same locality the principal resolver above applies, so the gate and
-    // the principal behind it cannot disagree about who open mode is open to.
-    isLocalRequest: isHostLocalRequest,
+    publicUrl: claimedPublicUrl,
   })
+  // SIGN-INS FROM BEFORE SHARED SIGN-IN (POD-6751): only on a server that
+  // built its own identity core, and not on a store that cannot be written.
+  // The period is fixed here, after the migrations and the local identity
+  // upgrade and before the server listens.
+  if (identity.local && !recoveryOnly) {
+    signInCarryOver = createSignInCarryOver({
+      store: store.signInCarryOver,
+      identity: identity.workspace,
+      memberOfRequest,
+      originAllowed: (origin, request) =>
+        isAllowedHttpOrigin(origin, new URL(request.url).host, allowedOrigins),
+      audit: (command, actor, detail) => store.users.audit(command, actor, detail),
+    })
+    await signInCarryOver.start()
+  }
+  /** The member a route outside the guard acts for, or nobody. */
+  const memberIdOfRequest = async (request: Request) => {
+    if (!controlPlaneAvailable(readiness())) return undefined
+    const resolution = await memberOfRequest(request)
+    return resolution.kind === 'member' ? resolution.memberId : undefined
+  }
+  /** The principal of a guarded request, or undefined for anybody the guard would refuse. */
+  const principalOfRequest = async (request: Request) => {
+    const resolution = await memberOfRequest(request)
+    return resolution.kind === 'member' ? resolution.principal : undefined
+  }
+  const guard = clientAuthGuard({ memberOfRequest, renew: identity.workspace.renew })
   const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
   /**
    * Event-loop accounting, when the level installs it (it is started further
@@ -1647,7 +1806,7 @@ export async function startServer(
   let dropLoopAccounting: (() => void) | undefined
   app.use('/setup/*', cors())
   app.use('/readiness', cors())
-  registerReadinessRoute(app, readiness)
+  registerReadinessRoute(app, readiness, membershipCatchUp?.status)
   registerSetupRoute(app, {
     readiness,
     // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
@@ -1659,78 +1818,87 @@ export async function startServer(
   // same-origin in the supported network topologies; the password store gates it.
   app.use('/auth/*', cors())
   app.use('/auth/*', authReadinessBoundary(readiness))
-  let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
+  let revokeConnectedDeviceSignIn: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
+    publicUrl: claimedPublicUrl,
     syncBoundaryId: () => opts.workspaceId ?? installation.installationId,
-    mode: () => resolveAuthMode(),
-    signInUrl: () => resolveAuthSignInUrl(),
-    // Read through the live object, not captured at registration: a plugin sets
-    // this while it registers, which is after this call. Same reason
-    // principalSource is consulted as auth.principalSource?.() at its call site.
-    admission: async (request) => await auth.admission?.(request),
-    store: store.auth,
-    users: store.users,
-    // One principal resolver for every human-client transport. The status route
-    // reports this result; it does not recreate the open/dev bootstrap fallback.
-    //
-    // GATED ON THE CONTROL PLANE, not the data plane (POD-2766). While
-    // `activation_pending` the operator CAN log in — that is the whole point of
-    // the split — so a session that exists has to be reported as authed, or the
-    // login screen loops forever against a server that just accepted the
-    // password. It buys nothing else: every data-plane call is still 503 at the
-    // readiness boundary, whoever is holding the cookie.
-    resolveUserId: async (headers, request) =>
-      controlPlaneAvailable(readiness())
-        ? (await requestPrincipal(headers, request))?.user
-        : undefined,
-    loginRequired: credentialsRequired,
-    trustedProxyHops,
+    identity: identity.workspace,
+    // One resolver for every human-client transport; the status route reports
+    // its result and holds no policy of its own.
+    memberOfRequest,
+    controlPlaneAvailable: () => controlPlaneAvailable(readiness()),
+    memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
+    allowedOrigins,
+    isLocalRequest: isHostLocalRequest,
     readiness,
-    onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
+    // Signing a device out closes that device's open sockets at once.
+    onDeviceSignInEnded: (deviceSignInId) => revokeConnectedDeviceSignIn(deviceSignInId),
     onLogin: (event) => registry.modules.bus.emit('auth.login', event),
+    ...(signInCarryOver ? { carryOver: signInCarryOver } : {}),
+  })
+  const memberInvites = memberLinks({
+    users: store.users,
+    identity: identity.workspace,
+    onDeviceSignInEnded: (id) => revokeConnectedDeviceSignIn(id),
   })
   registerMemberRoutes(app, {
+    onMembershipChanged: (memberId, change) => {
+      // Role changes rescope the member's authority at commit; the People
+      // ceremony also ends their old socket so the client reconnects with it.
+      // A removed or disabled member's sockets close with a code that tells
+      // the client its access ended, not that the network dropped (POD-6910).
+      const ended = change === 'remove' || change === 'disable'
+      for (const conn of registry.clientGateway.registry.values()) {
+        if (conn.principal.user !== memberId) continue
+        if (ended && conn.endSignIn) conn.endSignIn(SIGN_IN_ENDED_CLOSE.accessEnded)
+        else conn.terminate?.()
+      }
+    },
     users: store.users,
-    invites: new MemberInvites(store.users),
-    resolveUserId: async (request) =>
-      controlPlaneAvailable(readiness())
-        ? (
-            await requestPrincipal(
-              {
-                cookieHeader: request.headers.get('cookie') ?? undefined,
-                authorizationHeader: request.headers.get('authorization') ?? undefined,
-              },
-              request,
-            )
-          )?.user
-        : undefined,
+    identity: identity.workspace,
+    onDeviceSignInEnded: (id) => revokeConnectedDeviceSignIn(id),
+    resolveUserId: memberIdOfRequest,
     appUrl: () =>
       resolveAppUrl(loadConfig(), process.env) || resolvePublicUrl(loadConfig(), process.env),
     allowedOrigins,
-    sendMail: opts.sendMemberInviteMail,
+    // Their credentials are removed everywhere, and sessions on them flagged (§8).
+    afterMemberRemoved: async (memberId, actor) =>
+      await registry.modules.credentialHealth.removeMemberCredentials(memberId, actor),
+  })
+  // The admin area's viewer, Access and Audit reads (POD-6299).
+  registerAdminRoutes(app, {
+    users: store.users,
+    settings: store.settings,
+    sessions: store.sessions,
+    identity: identity.workspace,
+    audit: store.settingsAudit,
+    machineNames: async (ids) =>
+      new Map(
+        [...(await store.machines.getMachines(ids))].map(([id, machine]) => [id, machine.name]),
+      ),
+    resolveUserId: memberIdOfRequest,
+    loginRequired: credentialsRequired,
+    allowedOrigins,
+  })
+  registerSignInRoutes(app, {
+    identity: identity.workspace,
+    memberOfRequest,
+    audit: store.settingsAudit,
+    allowedOrigins,
+    onDeviceSignInEnded: (id) => revokeConnectedDeviceSignIn(id),
   })
   registerMobilePairingRoutes(app, {
-    store: store.auth,
-    pairing: mobilePairing,
+    identity: identity.workspace,
+    memberOfRequest,
+    memberOfAccount: (accountId) => store.users.findMemberByAccount(accountId),
+    allowedOrigins,
     serverIdentity: () => ({
       publicUrl: resolvePublicUrl(loadConfig(), process.env),
-      appUrl: resolveAppUrl(loadConfig(), process.env),
       instanceId,
       workspaceId: opts.workspaceId,
       installationId: installation.installationId,
       installationPublicKey,
     }),
-    loginRequired: credentialsRequired,
-    // Pairing and device management require a real credential. Open-mode's
-    // first-admin policy must never authorize session mutation.
-    resolveUserId: async (headers, request) => (await credentialPrincipal(headers, request))?.user,
-    trustedProxyHops,
-    localControlRequest: isHostLocalRequest,
-    // `app.fetch` receives the observed Request carrying the native peer header,
-    // not the original Request used as the WeakMap key above.
-    requestPeerAddress: (request) =>
-      request.headers.get('x-podium-peer-address') ?? requestPeerAddresses.get(request),
-    onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
   // An <img src> or a download link from another origin needs no CORS, but a
   // fetch() of /files/asset does — and HtmlFilePanel and OpenInBrowserButton
@@ -1741,6 +1909,19 @@ export async function startServer(
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
   registerAssetRoute(app, {
+    mayRead: async (request, target) => {
+      const access = privateResourceAccess(
+        {
+          sessionOwnerUserId: async (sessionId) =>
+            (await store.sessions.getSession(sessionId))?.ownerUserId,
+          machines: registry.modules.machines,
+        },
+        await principalOfRequest(request),
+      )
+      return 'sessionId' in target
+        ? await access.ownsSession(target.sessionId)
+        : await access.mayReadMachineFiles(target.machineId)
+    },
     readAsset: async (a) => await registry.modules.rpc.readAsset(a),
     allowsRoot: async (root, machineId) =>
       (await repos.inferFromPath(
@@ -1749,7 +1930,7 @@ export async function startServer(
       )) !== undefined,
   })
   // Permanent artifact snapshots ([spec:SP-0fc9] #441) — server-local, no daemon hop.
-  registerArtifactRoute(app, registry.modules.issueArtifacts)
+  registerArtifactRoute(app, selfHostedArtifacts(registry.modules.issueArtifacts))
   // In-process MCP server exposing the superagent's orchestrator tools to a
   // harness-backed superagent (Claude via --mcp-config). Token-gated.
   // One `podium` MCP surface composes the superagent's tools (first, so they win
@@ -1779,10 +1960,7 @@ export async function startServer(
   registerSyncRoutes(app, {
     ...registry.syncDelta,
     worker: () => syncWorker,
-    principal: async (request) => syncFeedPrincipal(await requestPrincipal({
-      cookieHeader: request.headers.get('cookie') ?? undefined,
-      authorizationHeader: request.headers.get('authorization') ?? undefined,
-    }, request)),
+    principal: async (request) => syncFeedPrincipal(await principalOfRequest(request)),
   })
   app.use('/trpc/*', cors())
   app.use('/trpc/*', boundary)
@@ -1797,20 +1975,8 @@ export async function startServer(
     '/trpc/*',
     trpcServer({
       router: appRouter,
-      // Error funnel: every failed /trpc call leaves a server-side trace (proc +
-      // code + the error and its cause chain — no payloads). Without this, 500s
-      // (INTERNAL_SERVER_ERROR) were completely invisible in the server log.
-      onError: ({ error, path, type }) => {
-        log.warn('tRPC procedure failed', {
-          callType: type,
-          path: path ?? '<unknown>',
-          code: error.code,
-          // `err`, not `error.message`: a TRPCError keeps the real failure in
-          // `cause`, the logger walks it recursively, and a message-only line is
-          // what hid a store refusal behind Drizzle's wrapper (POD-3802 §2).
-          err: error,
-        })
-      },
+      // Error funnel: every failed /trpc call leaves a server-side trace.
+      onError: ({ error, path, type }) => logProcedureFailure(log, { error, path, type }),
       // Everyone who reaches /trpc is the OPERATOR: the login session (clientAuthGuard
       // above) already authenticated the human, so the tracker grants full authority — no
       // separate tracker credential. Constrained agents don't come through here; they are
@@ -1823,13 +1989,7 @@ export async function startServer(
           ? await store.users.earliestAdmin()
           : undefined
         const principal =
-          (await requestPrincipal(
-            {
-              cookieHeader: hono.req.header('cookie'),
-              authorizationHeader: hono.req.header('authorization'),
-            },
-            hono.req.raw,
-          )) ??
+          (await principalOfRequest(hono.req.raw)) ??
           (bootstrapAccount
             ? userCommandPrincipal(asUserId(bootstrapAccount.id), bootstrapAccount.role)
             : undefined)
@@ -1838,7 +1998,6 @@ export async function startServer(
           registry,
           repos,
           ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
-          discovery: repoDiscovery,
           superagent,
           cloud,
           principal,
@@ -1856,6 +2015,8 @@ export async function startServer(
           // required" differently. Unset, `auth.status` fell back to `?? false` and reported
           // login as OFF over tRPC no matter how many credentials existed.
           loginRequired: credentialsRequired,
+          loginPolicy,
+          hostLocalRequest: isHostLocalRequest(hono.req.raw),
           modules: registry.modules,
           // Absent at profile level `off`, and absent until the level resolves
           // during listen — `perf.snapshot` then omits its `loop` section, which
@@ -1911,13 +2072,13 @@ export async function startServer(
       bus: registry.bus,
       config,
       role,
-      auth,
     })
   }
 
   // Serve the built web UIs for external clients (browser/phone/other desktop) —
   // see desktopWebDir/phoneWebDir for where each dist comes from.
   const mobileWebDir = phoneWebDir()
+  registerHttpsRequiredPage(app, memberOfRequest)
   // Routing first so its /mobile fallback middleware owns the dist-absent case;
   // presence is probed per request (the mobile dist may be exported after boot).
   const mobileIndex = mobileWebDir ? join(mobileWebDir, 'index.html') : ''
@@ -1954,6 +2115,8 @@ export async function startServer(
       basePath: '/mobile',
       lazy: true,
       crossOriginIsolated: true,
+      // The phone's worker controls `/mobile` itself, for an offline reload (POD-7179).
+      serviceWorkerScope: '/mobile',
     })
   }
 
@@ -1977,7 +2140,10 @@ export async function startServer(
   }
 
   const requestedPort = opts.port ?? 0
-  return new Promise<ServerHandle>(async (resolve, reject) => {
+  const listen = async (
+    resolve: (handle: ServerHandle) => void,
+    reject: (error: unknown) => void,
+  ): Promise<void> => {
     let settled = false
 
     let loopMinuteSink: LoopMinuteFileSink | undefined
@@ -2008,57 +2174,38 @@ export async function startServer(
       registry,
       {
         readinessForClient: readiness,
-        maintainClientCredential: async (credentialId) =>
-          (await maintainClientCredentialByHash(store.auth, credentialId)) !== undefined,
         principalForClient: async (request) => {
-          if (
-            request.headers.has('authorization') &&
-            !isSecureRequest(
-              request.url,
-              request.headers.get('x-forwarded-proto') ?? undefined,
-              trustedProxyHops,
-            )
-          ) {
-            return undefined
-          }
-          const headers = {
-            cookieHeader: request.headers.get('cookie') ?? undefined,
-            authorizationHeader: request.headers.get('authorization') ?? undefined,
-          }
-          const supplied = await sourcePrincipal(request)
-          if (supplied === false) return undefined
-          if (supplied) {
-            const principal = { ...supplied }
-            const principalRequest = { ...headers, url: request.url }
-            return {
-              userId: asUserId(principal.memberId),
-              userRole: principal.role,
-              ...(auth.maintainPrincipal
-                ? {
-                    maintain: async () =>
-                      (await auth.maintainPrincipal?.(principalRequest, principal)) === true,
-                  }
-                : {}),
-            }
-          }
-          const observed = observedRequest(request)
-          const credential = await requestCredential(observed)
-          const principal = await requestPrincipal(headers, observed)
-          if (!principal) return undefined
-          const userRole = await store.users.roleOf(principal.user)
-          if (!userRole) return undefined
+          // The upgrade is judged as the HTTP app would see it: the peer address
+          // is the one the native server reported, never one the client sent.
+          const resolution = await memberOfRequest(observedRequest(request))
+          if (resolution.kind !== 'member') return { refused: refusalAnswer(resolution) }
+          const { memberId, role, deviceSignIn } = resolution
+          // What the socket holds, revalidated on every heartbeat (15 seconds):
+          // the device sign-in still exists and its membership is still active
+          // with this member and role, or, for a socket admitted by the
+          // same-machine rule, the rule still holds. One statement.
+          const held = deviceSignIn
+            ? { deviceSignInId: deviceSignIn.id, memberId, role }
+            : { sameMachine: true as const, memberId, role }
           return {
-            userId: principal.user,
-            userRole,
-            ...(credential ? { credentialId: credential.tokenHash } : {}),
+            userId: memberId,
+            userRole: role,
+            ...(deviceSignIn ? { credentialId: deviceSignIn.id } : {}),
+            maintain: () => identity.workspace.revalidate(held),
           }
         },
       },
       // The same list and the same reporter as the HTTP plane: one statement of
-      // trust, read by both boundaries, so they cannot drift apart.
-      { allowedOrigins, onOriginRefused: reportOriginRefusal },
+      // trust, read by both boundaries, so they cannot drift apart. A daemon's
+      // link is judged from the same facts sign-in reads (credential management §8).
+      {
+        allowedOrigins,
+        onOriginRefused: reportOriginRefusal,
+        daemonLink: (request) =>
+          daemonLinkFactsOf(request, requestPeerAddresses.get(request), trustedProxyHops),
+      },
     )
-    revokeConnectedMobileSession = (sessionId) => ws.revokeClientCredential(sessionId)
+    revokeConnectedDeviceSignIn = (sessionId) => ws.revokeClientCredential(sessionId)
 
     let acceptingRequests = true
     let server: Pick<NativeServer<never>, 'port' | 'stop'>
@@ -2072,7 +2219,9 @@ export async function startServer(
         websocket: ws.websocket,
         async fetch(request, nativeServer) {
           if (rehearsal && !['/health', '/version'].includes(new URL(request.url).pathname)) {
-            return new Response('Upgrade rehearsal: session and API traffic disabled', { status: 503 })
+            return new Response('Upgrade rehearsal: session and API traffic disabled', {
+              status: 503,
+            })
           }
           if (!acceptingRequests) return new Response('Server is shutting down', { status: 503 })
           for (const plugin of opts.plugins ?? []) {
@@ -2094,6 +2243,13 @@ export async function startServer(
         },
       })
       bootStage('listen', listenStarted)
+      const httpsWarning = httpsSignInWarning({
+        loopback: isLoopbackHost(host),
+        tls: tls !== undefined,
+        trustedProxyHops,
+        publicUrl: claimedPublicUrl(),
+      })
+      if (httpsWarning) log.warn(httpsWarning)
       if (!rehearsal) startDeferredSourceMovePoll()
     } catch (err) {
       await failListen(err)
@@ -2113,12 +2269,18 @@ export async function startServer(
       // Existing worker test seam suppresses real threads in vitest's fork runtime.
       if (!opts.janitorWorkerForTests && !janitorHostClosing) {
         const { SyncWorkerClient } = await import('./sync-worker/worker-client')
-        syncWorker = new SyncWorkerClient({ dbPath: defaultDbPath() })
+        syncWorker = new SyncWorkerClient({
+          dbPath: databaseLocation,
+          // The worker builds effect records from the table and holds no
+          // executor: it is told which kinds this server serves (POD-6770).
+          effectKinds: () => registry.modules.effects?.executors.kinds() ?? [],
+        })
       }
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
-        token: maintenanceToken,
+        token: rotateMaintenanceToken,
+        dbPath: databaseLocation,
         ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
       if (janitorHostClosing) {
@@ -2182,6 +2344,17 @@ export async function startServer(
           })
         : undefined
       loopProfileCapture = capture
+      // POD-7037: the stall early warning — immediate alerts, an hourly digest
+      // by definition name, and the post-deploy comparison with the previous
+      // build. It reads what the per-stall record already measures, so it lives
+      // at the same level.
+      const stallWatch: StallWatch | undefined = atLeast('attribution')
+        ? createStallWatch({
+            build: appVersion,
+            log: loopLog,
+            summaryPath: join(perfDir, 'server-stall-builds.json'),
+          })
+        : undefined
       const profileStallMs = resolveProfileStallMs()
       // POD-3834: a stall no longer arms a profile by itself unless this install
       // asked it to. Arming is permanent — Bun's sampler has no stop — so the
@@ -2251,6 +2424,7 @@ export async function startServer(
                 // cause again.
                 const tasks = formatTopTasks()
                 const taskCoverage = taskAttributionCoverage(stall.durationMs)
+                stallWatch?.noteStall(stall.durationMs, queryAttributionSnapshot())
                 loopLog.warn('server event-loop stall', {
                   durationMs: stall.durationMs,
                   heapUsedBytes: mu.heapUsed,
@@ -2305,10 +2479,15 @@ export async function startServer(
         dropLoopAccounting = addLoopAccounting(loopAccounting)
         attributeTasks()
         const attributionWindow = setInterval(() => {
+          // The second's executions that read past the heavy-read line, before
+          // the window they were recorded in is dropped (POD-7037).
+          stallWatch?.noteHeavyReads(drainHeavyStatementReads())
           resetQueryAttribution()
           resetTaskAttribution()
         }, 1000)
         attributionWindow.unref?.()
+        const stallWatchTick = setInterval(() => stallWatch?.tick(), 60_000)
+        stallWatchTick.unref?.()
         // POD-1653: the window above answers "what stalled this second"; a bench
         // run asks "what ran over the last minute, and WHO issued it". Both
         // retentions already exist (queryAttributionTotals / queryCallerStacks)
@@ -2318,7 +2497,7 @@ export async function startServer(
           const out = [...queryAttributionTotals()]
             .sort((a, b) => b[1].count - a[1].count)
             .slice(0, 15)
-            .map(([sql, c]) => `${c.count}x/${c.wallMs.toFixed(0)}ms/${c.rows}rows ${sql}`)
+            .map(([key, c]) => formatQueryCost(key, c))
           loopLog.warn('query totals', { totals: out })
           loopLog.warn('task totals', {
             totals: [...taskAttributionTotals()]
@@ -2372,7 +2551,12 @@ export async function startServer(
           return { established: false as const, reply }
         }
         const { principal } = outcome
-        const unregisterCredential = registry.modules.machines.registerCredentialConnection(principal.machine, () => { credentialLive = false })
+        const unregisterCredential = registry.modules.machines.registerCredentialConnection(
+          principal.machine,
+          () => {
+            credentialLive = false
+          },
+        )
         perf.record(
           'phase',
           outcome.acceptedCaps.includes(CAP_TERMINAL_OUTPUT_BINARY_V1)
@@ -2398,9 +2582,15 @@ export async function startServer(
         }
         if (!credentialLive) {
           unregisterCredential()
-          return { established: false as const, reply: { type: 'peerHelloRejected' as const, reason: 'unexpected-frame' as const } }
+          return {
+            established: false as const,
+            reply: { type: 'peerHelloRejected' as const, reason: 'unexpected-frame' as const },
+          }
         }
-        const send = (msg: ControlMessage): void => queueMicrotask(() => { if (credentialLive) deliver(msg) })
+        const send = (msg: ControlMessage): void =>
+          queueMicrotask(() => {
+            if (credentialLive) deliver(msg)
+          })
         const transport = {
           send,
           sendInput: (input: DaemonPtyInputBatch): void => {
@@ -2412,7 +2602,9 @@ export async function startServer(
                 DEPLOYMENT,
                 input.bytes.byteLength,
               )
-              queueMicrotask(() => { if (credentialLive) deliverInput(input) })
+              queueMicrotask(() => {
+                if (credentialLive) deliverInput(input)
+              })
               return
             }
             perf.record(
@@ -2436,6 +2628,9 @@ export async function startServer(
         // component is written, so the very next call decides the machine "runs no
         // Podium daemon" -- and the write then lands after the store's scheduler
         // has begun draining, surfacing as an unhandled SchedulerClosedError.
+        // This link never leaves the computer: it is `local` for credentials.
+        const linkOwner = {}
+        registry.daemonLinks.connected(principal.machine, IN_PROCESS_DAEMON_LINK, linkOwner)
         if (registry.recoveryOnly) {
           await registry.modules.machines.attach(principal.machine, send)
           await registry.modules.machines.flushQueued(principal.machine)
@@ -2456,7 +2651,9 @@ export async function startServer(
               msg.type !== 'serverEndpointResult'
             )
               return
-            queueMicrotask(() => { if (credentialLive) registry.gateway.routeDaemonFrame(principal, msg) })
+            queueMicrotask(() => {
+              if (credentialLive) registry.gateway.routeDaemonFrame(principal, msg)
+            })
           },
           deliverOutput: (batch) => {
             perf.record(
@@ -2466,11 +2663,14 @@ export async function startServer(
               DEPLOYMENT,
               batch.bytes.byteLength,
             )
-            queueMicrotask(() => { if (credentialLive) registry.gateway.routeDaemonOutput(principal, batch) })
+            queueMicrotask(() => {
+              if (credentialLive) registry.gateway.routeDaemonOutput(principal, batch)
+            })
           },
           close: () => {
             credentialLive = false
             unregisterCredential()
+            registry.daemonLinks.disconnected(principal.machine, linkOwner)
             if (registry.recoveryOnly) registry.modules.machines.detach(principal.machine, send)
             else registry.gateway.detachDaemon(principal, transport)
           },
@@ -2482,24 +2682,35 @@ export async function startServer(
       recoveryOnly
         ? Promise.resolve()
         : refreshTargetsOnBoot({
-            refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+            refresh: (channel) => registry.modules.updates.refreshTargetForPolling(channel),
+            enabled: feedPollingEnabled,
           })
-    ).then(async () => {
+    ).then(async (initialResults) => {
       // Recovery-only transfer boots must remain read-only. Normal boots recover
       // a lost settle sweep after operation adoption and target hydration.
       if (!recoveryOnly) await registry.modules.updatesReconciler?.onBoot()
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
-      const targetRefresh = recoveryOnly || rehearsal
-        ? { stop: () => {} }
-        : startTargetRefresh({
-            refresh: (channel) => registry.modules.updates.refreshTarget(channel),
-            operationActive: (channel) => registry.modules.updates.operationActive(channel),
-            schedule: timerSchedule,
-          })
+      const targetRefresh =
+        recoveryOnly || rehearsal
+          ? { stop: () => {} }
+          : startTargetRefresh({
+              refresh: (channel) => registry.modules.updates.refreshTargetForPolling(channel),
+              enabled: feedPollingEnabled,
+              initialResults: initialResults ?? {},
+              operationActive: (channel) => registry.modules.updates.operationActive(channel),
+              schedule: timerSchedule,
+            })
       targetsResolvedOnBoot = true
       bootStage('health exposed', healthStarted)
+      // Health cannot wait for tens of GB of cold history. A failed pass keeps
+      // its sources and no done marker; reads work and the next boot retries.
+      lakeConversionWork = convertingLake?.run().catch((err) => {
+        if (!lakeConversionAbort.signal.aborted) {
+          log.warn('transcript lake conversion paused; will resume on restart', { err })
+        }
+      })
       if (!recoveryOnly && !rehearsal) connectPublisher.start()
       // Local programs (the quick-tunnel utility first) reach this server on a
       // user-only unix socket; a new public URL written there reaches Connect at
@@ -2511,6 +2722,15 @@ export async function startServer(
           : await listenUserSocket(
               serverControlSocketPath({ instanceId }),
               controlSocketHandler({
+                ...(identity.workspace.core.capabilities().adminEndDeviceSignIn
+                  ? {
+                      hostSignIns: hostSignIns(
+                        identity.workspace,
+                        revokeConnectedDeviceSignIn,
+                        signInCarryOver,
+                      ),
+                    }
+                  : {}),
                 tunnelHealth: (report) => tunnelHealth.report(report),
                 diagnostics: () => ({
                   connect: connectPublisher.diagnostics(),
@@ -2527,22 +2747,39 @@ export async function startServer(
                 loginPassword: {
                   isSet: async () => {
                     const admin = await store.users.earliestAdmin()
-                    if (!admin) return false
-                    const credential = await store.users.credentialFor(asUserId(admin.id))
-                    return credential?.source === 'per-user-scrypt' && !!credential.passwordHash
+                    return admin ? await credentials.hasPassword(asUserId(admin.id)) : false
                   },
                   set: async (password) => {
                     const admin = await store.users.earliestAdmin()
                     if (!admin) return { ok: false, error: 'this instance has no admin account' }
                     const userId = asUserId(admin.id)
-                    await store.users.setPasswordHash(
-                      userId,
-                      await hashPassword(password),
-                      new Date().toISOString(),
-                    )
+                    try {
+                      await credentials.setPassword(userId, password)
+                    } catch (error) {
+                      if (!(error instanceof MemberHasNoAccount)) throw error
+                      return { ok: false, error: error.message }
+                    }
                     await registry.modules.machines.grantHostMachineIfUnowned(userId)
                     return { ok: true }
                   },
+                },
+                // `podium auth recovery-link`: the host-local way back in (POD-6298).
+                memberRecovery: async (email) => {
+                  try {
+                    const invite = await memberInvites.createHostRecovery(email)
+                    const url = new URL(
+                      resolveAppUrl(loadConfig(), process.env) ||
+                        resolvePublicUrl(loadConfig(), process.env) ||
+                        `http://127.0.0.1:${server.port}`,
+                    )
+                    url.hash = `invite=${invite.token}`
+                    return { ok: true, url: url.href, expiresAt: invite.expiresAt }
+                  } catch (error) {
+                    return {
+                      ok: false,
+                      error: error instanceof Error ? error.message : 'recovery link refused',
+                    }
+                  }
                 },
               }),
               'server control socket',
@@ -2557,8 +2794,12 @@ export async function startServer(
         syncWorker: () => syncWorker,
         instanceId,
         registry,
+        identity: identity.workspace,
+        ...(signInCarryOver ? { signInCarryOver } : {}),
         recoveryOnly,
-        maintenanceToken,
+        get maintenanceToken() {
+          return maintenanceToken
+        },
         localDaemonLink,
         ...(loopAccounting ? { loopAccounting } : {}),
         // Deterministic fast shutdown (POD-611): terminate WS intake, persist
@@ -2574,10 +2815,22 @@ export async function startServer(
               acceptingRequests = false
               await ws.close()
             },
-            drainStore: (persist) => store.close(persist),
+            drainStore: async (persist) => {
+              // A timer pass keeps its original executor context: awaiting it
+              // inside persistence cannot grant it shutdown admission. Stop and
+              // join it BEFORE store.close marks the scheduler as draining.
+              await superagent.dispose()
+              await membershipCatchUp?.stop()
+              lakeConversionAbort.abort()
+              await lakeConversionWork
+              await convertingLake?.settled()
+              await store.close(persist)
+            },
             server,
             persist: [
               ['messaging.stop', () => messaging.stop()],
+              // A sweep that outlives the server would delete against a closed store.
+              ['identity.stopSweep', stopIdentitySweep],
               ['serverMove.stopDeferredPromotionPoll', stopDeferredPromotionPoll],
               ['serverMove.stopDeferredSourceMovePoll', stopDeferredSourceMovePoll],
               // An armed refresh timer that outlives the server would resolve a
@@ -2665,5 +2918,8 @@ export async function startServer(
           }),
       })
     })
+  }
+  return new Promise<ServerHandle>((resolve, reject) => {
+    void listen(resolve, reject).catch(reject)
   })
 }

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { placementOptions } from '@podium/client-core/values'
 import { omitGone } from '@podium/client-graph/lookup'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -43,7 +43,7 @@ afterEach(() => {
 })
 
 function setup(delayed = false) {
-  const fixture = createWorkflowsFixture(),
+  const fixture = createWorkflowsFixture(32, 32, 'workflow-test'),
     fatal = vi.fn()
   let start: (() => void) | undefined
   const config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }
@@ -58,13 +58,12 @@ function setup(delayed = false) {
         networkEnabled={false}
         onFatalError={fatal}
         attachRuntime={(runtime) => {
-          fixture.bindHub(runtime.hub)
+          fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
           let detach: (() => void) | undefined
           start = () => {
             detach = attachWorklistPool(runtime, fatal)
           }
           if (!delayed) start()
-          void referenceState(runtime).refreshRepos()
           return () => detach?.()
         }}
       >
@@ -93,7 +92,8 @@ it('renders the actual screens through no-pool then real attachment without chan
     </Wrapper>,
   )
   expect(screen.getByText('Loading agent profiles…')).toBeTruthy()
-  expect(await screen.findByText('Loading issue · synthetic-0…')).toBeTruthy()
+  // The runs are synced records (POD-6676): none shows before the pool does.
+  expect(screen.queryByText(/synthetic-workflow-run/)).toBeNull()
   await act(async () => {
     attach()
   })
@@ -101,13 +101,11 @@ it('renders the actual screens through no-pool then real attachment without chan
   await screen.findByText('session · synthetic-session-0')
   expect(screen.queryByText('Loading agent profiles…')).toBeNull()
   expect(screen.getAllByText(/synthetic-missing · no access/)).toHaveLength(2)
-  expect(fixture.calls).toMatchObject({
-    list: 1,
-    bindings: 1,
-    profiles: 1,
-    runs: 1,
-    get: 1,
-  })
+  // Every record came on the feed (POD-6676): no list, binding, profile, run or
+  // detail read was asked for.
+  for (const read of ['list', 'bindings', 'profiles', 'runs', 'get']) {
+    expect(fixture.calls[read], read).toBeUndefined()
+  }
   expect(storeStats.snapshot().runtimes.every((runtime) => runtime.selectorRuns === 0)).toBe(true)
   expect(fatal).not.toHaveBeenCalled()
 })
@@ -123,7 +121,7 @@ it('matches scoped placement and cold issue/session targets through the one read
   })
   const { result } = renderHook(
     () => ({
-      owner: useStoreHandle<Trpc>(),
+      owner: useClientRuntime<Trpc>(),
       pool: useWorklistPool(),
       machines: useWorkflowMachines(),
       issue: useWorkflowSubject(fixture.runs[1]!),
@@ -134,12 +132,10 @@ it('matches scoped placement and cold issue/session targets through the one read
   await waitFor(() => expect(result.current.machines.pending).toBe(0))
   const pool = result.current.pool!,
     row = vi.spyOn(pool, 'row')
-  expect(pool.tables.issue.has('synthetic-5')).toBe(false)
   const check = checkWorkflows(pool, referenceState(result.current.owner), fixture)
   expect(check).toMatchObject({ differences: 0, pending: 0, positions: 14, first: null })
   expect(result.current.issue).toMatchObject({ state: 'present' })
   expect(result.current.session).toMatchObject({ state: 'present' })
-  expect(pool.tables.issue.has('synthetic-5')).toBe(false)
   expect(placementOptions(result.current.machines.views)).toMatchObject({
     offerable: [{ id: 'synthetic-available' }],
   })
@@ -148,14 +144,18 @@ it('matches scoped placement and cold issue/session targets through the one read
       omitGone(pool.row('settingsMachine', profile.machineId ?? '')),
     ),
   ).toHaveLength(8)
-  expect(result.current.machines.views.map((view) => view.availability)).toEqual([
-    'available',
-    'unauthorized',
-    'unreachable',
-    'incapable',
-    'disabled',
-    'degraded',
-  ])
+  expect(
+    Object.fromEntries(
+      result.current.machines.views.map((view) => [view.machine.id, view.availability]),
+    ),
+  ).toEqual({
+    'synthetic-available': 'available',
+    'synthetic-unauthorized': 'unauthorized',
+    'synthetic-unreachable': 'unreachable',
+    'synthetic-incapable': 'incapable',
+    'synthetic-disabled': 'disabled',
+    'synthetic-degraded': 'degraded',
+  })
   expect(row.mock.calls.some((call) => String(call[2]) === 'peek')).toBe(false)
   expect(fatal).not.toHaveBeenCalled()
 })
@@ -180,7 +180,7 @@ it('preserves resume twins and reacts to addressed removals and replacement', as
   const inputs = { profiles: fixture.profiles, runs: [...fixture.runs, ...twins] }
   const { result } = renderHook(
     () => ({
-      owner: useStoreHandle<Trpc>(),
+      owner: useClientRuntime<Trpc>(),
       pool: useWorklistPool(),
       machines: useWorkflowMachines(),
       suppressed: useWorkflowSubject(twins[0]!),
@@ -213,7 +213,7 @@ it('preserves resume twins and reacts to addressed removals and replacement', as
 it('batches observed machine demand and returns LOADING before the shared source settles', async () => {
   const { fixture, Wrapper } = setup()
   const { result } = renderHook(
-    () => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool() }),
+    () => ({ owner: useClientRuntime<Trpc>(), pool: useWorklistPool() }),
     { wrapper: Wrapper },
   )
   await waitFor(() => expect(result.current.pool).toBeTruthy())
@@ -246,7 +246,7 @@ it('batches observed machine demand and returns LOADING before the shared source
 it('bounds diagnostic summary reads and releases its tracking scope even inside an action', async () => {
   const { fixture, Wrapper } = setup()
   const { result } = renderHook(
-    () => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool() }),
+    () => ({ owner: useClientRuntime<Trpc>(), pool: useWorklistPool() }),
     { wrapper: Wrapper },
   )
   await waitFor(() => expect(result.current.pool).toBeTruthy())
@@ -283,9 +283,9 @@ it('bounds diagnostic summary reads and releases its tracking scope even inside 
 
 it('executes zero legacy readers after feed activity and preserves one denied-write attempt', async () => {
   const { fixture, Wrapper, fatal } = setup()
-  let owner: ReturnType<typeof useStoreHandle<Trpc>> | undefined
+  let owner: ReturnType<typeof useClientRuntime<Trpc>> | undefined
   function Surface() {
-    owner = useStoreHandle<Trpc>()
+    owner = useClientRuntime<Trpc>()
     const source = useWorkflows()
     return (
       <>
@@ -317,12 +317,12 @@ it('executes zero legacy readers after feed activity and preserves one denied-wr
         (runtime) => runtime.selectorRuns === 0 && Object.keys(runtime.slices).length === 0,
       ),
   ).toBe(true)
-  expect(fixture.calls.list).toBe(1)
   fixture.denyWrites('Synthetic denial')
   fireEvent.click(screen.getByRole('button', { name: /Skip current/ }))
   expect((await screen.findByRole('alert')).textContent).toContain('Synthetic denial')
   expect(fixture.calls.skip).toBe(1)
-  expect(fixture.calls.list).toBe(2)
-  expect(owner?.access.replica).toBe(fixture.replica)
+  // A refusal is surfaced once; nothing is re-read (the records are the feed's).
+  expect(fixture.calls.list).toBeUndefined()
+  expect(owner?.replica).toBe(fixture.replica)
   expect(fatal).not.toHaveBeenCalled()
 })

@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * The PendingInteraction store (POD-2020, spec §4) — durable rows for every
  * blocking ask, so a blocked session is an ENUMERABLE session.
@@ -36,9 +37,25 @@ import {
   type PendingInteractionWire,
 } from '@podium/protocol'
 import { and, asc, desc, eq, inArray, lt, sql } from 'drizzle-orm'
-import { pendingInteractions } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import type { pendingInteractions } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
+import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  prepared,
+  preparedFamily,
+  WORKSPACE,
+} from './executor/sync-drizzle'
 
 /** One stored ask. The JSON columns are parsed on the way out, so callers get
  *  the wire shape and never a string. */
@@ -126,184 +143,274 @@ function toRow(r: InteractionSelect): InteractionRow {
     expiredAt: r.expiredAt,
   }
 }
+const idIs = (t: StoreTables) => eq(t.pendingInteractions.id, param(t.pendingInteractions.id, 'id'))
 
-// Every query this repository runs, prepared once per store [POD-6147].
+const insertInteraction = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.pendingInteractions)
+      .values({
+        workspaceId: WORKSPACE,
+        id: sql.placeholder('id'),
+        sessionId: sql.placeholder('sessionId'),
+        kind: sql.placeholder('kind'),
+        payloadJson: sql.placeholder('payloadJson'),
+        source: sql.placeholder('source'),
+        answerable: sql.placeholder('answerable'),
+        fingerprint: sql.placeholder('fingerprint'),
+        status: 'asked',
+        askedAt: sql.placeholder('askedAt'),
+        expiresAt: sql.placeholder('expiresAt'),
+      })
+      // NO TARGET, exactly as the raw form had none: the conflict this collapses
+      // is the PARTIAL unique index on (session_id, fingerprint) WHERE status =
+      // 'asked', which is not a target drizzle can name.
+      .onConflictDoNothing()
+      .returning(),
+  ).prepare(),
+)
 
-const t = pendingInteractions
-const idIs = () => eq(t.id, param(t.id, 'id'))
+const enrichInteraction = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ payloadJson: sql.placeholder('payloadJson') })
+      .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
+      .returning(),
+  ).prepare(),
+)
 
-const insertInteraction = prepared((db: StoreDrizzle) =>
+const interactionById = prepared((db, t) =>
   db
-    .insert(t)
-    .values({
-      id: sql.placeholder('id'),
-      sessionId: sql.placeholder('sessionId'),
-      kind: sql.placeholder('kind'),
-      payloadJson: sql.placeholder('payloadJson'),
-      source: sql.placeholder('source'),
-      answerable: sql.placeholder('answerable'),
-      fingerprint: sql.placeholder('fingerprint'),
-      status: 'asked',
-      askedAt: sql.placeholder('askedAt'),
-      expiresAt: sql.placeholder('expiresAt'),
-    })
-    // NO TARGET, exactly as the raw form had none: the conflict this collapses
-    // is the PARTIAL unique index on (session_id, fingerprint) WHERE status =
-    // 'asked', which is not a target drizzle can name.
-    .onConflictDoNothing()
+    .select()
+    .from(t.pendingInteractions)
+    .where(inWorkspace(t.pendingInteractions, idIs(t)))
     .prepare(),
 )
 
-const enrichInteraction = prepared((db: StoreDrizzle) =>
-  db.update(t).set({ payloadJson: sql.placeholder('payloadJson') })
-    .where(and(idIs(), eq(t.status, 'asked'))).prepare(),
-)
-
-const interactionById = prepared((db: StoreDrizzle) => db.select().from(t).where(idIs()).prepare())
-
-const openInteractionByFingerprint = prepared((db: StoreDrizzle) =>
+const openInteractionByFingerprint = prepared((db, t) =>
   db
     .select()
-    .from(t)
+    .from(t.pendingInteractions)
     .where(
-      and(
-        eq(t.sessionId, param(t.sessionId, 'sessionId')),
-        eq(t.fingerprint, param(t.fingerprint, 'fingerprint')),
-        // OPEN ROWS ONLY, which is what makes the same question asked again
-        // after the first was answered a genuinely new ask.
-        eq(t.status, 'asked'),
-      ),
-    )
-    .prepare(),
-)
-
-/** Every open ask, or one session's: two statement texts, as the fluent form had. */
-const openInteractions = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(t)
-    .where(and(eq(t.status, 'asked'), undefined))
-    .orderBy(asc(t.askedAt), asc(t.id))
-    .prepare(),
-)
-
-const openInteractionsOfSession = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(t)
-    .where(and(eq(t.status, 'asked'), eq(t.sessionId, param(t.sessionId, 'sessionId'))))
-    .orderBy(asc(t.askedAt), asc(t.id))
-    .prepare(),
-)
-
-const interactionsOfSession = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(t)
-    .where(eq(t.sessionId, param(t.sessionId, 'sessionId')))
-    .orderBy(desc(t.askedAt), desc(t.id))
-    .limit(sql.placeholder('limit'))
-    .prepare(),
-)
-
-const answerInteraction = prepared((db: StoreDrizzle) =>
-  db
-    .update(t)
-    .set({
-      status: 'answered',
-      answerJson: sql.placeholder('answerJson'),
-      answeredBy: sql.placeholder('answeredBy'),
-      deliveredVia: sql.placeholder('deliveredVia'),
-      answeredAt: sql.placeholder('answeredAt'),
-    })
-    .where(and(idIs(), eq(t.status, 'asked')))
-    .prepare(),
-)
-
-const recordInteractionDelivery = prepared((db: StoreDrizzle) =>
-  db
-    .update(t)
-    .set({ deliveredVia: sql.placeholder('deliveredVia') })
-    .where(and(idIs(), eq(t.status, 'answered')))
-    .prepare(),
-)
-
-const answeredBy = () => eq(t.answeredBy, param(t.answeredBy, 'answeredBy'))
-
-const reopenInteraction = prepared((db: StoreDrizzle) =>
-  db
-    .update(t)
-    .set({
-      status: 'asked',
-      // FOUR CLEARS. A reopened ask that still carried its answer would be
-      // back on the list and already answered at the same time.
-      answerJson: null,
-      answeredBy: null,
-      deliveredVia: null,
-      answeredAt: null,
-      policyVerdict: 'escalated',
-    })
-    .where(and(idIs(), eq(t.status, 'answered'), answeredBy()))
-    .prepare(),
-)
-
-const retireClaimedInteraction = prepared((db: StoreDrizzle) =>
-  db
-    .update(t)
-    .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(and(idIs(), eq(t.status, 'answered'), answeredBy()))
-    .prepare(),
-)
-
-const closeInteraction = prepared((db: StoreDrizzle) =>
-  db
-    .update(t)
-    .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(and(idIs(), eq(t.status, 'asked')))
-    .prepare(),
-)
-
-const closeSessionInteractions = prepared((db: StoreDrizzle) =>
-  db
-    .update(t)
-    .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
-    .where(and(eq(t.sessionId, param(t.sessionId, 'sessionId')), eq(t.status, 'asked')))
-    .prepare(),
-)
-
-/** Every status but `asked`: the rows retention may drop. */
-const RESOLVED_STATUSES = InteractionStatus.options.filter((status) => status !== 'asked')
-
-const pruneResolvedInteractions = prepared((db: StoreDrizzle) =>
-  db
-    .delete(t)
-    .where(
-      and(
-        inArray(t.status, RESOLVED_STATUSES),
-        // What idx_pending_interactions_open seeks [POD-6173]. A row resolves
-        // after it is asked, so a row resolved before the cutoff was asked
-        // before it too: this takes nothing out of what the next clause
-        // selects, and bounds the read to the resolved rows asked before the
-        // cutoff. A row whose clocks stamped its ask after its resolution is
-        // dropped once its ask passes the cutoff instead.
-        lt(t.askedAt, param(t.askedAt, 'cutoffIso')),
-        // The cutoff is compared against the RESOLUTION time, falling back to
-        // the ask time only when a row has neither — not against asked_at.
-        lt(
-          sql`COALESCE(${t.answeredAt}, ${t.expiredAt}, ${t.askedAt})`,
-          sql.placeholder('cutoffIso'),
+      inWorkspace(
+        t.pendingInteractions,
+        and(
+          eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+          eq(
+            t.pendingInteractions.fingerprint,
+            param(t.pendingInteractions.fingerprint, 'fingerprint'),
+          ),
+          // OPEN ROWS ONLY, which is what makes the same question asked again
+          // after the first was answered a genuinely new ask.
+          eq(t.pendingInteractions.status, 'asked'),
         ),
       ),
     )
     .prepare(),
 )
 
-export class InteractionsRepository {
-  private readonly rootDb: StoreDrizzle
-  protected readonly createOrJoinTransaction: TransactionRunner
+/** Every open ask, or one session's: two statement texts, as the fluent form had. */
+const openInteractions = prepared((db, t) =>
+  db
+    .select()
+    .from(t.pendingInteractions)
+    .where(inWorkspace(t.pendingInteractions, eq(t.pendingInteractions.status, 'asked'), undefined))
+    .orderBy(asc(t.pendingInteractions.askedAt), asc(t.pendingInteractions.id))
+    .prepare(),
+)
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+/** The open asks among these ids, keyed by the IN list's bucketed size. */
+const openInteractionsOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select()
+    .from(t.pendingInteractions)
+    .where(
+      inWorkspace(
+        t.pendingInteractions,
+        and(
+          inListOf(t.pendingInteractions.id, size, 'ids'),
+          eq(t.pendingInteractions.status, 'asked'),
+        ),
+      ),
+    )
+    .prepare(),
+)
+
+const openInteractionsOfSession = prepared((db, t) =>
+  db
+    .select()
+    .from(t.pendingInteractions)
+    .where(
+      inWorkspace(
+        t.pendingInteractions,
+        and(
+          eq(t.pendingInteractions.status, 'asked'),
+          eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+        ),
+      ),
+    )
+    .orderBy(asc(t.pendingInteractions.askedAt), asc(t.pendingInteractions.id))
+    .prepare(),
+)
+
+const interactionsOfSession = prepared((db, t) =>
+  db
+    .select()
+    .from(t.pendingInteractions)
+    .where(
+      inWorkspace(
+        t.pendingInteractions,
+        eq(t.pendingInteractions.sessionId, param(t.pendingInteractions.sessionId, 'sessionId')),
+      ),
+    )
+    .orderBy(desc(t.pendingInteractions.askedAt), desc(t.pendingInteractions.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+const answerInteraction = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({
+        status: 'answered',
+        answerJson: sql.placeholder('answerJson'),
+        answeredBy: sql.placeholder('answeredBy'),
+        deliveredVia: sql.placeholder('deliveredVia'),
+        answeredAt: sql.placeholder('answeredAt'),
+      })
+      .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
+      .returning(),
+  ).prepare(),
+)
+
+const recordInteractionDelivery = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ deliveredVia: sql.placeholder('deliveredVia') })
+      .where(
+        inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'answered')),
+      ),
+  ).prepare(),
+)
+
+const answeredBy = (t: StoreTables) =>
+  eq(t.pendingInteractions.answeredBy, param(t.pendingInteractions.answeredBy, 'answeredBy'))
+
+const reopenInteraction = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({
+        status: 'asked',
+        // FOUR CLEARS. A reopened ask that still carried its answer would be
+        // back on the list and already answered at the same time.
+        answerJson: null,
+        answeredBy: null,
+        deliveredVia: null,
+        answeredAt: null,
+        policyVerdict: 'escalated',
+      })
+      .where(
+        inWorkspace(
+          t.pendingInteractions,
+          idIs(t),
+          eq(t.pendingInteractions.status, 'answered'),
+          answeredBy(t),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+const retireClaimedInteraction = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.pendingInteractions,
+          idIs(t),
+          eq(t.pendingInteractions.status, 'answered'),
+          answeredBy(t),
+        ),
+      ),
+  ).prepare(),
+)
+
+const closeInteraction = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
+      .where(inWorkspace(t.pendingInteractions, idIs(t), eq(t.pendingInteractions.status, 'asked')))
+      .returning(),
+  ).prepare(),
+)
+
+const closeSessionInteractions = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.pendingInteractions)
+      .set({ status: sql.placeholder('status'), expiredAt: sql.placeholder('at') })
+      .where(
+        inWorkspace(
+          t.pendingInteractions,
+          and(
+            eq(
+              t.pendingInteractions.sessionId,
+              param(t.pendingInteractions.sessionId, 'sessionId'),
+            ),
+            eq(t.pendingInteractions.status, 'asked'),
+          ),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+/** Every status but `asked`: the rows retention may drop. */
+const RESOLVED_STATUSES = InteractionStatus.options.filter((status) => status !== 'asked')
+
+const pruneResolvedInteractions = prepared((db, t) =>
+  captureWrite(
+    db.delete(t.pendingInteractions).where(
+      inWorkspace(
+        t.pendingInteractions,
+        and(
+          inArray(t.pendingInteractions.status, RESOLVED_STATUSES),
+          // What idx_pending_interactions_open seeks [POD-6173]. A row resolves
+          // after it is asked, so a row resolved before the cutoff was asked
+          // before it too: this takes nothing out of what the next clause
+          // selects, and bounds the read to the resolved rows asked before the
+          // cutoff. A row whose clocks stamped its ask after its resolution is
+          // dropped once its ask passes the cutoff instead.
+          lt(t.pendingInteractions.askedAt, param(t.pendingInteractions.askedAt, 'cutoffIso')),
+          // The cutoff is compared against the RESOLUTION time, falling back to
+          // the ask time only when a row has neither — not against asked_at.
+          lt(
+            sql`COALESCE(${t.pendingInteractions.answeredAt}, ${t.pendingInteractions.expiredAt}, ${t.pendingInteractions.askedAt})`,
+            sql.placeholder('cutoffIso'),
+          ),
+        ),
+      ),
+    ),
+  ).prepare(),
+)
+
+/** Successful writes of the open set, captured before their transaction commits. */
+export type InteractionFeedCapture = ChangeLogCommit
+
+export class InteractionsRepository {
+  private readonly scope: WorkspaceDb
+  protected readonly createOrJoinTransaction: TransactionRunner
+  private feedCapture: InteractionFeedCapture | undefined
+
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -315,8 +422,18 @@ export class InteractionsRepository {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
+  }
+
+  setFeedCapture(capture: InteractionFeedCapture): void {
+    this.feedCapture = capture
+  }
+
+  private async write(query: () => Promise<InteractionSelect[]>): Promise<InteractionRow[]> {
+    return (
+      await inChangeLogTransaction(this.feedCapture, this.createOrJoinTransaction, query)
+    ).map(toRow)
   }
 
   /**
@@ -328,21 +445,21 @@ export class InteractionsRepository {
    * classified menu would ping every surface again.
    */
   async insert(row: InteractionInsert): Promise<{ row: InteractionRow; inserted: boolean }> {
-    const res = await insertInteraction(this.db).run({
-      id: row.id,
-      sessionId: row.sessionId,
-      kind: row.kind,
-      payloadJson: JSON.stringify(row.payload),
-      source: row.source,
-      answerable: row.answerable,
-      fingerprint: row.fingerprint,
-      askedAt: row.askedAt,
-      expiresAt: row.expiresAt ?? null,
-    })
-    if (res.changes > 0) {
-      const inserted = await this.get(row.id)
-      if (inserted) return { row: inserted, inserted: true }
-    }
+    const inserted = await this.write(
+      async () =>
+        await insertInteraction(this.db).all({
+          id: row.id,
+          sessionId: row.sessionId,
+          kind: row.kind,
+          payloadJson: JSON.stringify(row.payload),
+          source: row.source,
+          answerable: row.answerable,
+          fingerprint: row.fingerprint,
+          askedAt: row.askedAt,
+          expiresAt: row.expiresAt ?? null,
+        }),
+    )
+    if (inserted[0]) return { row: inserted[0], inserted: true }
     const existing = await this.get(row.id)
     if (existing) return { row: existing, inserted: false }
     const open = await this.openByFingerprint(row.sessionId, row.fingerprint)
@@ -353,8 +470,12 @@ export class InteractionsRepository {
     return retried
   }
 
-  async enrich(id: string, payload: unknown): Promise<void> {
-    await enrichInteraction(this.db).run({ id, payloadJson: JSON.stringify(payload) })
+  async enrich(id: string, payload: unknown): Promise<boolean> {
+    const rows = await this.write(
+      async () =>
+        await enrichInteraction(this.db).all({ id, payloadJson: JSON.stringify(payload) }),
+    )
+    return rows.length > 0
   }
 
   async get(id: string): Promise<InteractionRow | null> {
@@ -362,7 +483,10 @@ export class InteractionsRepository {
     return r ? toRow(r) : null
   }
 
-  async openByFingerprint(sessionId: SessionId, fingerprint: string): Promise<InteractionRow | null> {
+  async openByFingerprint(
+    sessionId: SessionId,
+    fingerprint: string,
+  ): Promise<InteractionRow | null> {
     const r = await openInteractionByFingerprint(this.db).get({ sessionId, fingerprint })
     return r ? toRow(r) : null
   }
@@ -373,6 +497,20 @@ export class InteractionsRepository {
       ? await openInteractionsOfSession(this.db).all({ sessionId })
       : await openInteractions(this.db).all()
     return rows.map(toRow)
+  }
+
+  /** The open asks among these ids, in no particular order: one read per
+   *  500 ids, by primary key. */
+  async openOfIds(ids: readonly string[]): Promise<InteractionRow[]> {
+    const unique = [...new Set(ids)]
+    const out: InteractionRow[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      const rows = await openInteractionsOfIds(this.db, size).all(inListValues(chunk, size, 'ids'))
+      out.push(...rows.map(toRow))
+    }
+    return out
   }
 
   async listForSession(sessionId: SessionId, limit = 100): Promise<InteractionRow[]> {
@@ -392,14 +530,17 @@ export class InteractionsRepository {
     deliveredVia: NonNullable<PendingInteractionWire['deliveredVia']>
     at: string
   }): Promise<boolean> {
-    const res = await answerInteraction(this.db).run({
-      id: input.id,
-      answerJson: JSON.stringify(input.answer),
-      answeredBy: input.answeredBy,
-      deliveredVia: input.deliveredVia,
-      answeredAt: input.at,
-    })
-    return res.changes > 0
+    const rows = await this.write(
+      async () =>
+        await answerInteraction(this.db).all({
+          id: input.id,
+          answerJson: JSON.stringify(input.answer),
+          answeredBy: input.answeredBy,
+          deliveredVia: input.deliveredVia,
+          answeredAt: input.at,
+        }),
+    )
+    return rows.length > 0
   }
 
   /**
@@ -451,8 +592,10 @@ export class InteractionsRepository {
    * that somebody else settled it.
    */
   async reopen(id: string, answeredBy: InteractionAnsweredBy): Promise<boolean> {
-    const res = await reopenInteraction(this.db).run({ id, answeredBy })
-    return res.changes > 0
+    const rows = await this.write(
+      async () => await reopenInteraction(this.db).all({ id, answeredBy }),
+    )
+    return rows.length > 0
   }
 
   /**
@@ -490,16 +633,22 @@ export class InteractionsRepository {
    * to keep in step for nothing.
    */
   async close(id: string, status: 'expired' | 'superseded', at: string): Promise<boolean> {
-    const res = await closeInteraction(this.db).run({ id, status, at })
-    return res.changes > 0
+    const rows = await this.write(
+      async () => await closeInteraction(this.db).all({ id, status, at }),
+    )
+    return rows.length > 0
   }
 
   /** Every open ask on a session closes at once. Returns the ids that moved. */
-  async closeSession(sessionId: SessionId, status: 'expired' | 'superseded', at: string): Promise<string[]> {
-    const open = await this.listOpen(sessionId)
-    if (open.length === 0) return []
-    await closeSessionInteractions(this.db).run({ sessionId, status, at })
-    return open.map((r) => r.id)
+  async closeSession(
+    sessionId: SessionId,
+    status: 'expired' | 'superseded',
+    at: string,
+  ): Promise<string[]> {
+    const rows = await this.write(
+      async () => await closeSessionInteractions(this.db).all({ sessionId, status, at }),
+    )
+    return rows.map((r) => r.id)
   }
 
   /** Retention: drop RESOLVED rows older than the cutoff. Open asks are never

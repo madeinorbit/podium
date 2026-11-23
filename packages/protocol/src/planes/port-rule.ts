@@ -45,6 +45,7 @@ export const HOST_EDGE_FRAMES = [
   'agentState',
   'agentColor',
   'agentModel',
+  'agentMode',
   'agentObservation',
   'agentObservationAck',
   'agentObservationRebind',

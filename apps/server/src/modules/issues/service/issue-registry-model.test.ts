@@ -30,6 +30,7 @@ import { openTestStore } from '../../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from '../service'
 import { issueTestPlumbing } from './test-plumbing'
 import { sessionReadPorts } from '../../../test-support/session-facts'
+import { testStoreEngine } from '../../../test-support/pg-test-database'
 
 interface Harness {
   store: SessionStore
@@ -88,14 +89,13 @@ const open = async (): Promise<Harness> => {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(() => {}, { transact }),
+    ...issueTestPlumbing(() => {}, { transact, store }),
     setSessionArchived: vi.fn(),
   }
   return {
@@ -124,14 +124,14 @@ describe('draft-then-install: two updates to the same issue', () => {
     // told they succeeded.
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'one', startNow: false })).id
+    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'one', startNow: false })).id
 
     // The second update runs INSIDE the first one's write span, so it reads the
     // row at the revision the first update was cut from and commits first.
     harness.duringNextWrite(async () => {
-      await svc.crud.update(id, { title: 'from the inner write' })
+      await svc.crud.update(svc.reports.store.serverWriter, id, { title: 'from the inner write' })
     })
-    await expect(svc.crud.update(id, { title: 'from the outer write' })).rejects.toThrow(
+    await expect(svc.crud.update(svc.reports.store.serverWriter, id, { title: 'from the outer write' })).rejects.toThrow(
       StaleIssueRevisionError,
     )
 
@@ -150,7 +150,7 @@ describe('draft-then-install: two updates to the same issue', () => {
     // answered only after the rollback, with the settled row.
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'settled', startNow: false })).id
+    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'settled', startNow: false })).id
     const before = await svc.reports.get(id)
 
     let answeredWhileOpen = true
@@ -166,7 +166,7 @@ describe('draft-then-install: two updates to the same issue', () => {
       answeredWhileOpen = answered
     }, 'after')
     harness.failNextWrite()
-    await expect(svc.crud.update(id, { title: 'never committed' })).rejects.toThrow('commit failed')
+    await expect(svc.crud.update(svc.reports.store.serverWriter, id, { title: 'never committed' })).rejects.toThrow('commit failed')
 
     expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
     expect(await outside, 'no reader sees the uncommitted title').toBe('settled')
@@ -181,12 +181,12 @@ describe('draft-then-install: a rollback racing a successful update', () => {
     // to put the pre-write field set back over the winner's committed row.
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'base', startNow: false })).id
+    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'base', startNow: false })).id
 
     harness.duringNextWrite(async () => {
-      await svc.crud.update(id, { title: 'winner' })
+      await svc.crud.update(svc.reports.store.serverWriter, id, { title: 'winner' })
     })
-    await expect(svc.crud.update(id, { title: 'loser' })).rejects.toThrow(StaleIssueRevisionError)
+    await expect(svc.crud.update(svc.reports.store.serverWriter, id, { title: 'loser' })).rejects.toThrow(StaleIssueRevisionError)
 
     expect((await svc.reports.get(id))?.title).toBe('winner')
     // The map serves what the store committed, not merely something plausible.
@@ -196,14 +196,14 @@ describe('draft-then-install: a rollback racing a successful update', () => {
 })
 
 describe('draft-then-install: a read while a write is open', () => {
-  it('an outside reader waits for the commit; the save itself reads its own write', async () => {
+  it('an outside reader never sees the draft; the save itself reads its own write', async () => {
     // Since POD-6158 issue reads come from the database. An outside reader asked
     // while the write is open waits for the commit and gets the committed row,
     // never a draft; inside the save the database already shows the save's own
     // write, with no special case (design §2, one way to read a fact).
     harness = await open()
     const { svc } = harness
-    const id = (await svc.crud.create({ repoPath: '/repo', title: 'committed', startNow: false })).id
+    const id = (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'committed', startNow: false })).id
 
     let answeredWhileOpen = true
     const inside: (string | undefined)[] = []
@@ -222,11 +222,21 @@ describe('draft-then-install: a read while a write is open', () => {
       await new Promise((resolve) => setTimeout(resolve, 20))
       answeredWhileOpen = answered
     }, 'after')
-    await svc.crud.update(id, { title: 'in flight' })
+    await svc.crud.update(svc.reports.store.serverWriter, id, { title: 'in flight' })
 
     expect(inside, 'the save reads its own write').toEqual(['in flight'])
-    expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
-    expect(await outside, 'both read paths see the committed value').toEqual(['in flight', 'in flight'])
+    if (testStoreEngine() === 'pg') {
+      // Postgres reads beside an open write, at READ COMMITTED (POD-6958 design 2.4): an
+      // outside reader never waits, and never sees the save's draft. What it reads while
+      // the save is open is the row as last committed; a read after the commit, the new one.
+      const titles = await outside
+      if (answeredWhileOpen) expect(titles, 'reads while open see the committed row').toEqual(['committed', 'committed'])
+      else for (const title of titles ?? []) expect(['committed', 'in flight']).toContain(title)
+    } else {
+      // SQLite's one connection: the outside reader waits behind the open write.
+      expect(answeredWhileOpen, 'the outside reader waits for the save').toBe(false)
+      expect(await outside, 'both read paths see the committed value').toEqual(['in flight', 'in flight'])
+    }
     expect((await svc.reports.get(id))?.title).toBe('in flight')
   })
 })

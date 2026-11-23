@@ -3,9 +3,11 @@
  *
  * The feature (the superagent chat's "you were here" divider and its unread dot)
  * used to read and write `podium:superfeed:cursor` in the device's ui-state
- * collection. It now reads and writes ONE PERSON'S row through
- * `readPosition.get` / `readPosition.advance`, so the position follows them to
- * another machine — `docs/multi-user-readiness.md` §3.3.
+ * collection. It now reads and writes ONE PERSON'S synced `userReadPosition`
+ * record, so the position follows them to another machine —
+ * `docs/multi-user-readiness.md` §3.3. The replica holds the rows; an advance is
+ * a queued generic edit (`records.userReadPosition.edit`, POD-6673), so one
+ * made offline is kept and sent on reconnect like every other write of mine.
  *
  * ---------------------------------------------------------------------------
  * WHY THIS IS NOT PART OF THE REPLICATED UI-STATE PORT
@@ -33,8 +35,7 @@
  *     merge rule is, not because it runs exactly once.
  */
 
-import { type ReadStreamId, type ReadPositionSnapshot, isReadStreamId } from '@podium/model'
-import type { PodiumClientApi } from './api'
+import { isReadStreamId, type ReadPositionSnapshot, type ReadStreamId } from '@podium/model'
 import type { UiState } from './replica/contract'
 import { READ_POSITION_UI_KEY } from './ui-state'
 
@@ -54,9 +55,14 @@ export interface ReadPositionPort {
   get(streamId: ReadStreamId): ReadPositionValue
   /** Propose a position. A proposal at or behind the current one is a no-op. */
   advance(streamId: ReadStreamId, next: ReadPositionValue): void
-  /** Fetch this principal's authoritative snapshot and drain any legacy value. */
-  hydrate(): Promise<void>
-  /** Install same-principal truth delivered by the feed (a second device moved). */
+  /** Forward the legacy device-local value once, then forget it. */
+  drainLegacy(): void
+  /**
+   * Install this principal's positions as the replica holds them (POD-6673: the
+   * synced `userReadPosition` kind; a second device moved, or a reload). Merged
+   * monotonically, like the server, so a local advance still on its way is never
+   * moved back by an older row.
+   */
   replace(snapshot: ReadPositionSnapshot): void
   subscribe(listener: () => void): () => void
 }
@@ -77,13 +83,18 @@ export function readLegacyCursorBlob(raw: string | null): ReadPositionValue | nu
 }
 
 export function createReadPositionClient(init: {
-  api: PodiumClientApi
+  /**
+   * Queue one proposal: the generic edit of my `userReadPosition` record. It
+   * resolves once the write is durable in the outbox, and rejects only when it
+   * could not be queued.
+   */
+  write: (streamId: ReadStreamId, value: ReadPositionValue) => Promise<void>
   /** Device-local collection — read ONCE per stream, to drain the legacy key. */
   local: Pick<UiState, 'get' | 'set'>
   /** Reported rather than thrown: a cursor is never worth breaking a render for. */
   onError?: (message: string) => void
 }): ReadPositionPort {
-  const { api, local, onError } = init
+  const { write, local, onError } = init
   let snapshot: Record<string, ReadPositionValue> = {}
   const listeners = new Set<() => void>()
 
@@ -102,30 +113,29 @@ export function createReadPositionClient(init: {
   }
 
   const install = (incoming: ReadPositionSnapshot): void => {
-    const next: Record<string, ReadPositionValue> = {}
+    let next = snapshot
     for (const [streamId, value] of Object.entries(incoming)) {
       // A row for a stream this build does not know is dropped rather than
       // rendered: an unknown feed has no surface to be a position in.
       if (!isReadStreamId(streamId)) continue
-      next[streamId] = { lastEventId: value.lastEventId, seenAt: value.seenAt }
+      if (value.lastEventId <= current(streamId).lastEventId) continue
+      next = { ...next, [streamId]: { lastEventId: value.lastEventId, seenAt: value.seenAt } }
     }
+    if (next === snapshot) return
     snapshot = next
     emit()
   }
 
-  const send = (streamId: string, value: ReadPositionValue): void => {
-    void api.readPosition.advance
-      .mutate({ streamId, lastEventId: value.lastEventId, seenAt: value.seenAt })
-      .then(install)
-      .catch((error: unknown) => {
-        // The next visible tick re-proposes the same position, so a failed
-        // advance costs a round trip and not a read position.
-        onError?.(
-          `Couldn't save your read position — ${
-            error instanceof Error ? error.message : 'the server is unreachable'
-          }`,
-        )
-      })
+  const send = (streamId: ReadStreamId, value: ReadPositionValue): void => {
+    // Queued, so offline is no failure: the outbox sends it on reconnect and
+    // the server keeps max(stored, proposed). The replica's row confirms it.
+    void write(streamId, value).catch((error: unknown) => {
+      onError?.(
+        `Couldn't save your read position — ${
+          error instanceof Error ? error.message : 'it could not be queued'
+        }`,
+      )
+    })
   }
 
   return {
@@ -134,8 +144,7 @@ export function createReadPositionClient(init: {
       if (!paint(streamId, next)) return
       send(streamId, next)
     },
-    hydrate: async () => {
-      install(await api.readPosition.get.query())
+    drainLegacy: () => {
       const legacy = readLegacyCursorBlob(local.get(READ_POSITION_UI_KEY))
       if (legacy !== null) {
         // Drain first: a failed forward must not leave the key to be re-consumed

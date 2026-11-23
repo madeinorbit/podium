@@ -1,3 +1,5 @@
+import './test-support/no-message-attachments'
+
 /**
  * THE STREAMED TURN, HOOK AND ROW (POD-2293).
  *
@@ -6,16 +8,15 @@
  * preview row looks like next to the finished rows it precedes.
  */
 
+import { Conversation, DraftStore, type TurnPreview } from '@podium/client-core/conversation'
 import type { ChatBlock, RenderableRow } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import type { TurnPreviewMessage } from '@podium/protocol'
-import { act } from 'react'
+import { act, useEffect } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults } from './chat'
 import { TranscriptFeed } from './TranscriptFeed'
-import { Conversation, DraftStore, type TurnPreview } from '@podium/client-core/conversation'
-import { useEffect } from 'react'
 
 const SESSION = asSessionId('s1')
 
@@ -71,22 +72,51 @@ const frame = (over: Partial<TurnPreviewMessage> = {}): TurnPreviewMessage => ({
 
 /** Mount the hook alone and expose what it currently holds. */
 function mountHook(hub: unknown, sessionId = SESSION): { current: () => TurnPreview | null } {
-  const drafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+  const drafts = new DraftStore({
+    storage: { get: () => null, set: () => {} },
+    hub: {
+      on: () => () => {},
+      sendDraftEdit: () => {},
+      connectionHealth: () => ({ status: 'ok' }),
+    } as never,
+  })
   const source = hub as { on(kind: string, listener: (...args: never[]) => void): () => void }
   const conversation = new Conversation({
-    sessionId, drafts, hub: hub as never,
-    scheduler: { visible: () => false, tasks: { schedule: callback => { callback() }, dispose: () => {} } },
-    connection: { connected: () => true, subscribe: listener => source.on('connectionHealth', ((health: { status: string }) => listener(health.status !== 'down')) as never) },
-    transcript: { source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} } },
+    sessionId,
+    drafts,
+    hub: hub as never,
+    scheduler: {
+      visible: () => false,
+      tasks: {
+        schedule: (callback) => {
+          callback()
+        },
+        dispose: () => {},
+      },
+    },
+    connection: {
+      connected: () => true,
+      subscribe: (listener) =>
+        source.on('connectionHealth', ((health: { status: string }) =>
+          listener(health.status !== 'down')) as never),
+    },
+    transcript: {
+      source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} },
+    },
     sends: { createDeliveryId: () => 'test', deliver: async () => ({ state: 'sent' }) },
   })
   function Probe(): null {
-    useEffect(() => { void conversation.start(); return () => { conversation.dispose(); drafts.dispose() } }, [])
+    useEffect(() => {
+      void conversation.start()
+      return () => {
+        conversation.dispose()
+        drafts.dispose()
+      }
+    }, [])
     return null
   }
   act(() => root.render(<Probe />))
   return { current: () => conversation.preview }
-
 }
 
 describe('Conversation preview', () => {
@@ -252,7 +282,7 @@ describe('the preview row in the feed', () => {
     expect(previewRow()?.textContent).toContain('half a rep')
   })
 
-  it('draws a running tool without claiming a result', () => {
+  it('draws an in-flight tool once in the live fold without claiming a result', () => {
     renderFeed([], {
       turnEpoch: 1,
       items: [
@@ -263,11 +293,12 @@ describe('the preview row in the feed', () => {
         },
       ],
     })
-    const tool = host.querySelector('[data-turn-preview-tool]')
-    expect(tool?.textContent).toBe('Bash sleep 120')
-    // A preview row that looked like a finished ToolBlock would be asserting an
-    // outcome it does not have.
-    expect(host.querySelector('[data-turn-preview] [data-testid="tool-block"]')).toBeNull()
+    const tool = host.querySelector('[data-testid="turn-line"]')
+    expect(tool?.textContent).toContain('sleep 120')
+    expect(tool?.getAttribute('data-state')).toBe('live')
+    // The fold owns calls in flight; the trailing preview owns only narration.
+    expect(host.querySelector('[data-turn-preview-tool]')).toBeNull()
+    expect(host.querySelector('[data-testid="tool-block"]')).toBeNull()
   })
 
   it('does not duplicate the reply once the durable item has landed', () => {

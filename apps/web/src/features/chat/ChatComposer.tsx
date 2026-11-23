@@ -2,6 +2,7 @@ import { issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent
 import type { SessionView } from '@podium/client-core/session-values'
 import type { TranscriptFreshness } from '@podium/client-core/transcript'
 import { principalShortName } from '@podium/client-core/values'
+import type { SessionModel } from '@podium/client-graph/models'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import {
   ArrowUp,
@@ -34,9 +35,11 @@ import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
+import { InterruptNotice } from './InterruptNotice'
 import type { MailReply } from './mail-reply'
 import { OfferBar } from './OfferBar'
 import { QuoteOverlay, type UseQuotesResult } from './QuoteTokens'
+import { PostureNotices } from './SessionPosture'
 import type { UseAttachmentsResult } from './use-attachments'
 import { useChatMentions } from './use-chat-context'
 import { chordKeys, useComposerChord } from './use-composer-chord'
@@ -157,10 +160,12 @@ export const ChatComposer = observer(function ChatComposer({
   canInterrupt,
   onInterrupt,
   interruptError,
+  stop,
   offer,
   onOfferAction,
   onOfferDismiss,
   session,
+  posture,
   turnError,
   transcriptFreshness,
   offlineAsOf,
@@ -203,13 +208,18 @@ export const ChatComposer = observer(function ChatComposer({
   /** Why the last stop did not take effect (POD-1214). Shown as its own notice:
    *  a turn that is still running after you pressed stop must say so. */
   interruptError?: string | null
+  /** The session whose Stop is shown from its record (POD-6397): Interrupting…,
+   *  then Kill if the turn runs on. Absent for a superagent thread. */
+  stop?: SessionModel | undefined
   offer: SessionView['offer'] | null
   onOfferAction: (prompt: string, offerAt: string) => Promise<void>
   /** "None of these" — clears the offer without sending a turn. */
   onOfferDismiss: (offerAt: string) => Promise<void>
-  session:
-    | Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt' | 'cwd' | 'machineId'>
-    | undefined
+  session: SessionModel | undefined
+  /** The session whose launch terms the composer reports (POD-6858): one
+   *  notice per requirement its agent cannot meet. Absent for a superagent
+   *  thread. */
+  posture?: Pick<SessionView, 'agentKind' | 'launchPosture'> | undefined
   turnError: string | null
   /** Whether the visible transcript is being checked, rendered, or remains saved-only. */
   transcriptFreshness: TranscriptFreshness
@@ -626,6 +636,8 @@ export const ChatComposer = observer(function ChatComposer({
       <div role="status" className="sr-only">
         {transcriptAnnouncement}
       </div>
+      {stop && <InterruptNotice session={stop} />}
+      {!replying && posture && <PostureNotices session={posture} />}
       {(turnError !== null ||
         (interruptError !== null && interruptError !== undefined) ||
         transcriptFreshness !== null ||
@@ -955,7 +967,7 @@ export const ChatComposer = observer(function ChatComposer({
  *
  * QUIET BY DEFAULT. Both pills read `auto` until someone chooses otherwise, and
  * `auto` is not a placeholder — it is the real, correct answer: "whatever
- * Settings → Superagent says". A person who never touches this row is not
+ * Settings → Agents → Superagent says". A person who never touches this row is not
  * missing a decision, and the row's ink says so by staying at Dim.
  *
  * The model menu lists every connector Podium can run, not just the Settings

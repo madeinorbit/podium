@@ -1,0 +1,89 @@
+name: Release website refresh
+run-name: Refresh website for ${{ inputs.release_tag }}
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+    secrets:
+      PODIUM_WEBSITE_DISPATCH_TOKEN:
+        required: true
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Already published stable tag (vX.Y.Z)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: release-website
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Wait for both release publishers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected a stable vX.Y.Z tag'; exit 1; }
+          release_repo=madeinorbit/podium
+          gh release view "$RELEASE_TAG" --repo "$release_repo" --json isDraft,isPrerelease,publishedAt |
+            jq -e '.isDraft == false and .isPrerelease == false and .publishedAt != null' >/dev/null
+          release_commit=$(gh api "repos/$release_repo/commits/$RELEASE_TAG" --jq .sha)
+          deadline=$((SECONDS + 900))
+          publication_ready=false
+          while ((SECONDS < deadline)); do
+            headless_run=$(gh run list --repo "$release_repo" --workflow release.yml --event push --branch "$RELEASE_TAG" --limit 100 --json databaseId,headSha |
+              jq -r --arg sha "$release_commit" 'map(select(.headSha == $sha)) | first | .databaseId // empty')
+            desktop_run=$(gh run list --repo "$release_repo" --workflow desktop-release.yml --event push --branch "$RELEASE_TAG" --limit 100 --json databaseId,headSha |
+              jq -r --arg sha "$release_commit" 'map(select(.headSha == $sha)) | first | .databaseId // empty')
+            headless_state=waiting
+            desktop_state=waiting
+            if [[ -n "$headless_run" ]]; then
+              headless_state=$(gh api --paginate "repos/$release_repo/actions/runs/$headless_run/jobs?filter=all&per_page=100" --jq '.jobs[]' |
+                jq -sr 'group_by(.name) | map(max_by(.id)) |
+                  map(select(.name == "publish" or .name == "published headless update smoke")) |
+                  if any(.[]; .status == "completed" and .conclusion != "success") then "failed"
+                  elif length == 2 and all(.[]; .status == "completed" and .conclusion == "success") then "ready"
+                  else "waiting" end')
+            fi
+            if [[ -n "$desktop_run" ]]; then
+              desktop_state=$(gh run view "$desktop_run" --repo "$release_repo" --json status,conclusion --jq '
+                if .status != "completed" then "waiting"
+                elif .conclusion == "success" then "ready"
+                else "failed" end')
+            fi
+            echo "Release publication: headless=$headless_state desktop=$desktop_state"
+            case "$headless_state/$desktop_state" in
+              *failed*) echo 'Release publication failed; website refresh stopped'; exit 1 ;;
+              ready/ready) publication_ready=true; break ;;
+            esac
+            sleep 15
+          done
+          [[ "$publication_ready" == true ]] || { echo 'Timed out waiting for both release publishers'; exit 1; }
+      - name: Run the existing Site deployment
+        env:
+          GH_TOKEN: ${{ secrets.PODIUM_WEBSITE_DISPATCH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "$GH_TOKEN" ]] || { echo 'PODIUM_WEBSITE_DISPATCH_TOKEN is missing'; exit 1; }
+          site_repo=madeinorbit/podium-cloud
+          run_id=$(gh api --method POST "repos/$site_repo/actions/workflows/site.yml/dispatches" \
+            -H 'X-GitHub-Api-Version: 2026-03-10' -f ref=main --jq .workflow_run_id)
+          [[ "$run_id" =~ ^[0-9]+$ ]] && ((run_id > 0)) || { echo 'Site dispatch did not return a run ID'; exit 1; }
+          echo "Website deployment: https://github.com/$site_repo/actions/runs/$run_id"
+          gh run watch "$run_id" --repo "$site_repo" --exit-status --interval 15

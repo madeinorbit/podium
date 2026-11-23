@@ -65,6 +65,7 @@ import type {
   DelegationRef,
   MetadataEntityKind,
   Principal,
+  SystemPrincipal,
   VisibilityResolver,
 } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId, asUserId } from '@podium/protocol'
@@ -82,6 +83,12 @@ import type { UserRef } from '../outbox/records'
 export interface EntityRef {
   readonly entity: MetadataEntityKind
   readonly entityId: string
+}
+
+/** A changed row as the anchor port is asked about it: the row, and the seq of
+ *  the change when the caller has one (POD-6834). */
+export interface AnchorRef extends EntityRef {
+  readonly seq?: number
 }
 
 /** `entity:entityId` — the unit visibility is decided over. */
@@ -253,6 +260,14 @@ export interface VisibilityStatePort {
    * one read per row was one live read too many, not a stricter guarantee.
    */
   forBatch?(refs: readonly EntityRef[]): Promise<VisibilityStatePort>
+  /**
+   * The value of a row this HUMAN may read, as they may receive it (design
+   * §4.2, POD-6288). A row can be readable while some of its fields point into
+   * another person's private work; this returns the value without those.
+   * Absent, or returning the value itself, means the row has no such fields.
+   * Called only after `mayRead` admitted the row, on the same prepared state.
+   */
+  shapeFor?(user: UserRef, ref: EntityRef, value: unknown): unknown
 }
 
 /**
@@ -297,8 +312,13 @@ export interface VisibilityAnchorPort {
    *
    * A WHOLE BATCH PER CALL [POD-6156]: the port reads what the batch needs in a
    * fixed number of grouped queries, never one per row (server-data rule 2).
+   *
+   * A ref carries its change's `seq` when the caller evaluates logged changes,
+   * so a port can compare the change with the row's previous one and answer
+   * `null` for a write that moved nothing (POD-6834). Without a seq the port
+   * answers as if the fact moved.
    */
-  visibilityEdges(refs: readonly EntityRef[]): Promise<readonly (VisibilityEdge | null)[]>
+  visibilityEdges(refs: readonly AnchorRef[]): Promise<readonly (VisibilityEdge | null)[]>
   /**
    * Each entity's CURRENT wire value, positionally, for a re-admitting `upsert`
    * (D14.2), or `undefined` when the entity no longer exists — in which case
@@ -345,6 +365,22 @@ export interface FeedVisibilityPolicy {
    * implementation must not close over a principal.
    */
   forBatch?(refs: readonly EntityRef[]): Promise<FeedVisibilityPolicy>
+  /**
+   * The value of a VISIBLE row as this principal may receive it. Absent means
+   * every visible row is delivered as stored. Applied by the authority to every
+   * upsert it hands a principal: bootstrap, delta and re-admission alike.
+   */
+  shape?(principal: Principal, ref: EntityRef, value: unknown): unknown
+}
+
+/** A visible upsert's value as `principal` may receive it, through the policy. */
+export function shapedValue(
+  policy: FeedVisibilityPolicy,
+  principal: Principal,
+  ref: EntityRef,
+  value: unknown,
+): unknown {
+  return policy.shape ? policy.shape(principal, ref, value) : value
 }
 
 /**
@@ -414,6 +450,13 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
       : new GrantEdgeVisibilityPolicy(prepared, this.delegations)
   }
 
+  shape(principal: Principal, ref: EntityRef, value: unknown): unknown {
+    // The server's own observers receive rows as stored.
+    if (principal === CHANGE_LOG_OBSERVER || !this.state.shapeFor) return value
+    const human = humanOf(principal)
+    return human === null ? value : this.state.shapeFor(human, ref, value)
+  }
+
   decide(principal: Principal, ref: EntityRef): VisibilityDecision {
     const declared = this.state.classOf(ref.entity)
     if (declared === null) return { visible: false, reason: 'unclassified' }
@@ -421,6 +464,20 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
     // ADR 1 D6 / ADR 9 D3: a secret does not replicate at all. Before grants,
     // because "it is not scoping, it is exclusion" (D12's rejected alternatives).
     if (declared === 'secret') return { visible: false, reason: 'secret-never-replicates' }
+
+    if (principal === CHANGE_LOG_OBSERVER) {
+      // The server's own change-log observers (the write funnel's bus bridge and
+      // the Ledger's listeners). No transport can present this object: it is
+      // compared by identity, and a system principal has no wire form. It sees
+      // what the retired device-grade principal saw, and nothing more: every
+      // shared and owned row, never a per-user row (no user is in its key).
+      if (declared === 'per-user-state')
+        return { visible: false, reason: 'per-user-state-not-yours' }
+      return {
+        visible: true,
+        reason: declared === 'deployment-substrate' ? 'substrate' : 'granted',
+      }
+    }
 
     const human = humanOf(principal)
     if (human === null) {
@@ -475,6 +532,26 @@ export class GrantEdgeVisibilityPolicy implements FeedVisibilityPolicy {
       : { visible: false, reason: 'outside-delegated-scope' }
   }
 }
+
+/**
+ * THE SERVER'S OWN CHANGE-LOG OBSERVER (POD-6285).
+ *
+ * In-process consumers of every committed change, such as the bus event that
+ * reactions subscribe to and the Ledger's `onAppended` listeners, used to
+ * subscribe as {@link DEVICE_GRADE_PRINCIPAL}, which read every row because the
+ * server's visibility state admitted that user id to everything. That made a
+ * shared-password "user" the server's system observer. They subscribe as this
+ * system principal instead, and the device-grade id is an ordinary user that
+ * owns nothing.
+ *
+ * {@link GrantEdgeVisibilityPolicy} recognises it by object identity only, so
+ * holding this export is the authority: no frame, cookie or payload can
+ * produce it.
+ */
+export const CHANGE_LOG_OBSERVER: SystemPrincipal = Object.freeze({
+  kind: 'system',
+  job: 'change-log-observer',
+})
 
 /**
  * THE ONE PRINCIPAL A DEVICE-GRADE AUTHENTICATOR CAN PRODUCE, and the policy that

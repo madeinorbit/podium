@@ -1,33 +1,32 @@
-import { omitGone } from '@podium/client-graph/lookup'
+import { useRequestClient, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionId } from '@podium/model'
 import { useCallback, useEffect, useRef } from 'react'
-import { useRuntimeActions, useRuntimeLocal } from '@/app/keyed-runtime'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 
 type DockShellLifecycleSession = Pick<
   SessionView,
   'sessionId' | 'agentKind' | 'archived' | 'status'
 >
 /** The shared session answers `archived` as unknown before its row arrives. */
-type DockShellLifecycleFacts = Pick<SessionView, 'status'> & { readonly archived: boolean | undefined }
+type DockShellLifecycleFacts = Pick<SessionView, 'status'> & {
+  readonly archived: boolean | undefined
+}
 
 /** A dock shell is dead only when its process is gone for good. A hibernated
  *  shell is PARKED, not dead (POD-4429): the row and cwd are intact and the
  *  same session id resumes in place, so the dock must not archive or replace
  *  it. Only 'archived' and 'exited' remain dead for the dock. */
-export function dockShellIsDead(
-  session: DockShellLifecycleFacts,
-): boolean {
+export function dockShellIsDead(session: DockShellLifecycleFacts): boolean {
   return session.archived || session.status === 'exited'
 }
 
 /** A hibernated dock shell is parked: resumable in place via the same session
  *  id (POD-4429). Never stale, never archived by the lifecycle. */
-export function dockShellIsParked(
-  session: DockShellLifecycleFacts,
-): boolean {
+export function dockShellIsParked(session: DockShellLifecycleFacts): boolean {
   return !session.archived && session.status === 'hibernated'
 }
 
@@ -47,18 +46,11 @@ export function staleDockShellIds(
     )
     .map((session) => session.sessionId)
 }
-
-/**
- * Retire dead dock-owned shells while the application is mounted, independently
- * of whether the Shell panel itself is open. The device-local mapping remains
- * in place so opening the panel can recognize the dead row and replace it.
- */
-const ACTIONS = ['trpc'] as const
 const EMPTY_IDS: SessionId[] = []
 
 /** Ask only about mapped identities, using the pool's declared cold fields. */
 export function useStaleDockShellIds(): SessionId[] {
-  const dockShells = useRuntimeLocal('dockShells')
+  const dockShells = useUiValue('dockShells')
   const read = useCallback(
     (pool: MobxPool) => {
       const sessions = [...new Set(Object.values(dockShells))]
@@ -69,7 +61,7 @@ export function useStaleDockShellIds(): SessionId[] {
           return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
         })
         .flatMap((id) => {
-          const row = omitGone(pool.row('session', id, 'summary-fields'))
+          const row = omitGone(pool.row('session', id))
           return row && typeof row !== 'symbol' ? [row as unknown as DockShellLifecycleSession] : []
         })
       return staleDockShellIds(dockShells, sessions)
@@ -80,7 +72,7 @@ export function useStaleDockShellIds(): SessionId[] {
 }
 
 export function DockShellLifecycle(): null {
-  const { trpc } = useRuntimeActions(ACTIONS)
+  const { trpc } = { trpc: useRequestClient<Trpc>() }
   const staleIds = useStaleDockShellIds()
   const requested = useRef(new Set<SessionId>())
 

@@ -22,7 +22,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, join, relative, sep } from 'node:path'
+import { basename, delimiter, dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -179,21 +179,38 @@ function pack(headlessParent: string): string {
   return tarball
 }
 
-function runGate(tarball: string): {
+function runGate(
+  tarball: string,
+  sourceCommit = TEST_SOURCE_SHA,
+): {
   status: number
   failLine: string
   output: string
+  inspected: string[]
 } {
+  // These layout tests pack known shell stubs. Make the external inspector an
+  // explicit fixture so reaching binary inspection does not depend on `file`
+  // being installed (or runnable) in a minimal build guest.
+  const tools = scratch()
+  const probe = join(tools, 'file-arguments.txt')
+  const inspector = join(tools, 'file')
+  writeFileSync(
+    inspector,
+    '#!/bin/sh\nprintf "%s\\n" "$@" > "$BUNDLE_LAYOUT_PROBE"\nprintf "%s\\n" "POSIX shell script, ASCII text executable"\n',
+  )
+  chmodSync(inspector, 0o755)
   const result = spawnSync(
     'bash',
-    [
-      'scripts/assert-headless-bundle.sh',
-      tarball,
-      'linux-x86_64',
-      '--source-commit',
-      TEST_SOURCE_SHA,
-    ],
-    { encoding: 'utf8', cwd: repoRoot },
+    ['scripts/assert-headless-bundle.sh', tarball, 'linux-x86_64', '--source-commit', sourceCommit],
+    {
+      encoding: 'utf8',
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        PATH: `${tools}${delimiter}${process.env.PATH ?? ''}`,
+        BUNDLE_LAYOUT_PROBE: probe,
+      },
+    },
   )
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
   const failLine =
@@ -201,7 +218,10 @@ function runGate(tarball: string): {
       .split('\n')
       .find((line) => /^(FAIL|ABORT):/.test(line))
       ?.trim() ?? ''
-  return { status: result.status ?? 1, failLine, output }
+  const inspected = readdirSync(tools).includes('file-arguments.txt')
+    ? readFileSync(probe, 'utf8').trim().split('\n')
+    : []
+  return { status: result.status ?? 1, failLine, output, inspected }
 }
 
 describe('assert-headless-bundle production layout', () => {
@@ -380,7 +400,7 @@ describe('assert-headless-bundle production layout', () => {
         TEST_SOURCE_SHA,
         '--client-root-digest',
         attackerDigest,
-        ],
+      ],
       { encoding: 'utf8', cwd: repoRoot },
     )
     const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
@@ -485,19 +505,8 @@ describe('assert-headless-bundle production layout', () => {
     const root = scratch()
     writeProductionTree(join(root, 'headless'))
     const tarball = pack(root)
-    const result = spawnSync(
-      'bash',
-      [
-        'scripts/assert-headless-bundle.sh',
-        tarball,
-        'linux-x86_64',
-        '--source-commit',
-        'fffffff',
-        ],
-      { encoding: 'utf8', cwd: repoRoot },
-    )
-    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`
-    expect(result.status).not.toBe(0)
+    const { status, output } = runGate(tarball, 'fffffff')
+    expect(status, output).not.toBe(0)
     expect(output).toMatch(/build provenance source commit .* does not match release commit/)
   })
 
@@ -518,10 +527,13 @@ describe('assert-headless-bundle production layout', () => {
     const root = scratch()
     writeProductionTree(join(root, 'headless'))
     const tarball = pack(root)
-    const { status, failLine } = runGate(tarball)
-    expect(status).not.toBe(0)
-    expect(failLine).toMatch(/shipped podium-cli/)
+    const { status, failLine, output, inspected } = runGate(tarball)
+    expect(status, output).not.toBe(0)
+    expect(failLine, output).toMatch(/shipped podium-cli/)
     expect(failLine).not.toMatch(/tarball missing|NOTICE|systemd|build provenance|build stamp/)
+    const [flag, executable] = inspected
+    expect(flag).toBe('-b')
+    expect(basename(executable ?? '')).toBe('podium-cli')
   })
 })
 
@@ -593,21 +605,39 @@ describe('the gate and the signing step name the same JIT keys', () => {
       scripts: Record<string, string | undefined>
     }
     expect(web.scripts.build).toBe(
-      'vite build && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-budget.ts dist --check',
+      'vite build && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-correctness.ts dist',
     )
     expect(web.scripts['build:dist']).toBeUndefined()
-    expect(mobile.scripts.build).toBe(
-      'EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH=1 EXPO_UNSTABLE_TREE_SHAKING=1 expo export -p web && bun scripts/patch-web-html.ts && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist',
+    // The phone now also emits its service worker. Follow the actual packaging
+    // stages and prove the stamp runs after every byte-producing step; an
+    // exact historical command string hid that ordering behind an unrelated
+    // pipeline change.
+    const mobileSteps = mobile.scripts.build?.split(' && ') ?? []
+    const exportIndex = mobileSteps.indexOf(
+      'EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH=1 EXPO_UNSTABLE_TREE_SHAKING=1 expo export -p web',
+    )
+    const htmlIndex = mobileSteps.indexOf('bun scripts/patch-web-html.ts')
+    const workerIndex = mobileSteps.indexOf('bun scripts/generate-service-worker.ts dist')
+    const compressIndex = mobileSteps.indexOf('bun ../../scripts/precompress-dist.ts dist')
+    expect(exportIndex).toBe(0)
+    expect(htmlIndex).toBeGreaterThan(exportIndex)
+    expect(workerIndex).toBeGreaterThan(htmlIndex)
+    expect(compressIndex).toBeGreaterThan(workerIndex)
+    expect(mobileSteps.at(-1)).toBe(
+      'bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist',
     )
     expect(mobile.scripts['build:web']).toBeUndefined()
     expect(packageJson).not.toContain('package:clients')
     expect(packageJson).toContain('"build": "bun scripts/build-clients.ts --workspace"')
     expect(packageJson).toContain('"build:clients": "bun scripts/build-clients.ts"')
     expect(windowsSmoke).not.toContain('bun scripts/build-bun.ts')
-    // LAST on purpose (POD-3058): this expectation is red — windows-smoke.yml has no
-    // such step — and an early failure in a single `it` makes every assertion after it
-    // unreachable, so a red here silently stopped guarding everything below. Fixing it
-    // belongs to POD-3058; keeping it at the end is what stops it hiding the rest.
-    expect(windowsSmoke).toContain('run: bun run package:headless')
+    // Windows builds the desktop once, whose staging step packages the same
+    // fresh headless payload. Follow that chain rather than demand a second,
+    // obsolete top-level packaging invocation in the workflow.
+    expect(windowsSmoke).toContain('run: bun run --cwd apps/desktop build -- --no-bundle')
+    const desktop = JSON.parse(readFileSync(join(repoRoot, 'apps/desktop/package.json'), 'utf8'))
+    expect(desktop.scripts.build.split(' && ')).toContain('bun scripts/stage-sidecar.ts')
+    const staging = readFileSync(join(repoRoot, 'apps/desktop/scripts/stage-sidecar.ts'), 'utf8')
+    expect(staging).toContain("execFileSync('bun', ['run', 'package:headless']")
   })
 })

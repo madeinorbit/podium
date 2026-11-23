@@ -46,8 +46,9 @@ import {
   StableMarkdown,
   type TurnPosition,
 } from './ChatBlockView'
-import { ChatUploadThumb } from './ChatUploadThumb'
+import { ItemAttachments } from './ChatUploadThumb'
 import type { PendingItem } from './chat'
+import type { OpenChatImage } from './ImageLightbox'
 import { IssueOutcomeCard } from './IssueOutcomeCard'
 import { MetaGlyph } from './MetaGlyph'
 import type { MailReply } from './mail-reply'
@@ -197,7 +198,6 @@ export function queuePositionSuffix(position: number | undefined): string {
 export function queuedDeliveryLabel(
   session: SessionView | SessionModel | undefined,
   position?: number,
-  wakeRequestedAt?: number | null,
 ): string {
   const error = queueIsBlocked(session)
     ? session && 'agentError' in session
@@ -208,7 +208,7 @@ export function queuedDeliveryLabel(
     const instruction = agentErrorRecoveryInstruction(error).replace(/\.$/, '')
     return `blocked · ${formatAgentError(error)} — ${instruction} to send${queuePositionSuffix(position)}`
   }
-  const label = sessionWaking(session, false, wakeRequestedAt)
+  const label = sessionWaking(session)
     ? 'pending · sends once the agent is up'
     : 'pending · sends after this turn'
   return `${label}${queuePositionSuffix(position)}`
@@ -297,7 +297,7 @@ export interface TranscriptFeedProps {
   session: SessionView | SessionModel | undefined
   httpOrigin: string
   openFile: (sessionId: SessionId, path: string) => void
-  onOpenImage: (url: string) => void
+  onOpenImage: OpenChatImage
   answerInteractionId?: string
   onAnswerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   livePendingAskIndex: number
@@ -685,37 +685,17 @@ export const TranscriptFeed = observer(function TranscriptFeed(
                                 openFile={openFile}
                               />
                               {p.files && p.files.length > 0 ? (
-                                <div className="mt-1.5 flex flex-wrap items-start gap-1.5">
-                                  {p.files.map((file, i) => {
-                                    // Until the issue holds its copy (POD-2148) a file
-                                    // shows as the labelled chip it always did.
-                                    const chip = (
-                                      <span
-                                        // biome-ignore lint/suspicious/noArrayIndexKey: an optimistic upload list has fixed order, including duplicate paths.
-                                        key={`${file.attachmentId ?? file.path}-${i}`}
-                                        className="inline-flex items-center gap-1 rounded border border-input px-[7px] py-0.5 text-[11px] text-muted-foreground"
-                                      >
-                                        <ImageIcon size={12} aria-hidden="true" />
-                                        {file.path}
-                                      </span>
-                                    )
-                                    return file.kind === 'image' ? (
-                                      <ChatUploadThumb
-                                        // biome-ignore lint/suspicious/noArrayIndexKey: an optimistic upload list has fixed order, including duplicate paths.
-                                        key={`${file.attachmentId ?? file.path}-${i}`}
-                                        sessionId={sessionId}
-                                        attachmentId={file.attachmentId}
-                                        fallbackUrl={null}
-                                        name={file.path}
-                                        httpOrigin={httpOrigin}
-                                        onOpenImage={onOpenImage}
-                                        fallback={chip}
-                                      />
-                                    ) : (
-                                      chip
-                                    )
-                                  })}
-                                </div>
+                                <ItemAttachments
+                                  sessionId={sessionId}
+                                  attachments={p.files.map((file) => ({
+                                    id: file.attachmentId,
+                                    filename: file.path,
+                                    kind: file.kind ?? 'file',
+                                  }))}
+                                  tags={[]}
+                                  httpOrigin={httpOrigin}
+                                  onOpenImage={onOpenImage}
+                                />
                               ) : (
                                 p.tags &&
                                 p.tags.length > 0 && (
@@ -775,11 +755,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(
                               ) : waiting ? (
                                 <span className="transcript-delivery">
                                   {p.record || queueIsBlocked(session)
-                                    ? queuedDeliveryLabel(
-                                        session,
-                                        p.queuePosition,
-                                        props.chat?.conversation.sends.wakeRequestedAt,
-                                      )
+                                    ? queuedDeliveryLabel(session, p.queuePosition)
                                     : `pending${queuePositionSuffix(p.queuePosition)}`}
                                 </span>
                               ) : null}

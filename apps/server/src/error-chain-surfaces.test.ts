@@ -12,13 +12,18 @@
  * issue is about.
  */
 
-import { describe, expect, it } from 'vitest'
+import { ACCESS_REFUSAL_MESSAGES, ACCESS_REFUSALS } from '@podium/model'
+import { TRPCError } from '@trpc/server'
+import { describe, expect, it, vi } from 'vitest'
+import { CredentialRefError } from './modules/credentials/credential-ref'
+import { credentialRefusedError, refusalInPlaceOfFault } from './modules/credentials/refusal-error'
+import { CredentialRefusal } from './modules/sessions/launch-config'
 import { assertSourceMatchesHead } from './modules/updates/dev-bundle'
 import { releaseFailureLogs } from './modules/updates/dev-publisher-wiring'
 import { runPersistenceSteps } from './shutdown'
 import { captureLogs } from './test-support/capture-logs'
 import { openTestStore } from './test-support/open-test-store'
-import { errorShapeWithCause } from './trpc'
+import { errorShapeWithCause, logProcedureFailure } from './trpc'
 
 /** The POD-3802 error: Drizzle's wrapper over the executor's refusal. */
 function wrappedRefusal(): Error {
@@ -160,5 +165,69 @@ describe('the store executor refusing a statement', () => {
       await store.close()
       logs.restore()
     }
+  })
+})
+
+/** A plain throw as tRPC's own procedure call wraps it: a 500 with the throw as its cause. */
+const asFault = (cause: Error) =>
+  new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: cause.message, cause })
+
+describe('a credential refusal at the tRPC boundary (POD-7066)', () => {
+  it('enumerates the closed list it maps (canary)', () => {
+    expect(ACCESS_REFUSALS.length).toBe(11)
+  })
+
+  for (const refusal of ACCESS_REFUSALS) {
+    const sentence = ACCESS_REFUSAL_MESSAGES[refusal]
+    it(`${refusal}: a 500 becomes PRECONDITION_FAILED carrying the sentence and the code`, () => {
+      for (const thrown of [
+        new CredentialRefusal(refusal, sentence),
+        new CredentialRefError(sentence, refusal),
+        new Error('the session could not start', {
+          cause: new CredentialRefusal(refusal, sentence),
+        }),
+      ]) {
+        const answered = refusalInPlaceOfFault(asFault(thrown))
+        expect(answered?.code).toBe('PRECONDITION_FAILED')
+        expect(answered?.message).toBe(sentence)
+        const shape = errorShapeWithCause({ message: sentence, data: {} }, answered ?? {})
+        // The code, and no cause chain repeating the sentence.
+        expect(shape.data).toEqual({ refusalCode: `credential:${refusal}` })
+      }
+    })
+  }
+
+  it('leaves a real fault, a reference refusal without a code, and a 4xx alone', () => {
+    expect(refusalInPlaceOfFault(asFault(new Error('disk full')))).toBeUndefined()
+    expect(
+      refusalInPlaceOfFault(asFault(new CredentialRefError('No credential is labelled "x".'))),
+    ).toBeUndefined()
+    expect(refusalInPlaceOfFault(credentialRefusedError('revoked', 'gone'))).toBeUndefined()
+  })
+
+  it('logs a refusal as one line with its code and no stack; a fault keeps its error', () => {
+    const log = { info: vi.fn(), warn: vi.fn() }
+    logProcedureFailure(log, {
+      error: credentialRefusedError(
+        'connection-not-encrypted',
+        ACCESS_REFUSAL_MESSAGES['connection-not-encrypted'],
+      ),
+      path: 'sessions.create',
+      type: 'mutation',
+    })
+    expect(log.warn).not.toHaveBeenCalled()
+    expect(log.info).toHaveBeenCalledWith('tRPC procedure refused', {
+      callType: 'mutation',
+      path: 'sessions.create',
+      code: 'PRECONDITION_FAILED',
+      refusal: 'connection-not-encrypted',
+    })
+
+    const fault = asFault(new Error('disk full'))
+    logProcedureFailure(log, { error: fault, path: 'sessions.create', type: 'mutation' })
+    expect(log.warn).toHaveBeenCalledWith(
+      'tRPC procedure failed',
+      expect.objectContaining({ code: 'INTERNAL_SERVER_ERROR', err: fault }),
+    )
   })
 })

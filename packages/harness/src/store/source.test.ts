@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { claudeRecordToItems } from '../adapters/claude-code/transcript.js'
-import { encodeCursor } from './cursor-codec'
-import { fileIdFor, type ChainEntry } from './file-chain'
 import { opencodeFileId } from '../adapters/opencode/transcript.js'
+import { fileByteSource } from './byte-source'
+import { encodeCursor } from './cursor-codec'
+import { type ChainEntry, fileIdFor } from './file-chain'
 import { fileChainSource, sliceItemsByAnchor } from './source'
 
 const item = (uuid: string | null, offset: number, sub = 0): TranscriptItem =>
@@ -52,7 +53,7 @@ describe('session cursor identity', () => {
       const paths = [join(dir, 'live.jsonl'), join(dir, 'mirror.jsonl')] as const
       for (const path of paths) await writeFile(path, bytes)
       const read = (path: string, fileId: string, cached = false) =>
-        fileChainSource([{ path, fileId }], claudeRecordToItems).readSlice({
+        fileChainSource([{ source: fileByteSource(path), fileId }], claudeRecordToItems).readSlice({
           direction: 'before',
           limit: 10,
           cached,
@@ -71,7 +72,7 @@ describe('session cursor identity', () => {
       expect(fileIdFor('native-session', 1)).not.toBe(fileIdFor('native-session', 2))
       const oldAnchor = encodeCursor({ fileId: 'old-path-hash', offset: 0, uuid: null, sub: 0 })
       const source = fileChainSource(
-        [{ path: paths[0], fileId: fileIdFor('native-session') }],
+        [{ source: fileByteSource(paths[0]), fileId: fileIdFor('native-session') }],
         claudeRecordToItems,
       )
       expect(await source.readSlice({ anchor: oldAnchor, direction: 'before', limit: 10 })).toEqual(
@@ -119,8 +120,8 @@ async function twoFiles(): Promise<{ chain: ChainEntry[]; toItems: typeof idxToI
   await writeFile(f1, `${lines1.join('\n')}\n`)
   await writeFile(f2, `${lines2.join('\n')}\n`)
   const chain: ChainEntry[] = [
-    { path: f1, fileId: fileIdFor(f1) },
-    { path: f2, fileId: fileIdFor(f2) },
+    { source: fileByteSource(f1), fileId: fileIdFor(f1) },
+    { source: fileByteSource(f2), fileId: fileIdFor(f2) },
   ]
   return { chain, toItems: idxToItems }
 }

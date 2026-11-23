@@ -100,14 +100,6 @@ const KNOWN: Record<string, Known> = {
     may: SCREEN_ECHO,
     until: 'POD-4777 (daemon delivery journal replaces the recovery ⇒ failed rule)',
   },
-  // A new daemon receives the waiting row as a recovery row and fails it
-  // untyped — or, on some runs, never settles it at all.
-  // Since POD-4775 that failure is recorded `unknown` (see server-crash).
-  'daemon-crash-queued': {
-    must: [['lost', 'stuck', 'unknown-outside-window']],
-    may: SCREEN_ECHO,
-    until: 'POD-4777',
-  },
   // Typed before the kill. Since POD-4775 the new daemon's recovery failure is
   // labelled `unconfirmed` and the server records the row `unknown` — the
   // allowed answer here — which is what this scenario shows on most runs. On
@@ -127,17 +119,6 @@ const KNOWN: Record<string, Known> = {
     must: [['lost', 'stuck']],
     may: SCREEN_ECHO,
     until: 'POD-4775 (server stores and forwards, never decides on machine state) / POD-4777',
-  },
-  // Since POD-4796 the reports replayed after the reconnect are applied (the
-  // gate rejected them as `stale-observer-generation`). What is left is the
-  // daemon's own verdict, traced in the gate's log: each message typed DURING
-  // the cut comes back from the driver unverified, so the daemon reports it
-  // unconfirmed and the row ends `unknown` though the agent has it. (No frame
-  // storm on this base: the storm check stays armed.)
-  'link-cut-minutes-storm': {
-    must: ['unknown-outside-window'],
-    may: ['stuck', ...SCREEN_ECHO],
-    until: 'POD-4777 (the daemon settles a typed message by its journal, not by a live receipt)',
   },
 }
 
@@ -580,22 +561,34 @@ describe('message delivery under real failures', { retry: 0 }, () => {
     try {
       const session = only(world.sessionIds, 'session')
       const phone = world.device('phone')
-      // Longer than the cut, the retract's unanswered request (10 s) and the
-      // reconnect together: the daemon must still be holding the message when
-      // the retract reaches it. A turn ending during the cut would let it type
-      // the message first — a legitimate "too late", not this scenario.
-      world.setTurnMs(session, 45_000)
-      const busy = phone.send(session, 'keeps the agent busy')
-      await waitTyped(world, busy.id)
-      const retracted = phone.send(session, 'retracted while the machine is away')
-      // The daemon holds it, waiting behind the running turn.
-      await waitCarried(world, retracted.id)
+      // Establish the native program's observed state, beyond process boot,
+      // before testing a transport outage on this running agent.
+      const warm = phone.send(session, 'establishes the running agent before the cut')
+      await waitTyped(world, warm.id)
+      await waitFor(
+        async () => (await world.session(session))?.agentState?.phase === 'idle',
+        30_000,
+        'the native program completes its initial turn',
+        () => world.logs(),
+      )
+      // Ordinary chat steers a working agent and can begin typing before a
+      // retract. This case owns a transport cut BEFORE admission instead: the
+      // daemon has never seen the row, so its cancellation creates a tombstone.
       world.link.cut()
+      const retracted = phone.send(session, 'retracted while the machine is away')
+      await waitFor(
+        async () => (await world.rows()).some((row) => row.id === retracted.id),
+        30_000,
+        'the offline input is durably stored',
+        () => world.logs(),
+      )
+      expect(carrier(world, retracted.id)).toBeUndefined()
+      expect(world.typedCount(retracted.id)).toBe(0)
       await world.device('laptop').retract(session, retracted.id)
       const whileAway = (await world.rows()).find((row) => row.id === retracted.id)
-      expect(whileAway?.deliveryStatus).toBe('dispatched')
+      expect(['stored', 'dispatched']).toContain(whileAway?.deliveryStatus)
       world.link.restore()
-      // The daemon answered the retract while the busy turn still runs.
+      // The daemon, rather than a server-side status edit, settles the retract.
       await waitFor(
         async () =>
           (await world.rows()).find((row) => row.id === retracted.id)?.deliveryStatus ===
@@ -605,10 +598,65 @@ describe('message delivery under real failures', { retry: 0 }, () => {
         () => world.logs(),
       )
       expect(world.typedCount(retracted.id)).toBe(0)
+      const cancel = world.link
+        .crossed({ dir: 'down', type: 'runtimeInterruptRequest' })
+        .find((frame) => frame.body?.cancelRowId === retracted.id)
+      expect(cancel, 'the cancellation reached the daemon after reconnect').toBeDefined()
+      expect(
+        world.link
+          .crossed({ dir: 'up', type: 'runtimeLifecycleResult' })
+          .filter((frame) => frame.body?.requestId === cancel?.body?.requestId)
+          .map((frame) => frame.body?.result),
+      ).toContainEqual({ ok: true })
+      expect(
+        world.link.crossed({ dir: 'up', type: 'runtimeEvent' }).map((frame) => frame.body?.event),
+        "an unseen row gets the daemon's dropped tombstone",
+      ).toContainEqual(
+        expect.objectContaining({
+          t: 'delivery',
+          rowId: retracted.id,
+          outcome: 'dropped',
+        }),
+      )
+      const after = phone.send(session, 'sent after the offline retract')
       await judge(world, 'device-retract-offline', [
-        delivered(busy.id, session),
+        delivered(warm.id, session),
         { id: retracted.id, sessionId: session, expect: 'retracted', sender: 'phone' },
+        delivered(after.id, session),
       ])
+    } catch (error) {
+      const kinds = new Set([
+        'runtimeSendRequest',
+        'runtimeSendResult',
+        'runtimeDurableSendRequest',
+        'runtimeDurableSendResult',
+        'runtimeInterruptRequest',
+        'runtimeLifecycleResult',
+        'runtimeDeliveryOutcome',
+        'runtimeQueueDrainAbandoned',
+        'runtimeEvent',
+      ])
+      const frames = world.link.crossed().filter((frame) => kinds.has(frame.type))
+      console.error(
+        'offline retract evidence',
+        JSON.stringify({
+          frames: frames.map(({ at, dir, type, body }) => ({
+            at,
+            dir,
+            type,
+            requestId: body?.requestId,
+            sessionId: body?.sessionId,
+            cancelRowId: body?.cancelRowId,
+            receipt: body?.receipt,
+            result: body?.result,
+            outcome: body?.outcome,
+            event: body?.event,
+          })),
+          rows: await world.rows(),
+          session: await world.session(only(world.sessionIds, 'session')),
+        }),
+      )
+      throw error
     } finally {
       await world.close()
     }

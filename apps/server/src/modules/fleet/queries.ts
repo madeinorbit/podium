@@ -28,7 +28,7 @@ export const REPO_QUERIES = {
   listDetailed: q(noInput, async (s) => await s.store.repos.listRepos()),
   /** cwd → repo inference for the CLI: longest registered root containing `path`. */
   inferFromPath: q(z.object({ path: z.string() }), async (s, input) => ({
-    repoPath: await s.repos.inferFromPath(input.path) ?? null,
+    repoPath: (await s.repos.inferFromPath(input.path)) ?? null,
   })),
   /**
    * Browse a machine's directories for the repo picker (POD-814) [spec:SP-3701].
@@ -53,7 +53,11 @@ export const REPO_QUERIES = {
         // a queue and comes back "directory browse failed", which names neither
         // the machine nor the reason.
         try {
-          await s.modules.machines.requireCapability(input.machineId, HOST_REPOS, 'browse directories')
+          await s.modules.machines.requireCapability(
+            input.machineId,
+            HOST_REPOS,
+            'browse directories',
+          )
         } catch (e) {
           throw new TRPCError({
             code: 'PRECONDITION_FAILED',
@@ -83,21 +87,13 @@ export const REPO_QUERIES = {
     },
   ),
   /** Live CLI/auth readiness. The response contains identity labels, never credentials. */
-  githubStatus: q(z.object({ machineId: MachineIdField }), async (s, input) =>
-    await s.modules.rpc.githubCli('status', input.machineId),
+  githubStatus: q(
+    z.object({ machineId: MachineIdField }),
+    async (s, input) => await s.modules.rpc.githubCli('status', input.machineId),
   ),
   /** Accessible repositories for the selected machine's current `gh` account. */
   githubList: q(z.object({ machineId: MachineIdField }), async (s, input) => {
     const result = await s.modules.rpc.githubCli('list', input.machineId)
     return GitHubCliResultMessage.omit({ type: true, requestId: true }).parse(result)
   }),
-} as const
-
-export const DISCOVERY_QUERIES = {
-  /** Most recent finished discovery for a machine (e.g. the automatic connect
-   *  scan), so the picker can show results without re-scanning. */
-  lastMachineScan: q(
-    z.object({ machineId: MachineIdField }),
-    (s, input) => s.discovery?.lastResult(input.machineId) ?? null,
-  ),
 } as const

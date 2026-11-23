@@ -1,4 +1,3 @@
-import { ISSUE_SEL_KEY } from '@podium/client-core/ui-state'
 import { asRepoId, asSessionId, asUserId, type SessionMeta } from '@podium/model'
 import { act, cleanup } from '@testing-library/react'
 import { NavigationContext } from 'expo-router/build/react-navigation/core/NavigationContext'
@@ -98,7 +97,6 @@ async function fixture({
     replica.applySnapshot('sessionUserStates', [
       { userId, sessionId, readAt: stamp(), snoozedUntil: null },
     ])
-    replica.uiState().set(ISSUE_SEL_KEY, issueId)
     replica.finishBootstrap()
   }
   let selectTab: (focused: boolean) => void = () => {}
@@ -130,9 +128,9 @@ async function fixture({
       },
     },
   )
-  const issueRead = vi.spyOn(view.runtime.services, 'markIssueRead')
-  const sessionRead = vi.spyOn(view.runtime.services, 'markSessionRead')
-  const viewState = vi.spyOn(view.runtime.hub, 'setViewState')
+  const issueRead = vi.spyOn(view.runtime.commands.issues, 'markRead')
+  const sessionRead = vi.spyOn(view.runtime.commands.sessions, 'markRead')
+  const viewState = vi.spyOn(view.runtime.services.connection.hub, 'setViewState')
   vi.useFakeTimers()
   vi.setSystemTime(base)
   const go = async (next: AppStateStatus) =>
@@ -178,7 +176,7 @@ it.each([
   try {
     // The Worklist still remembers this task, just as it does after backing out.
     act(() => {
-      f.runtime.access.setSelectedIssueId(issueId as never)
+      f.runtime.ui.setSelectedIssueId(issueId as never)
       if (hidden === 'under Work') f.nav.focus(false)
       else f.selectTab(false)
     })
@@ -194,9 +192,9 @@ it.each([
     await f.advance(11_900)
     expect(f.issueRead).not.toHaveBeenCalled()
     expect(f.sessionRead).not.toHaveBeenCalled()
-    expect(f.runtime.outbox.pending()).toEqual([])
+    expect(f.runtime.services.outbox.queue.size()).toBe(0)
     expect(f.viewState).toHaveBeenLastCalledWith([], null, {})
-    expect(f.runtime.access.getUserFocus().visibleSessionIds).toEqual([])
+    expect(f.runtime.userFocusNow().visibleSessionIds).toEqual([])
   } finally {
     f.close()
   }
@@ -207,7 +205,7 @@ it('reads the top task and session exactly once on resume, with no repeated read
   try {
     await f.go('background')
     expect(f.viewState).toHaveBeenLastCalledWith([], null, {})
-    expect(f.runtime.access.getUserFocus().visibleSessionIds).toEqual([])
+    expect(f.runtime.userFocusNow().visibleSessionIds).toEqual([])
     await f.advance(12 * 60_000)
     await f.activity(1_000)
     await f.advance(12_000)
@@ -218,7 +216,7 @@ it('reads the top task and session exactly once on resume, with no repeated read
     expect(f.issueRead).toHaveBeenCalledExactlyOnceWith(issueId, stamp(1_000))
     expect(f.sessionRead).toHaveBeenCalledExactlyOnceWith(sessionId, stamp(1_000))
     expect(f.viewState).toHaveBeenLastCalledWith([sessionId], sessionId, { [sessionId]: 'chat' })
-    expect(f.runtime.access.getUserFocus().visibleSessionIds).toEqual([sessionId])
+    expect(f.runtime.userFocusNow().visibleSessionIds).toEqual([sessionId])
   } finally {
     f.close()
   }
@@ -236,9 +234,9 @@ it.each([
     await f.advance(15_000)
     expect(f.issueRead).not.toHaveBeenCalled()
     expect(f.sessionRead).not.toHaveBeenCalled()
-    expect(f.runtime.outbox.pending()).toEqual([])
+    expect(f.runtime.services.outbox.queue.size()).toBe(0)
     expect(f.viewState).toHaveBeenLastCalledWith([sessionId], sessionId, { [sessionId]: mode })
-    expect(f.runtime.access.panelMode).toEqual({})
+    expect(f.runtime.ui.panelMode).toEqual({})
   } finally {
     f.close()
   }
@@ -276,7 +274,9 @@ it('follows activity on a focused task page opened without a remembered Work sel
 it('does not read a persisted task selection from an earlier app session when no task screen is mounted', async () => {
   const f = await fixture({ mounted: false })
   try {
-    expect(f.runtime.access.selectedIssueId).toBe(issueId)
+    // The remembered selection an earlier app session left behind.
+    act(() => f.runtime.ui.setSelectedIssueId(issueId as never))
+    expect(f.runtime.ui.selectedIssueId).toBe(issueId)
     expect(f.getByTestId('work').textContent).toBe('Work')
     expect(f.queryByTestId('mounted-task')).toBeNull()
     await f.go('background')
@@ -288,7 +288,7 @@ it('does not read a persisted task selection from an earlier app session when no
     await f.advance(11_900)
     expect(f.issueRead).not.toHaveBeenCalled()
     expect(f.sessionRead).not.toHaveBeenCalled()
-    expect(f.runtime.outbox.pending()).toEqual([])
+    expect(f.runtime.services.outbox.queue.size()).toBe(0)
     expect(f.viewState).toHaveBeenLastCalledWith([], null, {})
   } finally {
     f.close()

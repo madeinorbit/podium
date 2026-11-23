@@ -12,7 +12,6 @@ type ResumeObservation = Extract<DaemonMessage, { type: 'sessionResumeRef' }>
 
 interface SessionOwnership {
   owner: UserId
-  grants: string[]
 }
 
 export interface SessionBindingReceiptsDeps {
@@ -66,7 +65,7 @@ export class SessionBindingReceipts {
         ? [...this.deps.sessions()].filter(
             (other) =>
               other.sessionId !== session.sessionId &&
-              ['starting', 'live', 'reconnecting'].includes(other.status) &&
+              ['starting', 'live'].includes(other.status) &&
               !other.headless &&
               harnessRequiresExclusiveInteractiveResume(other.agentKind) &&
               other.resume?.kind === message.resume.kind &&

@@ -1,3 +1,4 @@
+import { httpsRequiredRefusal } from '@podium/protocol'
 import { cleanup, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -16,7 +17,11 @@ vi.mock('./demoData', () => ({ demoEnabled: () => false }))
 vi.mock('./launch-ready', () => ({
   LaunchReadyView: ({ children }: { children: ReactNode }) => children,
 }))
-vi.mock('../screens/LoginScreen', () => ({ LoginScreen: () => <div>SIGN IN</div> }))
+vi.mock('../screens/LoginScreen', () => ({
+  LoginScreen: ({ notice }: { notice?: string }) => (
+    <div>{notice ? `SIGN IN · ${notice}` : 'SIGN IN'}</div>
+  ),
+}))
 vi.mock('../components/PressableScale', () => ({
   PressableScale: ({ children, onPress }: { children: ReactNode; onPress: () => void }) => (
     <button type="button" onClick={onPress}>
@@ -25,11 +30,33 @@ vi.mock('../components/PressableScale', () => ({
   ),
 }))
 
+import { passwordCapabilities } from '../test-support/auth-capabilities'
 import { AuthGate } from './AuthGate'
+import { clearSignedOutNotice, noteSignedOut } from './signed-out-notice'
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  clearSignedOutNotice()
+})
+
+it('shows the server HTTPS guidance and next step on a phone instead of sign-in', async () => {
+  const guidance = httpsRequiredRefusal('https://podium.example')
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json(guidance, { status: 400 })),
+  )
+  render(
+    <AuthGate>
+      <div>WORKSPACE</div>
+    </AuthGate>,
+  )
+  await screen.findByText('Connect with HTTPS')
+  expect(screen.getByText(guidance.message)).toBeTruthy()
+  expect(screen.getByText('https://podium.example')).toBeTruthy()
+  expect(screen.getByText('HTTPS setup instructions')).toBeTruthy()
+  expect(screen.queryByText('SIGN IN')).toBeNull()
+  expect(screen.queryByText('WORKSPACE')).toBeNull()
 })
 
 it('fails closed on a mobile HTTP auth refusal instead of opening a stale workspace', async () => {
@@ -101,5 +128,39 @@ it('keeps a signed-out protected account at sign-in before navigation can mount'
     </AuthGate>,
   )
   await screen.findByText('SIGN IN')
+  expect(screen.queryByText('WORKSPACE')).toBeNull()
+})
+
+it('says on the sign-in screen why the server ended this phone’s sign-in (POD-6910)', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () =>
+      Response.json({
+        needsAuth: true,
+        authed: false,
+        userId: null,
+        capabilities: passwordCapabilities,
+        prompt: 'password',
+      }),
+    ),
+  )
+  // Another profile's ended sign-in is not this one's.
+  noteSignedOut('another-profile', 'signed-out')
+  const { unmount } = render(
+    <AuthGate>
+      <div>WORKSPACE</div>
+    </AuthGate>,
+  )
+  expect(await screen.findByText('SIGN IN')).toBeTruthy()
+  unmount()
+  noteSignedOut('single-server', 'access-ended')
+  render(
+    <AuthGate>
+      <div>WORKSPACE</div>
+    </AuthGate>,
+  )
+  expect(
+    await screen.findByText('SIGN IN · You no longer have access to this server.'),
+  ).toBeTruthy()
   expect(screen.queryByText('WORKSPACE')).toBeNull()
 })

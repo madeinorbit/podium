@@ -1,20 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
 import { createLogger } from '@podium/logger'
+import type { AcceptedCredential } from '@podium/model'
 import { promptEchoCorrelation, submitHookCorrelation } from '../../accept-correlation.js'
-import {
-  codexStateProvider,
-  findCodexRolloutPath,
-  observeCodexState,
-  resolvePinnedCodexRollout,
-} from './state-provider.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import {
-  readFreshnessFromAuthContents,
-  readIdentityFromAuthContents,
-} from './auth-identity.js'
-import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
-import { createCodexConversationProvider } from './discovery.js'
+import { hostTools } from '../../host-tools.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -28,15 +18,31 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { codexPromptTextMatches, codexTranscript } from './transcript.js'
-import { codexComposer } from './composer.js'
-import { codexInstrumentation } from './instrumentation.js'
-import { codexCredentials } from './credentials.js'
-import { codexInstall } from './install.js'
-import { codexUsage } from './usage.js'
-import { codexCatalog } from './catalog.js'
-import { codexDescriptor } from './descriptor.js'
+import { classifyCodexLoginStatus } from '../../manifests/codex-login-status.js'
+import { scheduleStatPoll } from '../../transcript-types.js'
 import { CODEX_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
+import { readFreshnessFromAuthContents, readIdentityFromAuthContents } from './auth-identity.js'
+import { codexCatalog } from './catalog.js'
+import { codexComposer } from './composer.js'
+import { codexConversationFile } from './conversation-file.js'
+import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
+import { codexCredentials } from './credentials.js'
+import { codexDescriptor } from './descriptor.js'
+import { createCodexConversationProvider } from './discovery.js'
+import { codexInstall } from './install.js'
+import { codexInstrumentation } from './instrumentation.js'
+import { createOwnedCodexRolloutResolver, hostProcessInspection } from './owned-rollout.js'
+import { CHATGPT_PLAN_TOKEN_VARIABLE, codexPlanProviderArgs } from './plan-provider.js'
+import { codexMcpServerKey, codexPosture } from './posture.js'
+import { codexRoots } from './roots.js'
+import {
+  codexStateProvider,
+  findCodexRolloutPath,
+  observeCodexState,
+  resolvePinnedCodexRollout,
+} from './state-provider.js'
+import { codexPromptTextMatches, codexTranscript } from './transcript.js'
+import { codexUsage } from './usage.js'
 
 const log = createLogger('harness:codex')
 
@@ -50,9 +56,8 @@ interface CodexAuthFile {
   }
 }
 
-function codexAuthPath(homeDir: string, env: HarnessEnvironment = process.env): string {
-  const codexHome = env.CODEX_HOME?.trim() || join(homeDir, '.codex')
-  return join(codexHome, 'auth.json')
+function codexAuthPath(homeDir: string, env: HarnessEnvironment): string {
+  return join(codexRoots(homeDir, env).credentials, 'auth.json')
 }
 
 function codexProfile(idToken: string | undefined): string | undefined {
@@ -82,6 +87,32 @@ function maskedAccountId(accountId: string): string {
 const CODEX_AUTH_HEADERS = new Set(['x-podium-mcp-token', 'authorization'])
 
 const codexCredentialAbsenceGrace = new CodexCredentialAbsenceGrace()
+
+/** The credential types Codex accepts and how each is delivered (credential management §5). */
+const CODEX_ACCEPTS: readonly AcceptedCredential[] = [
+  { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
+  { type: 'openai.chatgpt-login', deliver: { kind: 'home' } },
+  // A ChatGPT plan signed in to Podium reaches Codex as the token of a
+  // model provider the server driver is started with (plan Task 15); the
+  // terminal driver has no such start, so the line is limited to it.
+  {
+    type: 'openai.chatgpt-plan',
+    deliver: { kind: 'env', variable: CHATGPT_PLAN_TOKEN_VARIABLE },
+    drivers: ['codex-app-server'],
+    startArgs: codexPlanProviderArgs(),
+  },
+]
+
+/**
+ * The environment variables these lines deliver: exactly what Codex's
+ * `shell_environment_policy.exclude` must keep out of the commands the agent
+ * runs, and nothing else. Read off the lines so the names are stated once.
+ * (Its `ignore_default_excludes=false` would also strip every other *KEY*,
+ * *SECRET* and *TOKEN* variable, such as GH_TOKEN, which agents rely on.)
+ */
+function deliveredEnvVariables(lines: readonly AcceptedCredential[]): string[] {
+  return lines.flatMap((line) => (line.deliver.kind === 'env' ? [line.deliver.variable] : []))
+}
 
 /** Deterministic per-server env var carrying the bearer token to codex. */
 function bearerEnvVar(serverName: string): string {
@@ -136,22 +167,22 @@ export function codexMcpArgs(
   const env: Record<string, string> = {}
   for (const [name, srv] of Object.entries(servers)) {
     if (!srv.url) continue
-    args.push('-c', `mcp_servers.${JSON.stringify(name)}.url=${JSON.stringify(srv.url)}`)
+    // One spelling of the key, shared with the posture section, which reads
+    // these args to approve the Podium servers a launch mounts.
+    const key = codexMcpServerKey(name)
+    args.push('-c', `${key}.url=${JSON.stringify(srv.url)}`)
     const headers = Object.entries(srv.headers ?? {})
     const auth = headers.find(([k]) => CODEX_AUTH_HEADERS.has(k.toLowerCase()))
     if (auth) {
       const envVar = bearerEnvVar(name)
       // codex prepends "Bearer " itself; strip any existing prefix.
       env[envVar] = auth[1].replace(/^Bearer\s+/i, '')
-      args.push(
-        '-c',
-        `mcp_servers.${JSON.stringify(name)}.bearer_token_env_var=${JSON.stringify(envVar)}`,
-      )
+      args.push('-c', `${key}.bearer_token_env_var=${JSON.stringify(envVar)}`)
     }
     const rest = headers.filter(([k]) => !CODEX_AUTH_HEADERS.has(k.toLowerCase()))
     if (rest.length > 0) {
       const toml = rest.map(([k, v]) => `${JSON.stringify(k)}=${JSON.stringify(v)}`).join(',')
-      args.push('-c', `mcp_servers.${JSON.stringify(name)}.http_headers={${toml}}`)
+      args.push('-c', `${key}.http_headers={${toml}}`)
     }
   }
   return { args, env }
@@ -162,7 +193,9 @@ export function codexTranscriptPlacement(
   filename: string,
 ): string {
   const safeDir = (relativeDir ?? '').split(/[\\/]+/u).filter((part) => part && part !== '..')
-  return join(home, '.codex', 'sessions', ...safeDir, basename(filename))
+  // A handoff places into the TARGET home's default store: the importing
+  // daemon holds no environment for it yet.
+  return join(codexRoots(home, {}).transcripts, ...safeDir, basename(filename))
 }
 
 /**
@@ -214,15 +247,24 @@ export const codexManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'codex-thread',
+  roots: codexRoots,
   environment: {
     removeInherited: [],
     instanceHome: { variable: 'CODEX_HOME', relativeDir: '.codex' },
+    // Terminal-protocol compatibility for codex's TUI, in the primary pane and
+    // in an attach client alike. Inert for app-server and exec children.
+    set: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
   },
 
   inventory: {
     executable: { names: ['codex'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Codex login detection still uses its guarded local auth file'),
-    loginCommand: supported({ cmd: 'codex', args: ['login'] }),
+    // `--device-auth`: the default sign-in starts a callback server on
+    // localhost:1455 of the machine Codex runs on, which a browser on another
+    // computer (the person's, looking at a Podium terminal) cannot reach. The
+    // device flow prints a link and a one-time code instead (POD-6893 S1).
+    loginCommand: supported({ args: ['login', '--device-auth'] }),
+    signOutCommand: { args: ['logout'] },
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       codexCredentials.identity(credentialFileReader(codexCredentials, homeDir, env)),
     ),
@@ -231,8 +273,7 @@ export const codexManifest: AgentManifest = {
       // drift the way the daemon's two Codex credential lists did.
       files: codexCredentials.files.map((file) => join(file.dirName, file.fileName)),
       compareFreshness: (a, b) =>
-        codexCredentials.files.find((file) => file.propagatable)?.compareFreshness(a, b) ??
-        null,
+        codexCredentials.files.find((file) => file.propagatable)?.compareFreshness(a, b) ?? null,
     }),
     // Codex's own precedence, in order: OPENAI_API_KEY, CODEX_API_KEY,
     // CODEX_ACCESS_TOKEN — each ahead of the ChatGPT login in `auth.json`.
@@ -272,7 +313,22 @@ export const codexManifest: AgentManifest = {
       'OPENAI_ORG_ID',
       'OPENAI_BASE_URL',
     ],
-    detectLogin(homeDir, env?: HarnessEnvironment) {
+    accepts: CODEX_ACCEPTS,
+    hideFromCommands: {
+      args: [
+        '-c',
+        `shell_environment_policy.exclude=${JSON.stringify(deliveredEnvVariables(CODEX_ACCEPTS))}`,
+      ],
+    },
+    // What a started session is on, in Codex's own words (credential
+    // management §9 "Launching"). It reads the stored login, not the key in
+    // the environment, which is exactly the disagreement worth reporting.
+    authStatusProbe: {
+      args: ['login', 'status'],
+      timeoutMs: 12_000,
+      classify: classifyCodexLoginStatus,
+    },
+    detectLogin(homeDir, env: HarnessEnvironment) {
       const path = codexAuthPath(homeDir, env)
       let contents: string
       try {
@@ -313,26 +369,19 @@ export const codexManifest: AgentManifest = {
   usage: supported(codexUsage),
   install: supported(codexInstall),
 
+  posture: codexPosture,
   launch(opts) {
     // [spec:SP-fccf] Session identity never enters model-visible instructions.
     // Official hooks bind the stable Podium pane id to Codex's native thread id.
     const instructions = composeAgentInstructions(opts.instructions ?? [])
     return {
-      cmd: 'codex',
       args: [
         ...(opts.resume ? codexResumeArgs(opts.cwd, opts.resume.value) : []),
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
         ...(isSet(opts.effort) ? ['-c', `model_reasoning_effort=${opts.effort}`] : []),
         ...(instructions ? ['-c', `developer_instructions=${JSON.stringify(instructions)}`] : []),
-        // Codex's workspace-write sandbox denies network — including LOOPBACK — and
-        // Podium hands every agent a CLI that reaches the daemon over
-        // http://127.0.0.1:<relay>. Without this, `podium …` dies with a bare
-        // connection refusal for any command the user has not separately approved
-        // (approval escalates it out of the sandbox). That asymmetry is what made
-        // `podium offer` / `podium worktree` look broken while an already-approved
-        // `podium issue` in the same session worked fine.
-        '-c',
-        'sandbox_workspace_write.network_access=true',
+        // Trust, the sandbox's loopback, the update menu and the approval
+        // mode are the posture section's (./posture.ts), placed before `--`.
         // `--` ends clap's option parsing; without it a prompt starting with `-`
         // dies as "unexpected argument" before the TUI ever opens [POD-1317].
         // Keep this last — a later arg would be parsed as another positional.
@@ -349,7 +398,6 @@ export const codexManifest: AgentManifest = {
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     const mcp = codexMcpArgs(opts.mcpConfig, 'harness')
     return {
-      cmd: 'codex',
       args: [
         'exec',
         '--skip-git-repo-check',
@@ -357,9 +405,9 @@ export const codexManifest: AgentManifest = {
         // Podium's MCP servers as per-invocation config overrides: verified on
         // codex-cli 0.144.5 that `mcp_servers.<name>.url` + `.bearer_token_env_var`
         // (+ `.http_headers` for identity) mount a streamable HTTP server over
-        // plain POST. Codex has no --allowedTools equivalent — allowedTools is
-        // ignored here; the run rides `codex exec`'s own default read-only
-        // sandbox, and MCP tool calls need no approval flag in exec mode.
+        // plain POST. Codex has no --allowedTools equivalent: the run rides
+        // `codex exec`'s own default read-only sandbox, and MCP tool calls
+        // need no approval flag in exec mode.
         // Prompt as positional is safe here: `-c` is single-value (clap
         // `<key=value>`), no variadic flag precedes the positional. The
         // daemon closes stdin immediately, else codex would block appending
@@ -429,16 +477,16 @@ export const codexManifest: AgentManifest = {
          */
         parkOnRelease: false,
         launch: ({ cwd, conversation, endpoint }) => ({
-          cmd: 'codex',
           args: [
             ...codexResumeArgs(cwd, conversation),
-            // NO PERMISSION OVERRIDES on a `--remote` resume. The terminal
-            // launch's `-c sandbox_workspace_write.network_access=true` is one:
-            // Codex (0.166.0 checked) refuses it with "Permission overrides are
-            // not supported when resuming a remote task." and exits, because
-            // any `--remote` socket other than Codex's own default daemon socket
-            // counts as remote. The app-server owns the thread's sandbox, so
-            // the override would not have reached the thread anyway.
+            // NO PERMISSION OVERRIDES on a `--remote` resume. Codex (0.166.0
+            // and 0.167.1 checked) refuses one, such as the loopback override
+            // `-c sandbox_workspace_write.network_access=true`, with
+            // "Permission overrides are not supported when resuming a remote
+            // task." and exits, because any `--remote` socket other than
+            // Codex's own default daemon socket counts as remote. The
+            // app-server owns the thread's sandbox. The posture section adds
+            // only the update-menu switch here.
             ...(endpoint.address ? ['--remote', endpoint.address] : []),
           ],
           cwd,
@@ -495,7 +543,6 @@ export const codexManifest: AgentManifest = {
         .join('\n\n')
       const mcp = codexMcpArgs(opts.mcpConfig, 'headless')
       return {
-        cmd: 'codex',
         args: [
           'exec',
           // Turns ≥2 thread onto the existing rollout; `resume` is a subcommand,
@@ -546,6 +593,7 @@ export const codexManifest: AgentManifest = {
     // the session's original spawn time so it can't latch onto an older
     // sibling's rollout. Spawn passes its own start; reattach the persisted one.
     const floor = input.startedAtMs ?? input.createdAtMs
+    let stopped = false
     let observationLease = input.observationLease
     let boundThread = observationLease?.providerSessionId ?? input.resumeValue
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
@@ -592,6 +640,13 @@ export const codexManifest: AgentManifest = {
         rebindId,
       })
     }
+    // THE SESSION'S FOLDERS (POD-6533, POD-6536): the account's roots, the
+    // ones its child and its hooks use. A survivor whose Codex left the
+    // inventory has no context but still has its account.
+    const { account } = input
+    const sessionsRoot = account.roots.transcripts ?? account.roots.state
+    // pgrep/lsof/ps from the session's command environment (POD-6536).
+    const tools = hostTools(account.env)
     const start = (
       resumeValue: string | undefined,
       startedAtMs: number | undefined,
@@ -605,10 +660,13 @@ export const codexManifest: AgentManifest = {
         !lease || lease.providerSessionId === null ? input.podiumSessionId : undefined
       return observeCodexState({
         cwd: input.cwd,
+        allowCwdDiscovery: input.ownedProcess === undefined || process.platform !== 'darwin',
         ...(input.statTick ? { statTick: input.statTick } : {}),
         ...(processBindingSessionId ? { podiumSessionId: processBindingSessionId } : {}),
         ...(resumeValue ? { resumeValue } : {}),
-        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        homeDir: account.home,
+        hostTools: tools,
+        codexHome: account.roots.state,
         ...(startedAtMs !== undefined ? { startedAtMs } : {}),
         ...(lease && input.podiumSessionId
           ? {
@@ -646,8 +704,49 @@ export const codexManifest: AgentManifest = {
     // (which collapses sibling sessions in the same repo onto the newest
     // rollout). A fresh spawn passes undefined → discovery scoped by the floor.
     let inner = start(input.resumeValue, floor)
+    // Keep ownership discovery OUTSIDE the pinned inner observer: even after
+    // first bind, /new without trusted hooks must request an acknowledged rebind.
+    const resolveOwned = input.ownedProcess
+      ? createOwnedCodexRolloutResolver({
+          ownedProcess: input.ownedProcess,
+          sessionsRoot,
+          startedAtMs: floor,
+          resumeValue: input.resumeValue,
+          inspect: hostProcessInspection(tools),
+        })
+      : undefined
+    let inspecting = false
+    let nextOwnedPollAt = 0
+    const pollOwned = async (): Promise<void> => {
+      if (stopped || !resolveOwned || inspecting || Date.now() < nextOwnedPollAt) return
+      nextOwnedPollAt = Date.now() + 10_000
+      inspecting = true
+      try {
+        const found = await resolveOwned()
+        if (stopped || !found || found.id === boundThread) return
+        discovered.set(found.id, { path: found.path, confidence: 'exact' })
+        const lease = observationLease
+        if (lease && lease.providerSessionId !== found.id) {
+          requestExactRebind(found.id, lease)
+          return
+        }
+        inner.stop()
+        inner = start(found.id, undefined)
+        publishSession(found.id, found.path, 'exact')
+      } finally {
+        inspecting = false
+      }
+    }
+    const stopOwnedPoll = resolveOwned
+      ? scheduleStatPoll(() => void pollOwned(), { statTick: input.statTick, pollMs: 10_000 })
+      : undefined
+    void pollOwned()
     return {
-      stop: () => inner.stop(),
+      stop: () => {
+        stopped = true
+        stopOwnedPoll?.()
+        inner.stop()
+      },
       onObservationAck(ack) {
         inner.onObservationAck(ack)
       },
@@ -728,10 +827,11 @@ export const codexManifest: AgentManifest = {
     async transcriptForExport({ homeDir, resumeValue }) {
       const found = await resolvePinnedCodexRollout(resumeValue, homeDir)
       if (!found) throw new Error('Codex transcript not found')
-      const rel = relative(join(homeDir, '.codex', 'sessions'), dirname(found.path))
+      const rel = relative(codexRoots(homeDir, {}).transcripts, dirname(found.path))
       if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
       return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
     },
+    ...codexConversationFile,
   }),
 
   transcript: codexTranscript,

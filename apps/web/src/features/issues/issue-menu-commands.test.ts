@@ -20,12 +20,14 @@ function menuData() {
 
 function commandDeps() {
   const mutate = vi.fn(async (value: unknown) => value)
+  const startIssueSession = vi.fn(() => ({ settled: Promise.resolve(true) }))
   // The OUTBOXED half (POD-781): these are store actions, not tRPC procedures,
   // so a menu entry that has been made optimistic is asserted on the action and
   // a mutant that reroutes it back through `trpc` shows up as a missing call
   // rather than as a passing test on the other object.
   const actions = {
     updateIssue: vi.fn(async () => {}),
+    setPinned: vi.fn(async () => {}),
     deleteIssue: vi.fn(async () => {}),
     closeIssue: vi.fn(async () => {}),
     deferIssue: vi.fn(async () => {}),
@@ -51,18 +53,20 @@ function commandDeps() {
       markIssueRead: vi.fn(async () => {}),
       markIssueUnread: vi.fn(async () => {}),
       ...actions,
+      startIssueSession,
       setOpenIssueId: vi.fn(),
       setView: vi.fn(),
     } as unknown as IssueMenuCommandDeps,
     mutate,
     actions,
+    startIssueSession,
   }
 }
 
 describe('shared issue menu command execution', () => {
   it('keeps stage, label, and start mutations identical to the context menu', async () => {
     const data = menuData()
-    const { deps, mutate, actions } = commandDeps()
+    const { deps, mutate, actions, startIssueSession } = commandDeps()
     const entries = issueMenuEntries(data)
     const stage = entries.find((entry) => entry.id === 'status')
     const labels = entries.find((entry) => entry.id === 'labels')
@@ -84,9 +88,10 @@ describe('shared issue menu command execution', () => {
 
     expect(actions.updateIssue).toHaveBeenCalledWith('i', { stage: 'review' })
     expect(actions.setIssueLabels).toHaveBeenCalledWith('i', [])
-    // `agent` stays a direct call — starting a session is not an issue-row edit
-    // and has nothing to paint.
-    expect(mutate).toHaveBeenCalledWith({ id: 'i' })
+    // `agent` is a session start on the issue: an effect record the launch
+    // paint shows (POD-6526), never the old `issues.addSession`/`start` routes.
+    expect(startIssueSession).toHaveBeenCalledWith({ issueId: 'i' })
+    expect(mutate).not.toHaveBeenCalled()
   })
 
   it('sends close, defer and unsnooze through the outbox actions, not tRPC', async () => {
@@ -131,7 +136,7 @@ describe('shared issue menu command execution', () => {
     expect(actions.updateIssue).toHaveBeenCalledWith('i', { stage: 'review' })
   })
 
-  it('toggles the pin through the patch action — one command, one queue', async () => {
+  it('toggles the pin as my pin record, never an issue patch (POD-6692)', async () => {
     const data = menuData()
     const { deps, actions } = commandDeps()
     const pin = issueMenuEntries(data).find((entry) => entry.id === 'pin')
@@ -139,7 +144,8 @@ describe('shared issue menu command execution', () => {
 
     await runIssueMenuCommand(data, pin, undefined, deps)
 
-    expect(actions.updateIssue).toHaveBeenCalledWith('i', { pinned: true })
+    expect(actions.setPinned).toHaveBeenCalledWith('issue', 'i', true)
+    expect(actions.updateIssue).not.toHaveBeenCalled()
   })
 
   it('asks before archiving an issue that has children, counting the issue itself', async () => {

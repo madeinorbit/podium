@@ -50,11 +50,6 @@ vi.mock('expo-router', () => ({
 vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
-vi.mock('lucide-react-native', () => ({
-  ChevronLeft: () => null,
-  MoreVertical: () => null,
-  SquareTerminal: () => null,
-}))
 // The transcript is not what this file is about; the menu lives in the chrome.
 vi.mock('../components/SessionConversation', () => ({ SessionConversation: () => null }))
 vi.mock('../components/AgentMark', () => ({ HarnessChip: () => null }))
@@ -109,10 +104,6 @@ const session = (patch: Partial<SessionView> = {}): SessionView =>
     agentKind: 'claude-code',
     cwd: '/home/dev/podium',
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-08-27T10:00:00.000Z',
     lastActiveAt: '2026-08-27T10:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -181,7 +172,7 @@ async function openDraftMenuWithSessions() {
     {
       sessions: threeSessions(),
       issues: [vessel()],
-      api: { issues: { delete: { mutate: async () => {} } } },
+      api: { issues: { delete: { mutate: () => new Promise(() => {}) } } },
     },
   )
   fireEvent.click(await screen.findByLabelText('Session actions'))
@@ -452,7 +443,9 @@ describe('session menu snooze from the acting user home', () => {
   ])('shows null snooze and hides it when cleared, stripped=%s', async (stripped) => {
     const raw = session({ snoozedUntil: '2099-01-01T00:00:00.000Z' })
     if (stripped) Reflect.deleteProperty(raw, 'snoozedUntil')
-    const clear = vi.fn(async () => {})
+    // Keep the authority answer pending so the menu observes the queued edit,
+    // before its eventual feed confirmation retires the optimistic paint.
+    const clear = vi.fn(() => new Promise(() => {}))
     const { replica } = await renderWithMobileStore(<SessionScreen />, {
       sessions: [raw],
       issues: [active],
@@ -466,7 +459,7 @@ describe('session menu snooze from the acting user home', () => {
     await act(async () => {
       replica.applyChanges('sessionUserStates', [personal()], [])
     })
-    expect(screen.queryByLabelText('Clear Snooze')).toBeNull()
+    await waitFor(() => expect(screen.queryByLabelText('Clear Snooze')).toBeNull())
     await act(async () => {
       replica.applyChanges('sessionUserStates', [personal(null)], [])
     })
@@ -475,7 +468,7 @@ describe('session menu snooze from the acting user home', () => {
     fireEvent.click(await screen.findByLabelText('Session actions'))
     fireEvent.click(await screen.findByLabelText('Snooze…'))
     expect(await screen.findByLabelText('Until Next Message')).toBeTruthy()
-    expect(screen.queryByLabelText('Clear Snooze')).toBeNull()
+    await waitFor(() => expect(screen.queryByLabelText('Clear Snooze')).toBeNull())
     expect(replica.rows('sessions')[0]).toBe(stored)
   })
 

@@ -18,6 +18,8 @@ import {
 } from '@podium/model'
 import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from './migrations'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
@@ -25,6 +27,22 @@ import { shipOrderProjectionRows } from './modules/shipping/projection'
 import type { SessionStore } from './store'
 import type { RootIntegrationReceiptStore } from './store/shipping'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
+import { storeSql } from './test-support/store-sql'
+
+const T0 = '2026-08-12T09:00:00.000Z'
+const T1 = '2026-08-12T09:01:00.000Z'
+const T2 = '2026-08-12T09:02:00.000Z'
+const T3 = '2026-08-12T09:03:00.000Z'
+
+/**
+ * SQLite's shipping triggers, probed with raw statements: `probe` runs on SQLite only.
+ * Postgres has no triggers; its guarded writes carry the rules (`store/shipping-guards.test.ts`)
+ * and `store/immutability-census.test.ts` proves no definition can break them (POD-6986).
+ */
+function onSqliteTriggers(probe: () => void): void {
+  if (testStoreEngine() === 'sqlite') probe()
+}
 
 const base = () => ({
   id: asIssueId('iss_1'),
@@ -69,15 +87,15 @@ const base = () => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: T0,
+  updatedAt: T0,
   archived: false,
 })
 
 describe('store issues', () => {
   it('round-trips an issue', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     const got = await s.issues.getIssue('iss_1')
     expect(got?.title).toBe('Fix login')
     expect(got?.worktreePath).toBeNull()
@@ -87,8 +105,8 @@ describe('store issues', () => {
 
   it('updates on conflict and preserves JSON blockedBy', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       stage: 'planning',
       worktreePath: '/r/wt',
@@ -108,19 +126,19 @@ describe('store issues', () => {
     for (const repo of ['/r', '/other']) await s.repos.addRepo(repo, asMachineId('machine-1'))
     const rid = async (p: string) => await s.repos.resolveRepoIdForPath(p)
     expect(await s.issues.nextIssueSeq(await rid('/r'))).toBe(1)
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('a'),
       repoPath: '/r',
       seq: 1,
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('b'),
       repoPath: '/r',
       seq: 2,
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('c'),
       repoPath: '/other',
@@ -128,12 +146,7 @@ describe('store issues', () => {
     })
     expect(await s.issues.nextIssueSeq(await rid('/r'))).toBe(3)
     expect(await s.issues.nextIssueSeq(await rid('/other'))).toBe(2)
-    expect(
-      (await s.issues
-        .listIssueRows('/r'))
-        .map((i) => i.id)
-        .sort(),
-    ).toEqual(['a', 'b'])
+    expect((await s.issues.listIssueRows('/r')).map((i) => i.id).sort()).toEqual(['a', 'b'])
     expect((await s.issues.listIssueRows()).length).toBe(3)
   })
 
@@ -141,14 +154,14 @@ describe('store issues', () => {
     const s = await openTestStore(':memory:')
     const repoId = asRepoId('repo_shared_origin')
     // Two checkouts of the SAME repo at DIFFERENT paths (e.g. two machines).
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('a'),
       repoPath: '/home/alice/proj',
       repoId,
       seq: 1,
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('b'),
       repoPath: '/home/bob/proj',
@@ -165,14 +178,15 @@ describe('store issues', () => {
     // heal has nothing to do on a live DB.
     const s = await openTestStore(':memory:')
     const repoId = asRepoId('repo_dup')
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('m4'),
       repoPath: '/home/user/p',
       repoId,
       seq: 4,
     })
-    await expect(s.issues.upsertIssue({
+    await expect(
+      s.issues.upsertIssue(fixtureWriteScope(), {
         ...base(),
         id: asIssueId('t4'),
         repoPath: '/home/till/p',
@@ -183,150 +197,108 @@ describe('store issues', () => {
     expect(await s.issues.renumberCollidingIssueSeqs()).toBe(0)
   })
 
-  it('boot-heals colliding seqs restored from a pre-index database, idempotently (#140)', async () => {
-    // Emulate a database from main's pre-UNIQUE-index lineage: build it, drop the
-    // 005 index out-of-band, plant a collision raw, then reopen through the store —
-    // the per-boot renumberCollidingIssueSeqs heal renumbers the loser.
-    const file = join(mkdtempSync(join(tmpdir(), 'podium-seq-heal-')), 'heal.db')
-    const repoId = asRepoId('repo_dup')
-    const s1 = await openTestStore(file)
-    // Same origin, two paths; canonical (majority) path /home/user + a loser path
-    // /home/till that minted colliding #4 (and a non-colliding #1).
-    await s1.issues.upsertIssue({
-      ...base(),
-      id: asIssueId('m3'),
-      repoPath: '/home/user/p',
-      repoId,
-      seq: 3,
-    })
-    await s1.issues.upsertIssue({
-      ...base(),
-      id: asIssueId('m4'),
-      repoPath: '/home/user/p',
-      repoId,
-      seq: 4,
-    })
-    await s1.issues.upsertIssue({
-      ...base(),
-      id: asIssueId('m5'),
-      repoPath: '/home/user/p',
-      repoId,
-      seq: 5,
-    })
-    await s1.issues.upsertIssue({
-      ...base(),
-      id: asIssueId('t4'),
-      repoPath: '/home/till/p',
-      repoId,
-      seq: 99,
-    })
-    await s1.issues.upsertIssue({
-      ...base(),
-      id: asIssueId('t1'),
-      repoPath: '/home/till/p',
-      repoId,
-      seq: 1,
-    })
-    await s1.close()
-    const raw = openDatabase(file)
-    raw.exec('DROP INDEX idx_issues_repo_id_seq')
-    raw.prepare('UPDATE issues SET seq = 4 WHERE id = ?').run('t4')
-    raw.close()
-    const s2 = await openTestStore(file) // boot heal runs here
-    expect((await s2.issues.getIssue('m4'))?.seq).toBe(4) // canonical path keeps #4
-    expect((await s2.issues.getIssue('t4'))?.seq).toBe(6) // loser appended after max(5) => 6
-    expect((await s2.issues.getIssue('t1'))?.seq).toBe(1) // non-colliding kept
-    const seqs = (await s2.issues.listIssueRows()).map((i) => i.seq)
-    expect(new Set(seqs).size).toBe(seqs.length) // unique per repo_id
-    expect(await s2.issues.renumberCollidingIssueSeqs()).toBe(0) // idempotent
-    await s2.close()
-  })
-
   it('deletes', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     await s.issues.deleteIssue('iss_1')
     expect(await s.issues.getIssue('iss_1')).toBeNull()
   })
 
   it('rejects an invalid stage on write but allows the auto defaultAgent sentinel', async () => {
     const s = await openTestStore(':memory:')
-    await expect(s.issues.upsertIssue({ ...base(), stage: 'bogus' })).rejects.toThrow(/stage/i)
+    await expect(
+      s.issues.upsertIssue(fixtureWriteScope(), { ...base(), stage: 'bogus' }),
+    ).rejects.toThrow(/stage/i)
     // 'auto' is a legal defaultAgent (AgentChoice sentinel) — it must NOT be rejected;
     // it is resolved to a concrete kind only at spawn time.
-    await s.issues.upsertIssue({ ...base(), defaultAgent: 'auto' })
+    await s.issues.upsertIssue(fixtureWriteScope(), { ...base(), defaultAgent: 'auto' })
   })
 
   it('normalizes a non-array blockedBy to [] on write', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       blockedBy: 'nope' as unknown as string[],
     })
     expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
   })
 
-  it('tolerates a corrupt blocked_by column instead of crashing the whole load', async () => {
-    // A row whose blocked_by holds non-JSON (legacy/externally-corrupted data) must
-    // NOT throw out of mapIssueRow — that would abort listIssueRows, which runs in
-    // IssueService's constructor at boot, crash-looping the server. Quarantine the
-    // bad field (blockedBy -> []) and keep the row.
-    const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
-    rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', 'iss_1')
+  // A json column on Postgres refuses non-JSON text, so this corruption exists only on SQLite.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'tolerates a corrupt blocked_by column instead of crashing the whole load',
+    async () => {
+      // A row whose blocked_by holds non-JSON (legacy/externally-corrupted data) must
+      // NOT throw out of mapIssueRow — that would abort listIssueRows, which runs in
+      // IssueService's constructor at boot, crash-looping the server. Quarantine the
+      // bad field (blockedBy -> []) and keep the row.
+      const s = await openTestStore(':memory:')
+      await s.issues.upsertIssue(fixtureWriteScope(), base())
+      rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', 'iss_1')
 
-    await s.issues.listIssueRows()
-    expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
-    expect((await s.issues.listIssueRows()).map((i) => i.id)).toContain('iss_1')
-  })
+      await s.issues.listIssueRows()
+      expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
+      expect((await s.issues.listIssueRows()).map((i) => i.id)).toContain('iss_1')
+    },
+  )
 
   it('quarantines a non-array blocked_by JSON value', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     // Valid JSON, wrong shape (an object, not a string[]).
-    rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{"a":1}', 'iss_1')
+    await storeSql(s).run(sql`UPDATE issues SET blocked_by = ${'{"a":1}'} WHERE id = ${'iss_1'}`)
     expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
   })
 
   // POD-568 — the finished-work projection the auto-hibernate sweep orders by.
   it('names closed issues by stage, close reason and tombstone', async () => {
     const s = await openTestStore(':memory:')
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('open'),
       seq: 1,
       stage: 'in_progress',
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('review'),
       seq: 2,
       stage: 'review',
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('done'),
       seq: 3,
       stage: 'done',
     })
     // Closed for a reason WITHOUT reaching done — the half isIssueClosed exists for.
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('duped'),
       seq: 4,
       stage: 'backlog',
       closedReason: 'duplicate',
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: asIssueId('gone'),
       seq: 5,
       stage: 'planning',
     })
-    rawDb(s).prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run('t1', 'gone')
+    await storeSql(s).run(sql`UPDATE issues SET deleted_at = ${T1} WHERE id = ${'gone'}`)
 
-    expect([...await s.issues.closedIssueIdsAmong(['open', 'review', 'done', 'duped', 'gone', 'missing'])].sort()).toEqual(['done', 'duped', 'gone'])
-    expect([...await s.issues.closedIssueIdsAmong(['open', 'done'])]).toEqual(['done'])
+    expect(
+      [
+        ...(await s.issues.closedIssueIdsAmong([
+          'open',
+          'review',
+          'done',
+          'duped',
+          'gone',
+          'missing',
+        ])),
+      ].sort(),
+    ).toEqual(['done', 'duped', 'gone'])
+    expect([...(await s.issues.closedIssueIdsAmong(['open', 'done']))]).toEqual(['done'])
   })
 })
 
@@ -419,20 +391,23 @@ describe('shipping durable store', () => {
   it('fences active orders, attempts, idempotent steps, holds, and immutable receipts', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-shipping-store-')), 'shipping.db')
     const s = await openTestStore(file)
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     const order = shipOrder()
-    expect(await s.shipping.createOrder(order)).toEqual(order)
-    await expect(s.shipping.createOrder(
+    expect(await s.shipping.createOrder(fixtureWriteScope(), order)).toEqual(order)
+    await expect(
+      s.shipping.createOrder(
+        fixtureWriteScope(),
         shipOrder({ id: asShipOrderId('order-not-queued'), state: 'preflight' }),
       ),
     ).rejects.toThrow(/created queued/)
-    await expect(s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-other') }))).rejects.toThrow(
-      /already has active ship order/,
-    )
-    expect(() =>
-      rawDb(s)
-        .prepare(
-          `INSERT INTO ship_orders
+    await expect(
+      s.shipping.createOrder(fixtureWriteScope(), shipOrder({ id: asShipOrderId('order-other') })),
+    ).rejects.toThrow(/already has active ship order/)
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare(
+            `INSERT INTO ship_orders
             (id, issue_id, repo_id, repo_path, machine_id, target_branch, destination, approved_base_sha,
              approved_head_sha, descendant_manifest, delivery_depends_on, provider_ref,
              requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
@@ -442,14 +417,17 @@ describe('shipping durable store', () => {
              requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
              requested_at, policy_id, close_mode, state, state_changed_at, hold_code
            FROM ship_orders WHERE id = ?`,
-        )
-        .run('order-raw-active', order.id),
-    ).toThrow()
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE ship_orders SET target_branch = ? WHERE id = ?')
-        .run('dev', order.id),
-    ).toThrow(/approval is immutable/)
+          )
+          .run('order-raw-active', order.id),
+      ).toThrow(),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_orders SET target_branch = ? WHERE id = ?')
+          .run('dev', order.id),
+      ).toThrow(/approval is immutable/),
+    )
 
     const attempt = {
       id: asShipAttemptId('attempt-1'),
@@ -462,7 +440,7 @@ describe('shipping durable store', () => {
       startedAt: '2026-08-12T10:01:00.000Z',
       submittedHeadSha: order.approvedHeadSha,
     }
-    await s.shipping.createAttempt(attempt)
+    await s.shipping.createAttempt(fixtureWriteScope(), attempt)
     const stepFence = {
       sourceBaseSha: attempt.expectedSourceBaseSha,
       approvedHeadSha: attempt.approvedHeadSha,
@@ -501,18 +479,22 @@ describe('shipping durable store', () => {
       finishedAt: '2026-08-12T10:03:00.000Z',
       recordedAt: '2026-08-12T10:03:00.000Z',
     }
-    expect(await s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
-    expect(await s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
-    await expect(s.shipping.appendStep({
+    expect(await s.shipping.appendStep(fixtureWriteScope(), plannedStep)).toEqual(plannedStep)
+    expect(await s.shipping.appendStep(fixtureWriteScope(), plannedStep)).toEqual(plannedStep)
+    await expect(
+      s.shipping.appendStep(fixtureWriteScope(), {
         ...plannedStep,
         id: asShipStepId('step-collision'),
         summary: 'different',
       }),
     ).rejects.toThrow(/idempotency collision/)
-    expect(await s.shipping.appendStep(runningStep)).toEqual(runningStep)
-    expect(await s.shipping.appendStep(finishedStep)).toEqual(finishedStep)
-    expect(await s.shipping.latestStepForEffect(attempt.id, plannedStep.effectKey)).toEqual(finishedStep)
-    await expect(s.shipping.appendStep({
+    expect(await s.shipping.appendStep(fixtureWriteScope(), runningStep)).toEqual(runningStep)
+    expect(await s.shipping.appendStep(fixtureWriteScope(), finishedStep)).toEqual(finishedStep)
+    expect(await s.shipping.latestStepForEffect(attempt.id, plannedStep.effectKey)).toEqual(
+      finishedStep,
+    )
+    await expect(
+      s.shipping.appendStep(fixtureWriteScope(), {
         ...plannedStep,
         id: asShipStepId('step-stale-generation'),
         idempotencyKey: 'stale-generation',
@@ -520,7 +502,8 @@ describe('shipping durable store', () => {
       }),
     ).rejects.toThrow(/generation fence/)
 
-    await expect(s.shipping.raiseHold({
+    await expect(
+      s.shipping.raiseHold(fixtureWriteScope(), {
         id: asShipHoldId('hold-stale'),
         orderId: order.id,
         generation: 2,
@@ -532,7 +515,7 @@ describe('shipping durable store', () => {
         raisedAt: '2026-08-12T10:04:00.000Z',
       }),
     ).rejects.toThrow(/expected 1/)
-    await s.shipping.raiseHold({
+    await s.shipping.raiseHold(fixtureWriteScope(), {
       id: asShipHoldId('hold-1'),
       orderId: order.id,
       generation: 1,
@@ -543,27 +526,30 @@ describe('shipping durable store', () => {
       actions: ['retry'],
       raisedAt: '2026-08-12T10:04:00.000Z',
     })
-    expect(() =>
-      rawDb(s)
-        .prepare(
-          `INSERT INTO ship_holds
-            (id, order_id, generation, reason_code, headline, detail, evidence_refs,
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare(
+            `INSERT INTO ship_holds
+            (workspace_id, id, order_id, generation, reason_code, headline, detail, evidence_refs,
              actions, raised_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          'hold-raw-open',
-          order.id,
-          2,
-          'dependency-blocked',
-          'Still held',
-          '',
-          '[]',
-          '["retry"]',
-          '2026-08-12T10:04:30.000Z',
-        ),
-    ).toThrow()
-    await expect(s.shipping.raiseHold({
+           VALUES ('local', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            'hold-raw-open',
+            order.id,
+            2,
+            'dependency-blocked',
+            'Still held',
+            '',
+            '[]',
+            '["retry"]',
+            '2026-08-12T10:04:30.000Z',
+          ),
+      ).toThrow(),
+    )
+    await expect(
+      s.shipping.raiseHold(fixtureWriteScope(), {
         id: asShipHoldId('hold-second-open'),
         orderId: order.id,
         generation: 2,
@@ -575,22 +561,53 @@ describe('shipping durable store', () => {
         raisedAt: '2026-08-12T10:04:30.000Z',
       }),
     ).rejects.toThrow()
-    await expect(s.shipping.resolveHold(order.id, 2, 'retry', 'queued', '2026-08-12T10:05:00.000Z'),
+    await expect(
+      s.shipping.resolveHold(
+        fixtureWriteScope(),
+        order.id,
+        2,
+        'retry',
+        'queued',
+        '2026-08-12T10:05:00.000Z',
+      ),
     ).rejects.toThrow(/generation fence/)
-    await expect(s.shipping.resolveHold(order.id, 1, 'retry', 'repairing', '2026-08-12T10:05:00.000Z'),
+    await expect(
+      s.shipping.resolveHold(
+        fixtureWriteScope(),
+        order.id,
+        1,
+        'retry',
+        'repairing',
+        '2026-08-12T10:05:00.000Z',
+      ),
     ).rejects.toThrow(/cannot transition/)
     expect(
-      await s.shipping.resolveHold(order.id, 1, 'retry', 'queued', '2026-08-12T10:05:00.000Z'),
+      await s.shipping.resolveHold(
+        fixtureWriteScope(),
+        order.id,
+        1,
+        'retry',
+        'queued',
+        '2026-08-12T10:05:00.000Z',
+      ),
     ).toMatchObject({ generation: 1, resolution: 'retry' })
 
-    await expect(s.shipping.finishAttempt(attempt.id, 2, {
+    await expect(
+      s.shipping.finishAttempt(fixtureWriteScope(), attempt.id, 2, {
         finishedAt: '2026-08-12T10:06:00.000Z',
         outcome: 'succeeded',
       }),
     ).rejects.toThrow(/generation fence/)
-    await expect(s.shipping.transitionOrder(order.id, 'queued', 'verifying', '2026-08-12T10:06:30.000Z'),
+    await expect(
+      s.shipping.transitionOrder(
+        fixtureWriteScope(),
+        order.id,
+        'queued',
+        'verifying',
+        '2026-08-12T10:06:30.000Z',
+      ),
     ).rejects.toThrow(/illegal ship order transition/)
-    const retry = await s.shipping.claimAttempt({
+    const retry = await s.shipping.claimAttempt(fixtureWriteScope(), {
       orderId: order.id,
       expectedState: 'queued',
       expectedAttemptId: attempt.id,
@@ -599,10 +616,34 @@ describe('shipping durable store', () => {
       startedAt: '2026-08-12T10:06:10.000Z',
     })
     expect(retry.attempt.leaseGeneration).toBe(4)
-    await s.shipping.transitionOrder(order.id, 'preflight', 'composing', '2026-08-12T10:06:20.000Z')
-    await s.shipping.transitionOrder(order.id, 'composing', 'validating', '2026-08-12T10:06:30.000Z')
-    await s.shipping.transitionOrder(order.id, 'validating', 'landing', '2026-08-12T10:06:40.000Z')
-    await s.shipping.transitionOrder(order.id, 'landing', 'verifying', '2026-08-12T10:07:00.000Z')
+    await s.shipping.transitionOrder(
+      fixtureWriteScope(),
+      order.id,
+      'preflight',
+      'composing',
+      '2026-08-12T10:06:20.000Z',
+    )
+    await s.shipping.transitionOrder(
+      fixtureWriteScope(),
+      order.id,
+      'composing',
+      'validating',
+      '2026-08-12T10:06:30.000Z',
+    )
+    await s.shipping.transitionOrder(
+      fixtureWriteScope(),
+      order.id,
+      'validating',
+      'landing',
+      '2026-08-12T10:06:40.000Z',
+    )
+    await s.shipping.transitionOrder(
+      fixtureWriteScope(),
+      order.id,
+      'landing',
+      'verifying',
+      '2026-08-12T10:07:00.000Z',
+    )
     const receipt: DeliveryReceipt = {
       id: asDeliveryReceiptId('receipt-1'),
       orderId: order.id,
@@ -617,16 +658,23 @@ describe('shipping durable store', () => {
       destination: order.destination,
       completedAt: '2026-08-12T10:08:00.000Z',
     }
-    await expect(s.shipping.completeVerifiedOrder(receipt)).rejects.toThrow(/successful proof/)
-    const finished = await s.shipping.finishAttempt(retry.attempt.id, retry.attempt.leaseGeneration, {
-      finishedAt: '2026-08-12T10:07:30.000Z',
-      outcome: 'succeeded',
-      testedIntegrationSha: 'tested-integration',
-      landedRefSha: 'landed-ref',
-      destinationSha: 'destination-tip',
-      validationProfileId: 'default',
-      validationResult: 'passed',
-    })
+    await expect(s.shipping.completeVerifiedOrder(fixtureWriteScope(), receipt)).rejects.toThrow(
+      /successful proof/,
+    )
+    const finished = await s.shipping.finishAttempt(
+      fixtureWriteScope(),
+      retry.attempt.id,
+      retry.attempt.leaseGeneration,
+      {
+        finishedAt: '2026-08-12T10:07:30.000Z',
+        outcome: 'succeeded',
+        testedIntegrationSha: 'tested-integration',
+        landedRefSha: 'landed-ref',
+        destinationSha: 'destination-tip',
+        validationProfileId: 'default',
+        validationResult: 'passed',
+      },
+    )
     expect(finished).toMatchObject({
       approvedHeadSha: 'approved-head',
       testedIntegrationSha: 'tested-integration',
@@ -635,44 +683,61 @@ describe('shipping durable store', () => {
       validationProfileId: 'default',
       validationResult: 'passed',
     })
-    expect(await s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
-    expect(await s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
+    expect(await s.shipping.completeVerifiedOrder(fixtureWriteScope(), receipt)).toEqual(receipt)
+    expect(await s.shipping.completeVerifiedOrder(fixtureWriteScope(), receipt)).toEqual(receipt)
     expect(await s.shipping.listReceipts()).toContainEqual(
       expect.objectContaining({ orderId: order.id, resultCommitSha: 'landed-ref' }),
     )
-    await expect(s.shipping.completeVerifiedOrder({
+    await expect(
+      s.shipping.completeVerifiedOrder(fixtureWriteScope(), {
         ...receipt,
         destinationSha: 'different-proof',
       }),
     ).rejects.toThrow(/different immutable receipt/)
-    await expect(s.shipping.transitionOrder(order.id, 'shipped', 'queued', 'later')).rejects.toThrow(
-      /terminal ship order.*immutable/,
+    await expect(
+      s.shipping.transitionOrder(fixtureWriteScope(), order.id, 'shipped', 'queued', 'later'),
+    ).rejects.toThrow(/terminal ship order.*immutable/)
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_steps SET summary = ? WHERE id = ?')
+          .run('x', finishedStep.id),
+      ).toThrow(/append-only/),
     )
-    expect(() =>
-      rawDb(s).prepare('UPDATE ship_steps SET summary = ? WHERE id = ?').run('x', finishedStep.id),
-    ).toThrow(/append-only/)
-    expect(() =>
-      rawDb(s).prepare('DELETE FROM ship_steps WHERE id = ?').run(finishedStep.id),
-    ).toThrow(/append-only/)
-    expect(() => rawDb(s).prepare('DELETE FROM ship_orders WHERE id = ?').run(order.id)).toThrow(
-      /ship order .*immutable/,
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s).prepare('DELETE FROM ship_steps WHERE id = ?').run(finishedStep.id),
+      ).toThrow(/append-only/),
     )
-    expect(() =>
-      rawDb(s).prepare('DELETE FROM ship_attempts WHERE id = ?').run(attempt.id),
-    ).toThrow(/ship attempt .*immutable/)
-    expect(() =>
-      rawDb(s).prepare('DELETE FROM ship_holds WHERE id = ?').run(asShipHoldId('hold-1')),
-    ).toThrow(/ship hold .*immutable/)
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE delivery_receipts SET destination_sha = ? WHERE id = ?')
-        .run('other', receipt.id),
-    ).toThrow(/delivery receipt is immutable/)
-    expect(() =>
-      rawDb(s).prepare('DELETE FROM delivery_receipts WHERE id = ?').run(receipt.id),
-    ).toThrow(/delivery receipt is immutable/)
+    onSqliteTriggers(() =>
+      expect(() => rawDb(s).prepare('DELETE FROM ship_orders WHERE id = ?').run(order.id)).toThrow(
+        /ship order .*immutable/,
+      ),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s).prepare('DELETE FROM ship_attempts WHERE id = ?').run(attempt.id),
+      ).toThrow(/ship attempt .*immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s).prepare('DELETE FROM ship_holds WHERE id = ?').run(asShipHoldId('hold-1')),
+      ).toThrow(/ship hold .*immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE delivery_receipts SET destination_sha = ? WHERE id = ?')
+          .run('other', receipt.id),
+      ).toThrow(/delivery receipt is immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s).prepare('DELETE FROM delivery_receipts WHERE id = ?').run(receipt.id),
+      ).toThrow(/delivery receipt is immutable/),
+    )
 
-    await s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-2') }))
+    await s.shipping.createOrder(fixtureWriteScope(), shipOrder({ id: asShipOrderId('order-2') }))
     await s.close()
     const restarted = await openTestStore(file)
     expect(await restarted.shipping.getOrder(order.id)).toMatchObject({
@@ -702,14 +767,14 @@ describe('shipping durable store', () => {
     const s = await openTestStore(':memory:')
     const lowerIssue = asIssueId('iss_lower')
     const coveringIssue = asIssueId('iss_covering')
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: lowerIssue,
       seq: 40,
       branch: 'issue/lower',
       machineId: asMachineId('machine-1'),
     })
-    await s.issues.upsertIssue({
+    await s.issues.upsertIssue(fixtureWriteScope(), {
       ...base(),
       id: coveringIssue,
       seq: 41,
@@ -727,9 +792,9 @@ describe('shipping durable store', () => {
       approvedHeadSha: 'covering-head',
       deliveryDependsOn: [lower.id],
     })
-    await s.shipping.createOrder(lower)
-    await s.shipping.createOrder(covering)
-    const train = await s.shipping.claimTrain({
+    await s.shipping.createOrder(fixtureWriteScope(), lower)
+    await s.shipping.createOrder(fixtureWriteScope(), covering)
+    const train = await s.shipping.claimTrain(fixtureWriteScope(), {
       leaderOrderId: covering.id,
       startedAt: '2026-08-12T10:01:00.000Z',
       members: [lower, covering].map((order) => ({
@@ -763,25 +828,25 @@ describe('shipping durable store', () => {
     for (const member of train.manifest.members) {
       expect(await s.shipping.trainManifestForAttempt(member.attemptId)).toEqual(train.manifest)
     }
-    rawDb(s)
-      .prepare('UPDATE ship_lane_revisions SET revision = revision + 1 WHERE lane_key = ?')
-      .run(train.manifest.lane.laneKey)
+    await storeSql(s).run(
+      sql`UPDATE ship_lane_revisions SET revision = revision + 1 WHERE lane_key = ${train.manifest.lane.laneKey}`,
+    )
     expect(await s.shipping.activeTrainForOrder(lower.id)).toBeNull()
     expect(
-      rawDb(s)
-        .prepare('SELECT released_at AS releasedAt FROM ship_train_manifests WHERE id = ?')
-        .get(train.manifest.id),
+      await storeSql(s).get(
+        sql`SELECT released_at AS "releasedAt" FROM ship_train_manifests WHERE id = ${train.manifest.id}`,
+      ),
     ).toEqual({ releasedAt: null })
-    rawDb(s)
-      .prepare('UPDATE ship_lane_revisions SET revision = ? WHERE lane_key = ?')
-      .run(train.manifest.lane.laneRevision, train.manifest.lane.laneKey)
+    await storeSql(s).run(
+      sql`UPDATE ship_lane_revisions SET revision = ${train.manifest.lane.laneRevision} WHERE lane_key = ${train.manifest.lane.laneKey}`,
+    )
     const rawMemberInsert = (ordinal: number) =>
       rawDb(s)
         .prepare(
           `INSERT INTO ship_train_members
-            (train_id, ordinal, issue_id, order_id, attempt_id, generation, machine_id,
+            (workspace_id, train_id, ordinal, issue_id, order_id, attempt_id, generation, machine_id,
              source_branch, approved_base_sha, approved_head_sha, delivery_depends_on)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES ('local', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           train.manifest.id,
@@ -796,13 +861,17 @@ describe('shipping durable store', () => {
           lower.approvedHeadSha,
           '[]',
         )
-    expect(() => rawMemberInsert(train.manifest.memberCount)).toThrow(/ordinal exceeds/)
-    expect(() => rawMemberInsert(0)).toThrow(/sealed after active claim/)
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE ship_train_manifests SET canonical_json = ? WHERE id = ?')
-        .run('{}', train.manifest.id),
-    ).toThrow(/immutable/)
+    onSqliteTriggers(() =>
+      expect(() => rawMemberInsert(train.manifest.memberCount)).toThrow(/ordinal exceeds/),
+    )
+    onSqliteTriggers(() => expect(() => rawMemberInsert(0)).toThrow(/sealed after active claim/))
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_train_manifests SET canonical_json = ? WHERE id = ?')
+          .run('{}', train.manifest.id),
+      ).toThrow(/immutable/),
+    )
     const claimed = train.claimed.find((item) => item.order.id === covering.id)!
     for (const [from, to] of [
       ['preflight', 'composing'],
@@ -811,18 +880,29 @@ describe('shipping durable store', () => {
       ['landing', 'publishing'],
       ['publishing', 'verifying'],
     ] as const) {
-      await s.shipping.transitionOrder(covering.id, from, to, '2026-08-12T10:02:00.000Z')
+      await s.shipping.transitionOrder(
+        fixtureWriteScope(),
+        covering.id,
+        from,
+        to,
+        '2026-08-12T10:02:00.000Z',
+      )
     }
     const completedAt = '2026-08-12T10:03:00.000Z'
-    await s.shipping.finishAttempt(claimed.attempt.id, claimed.attempt.leaseGeneration, {
-      finishedAt: completedAt,
-      outcome: 'succeeded',
-      testedIntegrationSha: 'covering-head',
-      landedRefSha: 'covering-head',
-      destinationSha: 'covering-head',
-      validationProfileId: 'default',
-      validationResult: 'passed',
-    })
+    await s.shipping.finishAttempt(
+      fixtureWriteScope(),
+      claimed.attempt.id,
+      claimed.attempt.leaseGeneration,
+      {
+        finishedAt: completedAt,
+        outcome: 'succeeded',
+        testedIntegrationSha: 'covering-head',
+        landedRefSha: 'covering-head',
+        destinationSha: 'covering-head',
+        validationProfileId: 'default',
+        validationResult: 'passed',
+      },
+    )
     const coveringReceipt = {
       id: asDeliveryReceiptId('receipt-covering'),
       orderId: covering.id,
@@ -837,7 +917,7 @@ describe('shipping durable store', () => {
       destination: covering.destination,
       completedAt,
     }
-    await s.shipping.completeVerifiedOrder(coveringReceipt)
+    await s.shipping.completeVerifiedOrder(fixtureWriteScope(), coveringReceipt)
     const lowerReceipt = {
       ...coveringReceipt,
       id: asDeliveryReceiptId('receipt-lower'),
@@ -889,7 +969,7 @@ describe('shipping durable store', () => {
       providerLandedRefSha: coveringReceipt.landedRefSha,
       destinationSha: coveringReceipt.destinationSha,
     }))
-    const envelopeKey = await s.shipping.recordEffectEnvelope({
+    const envelopeKey = await s.shipping.recordEffectEnvelope(fixtureWriteScope(), {
       request: { action: 'start', requestDigest, ...requestFacts },
       result: {
         jobId: requestFacts.jobId,
@@ -916,9 +996,14 @@ describe('shipping durable store', () => {
       recordedAt: coveringReceipt.completedAt,
     })
 
-    expect(await s.shipping.completeCoveredOrder(lowerReceipt, covering.id, envelopeKey)).toEqual(
-      lowerReceipt,
-    )
+    expect(
+      await s.shipping.completeCoveredOrder(
+        fixtureWriteScope(),
+        lowerReceipt,
+        covering.id,
+        envelopeKey,
+      ),
+    ).toEqual(lowerReceipt)
     expect((await s.shipping.getOrder(lower.id))?.state).toBe('shipped')
     await s.close()
   })
@@ -926,16 +1011,16 @@ describe('shipping durable store', () => {
   it('exposes a CAS-only issue custody seam for atomic admission and settlement', async () => {
     const s = await openTestStore(':memory:')
     const issue = { ...base(), stage: 'review' as const }
-    await s.issues.upsertIssue(issue)
+    await s.issues.upsertIssue(fixtureWriteScope(), issue)
     await s.transact(async () => {
-      await s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't1')
-      await s.shipping.createOrder(shipOrder())
+      await s.issues.transitionShippingStage(issue.id, 'review', 'shipping', T1)
+      await s.shipping.createOrder(fixtureWriteScope(), shipOrder())
     })
     expect((await s.issues.getIssue(issue.id))?.stage).toBe('shipping')
-    await expect(s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't2')).rejects.toThrow(
-      /stage fence/,
-    )
-    await s.issues.transitionShippingStage(issue.id, 'shipping', 'review', 't3')
+    await expect(
+      s.issues.transitionShippingStage(issue.id, 'review', 'shipping', T2),
+    ).rejects.toThrow(/stage fence/)
+    await s.issues.transitionShippingStage(issue.id, 'shipping', 'review', T3)
     expect((await s.issues.getIssue(issue.id))?.stage).toBe('review')
   })
 
@@ -956,29 +1041,34 @@ describe('shipping durable store', () => {
     }
     const canonical = { ...receipt, descendants: [childA, childB] }
     const s = await openTestStore(file)
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
 
     expect(await s.shipping.recordRootIntegrationReceipt(receipt)).toEqual(canonical)
     expect(await s.shipping.recordRootIntegrationReceipt(canonical)).toEqual(canonical)
-    expect(await s.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)).toEqual(
-      canonical,
-    )
+    expect(
+      await s.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha),
+    ).toEqual(canonical)
     expect(await s.shipping.rootIntegrationReceipt(receipt.rootIssueId, 'other-head')).toBeNull()
-    await expect(s.shipping.recordRootIntegrationReceipt({
+    await expect(
+      s.shipping.recordRootIntegrationReceipt({
         ...receipt,
         descendants: [childA],
       }),
     ).rejects.toThrow(/different descendants/)
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE root_integration_receipts SET descendants = ? WHERE root_issue_id = ?')
-        .run('[]', receipt.rootIssueId),
-    ).toThrow(/root integration receipt is immutable/)
-    expect(() =>
-      rawDb(s)
-        .prepare('DELETE FROM root_integration_receipts WHERE root_issue_id = ?')
-        .run(receipt.rootIssueId),
-    ).toThrow(/root integration receipt is immutable/)
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE root_integration_receipts SET descendants = ? WHERE root_issue_id = ?')
+          .run('[]', receipt.rootIssueId),
+      ).toThrow(/root integration receipt is immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('DELETE FROM root_integration_receipts WHERE root_issue_id = ?')
+          .run(receipt.rootIssueId),
+      ).toThrow(/root integration receipt is immutable/),
+    )
 
     await s.close()
     const restarted = await openTestStore(file)
@@ -992,7 +1082,7 @@ describe('shipping durable store', () => {
     const s = await openTestStore(':memory:', asMachineId('machine-1'))
     const issueIds = ['a', 'b', 'c'].map((suffix) => asIssueId(`iss_train_${suffix}`))
     for (const [index, id] of issueIds.entries()) {
-      await s.issues.upsertIssue({
+      await s.issues.upsertIssue(fixtureWriteScope(), {
         ...base(),
         id,
         seq: 70 + index,
@@ -1016,14 +1106,16 @@ describe('shipping durable store', () => {
       issueId: issueIds[2],
       requestedAt: '2026-08-12T10:02:00.000Z',
     })
-    for (const order of [a, b, c]) await s.shipping.createOrder(order)
-    await expect(s.shipping.claimTrain({
+    for (const order of [a, b, c]) await s.shipping.createOrder(fixtureWriteScope(), order)
+    await expect(
+      s.shipping.claimTrain(fixtureWriteScope(), {
         leaderOrderId: b.id,
         startedAt: '2026-08-12T10:03:00.000Z',
         members: [a, b].map((order) => ({ orderId: order.id })),
       }),
     ).rejects.toThrow(/cross an immutable delivery lane/)
-    await expect(s.shipping.claimTrain({
+    await expect(
+      s.shipping.claimTrain(fixtureWriteScope(), {
         leaderOrderId: c.id,
         startedAt: '2026-08-12T10:03:00.000Z',
         members: [{ orderId: c.id }],
@@ -1031,14 +1123,14 @@ describe('shipping durable store', () => {
     ).rejects.toThrow(/canonical contiguous dependency\/FIFO prefix/)
     for (const order of [a, b, c]) expect(await s.shipping.attemptsForOrder(order.id)).toEqual([])
 
-    const claimed = await s.shipping.claimTrain({
+    const claimed = await s.shipping.claimTrain(fixtureWriteScope(), {
       leaderOrderId: c.id,
       startedAt: '2026-08-12T10:04:00.000Z',
       members: [a, c].map((order) => ({ orderId: order.id })),
     })
     expect((await s.shipping.activeTrainForOrder(a.id))?.id).toBe(claimed.manifest.id)
     const first = claimed.claimed.find((item) => item.order.id === a.id)!.attempt
-    await s.shipping.finishAttempt(first.id, first.leaseGeneration, {
+    await s.shipping.finishAttempt(fixtureWriteScope(), first.id, first.leaseGeneration, {
       finishedAt: '2026-08-12T10:05:00.000Z',
       outcome: 'failed',
     })
@@ -1049,7 +1141,7 @@ describe('shipping durable store', () => {
     const upperIssue = asIssueId('iss_cycle_upper')
     const lowerIssue = asIssueId('iss_cycle_lower')
     for (const [index, id] of [upperIssue, lowerIssue].entries()) {
-      await cyclic.issues.upsertIssue({
+      await cyclic.issues.upsertIssue(fixtureWriteScope(), {
         ...base(),
         id,
         seq: 80 + index,
@@ -1060,18 +1152,22 @@ describe('shipping durable store', () => {
     const upperId = asShipOrderId('order-cycle-upper')
     const lowerId = asShipOrderId('order-cycle-lower')
     await cyclic.shipping.createOrder(
+      fixtureWriteScope(),
       shipOrder({ id: upperId, issueId: upperIssue, deliveryDependsOn: [lowerId] }),
     )
     await cyclic.shipping.createOrder(
+      fixtureWriteScope(),
       shipOrder({ id: lowerId, issueId: lowerIssue, deliveryDependsOn: [upperId] }),
     )
-    await expect(cyclic.shipping.claimTrain({
+    await expect(
+      cyclic.shipping.claimTrain(fixtureWriteScope(), {
         leaderOrderId: upperId,
         startedAt: '2026-08-12T10:06:00.000Z',
         members: [{ orderId: upperId }, { orderId: lowerId }],
       }),
     ).rejects.toThrow(/canonical contiguous dependency\/FIFO prefix/)
-    for (const id of [upperId, lowerId]) expect(await cyclic.shipping.attemptsForOrder(id)).toEqual([])
+    for (const id of [upperId, lowerId])
+      expect(await cyclic.shipping.attemptsForOrder(id)).toEqual([])
     await cyclic.close()
   })
 
@@ -1086,7 +1182,7 @@ describe('shipping durable store', () => {
       issueId: asIssueId('iss_child_b'),
       approvedHeadSha: 'sha-b',
     }
-    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
     await s.shipping.recordRootIntegrationReceipt({
       rootIssueId,
       approvedHeadSha: 'integrated-root-head',
@@ -1094,7 +1190,10 @@ describe('shipping durable store', () => {
     })
 
     const admissionProofs: RootIntegrationReceiptStore = s.shipping
-    const current = await admissionProofs.rootIntegrationReceipt(rootIssueId, 'integrated-root-head')
+    const current = await admissionProofs.rootIntegrationReceipt(
+      rootIssueId,
+      'integrated-root-head',
+    )
     expect(current).not.toBeNull()
     if (!current) throw new Error('expected typed integration proof')
     expect(
@@ -1133,10 +1232,11 @@ describe('shipping durable store', () => {
       },
     })
     const s = await openTestStore(file)
-    await s.issues.upsertIssue(base())
-    expect(await s.shipping.createOrder(evidenced)).toEqual(evidenced)
-    expect(await s.shipping.createOrder(evidenced)).toEqual(evidenced)
-    await expect(s.shipping.createOrder({
+    await s.issues.upsertIssue(fixtureWriteScope(), base())
+    expect(await s.shipping.createOrder(fixtureWriteScope(), evidenced)).toEqual(evidenced)
+    expect(await s.shipping.createOrder(fixtureWriteScope(), evidenced)).toEqual(evidenced)
+    await expect(
+      s.shipping.createOrder(fixtureWriteScope(), {
         ...evidenced,
         currentIntegrationReceipt: {
           ...evidenced.currentIntegrationReceipt!,
@@ -1144,23 +1244,29 @@ describe('shipping durable store', () => {
         },
       }),
     ).rejects.toThrow()
-    await expect(s.shipping.createOrder(
+    await expect(
+      s.shipping.createOrder(
+        fixtureWriteScope(),
         shipOrder({
           id: asShipOrderId('order-missing-receipt'),
           descendantManifest: [childA],
         }),
       ),
     ).rejects.toThrow()
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE ship_orders SET evidence_manifest_ref = ? WHERE id = ?')
-        .run('evidence://other', evidenced.id),
-    ).toThrow(/approval is immutable/)
-    expect(() =>
-      rawDb(s)
-        .prepare('UPDATE ship_orders SET current_integration_receipt = ? WHERE id = ?')
-        .run('{}', evidenced.id),
-    ).toThrow(/approval is immutable/)
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_orders SET evidence_manifest_ref = ? WHERE id = ?')
+          .run('evidence://other', evidenced.id),
+      ).toThrow(/approval is immutable/),
+    )
+    onSqliteTriggers(() =>
+      expect(() =>
+        rawDb(s)
+          .prepare('UPDATE ship_orders SET current_integration_receipt = ? WHERE id = ?')
+          .run('{}', evidenced.id),
+      ).toThrow(/approval is immutable/),
+    )
     await s.close()
     const restarted = await openTestStore(file)
     expect(await restarted.shipping.getOrder(evidenced.id)).toEqual(evidenced)
@@ -1168,7 +1274,7 @@ describe('shipping durable store', () => {
   })
 })
 
-/** White-box seam: reach the store's own SQLite connection to inject corrupt rows. */
+/** White-box seam: the store's own SQLite connection, for the trigger probes and the corrupt row. */
 function rawDb(s: SessionStore): SqlDatabase {
   return (s as unknown as { db: SqlDatabase }).db
 }

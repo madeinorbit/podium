@@ -155,13 +155,13 @@ export class FakeAuthority implements AuthorityReadPort {
   /** Manual mode: set to drive chunks by hand for mid-walk cases. */
   manual: ChunkChannel | null = null
 
-  async changesRange(cursor: Cursor, _signal?: AbortSignal, onTarget?: (target: Cursor) => void): ReturnType<AuthorityReadPort['changesRange']> {
+  async changesRange(cursor: Cursor, _signal?: AbortSignal, onTarget?: Parameters<AuthorityReadPort['changesRange']>[2]): ReturnType<AuthorityReadPort['changesRange']> {
     this.changesRangeCalls.push(cursor)
     const next = this.changesRangeQueue.shift()
     if (next === undefined) return { kind: 'bootstrap-required', reason: 'no scripted reply' }
     if (next instanceof Error) throw next
     if (!('kind' in next) || next.kind === 'bootstrap-required') return next
-    onTarget?.({ feedId: next.feedId, epoch: next.epoch, seq: next.seq })
+    onTarget?.({ feedId: next.feedId, epoch: next.epoch, seq: next.seq }, {})
     return (async function* () { yield next })()
   }
 
@@ -190,7 +190,7 @@ export function bootstrapChunk(
   last: boolean,
   overrides: Partial<BootstrapChunk> = {},
 ): BootstrapChunk {
-  return { feedId: FEED_ID, epoch: EPOCH, snapshotSeq, changes, last, ...overrides }
+  return { feedId: FEED_ID, epoch: EPOCH, snapshotSeq, changes, last, kindTokens: {}, ...overrides }
 }
 
 async function* chunkStream(
@@ -201,7 +201,7 @@ async function* chunkStream(
   const size = slice.chunkSize ?? 2
   const rows = slice.rows
   if (rows.length === 0) {
-    yield { feedId, epoch, snapshotSeq: slice.snapshotSeq, changes: [], last: true }
+    yield { feedId, epoch, snapshotSeq: slice.snapshotSeq, changes: [], last: true, kindTokens: {} }
     return
   }
   for (let i = 0; i < rows.length; i += size) {
@@ -212,6 +212,7 @@ async function* chunkStream(
       feedId,
       epoch,
       snapshotSeq: slice.snapshotSeq,
+      kindTokens: {},
       changes: rows.slice(i, i + size),
       last: i + size >= rows.length,
     }

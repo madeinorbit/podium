@@ -1,32 +1,46 @@
-import { seedRuntimeHistory } from '../runtime/history-seed'
 import { randomUUID } from 'node:crypto'
-import { dispatchInputBytes } from './legacy-terminal-input'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { AcceptedDriverId, RefusalReason, SessionSpec } from '@podium/harness/driver/host'
+import {
+  type AppliedTerms,
+  agentStateProviderFor,
+  canonicalDriverId,
+  type DriverId,
+  type HarnessContext,
+  type HarnessInstallation,
+  type HarnessVersionDiagnostic,
+  harnessCapabilitiesFor,
+  harnessChildEnv,
+  harnessCommand,
+  harnessTranscriptStorage,
+  type LaunchFile,
+  type LaunchSpec,
+  noAgentTerms,
+  parseHarnessVersion,
+  prepareClaudeHomeLaunch,
+  withArgs,
+} from '@podium/harness'
+import type {
+  AcceptedDriverId,
+  RefusalReason,
+  SessionSpec,
+  TerminalLaunch,
+  TerminalLaunched,
+  TerminalRecover,
+  TerminalRecovered,
+} from '@podium/harness/driver/host'
 import {
   attachKindsForDriver,
   configureFieldsForDriver,
   EngineBindUnrecoverable,
+  TerminalRecoveryRefusal,
 } from '@podium/harness/driver/host'
-import {
-  agentStateProviderFor,
-  bindHarnessLaunch,
-  canonicalDriverId,
-  type DriverId,
-  type HarnessVersionDiagnostic,
-  harnessCapabilitiesFor,
-  harnessTranscriptStorage,
-  type LaunchFile,
-  parseHarnessVersion,
-  serverDriverExecutable,
-} from '@podium/harness'
-import { managementLoginCommandFor } from '../harness-management.js'
 import { createLogger } from '@podium/logger'
 import {
   type AgentKind,
   type AgentRuntimeState,
   asMachineId,
+  type BuiltinHarnessKind,
   type Geometry,
   type SessionId,
 } from '@podium/model'
@@ -38,25 +52,19 @@ import {
   WriterLeaseRefusedError,
 } from '@podium/process/durable'
 import type { AgentPicture } from '@podium/process/screen'
-import { Terminal } from '../terminal/terminal.js'
-import { adaptTerminal } from '../runtime/terminal-transport.js'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { stateDir } from '@podium/runtime/config'
 import { measureTask } from '@podium/runtime/task-attribution'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { noDurableBackendRefusal } from '../durable-backend'
+import { managementLoginCommandFor } from '../harness-management.js'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
-import { codexAppServerVersionProbe } from '../runtime/version-probe'
+import { decideReopenScreen } from '../reopen-policy'
 import { driverTiming } from '../runtime/driver-timing'
-import { grokAcpVersionProbe } from '../runtime/version-probe'
 import { handleFor, runtimeDriverIdFor } from '../runtime/handlers'
+import { seedRuntimeHistory } from '../runtime/history-seed'
 import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
-import {
-  opencode2VersionProbe,
-  opencode2VersionProbeForExecutable,
-  opencodeVersionProbe,
-  opencodeVersionProbeForExecutable,
-} from '../runtime/version-probe'
 import {
   availableDriverIds,
   droppedDriverPreference,
@@ -68,24 +76,37 @@ import {
   terminalProfileFor,
   unhonouredSpawnDriver,
 } from '../runtime/registry'
-import { TerminalRecoveryRefusal } from '@podium/harness/driver/host'
 import { beginServerDriverReap } from '../runtime/server-reap'
-import type {
-  TerminalLaunch,
-  TerminalLaunched,
-  TerminalRecover,
-  TerminalRecovered,
-} from '@podium/harness/driver/host'
-import type { ReattachControl, SpawnControl } from '../session-observers'
+import { adaptTerminal } from '../runtime/terminal-transport.js'
+import {
+  codexAppServerVersionProbe,
+  grokAcpVersionProbe,
+  opencode2VersionProbe,
+  opencodeVersionProbe,
+} from '../runtime/version-probe'
 import type { DaemonSession } from '../session/daemon-session.js'
-import { removeSessionUploads } from '../session-uploads'
-import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
-import type { ControlHandlers, DaemonContext } from './context'
-import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
-
-export { harnessCompatEnv } from './session-env'
-
-import { decideReopenScreen } from '../reopen-policy'
+import { spawnSessionProcess } from '../session/harness-spawn.js'
+import {
+  buildDriverHarnessContext,
+  buildSessionHarnessContext,
+  driverHarnessContextFrom,
+  sessionHarnessContextFor,
+} from '../session-harness-context.js'
+import type { ReattachControl, SpawnControl } from '../session-observers'
+import {
+  launchFoldersFor,
+  launchPosturePart,
+  nodePrepareLaunchPorts,
+  podiumGrantsFor,
+  prepareLaunch,
+  sessionRuntimeDir,
+} from '../session-posture'
+import {
+  forgetSessionPosture,
+  recordSessionPosture,
+  spawnPosture,
+  storedSessionPosture,
+} from '../session-posture-store'
 import {
   forgetSessionScreen,
   sessionScreenFor,
@@ -93,6 +114,14 @@ import {
   trackSessionOutput,
   trackSessionSize,
 } from '../session-screens'
+import { removeSessionUploads } from '../session-uploads'
+import { Terminal } from '../terminal/terminal.js'
+import { deliveryOverlay } from './access'
+import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
+import type { ControlHandlers, DaemonContext } from './context'
+import { reportEffectiveAuth, sessionProcessEnvironment } from './effective-auth'
+import { dispatchInputBytes } from './legacy-terminal-input'
+import { shellChildEnv } from './session-env'
 
 const log = createLogger('daemon:session')
 
@@ -342,7 +371,10 @@ export function reconcileNativeClientTerminal(
       entry.nativeTransition = undefined
       // A request can change after the final equality check but before cleanup.
       // Re-run once the slot is free; attach and release are both idempotent.
-      if (applied !== undefined && (ctx.sessions.get(sessionId)?.nativeRequested === true) !== applied)
+      if (
+        applied !== undefined &&
+        (ctx.sessions.get(sessionId)?.nativeRequested === true) !== applied
+      )
         reconcileNativeClientTerminal(ctx, sessionId)
     })
   entry.nativeTransition = transition
@@ -425,7 +457,11 @@ export function sessionProcessEnv(
       agentKind,
       ctx.instanceUuid,
     ),
-    ...browserOpenEnv(ctx.settingsDir),
+    // PATH here is the shim folder ALONE: a prefix the child-env recipe puts
+    // ahead of the composed PATH (POD-6535). Spelling the daemon's own PATH
+    // after it would replace the recovered command env's PATH with a
+    // GUI-launched daemon's bare one.
+    ...browserOpenEnv(ctx.settingsDir, ''),
   }
 }
 
@@ -456,7 +492,7 @@ export function instrumentedLaunchArgs(
 }
 
 function instructionRuntimeDir(ctx: DaemonContext, sessionId: SessionId): string {
-  return join(ctx.settingsDir, 'session-instructions', sessionId)
+  return sessionRuntimeDir(ctx.settingsDir, sessionId)
 }
 
 function removeSessionInstructions(ctx: DaemonContext, sessionId: SessionId): void {
@@ -578,7 +614,10 @@ export function wireBridge(
   owned.label = durableLabel
   // The screen is held (not fed) here — see the Terminal contract. Feeding
   // stays in the fan-out below, unchanged.
-  const terminal = Terminal.attach(session, owned, {
+  const terminal = Terminal.attach(
+    session,
+    owned,
+    {
       onSize: (size, birth) =>
         onSessionSize(ctx, sessionId, size, birth, session.keepsScreen?.() === true),
       onPicture: (picture, seed) => forwardPicture(ctx, sessionId, picture, seed),
@@ -609,7 +648,7 @@ export function wireBridge(
       // frame-rate), which would clobber the real title the codex observer derives
       // (capabilities.oscTitle: false). Every other harness sets a meaningful OSC
       // title, so forward it for them.
-      ...(harnessCapabilitiesFor(agentKind)?.oscTitle ?? true
+      ...((harnessCapabilitiesFor(agentKind)?.oscTitle ?? true)
         ? {
             onTitle: (title: string) =>
               ctx.send({ type: 'title', sessionId, title, source: 'osc' }),
@@ -678,10 +717,19 @@ const NOMINAL_TERMINAL_GEOMETRY = { cols: 120, rows: 40 } as const
  */
 export async function launchTerminalProcess(
   ctx: DaemonContext,
-  input: TerminalLaunch & { loginHarness?: SpawnControl['loginHarness'] },
+  input: Omit<TerminalLaunch, 'spec'> & {
+    /** An agent's whole SessionSpec, or a shell's or login pane's
+     *  {@link PlainTerminalSpec}, which carries no harness context. */
+    spec: SessionSpec | PlainTerminalSpec
+    loginHarness?: SpawnControl['loginHarness']
+  },
 ): Promise<TerminalLaunched> {
   const { sessionId, spec, instrumentation, resume, loginHarness } = input
   const agentKind = spec.harness as AgentKind
+  // THE SESSION'S ONE CONTEXT (POD-6533): the installation and folders the
+  // spec was built with at spawn. Launch binds it below, the observers read its
+  // roots, and the session keeps it for a later re-init of its observers.
+  const harnessContext = 'harnessContext' in spec ? spec.harnessContext : undefined
   const order = ctx.sessions.get(sessionId)?.order
   const ordered: SpawnControl = (order?.frame.type === 'spawn' ? order.frame : undefined) ?? {
     type: 'spawn',
@@ -741,7 +789,6 @@ export async function launchTerminalProcess(
       : undefined
     const launchOptions = {
       cwd: spec.workdir,
-      ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       podiumSessionId: sessionId,
       ...(resume ? { resume } : {}),
       ...(newSessionId ? { newSessionId } : {}),
@@ -751,24 +798,74 @@ export async function launchTerminalProcess(
       ...(instructions?.length ? { instructions: [...instructions] } : {}),
       runtimeDir,
       ...(spec.env ? { env: spec.env } : {}),
+      // THE LAUNCH'S TERMS (POD-6858): an agent's spec carries its posture and
+      // grants; a shell's or login pane's carries none and runs no agent.
+      ...('posture' in spec && 'grants' in spec
+        ? {
+            posture: launchPosturePart(
+              spec,
+              await launchFoldersFor({
+                settingsDir: ctx.settingsDir,
+                sessionId,
+                workdir: spec.workdir,
+              }),
+            ),
+          }
+        : {}),
     }
     // loginCommand is intentionally a static argv declaration: the production
-    // branch below binds it to the current generation's verified executable and
-    // command environment. Resolving here would duplicate that snapshot and let
-    // login drift from the executable the rest of the launch uses. The injected
+    // branch below binds it to a harness context built from the current
+    // generation: its verified executable and account environment. Resolving
+    // here would duplicate that snapshot and let login drift from the
+    // executable the rest of the launch uses. The injected
     // ctx.launch branch is a legacy/test seam; production host runtime always
     // supplies the binder for this path.
-    const cmd = loginCommand
-      ? ctx.harnessRuntime
-        ? bindHarnessLaunch(await ctx.harnessRuntime.current(), loginHarness!, {
-            args: [...loginCommand.args],
-            cwd: spec.workdir,
-          })
-        : { cmd: loginCommand.cmd, args: [...loginCommand.args], cwd: spec.workdir }
-      : ctx.harnessRuntime
-        ? await ctx.harnessRuntime.launch(agentKind, launchOptions)
-        : ctx.launch(agentKind, launchOptions)
-    materializeLaunchFiles(cmd.files)
+    if (!loginHarness && agentKind !== 'shell' && !harnessContext) {
+      throw new Error(`a ${agentKind} launch needs the session's harness context`)
+    }
+    // A login pane has no session context: it runs under the login harness's
+    // account context, built now, for this one launch. Its env and its strip
+    // list follow that harness, never the 'shell' kind the pane is filed as.
+    const loginContext = loginHarness
+      ? await buildSessionHarnessContext(ctx, loginHarness, sessionId)
+      : undefined
+    const childContext = loginContext ?? harnessContext
+    // A Claude terminal in a Podium home asks to trust its folder before the
+    // first turn; the person's own directory already knows their folders.
+    if (childContext?.harnessHome && !loginContext) {
+      prepareClaudeHomeLaunch(
+        { harness: childContext.installation.kind, dir: childContext.harnessHome.dir },
+        { cwd: spec.workdir },
+      )
+    }
+    const cmd: LaunchSpec =
+      loginCommand && loginContext
+        ? harnessCommand(
+            loginContext,
+            { args: [...loginCommand.args], cwd: spec.workdir },
+            noAgentTerms('native login pane: runs no agent'),
+          )
+        : ctx.harnessRuntime
+          ? await ctx.harnessRuntime.launch(harnessContext ?? 'shell', launchOptions)
+          : ctx.launch(agentKind, {
+              ...launchOptions,
+              ...(harnessContext ? { harnessContext } : {}),
+            })
+    // The launch's files, home edits and unmet terms (POD-6858): a harness
+    // command carries its applied terms; the operator's shell has none. An
+    // agent's terms go to the server with its driver decision (Task 11); a
+    // login pane runs no agent and reports none.
+    if ('terms' in cmd) {
+      const applied = await prepareLaunch(
+        cmd,
+        nodePrepareLaunchPorts({ sessionId, launch: 'terminal' }),
+      )
+      if (!loginHarness && agentKind !== 'shell') {
+        reportLaunchTerms(ctx, sessionId, applied, terminalProfileFor(agentKind)?.driverId)
+      }
+    } else {
+      materializeLaunchFiles(cmd.files)
+    }
     // SQLite-backed harnesses create their store parent lazily. Create the
     // Podium-owned directory before the PTY starts so two fresh sessions
     // cannot race on a missing per-session store directory. Keyed on the
@@ -779,37 +876,57 @@ export async function launchTerminalProcess(
     if (!loginHarness && harnessTranscriptStorage(agentKind) === 'sqlite' && cmd.env?.OPENCODE_DB) {
       mkdirSync(dirname(cmd.env.OPENCODE_DB), { recursive: true })
     }
-    const session = await durable.spawn({
+    // The relay pair and browser shim every session process gets. The
+    // agent-IDENTITY half rides along only for harness kinds — a shell is the
+    // operator [POD-1375].
+    const podiumEnv = sessionProcessEnv(ctx, sessionId, agentKind)
+    // The session's credential, from memory (credential management §8): the
+    // only credential this session chose, so it survives the inherited strip.
+    // A login pane and a shell have none.
+    const access =
+      childContext && !loginHarness ? await ctx.access.awaitAccess(sessionId) : undefined
+    const delivered =
+      childContext && !loginHarness
+        ? deliveryOverlay(agentKind, access)
+        : { env: {}, args: [], keep: [] }
+    const child = childContext
+      ? harnessChildEnv(childContext, {
+          sessionEnv: { ...spec.env, ...delivered.env },
+          wiringEnv: {
+            // The adapter's own launch env.
+            ...cmd.env,
+            // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
+            ...(subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: subagentModel } : {}),
+            // Globally-installed hooks are env-gated per session by their adapter.
+            // Commands exit immediately when absent, so non-Podium runs are untouched.
+            ...instrumentation.env,
+          },
+          podiumEnv,
+        })
+      : // The operator's own shell keeps its own path: no harness, no strip.
+        {
+          env: shellChildEnv({
+            ...(spec.env ? { sessionEnv: spec.env } : {}),
+            ...(cmd.env ? { launchEnv: cmd.env } : {}),
+            podiumEnv: { ...podiumEnv, ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}) },
+          }),
+          strip: [],
+        }
+    const session = await spawnSessionProcess(durable, {
       // DEMAND THE WRITER LEASE (POD-4434). A spawn that adopts a live master
       // while another writer holds it is the update-overlap symptom: two
       // daemons, one host, and a session that looks live and swallows input.
       requireLease: true,
       label,
-      cmd: cmd.cmd,
-      args: instrumentedLaunchArgs(cmd.args, instrumentation.args),
+      command: withArgs(cmd, [
+        // The harness's hide-from-commands switches lead its own arguments.
+        ...delivered.args,
+        ...instrumentedLaunchArgs(cmd.args, instrumentation.args),
+      ]),
       cwd: cmd.cwd,
       cols: orderFrame.geometry.cols,
       rows: orderFrame.geometry.rows,
-      env: spawnEnv({
-        // Server-resolved managed credential / environment (SP-6454, #216).
-        sessionEnv: spec.env,
-        harnessEnv: cmd.env,
-        podiumEnv: {
-          // The relay pair and browser shim every session process gets. The
-          // agent-IDENTITY half rides along only for harness kinds — a shell is
-          // the operator [POD-1375].
-          ...sessionProcessEnv(ctx, sessionId, agentKind),
-          ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-          ...harnessInstanceEnv(loginHarness ?? agentKind, ctx.homeDir),
-          // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
-          ...(subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: subagentModel } : {}),
-          // Globally-installed hooks are env-gated per session by their adapter.
-          // Commands exit immediately when absent, so non-Podium runs are untouched.
-          ...instrumentation.env,
-          // Terminal-protocol compatibility for this harness (see above).
-          ...harnessCompatEnv(agentKind),
-        },
-      }),
+      env: child.env,
       // The session's account is the one its HOME is logged into — which is only
       // true if this harness's own credential vars cannot reach it by inheritance
       // from the daemon (POD-2296). `env` above cannot express that: unsetting a
@@ -822,12 +939,25 @@ export async function launchTerminalProcess(
       // let an inherited key outrank it — `claude login` under a stray
       // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
       // environment" instead.
-      stripEnv: harnessChildStripEnv(loginHarness ?? agentKind, spec.env),
+      stripEnv: child.strip,
     })
     driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_process_started', {
       adopted: session.adopted,
     })
+    // WHAT THE HARNESS SAYS IT IS ON (credential management §9 "Launching"):
+    // asked once, in the background, with this process's own environment. An
+    // adopted process was asked when it started.
+    if (childContext && !loginHarness && agentKind !== 'shell' && !session.adopted) {
+      reportEffectiveAuth(ctx, {
+        sessionId,
+        agentKind,
+        executable: childContext.installation.executable,
+        env: sessionProcessEnvironment(process.env, child),
+        access,
+      })
+    }
     const terminal = wireBridge(ctx, sessionId, session, agentKind, label)
+    ctx.sessions.ensure(sessionId).harnessContext = harnessContext
     // The size the program is at: the host's WELCOME (the Terminal already
     // stated it through the size event), or — on a backend that cannot read
     // its size back — the size it was born at.
@@ -839,6 +969,7 @@ export async function launchTerminalProcess(
       seedOnFrame: true,
       startedAtMs: spawnStartedAt,
       ...(newSessionId ? { newSessionId } : {}),
+      ...(harnessContext ? { harnessContext } : {}),
     })
     // The size event above ran before these observers existed: tell them now.
     ctx.observers.onResize?.(sessionId, geometry.cols, geometry.rows)
@@ -963,8 +1094,8 @@ function reportSpawnFailure(ctx: DaemonContext, sessionId: SessionId, err: unkno
  * screen and reaper as every terminal session, and announces itself.
  */
 async function launchPlainTerminal(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
-  const spec: SessionSpec = {
-    ...sessionSpecForSpawn(msg, { auth: 'unknown', role: 'interactive' }),
+  const spec: PlainTerminalSpec = {
+    ...plainSpecForSpawn(msg, { auth: 'unknown', role: 'interactive' }),
     ...(msg.durableLabel ? { durableLabel: msg.durableLabel } : {}),
   }
   try {
@@ -1013,16 +1144,21 @@ async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promi
     }
     const runtime = ctx.agentRuntime
     if (!runtime) throw new Error('agent runtime is unavailable; retry after the daemon recovers')
-    const base = sessionSpecForSpawn(msg, {
-      driverId: profile.driverId,
-      auth: 'unknown',
-      role: 'interactive',
-    })
+    // Built ONCE, here, for the life of the session (POD-6533): the driver
+    // hands this one value to hook installation and launch.
+    const base = sessionSpecForSpawn(
+      msg,
+      { driverId: profile.driverId, auth: 'unknown', role: 'interactive' },
+      await buildSessionHarnessContext(ctx, msg.agentKind as BuiltinHarnessKind, msg.sessionId),
+    )
+    recordSessionPosture(msg.sessionId, base.posture)
     const spec: SessionSpec = {
       ...base,
       model: {
         ...base.model,
-        ...(msg.subagentModel ? { subagentModel: { supported: true, value: msg.subagentModel } } : {}),
+        ...(msg.subagentModel
+          ? { subagentModel: { supported: true, value: msg.subagentModel } }
+          : {}),
       },
       ...(msg.durableLabel ? { durableLabel: msg.durableLabel } : {}),
       ...(profile.instrumentationRequired
@@ -1041,7 +1177,12 @@ async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promi
   } catch (err) {
     // A process may already exist when handle construction fails. Use the shared
     // reaper before reporting failure; never acknowledge a driverless agent.
-    reapFailedLaunch(ctx, msg.sessionId, msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId), err)
+    reapFailedLaunch(
+      ctx,
+      msg.sessionId,
+      msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId),
+      err,
+    )
     reportSpawnFailure(ctx, msg.sessionId, err)
   }
 }
@@ -1062,12 +1203,17 @@ function requireTerminalHandle(
     handle.binding.family !== 'terminal' ||
     handle.binding.driver !== profile.driverId
   ) {
-    throw new Error(`terminal driver '${profile.driverId}' did not establish a handle; retry this session`)
+    throw new Error(
+      `terminal driver '${profile.driverId}' did not establish a handle; retry this session`,
+    )
   }
   // REFRESH THE HANDED TERMINAL (POD-4785): the entry's surface may have been
   // replaced (reattach, steal) without a new bind carrying it, so push the
   // current one.
-  ctx.agentRuntime?.setTerminal?.(msg.sessionId, adaptTerminal(ctx.sessions.get(msg.sessionId)?.terminal))
+  ctx.agentRuntime?.setTerminal?.(
+    msg.sessionId,
+    adaptTerminal(ctx.sessions.get(msg.sessionId)?.terminal),
+  )
 }
 
 async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
@@ -1079,6 +1225,13 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     })
     return
   }
+  // THE SESSION'S CREDENTIAL, held in memory for its life (credential
+  // management §8). Before anything below can start a process: the terminal,
+  // an engine and every later turn apply it from the store. A spawn without
+  // one runs on the harness's own login, so whatever an earlier incarnation
+  // held is dropped.
+  if (msg.access) ctx.access.remember(msg.sessionId, msg.access, msg.agentKind)
+  else ctx.access.forget(msg.sessionId)
   const requestedDriverId = spawnNamedServerDriver(msg.requestedDriverId)
   driverTiming.sessionRequested({
     sessionId: msg.sessionId,
@@ -1181,10 +1334,8 @@ export async function launchTerminalSpawn(
   msg: SpawnControl,
   requestedDriverId?: string,
 ): Promise<void> {
-  await withOrder(
-    ctx,
-    { frame: msg, ...(requestedDriverId ? { requestedDriverId } : {}) },
-    () => launchAgentTerminal(ctx, msg),
+  await withOrder(ctx, { frame: msg, ...(requestedDriverId ? { requestedDriverId } : {}) }, () =>
+    launchAgentTerminal(ctx, msg),
   )
 }
 
@@ -1226,16 +1377,46 @@ async function withOrder(
  * (POD-1761 W6): the spawn frame has never carried one, because interactive
  * sessions mount MCP through the CLI's own config file, and passing an empty
  * one would make a driver report a tool mount it did not make.
+ *
+ * POSTURE AND GRANTS (POD-6858). The session runs on the posture its spawn
+ * frame states, or the default when the frame states none (an older server,
+ * or one that picks no mode). The spawn path records it with the session
+ * ({@link recordSessionPosture}) so a later launch with no frame in hand runs
+ * on the same terms. The grants are Podium's standing facts for this session,
+ * built here on its machine like the context.
  */
 export function sessionSpecForSpawn(
   msg: SpawnControl,
-  selection: {
-    /** Absent for a plain terminal, which no driver runs. */
-    driverId?: AcceptedDriverId
-    auth: SessionSpec['selection']['auth']
-    role: 'executor' | 'interactive'
-  },
+  selection: SpawnSelection,
+  harnessContext: HarnessContext,
+  stateRoot: string = stateDir(),
 ): SessionSpec {
+  const plain = plainSpecForSpawn(msg, selection)
+  return {
+    ...plain,
+    harnessContext,
+    posture: spawnPosture(msg),
+    grants: podiumGrantsFor({ stateRoot }, msg.sessionId, plain, harnessContext),
+  }
+}
+
+/** How a spawn frame selects its driver, for {@link sessionSpecForSpawn}. */
+interface SpawnSelection {
+  /** Absent for a plain terminal, which no driver runs. */
+  driverId?: AcceptedDriverId
+  auth: SessionSpec['selection']['auth']
+  role: 'executor' | 'interactive'
+}
+
+/**
+ * A SHELL'S OR LOGIN PANE'S SPEC: everything a spawn frame says, without a
+ * harness context. No driver runs a plain terminal, so it never reaches the
+ * driver boundary where {@link SessionSpec} requires one (POD-6533).
+ */
+export type PlainTerminalSpec = Omit<SessionSpec, 'harnessContext' | 'posture' | 'grants'>
+
+/** The spawn frame's fields as a spec, before any harness context. */
+function plainSpecForSpawn(msg: SpawnControl, selection: SpawnSelection): PlainTerminalSpec {
   const executor = selection.role === 'executor'
   return {
     harness: msg.agentKind,
@@ -1520,15 +1701,11 @@ async function adoptServerDriverSession(
  * re-indexes via `runtime.adopt` on the exact durable label, falling back to
  * `runtime.resume` when the resume ref is known. Anything else is not ours.
  */
-async function adoptHeadlessSession(
-  ctx: DaemonContext,
-  msg: ReattachControl,
-): Promise<boolean> {
+async function adoptHeadlessSession(ctx: DaemonContext, msg: ReattachControl): Promise<boolean> {
   const runtime = ctx.agentRuntime
   if (!runtime) return false
   const existing = runtime.handleFor(msg.sessionId)
-  const existingHeadless =
-    existing && existing.binding.driver === 'headless' ? existing : undefined
+  const existingHeadless = existing && existing.binding.driver === 'headless' ? existing : undefined
   const requested =
     typeof msg.requestedDriverId === 'string' &&
     canonicalDriverId(msg.requestedDriverId) === 'headless'
@@ -1572,13 +1749,30 @@ async function adoptHeadlessSession(
       return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
     }
     if (!msg.resume) {
-      return fail(
-        adoptionError instanceof Error ? adoptionError.message : String(adoptionError),
-      )
+      return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
     }
     try {
+      const harnessContext = await buildSessionHarnessContext(
+        ctx,
+        msg.agentKind as BuiltinHarnessKind,
+        msg.sessionId,
+      )
+      const mcpServers: SessionSpec['mcpServers'] = {
+        supported: false,
+        reason: 'headless reattach carries no MCP mount',
+      }
       const spec: SessionSpec = {
         harness: msg.agentKind,
+        harnessContext,
+        // No frame here states a posture: the reattached session runs on the
+        // one recorded when it was spawned (the default for an older record).
+        posture: storedSessionPosture(msg.sessionId),
+        grants: podiumGrantsFor(
+          { stateRoot: stateDir() },
+          msg.sessionId,
+          { mcpServers },
+          harnessContext,
+        ),
         selection: {
           auth: 'unknown',
           platform: process.platform,
@@ -1592,10 +1786,7 @@ async function adoptHeadlessSession(
           supported: false,
           reason: 'headless reattach carries no sticky instructions',
         },
-        mcpServers: {
-          supported: false,
-          reason: 'headless reattach carries no MCP mount',
-        },
+        mcpServers,
       }
       const handle = await runtime.resume(msg.resume, spec, msg.sessionId)
       sendBind(ctx, {
@@ -1765,20 +1956,6 @@ export function admissionProbeDriver(
   return preferred
 }
 
-export function resolvedAdmissionExecutable(
-  preferred: string | undefined,
-  executables: ReadonlyMap<string, { readonly path: string }> | undefined,
-): string | undefined {
-  // The manifest-declared probe binary for this server driver, if any
-  // (POD-4737 D1). Drivers without one (today: everything but the opencode
-  // pair) resolve through family defaults, exactly as before — notably a
-  // second binary with no map entry still answers undefined.
-  if (preferred === undefined) return undefined
-  const executable = serverDriverExecutable(preferred)
-  if (executable === undefined) return undefined
-  return executables?.get(executable)?.path
-}
-
 /**
  * Emit the operator-facing record for a permitted runtime-driver degradation
  * (a manifest-default server preference this box cannot run) and return the
@@ -1821,13 +1998,54 @@ export function reportDriverPreferenceDegrade(input: {
  * error has no driver, and announcing one would leave the row describing a
  * session that never ran.
  */
-function announceDriverSelection(
+export function announceDriverSelection(
   ctx: DaemonContext,
   sessionId: SpawnControl['sessionId'],
   driverId: string,
 ): void {
   driverTiming.driverSelected(sessionId, driverId)
+  announcedDrivers.set(sessionId, driverId)
   ctx.send({ type: 'driverSelected', sessionId, driverId })
+}
+
+/**
+ * THE DRIVER LAST ANNOUNCED PER SESSION (POD-6858 Task 11): what a launch's
+ * report repeats once its terms are applied. Kept beside the session registry,
+ * not on its entry: the entry's existence is what makes a spawn fresh
+ * (`withOrder`), and the announcement comes before that. Dropped when the
+ * session is retired.
+ */
+const announcedDrivers = new Map<SessionId, string>()
+
+/**
+ * REPORT A LAUNCH'S APPLIED TERMS (POD-6858 Task 11, harness-session-posture.md
+ * §4.6 and §5): the harness mode Podium asked for and every requirement the
+ * launch cannot meet, once, after {@link prepareLaunch} and before the process
+ * starts. It rides the decision frame, repeated with the same driver: the
+ * decision was announced before the launch was built, so it could not carry
+ * them. No driver announced and none given: nothing to repeat, and the terms
+ * stay in the daemon log `prepareLaunch` already wrote.
+ */
+export function reportLaunchTerms(
+  ctx: Pick<DaemonContext, 'send'>,
+  sessionId: SessionId,
+  applied: Pick<AppliedTerms, 'requestedMode' | 'unmet'>,
+  fallbackDriverId?: string,
+): void {
+  const driverId = announcedDrivers.get(sessionId) ?? fallbackDriverId
+  if (driverId === undefined) return
+  ctx.send({
+    type: 'driverSelected',
+    sessionId,
+    driverId,
+    posture: {
+      requestedMode: applied.requestedMode,
+      unmet: applied.unmet.map((entry) => ({
+        requirement: entry.requirement,
+        reason: entry.reason,
+      })),
+    },
+  })
 }
 
 const reportedHarnessVersions = new Set<string>()
@@ -1866,28 +2084,35 @@ type ServerDriverProbeVerdict =
       diagnostic: { title: string; body: string }
     }
 
+/**
+ * Probe one server driver's admission for ONE installation (POD-6546): the
+ * one the session would pin. `installation` is undefined when the inventory
+ * has none for this driver, which answers as a probe that could not run —
+ * never as a lookup of the harness's name on the daemon's PATH. `env` is the
+ * machine command environment a live probe runs under.
+ */
 export type ServerDriverAdmissionProbe = (
   driverId: string,
-  policy?: { retryInconclusive?: boolean },
-  executablePath?: string,
+  policy: { retryInconclusive?: boolean } | undefined,
+  installation: HarnessInstallation | undefined,
+  env: Readonly<Record<string, string>>,
 ) => Promise<ServerDriverProbeVerdict>
 
 const defaultServerDriverAdmissionProbe: ServerDriverAdmissionProbe = (
   driverId,
   policy,
-  executablePath,
-) =>
-  driverId === 'codex-app-server'
-    ? codexAppServerVersionProbe(undefined, policy)
+  installation,
+  env,
+) => {
+  const options = { env, ...(policy ? { policy } : {}) }
+  return driverId === 'codex-app-server'
+    ? codexAppServerVersionProbe(installation, options)
     : driverId === 'opencode2-server'
-      ? executablePath
-        ? opencode2VersionProbeForExecutable(executablePath, policy)
-        : opencode2VersionProbe(undefined, policy)
+      ? opencode2VersionProbe(installation, options)
       : driverId === 'grok-acp'
-        ? grokAcpVersionProbe(undefined, policy)
-        : executablePath
-          ? opencodeVersionProbeForExecutable(executablePath, policy)
-          : opencodeVersionProbe(undefined, policy)
+        ? grokAcpVersionProbe(installation, options)
+        : opencodeVersionProbe(installation, options)
+}
 
 export async function launchServerDriverSession(
   ctx: DaemonContext,
@@ -1922,7 +2147,11 @@ export async function launchServerDriverSession(
   // default: a known logout always selects the PTY login path, so probing a
   // server binary first can only delay the same answer.
   const loginState = ctx.harnessLoginState(msg.agentKind)
-  const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState, msg.env)
+  const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState, {
+    ...msg.env,
+    // The delivered credential decides the auth mode as the frame env once did.
+    ...deliveryOverlay(msg.agentKind, msg.access).env,
+  })
   const terminalLoginReason =
     selectionAuth === 'logged-out'
       ? loginState === 'out'
@@ -1936,21 +2165,40 @@ export async function launchServerDriverSession(
    * another. The REFUSAL below still keys on `namedHere`: an unprobeable
    * manifest or machine default degrades, while a per-spawn server id refuses.
    */
-  const admissionInventory =
-    preferred === 'opencode-server' || preferred === 'opencode2-server'
-      ? await ctx.harnessRuntime?.current()
-      : undefined
-  const resolvedOpencodeExecutable = resolvedAdmissionExecutable(
-    preferred,
-    admissionInventory?.executables,
-  )
+  /**
+   * THE INSTALLATION ADMISSION JUDGES IS THE ONE THE SESSION PINS (POD-6546).
+   * One inventory read; each server driver's context is built from it once,
+   * its installation probed, and the same context handed to the spec below —
+   * so a refresh between admission and create cannot admit one binary and
+   * launch another. A harness the inventory does not list has no context.
+   */
+  const admissionSnapshot = ctx.harnessRuntime ? await ctx.harnessRuntime.current() : undefined
+  const admissionContexts = new Map<string, HarnessContext | undefined>()
+  const admissionContext = (driverId: string): HarnessContext | undefined => {
+    if (!admissionSnapshot) return undefined
+    if (!admissionContexts.has(driverId)) {
+      let context: HarnessContext | undefined
+      try {
+        context = driverHarnessContextFrom(
+          ctx,
+          admissionSnapshot,
+          msg.agentKind as BuiltinHarnessKind,
+          driverId,
+          msg.sessionId,
+        )
+      } catch {
+        context = undefined
+      }
+      admissionContexts.set(driverId, context)
+    }
+    return admissionContexts.get(driverId)
+  }
   const probeFor = (driverId: string) =>
     probeDriver(
       driverId,
       namedHere === driverId ? { retryInconclusive: true } : undefined,
-      driverId === 'opencode-server' || driverId === 'opencode2-server'
-        ? resolvedOpencodeExecutable
-        : undefined,
+      admissionContext(driverId)?.installation,
+      admissionSnapshot?.commandEnvironment.env ?? {},
     )
   const preferredServer = admissionProbeDriver(preferred, selectionAuth)
   const preferredProbe = preferredServer === undefined ? undefined : await probeFor(preferredServer)
@@ -2163,13 +2411,26 @@ export async function launchServerDriverSession(
   }
   try {
     const isHeadless = resolution.driverId === 'headless'
-    const spec = sessionSpecForSpawn(msg, {
-      driverId: resolution.driverId,
-      auth: selectionAuth,
-      // Headless sessions are executor-owned, never interactive: their first
-      // prompt arrives as a turn, not at creation.
-      role: isHeadless ? 'executor' : 'interactive',
-    })
+    const spec = sessionSpecForSpawn(
+      msg,
+      {
+        driverId: resolution.driverId,
+        auth: selectionAuth,
+        // Headless sessions are executor-owned, never interactive: their first
+        // prompt arrives as a turn, not at creation.
+        role: isHeadless ? 'executor' : 'interactive',
+      },
+      // The same carrier as a terminal session (POD-6533), and the very
+      // context admission judged (POD-6546): engines launch its installation.
+      admissionContext(resolution.driverId) ??
+        (await buildDriverHarnessContext(
+          ctx,
+          msg.agentKind as BuiltinHarnessKind,
+          resolution.driverId,
+          msg.sessionId,
+        )),
+    )
+    recordSessionPosture(msg.sessionId, spec.posture)
     // A resume ref goes to the driver only where its source can continue a
     // conversation from the ref alone (headless, the Claude stream engine);
     // the vendor servers resume from their journal above.
@@ -2178,6 +2439,9 @@ export async function launchServerDriverSession(
     } else {
       await runtime.create(spec, msg.sessionId)
     }
+    // The session holds its context for its life (POD-6546): an engine wake
+    // or adopt relaunches this installation, and native attach runs it.
+    ctx.sessions.ensure(msg.sessionId).harnessContext = spec.harnessContext
     // Headless sessions have no terminal to attach: their capabilities refuse
     // `attach` as unsupported, so there is no native client to reconcile.
     if (!isHeadless) reconcileNativeClientTerminal(ctx, msg.sessionId)
@@ -2191,7 +2455,8 @@ export async function launchServerDriverSession(
     // pending turns invalidated, kept engine recorded, spawnError surfaced
     // (POD-4490) — rather than this generic arm.
     if (err instanceof EngineBindUnrecoverable) {
-      ctx.sessions.ensure(msg.sessionId)
+      ctx.sessions
+        .ensure(msg.sessionId)
         // COLD LAUNCH: no driver ever existed in this daemon's life, so no
         // queue exists to drain. An unbound send is refused, never queued, so
         // this daemon took custody of nothing and reports no abandonment —
@@ -2401,7 +2666,9 @@ export async function recoverTerminalProcess(
   // identity, the conversation and the lease the driver registers under — is
   // the binding's, and wins.
   const ordered: Partial<ReattachControl> =
-    order?.frame.type === 'reattach' ? order.frame : { lastKnownGeometry: { ...NOMINAL_RECOVERY_GEOMETRY } }
+    order?.frame.type === 'reattach'
+      ? order.frame
+      : { lastKnownGeometry: { ...NOMINAL_RECOVERY_GEOMETRY } }
   const msg = {
     ...ordered,
     type: 'reattach',
@@ -2438,9 +2705,18 @@ export async function recoverTerminalProcess(
     const hasAuthoritativeObservationLease =
       msg.observationGeneration !== undefined && msg.observationBindingVersion !== undefined
     if (hasAuthoritativeObservationLease) {
-      ctx.observers.initSessionObservers(msg, existing.attachment, agentStateProviderFor(msg.agentKind), {
-        seedOnFrame: false,
-      })
+      // This daemon spawned (or already reattached) the session: the context
+      // it holds is the one its process runs under (POD-6533).
+      const harnessContext = await sessionHarnessContextFor(ctx, msg.sessionId, msg.agentKind)
+      ctx.observers.initSessionObservers(
+        msg,
+        existing.attachment,
+        agentStateProviderFor(msg.agentKind),
+        {
+          seedOnFrame: false,
+          ...(harnessContext ? { harnessContext } : {}),
+        },
+      )
     }
     const cmd = durableProcessFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
@@ -2532,6 +2808,12 @@ export async function recoverTerminalProcess(
     // Inside the gate on purpose — a restart reattaches every session at once, and
     // this forks git.
     void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
+    // A RESTARTED DAEMON REBUILDS THE CONTEXT (POD-6533) from the current
+    // inventory: the old one went with the old process. Roots depend only on
+    // the home and the account env, so the observer reads the same folders the
+    // running harness writes; nothing here relaunches it. Before the host
+    // attach, so no wait sits between wiring the bridge and its observers.
+    const harnessContext = await sessionHarnessContextFor(ctx, msg.sessionId, msg.agentKind)
     let found: DurableReattach | undefined
     const durable = durableProcessFor(ctx)
     if (durable) {
@@ -2570,7 +2852,14 @@ export async function recoverTerminalProcess(
     // THE ATTACH RESIZES NOTHING (POD-4723). The Terminal states the host's
     // WELCOME size through the size event — which reports it and sizes the
     // model before the ring replay below — and the bind carries the same size.
-    const terminal = wireBridge(ctx, msg.sessionId, found.attachment, msg.agentKind, msg.durableLabel)
+    const terminal = wireBridge(
+      ctx,
+      msg.sessionId,
+      found.attachment,
+      msg.agentKind,
+      msg.durableLabel,
+    )
+    if (harnessContext) ctx.sessions.ensure(msg.sessionId).harnessContext = harnessContext
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
     // all in-memory per-session state — rebuild it via the same path spawn uses.
@@ -2578,9 +2867,15 @@ export async function recoverTerminalProcess(
     // so seed immediately (an idle session would otherwise read 'unknown' →
     // 'working') and re-tail its transcript (else chat stays empty while the
     // native view still has scrollback).
-    ctx.observers.initSessionObservers(msg, found.attachment, agentStateProviderFor(msg.agentKind), {
-      seedOnFrame: false,
-    })
+    ctx.observers.initSessionObservers(
+      msg,
+      found.attachment,
+      agentStateProviderFor(msg.agentKind),
+      {
+        seedOnFrame: false,
+        ...(harnessContext ? { harnessContext } : {}),
+      },
+    )
     // THE HEADLESS SCREENS, AT THE BEST HINT THERE IS. The observers did not
     // exist when the size event ran, so they take the host's size now, or the
     // server's last-known where the backend cannot say. Neither number reaches
@@ -2683,11 +2978,12 @@ export async function stealTerminalWriter(
     cwd: msg.cwd,
     lastKnownGeometry: msg.lastKnownGeometry ?? modelSize ?? { cols: 80, rows: 24 },
   } as const
+  const harnessContext = await sessionHarnessContextFor(ctx, msg.sessionId, msg.agentKind)
   ctx.observers.initSessionObservers(
     observerMsg,
     found.attachment,
     agentStateProviderFor(msg.agentKind),
-    { seedOnFrame: false },
+    { seedOnFrame: false, ...(harnessContext ? { harnessContext } : {}) },
   )
   const screens = terminal.size() ?? observerMsg.lastKnownGeometry
   ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)
@@ -2727,17 +3023,20 @@ export function stopSessionProcess(
   opts: { retire?: boolean } = {},
 ): Promise<boolean> {
   let pending = pendingSessionStops.get(ctx)
-  if (!pending) pendingSessionStops.set(ctx, pending = new Map())
+  if (!pending) {
+    pending = new Map()
+    pendingSessionStops.set(ctx, pending)
+  }
   const previous = pending.get(msg.sessionId)
   // A timeout retry must observe the same retirement, not the now-empty
   // registry. Binding retirement may strengthen a park after it completes.
   if (previous && !opts.retire) return previous
-  const work = (previous ? previous.catch(() => false) : Promise.resolve()).then(
-    () => stopSessionProcessOnce(ctx, msg, opts),
-  ).catch((error) => {
-    log.warn('session retirement failed', { error, sessionId: msg.sessionId })
-    return false
-  })
+  const work = (previous ? previous.catch(() => false) : Promise.resolve())
+    .then(() => stopSessionProcessOnce(ctx, msg, opts))
+    .catch((error) => {
+      log.warn('session retirement failed', { error, sessionId: msg.sessionId })
+      return false
+    })
   pending.set(msg.sessionId, work)
   void work.finally(() => {
     if (pending.get(msg.sessionId) === work) pending.delete(msg.sessionId)
@@ -2779,24 +3078,35 @@ async function stopSessionProcessOnce(
   // receipts for one session are harmless — the server acts only on
   // `killed:false`, and a receipt for an identity that was never there is a
   // truthful "nothing to kill".
-  reaps.push((async () => {
-    let retired = false
-    const owned = await beginServerDriverReap(ctx, msg.sessionId, {
-      retire: opts.retire === true,
-      completed: (value) => { retired = value; measured = true },
-    }, ctx.serverReapIo)
-    return !owned || retired
-  })())
+  reaps.push(
+    (async () => {
+      let retired = false
+      const owned = await beginServerDriverReap(
+        ctx,
+        msg.sessionId,
+        {
+          retire: opts.retire === true,
+          completed: (value) => {
+            retired = value
+            measured = true
+          },
+        },
+        ctx.serverReapIo,
+      )
+      return !owned || retired
+    })(),
+  )
   // Reap the durable host unconditionally — NOT only when a bridge exists.
   // Generic kill is process policy (hibernate, stop, handoff); retirement is a
   // separate server-authored binding transition.
   if (ctx.backend !== 'none') {
-    const durableLabel =
-      msg.durableLabel ?? owned?.label ?? ctx.durableLabelFor(msg.sessionId)
-    reaps.push(reapDurableHost(ctx, msg.sessionId, durableLabel).then((retired) => {
-      measured = true
-      return retired
-    }))
+    const durableLabel = msg.durableLabel ?? owned?.label ?? ctx.durableLabelFor(msg.sessionId)
+    reaps.push(
+      reapDurableHost(ctx, msg.sessionId, durableLabel).then((retired) => {
+        measured = true
+        return retired
+      }),
+    )
   }
   if (owned) {
     owned.clear()
@@ -2804,18 +3114,29 @@ async function stopSessionProcessOnce(
   }
   removeSessionUploads(msg.sessionId, ctx.portableStateFence)
   removeSessionInstructions(ctx, msg.sessionId)
+  // The session's processes are going: its credential goes with them.
+  ctx.access.forget(msg.sessionId)
   const results = await Promise.allSettled(reaps)
   // Give cooperative teardown its flush window before escalating descendants.
-  const descendants = await reapInstanceSessionProcesses({ instanceUuid: ctx.instanceUuid, sessionId: msg.sessionId })
-  measured ||= descendants.examined > 0
-  if (descendants.remaining > 0) ctx.send({
-    type: 'sessionKillResult', sessionId: msg.sessionId,
-    durableLabel: msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId),
-    killed: false, reason: 'instance-owned descendants survived process retirement',
+  const descendants = await reapInstanceSessionProcesses({
+    instanceUuid: ctx.instanceUuid,
+    sessionId: msg.sessionId,
   })
-  const retired = measured && descendants.remaining === 0 &&
+  measured ||= descendants.examined > 0
+  if (descendants.remaining > 0)
+    ctx.send({
+      type: 'sessionKillResult',
+      sessionId: msg.sessionId,
+      durableLabel: msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId),
+      killed: false,
+      reason: 'instance-owned descendants survived process retirement',
+    })
+  const retired =
+    measured &&
+    descendants.remaining === 0 &&
     results.every((result) => result.status === 'fulfilled' && result.value)
-  if (!retired) log.warn('session process retirement was not confirmed', { sessionId: msg.sessionId })
+  if (!retired)
+    log.warn('session process retirement was not confirmed', { sessionId: msg.sessionId })
   return retired
 }
 
@@ -2861,7 +3182,9 @@ async function reapDurableHost(
     log.warn('could not reap the durable host', { err, sessionId, durableLabel })
     const alive = await stillRunning().catch(() => undefined)
     ctx.send({
-      type: 'sessionKillResult', sessionId, durableLabel,
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel,
       killed: alive === false,
       reason: err instanceof Error ? err.message : String(err),
     })
@@ -2923,7 +3246,10 @@ export const sessionHandlers: Pick<
         })
         // A refused lease belongs to another/newer owner. Only a composition
         // failure may reap an acquired bridge, as required by agent admission.
-      } else if (!(error instanceof TerminalRecoveryRefusal) && ctx.sessions.get(msg.sessionId)?.attached) {
+      } else if (
+        !(error instanceof TerminalRecoveryRefusal) &&
+        ctx.sessions.get(msg.sessionId)?.attached
+      ) {
         stopSessionProcess(ctx, msg)
       }
       ctx.send({
@@ -2951,10 +3277,14 @@ export const sessionHandlers: Pick<
           log.warn('could not retire the binding', { sessionId: msg.sessionId, reason: failure })
         }
         stopSessionProcess(ctx, msg, { retire: true })
+        forgetSessionPosture(msg.sessionId)
+        announcedDrivers.delete(msg.sessionId)
       })
       .catch((err) => {
         log.warn('could not retire the binding', { err, sessionId: msg.sessionId })
         stopSessionProcess(ctx, msg, { retire: true })
+        forgetSessionPosture(msg.sessionId)
+        announcedDrivers.delete(msg.sessionId)
       })
   },
   sessionResumeRefConflict: (ctx, msg) => {
@@ -3185,15 +3515,14 @@ function bindingFailureMessage(outcome: SessionBindingTransitionOutcome): string
     case 'unchanged':
     case 'redundant':
       return undefined
-    case 'denied':
-      switch (outcome.reason) {
-        case 'machine-use-denied':
-          return 'you do not have access to this machine'
-        case 'not-found':
-          return 'session not found'
-        case 'not-claimant':
-          return 'session reattach claimed by another principal'
+    case 'denied': {
+      const reasons: Record<typeof outcome.reason, string> = {
+        'machine-use-denied': 'you do not have access to this machine',
+        'not-found': 'session not found',
+        'not-claimant': 'session reattach claimed by another principal',
       }
+      return reasons[outcome.reason]
+    }
     case 'unreachable':
       return 'target machine is unreachable'
     case 'rejected':

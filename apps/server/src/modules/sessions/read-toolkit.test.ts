@@ -10,7 +10,15 @@ import { READ_LINE_CAP, SessionReadToolkit } from './read-toolkit'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import { readSessionRefs } from './refs'
 
-function session(over: Partial<SessionMetaInput> & { displayRef?: string; machineName?: string }): SessionMeta {
+function session(
+  // `contextUsagePercent` is a live reading (POD-6764): a fact of the running
+  // session, which the fixture's facts read, never a record field.
+  over: Partial<SessionMetaInput> & {
+    displayRef?: string
+    machineName?: string
+    contextUsagePercent?: number
+  },
+): SessionMeta {
   return {
     sessionId: asSessionId('s1'),
     cwd: '/wt/a',
@@ -32,7 +40,7 @@ const ISSUE = {
   panel: { todos: [{ text: 'a', done: false }], artifacts: [], deferred: [] },
 }
 
-function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; hasMore?: boolean; pageCursors?: boolean; sourceReset?: boolean; hidden?: Set<string>; closedReason?: string }) {
+function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; hasMore?: boolean; pageCursors?: boolean; sourceReset?: boolean; hidden?: Set<string>; closedReason?: string; offline?: ReadonlySet<string> }) {
   const events: { kind: string; subject: string; payload: unknown }[] = []
   const repoOps: string[] = []
   const watermarks = new Map<string, string>()
@@ -56,6 +64,7 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
     },
     sessionRefs: async (sessions) => await readSessionRefs(refSource, sessions),
     machineName: async () => 'buildbox',
+    machineOnline: (machineId) => !opts?.offline?.has(machineId),
     issues: ({
       reports: {
         resolveRef: (ref: string) => {
@@ -116,6 +125,19 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
 }
 
 describe('session status (tier 1)', () => {
+  it('shows a running session as reconnecting while this server has no daemon link to its machine (ADR 12 D1)', async () => {
+    const child = session({ sessionId: asSessionId('child1'), spawnedBy: 'session:s1' })
+    const parked = session({ sessionId: asSessionId('s2'), status: 'hibernated' })
+    const sessions = [session({ issueId: ISSUE.id }), child, parked]
+    const offline = harness({ sessions, offline: new Set(['m1']) })
+    const s = await offline.toolkit.status('s1', 'operator')
+    expect(s.status).toBe('reconnecting')
+    expect(s.subagents.map((c) => c.status)).toEqual(['reconnecting'])
+    // A parked session is not running, so it does not reconnect.
+    expect((await offline.toolkit.status('s2', 'operator')).status).toBe('hibernated')
+    const online = harness({ sessions })
+    expect((await online.toolkit.status('s1', 'operator')).status).toBe('live')
+  })
   it.each(['done', 'cancelled', 'duplicate', 'superseded', 'wontfix'])(
     'preserves the bound task closing reason %s', async closedReason => {
       const { toolkit } = harness({ closedReason })

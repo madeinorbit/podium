@@ -5,7 +5,7 @@ import { referenceState } from '../../../tests/worklist/diagnostics/reference-st
 import { storeStats } from '@podium/client-core/perf'
 import { repoUsageAt } from '@podium/client-core/values'
 import { type GitRepositoryWire, sessionUserStateRowId } from '@podium/model'
-import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
+import { asSessionId, asUserId } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -26,7 +26,6 @@ import {
   writeTitleRename,
 } from '../../../tests/worklist/shared/src/scenarios'
 import { poolCommandLaunchSnapshot } from '../../../tests/worklist/diagnostics/command-launch-check'
-import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { attachCommandLaunchSource } from './command-launch-source'
 import { attachHeaderSource } from './header-source'
 import { createLaunchCatalogPicker } from './launch-option-views'
@@ -41,7 +40,7 @@ afterEach(() => {
 })
 async function fixture() {
   const ctx = await startScenarioEngine(1)
-  const handle = createRuntimeWorklistPool(ctx.engine, { summaries: COMMAND_SUMMARIES })
+  const handle = createRuntimeWorklistPool(ctx.engine, { })
   // Isolate menu demand from the existing pool's bootstrap requests.
   for (let turn = 0; turn < 32 && handle.pool.hydrate(); turn++) {
     /* baseline boot */
@@ -171,13 +170,12 @@ describe('declared command and launch targets', () => {
     const f = await fixture(),
       stop = autorun(() => poolCommandLaunchSnapshot(f.pool))
     const discover = async (repos: GitRepositoryWire[]) => {
-      f.ctx.discovery.repos = repos
-      f.ctx.hub.emit('worktreesChanged')
+      f.ctx.setRepos(repos)
       await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
     }
     try {
       f.settled()
-      const repos = f.ctx.discovery.repos as GitRepositoryWire[]
+      const repos = f.ctx.repos() as GitRepositoryWire[]
       const before = f.source.counts.sessionLinks
       await discover(repos.map((repo, at) => (at === 0 ? { ...repo, branch: 'renamed' } : repo)))
       f.settled('branch rename')
@@ -193,36 +191,11 @@ describe('declared command and launch targets', () => {
     }
   }, 180_000)
 
-  it('browses cold summaries without warming history and batches selected contextual detail', async () => {
-    const f = await fixture()
-    try {
-      // The residency ledger contains asked IDs, not the source catalog.
-      // This test explicitly opens the palette's licensed issue choices.
-      const cold = f.pool.queries.ids({ kind: 'commandIssues' }).filter((id) => f.pool.residency!.isCold('issue', id)),
-        resident = f.pool.tables.issue.size
-      expect(cold.length).toBeGreaterThan(0)
-      const browsing = runInAction(() => commandLaunchViews(f.pool).palette())
-      expect(browsing).not.toBe(LOADING)
-      expect(f.pool.hydrate()).toBe(0)
-      expect(f.pool.tables.issue.size).toBe(resident)
-      expect(f.pool.sources.related('commandIssue', cold[0]!, 'sessions')).toEqual([])
-      referenceState(f.ctx.engine).setSelectedIssueId(asIssueId(cold[0]!))
-      await Promise.resolve()
-      const selected = runInAction(() => commandLaunchViews(f.pool).palette())
-      expect(selected && selected !== LOADING ? selected.pending : 0).toBeGreaterThan(0)
-      expect(f.pool.hydrate()).toBeGreaterThan(0)
-      f.settle()
-      f.settled('selected cold context')
-    } finally {
-      f.close()
-    }
-  }, 120_000)
-
   it('keeps resident relation indexes current without rebuilding repo or window rows on session activity', async () => {
     const f = await fixture()
     try {
-      const before = { ...f.source.counts }
       const window = omitGone(f.pool.row('commandWindow', 'window'))
+      const before = { ...f.source.counts }
       await writePhaseChange(f.ctx)
       await Promise.resolve()
       expect(f.source.counts.repoChanges).toBe(before.repoChanges)
@@ -310,10 +283,10 @@ describe('declared command and launch targets', () => {
         fieldRuns.sessions++
       }),
     ]
-    const census = vi.spyOn(f.pool.residency!, 'ids')
     try {
       f.settled()
-      expect(views.counts.coldSessionVisits).toBeGreaterThan(0)
+      // POD-7112: every device session is in the pool (POD-7094); there are
+      // no cold session visits to establish before the clicks.
       const globals = () => {
         const { addressedSessionReads: _addressed, ...counts } = views.counts
         return counts
@@ -331,7 +304,6 @@ describe('declared command and launch targets', () => {
       f.settled('session click')
       expect(globals()).toEqual(before)
       expect(fieldRuns).toEqual(beforeFields)
-      expect(census).not.toHaveBeenCalled()
       // The real deck click marks the session read as well as opening its pane.
       // Both the optimistic publication and covering truth change one session
       // value, without repeating catalog or repository-usage work.
@@ -364,7 +336,6 @@ describe('declared command and launch targets', () => {
       await writeClockTick(f.ctx, 1000)
       f.settled('clock without activity')
       expect(globals()).toEqual(before)
-      expect(census).not.toHaveBeenCalled()
       // A relevant activity publication arms usage work, without cold scans.
       const heartbeatCold = !f.pool.tables.session.has(f.ctx.targets.heartbeatSessionId)
       await writeHeartbeat(f.ctx)
@@ -374,7 +345,6 @@ describe('declared command and launch targets', () => {
       // revisits the remaining browsing summaries on this publication.
       expect(views.counts.coldSessionVisits).toBe(before.coldSessionVisits + Number(heartbeatCold))
     } finally {
-      census.mockRestore()
       for (const stop of stops) stop()
       f.close()
     }

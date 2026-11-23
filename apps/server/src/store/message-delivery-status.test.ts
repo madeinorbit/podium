@@ -27,18 +27,22 @@ import {
   walkMoves,
 } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { createBunStoreExecutor } from './executor'
+import { legacyWorkspaceQueries } from './executor/sync-drizzle'
 import { MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
   const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7017).
+  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
 }
 
 let db: SqlDatabase
@@ -78,7 +82,7 @@ function row(id: string): MessageRow {
 
 /** Plant a row in `status` directly: the walker is about the next move. */
 async function planted(id: string, status: MessageDeliveryStatus): Promise<void> {
-  await messages.addMessage(row(id))
+  await messages.addMessage(fixtureWriteScope(), row(id))
   db.prepare('UPDATE messages SET delivery_status = ? WHERE id = ?').run(status, id)
 }
 
@@ -89,9 +93,13 @@ const statusOf = (id: string) =>
 const move = (id: string, to: MessageDeliveryStatus): Promise<MoveOutcome<MessageDeliveryStatus>> =>
   (
     messages as unknown as {
-      move(id: string, to: MessageDeliveryStatus): Promise<MoveOutcome<MessageDeliveryStatus>>
+      move(
+        scope: ReturnType<typeof fixtureWriteScope>,
+        id: string,
+        to: MessageDeliveryStatus,
+      ): Promise<MoveOutcome<MessageDeliveryStatus>>
     }
-  ).move(id, to)
+  ).move(fixtureWriteScope(), id, to)
 
 describe('the table walker', () => {
   it('applies every listed move, answers "already there" for a repeat, refuses every other', async () => {
@@ -133,8 +141,8 @@ describe('the table walker', () => {
 })
 
 describe('accepted, and how the program holds it (POD-4885)', () => {
-  const S = 'sess_to' as Parameters<MessagesRepository['markAccepted']>[1]
-  const OTHER = 'sess_other' as Parameters<MessagesRepository['markAccepted']>[1]
+  const S = 'sess_to' as Parameters<MessagesRepository['markAccepted']>[2]
+  const OTHER = 'sess_other' as Parameters<MessagesRepository['markAccepted']>[2]
   const heldOf = (id: string) =>
     db.prepare('SELECT delivery_held AS h FROM messages WHERE id = ?').get(id) as {
       h: string | null
@@ -143,7 +151,9 @@ describe('accepted, and how the program holds it (POD-4885)', () => {
   it('moves a typed message to accepted and records how it is held, once', async () => {
     await planted('a', 'typed')
     db.prepare("UPDATE messages SET delivered_to = 'sess_to' WHERE id = 'a'").run()
-    expect(await messages.markAccepted('a', S, 'durable', 't1')).toMatchObject({ kind: 'applied' })
+    expect(await messages.markAccepted(fixtureWriteScope(), 'a', S, 'durable', 't1')).toMatchObject(
+      { kind: 'applied' },
+    )
     expect(statusOf('a').d).toBe('accepted')
     expect(heldOf('a').h).toBe('durable')
     expect(await messages.getMessage('a')).toMatchObject({
@@ -151,14 +161,18 @@ describe('accepted, and how the program holds it (POD-4885)', () => {
       held: 'durable',
     })
     // A repeat with another kind changes nothing: the first report stands.
-    expect((await messages.markAccepted('a', S, 'memory', 't2')).kind).not.toBe('applied')
+    expect(
+      (await messages.markAccepted(fixtureWriteScope(), 'a', S, 'memory', 't2')).kind,
+    ).not.toBe('applied')
     expect(heldOf('a').h).toBe('durable')
   })
 
   it('is refused for a session the message was not handed to', async () => {
     await planted('b', 'typed')
     db.prepare("UPDATE messages SET delivered_to = 'sess_to' WHERE id = 'b'").run()
-    expect((await messages.markAccepted('b', OTHER, 'memory', 't1')).kind).not.toBe('applied')
+    expect(
+      (await messages.markAccepted(fixtureWriteScope(), 'b', OTHER, 'memory', 't1')).kind,
+    ).not.toBe('applied')
     expect(statusOf('b').d).toBe('typed')
     expect(heldOf('b').h).toBeNull()
   })
@@ -169,16 +183,18 @@ describe('accepted, and how the program holds it (POD-4885)', () => {
     db.prepare(
       "UPDATE messages SET delivered_to = 'sess_to' WHERE id IN ('durable', 'memory')",
     ).run()
-    await messages.markAccepted('durable', S, 'durable', 't1')
-    await messages.markAccepted('memory', S, 'memory', 't1')
+    await messages.markAccepted(fixtureWriteScope(), 'durable', S, 'durable', 't1')
+    await messages.markAccepted(fixtureWriteScope(), 'memory', S, 'memory', 't1')
 
-    expect(await messages.markUnknown('durable', S)).toEqual({
+    expect(await messages.markUnknown(fixtureWriteScope(), 'durable', S)).toEqual({
       kind: 'refused',
       current: 'accepted',
     })
     expect(statusOf('durable').d).toBe('accepted')
 
-    expect(await messages.markUnknown('memory', S)).toMatchObject({ kind: 'applied' })
+    expect(await messages.markUnknown(fixtureWriteScope(), 'memory', S)).toMatchObject({
+      kind: 'applied',
+    })
     expect(statusOf('memory').d).toBe('unknown')
     // Kept after the move: the message still says the program had taken it.
     expect(heldOf('memory').h).toBe('memory')
@@ -235,7 +251,7 @@ describe('the CHECK constraint', () => {
   })
 
   it('refuses a value outside it', async () => {
-    await messages.addMessage(row('x'))
+    await messages.addMessage(fixtureWriteScope(), row('x'))
     expect(() =>
       db.prepare("UPDATE messages SET delivery_status = 'queued' WHERE id = 'x'").run(),
     ).toThrow(/CHECK/)
@@ -286,30 +302,49 @@ describe('every status write goes through the guarded move (the grep proof)', ()
         return entry.name === 'node_modules' || entry.name === 'drizzle' ? [] : sources(path)
       }
       // The generated migration manifest carries the migrations' own SQL.
-      return entry.name.endsWith('.ts') &&
-        !entry.name.includes('.test.') &&
-        !entry.name.endsWith('.generated.ts')
-        ? [path]
-        : []
+      return entry.name.endsWith('.ts') && !entry.name.endsWith('.generated.ts') ? [path] : []
     })
-  const code = (path: string) =>
-    readFileSync(path, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '')
+  const strip = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  const code = (path: string) => strip(readFileSync(path, 'utf8'))
+  /**
+   * The proof is about PRODUCTION files, so test files and test support are out by rule: a
+   * test may write any row it needs to set up a case (POD-7025's workspace seeds do).
+   */
+  const isProduction = (path: string) =>
+    !/\.test\./.test(path) && !/(^|\/)test-support\//.test(path)
+  /** The production files of `files` (repository paths) whose code updates `messages`. */
+  const messageWriters = (files: readonly { path: string; source: string }[]): string[] =>
+    files
+      .filter(({ path }) => isProduction(path))
+      .filter(({ source }) =>
+        /\.update\((?:messagesTable|messages|t\.messages)\)|UPDATE\s+`?messages`?\s+SET/i.test(
+          strip(source),
+        ),
+      )
+      .map(({ path }) => path)
 
   it('no production file but the repository updates the messages table', () => {
-    const writers = [
+    const files = [
       ...sources(SERVER_SRC),
       ...sources(join(REPO, 'packages/janitor/src')),
       ...sources(join(REPO, 'apps/daemon/src')),
-    ].filter((path) =>
-      /\.update\(messagesTable\)|\.update\(messages\)|UPDATE\s+`?messages`?\s+SET/i.test(
-        code(path),
-      ),
-    )
-    expect(writers.map((path) => relative(REPO, path))).toEqual([
-      'apps/server/src/store/messages.ts',
-    ])
+    ].map((path) => ({ path: relative(REPO, path), source: readFileSync(path, 'utf8') }))
+    expect(files.length).toBeGreaterThan(300)
+    expect(messageWriters(files)).toEqual(['apps/server/src/store/messages.ts'])
+  })
+
+  it('is armed: a planted production update fails it, the same update in a test or test support does not', () => {
+    const update = 'await db.update(t.messages).set({ deliveryStatus: "read" })\n'
+    const raw = 'db.prepare("UPDATE messages SET delivery_status = ?").run(s)\n'
+    expect(
+      messageWriters([
+        { path: 'apps/server/src/modules/planted/service.ts', source: update },
+        { path: 'packages/janitor/src/planted.ts', source: raw },
+        { path: 'apps/server/src/test-support/workspace-seeds/planted.ts', source: update },
+        { path: 'apps/server/src/modules/planted/service.test.ts', source: raw },
+        { path: 'apps/server/src/modules/planted/commented.ts', source: `// ${update}` },
+      ]),
+    ).toEqual(['apps/server/src/modules/planted/service.ts', 'packages/janitor/src/planted.ts'])
   })
 
   it('inside the repository, only the guarded move sets delivery_status', () => {
@@ -326,7 +361,8 @@ describe('every status write goes through the guarded move (the grep proof)', ()
     // reminder) move no status.
     expect([...source.matchAll(/moveStatus\(/g)]).toHaveLength(1)
     const updates = [
-      ...source.matchAll(/\.update\(messagesTable\)\s*\.set\(\{([\s\S]*?)\}\)/g),
+      // The table is the binding's (`t.messages`, POD-6977) or, in older code, the schema's.
+      ...source.matchAll(/\.update\((?:messagesTable|t\.messages)\)\s*\.set\(\{([\s\S]*?)\}\)/g),
     ].map((m) => m[1]!)
     expect(updates.length).toBeGreaterThanOrEqual(2)
     expect(updates.filter((set) => /deliveryStatus/.test(set))).toHaveLength(1)

@@ -15,8 +15,8 @@
 import { asMutationId, type MutationId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type InMemoryOutbox, InMemoryReplicaStore } from './memory-store'
-import type { OptimisticOverlayPort, RetirementIntent } from './overlay'
-import type { CacheOperation, KnownKindValidatorPort } from './ports'
+import type { OptimisticOverlayPort, RetirementEvidence, RetirementIntent } from './overlay'
+import type { CacheOperation, KnownKindValidatorPort, SyncSpan } from './ports'
 import { Replica } from './replica'
 import {
   bootstrapChunk,
@@ -89,6 +89,27 @@ function harness(
   })
   live.push(replica)
   return { store, authority, replica, events }
+}
+
+/** The next task: what the walk installs once no further chunk has arrived. */
+const nextTask = (): Promise<void> =>
+  new Promise((resolve) => {
+    const channel = new MessageChannel()
+    channel.port1.onmessage = () => {
+      channel.port1.close()
+      resolve()
+    }
+    channel.port2.postMessage(undefined)
+  })
+
+/**
+ * Until the load's first chunk is installed (POD-7122): the walk installs the
+ * chunks that have arrived once the next one has not, a task later, not on the
+ * microtask that delivered it.
+ */
+async function untilLoading(h: { readonly store: InMemoryReplicaStore }): Promise<void> {
+  for (let i = 0; i < 20 && h.store.cache.readLoadingSince() === null; i += 1) await nextTask()
+  expect(h.store.cache.readLoadingSince()).not.toBeNull()
 }
 
 /** Cold start through the real bootstrap path — the way every rung terminates. */
@@ -776,13 +797,13 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
     expect(h.replica.view('session', 'also-covered')).toBeUndefined()
   })
 
-  it('install is ONE transaction covering snapshot, buffered deltas and cursor', async () => {
+  it('the end of a load is ONE transaction covering the sweep, buffered deltas and cursor', async () => {
     const h = harness()
     await bootstrapped(h, 5, [])
     const channel = h.authority.driveManually()
     await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [session(1, 'a', 'A')], false))
-    await Promise.resolve()
+    await untilLoading(h)
     await h.replica.receive(deltaFrame(10, 11, [session(11, 'b', 'B')]))
     await h.replica.receive(deltaFrame(11, 12, [session(12, 'c', 'C')]))
     const before = h.store.transactions
@@ -792,6 +813,45 @@ describe('D6/D15 scoped bootstrap — chunked, buffered, atomically installed', 
 
     expect(h.store.transactions - before).toBe(1)
     expect(h.replica.stats().entityCount).toBe(3)
+  })
+
+  it('installs the chunks that have arrived together; a requested instance’s marker ends a batch (POD-7122)', async () => {
+    const h = harness()
+    await bootstrapped(h, 5, [])
+    const channel = h.authority.driveManually()
+    // The installs: the store writes that carry the load's records.
+    const writes = vi.spyOn(h.store.cache, 'applyAtomic')
+    const installs = () =>
+      writes.mock.calls.filter(([mutation]) =>
+        mutation.operations.some((op) => op.kind === 'upsert' && op.entity === 'session'),
+      ).length
+    await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
+    const marker = (collection: string, via?: string) => ({
+      collection,
+      part: 'main' as const,
+      ...(via === undefined ? {} : { via }),
+    })
+    // Six chunks in one burst, as one network read delivers them.
+    channel.push(bootstrapChunk(10, [session(1, 'a', 'A')], false))
+    channel.push(bootstrapChunk(10, [session(2, 'b', 'B')], false))
+    channel.push(
+      bootstrapChunk(10, [session(3, 'c', 'C')], false, {
+        complete: [marker('session.ofIssue', 'issueProjection.sidebar')],
+      }),
+    )
+    channel.push(
+      bootstrapChunk(10, [session(4, 'd', 'D')], false, { complete: [marker('session.recent')] }),
+    )
+    channel.push(bootstrapChunk(10, [session(5, 'e', 'E')], false))
+    channel.push(bootstrapChunk(10, [], true))
+    await h.replica.settled()
+
+    // a–d up to the requested marker, then e: two installs, where a chunk at a
+    // time made five.
+    expect(installs()).toBe(2)
+    expect(h.replica.posture).toBe('live')
+    expect(h.replica.stats().entityCount).toBe(5)
+    for (const id of ['a', 'b', 'c', 'd', 'e']) expect(h.replica.view('session', id)).toBeDefined()
   })
 
   it('a buffered hole is not guessed across: apply while contiguous, then heal', async () => {
@@ -938,31 +998,44 @@ describe('D7 stale-visible — disconnection is not data loss, and reconnect con
     expect(h.replica.cursor?.seq).toBe(13)
   })
 
-  it('RECONNECT MID-APPLY: disconnecting between two chunks leaves no half-installed slice', async () => {
+  it('RECONNECT MID-APPLY: what arrived stays, the old rows stay readable, and reconnect finishes the load', async () => {
     const h = harness()
     await bootstrapped(h, 5, [session(1, 'original', 'O')])
     const channel = h.authority.driveManually()
 
     await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(30, [session(10, 'partial', 'P')], false))
-    await Promise.resolve()
+    await new Promise((resolve) => setTimeout(resolve, 0))
     h.replica.disconnect()
     channel.push(bootstrapChunk(30, [session(11, 'more', 'M')], true))
     await h.replica.settled()
 
-    // The abandoned walk installed NOTHING, and the old slice is still there.
+    // Each chunk commits as it arrives (POD-7086): the abandoned walk kept its first
+    // chunk, the rows it had not confirmed yet are still there, and the load is
+    // noted as under way at its snapshot. Nothing after the disconnect landed.
     expect(h.replica.posture).toBe('stale')
-    expect(h.replica.view('session', 'partial')).toBeUndefined()
+    expect(h.replica.view('session', 'partial')).toEqual({ name: 'P' })
+    expect(h.replica.view('session', 'more')).toBeUndefined()
     expect(h.replica.view('session', 'original')).toEqual({ name: 'O' })
-    expect(h.replica.cursor?.seq).toBe(5)
+    expect(h.replica.cursor?.seq).toBe(30)
+    expect(h.store.cache.readLoadingSince()).toBe(30)
 
-    // Reconnecting resumes cleanly.
+    // Reconnecting resumes the feed at the load's snapshot and finishes the load.
     h.authority.manual = null
-    h.authority.changesRangeQueue = [deltaFrame(5, 6, [session(6, 'after', 'A')])]
+    h.authority.changesRangeQueue = [deltaFrame(30, 31, [session(31, 'after', 'A')])]
+    h.authority.slice = {
+      snapshotSeq: 31,
+      rows: [session(10, 'partial', 'P'), session(11, 'more', 'M'), session(31, 'after', 'A')],
+    }
     h.replica.connect()
     await h.replica.settled()
+    expect(h.authority.changesRangeCalls.at(-1)).toEqual(cursorAt(30))
     expect(h.replica.posture).toBe('live')
     expect(h.replica.view('session', 'after')).toEqual({ name: 'A' })
+    expect(h.replica.view('session', 'more')).toEqual({ name: 'M' })
+    // Not in the finished load: gone, or no longer visible.
+    expect(h.replica.view('session', 'original')).toBeUndefined()
+    expect(h.store.cache.readLoadingSince()).toBeNull()
   })
 
   it('a transport failure during a heal parks stale instead of losing the slice', async () => {
@@ -1068,8 +1141,11 @@ describe('the optimistic-overlay reducer seam', () => {
         (command as { readonly kind?: string }).kind === 'unreducible'
           ? { kind: 'no-reducer' }
           : { kind: 'value', value: { ...(base as object | undefined), ...(command as object) } },
+      // Covers whatever the commit names by provenance, the rule this block was
+      // written against; coverage by cursor has its own double below.
+      covers: (evidence) => evidence.matches.length > 0,
       // The Replica passes the span; the outbox stages into it and publishes with it.
-      retire: (matches, span) => outbox.retireBatch(matches, span),
+      retire: (evidence, span) => outbox.retireBatch(evidence.matches, span),
     }
   }
 
@@ -1349,6 +1425,99 @@ describe('the optimistic-overlay reducer seam', () => {
     expect(h.outbox.list()).toHaveLength(0)
   })
 
+  // ── Coverage by cursor (ADR 12): a write that changed nothing has no row ────
+
+  /**
+   * An overlay that covers by CURSOR alone, the way the outbox covers an applied
+   * command whose reply carried a receipt (POD-6275). The authority suppresses a
+   * write that changes nothing, so no row will ever name that command: only a
+   * certified cursor at or past its receipt proves the replica holds the truth.
+   *
+   * `retired` flips in `onCommit`, so it reports the EFFECT, and `handed` reports
+   * the calls. The two together tell "asked inside a unit of work" from "took effect".
+   */
+  function receiptOverlay(receiptSeq: number): {
+    readonly overlay: OptimisticOverlayPort
+    readonly handed: RetirementEvidence[]
+    readonly spans: (SyncSpan | undefined)[]
+    isRetired(): boolean
+  } {
+    const handed: RetirementEvidence[] = []
+    const spans: (SyncSpan | undefined)[] = []
+    let retired = false
+    return {
+      handed,
+      spans,
+      isRetired: () => retired,
+      overlay: {
+        pending: () => [],
+        reduce: (base) => ({ kind: 'value', value: base }),
+        covers: (evidence) => !retired && evidence.through.seq >= receiptSeq,
+        retire: (evidence, span) => {
+          handed.push(evidence)
+          spans.push(span)
+          span?.onCommit(() => {
+            retired = true
+          })
+        },
+      },
+    }
+  }
+
+  it('commitRegions opens a unit of work when the overlay covers the cursor, with no provenance in the frame', async () => {
+    const r = receiptOverlay(3)
+    const h = harness({ overlay: () => r.overlay })
+    await bootstrapped(h, 0, [])
+    const transact = vi.spyOn(h.store.unitOfWork, 'transact')
+
+    // Below the receipt: nothing is covered, so the frame autocommits alone.
+    await h.replica.receive(watermark(0, 2))
+    await h.replica.settled()
+    expect(transact).not.toHaveBeenCalled()
+    expect(r.handed).toEqual([])
+
+    // A watermark at the receipt carries no change at all, and still confirms.
+    await h.replica.receive(watermark(2, 3))
+    await h.replica.settled()
+
+    expect(transact).toHaveBeenCalledTimes(1)
+    expect(r.handed).toEqual([{ matches: [], through: cursorAt(3), install: false }])
+    // Handed the span of THAT unit of work, and adopted only once it committed.
+    expect(r.spans[0]).toBeDefined()
+    expect(r.isRetired()).toBe(true)
+    expect(h.replica.cursor).toEqual(cursorAt(3))
+  })
+
+  it('commitRegions stays single-region when nothing is covered', async () => {
+    const r = receiptOverlay(100)
+    const h = harness({ overlay: () => r.overlay })
+    await bootstrapped(h, 0, [])
+    const transact = vi.spyOn(h.store.unitOfWork, 'transact')
+
+    // Provenance is PRESENT, but names a command this overlay does not cover — another
+    // writer's, say. Provenance alone no longer opens a unit of work; coverage does.
+    await h.replica.receive(
+      deltaFrame(0, 2, [
+        session(1, 's1', 'theirs', { causationId: 'cmd-x', mutationId: asMutationId('m-x') }),
+        session(2, 's2', 'plain'),
+      ]),
+    )
+    await h.replica.settled()
+
+    expect(transact).not.toHaveBeenCalled()
+    expect(r.handed).toEqual([])
+    expect(h.replica.cursor).toEqual(cursorAt(2))
+    expect(h.replica.view('session', 's1')).toEqual({ name: 'theirs' })
+
+    // POSITIVE CONTROL, same replica: the install path asks too, and says so when the
+    // overlay covers. A re-bootstrap past the receipt is a covered install.
+    const covering = receiptOverlay(2)
+    const h2 = harness({ overlay: () => covering.overlay })
+    await bootstrapped(h2, 5, [session(5, 's1', 'installed')])
+    expect(covering.handed).toEqual([{ matches: [], through: cursorAt(5), install: true }])
+    expect(covering.isRetired()).toBe(true)
+  })
+
   it('an install inside a SPAN still REPLACES the cache, dropping the excluded row', async () => {
     const h = overlayHarness()
     // A row the pre-rescope slice could see.
@@ -1361,9 +1530,9 @@ describe('the optimistic-overlay reducer seam', () => {
     channel.push(bootstrapChunk(10, [session(2, 'kept', 'still mine')], false))
     await Promise.resolve()
     // Provenance here is load-bearing for THIS test: a retirement is what opens a
-    // span at all, and the span branch of installSnapshot is a different code path
-    // from the autocommit one. Without a queued command the install autocommits and
-    // the replacement is never exercised inside a span.
+    // span at all, and the end of a load inside a span is a different code path
+    // from the autocommit one. Without a queued command the sweep is never
+    // exercised inside a span.
     await h.replica.receive(
       deltaFrame(10, 11, [
         session(11, 's1', 'mine', { causationId: 'cmd-1', mutationId: asMutationId('m-1') }),
@@ -1372,9 +1541,9 @@ describe('the optimistic-overlay reducer seam', () => {
     channel.push(bootstrapChunk(10, [], true))
     await h.replica.settled()
 
-    // D6.4's atomic swap REPLACES the cache; it does not merge into it. A span draft
-    // starts as a copy of the live rows, so an install that extended instead of
-    // replacing would leave 'revoked' visible after a rights change — under
+    // The end of a load sweeps what it did not confirm; it does not merge into the
+    // old rows. A span draft starts as a copy of the live rows, so a load that
+    // only added would leave 'revoked' visible after a rights change — under
     // private-by-default that is a visibility leak, not a cosmetic staleness bug.
     expect(
       h.replica
@@ -1397,7 +1566,7 @@ describe('the optimistic-overlay reducer seam', () => {
 
     await h.replica.receive({ kind: 'rescope', feedId: FEED_ID, epoch: EPOCH })
     channel.push(bootstrapChunk(10, [], false))
-    await Promise.resolve()
+    await untilLoading(h)
     // TWO buffered frames, each confirming one of my commands. The install commits
     // both onto the snapshot in one transaction, so it owes ONE batch of two.
     await h.replica.receive(
@@ -1410,9 +1579,9 @@ describe('the optimistic-overlay reducer seam', () => {
         session(12, 's2', 'two', { causationId: 'cmd-2', mutationId: asMutationId('m-two') }),
       ]),
     )
-    // Recovery invalidates completeness once, before the walk installs anything.
-    // That independent cache-only commit cannot count as part of the atomic install.
-    expect(h.store.cache.readPersonalRowsCompleteAt()).toBeNull()
+    // The load's first chunk commits on its own (POD-7086); it cannot count as
+    // part of the end of the load, which carries the frames and retirements.
+    expect(h.store.cache.readLoadingSince()).toBe(10)
     expect(h.store.transactions - beforeRecovery).toBe(1)
     const beforeInstall = h.store.transactions
     channel.push(bootstrapChunk(10, [], true))
@@ -1515,12 +1684,15 @@ describe('the optimistic-overlay reducer seam', () => {
     await h.replica.settled()
     expect(h.replica.trace).toContain('D6-RESTART')
 
-    // The walk restarts (D6-RESTART) rather than half-installing, and NOTHING was
-    // retired: a command confirmed by a frame whose install never committed is
-    // still unsent work.
+    // The walk restarts (D6-RESTART), and NOTHING was retired: a command confirmed
+    // by a frame whose commit never happened is still unsent work. The chunk that
+    // arrived before stays, and the load is still under way, so the buffered
+    // frames were not applied.
     expect(h.outbox.list().map((e) => e.mutationId)).toEqual(['m-one', 'm-two'])
-    expect(h.replica.entities()).toHaveLength(0)
-    expect(h.replica.cursor?.seq).toBe(5)
+    expect(h.replica.entities().map((row) => row.entityId)).toEqual(['fresh'])
+    expect(h.store.cache.read('session', 's1')).toBeUndefined()
+    expect(h.replica.cursor?.seq).toBe(10)
+    expect(h.store.cache.readLoadingSince()).toBe(10)
     // Handed over exactly once, by the install that then aborted — so this asserts
     // the batch took NO effect, not that it was never built.
     expect(h.overlay.handed.flat().map((r) => r.mutationId)).toEqual(['m-one', 'm-two'])
@@ -1909,16 +2081,13 @@ describe('batched emissions — one commit is ONE burst through batchEvents', ()
     return { h, bursts }
   }
 
-  it('an install is one burst: every row, the install marker and the posture move', async () => {
+  it('a load is one burst per chunk, and its end one more: the install marker and the posture move', async () => {
     const { h, bursts } = bursting()
     await bootstrapped(h, 10, [session(4, 's1', 'one'), session(7, 's2', 'two')])
 
-    expect(bursts).toHaveLength(1)
-    expect(bursts[0]?.map((event) => event.type)).toEqual([
-      'upserted',
-      'upserted',
-      'bootstrap-installed',
-      'posture',
+    expect(bursts.map((burst) => burst.map((event) => event.type))).toEqual([
+      ['upserted', 'upserted'],
+      ['bootstrap-installed', 'posture'],
     ])
   })
 
@@ -2135,12 +2304,14 @@ describe('every declared ADR route is driven, not merely declared', () => {
   const otherEpoch = (fromSeq: number, seq: number) =>
     deltaFrame(fromSeq, seq, [], { epoch: 'epoch-OTHER' })
 
-  it('rung 4 fires from stale and from bootstrapping', async () => {
+  it('rung 4 fires from stale, and against the identity a bootstrap walk installs', async () => {
     const a = harness()
     await bootstrapped(a, 10, [])
     a.replica.disconnect()
     expect((await a.replica.receive(otherEpoch(10, 11))).rowId).toBe('D7-4-EPOCH')
 
+    // During a walk the frame waits; the install it does not belong to sends the
+    // replica back to a bootstrap instead of dropping it (POD-6838).
     const b = harness()
     await bootstrapped(b, 10, [])
     const channel = b.authority.driveManually()
@@ -2148,7 +2319,39 @@ describe('every declared ADR route is driven, not merely declared', () => {
     channel.push(bootstrapChunk(20, [], false))
     await Promise.resolve()
     expect(b.replica.posture).toBe('bootstrapping')
-    expect((await b.replica.receive(otherEpoch(10, 11))).rowId).toBe('D7-4-EPOCH')
+    expect((await b.replica.receive(otherEpoch(10, 11))).rowId).toBe('D6-BUFFER')
+    channel.push(bootstrapChunk(20, [], true))
+    // Not `settled()`: rung 4 starts a new walk, which waits on this manual channel.
+    await vi.waitFor(() => {
+      expect(b.replica.trace).toContain('D6-INSTALL')
+      expect(b.replica.trace.slice(b.replica.trace.lastIndexOf('D6-INSTALL'))).toContain(
+        'D7-4-EPOCH',
+      )
+    })
+  })
+
+  // POD-6838: a saved cursor from an older epoch, a busy feed. Every live frame
+  // disagreed with the OLD cursor and restarted the walk, so it never finished.
+  it('a walk away from an old epoch finishes while frames of the new one arrive', async () => {
+    const h = harness()
+    const first = h.authority.driveManually()
+    h.replica.connect()
+    first.push(bootstrapChunk(10, [], true, { epoch: 'epoch-OLD' }))
+    await h.replica.settled()
+    expect(h.replica.cursor?.epoch).toBe('epoch-OLD')
+    const channel = h.authority.driveManually()
+    await h.replica.receive({ kind: 'resync-required', feedId: FEED_ID, epoch: EPOCH })
+    channel.push(bootstrapChunk(20, [], false))
+    await Promise.resolve()
+    expect(h.replica.posture).toBe('bootstrapping')
+    const walks = h.replica.trace.filter((row) => row.startsWith('D7-')).length
+    expect((await h.replica.receive(deltaFrame(20, 21, []))).rowId).toBe('D6-BUFFER')
+    expect((await h.replica.receive(deltaFrame(21, 22, []))).rowId).toBe('D6-BUFFER')
+    expect(h.replica.trace.filter((row) => row.startsWith('D7-')).length).toBe(walks)
+    channel.push(bootstrapChunk(20, [], true))
+    await h.replica.settled()
+    expect(h.replica.posture).toBe('live')
+    expect(h.replica.cursor).toMatchObject({ epoch: EPOCH, seq: 22 })
   })
 
   it('rung 3 fires from stale', async () => {
@@ -2208,7 +2411,7 @@ describe('every declared ADR route is driven, not merely declared', () => {
     expect(b.replica.trace).toContain('D6-EXHAUSTED')
   })
 
-  it('D6-BUFFER and covered-frame drops stay healing until the drain completes', async () => {
+  it('D6-BUFFER fires from healing, and the drain drops the covered frame from live', async () => {
     const h = harness()
     await bootstrapped(h, 10, [])
     // Heal reply lands at 20, so both buffered frames are wholly covered by it.
@@ -2231,7 +2434,7 @@ describe('every declared ADR route is driven, not merely declared', () => {
     // Both were at or below the healed cursor, so both are dropped rather than
     // applied — nothing from either frame reaches the store.
     const covered = h.replica.transitions.filter((t) => t.rowId === 'D6-BUFFER-COVERED')
-    expect(covered.map((t) => t.from)).toEqual(['healing', 'healing'])
+    expect(covered.map((t) => t.from)).toEqual(['live', 'live'])
     expect(h.replica.cursor?.seq).toBe(20)
     expect(h.replica.view('session', 'x')).toBeUndefined()
   })
@@ -2272,145 +2475,16 @@ describe('incremental range healing', () => {
       overlay: (store) => ({
         pending: () => [],
         reduce: () => ({ kind: 'no-reducer' }),
-        retire: async (matches, span) => {
+        covers: (evidence) => evidence.matches.length > 0,
+        retire: async (evidence, span) => {
           entered.release()
           await commit.promise
-          store.outbox.retireBatch(matches, span)
+          store.outbox.retireBatch(evidence.matches, span)
         },
       }),
     })
     return { ...h, entered, commit }
   }
-
-  it.each([
-    'continue',
-    'disconnect',
-  ] as const)('keeps new live events behind an asynchronous tail commit on %s', async (action) => {
-    const h = delayedRetirement()
-    await bootstrapped(h, 10, [])
-    h.events.length = 0
-    h.store.outbox.enqueue({
-      mutationId: asMutationId('tail-mutation'),
-      entity: 'session',
-      entityId: 'tail',
-      command: {},
-    })
-    h.authority.changesRangeQueue = [deltaFrame(10, 11, [session(11, 'prefix', 'prefix')])]
-    const releaseHeal = holdHeal(h.authority)
-    h.replica.disconnect()
-    h.replica.connect()
-    const tail = deltaFrame(11, 12, [
-      session(12, 'tail', 'tail', {
-        mutationId: asMutationId('tail-mutation'),
-      }),
-    ])
-    await h.replica.receive(tail)
-    releaseHeal()
-    await h.entered.promise
-    expect(h.replica.posture).toBe('healing')
-    expect(h.replica.cursor?.seq).toBe(11)
-    const later = deltaFrame(12, 13, [session(13, 'tail', 'latest')])
-    expect((await h.replica.receive(later)).rowId).toBe('D6-BUFFER')
-    if (action === 'disconnect') h.replica.disconnect()
-    h.commit.release()
-    await h.replica.settled()
-    if (action === 'disconnect') {
-      expect(h.replica.posture).toBe('stale')
-      expect(h.replica.cursor?.seq).toBe(11)
-      expect(h.store.outbox.list()).toHaveLength(1)
-      expect(h.replica.view('session', 'tail')).toBeUndefined()
-      expect(
-        h.events.filter((event) => event.type === 'posture' && event.posture === 'live'),
-      ).toEqual([])
-      h.authority.changesRangeQueue = [
-        (async function* () {
-          yield tail
-          yield later
-        })(),
-      ]
-      h.replica.connect()
-      await h.replica.settled()
-    }
-    expect(h.replica.cursor?.seq).toBe(13)
-    expect(h.replica.view('session', 'tail')).toEqual({ name: 'latest' })
-    expect(h.store.outbox.list()).toHaveLength(0)
-    const liveAt = h.events.findIndex(
-      (event) => event.type === 'posture' && event.posture === 'live',
-    )
-    const laterAt = h.events.findIndex(
-      (event) => event.type === 'upserted' && event.record.provenance.seq === 13,
-    )
-    expect(liveAt).toBeGreaterThan(-1)
-    if (action === 'continue') expect(laterAt).toBeGreaterThan(liveAt)
-    else expect(laterAt).toBeLessThan(liveAt) // included in the restarted HTTP range
-  })
-
-  it('publishes a finite catch-up tail while live frames keep arriving, then drains them in order', async () => {
-    const entered = [latch(), latch(), latch()]
-    const commits = [latch(), latch(), latch()]
-    let retirements = 0
-    const h = harness({
-      overlay: (store) => ({
-        pending: () => [],
-        reduce: () => ({ kind: 'no-reducer' }),
-        retire: async (matches, span) => {
-          const index = retirements++
-          entered[index]?.release()
-          await commits[index]?.promise
-          store.outbox.retireBatch(matches, span)
-        },
-      }),
-    })
-    await bootstrapped(h, 10, [])
-    h.events.length = 0
-    for (let n = 1; n <= 3; n++)
-      h.store.outbox.enqueue({
-        mutationId: asMutationId(`m${n}`),
-        entity: 'session',
-        entityId: 'tail',
-        command: {},
-      })
-    const tail = (from: number, mutation?: string) =>
-      deltaFrame(from, from + 1, [
-        session(
-          from + 1,
-          'tail',
-          `seq-${from + 1}`,
-          mutation ? { mutationId: asMutationId(mutation) } : {},
-        ),
-      ])
-    h.authority.changesRangeQueue = [deltaFrame(10, 11, [])]
-    const releaseHeal = holdHeal(h.authority)
-    h.replica.disconnect()
-    h.replica.connect()
-    await h.replica.receive(tail(11, 'm1'))
-    releaseHeal()
-    await entered[0]?.promise
-    await h.replica.receive(tail(12, 'm2'))
-    await h.replica.receive(tail(13, 'm3'))
-    commits[0]?.release()
-    await entered[1]?.promise
-    // Only seq 12 was buffered at HTTP completion. Publication cannot wait for
-    // the growing socket tail, even though its next durable commit is blocked.
-    expect(h.replica.posture).toBe('live')
-    expect(h.replica.cursor?.seq).toBe(12)
-    expect((await h.replica.receive(tail(14))).rowId).toBe('D6-BUFFER')
-    commits[1]?.release()
-    await entered[2]?.promise
-    expect(h.replica.posture).toBe('live')
-    expect(h.replica.cursor?.seq).toBe(13)
-    expect((await h.replica.receive(tail(15))).rowId).toBe('D6-BUFFER')
-    commits[2]?.release()
-    await h.replica.settled()
-    expect(h.replica.cursor?.seq).toBe(16)
-    expect(
-      h.events.filter((event) => event.type === 'cursor').map((event) => event.cursor.seq),
-    ).toEqual([11, 12, 13, 14, 15, 16])
-    expect(
-      h.events.filter((event) => event.type === 'posture' && event.posture === 'live'),
-    ).toHaveLength(1)
-    expect(h.replica.view('session', 'tail')).toEqual({ name: 'seq-16' })
-  })
 
   it('commits before pulling again, buffers live overlap, and stays healing through completion', async () => {
     const h = delayedRetirement()
@@ -2431,7 +2505,7 @@ describe('incremental range healing', () => {
     })
     let pulls = 0
     vi.spyOn(h.authority, 'changesRange').mockImplementation(async (_cursor, _signal, onTarget) => {
-      onTarget?.(cursorAt(12))
+      onTarget?.(cursorAt(12), {})
       return (async function* () {
         pulls += 1
         yield first
@@ -2472,8 +2546,8 @@ describe('incremental range healing', () => {
       'tail',
     ])
     expect(h.events.filter((e) => e.type === 'heal-progress')).toEqual([
-      { type: 'heal-progress', framesCommitted: 1, seq: 11, targetSeq: 12 },
-      { type: 'heal-progress', framesCommitted: 2, seq: 12, targetSeq: 12 },
+      { type: 'heal-progress', framesCommitted: 1, seq: 11, targetSeq: 12, fromSeq: 10 },
+      { type: 'heal-progress', framesCommitted: 2, seq: 12, targetSeq: 12, fromSeq: 10 },
     ])
   })
 
@@ -2642,7 +2716,7 @@ describe('incremental range healing', () => {
     expect(h.replica.posture).toBe('stale')
   })
 
-  it('discards staging when a chunk source yields then throws, counting each failed attempt', async () => {
+  it('a chunk source that yields then throws keeps what it installed and counts each failed attempt', async () => {
     const h = harness({ maxBootstrapAttempts: 2 })
     await bootstrapped(h, 10, [session(10, 'old', 'old')])
     const source = vi.spyOn(h.authority, 'bootstrap').mockImplementation(() =>
@@ -2655,9 +2729,12 @@ describe('incremental range healing', () => {
     await h.replica.settled()
     expect(source).toHaveBeenCalledTimes(2)
     expect(h.replica.trace.filter((row) => row === 'D6-RESTART')).toHaveLength(2)
-    expect(h.replica.cursor).toEqual(cursorAt(10))
-    expect(h.replica.view('session', 'partial')).toBeUndefined()
+    // The installed chunk stays (POD-7086), the old rows stay readable until a
+    // load finishes, and the load is still under way at its snapshot.
+    expect(h.replica.cursor).toEqual(cursorAt(20))
+    expect(h.replica.view('session', 'partial')).toEqual({ name: 'partial' })
     expect(h.replica.view('session', 'old')).toEqual({ name: 'old' })
+    expect(h.store.cache.readLoadingSince()).toBe(20)
     expect(h.events.filter((e) => e.type === 'bootstrap-installed')).toHaveLength(1)
     expect(h.events).toContainEqual({
       type: 'bootstrap-failed',
@@ -2678,20 +2755,12 @@ describe('incremental range healing', () => {
     channel.push(bootstrapChunk(10, [], true))
     await h.entered.promise
     expect(h.replica.posture).toBe('bootstrapping')
-    // Arrives after the install copied its buffer. The snapshot already covers
-    // it, so the subsequent live drain must discard it without another heal.
-    await h.replica.receive(deltaFrame(5, 7, []))
     await h.replica.receive(deltaFrame(11, 12, [session(12, 'during', 'during')]))
     h.commit.release()
     await h.replica.settled()
     expect(h.replica.cursor).toEqual(cursorAt(12))
     expect(h.replica.view('session', 'during')).toEqual({ name: 'during' })
     expect(h.replica.stats().bufferedFrames).toBe(0)
-    expect(h.replica.transitions).toContainEqual({
-      rowId: 'D6-BUFFER-COVERED',
-      from: 'live',
-      to: 'live',
-    })
     expect(h.events.filter((e) => e.type === 'upserted').map((e) => e.record.entityId)).toEqual([
       'included',
       'during',
@@ -2781,6 +2850,8 @@ const CAUSES: Record<RebootstrapCause, true> = {
   'epoch-mismatch': true,
   'local-corruption': true,
   'schema-version': true,
+  'kind-shape': true,
   'cold-start': true,
+  resume: true,
 }
 void CAUSES

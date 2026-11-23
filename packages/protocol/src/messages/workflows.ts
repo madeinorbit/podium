@@ -1,143 +1,50 @@
-import { AgentProfileWire, SessionIdField } from '@podium/model'
+import {
+  SessionIdField,
+  WorkflowBindingTarget,
+  WorkflowBindingWire,
+  WorkflowGitObservation,
+  WorkflowRevisionWire,
+  WorkflowRunStatus,
+  WorkflowRunStepStatus,
+  WorkflowRunStepWire,
+  WorkflowScope,
+  WorkflowStep,
+  WorkflowStepEvidence,
+  WorkflowWire,
+} from '@podium/model'
 import { z } from 'zod'
 
 /**
- * WHY THESE ENTITY-SHAPED WIRES LIVE IN @podium/protocol, NOT @podium/model
- * [decided POD-1127 — record the argument so a future pass can re-derive AND
- *  re-test the decision without finding the author].
+ * THE WORKFLOW REQUEST ANSWERS (POD-1127, POD-6676).
  *
- * @podium/model is authoritative for REPLICATED entity fields. The workflow
- * family below is entity-SHAPED but is NOT a replicated aggregate — it is an
- * RPC read model (a projection of a request), so it stays in protocol. That is
- * the seam this phase draws: dragging an RPC read model into model would blur it.
+ * The entity schemas moved to `@podium/model` (`entities/workflow.ts`) when the
+ * family joined `MetadataEntityKind` (POD-6676): that was the condition the
+ * POD-1127 decision recorded here for the move. They are re-exported below, so
+ * an importer of `@podium/protocol` reads the same names.
  *
- * Two OBJECTIVE membership tests decide it (POD-300's tests — re-run them, do
- * not trust this comment):
- *   1. MetadataEntityKind (messages/sync.ts) — the enum of replicated kinds.
- *      No workflow arm. The family is not streamed as metadata deltas.
- *   2. COLLECTION_MESSAGE_ELEMENTS (messages/codec.ts) — the element-wise
- *      quarantined carrier frames. No workflows* frame. The family is not a
- *      delta-bearing collection.
- * Both FAIL for workflows. The read path confirms it: the client fetches over
- * tRPC (apps/web/src/features/workflows/use-workflows.ts — trpc.workflows.list/
- * get/bindings/runs.query), i.e. request/response, not the feed.
- *
- * POD-308 (the wire cutover) CLOSED WITHOUT replicating workflows — the moment
- * that could have flipped this passed and did not.
- *
- * WHAT REVERSES THIS: if a workflow kind is ever added to MetadataEntityKind or
- * a workflows* frame to COLLECTION_MESSAGE_ELEMENTS, this decision EXPIRES — the
- * family becomes a replicated entity, the relocation-to-model question genuinely
- * reopens, and these types should move to packages/model with golden fixtures
- * captured BEFORE the move (as POD-300 did for the replicated entities).
+ * What stays is what is NOT a record: the detail answer (a workflow with its
+ * revisions), the run as `workflows.status` and the run commands answer it (its
+ * revision embedded, its history attached), and the next-action packet.
  */
-
-/** Instruction-first workflows. Markdown remains the primary contract; the
- * optional ordered steps exist only to make progress + handoff explicit. */
-export const WorkflowScope = z.enum(['global', 'repository', 'task'])
-export type WorkflowScope = z.infer<typeof WorkflowScope>
-
-export const WorkflowStep = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
-  instructions: z.string().default(''),
-  completionGuidance: z.string().default(''),
-  /** The agent profile (name or id) the step's work runs with. A run pins the
-   *  profile as it is when the run starts. */
-  agentProfile: z.string().min(1).max(256).optional(),
-})
-export type WorkflowStep = z.infer<typeof WorkflowStep>
-
-export const WorkflowWire = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  scope: WorkflowScope,
-  scopeRef: z.string().nullable(),
-  latestRevisionId: z.string().nullable(),
-  latestVersion: z.number().int().nonnegative(),
-  archivedAt: z.string().nullable(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-})
-export type WorkflowWire = z.infer<typeof WorkflowWire>
-
-export const WorkflowRevisionWire = z.object({
-  id: z.string(),
-  workflowId: z.string(),
-  version: z.number().int().positive(),
-  instructions: z.string(),
-  steps: z.array(WorkflowStep),
-  createdAt: z.string(),
-  publishedAt: z.string().nullable(),
-})
-export type WorkflowRevisionWire = z.infer<typeof WorkflowRevisionWire>
+export {
+  WorkflowBindingTarget,
+  WorkflowBindingWire,
+  WorkflowGitObservation,
+  WorkflowRevisionWire,
+  WorkflowRunStatus,
+  WorkflowRunStepStatus,
+  WorkflowRunStepWire,
+  WorkflowScope,
+  WorkflowStep,
+  WorkflowStepEvidence,
+  WorkflowWire,
+}
 
 export const WorkflowDetailWire = z.object({
   workflow: WorkflowWire,
   revisions: z.array(WorkflowRevisionWire),
 })
 export type WorkflowDetailWire = z.infer<typeof WorkflowDetailWire>
-
-export const WorkflowBindingTarget = z.enum(['global', 'repository', 'issue', 'session'])
-export type WorkflowBindingTarget = z.infer<typeof WorkflowBindingTarget>
-
-export const WorkflowBindingWire = z.object({
-  targetKind: WorkflowBindingTarget,
-  targetId: z.string(),
-  revisionId: z.string(),
-  updatedAt: z.string(),
-})
-export type WorkflowBindingWire = z.infer<typeof WorkflowBindingWire>
-
-export const WorkflowRunStatus = z.enum(['active', 'blocked', 'complete', 'superseded'])
-export type WorkflowRunStatus = z.infer<typeof WorkflowRunStatus>
-export const WorkflowRunStepStatus = z.enum(['pending', 'active', 'blocked', 'complete', 'skipped'])
-export type WorkflowRunStepStatus = z.infer<typeof WorkflowRunStepStatus>
-
-export const WorkflowGitObservation = z.object({
-  cwd: z.string(),
-  worktree: z.string().nullable(),
-  branch: z.string().nullable(),
-  head: z.string().nullable(),
-  dirty: z.boolean().nullable(),
-  ahead: z.number().int().nonnegative().nullable(),
-  behind: z.number().int().nonnegative().nullable(),
-  observedAt: z.string(),
-})
-export type WorkflowGitObservation = z.infer<typeof WorkflowGitObservation>
-
-export const WorkflowStepEvidence = z.object({
-  summary: z.string().default(''),
-  tests: z.array(z.string()).default([]),
-  artifacts: z.array(z.string()).default([]),
-})
-export type WorkflowStepEvidence = z.infer<typeof WorkflowStepEvidence>
-
-export const WorkflowRunStepWire = z.object({
-  stepId: z.string(),
-  position: z.number().int().nonnegative(),
-  title: z.string(),
-  instructions: z.string(),
-  completionGuidance: z.string(),
-  /** The step's agent profile: its id once resolved, else the ref the step
-   *  named (the profile did not exist when the run started). */
-  agentProfileId: z.string().nullable(),
-  /** The profile as it was when the run started; editing the profile later
-   *  never changes a run in flight. Null when the step names none, or it was
-   *  missing. */
-  agentProfileSnapshot: AgentProfileWire.nullable(),
-  status: WorkflowRunStepStatus,
-  assignedSessionId: SessionIdField.nullable(),
-  attempt: z.number().int().positive(),
-  summary: z.string(),
-  evidence: WorkflowStepEvidence,
-  observation: WorkflowGitObservation.nullable(),
-  warnings: z.array(z.string()),
-  startedAt: z.string().nullable(),
-  completedAt: z.string().nullable(),
-})
-export type WorkflowRunStepWire = z.infer<typeof WorkflowRunStepWire>
 
 /**
  * ONE RECORDED ACT ON A RUN, WITH ITS ATTRIBUTION PAIR (ADR 9 D5 A3, readiness

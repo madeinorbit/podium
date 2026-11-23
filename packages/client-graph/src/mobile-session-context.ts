@@ -1,24 +1,26 @@
-import { omitGone } from './lookup'
-import { mobileSessionChromeIssue } from './mobile-session-chrome'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
-import { dedupeSessionsByResume } from '@podium/model'
-import { type MachineWire } from '@podium/model/browser'
+import { replicaSourcePorts } from '@podium/client-graph/source-ports'
+import type { MachineFacts } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
-import { chatInteractions, chatMentionIssues, chatRecords } from './chat-context'
+import { chatInteractions, chatRecords } from './chat-context'
 import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
 import { ChatContextSource } from './chat-context-source'
 import { readPageIssue } from './issue-page'
+import { here, omitGone } from './lookup'
+import { machineFacts } from './machine-facts'
+import { mobileSessionChromeIssue } from './mobile-session-chrome'
 import {
   MOBILE_SESSION_ENTITIES,
   MOBILE_SESSION_SOURCE_KEY,
   type MobileSessionRows,
 } from './mobile-session-schema'
+import type { MachineModel } from './models'
 import type { MobxPool } from './pool'
 import { SESSION_EXIT_ENTITIES } from './session-exit-schema'
 import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from './session-exit-source'
-import { paneHasSessions, paneSession, paneMachines, paneSpawnConfirmed } from './session-pane'
+import { paneHasSessions, paneMachines, paneSession, paneSpawnConfirmed } from './session-pane'
 import { SESSION_PANE_ENTITIES } from './session-pane-schema'
 import { SESSION_PANE_SOURCE_KEY, SessionPaneSource } from './session-pane-source'
 import { createFieldInputs } from './shared/field-inputs'
@@ -32,25 +34,11 @@ export function mobileSessionIssue(pool: MobxPool, id: string | undefined): Load
   return row
 }
 
-/** Phone roster: pooled session models, not projected copies. */
-function pooledMobileSessions(pool: MobxPool) {
-  const order = omitGone(pool.row('chatSessionOrder', 'order'))
-  const sessions: SessionView[] = []
-  let pending = !order || typeof order === 'symbol' ? 1 : 0
-  if (!order || typeof order === 'symbol') return { sessions, pending }
-  const known = pool.queries.ids({ kind: 'referenceSessions' })
-  const present = new Set(known)
-  for (const id of new Set([...order.ids.filter((id) => present.has(id)), ...known])) {
-    const row = omitGone(pool.row('session', id, 'summary-fields')) as Loaded<SessionView>
-    if (typeof row === 'symbol') pending++
-    else if (row) sessions.push(row)
-  }
-  return { sessions: dedupeSessionsByResume(sessions), pending }
-}
-
 export function createMobileSessionReader(pool: MobxPool) {
   return {
     session: (id: string | undefined) => paneSession(pool, id),
+    geometry: (id: string | undefined) =>
+      id === undefined ? undefined : here(pool.model('session', id))?.geometry,
     issue: (id: string | undefined) => mobileSessionIssue(pool, id),
     /** The phone header/menu needs identity and lifecycle fields, not mission seats. */
     chromeIssue(id: string | undefined): Loaded<IssueViewModel> {
@@ -61,9 +49,14 @@ export function createMobileSessionReader(pool: MobxPool) {
       if (id === undefined) return 0
       // Preserve the maintained roster, without borrowing a detail opening.
       const seats = pool.queries.relatedRows<SessionView>(
-        'issue', id, 'missionSessions', `mobile.issueAgentCount:${id}`,
-        (sid) => pool.queries.collapsed(sid) ? undefined :
-          omitGone(pool.row('session', sid)) as Loaded<SessionView>,
+        'issue',
+        id,
+        'missionSessions',
+        `mobile.issueAgentCount:${id}`,
+        (sid) =>
+          pool.queries.collapsed(sid)
+            ? undefined
+            : (omitGone(pool.row('session', sid)) as Loaded<SessionView>),
         { order: (sid) => pool.queries.orderKey(sid) },
       )
       return seats === LOADING ? LOADING : (seats?.filter((seat) => !seat.archived).length ?? 0)
@@ -73,10 +66,13 @@ export function createMobileSessionReader(pool: MobxPool) {
     // pooled session models, so addressed useSession and list useSessions are
     // the same object. The chat reference projection stays for chat-reference
     // presentation values only.
-    sessions: () => pooledMobileSessions(pool),
-    issues: () => chatMentionIssues(pool),
-    machine: (id: string | undefined): MachineWire | undefined =>
-      id === undefined ? undefined : (omitGone(pool.row('machine', id)) as MachineWire | undefined),
+    // The machine's facts, online and presence the LiveStore's (POD-6644), as a
+    // value: the phone's offline banner is plain React and needs a new one
+    // when the machine goes offline.
+    machine: (id: string | undefined): MachineFacts | undefined => {
+      const model = id === undefined ? undefined : here(pool.model('machine', id))
+      return model ? machineFacts(model as MachineModel) : undefined
+    },
     /** Feed companion display name for the offline banner (POD-5661):
      * undefined without a companion, so the banner can fall back. */
     machineHome: (id: string | undefined): string | undefined =>
@@ -110,9 +106,9 @@ export function createMobileSessionReader(pool: MobxPool) {
       if (!window || window === LOADING) return true
       return (
         window.cursor === null &&
-        pool.queries.count('session') === 0 &&
+        pool.queries.heldCount('session') === 0 &&
         !paneHasSessions(pool) &&
-        pool.queries.count('issue') === 0
+        pool.queries.heldCount('issue') === 0
       )
     },
     conversation(id: string) {
@@ -212,12 +208,21 @@ export async function attachMobileSessionContext(owner: ClientRuntime, pool: Mob
     () => new SessionPaneSource(owner),
   )
   await pool.sources.ensure(SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () =>
-    createSessionExitSource(owner),
+    createSessionExitSource(replicaSourcePorts(owner)),
   )
   await pool.sources.ensure(
     'chat-context',
     CHAT_CONTEXT_ENTITIES,
-    () => new ChatContextSource(owner, pool),
+    () =>
+      new ChatContextSource(
+        {
+          ui: owner.ui,
+          drafts: owner.drafts,
+          replica: owner.replica,
+          outbox: owner.services.outbox.queue,
+        },
+        pool,
+      ),
   )
   return pool.sources.ensure(MOBILE_SESSION_SOURCE_KEY, MOBILE_SESSION_ENTITIES, () =>
     createMobileSessionSource(owner, pool),

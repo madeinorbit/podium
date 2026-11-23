@@ -15,7 +15,7 @@ const store = vi.hoisted(() => {
     set: (k: string, v: string | null): void => {
       if (v === null) data.delete(k)
       else data.set(k, v)
-      for (const cb of [...listeners]) cb()
+      for (const cb of [...listeners]) (cb as (keys: Set<string>) => void)(new Set([k]))
     },
     subscribe: (cb: () => void): (() => void) => {
       listeners.add(cb)
@@ -25,15 +25,16 @@ const store = vi.hoisted(() => {
   return { data, listeners, uiState, available: { value: true }, legacyReads: vi.fn() }
 })
 
-vi.mock('@podium/client-core/react', () => ({
-  useRuntimeSelector: (select: (s: unknown) => unknown) => {
-    store.legacyReads()
-    return select({ uiState: store.available.value ? store.uiState : undefined })
-  },
-  useStoreHandle: () => ({
-    getSnapshot: () => ({ uiState: store.available.value ? store.uiState : undefined }),
-  }),
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    readFixture: (select: (s: unknown) => unknown) => {
+      store.legacyReads()
+      return select({ uiState: store.available.value ? store.uiState : undefined })
+    },
+    ...fixtureRuntimeHooks(() => ({ deviceState: store.uiState })),
+  }
+})
 
 vi.mock('@/app/store-worklist-pool', async () => {
   const { useSyncExternalStore } = await import('react')

@@ -9,6 +9,7 @@
  * level, so 200 issues in the repository cost what 5 do.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, firstAdminMemberId, spreadSortKeys } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
@@ -45,25 +46,28 @@ async function fixture(size: number): Promise<Fixture> {
       ...patch,
     }) as IssueRow
   await store.transact(async () => {
-    for (let seq = 1; seq <= size; seq++) await store.issues.upsertIssue(row(seq, { sortKey: keys[seq - 1]! }))
-    await store.issues.upsertIssue(row(size + 1, { parentId: asIssueId('iss_1') }))
-    await store.issues.upsertIssue(row(size + 2, { parentId: asIssueId(`iss_${size + 1}`) }))
-    await store.issues.upsertIssue(row(size + 3, { parentId: asIssueId(`iss_${size + 2}`) }))
+    for (let seq = 1; seq <= size; seq++) await store.issues.upsertIssue(fixtureWriteScope(), row(seq, { sortKey: keys[seq - 1]! }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(size + 1, { parentId: asIssueId('iss_1') }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(size + 2, { parentId: asIssueId(`iss_${size + 1}`) }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(size + 3, { parentId: asIssueId(`iss_${size + 2}`) }))
   })
   const deps: IssueDeps = {
     store,
     ...sessionReadPorts(() => []),
     getSettings: async () =>
       normalizeSettings({
-        gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+        gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
         sessionDefaults: { agent: 'claude-code' },
       }),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(() => {}),
+    ...issueTestPlumbing(() => {}, { store }),
     setSessionArchived: vi.fn(),
   }
-  return { store, svc: await IssueService.create(deps) }
+  const svc = await IssueService.create(deps)
+  // The change log is attached before anything is measured (POD-6920).
+  await store.attachChangeLog()
+  return { store, svc }
 }
 
 const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>, check: (result: unknown, size: number) => void) => ({
@@ -78,18 +82,46 @@ const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>, 
 describe('issue writes that read other issues: pinned statement counts at 5 and 200 issues', () => {
   it('create at the top of a repository: one read of its key space', async () => {
     await expectConstantStatements(
-      pin('crud.create', async (f) => await f.svc.crud.create({ repoPath: '/repo', title: 'New work', startNow: false }),
+      pin('crud.create', async (f) => await f.svc.crud.create(f.svc.reports.store.serverWriter, { repoPath: '/repo', title: 'New work', startNow: false }),
         (wire) => expect(wire).toMatchObject({ title: 'New work' })),
       // POD-6218: two earliest-admin lookups, one statement each (the row), not two: 13 -> 11.
-      11,
+      // POD-6341: creating a task starts it for the creating member (POD-6290
+      // f97c15fe73, design §4.4). The first-writer start record reads that
+      // member's row (#923cf158) and writes it (#e7334576): 11 -> 13, constant
+      // in the number of issues.
+      // POD-6769: compare at save. The issue and its members' personal records
+      // are listed and built before the write and again after it, in place of
+      // one read of the stored copies: +6, constant in the number of issues.
+      // POD-6765 stored the git observation: one read of it per issue write.
+      // POD-6767 split the body headers into a record of their own, built
+      // before and after like the issue's: 13 -> 22.
+      // POD-6770: the git observation compares at save too. Its one declared
+      // read becomes a build before the write and one after: 22 -> 23.
+      // POD-6791: the issue and its body headers share each read: 23 -> 21.
+      // POD-6920: derived change capture. No list and no build before the
+      // write; after it, the drain (one statement), the mapping of the new
+      // issue row to the sessions that reference it, and the builds of the
+      // records it reached: 21 -> 23, constant in the number of issues.
+      // An issue created with no brief or description reaches neither of
+      // those records, so one build fewer: 23 -> 22.
+      22,
     )
   })
 
   it('move among siblings: one read of the key space', async () => {
     await expectConstantStatements(
-      pin('crud.move', async (f) => await f.svc.crud.move('iss_3', { before: 'iss_2' }),
+      pin('crud.move', async (f) => await f.svc.crud.move(f.svc.reports.store.serverWriter, 'iss_3', { before: 'iss_2' }),
         (wire) => expect(wire).toMatchObject({ id: 'iss_3' })),
-      8,
+      // POD-6769: compare at save, as for `crud.create` (+5), and POD-6765's
+      // read of the stored git observation (+1), and the body headers'
+      // two builds (POD-6767): 8 -> 16.
+      // POD-6770: the git observation is built before and after, where it
+      // was read once: 16 -> 17.
+      // POD-6791: the issue and its body headers share each read: 17 -> 15.
+      // POD-6920: derived change capture. No build before the write; the
+      // drain names only the records whose columns moved: 15 -> 12.
+      // A sort key is no column of its sessions' records: 12 -> 11.
+      11,
     )
   })
 

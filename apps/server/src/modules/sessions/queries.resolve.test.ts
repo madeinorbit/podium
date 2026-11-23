@@ -18,12 +18,13 @@ function state(answer: SessionIdentifierResolution): FamilyState {
   const owners: Record<string, string> = { [MINE]: 'u1', [HIDDEN]: 'u2', [ALSO_MINE]: 'u1' }
   return {
     caller: { userId: 'u1' },
+    // The private-class decision (POD-6284): the caller owns the session.
+    privateAccess: {
+      ownsSession: async (id: SessionId) => owners[id] === 'u1',
+      mayReadMachineFiles: async () => false,
+    },
     modules: {
       readToolkit: { resolveIdentifier: async () => answer },
-      sessions: {
-        sessionOwner: async (id: SessionId) =>
-          owners[id] ? { owner: owners[id], grants: [] } : undefined,
-      },
     },
   } as unknown as FamilyState
 }

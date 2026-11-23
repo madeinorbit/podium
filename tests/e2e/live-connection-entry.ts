@@ -2,22 +2,22 @@
 import { cookieCredentials } from '@podium/client-core/accounts'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import {
-  browserServerRelocation,
   checkWireVersion,
   createSocketLogin,
   observeLiveConnection,
 } from '@podium/client-core/live-connection'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { retainReplicaEntity } from '@podium/client-core/replica'
+import { browserFollowAdopt, followHub } from '@podium/client-core/server-follow'
 import { SocketHub } from '@podium/client-core/socket-transport'
 import { asUserId } from '@podium/model'
-import { IndexedDbSyncStore, type IdbFactoryLike } from '@podium/sync/adapters/indexeddb'
-import { openKernelAssembly } from '../../apps/web/src/lib/kernelReplica'
+import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { openMobileReplica } from '../../apps/mobile/src/client/MobileClientProvider'
 import { mobileVersionObservers } from '../../apps/mobile/src/client/mobile-live-connection'
 import { createMobileSyncFetch } from '../../apps/mobile/src/client/mobile-sync-fetch'
 import { makePlatformSocketLogin } from '../../apps/mobile/src/client/native-websocket.web'
 import { platformFeedChannel } from '../../apps/mobile/src/client/platform-feed-channel.web'
+import { openKernelAssembly } from '../../apps/web/src/lib/kernelReplica'
 
 const params = new URLSearchParams(location.search)
 const app = params.get('app') === 'mobile' ? 'mobile' : 'web'
@@ -46,12 +46,10 @@ const seed = await IndexedDbSyncStore.open({
   retainEntity: retainReplicaEntity,
   onDegraded: () => {},
 })
-seed
-  .viewFor(principal)
-  .cache.applyAtomic({
-    operations: [],
-    cursor: { feedId: 'fixture-feed', epoch: 'fixture-epoch', seq: 0 },
-  })
+seed.viewFor(principal).cache.applyAtomic({
+  operations: [],
+  cursor: { feedId: 'fixture-feed', epoch: 'fixture-epoch', seq: 0 },
+})
 await seed.settled()
 seed.close()
 const api = {} as PodiumClientApi
@@ -95,8 +93,17 @@ const hub = new SocketHub({
   url: `${location.origin.replace('http', 'ws')}/client?tab=${tab}`,
   feed: assembly.feed,
   makeSocket: app === 'web' ? createSocketLogin(login) : makePlatformSocketLogin(login),
-  onServerRelocation: browserServerRelocation(location),
 })
+// The same follower and browser adoption path as the app, including pushed transfers.
+const stopFollowing = followHub(
+  hub,
+  {
+    loadIdentity: () => undefined,
+    saveIdentity: () => {},
+    adopt: browserFollowAdopt({ location }),
+  },
+  { connectBaseUrl: () => location.origin },
+)
 const fetchVersion = async () => {
   state.versionReads++
   const value = await (await fetch('/version')).json()
@@ -140,13 +147,16 @@ Object.assign(window, {
       ...state,
       hello: assembly.feed.helloFields(),
       progress:
-        'progress' in assembly ? assembly.progress.getSnapshot() : assembly.syncProgress.getSnapshot(),
+        'progress' in assembly
+          ? assembly.progress.getSnapshot()
+          : assembly.syncProgress.getSnapshot(),
     }),
     stop: async () => {
       stopRows()
       stopConnection()
       stopHealth()
       mobileVersion.dispose()
+      stopFollowing()
       hub.dispose()
       await assembly.dispose()
     },

@@ -36,7 +36,7 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
           frame({ minHeight: 44 }),
           fixedSize({ horizontal: false, vertical: true }),
           accessibilityIdentifier('deck-filter-done'),
-          accessibilityLabel(`Done tasks, ${full.counts.done}`),
+          accessibilityLabel(`Done tasks, ${full.phoneCounts.done}`),
           accessibilityValue(full.showDone ? 'Shown' : 'Hidden'),
           accessibilityAddTraits(full.showDone ? ['isToggle', 'isSelected'] : ['isToggle']),
         ]}
@@ -47,7 +47,7 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
 
 /** The desktop done line supplies the count, including work in folded phases. */
 export const DoneHidden = observer(function DoneHidden({ full }: { full: FullDeck }) {
-  const done = settled(() => (full.ready ? full.doneLine : null))
+  const done = settled(() => (full.ready ? full.phoneDoneLine : null))
   if (!done || done === LOADING) return null
   const label = done.tasks
     ? `${done.tasks} done hidden`

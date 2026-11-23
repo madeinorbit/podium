@@ -6,7 +6,7 @@ import { ConversationIndexRepository } from './conversations/index'
 import { TranscriptMirrorRepository } from './conversations/mirror'
 import { ConversationRegistryRepository } from './conversations/registry'
 import { TranscriptIndexRepository } from './conversations/transcript-index'
-import type { StoreQueries } from './executor/sync-drizzle'
+import type { WorkspaceQueries } from './executor/sync-drizzle'
 
 export class ConversationsRepository {
   readonly index: ConversationIndexRepository
@@ -14,9 +14,7 @@ export class ConversationsRepository {
   readonly mirror: TranscriptMirrorRepository
   readonly transcriptIndex: TranscriptIndexRepository
 
-  constructor(
-    queries: StoreQueries,
-  ) {
+  constructor(queries: WorkspaceQueries) {
     // The sub-repositories of this aggregate are composed HERE and nowhere else,
     // so the one query capability this aggregate is handed is passed straight
     // down [POD-3254, spec rule 27b]. They take the same object for the same

@@ -272,43 +272,69 @@ const PhaseHeader = observer(function PhaseHeader({
           onCancel={actions.onRenameDone}
         />
       ) : (
-        <button
-          type="button"
+        // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: the contained buttons provide keyboard activation; the handler also covers the row's gaps.
+        <div
           className="flight-full-phase-toggle"
           data-pressable
-          aria-label={`${task.open ? 'Collapse' : 'Expand'} phase ${task.row.title}`}
-          aria-expanded={task.open}
-          aria-controls={contentId}
-          onClick={() => task.deck.toggleFold(task.id)}
+          onClick={() => {
+            actions.onOpenTask(task)
+            task.deck.toggleFold(task.id)
+          }}
         >
-          {task.open ? (
-            <ChevronDown size={12} aria-hidden />
-          ) : (
-            <ChevronRight size={12} aria-hidden />
-          )}
-          <span className="flight-full-phase-index">
-            {String(task.deck.phaseIds.indexOf(task.id) + 1).padStart(2, '0')}
+          <span className="flight-full-phase-identity">
+            <button
+              type="button"
+              className="flight-full-phase-fold"
+              data-pressable
+              aria-label={`${task.open ? 'Collapse' : 'Expand'} phase ${task.row.title}`}
+              aria-expanded={task.open}
+              aria-controls={contentId}
+              onClick={(event) => {
+                event.stopPropagation()
+                task.deck.toggleFold(task.id)
+              }}
+            >
+              {task.open ? (
+                <ChevronDown size={12} aria-hidden />
+              ) : (
+                <ChevronRight size={12} aria-hidden />
+              )}
+            </button>
+            <button
+              type="button"
+              className="flight-full-phase-body"
+              data-pressable
+              aria-label={`Open phase ${task.row.title}`}
+              aria-expanded={task.open}
+              aria-controls={contentId}
+            >
+              <span className="flight-full-phase-index">
+                {String(task.deck.phaseIds.indexOf(task.id) + 1).padStart(2, '0')}
+              </span>
+              <span className="flight-full-phase-name">{task.row.title}</span>
+            </button>
           </span>
-          <span className="flight-full-phase-name">{task.row.title}</span>
           <span className="flight-full-phase-hairline" aria-hidden />
-          {/* biome-ignore lint/a11y/useSemanticElements: a styled bar; a native <meter> cannot take the deck's band styling */}
-          <span
-            className="flight-full-phase-meter"
-            role="meter"
-            aria-label="Direct sub-issues done"
-            aria-valuemin={0}
-            aria-valuemax={Math.max(1, counter.total)}
-            aria-valuenow={counter.done}
-            aria-valuetext={`${counter.done} of ${counter.total} direct sub-issues done`}
-          >
+          <span className="flight-full-phase-progress">
+            {/* biome-ignore lint/a11y/useSemanticElements: a styled bar; a native <meter> cannot take the deck's band styling */}
             <span
-              style={{ width: `${counter.total ? (counter.done / counter.total) * 100 : 0}%` }}
-            />
+              className="flight-full-phase-meter"
+              role="meter"
+              aria-label="Direct sub-issues done"
+              aria-valuemin={0}
+              aria-valuemax={Math.max(1, counter.total)}
+              aria-valuenow={counter.done}
+              aria-valuetext={`${counter.done} of ${counter.total} direct sub-issues done`}
+            >
+              <span
+                style={{ width: `${counter.total ? (counter.done / counter.total) * 100 : 0}%` }}
+              />
+            </span>
+            <span className="flight-full-phase-counter">
+              {counter.done}/{counter.total}
+            </span>
           </span>
-          <span className="flight-full-phase-counter">
-            {counter.done}/{counter.total}
-          </span>
-        </button>
+        </div>
       )}
     </div>
   )

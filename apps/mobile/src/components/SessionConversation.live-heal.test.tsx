@@ -1,4 +1,9 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import {
+  createMemoryTranscriptBackend,
+  createStoreTranscriptCache,
+  createTranscriptStore,
+} from '@podium/client-core/transcript-store'
 /**
  * THE PHONE'S TRANSCRIPT DOES NOT WAIT FOR A RELOAD [POD-4643].
  *
@@ -150,7 +155,6 @@ async function mount(initial?: TranscriptItem[]) {
       sessions: {
         transcriptRead: { query: io.transcriptRead },
         answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
-        interrupt: { mutate: async () => ({ ok: true }) },
       },
     },
   })
@@ -166,21 +170,34 @@ describe('phone transcript over a live stream that went quiet', () => {
   it('clears Updating on the first cold-start window when cached rows and count are identical', async () => {
     const session = { ...working, status: 'hibernated' } as SessionView
     const io = authority()
-    const replica = createMobileTestReplica()
+    // The cached rows live in upstream's per-user transcript store.
+    const store = createTranscriptStore({ backend: createMemoryTranscriptBackend() })
+    const transcripts = createStoreTranscriptCache(store, { settleMs: 0 })
+    transcripts.write(session.sessionId, () => io.written)
+    transcripts.flush()
+    await store.settled()
+    const replica = createMobileTestReplica({ transcripts })
     replica.applySnapshot('sessions', [session])
-    replica.putTranscriptWindow(session.sessionId, io.written)
     replica.finishBootstrap()
     type Page = Awaited<ReturnType<typeof io.transcriptRead>>
-    let resolve!: (page: Page) => void
+    // Every read the window issues waits for the authority's one answer.
+    const pending: ((page: Page) => void)[] = []
+    let answered: Page | undefined
+    const resolve = (page: Page) => {
+      answered = page
+      for (const accept of pending.splice(0)) accept(page)
+    }
     await renderWithMobileStore(<SessionConversation session={session} issue={undefined} />, {
       replica,
       api: {
         sessions: {
           transcriptRead: {
             query: () =>
-              new Promise<Page>((accept) => {
-                resolve = accept
-              }),
+              answered
+                ? Promise.resolve(answered)
+                : new Promise<Page>((accept) => {
+                    pending.push(accept)
+                  }),
           },
         },
       },

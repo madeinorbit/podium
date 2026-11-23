@@ -107,7 +107,7 @@ export interface HarnessLogin {
 }
 ```
 
-Server aggregates per-machine logins into a catalog keyed by fingerprint: one entry per identity, listing the machines that hold it. `accountViews()` reads that instead of `detectNative(homedir())`, and Settings shows "on vmi3407763, macbook".
+Server aggregates per-machine logins into a catalog keyed by fingerprint: one entry per identity, listing the machines that hold it. The Accounts hub reads that instead of `detectNative(homedir())`, and Settings shows "on vmi3407763, macbook".
 
 ### 6.3 Progressive enhancement — `Declared<T>`
 
@@ -182,12 +182,17 @@ Split the question, because the two halves have very different costs.
 
 **API keys / managed credentials: already built.** Not "easy to add" — present.
 
-- `accounts` table with arbitrary rows, `credential` server-only, clients see a masked `identity` (`apps/server/src/store/accounts.ts`).
-- Injection at spawn: `resolveAccountEnv` → `credentialEnv` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`).
+> Superseded in part by the credential management design
+> (`docs/superpowers/specs/2026-11-12-credential-management-design.md`): stored keys are
+> credentials sealed in a vault, delivered by each harness adapter's `accepts` lines.
+> The two bullets below describe the code as it was in August 2026.
+
+- `accounts` table with arbitrary rows, `credential` server-only, clients see a masked `identity`.
+- Injection at spawn: one env mapping per provider (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`).
 - Per-role selection already models the unified account reference: `RoleBackend.accountId` (`packages/model/src/settings/preferences.ts:83`) accepts `native:<harness>` or `managed:<provider>`, and its doc states *"the account determines execution (harness vs api) + provider/harness"*. It already carries the presence-not-value discipline: the id replicates, the credential never does.
 - `scope: 'role' | 'ambient'` exists for per-role vs every-spawn injection.
 
-So a remote runtime that needs API-key credentials is already served. Adding providers is a line in `credentialEnv`.
+So a remote runtime that needs API-key credentials is already served. Adding a provider is a line in an adapter's `accepts`.
 
 **Multiple native OAuth logins: expensive, and postponing is nearly free.**
 

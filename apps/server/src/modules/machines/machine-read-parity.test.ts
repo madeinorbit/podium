@@ -40,8 +40,7 @@ async function setup(machines: { id: string; name: string; hostname: string }[])
     instanceId: 'default',
     store,
     hostMachineId: store.hostMachineId,
-    clients: () => [],
-    machinesForPrincipal: async () => [],
+
   } as MachinesDeps)
   services.push(service)
   return { store, service, ids: [...machines.map((machine) => machine.id), 'never-enrolled'] }
@@ -85,7 +84,7 @@ describe('machine reads follow the machines table', () => {
       () => store.machines.supersedeMachine(asMachineId('edge-revoked'), asMachineId('edge-replacement')),
       () => store.grants.upsert({
         resourceKind: 'machine', resourceId: 'edge-granted', grantee: colleague, verb: 'use',
-        owner, visibility: 'personal', createdAt: '2026-10-15T00:00:00Z',
+        owner, visibility: 'personal', createdAt: '2026-10-15T00:00:00.000Z',
         actorKind: 'user', actorId: owner, onBehalfOf: owner,
       }),
       () => store.machines.setMachineOwner('edge-granted', colleague),

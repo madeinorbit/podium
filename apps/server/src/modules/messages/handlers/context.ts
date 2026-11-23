@@ -34,21 +34,36 @@ import {
   asIssueId,
   asSessionId,
   type IssueId,
+  isAdminPersonCapability,
+  isPersonCapability,
   isSpawnedBy,
-  type SessionId,
   type MachineId,
+  type SessionId,
   type UserId,
 } from '@podium/model'
+import type { LedgerWriter } from '@podium/sync'
 import { type CommandPrincipal, onBehalfOfUser } from '../../../command-principal'
-import { type Capability, checkIssueAccess, mayReadOwned } from '../../../issue-authz'
+import { type Capability, checkIssueAccess, mayReachPrivate } from '../../../issue-authz'
+import { failureNoticeId } from '../../../message-ids'
 import type { MessageRow } from '../../../store'
 import { withReadScope } from '../../../store/executor/read-scope'
-import { failureNoticeId } from '../../../message-ids'
 import type { MessageGateDeps, MessageWire } from '../gate'
+import { MailRefusal } from '../refusal'
 import type { MessageDeliveryDeps } from '../service'
 
 /** Wake-path placement port — see {@link MessageDeliveryDeps.placementAtWake}. */
 export type WakePlacementPort = NonNullable<MessageDeliveryDeps['placementAtWake']>
+
+/** The signed-in PERSON behind a mail caller: a user principal with a
+ *  person's scope (`owned`, admins included since POD-6288; a legacy `all`
+ *  still parses as one). Undefined for an agent, and for a capability scoped
+ *  to nothing, which has no mailbox. */
+export function personOf(caller: MailCaller): UserId | undefined {
+  const scope = caller.capability.scope.kind
+  return caller.principal.kind === 'user' && (scope === 'all' || scope === 'owned')
+    ? caller.principal.user
+    : undefined
+}
 
 export interface MailCaller {
   capability: Capability
@@ -151,7 +166,9 @@ export interface PrincipalMailPolicy {
   principalForMessage(
     message: MessageRow,
   ): CommandPrincipal | undefined | Promise<CommandPrincipal | undefined>
-  policyFor(principal: CommandPrincipal):
+  policyFor(
+    principal: CommandPrincipal,
+  ):
     | { ceiling: HumanCeiling; machines: MachineAccess }
     | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
   /** The ceiling half of `policyFor` alone, for the apply-time check, which
@@ -165,7 +182,9 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
   placementAtWake: WakePlacementPort
   gateOptions: {
     principalForCapability(capability: Capability): CommandPrincipal | Promise<CommandPrincipal>
-    policyFor(principal: CommandPrincipal):
+    policyFor(
+      principal: CommandPrincipal,
+    ):
       | { ceiling: HumanCeiling; machines: MachineAccess }
       | Promise<{ ceiling: HumanCeiling; machines: MachineAccess }>
   }
@@ -230,6 +249,26 @@ export interface MailHandlerContext {
   caller: MailCaller
   deps: MessageGateDeps
   access: MailAccess
+  /**
+   * The handler runs as a write on the sync write entry point (POD-6525), in
+   * its unit of work: a send answers an undeliverable address with its dead
+   * letter in the write, and work outside the database waits for the commit.
+   * Absent for a direct dispatch (a read, a fixture, a caller already inside
+   * someone else's write).
+   */
+  inEntry?: boolean
+  /**
+   * The write's own writer, when it runs on the entry point (ADR 12 D9,
+   * POD-6601): what the write creates in its unit (an agent spawn's launch
+   * record) is written with it.
+   */
+  writer?: Pick<LedgerWriter, 'commit'>
+  /**
+   * An await saw the child settle (POD-6525): the gate retires the parent's
+   * wake claim as its own write once the wait is over. Absent = the await
+   * retires it itself, directly.
+   */
+  observed?(child: SessionId): void
 }
 
 /**
@@ -288,25 +327,42 @@ export class MailAccess {
     return placementDecision(machineId, this.machines)
   }
 
-  /** The session-target containment gate — same posture as the relay sessions
-   *  slice (#237 authz): issue-bound targets need write access to that issue;
-   *  issueless targets are parent/operator-only (--outside-scope never
+  /** The session-target gate. Sessions are private (design §2.3, POD-6283):
+   *  only the session's own human may send to it or ask it, a person directly
+   *  or through their own agents; anyone else's session answers as a missing
+   *  one. A person needs nothing more. An agent keeps the relay sessions
+   *  slice's posture (#237 authz): issue-bound targets need write access to that
+   *  issue; issueless targets are parent-only (--outside-scope never
    *  substitutes there). */
-  async assertSessionTargetAccess(caller: MailCaller, sessionId: SessionId, proc: string): Promise<void> {
+  async assertSessionTargetAccess(
+    caller: MailCaller,
+    sessionId: SessionId,
+    proc: string,
+  ): Promise<void> {
     const target = await this.deps.sessionById(sessionId)
-    if (!target) throw new Error('session not found')
+    if (!target) throw new MailRefusal('target-not-found', 'session not found')
+    if (caller.principal.kind !== 'system') {
+      const owner = await this.deps.sessionOwnerUserId?.(sessionId)
+      if (!mayReachPrivate(onBehalfOfUser(caller.principal), { id: sessionId, owner })) {
+        throw new MailRefusal('target-not-found', 'session not found')
+      }
+      if (caller.principal.kind === 'user') return
+    }
     const issues = this.deps.issues
-    const targetIssueId = target.issueId ?? await issues.reports.issueForCwd(target.cwd)
+    const targetIssueId = target.issueId ?? (await issues.reports.issueForCwd(target.cwd))
     if (targetIssueId) {
       await checkIssueAccess(caller, commandAccess(issues), proc, 'write', targetIssueId)
       return
     }
-    const isOperator = caller.capability.scope.kind === 'all'
+    const isOperator = caller.principal.kind === 'system'
     const isParent =
       caller.capability.actorSessionId !== undefined &&
       isSpawnedBy(target.spawnedBy, { kind: 'session', id: caller.capability.actorSessionId })
     if (!isOperator && !isParent) {
-      throw new Error('target session has no issue; only its parent or the operator may message it')
+      throw new MailRefusal(
+        'unauthorized',
+        'target session has no issue; only its parent or the operator may message it',
+      )
     }
   }
 
@@ -315,7 +371,7 @@ export class MailAccess {
   callerPrincipals(
     capability: Capability,
   ): { kind: 'issue' | 'session' | 'operator'; id?: string }[] {
-    if (capability.scope.kind === 'all') return [{ kind: 'operator' }]
+    if (isPersonCapability(capability)) return [{ kind: 'operator' }]
     const out: { kind: 'issue' | 'session' | 'operator'; id?: string }[] = []
     if (capability.scope.kind === 'subtree') {
       out.push({ kind: 'issue', id: capability.scope.rootId })
@@ -344,7 +400,7 @@ export class MailAccess {
   }
 
   mayView(capability: Capability, m: MessageRow): boolean {
-    if (capability.scope.kind === 'all') return true
+    // No admin arm (POD-6288): mail is private, and the admin role adds nothing.
     if (this.isRecipient(capability, m)) return true
     // The sender may re-read what it sent.
     if (m.fromSession && m.fromSession === capability.actorSessionId) return true
@@ -356,33 +412,89 @@ export class MailAccess {
   }
 
   /**
-   * ONE RULE FOR BOTH ENDS (POD-2143, POD-2146): whoever may read a session —
-   * its owner or a grantee, by the session queries' own `mayReadOwned` rule —
-   * may read mail sent from it or delivered to it. They can already read that
-   * session's transcript, where the note is shown; `mayView` misses them
-   * because a person's capability names no session. Nothing wider: no issue
-   * membership, no other session.
+   * ONE RULE FOR BOTH ENDS (POD-2143, POD-2146, narrowed by POD-6284): the
+   * OWNER of a session may read mail sent from it or delivered to it. They can
+   * already read that session's transcript, where the note is shown; `mayView`
+   * misses them because a person's capability names no session. A session
+   * grant admits nobody (design §2.3: sessions are private), and nothing wider
+   * does either: no issue membership, no other session.
    */
   async mayReadAsSessionReader(caller: MailCaller, m: MessageRow): Promise<boolean> {
     if (caller.principal.kind !== 'user') return false
+    return await this.ownsAnEnd(caller.principal.user, m)
+  }
+
+  /** `user` owns the session the row was sent from or delivered to. */
+  private async ownsAnEnd(user: UserId, m: MessageRow): Promise<boolean> {
     const receiver = m.deliveredTo ?? (m.toKind === 'session' ? m.toId : null)
     for (const session of new Set([m.fromSession, receiver])) {
-      if (session && (await this.mayReadSession(caller.principal.user, session))) return true
+      if (session && (await this.deps.sessionOwnerUserId?.(asSessionId(session))) === user)
+        return true
     }
     return false
   }
 
-  /** `user` may read session `id`, as the session queries decide it. */
-  private async mayReadSession(user: UserId, id: string): Promise<boolean> {
-    const target = await this.deps.sessionOwner?.(asSessionId(id))
-    return target !== undefined && mayReadOwned(user, { id, owner: target.owner, grants: target.grants })
+  /**
+   * MAY THIS CALLER SEE THIS ROW (POD-6284) — the one read gate for show,
+   * status, the ledger and the inbox.
+   *
+   * A PERSON sees their own mail: what was sent on their behalf (by them or by
+   * their agents, `attribution.onBehalfOf`), and what was sent from or
+   * delivered to a session they own. The admin role adds nothing: Bob's agent
+   * asking "the operator" is asking Bob, and Alice never reads it. The one
+   * exception keeps an upgraded instance's history readable: a row written
+   * before attribution existed, with no session at either end, stays with the
+   * admins who could read it before.
+   *
+   * An AGENT keeps its capability rule (`mayView`).
+   */
+  async mayViewAs(caller: MailCaller, m: MessageRow): Promise<boolean> {
+    const human = personOf(caller)
+    if (human === undefined) return this.mayView(caller.capability, m)
+    const onBehalfOf = m.attribution?.onBehalfOf
+    if (onBehalfOf) return onBehalfOf === human || (await this.ownsAnEnd(human, m))
+    if (await this.ownsAnEnd(human, m)) return true
+    const sessionless = !m.fromSession && !m.deliveredTo && m.toKind !== 'session'
+    return sessionless && isAdminPersonCapability(caller.capability)
+  }
+
+  /**
+   * MAY THIS CALLER REPLY TO THIS ROW (POD-6288). A reply routes to the
+   * original's sender, so it is the recipient's to send. An AGENT is the
+   * recipient by its capability (`isRecipient`). A PERSON is the recipient of
+   * a row delivered to a session they own (replying for their own agent), and
+   * of an operator-box row meant for them: sent on their behalf, or from a
+   * session of theirs. Nobody else, admins included: replying to Bob's agent
+   * is driving it. A row from before attribution with no session at either
+   * end stays with whoever may read it (`mayViewAs`).
+   */
+  async mayReplyAs(caller: MailCaller, m: MessageRow): Promise<boolean> {
+    const human = personOf(caller)
+    if (human === undefined) return this.isRecipient(caller.capability, m)
+    const receiver = m.deliveredTo ?? (m.toKind === 'session' ? m.toId : null)
+    if (receiver) return (await this.deps.sessionOwnerUserId?.(asSessionId(receiver))) === human
+    if (m.toKind !== 'operator') return false
+    const onBehalfOf = m.attribution?.onBehalfOf
+    if (onBehalfOf) return onBehalfOf === human
+    if (m.fromSession) return (await this.deps.sessionOwnerUserId?.(asSessionId(m.fromSession))) === human
+    return await this.mayViewAs(caller, m)
+  }
+
+  /** The rows of `rows` this caller may see, in order. */
+  async visibleTo(caller: MailCaller, rows: readonly MessageRow[]): Promise<MessageRow[]> {
+    const verdicts = await Promise.all(rows.map(async (m) => await this.mayViewAs(caller, m)))
+    return rows.filter((_, index) => verdicts[index] === true)
   }
 
   async wire(m: MessageRow): Promise<MessageWire> {
     const issues = this.deps.issues
     const notice =
       m.deliveryStatus === 'failed' ? await this.deps.messages.message(failureNoticeId(m.id)) : null
-    const label = async (kind: string, issueId: IssueId | null, sessionId: SessionId | null): Promise<string> => {
+    const label = async (
+      kind: string,
+      issueId: IssueId | null,
+      sessionId: SessionId | null,
+    ): Promise<string> => {
       if (kind === 'agent' || kind === 'issue') {
         if (issueId) {
           const issue = await issues.reports.getMeta(issueId)
@@ -435,4 +547,19 @@ export class MailAccess {
       expectsResponse: m.expectsResponse ?? false,
     }
   }
+}
+
+/**
+ * THE COMMAND'S WRITER, for a mail write (ADR 12 D9, POD-6602): every row a mail
+ * command stores or moves is written with it, in the command's unit, so its
+ * change rows carry the command's mutationId. A handler reached without one (a
+ * direct dispatch from outside every write) has nothing to write with.
+ */
+export function mailWriter(
+  ctx: Pick<MailHandlerContext, 'writer'>,
+  what: string,
+): Pick<LedgerWriter, 'commit'> {
+  if (ctx.writer === undefined)
+    throw new Error(`${what}: a mail write runs with its command's writer`)
+  return ctx.writer
 }

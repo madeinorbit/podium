@@ -22,7 +22,11 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
   async function setup() {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {}, { repos: ['/repo'] })
-    await reg.issues.crud.create({ repoPath: '/repo', title: 'an issue', startNow: false })
+    await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'an issue',
+      startNow: false,
+    })
     const s1 = (
       await reg.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -69,7 +73,10 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // The paired half: this client is not simply deaf. A REAL change reaches it
     // through the same sink — without this, the assertions above are equally
     // satisfied by a connection that was never served at all.
-    await reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
+    await reg.modules.sessions.setWorkState(reg.modules.sessions.serverWriter, {
+      sessionId: s1,
+      workState: 'testing',
+    })
     await reg.modules.sessions.flushBroadcasts()
     await vi.waitFor(() =>
       expect(
@@ -100,7 +107,10 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // live state a user sees comes from the `session` entity, which DID update.
     const { reg, s1, inbox } = await setup()
 
-    await reg.modules.sessions.setWorkState({ sessionId: s1, workState: 'testing' })
+    await reg.modules.sessions.setWorkState(reg.modules.sessions.serverWriter, {
+      sessionId: s1,
+      workState: 'testing',
+    })
     await reg.modules.sessions.flushBroadcasts()
 
     await vi.waitFor(() =>
@@ -118,7 +128,9 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     inbox.length = 0
     const issue = (await reg.issues.reports.list('/repo'))[0]
     expect(issue).toBeDefined()
-    await reg.issues.crud.update(issue!.id, { title: 'renamed' })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue!.id, {
+      title: 'renamed',
+    })
     await reg.modules.sessions.flushBroadcasts()
     await vi.waitFor(() =>
       expect(

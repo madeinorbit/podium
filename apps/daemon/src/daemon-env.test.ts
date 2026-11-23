@@ -1,7 +1,8 @@
 import { asSessionId } from '@podium/model'
 import { expect, it } from 'vitest'
 import { sessionRelayEnv } from './daemon'
-import { serverChildEnv } from './control/session-env'
+import { testHarnessContext } from '@podium/harness/driver/testing'
+import { engineEnvBuilder } from './runtime/host'
 
 it('sessionRelayEnv binds the session id into env + relay URL (new name only)', () => {
   const env = sessionRelayEnv(
@@ -49,7 +50,7 @@ it('sessionRelayEnv binds the agent-identity relay for every non-shell kind', ()
     expect(env.PODIUM_AGENT_RELAY, kind).toBe('http://127.0.0.1:45778/agent/s1')
   }
 })
-it('sessionRelayEnv and serverChildEnv carry the immutable instance UUID', () => {
+it('sessionRelayEnv and the engine child env carry the immutable instance UUID', () => {
   const uuid = '11111111-1111-4111-8111-111111111111'
   const relay = sessionRelayEnv(
     asSessionId('sess-uuid'),
@@ -62,10 +63,12 @@ it('sessionRelayEnv and serverChildEnv carry the immutable instance UUID', () =>
 
   // The server-driver path has no session relay helper, but receives the same
   // ownership stamp through its child-environment composition.
-  const server = serverChildEnv(
-    { agentKind: 'codex', instanceUuid: uuid, sessionId: 'sess-uuid' },
-    { PATH: '/usr/bin' },
-  )
+  const server = engineEnvBuilder(() => ({}))({
+    agentKind: 'codex',
+    harnessContext: testHarnessContext({ kind: 'codex', env: { PATH: '/usr/bin' } }),
+    instanceUuid: uuid,
+    sessionId: asSessionId('sess-uuid'),
+  })
   expect(server.PODIUM_INSTANCE_UUID).toBe(uuid)
   expect(server.PODIUM_SESSION_ID).toBe('sess-uuid')
 })

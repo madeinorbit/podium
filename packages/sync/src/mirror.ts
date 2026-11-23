@@ -1,8 +1,11 @@
-import { mkdirSync } from 'node:fs'
-import { open, rename, stat } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { machineScopedKey, type MachineId } from '@podium/model'
+import { type MachineId, machineScopedKey } from '@podium/model'
+import {
+  type LakeSegment,
+  LakeWriteConflict,
+  type LakeWriter,
+  type PartedLake,
+} from './lake-parted'
 
 /** Node-only half of this package; same namespace convention as `sync:ledger`. */
 const log = createLogger('sync:mirror')
@@ -21,7 +24,18 @@ export interface MirrorStore {
   ): Promise<{ nativeId: string; path: string; mirroredBytes: number }[]>
   setReportedBytes(machineId: MachineId, nativeId: string, bytes: number): void | Promise<void>
   mirrorCursor(machineId: MachineId, nativeId: string): number | Promise<number>
-  setMirrorCursor(machineId: MachineId, nativeId: string, bytes: number, at: string): void | Promise<void>
+  /**
+   * Compare-and-set the mirrored cursor (POD-6963 design 2.3, the fleet fence):
+   * write `bytes` only while the cursor still equals `expected`. False when
+   * another writer moved it first; the caller re-reads and starts over.
+   */
+  setMirrorCursor(
+    machineId: MachineId,
+    nativeId: string,
+    expected: number,
+    bytes: number,
+    at: string,
+  ): boolean | Promise<boolean>
   activeIncarnation(
     machineId: MachineId,
     nativeId: string,
@@ -35,13 +49,19 @@ export interface MirrorStore {
     identity: { device: string; inode: string },
     at: string,
   ): void | Promise<void>
+  /**
+   * Retire the observed active incarnation `from` and start the next one at a
+   * clean cursor. False when `from` is no longer active (another writer rotated
+   * first); the caller re-reads and continues on the new incarnation.
+   */
   rotateIncarnation(
     machineId: MachineId,
     nativeId: string,
+    from: { sequence: number; device: string; inode: string },
     identity: { device: string; inode: string },
     archivedBytes: number,
     at: string,
-  ): void | Promise<void>
+  ): boolean | Promise<boolean>
 }
 
 /** One ranged read answered by the daemon (transcriptMirrorResult, decoded). */
@@ -64,21 +84,29 @@ export interface MirrorServiceOptions {
   passBudgetBytes?: number
   /** Fires after each chunk write + cursor advance — the transcript indexer's feed
    *  (docs/spec/search-v1.md §2.3). MirrorService itself stays indexing-free. */
-  onBytes?: (machineId: MachineId, nativeId: string, lakePath: string) => void | Promise<void>
+  onBytes?: (machineId: MachineId, nativeId: string) => void | Promise<void>
   /** Fires when a rewrite (source shrank) truncated the lake copy — the indexed
    *  content for the segment is invalid and must be dropped before the re-mirror. */
   onTruncate?: (machineId: MachineId, nativeId: string) => void | Promise<void>
   /** Fires when the same native id resolves to a different file identity. The
-   *  predecessor lake file has already been archived and the current cursor
+   *  predecessor incarnation has already been retired and the current cursor
    *  reset; consumers must reset current-incarnation state without treating the
    *  predecessor bytes as invalid. */
   onIncarnation?: (machineId: MachineId, nativeId: string) => void | Promise<void>
 }
 
+/** Lost races in one pass after which the mirror leaves a segment to the other writer. */
+const MAX_RESTARTS = 4
+
 /**
  * Transcript lake mirror (docs/spec/transcript-mirror.md): server-driven ranged
- * pulls of native transcript files into `$lakeDir/<machineId>/<nativeId>.jsonl`,
+ * pulls of native transcript files into the parted lake ({@link PartedLake}),
  * byte-verbatim, resumable via the per-segment `mirrored_bytes` cursor.
+ *
+ * Fleet fence (POD-6963 design 2.3): part writes are conditional and the cursor
+ * advance is a compare-and-set, so two processes mirroring the same segment
+ * cannot interleave bytes. A writer that loses either race re-reads the cursor
+ * and starts the segment over.
  *
  * Scheduling posture (spec invariant 4): one in-flight read per machine, bounded
  * chunks, work enqueued from scans/attach — transcripts are cold data and must
@@ -138,13 +166,13 @@ export class MirrorService {
 
   private readonly chunkDelayMs: number
   private readonly passBudgetBytes: number
-  private readonly onBytes: (machineId: MachineId, nativeId: string, lakePath: string) => void | Promise<void>
+  private readonly onBytes: (machineId: MachineId, nativeId: string) => void | Promise<void>
   private readonly onTruncate: (machineId: MachineId, nativeId: string) => void | Promise<void>
   private readonly onIncarnation: (machineId: MachineId, nativeId: string) => void | Promise<void>
 
   constructor(
     private readonly store: MirrorStore,
-    private readonly lakeDir: string,
+    readonly lake: PartedLake,
     private readonly read: (
       machineId: MachineId,
       req: { path: string; offset: number; maxBytes: number },
@@ -157,14 +185,6 @@ export class MirrorService {
     this.onBytes = options.onBytes ?? (() => {})
     this.onTruncate = options.onTruncate ?? (() => {})
     this.onIncarnation = options.onIncarnation ?? (() => {})
-  }
-
-  lakePath(machineId: MachineId, nativeId: string): string {
-    return join(this.lakeDir, machineId, `${nativeId}.jsonl`)
-  }
-
-  archivedLakePath(machineId: MachineId, nativeId: string, sequence: number): string {
-    return join(this.lakeDir, machineId, `${nativeId}.incarnation-${sequence}.jsonl`)
   }
 
   /** Enqueue every path-known segment of a machine — the FULL sweep. Kept as the
@@ -196,7 +216,11 @@ export class MirrorService {
   /** Sweep triggers carry a fresh source observation. If its segment is already
    *  being read, preserve that observation as one trailing pass; plain direct
    *  enqueues retain their strict duplicate-suppression contract. */
-  private async enqueueForSweep(machineId: MachineId, nativeId: string, path: string): Promise<void> {
+  private async enqueueForSweep(
+    machineId: MachineId,
+    nativeId: string,
+    path: string,
+  ): Promise<void> {
     await this.enqueueSegment(machineId, nativeId, path, true)
   }
 
@@ -226,7 +250,8 @@ export class MirrorService {
     }
     queue.push({ nativeId, path })
     // Enqueue acknowledges queued work; pause/settled own drain completion.
-    if (!this.paused) void this.drain(machineId).catch((err) => this.reportDrainFailure(machineId, err))
+    if (!this.paused)
+      void this.drain(machineId).catch((err) => this.reportDrainFailure(machineId, err))
   }
 
   /**
@@ -250,7 +275,8 @@ export class MirrorService {
     if (this.stopped || !this.paused) return
     this.paused = false
     for (const [machineId, queue] of this.queues) {
-      if (queue.length > 0) void this.drain(machineId).catch((err) => this.reportDrainFailure(machineId, err))
+      if (queue.length > 0)
+        void this.drain(machineId).catch((err) => this.reportDrainFailure(machineId, err))
     }
   }
 
@@ -299,12 +325,7 @@ export class MirrorService {
         let completed = false
         this.inFlight.add(key)
         try {
-          const mirrorCompleted = await this.mirrorOne(
-            machineId,
-            item.nativeId,
-            item.path,
-            pass,
-          )
+          const mirrorCompleted = await this.mirrorOne(machineId, item.nativeId, item.path, pass)
           if (!mirrorCompleted) {
             // Pause won while this item was in flight. It stays deduplicated and
             // returns to the FRONT so resume retries it before later segments.
@@ -365,14 +386,14 @@ export class MirrorService {
         if (preserveQueued && completed && pass.remainingBytes <= 0) return
       }
     } finally {
-      const restart =
-        !this.stopped && !this.paused && (this.queues.get(machineId)?.length ?? 0) > 0
+      const restart = !this.stopped && !this.paused && (this.queues.get(machineId)?.length ?? 0) > 0
       this.active.delete(machineId)
       if (this.active.size === 0) {
         for (const resolve of this.pauseWaiters) resolve()
         this.pauseWaiters.clear()
       }
-      if (restart) void this.drain(machineId).catch((err) => this.reportDrainFailure(machineId, err))
+      if (restart)
+        void this.drain(machineId).catch((err) => this.reportDrainFailure(machineId, err))
     }
   }
 
@@ -385,137 +406,222 @@ export class MirrorService {
     queue.length = 0
   }
 
+  /**
+   * Pull one segment from its persisted cursor to eof (or the pass budget).
+   * False when a pause won mid-flight. A lost race (a refused part write, a
+   * lost cursor compare-and-set or a lost rotation) re-reads the cursor and
+   * starts over. After a few losses in one pass another writer is evidently
+   * mirroring the segment, so this pass ends and leaves it to that writer; the
+   * next scan re-enqueues it if it is still dirty.
+   */
   private async mirrorOne(
     machineId: MachineId,
     nativeId: string,
     path: string,
     pass: { remainingBytes: number },
   ): Promise<boolean> {
-    let cursor = await this.store.mirrorCursor(machineId, nativeId)
-    // Ops-event guard: if the lake file is SHORTER than the cursor (lake wiped or
-    // partially restored while the DB kept its cursors), fall back to what is
-    // actually on disk — truncate(cursor) on a shorter file would silently EXTEND
-    // it with NUL bytes and mark garbage as mirrored.
-    const lakeSize = await this.lakeSize(machineId, nativeId)
-    if (this.stopped) return true
-    if (this.paused) return false
-    if (lakeSize < cursor) {
-      cursor = lakeSize
-      await this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
-    }
-    for (;;) {
-      if (this.paused) return false
-      const res = await this.read(machineId, {
-        path,
-        offset: cursor,
-        maxBytes: MirrorService.CHUNK_BYTES,
-      })
-      // Every line below writes to the store; disposal can have closed it while
-      // this read was outstanding. Bail before the write, not after it throws.
+    for (let attempt = 1; ; attempt += 1) {
+      const outcome = await this.mirrorPass(machineId, nativeId, path, pass)
+      if (outcome !== 'restart') return outcome
       if (this.stopped) return true
-      // The ranged read itself is harmless to the snapshot. If the fence went
-      // up while it was outstanding, preserve the item and never turn its reply
-      // into a lake write.
-      if (this.paused) return false
-      if (res.error) throw new Error(res.error)
-      const identity =
-        res.device !== undefined && res.inode !== undefined
-          ? { device: res.device, inode: res.inode }
-          : undefined
-      const active = identity
-        ? await this.store.activeIncarnation(machineId, nativeId)
-        : undefined
-      if (identity && !active) {
-        // Rolling-upgrade adoption: the canonical lake and its cursor predate
-        // file-identity replies. Attach identity without disturbing either.
-        await this.store.startIncarnation(machineId, nativeId, identity, this.nowIso())
-      } else if (
-        identity &&
-        active &&
-        (active.device !== identity.device || active.inode !== identity.inode)
-      ) {
-        // A replacement file is a NEW immutable transcript segment, even when
-        // the provider reused the same native session id. Archive the canonical
-        // predecessor before resetting the current cursor; do not call the
-        // rewrite hook, because the predecessor remains valid history.
-        const archivedPath = this.archivedLakePath(machineId, nativeId, active.sequence)
-        const archivedBytes = await this.archiveCurrent(
+      if (attempt >= MAX_RESTARTS) {
+        log.info('another writer is mirroring this segment — leaving it to that writer', {
           machineId,
           nativeId,
-          archivedPath,
-          await this.lakeSize(machineId, nativeId),
-        )
-        await this.store.rotateIncarnation(
-          machineId,
-          nativeId,
-          identity,
-          archivedBytes,
-          this.nowIso(),
-        )
-        await this.onIncarnation(machineId, nativeId)
-        cursor = 0
-        continue
-      }
-      if (res.fileSize < cursor) {
-        // The native file SHRANK — it was rewritten, not appended. Verbatim-mirror
-        // correctness: drop our copy and re-pull from zero (spec §2.3). Everything
-        // indexed off the old copy is invalid too — signal BEFORE the re-pull so
-        // the reindex starts from a clean slate as chunks arrive.
-        await this.onTruncate(machineId, nativeId)
-        await this.writeAt(machineId, nativeId, 0, Buffer.alloc(0))
-        // Disposal may close the store while the filesystem mutation is
-        // outstanding. The lake can be repaired from its persisted cursor on
-        // the next start; touching the closed store here cannot be repaired.
-        if (this.stopped) return true
-        await this.store.setMirrorCursor(machineId, nativeId, 0, this.nowIso())
-        cursor = 0
-        if (this.paused) return false
-        continue
-      }
-      const bytes = Buffer.from(res.data, 'base64')
-      if (bytes.length > 0) {
-        // Lake write BEFORE cursor advance (spec invariant 2): a crash between the
-        // two re-pulls this chunk and overwrites it byte-identically at the cursor.
-        await this.writeAt(machineId, nativeId, cursor, bytes)
-        // dispose() is synchronous and the owner closes the store immediately
-        // afterwards. A write already awaiting the filesystem may finish, but
-        // it must not advance cursors or notify the indexer after that boundary.
-        if (this.stopped) return true
-        cursor += bytes.length
-        await this.store.setMirrorCursor(machineId, nativeId, cursor, this.nowIso())
-        await this.onBytes(machineId, nativeId, this.lakePath(machineId, nativeId))
-        pass.remainingBytes -= bytes.length
-        // A pause may have arrived while writeAt was awaiting the filesystem.
-        // Cursor and lake are consistent now; stop before another read/write.
-        if (this.paused) return false
-        // Inter-chunk breather (incident amendment): never pump chunks
-        // back-to-back — the 2026-07 bootstrap starved the event loop doing so.
-        if (this.chunkDelayMs > 0) {
-          await this.sleep(this.chunkDelayMs)
-          if (this.paused) return false
-        }
-      } else if (!res.eof) {
-        throw new Error('empty non-eof mirror chunk') // defensive: avoid a spin
-      }
-      if (res.eof) {
-        // Fully caught up: the cursor IS the file size we just observed — record
-        // it as the reported size so the dirty set drops this segment. This is
-        // what quiets NULL-reported rows (pre-upgrade / size-less providers), and
-        // it is FRESHER than the scan's stat (a grow that raced the scan report is
-        // covered: we mirrored to the real eof). A later grow re-dirties via the
-        // next scan's sizeBytes.
-        // A dirty sweep may have persisted a newer source size while this older
-        // read was still in flight. Its trailing pass owns convergence; do not
-        // erase that observation with this response's stale EOF size.
-        if (!this.retriggered.has(machineScopedKey(machineId, nativeId))) {
-          await this.store.setReportedBytes(machineId, nativeId, cursor)
-        }
+        })
         return true
       }
-      // Budget hit mid-file: cursor persisted, next pass resumes. This is normal
-      // pass completion rather than a pause, so the next scan may re-enqueue it.
-      if (pass.remainingBytes <= 0) return true
     }
+  }
+
+  private async mirrorPass(
+    machineId: MachineId,
+    nativeId: string,
+    path: string,
+    pass: { remainingBytes: number },
+  ): Promise<boolean | 'restart'> {
+    let cursor = await this.store.mirrorCursor(machineId, nativeId)
+    let segment = this.segmentOf(
+      machineId,
+      nativeId,
+      await this.store.activeIncarnation(machineId, nativeId),
+    )
+    // Ops-event guard: if the lake holds FEWER bytes than the cursor (lake
+    // wiped or partially restored while the DB kept its cursors, or a crash
+    // lost the open part's last non-durable rewrite), fall back to what is
+    // actually stored and re-pull from there; the re-pull is byte-identical.
+    let writer = await this.lake.openWriter(segment, cursor)
+    if (this.stopped) return true
+    if (this.paused) return false
+    if (writer.storedSize < cursor) {
+      if (!(await this.advance(machineId, nativeId, cursor, writer.storedSize))) return 'restart'
+      cursor = writer.storedSize
+    }
+    try {
+      for (;;) {
+        if (this.paused) return false
+        const res = await this.read(machineId, {
+          path,
+          offset: cursor,
+          maxBytes: MirrorService.CHUNK_BYTES,
+        })
+        // Every line below writes to the store; disposal can have closed it while
+        // this read was outstanding. Bail before the write, not after it throws.
+        if (this.stopped) return true
+        // The ranged read itself is harmless to the snapshot. If the fence went
+        // up while it was outstanding, preserve the item and never turn its reply
+        // into a lake write.
+        if (this.paused) return false
+        if (res.error) throw new Error(res.error)
+        const identity =
+          res.device !== undefined && res.inode !== undefined
+            ? { device: res.device, inode: res.inode }
+            : undefined
+        const active = identity
+          ? await this.store.activeIncarnation(machineId, nativeId)
+          : undefined
+        // Another writer rotated since this pass read the incarnation: its
+        // cursor and parts belong to the old one, so neither a rotation nor a
+        // shrink may act on them. Start over on the incarnation now active.
+        if (active && active.sequence !== segment.incarnation) return 'restart'
+        if (identity && !active) {
+          // Rolling-upgrade adoption: the lake and its cursor predate
+          // file-identity replies. Attach identity without disturbing either;
+          // the adopted row is sequence 1, which is where these bytes already
+          // live, so no key changes.
+          await this.store.startIncarnation(machineId, nativeId, identity, this.nowIso())
+          const adopted = await this.store.activeIncarnation(machineId, nativeId)
+          if (adopted && adopted.sequence !== segment.incarnation) return 'restart'
+        } else if (
+          identity &&
+          active &&
+          (active.device !== identity.device || active.inode !== identity.inode)
+        ) {
+          // A replacement file is a NEW immutable transcript segment, even when
+          // the provider reused the same native session id. The predecessor's
+          // parts already sit under its own sequence: rotating only retires the
+          // row with its readable byte count and starts the next sequence at a
+          // clean cursor. No rewrite hook, because the predecessor remains
+          // valid history.
+          const predecessor = this.segmentOf(machineId, nativeId, active)
+          const archivedBytes = await this.lake.readableSize(predecessor, cursor)
+          const rotated = await this.store.rotateIncarnation(
+            machineId,
+            nativeId,
+            active,
+            identity,
+            archivedBytes,
+            this.nowIso(),
+          )
+          // Another writer rotated first: continue on the incarnation it started.
+          if (!rotated) return 'restart'
+          await this.onIncarnation(machineId, nativeId)
+          segment = this.segmentOf(
+            machineId,
+            nativeId,
+            await this.store.activeIncarnation(machineId, nativeId),
+          )
+          cursor = await this.store.mirrorCursor(machineId, nativeId)
+          writer = await this.lake.openWriter(segment, cursor)
+          if (writer.storedSize < cursor) return 'restart'
+          continue
+        }
+        if (res.fileSize < cursor) {
+          // The native file SHRANK — it was rewritten, not appended. Verbatim-mirror
+          // correctness: drop our copy and re-pull from zero (spec §2.3). Everything
+          // indexed off the old copy is invalid too — signal BEFORE the re-pull so
+          // the reindex starts from a clean slate as chunks arrive. Every part
+          // goes, durably, before the cursor resets (design 2.3, "Shrink").
+          // A cursor that moved means another writer is on this segment and
+          // this pass's view is stale; deleting on it would destroy their bytes.
+          if ((await this.store.mirrorCursor(machineId, nativeId)) !== cursor) return 'restart'
+          await this.onTruncate(machineId, nativeId)
+          await this.lake.clear(segment, cursor)
+          // Disposal may close the store while the delete is outstanding. The
+          // lake can be repaired from its persisted cursor on the next start;
+          // touching the closed store here cannot be repaired.
+          if (this.stopped) return true
+          if (!(await this.advance(machineId, nativeId, cursor, 0))) return 'restart'
+          cursor = 0
+          writer = await this.lake.openWriter(segment, 0)
+          if (this.paused) return false
+          continue
+        }
+        const bytes = Buffer.from(res.data, 'base64')
+        if (bytes.length > 0) {
+          // Lake write BEFORE cursor advance (spec invariant 2): a crash between the
+          // two re-pulls this chunk and rewrites it byte-identically at the cursor.
+          await this.writeChunk(writer, bytes)
+          // dispose() is synchronous and the owner closes the store immediately
+          // afterwards. A write already awaiting the store may finish, but it
+          // must not advance cursors or notify the indexer after that boundary.
+          if (this.stopped) return true
+          const next = cursor + bytes.length
+          if (!(await this.advance(machineId, nativeId, cursor, next))) return 'restart'
+          cursor = next
+          await this.onBytes(machineId, nativeId)
+          pass.remainingBytes -= bytes.length
+          // A pause may have arrived while the write was awaiting the store.
+          // Cursor and lake are consistent now; stop before another read/write.
+          if (this.paused) return false
+          // Inter-chunk breather (incident amendment): never pump chunks
+          // back-to-back — the 2026-07 bootstrap starved the event loop doing so.
+          if (this.chunkDelayMs > 0) {
+            await this.sleep(this.chunkDelayMs)
+            if (this.paused) return false
+          }
+        } else if (!res.eof) {
+          throw new Error('empty non-eof mirror chunk') // defensive: avoid a spin
+        }
+        if (res.eof) {
+          // Fully caught up: the cursor IS the file size we just observed — record
+          // it as the reported size so the dirty set drops this segment. This is
+          // what quiets NULL-reported rows (pre-upgrade / size-less providers), and
+          // it is FRESHER than the scan's stat (a grow that raced the scan report is
+          // covered: we mirrored to the real eof). A later grow re-dirties via the
+          // next scan's sizeBytes.
+          // A dirty sweep may have persisted a newer source size while this older
+          // read was still in flight. Its trailing pass owns convergence; do not
+          // erase that observation with this response's stale EOF size.
+          if (!this.retriggered.has(machineScopedKey(machineId, nativeId))) {
+            await this.store.setReportedBytes(machineId, nativeId, cursor)
+          }
+          return true
+        }
+        // Budget hit mid-file: cursor persisted, next pass resumes. This is normal
+        // pass completion rather than a pause, so the next scan may re-enqueue it.
+        if (pass.remainingBytes <= 0) return true
+      }
+    } catch (error) {
+      // Another writer changed a part under this one (design 2.3, the fleet
+      // fence): nothing this writer put is counted, so start over.
+      if (error instanceof LakeWriteConflict && !this.stopped) return 'restart'
+      throw error
+    }
+  }
+
+  /** The lake address of a segment's active incarnation: its row's sequence, or 1 with no row. */
+  private segmentOf(
+    machineId: MachineId,
+    nativeId: string,
+    active: { sequence: number } | undefined,
+  ): LakeSegment {
+    return { machineId, nativeId, incarnation: active?.sequence ?? 1 }
+  }
+
+  /** The cursor compare-and-set; false when another writer moved it first. */
+  private async advance(
+    machineId: MachineId,
+    nativeId: string,
+    expected: number,
+    bytes: number,
+  ): Promise<boolean> {
+    return await this.store.setMirrorCursor(machineId, nativeId, expected, bytes, this.nowIso())
+  }
+
+  /** One chunk into the lake at the writer's position. A seam for the pause tests. */
+  private async writeChunk(writer: LakeWriter, bytes: Uint8Array): Promise<void> {
+    await writer.append(bytes)
   }
 
   /** Unref'd sleep — pacing must never hold the process open at shutdown. */
@@ -524,61 +630,6 @@ export class MirrorService {
       const timer = setTimeout(resolve, ms)
       timer.unref?.()
     })
-  }
-
-  /** Truncate the lake file to `offset`, then append `bytes` — enforcing
-   *  "lake size === cursor" before every write, so replays can't leave tails. */
-  private async writeAt(
-    machineId: MachineId,
-    nativeId: string,
-    offset: number,
-    bytes: Buffer,
-  ): Promise<void> {
-    const path = this.lakePath(machineId, nativeId)
-    mkdirSync(dirname(path), { recursive: true })
-    // 'a' creates the file when missing; POSIX append mode ignores the write
-    // position and always writes at END — which, after truncate(offset), IS
-    // offset. The truncate-then-append pair is what enforces the invariant.
-    const handle = await open(path, 'a')
-    try {
-      await handle.truncate(offset)
-      if (bytes.length > 0) await handle.write(bytes, 0, bytes.length)
-    } finally {
-      await handle.close()
-    }
-  }
-
-  private async lakeSize(machineId: MachineId, nativeId: string): Promise<number> {
-    try {
-      return (await stat(this.lakePath(machineId, nativeId))).size
-    } catch {
-      return 0 // no lake file yet
-    }
-  }
-
-  /** Move the current canonical copy to its immutable chain position. If a
-   *  crash already completed the move but not the DB rotation, keep and measure
-   *  that predecessor rather than replacing it with an empty file. */
-  private async archiveCurrent(
-    machineId: MachineId,
-    nativeId: string,
-    archivedPath: string,
-    currentSize: number,
-  ): Promise<number> {
-    mkdirSync(dirname(archivedPath), { recursive: true })
-    try {
-      // Recovery after rename-before-DB crash: the predecessor is already safe.
-      // Leave a replacement canonical file alone; the zero-cursor re-pull below
-      // will overwrite it byte-identically after the DB rotation completes.
-      return (await stat(archivedPath)).size
-    } catch {
-      // No archived predecessor yet — move the canonical copy below.
-    }
-    if (currentSize > 0) {
-      await rename(this.lakePath(machineId, nativeId), archivedPath)
-      return currentSize
-    }
-    return 0
   }
 
   private nowIso(): string {

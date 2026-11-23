@@ -15,13 +15,13 @@ vi.mock('expo-haptics', () => ({
 }))
 // Ships untranspiled Flow, which this environment cannot parse — the same stub
 // the neighbouring card tests use. Rows are found by label, not by glyph.
-vi.mock('lucide-react-native', () => ({
-  FileText: () => null,
-  Globe: () => null,
-  Image: () => null,
-  Play: () => null,
-}))
 vi.mock('../client/hooks', () => ({ useHttpOrigin: () => 'https://podium.local' }))
+// The panel the paths resolve against is the pool's issue model (POD-6778);
+// here it is the issue each test builds.
+const issueModels = new Map<string, IssueViewModel>()
+vi.mock('../client/use-issue-model', () => ({
+  useIssueModel: (id: string | undefined) => (id ? issueModels.get(id) : undefined),
+}))
 vi.mock('../client/server-profile-context', () => ({ useServerProfile: () => ({ bearer: 'tok' }) }))
 // The viewer is the other agent's surface and pulls the WebView/markdown graph;
 // what this file asserts is WHICH artifact the strip hands it.
@@ -47,13 +47,16 @@ const art = (path: string, addedAt = '2026-08-20T00:00:00.000Z'): IssuePanelArti
   addedAt,
 })
 
-const issue = (artifacts: IssuePanelArtifact[]): IssueViewModel =>
-  ({
+const issue = (artifacts: IssuePanelArtifact[]): IssueViewModel => {
+  const model = {
     id: 'iss_offer',
     repoPath: '/repo',
     worktreePath: '/repo/.worktrees/POD-1',
     panel: { todos: [], artifacts, deferred: [] },
-  }) as unknown as IssueViewModel
+  } as unknown as IssueViewModel
+  issueModels.set(model.id, model)
+  return model
+}
 
 const offer = (artifacts: string[]): SessionOffer => ({
   message: 'Ready to merge',

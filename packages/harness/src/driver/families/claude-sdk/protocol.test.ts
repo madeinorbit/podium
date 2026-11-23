@@ -1,18 +1,23 @@
 // The stream-json wire, hermetically: argv, handshake, turns, permissions,
 // interrupts and death — over a fake line transport, no CLI, no SDK.
 
+import { DEFAULT_SESSION_POSTURE } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
+import { optionArgs, unchangedPosture } from '../../../posture.js'
+import type { PostureLaunch } from '../../../posture-types.js'
+import { manifestFor } from '../../../registry.js'
+import { testHarnessContext } from '../../testing/harness-context.js'
+import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
 import {
   buildClaudeStreamInvocation,
+  type ClaudeStreamTransport,
   claudeStreamEnvOverlay,
   createClaudeStreamClient,
   initializePayload,
   mcpConfigInline,
   userMessageLine,
-  type ClaudeStreamTransport,
 } from './protocol.js'
-import { claudeRecordToItems } from '../../../adapters/claude-code/transcript.js'
-import ack from './__fixtures__/user-message-ack.json' with { type: 'json' }
 
 function fakeTransport(): {
   transport: ClaudeStreamTransport
@@ -58,12 +63,15 @@ function fakeTransport(): {
 const frame = (value: unknown): string => JSON.stringify(value)
 
 function answerInitialize(fake: ReturnType<typeof fakeTransport>, response: unknown = {}): void {
-  const init = fake.writes.map((line) => JSON.parse(line)).find(
-    (msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize',
-  )
+  const init = fake.writes
+    .map((line) => JSON.parse(line))
+    .find((msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize')
   expect(init).toBeDefined()
   fake.emitLine(
-    frame({ type: 'control_response', response: { subtype: 'success', request_id: init.request_id, response } }),
+    frame({
+      type: 'control_response',
+      response: { subtype: 'success', request_id: init.request_id, response },
+    }),
   )
 }
 
@@ -80,12 +88,41 @@ function completeTurn(
   answerInitSystem(fake, sessionId)
 }
 
+const CLAUDE = testHarnessContext({ kind: 'claude-code' })
+/** The engine's launch posture (POD-6858), built inline from the contract. */
+const POSTURE = {
+  posture: DEFAULT_SESSION_POSTURE,
+  grants: {
+    podiumCli: { name: 'podium', path: '/opt/podium-test/bin/podium' },
+    uploadsDir: '/var/podium-test/uploads/session',
+    mcpServers: [],
+  },
+  workdir: '/work',
+  runtimeDir: '/run/podium-test/session',
+  context: CLAUDE,
+}
+const CLAUDE_MANIFEST = manifestFor('claude-code')
+if (!CLAUDE_MANIFEST) throw new Error('claude-code manifest missing')
+/** The Claude adapter's own posture section, for the engine. */
+const TERMS = { manifest: CLAUDE_MANIFEST, posture: POSTURE, mode: 'engine' as const }
+/** A posture section that adds a flag every agent launch would carry. */
+const MARKER_TERMS = {
+  manifest: {
+    posture: (launch: PostureLaunch) => ({
+      ...unchangedPosture(launch),
+      launch: { ...launch, args: optionArgs(launch.args, ['--marker']) },
+    }),
+  },
+  posture: POSTURE,
+  mode: 'engine' as const,
+}
+
 describe('the stream-json invocation', () => {
   const base = { prompt: 'hello', cwd: '/work' }
 
   it('speaks streaming stdio with partial messages', () => {
-    const { cmd, args } = buildClaudeStreamInvocation(base, 'claude')
-    expect(cmd).toBe('claude')
+    const { cmd, args } = buildClaudeStreamInvocation(base, CLAUDE, TERMS)
+    expect(cmd).toBe('/opt/podium-test/bin/claude-code')
     expect(args.slice(0, 6)).toEqual([
       '--output-format',
       'stream-json',
@@ -99,64 +136,123 @@ describe('the stream-json invocation', () => {
   it('asks the CLI to echo each user line back (POD-4836)', () => {
     // The echo is how a line the CLI already holds is told apart from a new
     // one: without the flag a repeated uuid is skipped in silence.
-    const { args } = buildClaudeStreamInvocation(base, 'claude')
+    const { args } = buildClaudeStreamInvocation(base, CLAUDE, TERMS)
     expect(args).toContain('--replay-user-messages')
   })
 
-  it.each([undefined, true] as const)(
-    'defaults the permission mode to auto with structuredPermissions=%s',
-    (structuredPermissions) => {
-      const { args } = buildClaudeStreamInvocation({ ...base, structuredPermissions }, 'claude')
-      expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
-      if (structuredPermissions) {
-        expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
-      } else {
-        expect(args).not.toContain('--permission-prompt-tool')
-      }
-    },
-  )
-
-  it.each(['default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan', 'dontAsk'])(
-    'honours explicit %s mode while routing permission asks through stdio',
-    (permissionMode) => {
-      const { args } = buildClaudeStreamInvocation(
-        { ...base, permissionMode, structuredPermissions: true },
-        'claude',
-      )
-      expect(args[args.indexOf('--permission-mode') + 1]).toBe(permissionMode)
-      expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
-      expect(args.includes('--allow-dangerously-skip-permissions')).toBe(
-        permissionMode === 'bypassPermissions',
-      )
-    },
-  )
-
-  it('falls back to auto for an invalid mode with structured permissions', () => {
-    const { args } = buildClaudeStreamInvocation(
-      { ...base, permissionMode: 'invalid', structuredPermissions: true },
-      'claude',
-    )
+  it.each([
+    undefined,
+    true,
+  ] as const)('takes the permission mode from the posture section with structuredPermissions=%s', (structuredPermissions) => {
+    // Moved to posture (POD-6858): the default posture asks for `auto`; the
+    // builder adds no `--permission-mode` of its own.
+    const command = buildClaudeStreamInvocation({ ...base, structuredPermissions }, CLAUDE, TERMS)
+    const { args } = command
+    expect(args.filter((arg) => arg === '--permission-mode')).toHaveLength(1)
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
+    expect(command.terms.requestedMode).toBe('auto')
+    if (structuredPermissions) {
+      expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
+    } else {
+      expect(args).not.toContain('--permission-prompt-tool')
+    }
+  })
+
+  it.each([
+    'default',
+    'acceptEdits',
+    'auto',
+    'bypassPermissions',
+    'plan',
+    'dontAsk',
+  ])('honours a native %s pick while routing permission asks through stdio', (native) => {
+    // Moved to posture (POD-6858): the mode now arrives as the session's
+    // posture, not as a spec field. The bypass companion flag stays here.
+    const { args } = buildClaudeStreamInvocation({ ...base, structuredPermissions: true }, CLAUDE, {
+      ...TERMS,
+      posture: { ...POSTURE, posture: { mode: { native } } },
+    })
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe(native)
     expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
+    expect(args.includes('--allow-dangerously-skip-permissions')).toBe(
+      native === 'bypassPermissions',
+    )
+  })
+
+  it('asks for no mode when the native pick is not a Claude mode, and reports it', () => {
+    // Moved to posture (POD-6858): an unknown word used to fall back to `auto`
+    // in silence; it is now reported as unmet autonomy.
+    const command = buildClaudeStreamInvocation({ ...base, structuredPermissions: true }, CLAUDE, {
+      ...TERMS,
+      posture: { ...POSTURE, posture: { mode: { native: 'invalid' } } },
+    })
+    expect(command.args).not.toContain('--permission-mode')
+    expect(command.args[command.args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
+    expect(command.terms.unmet.map((entry) => entry.requirement)).toEqual(['autonomy'])
+  })
+
+  it("carries the posture section's allow rules as one = flag each, and none of its own", () => {
+    // Moved to posture (POD-6858): no comma-joined `--allowedTools` list.
+    const { args } = buildClaudeStreamInvocation(base, CLAUDE, TERMS)
+    expect(args).not.toContain('--allowedTools')
+    expect(args.filter((arg) => arg.startsWith('--allowedTools='))).toEqual([
+      '--allowedTools=Bash(podium *)',
+      '--allowedTools=PowerShell(podium *)',
+      '--allowedTools=Read(//var/podium-test/uploads/session/**)',
+    ])
+    // Mode first, rules after it.
+    expect(args.indexOf('--permission-mode')).toBeLessThan(
+      args.indexOf('--allowedTools=Bash(podium *)'),
+    )
   })
 
   it('passes model, effort, resume and session minting through', () => {
     const { args } = buildClaudeStreamInvocation(
-      { ...base, model: 'claude-opus-5', effort: 'max', resumeValue: 'abc', allowedTools: ['Read', 'Bash'] },
-      'claude',
+      {
+        ...base,
+        model: 'claude-opus-5',
+        effort: 'max',
+        resumeValue: 'abc',
+      },
+      CLAUDE,
+      TERMS,
     )
     expect(args).toContain('--model')
     expect(args).toContain('claude-opus-5')
     expect(args).toContain('--effort')
-    expect(args).toContain('--resume')
-    expect(args).toContain('--allowedTools')
-    const mint = buildClaudeStreamInvocation({ ...base, sessionUuid: 'uuid-1' }, 'claude')
+    expect(args.slice(args.indexOf('--resume'), args.indexOf('--resume') + 2)).toEqual([
+      '--resume',
+      'abc',
+    ])
+    const mint = buildClaudeStreamInvocation({ ...base, sessionUuid: 'uuid-1' }, CLAUDE, TERMS)
     expect(mint.args).toContain('--session-id')
     expect(mint.args).not.toContain('--resume')
   })
 
+  it('runs a tool-less turn on no-agent terms: the posture section adds no tool flag', () => {
+    // Control: on a turn with tools, the section's flag is there.
+    expect(buildClaudeStreamInvocation(base, CLAUDE, MARKER_TERMS).args).toContain('--marker')
+    const toolless = buildClaudeStreamInvocation(
+      { ...base, toolPolicy: 'none' },
+      CLAUDE,
+      MARKER_TERMS,
+    )
+    expect(toolless.args).not.toContain('--marker')
+    expect(toolless.terms).toEqual({ homeEdits: [], requestedMode: null, unmet: [] })
+    // With the Claude section itself: no mode, no rule, no bypass flag, even
+    // for a bypass pick.
+    const claudeToolless = buildClaudeStreamInvocation({ ...base, toolPolicy: 'none' }, CLAUDE, {
+      ...TERMS,
+      posture: { ...POSTURE, posture: { mode: { native: 'bypassPermissions' } } },
+    })
+    expect(claudeToolless.args).not.toContain('--permission-mode')
+    expect(claudeToolless.args).not.toContain('--allow-dangerously-skip-permissions')
+    expect(claudeToolless.args.some((arg) => arg.startsWith('--allowedTools'))).toBe(false)
+    expect(claudeToolless.terms.homeEdits).toEqual([])
+  })
+
   it('removes tools and setting sources fail-closed, and refuses malformed MCP', () => {
-    const { args } = buildClaudeStreamInvocation({ ...base, toolPolicy: 'none' }, 'claude')
+    const { args } = buildClaudeStreamInvocation({ ...base, toolPolicy: 'none' }, CLAUDE, TERMS)
     expect(args).toContain('--tools')
     expect(args).toContain('--setting-sources')
     expect(() => mcpConfigInline('not json')).toThrow(/malformed MCP config/)
@@ -166,10 +262,13 @@ describe('the stream-json invocation', () => {
     const inline = mcpConfigInline(
       JSON.stringify({ mcpServers: { docs: { url: 'https://mcp/x' }, empty: {} } }),
     )
-    expect(JSON.parse(inline)).toEqual({ mcpServers: { docs: { type: 'http', url: 'https://mcp/x' } } })
+    expect(JSON.parse(inline)).toEqual({
+      mcpServers: { docs: { type: 'http', url: 'https://mcp/x' } },
+    })
     const { args } = buildClaudeStreamInvocation(
       { ...base, mcpConfig: JSON.stringify({ mcpServers: { docs: { url: 'https://mcp/x' } } }) },
-      'claude',
+      CLAUDE,
+      TERMS,
     )
     expect(args).toContain('--mcp-config')
   })
@@ -178,7 +277,9 @@ describe('the stream-json invocation', () => {
     expect(claudeStreamEnvOverlay({ permissionMode: 'bypassPermissions', isRoot: true })).toEqual({
       IS_SANDBOX: '1',
     })
-    expect(claudeStreamEnvOverlay({ permissionMode: 'bypassPermissions', isRoot: false })).toEqual({})
+    expect(claudeStreamEnvOverlay({ permissionMode: 'bypassPermissions', isRoot: false })).toEqual(
+      {},
+    )
     expect(claudeStreamEnvOverlay({ permissionMode: 'auto', isRoot: true })).toEqual({})
   })
 
@@ -195,7 +296,7 @@ describe('the stream-json invocation', () => {
       appendSystemPrompt: 'sys\n\nctx',
     })
     expect(initializePayload({})).toEqual({ subtype: 'initialize' })
-    const { args } = buildClaudeStreamInvocation({ ...base, systemPrompt: 'sys' }, 'claude')
+    const { args } = buildClaudeStreamInvocation({ ...base, systemPrompt: 'sys' }, CLAUDE, TERMS)
     expect(args).not.toContain('--append-system-prompt')
     expect(args).not.toContain('--system-prompt')
   })
@@ -248,9 +349,11 @@ describe('the stream client', () => {
     })
     fake.emitLine(
       frame({
+        // Measured shape (2.1.317): the stream line's own uuid is not the
+        // message's; the API message id is, and the file record carries it.
         type: 'stream_event',
-        uuid: 'msg-1',
-        event: { type: 'message_start' },
+        uuid: 'stream-line-1',
+        event: { type: 'message_start', message: { id: 'msg-1' } },
       }),
     )
     fake.emitLine(
@@ -285,7 +388,12 @@ describe('the stream client', () => {
       }),
     )
     fake.emitLine(
-      frame({ type: 'tool_use_summary', uuid: 'sum-2', summary: 'Nothing', preceding_tool_use_ids: [] }),
+      frame({
+        type: 'tool_use_summary',
+        uuid: 'sum-2',
+        summary: 'Nothing',
+        preceding_tool_use_ids: [],
+      }),
     )
     fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'the answer' }))
     await expect(turn.done).resolves.toEqual({
@@ -316,7 +424,9 @@ describe('the stream client', () => {
     answerInitialize(fake)
     await expect(client.ready).resolves.toBe('minted-1')
     await vi.waitFor(() =>
-      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(true),
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+        true,
+      ),
     )
     answerInitSystem(fake, 'minted-1')
     fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'hi' }))
@@ -335,13 +445,49 @@ describe('the stream client', () => {
     })
     answerInitialize(fake)
     await vi.waitFor(() =>
-      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(true),
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+        true,
+      ),
     )
     // The id is the CLI's to report, and it reports it in reply to the line.
     answerInitSystem(fake, 'reported-1')
     await expect(client.ready).resolves.toBe('reported-1')
     fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'hi' }))
     await expect(turn.done).resolves.toMatchObject({ harnessSessionId: 'reported-1' })
+  })
+
+  it("reports the mode the CLI says it is in, from system/init's permissionMode (POD-6858 §4.8)", async () => {
+    // The engine writes no `permission-mode` record to its session file, so
+    // the init event is where the chat view learns the mode in force: `default`
+    // when auto mode was asked for and is not available.
+    const fake = fakeTransport()
+    const modes: string[] = []
+    const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-mode' })
+    const turn = client.turn('hello', {
+      onPartialText: () => {},
+      onPermission: () => {},
+      onMode: (mode) => modes.push(mode),
+      emit: () => {},
+    })
+    answerInitialize(fake)
+    await vi.waitFor(() =>
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+        true,
+      ),
+    )
+    fake.emitLine(
+      frame({
+        type: 'system',
+        subtype: 'init',
+        session_id: 'sess-mode',
+        permissionMode: 'default',
+      }),
+    )
+    // An init naming no mode reports nothing.
+    fake.emitLine(frame({ type: 'system', subtype: 'init', session_id: 'sess-mode' }))
+    fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'hi' }))
+    await turn.done
+    expect(modes).toEqual(['default'])
   })
 
   it('routes a permission ask and answers it on the wire', async () => {
@@ -361,12 +507,19 @@ describe('the stream client', () => {
       frame({
         type: 'control_request',
         request_id: 'req-9',
-        request: { subtype: 'can_use_tool', tool_name: 'Bash', input: { c: 'ls' }, tool_use_id: 'tu-9' },
+        request: {
+          subtype: 'can_use_tool',
+          tool_name: 'Bash',
+          input: { c: 'ls' },
+          tool_use_id: 'tu-9',
+        },
       }),
     )
     expect(asked).toHaveLength(1)
     turn.answerPermission(asked[0]!.id, { decision: 'allow-once' })
-    const answer = fake.writes.map((line) => JSON.parse(line)).find((msg) => msg.type === 'control_response')
+    const answer = fake.writes
+      .map((line) => JSON.parse(line))
+      .find((msg) => msg.type === 'control_response')
     expect(answer.response).toMatchObject({
       subtype: 'success',
       request_id: 'req-9',
@@ -388,9 +541,9 @@ describe('the stream client', () => {
     })
     completeTurn(fake, 'sess-3')
     const ack = turn.requestInterrupt()
-    const interrupt = fake.writes.map((line) => JSON.parse(line)).find(
-      (msg) => msg.type === 'control_request' && msg.request?.subtype === 'interrupt',
-    )
+    const interrupt = fake.writes
+      .map((line) => JSON.parse(line))
+      .find((msg) => msg.type === 'control_request' && msg.request?.subtype === 'interrupt')
     expect(interrupt.request_id).toBeTruthy()
     fake.emitLine(
       frame({
@@ -527,7 +680,11 @@ describe('the stream client', () => {
       frame({ type: 'control_request', request_id: 'h1', request: { subtype: 'hook_callback' } }),
     )
     fake.emitLine(
-      frame({ type: 'control_request', request_id: 'd1', request: { subtype: 'request_user_dialog' } }),
+      frame({
+        type: 'control_request',
+        request_id: 'd1',
+        request: { subtype: 'request_user_dialog' },
+      }),
     )
     const answers = new Map(
       fake.writes.map((line) => JSON.parse(line)).map((msg) => [msg.response.request_id, msg]),
@@ -543,14 +700,20 @@ describe('the stream client', () => {
       subtype: 'initialize',
       hooks: {
         SessionStart: [{ matcher: null, hookCallbackIds: ['podium_boundary_SessionStart'] }],
-        UserPromptSubmit: [{ matcher: null, hookCallbackIds: ['podium_boundary_UserPromptSubmit'] }],
+        UserPromptSubmit: [
+          { matcher: null, hookCallbackIds: ['podium_boundary_UserPromptSubmit'] },
+        ],
         PreCompact: [{ matcher: null, hookCallbackIds: ['podium_boundary_PreCompact'] }],
       },
     })
     const fake = fakeTransport()
     const client = createClaudeStreamClient(fake.transport, { boundaryContext: async () => null })
     const init = JSON.parse(fake.writes[0]!)
-    expect(Object.keys(init.request.hooks)).toEqual(['SessionStart', 'UserPromptSubmit', 'PreCompact'])
+    expect(Object.keys(init.request.hooks)).toEqual([
+      'SessionStart',
+      'UserPromptSubmit',
+      'PreCompact',
+    ])
     client.close()
   })
 
@@ -572,9 +735,9 @@ describe('the stream client', () => {
       )
     const answer = async (id: string) =>
       vi.waitFor(() => {
-        const msg = fake.writes.map((line) => JSON.parse(line)).find(
-          (m) => m.type === 'control_response' && m.response.request_id === id,
-        )
+        const msg = fake.writes
+          .map((line) => JSON.parse(line))
+          .find((m) => m.type === 'control_response' && m.response.request_id === id)
         expect(msg).toBeDefined()
         return msg.response
       })
@@ -584,13 +747,19 @@ describe('the stream client', () => {
       subtype: 'success',
       request_id: 'p1',
       response: {
-        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'prime for prompt' },
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: 'prime for prompt',
+        },
       },
     })
 
     hook('c1', 'podium_boundary_PreCompact', { hook_event_name: 'PreCompact' })
     expect((await answer('c1')).response).toEqual({})
-    hook('s1', 'podium_boundary_SessionStart', { hook_event_name: 'SessionStart', source: 'compact' })
+    hook('s1', 'podium_boundary_SessionStart', {
+      hook_event_name: 'SessionStart',
+      source: 'compact',
+    })
     expect((await answer('s1')).response).toEqual({
       hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'prime for start' },
     })
@@ -683,7 +852,9 @@ describe('the user line acknowledgement', () => {
     const fake = fakeTransport()
     const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-journal' })
     const fence = vi.fn(() => {
-      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(false)
+      expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+        false,
+      )
     })
     const turn = client.turn('one', noCallbacks, { userMessageUuid: uuid, onTypingStarted: fence })
     expect(fence).not.toHaveBeenCalled()
@@ -700,11 +871,17 @@ describe('the user line acknowledgement', () => {
     const fake = fakeTransport()
     const client = createClaudeStreamClient(fake.transport, { sessionId: 'sess-journal-failure' })
     const failure = new Error('fsync refused')
-    const turn = client.turn('one', noCallbacks, { onTypingStarted: () => { throw failure } })
+    const turn = client.turn('one', noCallbacks, {
+      onTypingStarted: () => {
+        throw failure
+      },
+    })
     answerInitialize(fake)
     await expect(turn.accepted).rejects.toBe(failure)
     await expect(turn.done).rejects.toBe(failure)
-    expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(false)
+    expect(fake.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user')).toBe(
+      false,
+    )
     client.close()
   })
 

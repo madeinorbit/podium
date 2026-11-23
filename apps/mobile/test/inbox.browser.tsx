@@ -1,8 +1,8 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { mobileInboxViews } from '@podium/client-graph/mobile-inbox'
 import { asUserId } from '@podium/model/browser'
 import type { PodiumTarget } from '@podium/protocol'
@@ -11,16 +11,14 @@ import { createRoot } from 'react-dom/client'
 import { AuthStatusContext } from '../src/client/auth-context'
 import { attachMobilePool, useMobilePool } from '../src/client/mobile-pool'
 import { MobileShellProvider } from '../src/client/shell'
+import { IssueTargetSheet } from '../src/components/IssueTargetSheet'
 import { PodiumLinkHost } from '../src/components/PodiumLinkHost'
 import { RefChip } from '../src/components/RefChip'
 import { followPodiumLink } from '../src/lib/podium-link'
-import { WorkScreen } from '../src/screens/WorkScreen'
 import { IssuesScreen } from '../src/screens/IssuesScreen'
-import { SessionsScreen } from '../src/screens/SessionsScreen'
-import { IssueTargetSheet } from '../src/components/IssueTargetSheet'
-import { InboxScreen } from '../src/screens/InboxScreen'
 import { ProposalScreeningScreen } from '../src/screens/ProposalScreeningScreen'
 import { usePulseFeed } from '../src/screens/usePulseFeed'
+import { WorkScreen } from '../src/screens/WorkScreen'
 import { createInboxFixture } from './inbox-fixture'
 import { navigation } from './inbox-platform'
 
@@ -33,15 +31,23 @@ if (new URLSearchParams(location.search).has('scrollScreen')) {
   for (let index = 12; index < 600; index++) {
     const issueKey = `issueProjection:synthetic-${index}`
     const issue = fixture.records.get(issueKey)!
-    fixture.records.set(issueKey, { ...issue, value: { ...(issue.value as object),
-      archived: false, closedAt: null, closedReason: null, stage: 'in_progress',
-      worktreePath: '/synthetic/project',
-    } })
+    fixture.records.set(issueKey, {
+      ...issue,
+      value: {
+        ...(issue.value as object),
+        archived: false,
+        closedAt: null,
+        closedReason: null,
+        stage: 'in_progress',
+        worktreePath: '/synthetic/project',
+      },
+    })
     const sessionKey = `session:synthetic-session-${index}`
     const session = fixture.records.get(sessionKey)!
-    fixture.records.set(sessionKey, { ...session, value: { ...(session.value as object),
-      archived: false, status: 'live',
-    } })
+    fixture.records.set(sessionKey, {
+      ...session,
+      value: { ...(session.value as object), archived: false, status: 'live' },
+    })
   }
 }
 const tokens = [
@@ -76,9 +82,11 @@ function Pulse() {
   )
 }
 function Surface() {
-  owner = useStoreHandle() as ClientRuntime
+  owner = useClientRuntime() as ClientRuntime
   pool = useMobilePool()
-  const [screen, setScreen] = useState(new URLSearchParams(location.search).get('scrollScreen') ?? 'inbox')
+  const [screen, setScreen] = useState(
+    new URLSearchParams(location.search).get('scrollScreen') ?? 'work',
+  )
   return (
     <main>
       <small>
@@ -89,18 +97,37 @@ function Surface() {
           : 'Isolated proof: launch, storage and refresh siblings stubbed.'}
       </small>
       <nav>
-        <button type="button" onClick={() => setScreen('inbox')}>
-          Inbox
-        </button>
         <button type="button" onClick={() => setScreen('proposals')}>
           Proposals
         </button>
       </nav>
-      {['work', 'tasks', 'sessions', 'target'].map(name => <button key={name} onClick={() => setScreen(name)}>{name}</button>)}
-      {screen === 'work' && <div className="surface"><WorkScreen /></div>}
-      {screen === 'tasks' && <div className="surface"><IssuesScreen /></div>}
-      {screen === 'sessions' && <div className="surface"><SessionsScreen /></div>}
-      {screen === 'target' && <IssueTargetSheet visible title="Choose task" ids={Array.from({ length: 600 }, (_, i) => `synthetic-${i}`)} query="" onQueryChange={() => {}} onEndReached={() => {}} onPick={() => {}} onClose={() => {}} />}
+      {['work', 'tasks', 'target'].map((name) => (
+        <button key={name} onClick={() => setScreen(name)}>
+          {name}
+        </button>
+      ))}
+      {screen === 'work' && (
+        <div className="surface">
+          <WorkScreen />
+        </div>
+      )}
+      {screen === 'tasks' && (
+        <div className="surface">
+          <IssuesScreen />
+        </div>
+      )}
+      {screen === 'target' && (
+        <IssueTargetSheet
+          visible
+          title="Choose task"
+          ids={Array.from({ length: 600 }, (_, i) => `synthetic-${i}`)}
+          query=""
+          onQueryChange={() => {}}
+          onEndReached={() => {}}
+          onPick={() => {}}
+          onClose={() => {}}
+        />
+      )}
       <Profiler
         id="phone-readers"
         onRender={(_id, _phase, ms) => {
@@ -108,9 +135,6 @@ function Surface() {
           commitMs += ms
         }}
       >
-        <div className="surface" style={{ display: screen === 'inbox' ? 'flex' : 'none' }}>
-          <InboxScreen />
-        </div>
         <div className="surface" style={{ display: screen === 'proposals' ? 'flex' : 'none' }}>
           <ProposalScreeningScreen />
         </div>
@@ -150,7 +174,7 @@ root.render(
       routerWindow={createMemoryRouterWindow()}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.hub)
+        fixture.bindHub(runtime.hub, undefined, runtime.live)
         const detach = attachMobilePool(runtime, (error) => failures.push(error.message))
         fixture.publishMachines()
         fixture.publishMetrics(0)
@@ -169,13 +193,13 @@ const driver = {
     pulse: pulseReady,
     screening: !!document.querySelector('[data-testid="screening-card"]'),
     attached: !!pool,
-    booting: pool ? mobileInboxViews(pool)?.inbox().booting : null,
+    booting: pool ? mobileInboxViews(pool)?.booting() : null,
   }),
   ready: () =>
     pulseReady &&
     !!document.querySelector('[data-testid="screening-card"]') &&
     !!pool &&
-    !mobileInboxViews(pool)?.inbox().booting,
+    !mobileInboxViews(pool)?.booting(),
   reset() {
     storeStats.reset()
     commits = 0

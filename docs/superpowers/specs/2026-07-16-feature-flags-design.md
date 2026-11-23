@@ -1,4 +1,4 @@
-# Feature flags + Experimental settings page — design (POD-677, [spec:SP-f4b9])
+# Feature flags + Labs settings page — design (POD-677, [spec:SP-f4b9])
 
 Date: 2026-07-16. Author: coordinator session on POD-677.
 
@@ -6,12 +6,12 @@ Date: 2026-07-16. Author: coordinator session on POD-677.
 
 A pre-release feature-flag system that hides unfinished features. Each flag has a
 user-facing **name** and **description** and a **visibility level** that controls where it
-appears on a new Settings page called **Experimental**:
+appears on a new Settings page called **Labs**:
 
-- `hidden` — never listed in Experimental; enableable ONLY via the config file
+- `hidden` — never listed in Labs; enableable ONLY via the config file
   (`~/.podium/config.json`) — EXCEPT in development mode, where it IS listed.
-- `edge` — listed in Experimental only on installs whose update channel is `edge`.
-- `stable` — listed in Experimental on every install (stable and edge).
+- `edge` — listed in Labs only on installs whose update channel is `edge`.
+- `stable` — listed in Labs on every install (stable and edge).
 
 Development mode lists **all** flags regardless of visibility.
 
@@ -47,11 +47,11 @@ export type FeatureVisibility = 'hidden' | 'edge' | 'stable'
 export interface FeatureDefinition {
   /** Stable kebab-case id — the key used in config.json and settings. Never renamed. */
   id: string
-  /** User-facing name shown in Settings → Experimental. */
+  /** User-facing name shown in Settings → Labs. */
   name: string
   /** User-facing description shown under the name. */
   description: string
-  /** Where the flag appears in Experimental (see doc header). */
+  /** Where the flag appears in Labs (see doc header). */
   visibility: FeatureVisibility
 }
 
@@ -68,7 +68,7 @@ export const FEATURES = [
 export type FeatureId = (typeof FEATURES)[number]['id']
 ```
 
-`sample-experiment` is `hidden`, so released builds show an empty Experimental page until
+`sample-experiment` is `hidden`, so released builds show an empty Labs page until
 real flags register, while dev mode (and Playwright verification) has a row to exercise.
 
 Pure resolver (unit-testable, no IO), same file:
@@ -81,7 +81,7 @@ export interface FeatureResolveInput {
   devMode: boolean
 }
 export interface FeatureState {
-  listed: boolean                // appears in Experimental
+  listed: boolean                // appears in Labs
   enabled: boolean
   source: 'config' | 'user' | 'default'
   locked: boolean                // config override present → UI toggle disabled
@@ -97,7 +97,7 @@ Rules (in order):
   A user toggle is honored ONLY while the flag is listed for this install — switching
   channel from edge to stable un-enables edge-only experiments rather than leaving them
   stuck on invisibly.
-- Else `enabled = false`, `source = 'default'`. Experimental features always default off.
+- Else `enabled = false`, `source = 'default'`. Labs features always default off.
 
 Export everything from the protocol package index.
 
@@ -139,10 +139,10 @@ export function isFeatureEnabled(id: FeatureId, settings: PodiumSettings, config
   `getFeatureStates(...)` over the current settings row. `isFeatureEnabled` is the seam
   server-side code uses to gate behavior later.
 
-### 5. Web — Experimental page + `useFeature`
+### 5. Web — Labs page + `useFeature`
 
 - `apps/web/src/features/settings/sections/experimental.tsx`: blob-editing section
-  `ExperimentalSection({ settings, patch })` that ALSO queries `trpc.features.state` once
+  `LabsSection({ settings, patch })` that ALSO queries `trpc.features.state` once
   on mount for the listing (names, descriptions, listed/locked/source). Render:
   - Only flags with `listed: true`.
   - Each row: name, description underneath (muted), `Switch` on the right — follow the
@@ -156,7 +156,7 @@ export function isFeatureEnabled(id: FeatureId, settings: PodiumSettings, config
   - Empty state: a short muted line, e.g. "No experimental features are available on this
     install." Also surface the current channel in the section hint.
 - Register the tab in `SettingsView.tsx`: `'experimental'` in the `SettingsTab` union,
-  `{ key: 'experimental', label: 'Experimental' }` in `SETTINGS_TABS`, entry in
+  `{ key: 'experimental', label: 'Labs' }` in `SETTINGS_TABS`, entry in
   `SECTION_VIEWS`. Place it near the bottom of the nav (before/after "Updates").
 - `apps/web/src/lib/use-feature.ts`: `useFeature(id: FeatureId): boolean`
   for gating unfinished UI. Fetch `features.state` once per app load (module-level
@@ -186,7 +186,7 @@ export function isFeatureEnabled(id: FeatureId, settings: PodiumSettings, config
 1. protocol registry + resolver + tests
 2. runtime config/settings fields + accessor + tests
 3. server features module + tRPC `features.state` + tests
-4. web: Experimental section + tab registration + `useFeature`
+4. web: Labs section + tab registration + `useFeature`
 5. design doc: `docs/superpowers/specs/2026-07-16-feature-flags-design.md`
 
 Code comments at the implementing sites reference `[spec:SP-f4b9]`.

@@ -65,6 +65,8 @@ import {
   MachineIdField,
   MessageId,
   MutationIdField,
+  NewIssueId,
+  NewSessionId,
   Revision,
   SessionIdField,
   ShipHoldAction,
@@ -81,6 +83,7 @@ import {
   ISSUE_ATTRIBUTION,
   ISSUE_REDACTION,
   ISSUE_VISIBILITY,
+  MACHINE_WORK_DELIVERY,
   MANAGE_POLICY,
   owns,
   PER_USER_DELIVERY,
@@ -118,21 +121,29 @@ const repoScoped = z.object({ repoPath: z.string().optional() })
  */
 const byIssueId = z.object({ id: IssueIdField })
 
-/** UNBRANDED: a SUBSCRIPTION id, not an issue id — see {@link byIssueId}. The
- *  subscription table has its own id space and no brand in `packages/model`. */
-const bySubscriptionId = z.object({ id: z.string() })
-
 // ---------------------------------------------------------------------------
 // THE INPUT SCHEMAS — moved from `registry.ts`, byte-for-byte where they were
 // literals and by alias where they were the shared fragments above. These are the
 // instances every transport parses with; nothing re-declares them.
 // ---------------------------------------------------------------------------
 
-export const listInput = repoScoped
+/**
+ * WHOSE TASKS A LISTING HOLDS (POD-6296, design §2.2/§2.3): `me` (the caller's
+ * own human; for an agent, the human it acts for), `all`, or one member named
+ * by id, email or display name. The assignee is the task's accountable owner.
+ * Resolved server-side, so no client spells a member id it was never shown.
+ * Omitted, `ready` and prime's ready work mean `me` on a shared instance and
+ * every other listing means `all`.
+ */
+export const AssigneeFilterField = z.string().trim().min(1).max(320)
 
-export const primeInput = repoScoped.optional()
+const assigneeScoped = { assignee: AssigneeFilterField.optional() }
 
-export const readyInput = repoScoped
+export const listInput = repoScoped.extend(assigneeScoped)
+
+export const primeInput = repoScoped.extend(assigneeScoped).optional()
+
+export const readyInput = repoScoped.extend(assigneeScoped)
 
 export const blockedInput = repoScoped
 
@@ -145,9 +156,12 @@ export const childrenInput = z.object({ id: IssueIdField, recursive: z.boolean()
 // The depth/node caps are callable (POD-1342): the CLI's truncation footer
 // tells the reader to raise them, so they have to be raisable over the wire.
 export const treeInput = byIssueId.extend({
+  ...assigneeScoped,
   maxDepth: z.number().int().min(0).max(20).optional(),
   maxNodes: z.number().int().min(1).max(1000).optional(),
 })
+
+export const deckInput = byIssueId.extend(assigneeScoped)
 
 export const depReportInput = z.object({
   id: IssueIdField.optional(),
@@ -174,9 +188,20 @@ export const searchInput = z.object({
   stage: IssueStage.optional(),
   priority: z.number().int().optional(),
   type: IssueType.optional(),
-  assignee: UserIdField.optional(),
+  assignee: AssigneeFilterField.optional(),
   label: z.string().optional(),
   parentId: IssueIdField.optional(),
+})
+
+/** The page a search answer holds when the caller names none (POD-7108). */
+export const ISSUE_SEARCH_PAGE_DEFAULT = 50
+export const ISSUE_SEARCH_PAGE_MAX = 200
+
+/** `issues.searchNormalized`: one page at a time. `cursor` is the previous
+ *  page's opaque `next`. */
+export const searchPageInput = searchInput.extend({
+  limit: z.number().int().min(1).max(ISSUE_SEARCH_PAGE_MAX).default(ISSUE_SEARCH_PAGE_DEFAULT),
+  cursor: z.string().min(1).max(2000).optional(),
 })
 
 export const countInput = repoScoped
@@ -250,6 +275,7 @@ export const setStateInput = z.object({ id: IssueIdField, text: z.string() })
 
 export const panelApplyInput = z.object({
   id: IssueIdField,
+  itemId: z.string().uuid().optional(),
   op: z.enum([
     'todo-add',
     'todo-done',
@@ -273,12 +299,20 @@ export const panelApplyInput = z.object({
   /** Filled by the CLI from its current checkout; never accepted without terminalEvidence. */
   sourceRoot: z.string().optional(),
   upload: ArtifactUploadPacket.optional(),
+  /**
+   * The artifact effect record whose panel change this commits (POD-6420): set
+   * only by its executor, on the sync write entry point. The entry comes from
+   * the record, never from this call's other fields.
+   */
+  effectId: z.string().min(1).optional(),
 })
 
 export const createInput = z.object({
   // Client-minted identities let insert-shaped optimistic UI reconcile in place.
-  // The service refuses collisions before it creates or starts anything.
-  id: IssueIdField.optional(),
+  // The service refuses collisions before it creates or starts anything. ADR 12
+  // D4: a new id is `iss_` and a random UUID, nothing else; above all not a
+  // string that looks like a human ref (`#12`, `POD-12`).
+  id: NewIssueId.pipe(IssueIdField).optional(),
   startSessionId: SessionIdField.optional(),
   repoPath: z.string(),
   title: z.string().min(1),
@@ -321,6 +355,14 @@ export const startInput = z.object({
   /** Agent profile by name or id (POD-6107); persists onto the issue like --model. */
   agentProfile: z.string().trim().min(1).max(100).optional(),
   forceUnknownModel: z.boolean().optional(),
+  /** The credential the session runs on (credential management §9): a label,
+   *  an id, or `none` for the harness's own login, resolved on the server
+   *  among the credentials the acting person can use, before anything is
+   *  created. A reference, never a secret. */
+  credential: z.string().trim().min(1).max(200).optional(),
+  /** The spawned session's id, minted on the device (POD-6414): a start that
+   *  names it spawns at most once under it. */
+  sessionId: NewSessionId.optional(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
@@ -347,7 +389,8 @@ export const updateInput = z.object({
     dueAt: z.string().optional(),
     deferUntil: z.string().optional(),
     closedReason: z.string().optional(),
-    pinned: z.boolean().optional(),
+    // No `pinned`: an issue's pin is a pin record of mine (`records.pin`,
+    // POD-6692), never a field of the issue.
     // Manual order (POD-168): fractional key, validated so a malformed key
     // can never poison a sibling scope's ordering.
     //
@@ -446,9 +489,16 @@ export const addSessionInput = z.object({
   id: IssueIdField,
   agentKind: z.string().optional(),
   forceUnknownModel: z.boolean().optional(),
+  /** The credential the session runs on (credential management §9): a label,
+   *  an id, or `none` for the harness's own login, resolved on the server
+   *  among the credentials the acting person can use, before anything is
+   *  created. A reference, never a secret. */
+  credential: z.string().trim().min(1).max(200).optional(),
+  /** The new session's id, minted on the device (POD-6414): spawned at most once. */
+  sessionId: NewSessionId.optional(),
 })
 
-export const addShellInput = byIssueId
+export const addShellInput = byIssueId.extend({ sessionId: NewSessionId.optional() })
 
 export const applySuggestionInput = byIssueId
 
@@ -479,6 +529,38 @@ export const unshareInput = shareInput
 export const addCommentInput = z.object({
   id: IssueIdField,
   body: z.string().min(1),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
+/**
+ * EDITING OR DELETING A COMMENT (POD-6289, design §2.2/§4.4). Only the
+ * comment's author may, meaning the human it was written for (an agent's
+ * comment is its human's). An admin may moderate anyone's comment: allowed,
+ * written to the audit trail, and the comment keeps its author.
+ */
+export const editCommentInput = z.object({
+  id: IssueIdField,
+  commentId: z.string().min(1).max(200),
+  body: z.string().min(1),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
+export const deleteCommentInput = z.object({
+  id: IssueIdField,
+  commentId: z.string().min(1).max(200),
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
+/** The two task texts that keep an attributed revision history (POD-6289). */
+export const IssueTextFieldInput = z.enum(['description', 'brief'])
+
+/** A task's description or brief history, oldest first. */
+export const textRevisionsInput = z.object({ id: IssueIdField, field: IssueTextFieldInput })
+
+/** Put a recorded text back. The restore is itself a new revision. */
+export const restoreTextRevisionInput = z.object({
+  id: IssueIdField,
+  revisionId: z.number().int().positive(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
@@ -521,6 +603,24 @@ export const setTuckedInput = z.object({
   tucked: z.boolean(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
+
+/**
+ * PERSONAL RECORDS (POD-6290, design §2.2/§4.4). Joining a task puts it in the
+ * caller's own sidebar set and makes them one of its collaborators; it grants
+ * no access. Dismissing removes only the caller's "assigned to you by X" row.
+ */
+export const joinInput = z.object({
+  id: IssueIdField,
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
+export const dismissAssignmentInput = z.object({
+  id: IssueIdField,
+  mutationId: z.string().max(128).pipe(MutationIdField).optional(),
+})
+
+/** A task's collaborators: the members with a start or join record. */
+export const collaboratorsInput = z.object({ id: IssueIdField })
 
 export const setNeedsHumanInput = z.object({
   id: IssueIdField,
@@ -609,7 +709,10 @@ export const setPlacementInput = z.object({
  */
 export const EXPECTED_REVISION = z.object({ expectedRevision: Revision.optional() })
 
-export const claimInput = z.object({ id: IssueIdField, assignee: UserIdField })
+/** `assignee` names who answers for the task (POD-6287): a member id or `me`,
+ *  and only a person's claim applies it. An agent's claim moves the stage and
+ *  leaves the assignee alone; omitted, a person's claim means `me`. */
+export const claimInput = z.object({ id: IssueIdField, assignee: UserIdField.optional() })
 
 export const setCoordinatorInput = z.object({
   id: IssueIdField,
@@ -658,16 +761,6 @@ export const subscriptionAddInput = z.object({
   // explicit subscriber (which issue/session to notify). Ignored for constrained
   // agents, who always subscribe themselves via deriveSubscriber.
   subscriber: z.object({ kind: z.enum(['session', 'issue']), id: z.string() }).optional(),
-})
-
-export const subscriptionRemoveInput = bySubscriptionId
-
-export const subscriptionSetEnabledInput = z.object({
-  /** UNBRANDED: a SUBSCRIPTION id. `IssueService.subscriptionSetEnabled` passes
-   *  it to `store.events.setSubscriptionEnabled`, which resolves it in the
-   *  subscription table — this is not the enclosing tenant.s entity. */
-  id: z.string(),
-  enabled: z.boolean(),
 })
 
 /** The operator's listing, one keyset page at a time: `after` is the last row
@@ -809,7 +902,7 @@ export const issueDeckContract = {
   name: 'issues.deck',
   version: 1,
   visibility: ISSUE_VISIBILITY,
-  input: byIssueId,
+  input: deckInput,
   policy: READ_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: READ_DELIVERY,
@@ -925,10 +1018,11 @@ export const issueSearchContract = {
   conflict: 'n/a',
 } as const satisfies CommandContract
 
-/** Additive normalized search response; legacy clients keep issues.search. */
+/** Normalized search, one page per call (POD-7108); the CLI keeps issues.search. */
 export const issueSearchNormalizedContract = {
   ...issueSearchContract,
   name: 'issues.searchNormalized',
+  input: searchPageInput,
   exposure: SERVED_ON_WIRE,
   conflict: 'n/a',
 } as const satisfies CommandContract
@@ -1159,6 +1253,29 @@ export const issueSetTuckedContract = {
   conflictRule: 'field-LWW sidebar curation; last tuck state wins',
 } as const satisfies MutatingCommandContract
 
+export const issueJoinContract = {
+  ...issueSetTuckedContract,
+  name: 'issues.join',
+  input: joinInput,
+  conflictRule:
+    'first-writer per-user record: the first start or join is kept; a repeat is a no-op',
+} as const satisfies MutatingCommandContract
+
+export const issueDismissAssignmentContract = {
+  ...issueSetTuckedContract,
+  name: 'issues.dismissAssignment',
+  input: dismissAssignmentInput,
+  conflictRule: 'field-LWW sidebar curation; clearing an absent assigned row is a no-op',
+} as const satisfies MutatingCommandContract
+
+export const issueCollaboratorsContract = {
+  ...issueCommentsContract,
+  name: 'issues.collaborators',
+  input: collaboratorsInput,
+  // No CLI verb or MCP tool reads it yet; the web task detail does (POD-6295).
+  exposure: SERVED_ON_WIRE,
+} as const satisfies CommandContract
+
 export const issueMailInboxContract = {
   name: 'issues.mailInbox',
   version: 1,
@@ -1227,7 +1344,7 @@ export const issueStartContract = {
   input: startInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: owns(
     ['session'],
@@ -1294,7 +1411,7 @@ export const issueActionContract = {
   input: actionInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1310,7 +1427,7 @@ export const issueCleanupContract = {
   input: cleanupInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1326,7 +1443,7 @@ export const issueStopContract = {
   input: stopInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1342,7 +1459,7 @@ export const issueIntegrateContract = {
   input: integrateInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1428,7 +1545,7 @@ export const issueAddSessionContract = {
   input: addSessionInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: owns(
     ['session'],
@@ -1448,7 +1565,7 @@ export const issueAddShellContract = {
   input: addShellInput,
   policy: WRITE_POLICY,
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: owns(
     ['session'],
@@ -1498,7 +1615,7 @@ export const issueRefreshAssistantContract = {
   input: refreshAssistantInput,
   policy: WRITE_POLICY,
   exposure: SERVED_ON_WIRE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1526,6 +1643,43 @@ export const issueAddCommentContract = {
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
   conflict: 'append',
+} as const satisfies MutatingCommandContract
+
+export const issueEditCommentContract = {
+  name: 'issues.editComment',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: editCommentInput,
+  policy: WRITE_POLICY,
+  exposure: SERVED_ON_WIRE,
+  delivery: WRITE_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: TARGETED_ERRORS,
+  conflict: 'cmd',
+  conflictRule:
+    'single-author row: only the comment author (or an auditing admin) writes it; last edit wins',
+} as const satisfies MutatingCommandContract
+
+export const issueDeleteCommentContract = {
+  ...issueEditCommentContract,
+  name: 'issues.deleteComment',
+  input: deleteCommentInput,
+} as const satisfies MutatingCommandContract
+
+export const issueTextRevisionsContract = {
+  ...issueCommentsContract,
+  name: 'issues.textRevisions',
+  input: textRevisionsInput,
+  exposure: SERVED_ON_WIRE,
+} as const satisfies CommandContract
+
+export const issueRestoreTextRevisionContract = {
+  ...issueUpdateContract,
+  name: 'issues.restoreTextRevision',
+  input: restoreTextRevisionInput.merge(EXPECTED_REVISION),
+  exposure: SERVED_ON_WIRE,
 } as const satisfies MutatingCommandContract
 
 export const issueDepAddContract = {
@@ -1608,9 +1762,20 @@ export const issueAnswerQuestionContract = {
   version: 1,
   visibility: ISSUE_VISIBILITY,
   input: answerQuestionInput.merge(EXPECTED_REVISION),
-  policy: WRITE_POLICY,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'none',
+    confirmation: 'none',
+    rationale:
+      'ANSWERING IS DRIVING THE ASKING SESSION (POD-6283, design §2.3). The answer is typed into ' +
+      'the session that asked, so the gate is that session’s owner, decided by the handler against ' +
+      'the stored `humanQuestionAskedBy`: only its own human, a person or their agent, may answer, ' +
+      'whoever owns the task. A task-write gate here would refuse the asker’s own human on another ' +
+      'member’s task and admit the task owner, who must not drive it.',
+  },
   exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
+  delivery: MACHINE_WORK_DELIVERY,
   redaction: ISSUE_REDACTION,
   ownership: CREATES_NOTHING,
   attribution: ISSUE_ATTRIBUTION,
@@ -1823,14 +1988,14 @@ export const issueShareContract = {
   attribution: ISSUE_ATTRIBUTION,
   errorConsistency: TARGETED_ERRORS,
   conflict: 'cmd',
-  conflictRule: 'owner-only grant edge upsert and issue visibility update in one authority commit',
+  conflictRule: 'writes nothing: tasks are visible to all members (POD-6288)',
 } as const satisfies MutatingCommandContract
 
 export const issueUnshareContract = {
   ...issueShareContract,
   name: 'issues.unshare',
   input: unshareInput,
-  conflictRule: 'owner-only grant edge removal and issue visibility update in one authority commit',
+  conflictRule: 'writes nothing: tasks are visible to all members (POD-6288)',
 } as const satisfies MutatingCommandContract
 
 // -------------------------------------------------------------------------
@@ -1923,38 +2088,6 @@ export const issueSubscriptionAddContract = {
   conflict: 'append',
 } as const satisfies MutatingCommandContract
 
-export const issueSubscriptionRemoveContract = {
-  name: 'issues.subscriptionRemove',
-  version: 1,
-  visibility: ISSUE_VISIBILITY,
-  input: subscriptionRemoveInput,
-  policy: ADDITIVE_POLICY,
-  exposure: SERVED_EVERYWHERE,
-  delivery: WRITE_DELIVERY,
-  redaction: ISSUE_REDACTION,
-  ownership: CREATES_NOTHING,
-  attribution: ISSUE_ATTRIBUTION,
-  errorConsistency: TARGETED_ERRORS,
-  conflict: 'cmd',
-  conflictRule: 'own-row delete; guarded by the ownership check, not an issue revision',
-} as const satisfies MutatingCommandContract
-
-export const issueSubscriptionSetEnabledContract = {
-  name: 'issues.subscriptionSetEnabled',
-  version: 1,
-  visibility: ISSUE_VISIBILITY,
-  input: subscriptionSetEnabledInput,
-  policy: ADDITIVE_POLICY,
-  exposure: SERVED_ON_WIRE,
-  delivery: WRITE_DELIVERY,
-  redaction: ISSUE_REDACTION,
-  ownership: CREATES_NOTHING,
-  attribution: ISSUE_ATTRIBUTION,
-  errorConsistency: TARGETED_ERRORS,
-  conflict: 'cmd',
-  conflictRule: 'own-row flag toggle; guarded by the ownership check, not an issue revision',
-} as const satisfies MutatingCommandContract
-
 // ---------------------------------------------------------------------------
 // THE TWO THAT ARE THEIR OWN CLASS
 //
@@ -2038,9 +2171,7 @@ export const issueLinearSearchContract = {
  * The seam biconditional (`resource: 'issue'` iff a `target` extractor exists) still
  * holds — the extractor exists, and returning `undefined` is a value it returns, not
  * an extractor it lacks. That distinction is exactly why the biconditional is written
- * over the PRESENCE of the extractor and not over the value it happens to produce,
- * and `audit-issue-commands.ts` plants a fixture that removes the extractor entirely
- * to prove the check can say NO.
+ * over the PRESENCE of the extractor and not over the value it happens to produce.
  *
  * A message the caller may not reach fails NOT_FOUND, identically to an unknown
  * message id — D20.2, and the shipped handler already throws exactly that.
@@ -2105,6 +2236,7 @@ export const ISSUE_CONTRACTS = {
   create: issueCreateContract,
   defer: issueDeferContract,
   delete: issueDeleteContract,
+  deleteComment: issueDeleteCommentContract,
   depAdd: issueDepAddContract,
   depRemove: issueDepRemoveContract,
   depReport: issueDepReportContract,
@@ -2112,6 +2244,7 @@ export const ISSUE_CONTRACTS = {
   dismissSuggestion: issueDismissSuggestionContract,
   doctor: issueDoctorContract,
   duplicate: issueDuplicateContract,
+  editComment: issueEditCommentContract,
   epicStatus: issueEpicStatusContract,
   events: issueEventsContract,
   findDuplicates: issueFindDuplicatesContract,
@@ -2139,6 +2272,7 @@ export const ISSUE_CONTRACTS = {
   reparent: issueReparentContract,
   resolveShipHold: issueResolveShipHoldContract,
   restore: issueRestoreContract,
+  restoreTextRevision: issueRestoreTextRevisionContract,
   search: issueSearchContract,
   searchNormalized: issueSearchNormalizedContract,
   seat: issueSeatContract,
@@ -2149,6 +2283,9 @@ export const ISSUE_CONTRACTS = {
   setNeedsHuman: issueSetNeedsHumanContract,
   setState: issueSetStateContract,
   setTucked: issueSetTuckedContract,
+  join: issueJoinContract,
+  dismissAssignment: issueDismissAssignmentContract,
+  collaborators: issueCollaboratorsContract,
   ship: issueShipContract,
   stale: issueStaleContract,
   start: issueStartContract,
@@ -2156,10 +2293,9 @@ export const ISSUE_CONTRACTS = {
   stop: issueStopContract,
   subscriptionAdd: issueSubscriptionAddContract,
   subscriptionList: issueSubscriptionListContract,
-  subscriptionRemove: issueSubscriptionRemoveContract,
-  subscriptionSetEnabled: issueSubscriptionSetEnabledContract,
   supersede: issueSupersedeContract,
   unshare: issueUnshareContract,
+  textRevisions: issueTextRevisionsContract,
   tree: issueTreeContract,
   deck: issueDeckContract,
   undefer: issueUndeferContract,
@@ -2239,11 +2375,12 @@ export const ISSUE_CONTRACT_LIST = Object.values(ISSUE_CONTRACTS)
  * mutate and must declare, and exempting one is an edit a reviewer sees.
  */
 const NON_MUTATING_NAMES = [
-  // The 26 reads.
+  // The reads.
   'artifactRead',
   'blocked',
   'children',
   'closeEligibleEpics',
+  'collaborators',
   'comments',
   'count',
   'deck',
@@ -2269,6 +2406,7 @@ const NON_MUTATING_NAMES = [
   'stale',
   'stats',
   'subscriptionList',
+  'textRevisions',
   'tree',
   // The one write-grade command that mutates no replicated row — see above.
   'linearSearch',

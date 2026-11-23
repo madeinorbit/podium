@@ -1,5 +1,14 @@
-import { describe, expect, it } from 'vitest'
-import { currentOperation, holdOperation, operationSlot, withOperation, withOwnOperation } from './operation-scope'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  currentOperation,
+  holdOperation,
+  OPERATION_HOLD_LIMIT_MS,
+  type OperationScope,
+  observeOperations,
+  operationSlot,
+  withOperation,
+  withOwnOperation,
+} from './operation-scope'
 
 /** POD-6189: an operation is a memo lifetime that ends when its work settles. */
 describe('withOperation', () => {
@@ -37,24 +46,110 @@ describe('withOperation', () => {
 
   it('ends when its function throws, synchronously or not', async () => {
     let held: unknown
-    expect(() => withOperation(() => {
-      held = currentOperation()
-      throw new Error('sync')
-    })).toThrow('sync')
-    await expect(withOperation(async () => {
-      throw new Error('async')
-    })).rejects.toThrow('async')
+    expect(() =>
+      withOperation(() => {
+        held = currentOperation()
+        throw new Error('sync')
+      }),
+    ).toThrow('sync')
+    await expect(
+      withOperation(async () => {
+        throw new Error('async')
+      }),
+    ).rejects.toThrow('async')
     expect(held).toBeDefined()
     expect(currentOperation()).toBeUndefined()
+  })
+})
+
+describe('observeOperations', () => {
+  it('sees real operations and later owned reactions without creating an outer memo scope', async () => {
+    const opened: OperationScope[] = []
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await observeOperations(
+      () => {
+        expect(currentOperation()).toBeUndefined()
+        return withOperation(async () => {
+          const outer = currentOperation()
+          holdOperation(
+            gate.then(() =>
+              withOwnOperation(() => {
+                expect(currentOperation()).not.toBe(outer)
+              }),
+            ),
+          )
+        })
+      },
+      (operation) => opened.push(operation),
+    )
+    expect(opened).toHaveLength(1)
+    release()
+    await opened[0]!.whenSettled()
+    expect(opened).toHaveLength(2)
+    await opened[1]!.whenSettled()
+    withOperation(() => {})
+    expect(opened).toHaveLength(2)
   })
 })
 
 describe('holdOperation', () => {
   const memo = operationSlot(() => ({ hits: 0 }))
 
+  it('exposes completion only after held work and the work it starts settle', async () => {
+    let first!: () => void
+    let second!: () => void
+    const step1 = new Promise<void>((resolve) => {
+      first = resolve
+    })
+    const step2 = new Promise<void>((resolve) => {
+      second = resolve
+    })
+    let completion!: Promise<void>
+    await withOperation(async () => {
+      completion = currentOperation()!.whenSettled()
+      holdOperation(
+        step1.then(() => {
+          holdOperation(step2)
+        }),
+      )
+    })
+    let done = false
+    void completion.then(() => {
+      done = true
+    })
+    first()
+    await step1
+    await Promise.resolve()
+    expect(done).toBe(false)
+    second()
+    await completion
+    expect(done).toBe(true)
+  })
+
+  it('refuses to report completion when a hold expires', async () => {
+    vi.useFakeTimers()
+    try {
+      let completion!: Promise<void>
+      await withOperation(async () => {
+        completion = currentOperation()!.whenSettled()
+        holdOperation(new Promise<void>(() => {}))
+      })
+      const rejected = expect(completion).rejects.toThrow('held-work lifetime')
+      await vi.advanceTimersByTimeAsync(OPERATION_HOLD_LIMIT_MS)
+      await rejected
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps the operation open for work it started, and no longer', async () => {
     let release!: () => void
-    const held = new Promise<void>((resolve) => { release = resolve })
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
     let seenWhileHeld: unknown
     let seenAfter: unknown
     await withOperation(async () => {
@@ -73,10 +168,12 @@ describe('holdOperation', () => {
     expect(seenWhileHeld).toBe(1)
     // Work queued on the held step itself runs after the release: ended.
     expect(seenAfter).toBeUndefined()
-    await new Promise<void>((resolve) => setTimeout(() => {
-      expect(currentOperation()).toBeUndefined()
-      resolve()
-    }, 1))
+    await new Promise<void>((resolve) =>
+      setTimeout(() => {
+        expect(currentOperation()).toBeUndefined()
+        resolve()
+      }, 1),
+    )
   })
 
   it('does nothing outside an operation', () => {

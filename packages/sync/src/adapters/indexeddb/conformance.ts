@@ -34,8 +34,16 @@ import type {
 } from '../../conformance/instantiation'
 import type { OutboxApplyResult, OutboxStoreMutation, OutboxStorePort } from '../../outbox/ports'
 import type { OutboxRecord } from '../../outbox/records'
-import type { CacheMutation, ReplicaCacheStore } from '../../replica/ports'
-import type { Cursor, EntityRecord } from '../../replica/types'
+import type { DiskIndexReader } from '../../replica/disk-index'
+import type { CacheMutation, ReplicaCacheStore, SnapshotVersions } from '../../replica/ports'
+import type { StubTableReader } from '../../replica/stub-table'
+import type {
+  CachePolicy,
+  Cursor,
+  EntityRecord,
+  InstanceRecord,
+  KindTokens,
+} from '../../replica/types'
 import type { OwnedSyncSpan, SyncSpan, SyncUnitOfWork } from '../../span'
 import type { IdbFactoryLike } from './idb'
 import { REPLICA_DB_NAME } from './schema'
@@ -54,8 +62,20 @@ class GatedCache implements ReplicaCacheStore {
   readCursor(): Cursor | null {
     return this.inner.readCursor()
   }
-  readPersonalRowsCompleteAt(): Cursor | null {
-    return this.inner.readPersonalRowsCompleteAt()
+  readKindTokens(): KindTokens | undefined {
+    return this.inner.readKindTokens()
+  }
+  readKindReloadVersion(): number | undefined {
+    return this.inner.readKindReloadVersion()
+  }
+  readInstances(): ReadonlyMap<string, InstanceRecord> {
+    return this.inner.readInstances()
+  }
+  readPolicy(): CachePolicy | null {
+    return this.inner.readPolicy()
+  }
+  readLoadingSince(): number | null {
+    return this.inner.readLoadingSince()
   }
   readEntities(): readonly EntityRecord[] {
     return this.inner.readEntities()
@@ -63,15 +83,44 @@ class GatedCache implements ReplicaCacheStore {
   read(entity: string, entityId: string): EntityRecord | undefined {
     return this.inner.read(entity, entityId)
   }
+  readRow(entity: string, entityId: string): EntityRecord | undefined {
+    return this.inner.readRow(entity, entityId)
+  }
+  readStubs(): readonly EntityRecord[] {
+    return this.inner.readStubs()
+  }
+  readStubTable(entity: string): StubTableReader | undefined {
+    return this.inner.readStubTable(entity)
+  }
+  readDiskIndex(): DiskIndexReader {
+    return this.inner.readDiskIndex()
+  }
+  readDiskRows(keys: readonly string[]): Promise<readonly EntityRecord[]> {
+    return this.inner.readDiskRows(keys)
+  }
+  installResident(rows: readonly EntityRecord[]): readonly EntityRecord[] {
+    return this.inner.installResident(rows)
+  }
+  markInMemory(instanceKeys: readonly string[]): void {
+    this.inner.markInMemory(instanceKeys)
+  }
+  unload(instanceKeys: readonly string[]): readonly Pick<EntityRecord, 'entity' | 'entityId'>[] {
+    return this.inner.unload(instanceKeys)
+  }
+  touchInstance(instanceKey: string, at: number): void {
+    this.inner.touchInstance(instanceKey, at)
+  }
   beginSpan(): OwnedSyncSpan {
     return this.inner.beginSpan()
   }
   applyAtomic(mutation: CacheMutation, span?: SyncSpan): void {
-    // Invalidating optional metadata frees space, like discardCache.
+    // Dropping markers frees space, like discardCache.
     const invalidation =
       mutation.operations.length === 0 &&
       mutation.cursor === undefined &&
-      mutation.personalRowsCompleteAt === null
+      mutation.instances !== undefined &&
+      mutation.instances.length > 0 &&
+      mutation.instances.every((op) => op.kind === 'dropAll' || op.kind === 'drop')
     if (!invalidation) this.refuseIfDenied()
     this.inner.applyAtomic(mutation, span)
     this.observe(mutation)
@@ -81,9 +130,10 @@ class GatedCache implements ReplicaCacheStore {
     cursor: Cursor,
     buffered: readonly CacheMutation[],
     span?: SyncSpan,
+    versions?: SnapshotVersions,
   ): void {
     this.refuseIfDenied()
-    this.inner.installSnapshot(rows, cursor, buffered, span)
+    this.inner.installSnapshot(rows, cursor, buffered, span, versions)
     for (const mutation of buffered) this.observe(mutation)
   }
   discardCache(): void {

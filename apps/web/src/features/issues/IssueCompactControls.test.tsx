@@ -8,9 +8,9 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { cleanup, fireEvent, render as renderComponent, screen } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useRuntimeSelector as selectFixtureSnapshot } from '@/app/store'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
+import { fixtureSnapshot as selectFixtureSnapshot } from '@/test-support/fixture-snapshot'
 import { fixtureStoreSnapshot } from '@/test-support/fixture-store'
 import {
   IssueCompactControls,
@@ -24,10 +24,14 @@ const owner = withKeyedInputs({
   getSnapshot: () => fixtureStoreSnapshot(selectFixtureSnapshot((state) => state)),
   subscribe: () => () => {},
 })
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => owner,
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => owner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+  }
+})
 
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 // The launch box's model/effort segments read the live catalog through this
@@ -43,7 +47,8 @@ vi.mock('@/lib/use-harness-descriptors', () => ({
 const setOpenIssueId = vi.fn()
 const setView = vi.fn()
 const navigateToSession = vi.fn()
-const start = vi.fn(async () => ({}))
+// Starting is an `issue.begin` effect record (POD-6526): the store action.
+const start = vi.fn(() => ({ settled: Promise.resolve(true) }))
 const setPlacement = vi.fn(async () => ({}))
 const updateIssue = vi.fn(async () => {})
 const closeIssue = vi.fn(async () => {})
@@ -84,7 +89,6 @@ vi.mock('@/app/store', () => {
   const state = () => ({
     trpc: {
       issues: {
-        start: { mutate: start },
         setPlacement: { mutate: setPlacement },
         close: { mutate: vi.fn(async () => ({})) },
         update: { mutate: vi.fn(async () => ({})) },
@@ -93,6 +97,7 @@ vi.mock('@/app/store', () => {
       sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
     },
     issues: mockIssues,
+    startIssueSession: start,
     setOpenIssueId,
     setView,
     navigateToSession,
@@ -109,7 +114,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore: () => state(),
-    useRuntimeSelector: (selector: (value: ReturnType<typeof state>) => unknown) => selector(state()),
+    readFixture: (selector: (value: ReturnType<typeof state>) => unknown) => selector(state()),
   }
 })
 
@@ -239,7 +244,7 @@ describe('IssueCompactControls', () => {
     const action = screen.getByTestId('task-primary-action')
     expect(action.textContent).toBe('Start work')
     fireEvent.click(action)
-    expect(start).toHaveBeenCalledWith({ id: 'i' })
+    expect(start).toHaveBeenCalledWith({ issueId: 'i', mode: 'begin' })
   })
 
   /**
@@ -262,7 +267,11 @@ describe('IssueCompactControls', () => {
       // harness clears the model and effort with it, so the optimistic row never
       // shows the previous agent's model.
       // POD-3911: seed agent-specific overrides so both resets change a field.
-      render(<IssueCompactControls issue={unstarted({ defaultModel: 'old-model', defaultEffort: 'high' })} />)
+      render(
+        <IssueCompactControls
+          issue={unstarted({ defaultModel: 'old-model', defaultEffort: 'high' })}
+        />,
+      )
 
       fireEvent.click(screen.getByLabelText('Agent'))
       fireEvent.click(await screen.findByText('Codex'))
@@ -369,7 +378,7 @@ describe('IssueCompactControls', () => {
       fireEvent.click(await screen.findByTestId('task-placement-own'))
 
       expect(setPlacement).not.toHaveBeenCalled()
-      expect(start).toHaveBeenCalledWith({ id: 'i' })
+      expect(start).toHaveBeenCalledWith({ issueId: 'i', mode: 'begin' })
     })
 
     it('moves the work first, then starts it, when the operator disagrees', async () => {
@@ -386,7 +395,7 @@ describe('IssueCompactControls', () => {
       })
       // The start waits on the move: an agent must never boot into the shape
       // the operator just rejected.
-      await vi.waitFor(() => expect(start).toHaveBeenCalledWith({ id: 'i' }))
+      await vi.waitFor(() => expect(start).toHaveBeenCalledWith({ issueId: 'i', mode: 'begin' }))
       expect(setPlacement.mock.invocationCallOrder[0]).toBeLessThan(
         start.mock.invocationCallOrder[0] as number,
       )

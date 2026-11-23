@@ -1,4 +1,5 @@
 import { omitGone } from '@podium/client-graph/lookup'
+
 /**
  * A REAL STORE FOR MOBILE COMPONENT TESTS (POD-332).
  *
@@ -8,23 +9,31 @@ import { omitGone } from '@podium/client-graph/lookup'
  *
  *   entities  → seeded into the replica (`applySnapshot`), the same collection a
  *               cold offline start paints from;
- *   repos     → answered by the tRPC stub's `discovery.refreshRepos`, which is
- *               where the engine's boot fan-out actually gets them;
- *   machines  → emitted on the hub as the `machines` event, which is the event
- *               a server frame produces. Reached through the hub's emitter
- *               because there is no other door: a machine list that arrived any
- *               other way would not be testing the path the product uses.
+ *   repos     → seeded as `checkout` records, one per registered root and
+ *               worktree (POD-6644);
+ *   machines  → seeded as each machine's `machine` record and my
+ *               `machineAccess` row, with online and presence written on the
+ *               runtime's LiveStore as the live feed would (`setMachines`
+ *               moves them after mount).
  */
 
-import type { ClientRuntime, UserFocus, VisibilitySource } from '@podium/client-core/engine'
+import { knownReading } from '@podium/client-core/live'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { type StoreNotices, StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import {
+  type NoticeSink,
+  StoreProvider,
+  type UserFocus,
+  useClientRuntime,
+} from '@podium/client-core/react'
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime, VisibilitySource } from '@podium/client-core/runtime-root'
+import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
   asUserId,
   type GitRepositoryWire,
+  type HostMetricsWire,
   type IssueDepProjection,
   type IssueGitStateProjection,
   type IssueProjection,
@@ -32,11 +41,15 @@ import {
   type MachineProjection,
   type MachineWire,
   type MessageRecordWire,
+  type NoticeWire,
+  type PinWire,
   type RepoProjection,
   type SessionMeta,
   type SessionUserStateWire,
+  type SuperagentThreadWire,
 } from '@podium/model'
 import { render, waitFor } from '@testing-library/react'
+import { runInAction } from 'mobx'
 import type { ReactNode } from 'react'
 import { act } from 'react'
 import { seedIssueFixtures } from './issue-fixtures'
@@ -60,11 +73,17 @@ export interface MobileStoreFixture {
   /** Explicit feed homes bypass the compatibility fixture adapter. */
   issueProjections?: IssueProjection[]
   issueUserStates?: IssueUserStateWire[]
+  /** My pin records (POD-6692: a pinned task is one of kind 'issue'). */
+  pins?: PinWire[]
   issueGitStates?: IssueGitStateProjection[]
   repoProjections?: RepoProjection[]
   issueDeps?: IssueDepProjection[]
   /** Synced chat message records (POD-4764), as the feed would carry them. */
   messageRecords?: MessageRecordWire[]
+  /** My synced superagent thread records (POD-6675), as the feed would carry them. */
+  superagentThreads?: SuperagentThreadWire[]
+  /** My open notices (POD-6881), as the feed would carry them. */
+  inboxNotices?: NoticeWire[]
   repos?: GitRepositoryWire[]
   machines?: MachineWire[]
   principal?: string
@@ -95,23 +114,34 @@ const CONFIG = { httpOrigin: 'http://127.0.0.1:0', wsClientUrl: 'ws://127.0.0.1:
  * exact `hub.connected` reader existed, the coarse initial health label made
  * that same assumption implicitly even though this socket never opened.
  */
-class SilentSocket {
+export class SilentSocket {
   static readonly CONNECTING = 0
   static readonly OPEN = 1
   static readonly CLOSING = 2
   static readonly CLOSED = 3
+  /** Every socket the hub opened in this worker, newest last: a second one is a reconnect. */
+  static readonly opened: SilentSocket[] = []
   readyState = 0
   onopen: (() => void) | null = null
-  onmessage: (() => void) | null = null
+  onmessage: ((ev: { data: unknown }) => void) | null = null
   onerror: (() => void) | null = null
   onclose: (() => void) | null = null
+  /** A test playing the server hears each frame the hub sends. */
+  onSend: ((data: string) => void) | null = null
   constructor() {
+    SilentSocket.opened.push(this)
     queueMicrotask(() => {
       this.readyState = SilentSocket.OPEN
       this.onopen?.()
     })
   }
-  send(): void {}
+  send(data: string): void {
+    this.onSend?.(data)
+  }
+  /** Deliver one server frame, as the network would. */
+  recv(data: string): void {
+    this.onmessage?.({ data })
+  }
   close(): void {}
   addEventListener(): void {}
   removeEventListener(): void {}
@@ -120,22 +150,10 @@ class SilentSocket {
 function stubApi(fixture: MobileStoreFixture): MobileTrpc {
   const noop = async () => {}
   return {
-    discovery: {
-      refreshRepos: {
-        // The refresh answers with the fixture's machines too: it REPLACES the
-        // machine list, so an empty answer here erased what the hub emitted.
-        mutate: async () => ({
-          repositories: fixture.repos ?? [],
-          diagnostics: [],
-          machines: fixture.machines ?? [],
-        }),
-      },
-    },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
     tabs: { listOrders: { query: async () => ({}) } },
     settings: { get: { query: async () => ({ sidebar: {} }) }, updatePersonal: { mutate: noop } },
     layout: { get: { query: async () => [] } },
-    superagent: { listThreads: { query: async () => [] } },
     sessions: {
       transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
       answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
@@ -174,10 +192,15 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     if (fixture.issueProjections)
       replica.applySnapshot('issueProjections', fixture.issueProjections)
     if (fixture.issueUserStates) replica.applySnapshot('issueUserStates', fixture.issueUserStates)
+    if (fixture.pins) replica.applySnapshot('pins', fixture.pins)
     if (fixture.issueGitStates) replica.applySnapshot('issueGitStates', fixture.issueGitStates)
     if (fixture.repoProjections) replica.applySnapshot('repos', fixture.repoProjections)
     if (fixture.issueDeps) replica.applySnapshot('issueDeps', fixture.issueDeps)
     replica.applySnapshot('messageRecords', fixture.messageRecords ?? [])
+    if (fixture.superagentThreads)
+      replica.applySnapshot('superagentThreads', fixture.superagentThreads)
+    if (fixture.inboxNotices) replica.applySnapshot('inboxNotices', fixture.inboxNotices)
+    seedMachineRecords(seededReplica, fixture)
     // This fixture supplies a complete offline bootstrap, including known
     // absence of personal markers. Custom replicas control their own posture.
     seededReplica.finishBootstrap()
@@ -198,9 +221,11 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   function Capture({ inner }: { inner: ReactNode }) {
     // Reaching the hub through the store snapshot, not through a module import:
     // the hub under test must be the one the provider built.
-    const store = useStoreHandle<MobileTrpc>()
+    const store = useClientRuntime<MobileTrpc>()
     runtimeHandle = store
-    hub = store.access.hub as unknown as { emit(event: string, ...payload: unknown[]): void }
+    hub = store.services.connection.hub as unknown as {
+      emit(event: string, ...payload: unknown[]): void
+    }
     return (
       <>
         {!fixture.attachRuntime && <PoolReady />}
@@ -217,7 +242,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
   const principal = asClientPrincipal(asUserId(fixture.principal ?? 'user:test'))
   const createReplicaFn = () => replica
 
-  function Store({ notices, children: inner }: { notices?: StoreNotices; children: ReactNode }) {
+  function Store({ notices, children: inner }: { notices?: NoticeSink; children: ReactNode }) {
     return (
       <StoreProvider
         config={CONFIG}
@@ -274,15 +299,15 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     ),
   )
 
-  // Let the boot fan-out (repos, pins, tab orders) resolve, then publish the
-  // machine list exactly as a server frame would.
+  // Let the boot fan-out (pins, tab orders) resolve, then publish each
+  // machine's online condition exactly as the live feed would.
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
   })
   if (fixture.machines) {
     await act(async () => {
-      hub?.emit('machines', fixture.machines)
+      applyMachineConditions(runtimeHandle, fixture.machines ?? [])
       await Promise.resolve()
     })
   }
@@ -309,8 +334,98 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
     replica,
     api,
     runtime: runtimeHandle!,
+    /** The pool the screens read, for a test that watches a model as a screen would. */
+    pool: pool as MobxPool | null,
     emit: (event: string, ...payload: unknown[]) => hub?.emit(event, ...payload),
+    /** Machine samples arrive as per-machine LiveStore readings. */
+    setHostMetrics(samples: readonly HostMetricsWire[]) {
+      runInAction(() => {
+        const live = runtimeHandle!.live
+        const incoming = new Set(
+          samples.map((sample) => String(sample.machineId ?? sample.hostname)),
+        )
+        for (const id of live.machineMetrics.keys())
+          if (!incoming.has(id)) live.applyTopic('machine.metrics', id, undefined)
+        for (const sample of samples)
+          live.applyTopic(
+            'machine.metrics',
+            String(sample.machineId ?? sample.hostname),
+            knownReading(sample, Date.now()),
+          )
+      })
+    },
+    /** Move the machines after mount: their records and live conditions (POD-6644). */
+    setMachines(machines: MachineWire[]) {
+      seedMachineRecords(replica as ReturnType<typeof createMobileTestReplica>, {
+        ...fixture,
+        machines,
+        repos: undefined,
+      })
+      applyMachineConditions(runtimeHandle, machines)
+    },
+    /** Move the repositories after mount: their checkout records (POD-6644). */
+    setRepos(repos: GitRepositoryWire[]) {
+      seedMachineRecords(replica as ReturnType<typeof createMobileTestReplica>, {
+        ...fixture,
+        machines: undefined,
+        repos,
+      })
+    },
   }
+}
+
+/** The fixture's machines and repositories as their synced records (POD-6644). */
+function seedMachineRecords(
+  replica: Pick<ReturnType<typeof createMobileTestReplica>, 'applySnapshot'>,
+  fixture: Pick<MobileStoreFixture, 'machines' | 'repos' | 'principal' | 'machineProjections'>,
+) {
+  const records = machineAndRepoRecords({
+    userId: fixture.principal ?? 'user:test',
+    ...(fixture.machines ? { machines: fixture.machines } : {}),
+    ...(fixture.repos ? { repos: fixture.repos } : {}),
+  })
+  const of = (entity: string) =>
+    records.filter((record) => record.entity === entity).map((record) => record.value)
+  if (fixture.machines) {
+    // A test's machine projections are the machines' records; its listing
+    // supplies a record only where it gave none (and always the access rows).
+    const projected = new Set((fixture.machineProjections ?? []).map((row) => String(row.id)))
+    replica.applySnapshot('machines', [
+      ...(fixture.machineProjections ?? []),
+      ...(of('machine') as { id: string }[]).filter((row) => !projected.has(String(row.id))),
+    ] as never)
+    replica.applySnapshot('machineAccess', of('machineAccess') as never)
+  }
+  if (fixture.repos) replica.applySnapshot('checkouts', of('checkout') as never)
+}
+
+/** Each machine's online and presence facts on the runtime's LiveStore. */
+function applyMachineConditions(
+  runtime: ClientRuntime<MobileTrpc> | undefined,
+  machines: readonly MachineWire[],
+) {
+  if (!runtime) return
+  runInAction(() => {
+    for (const machine of machines) {
+      const { online, lastSeenAt, availability, presenceSource, daemonReadiness } =
+        machine as MachineWire & Record<string, unknown>
+      runtime.live.applyTopic(
+        'machine.condition',
+        String(machine.id),
+        knownReading(
+          {
+            online: online === true,
+            since: null,
+            ...(lastSeenAt !== undefined ? { lastSeenAt } : {}),
+            ...(availability !== undefined ? { availability } : {}),
+            ...(presenceSource !== undefined ? { presenceSource } : {}),
+            ...(daemonReadiness !== undefined ? { daemonReadiness } : {}),
+          } as never,
+          Date.now(),
+        ),
+      )
+    }
+  })
 }
 
 function readReady(pool: MobxPool): boolean {

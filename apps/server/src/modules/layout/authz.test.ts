@@ -6,9 +6,12 @@
  */
 
 import { asUserId, firstAdminMemberId } from '@podium/model'
+import { fixtureCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { createBunStoreExecutor } from '../../store/executor'
+import { workspaceQueries } from '../../store/executor/sync-drizzle'
 import { UserLayoutRepository } from '../../store/user-layout'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { type LayoutAuthzDeps, layoutAuthzFailure } from './authz'
@@ -43,7 +46,7 @@ describe('a refused principal does not write', () => {
     const db = openMigratedTestDatabase()
     const stage = createBunStoreExecutor({ database: db }).queries
     if (!stage) throw new Error('the test database is not bun-backed')
-    const repo = new UserLayoutRepository(stage)
+    const repo = new UserLayoutRepository(workspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID))
     const service = new LayoutService({ layout: repo })
 
     const refusal = layoutAuthzFailure('layout.set', deps(undefined))
@@ -52,12 +55,12 @@ describe('a refused principal does not write', () => {
     if (refusal) {
       // no write
     } else {
-      await service.set(firstAdminMemberId(), { dockTab: 'files' }, 't')
+      await service.set(fixtureCommitWriter(), firstAdminMemberId(), { dockTab: 'files' }, 't')
     }
     expect(await repo.getSnapshot(firstAdminMemberId())).toEqual({})
     // Positive control: the same service DOES write when the gate would pass.
     expect(layoutAuthzFailure('layout.set', deps('member'))).toBeUndefined()
-    await service.set(firstAdminMemberId(), { dockTab: 'files' }, 't')
+    await service.set(fixtureCommitWriter(), firstAdminMemberId(), { dockTab: 'files' }, 't')
     expect(await repo.getSnapshot(firstAdminMemberId())).toEqual({ dockTab: 'files' })
     db.close?.()
   })

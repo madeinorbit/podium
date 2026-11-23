@@ -2,7 +2,7 @@
 // this from its machine plane; a legacy standalone daemon remains the compatibility writer.
 // The CLI (`podium status`) is the reader, so "up" reflects an authenticated machine path,
 // not merely a PID. It lives in the selected state root beside the machine identity.
-import { loadMachineState, readMachineState, updateMachineState } from './local-machine'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { stateDir } from './config'
@@ -12,6 +12,7 @@ import {
   selfIdentityTriple,
   writerLiveness,
 } from './instance-guard'
+import { loadMachineState, readMachineState, updateMachineState } from './local-machine'
 import { isAlive, type KillFn } from './run-registry'
 
 /**
@@ -77,6 +78,18 @@ export type ConnectivityStatus = z.infer<typeof ConnectivityStatus>
 /** <dir>/machine.json connectivity section (defaults to the state dir). */
 export function connectivityPath(dir = stateDir()): string {
   return join(dir, 'machine.json')
+}
+
+/** Clear a stopped backend's status without removing its identity or enrollment.
+ * Import legacy status through the persistence owner first, so it cannot reappear on boot.
+ * A fresh box needs no identity minted merely to clear an absent observation. */
+export function clearConnectivity(dir = stateDir()): void {
+  // LEGACY(remove-after: 2027-05): import pre-consolidation connectivity.json before clearing it.
+  if (!readMachineState(dir) && !existsSync(join(dir, 'connectivity.json'))) return
+  if (loadMachineState(dir).connectivity === undefined) return
+  updateMachineState(dir, (machine) => {
+    delete machine.connectivity
+  })
 }
 
 /**
@@ -198,6 +211,8 @@ export function writeConnectivity(
     ...(identity?.startTime ? { procStartTime: identity.startTime } : {}),
     updatedAt: patch.updatedAt ?? new Date().toISOString(),
   })
-  updateMachineState(dir, (machine) => { machine.connectivity = next })
+  updateMachineState(dir, (machine) => {
+    machine.connectivity = next
+  })
   return next
 }

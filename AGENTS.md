@@ -4,6 +4,13 @@ Guidance for AI agents working in this repository. Claude Code loads it through 
 other harnesses read it directly. Keep it short: detail belongs in the linked docs, and a rule
 the tooling already enforces does not need repeating here.
 
+This repository is public. Keep committed code, documentation and examples free of private
+hostnames and machine-specific access details. Use generic host placeholders; keep deployment
+routing and machine inventories in private issue artifacts. Redact screen captures, logs and
+status dumps before committing them as evidence: account e-mail addresses become
+`person@example.com`, account names a placeholder. `bun run lint:public-emails` checks docs,
+tests and fixtures.
+
 ## The repository
 
 Podium is a self-hosted multi-agent workspace: a server, a per-machine daemon that runs agent
@@ -79,9 +86,9 @@ its job, a session title, who else is on the issue, and who owns which files
 This host is shared by many agents, and test lanes compete for its CPU and memory. That is why
 validation is budgeted:
 
-- **Default final check:** `bun run test` runs cached typecheck and static checks, then four
-  hermetic boot-wiring files. Report a pass as "lean gate green"; `LEAN GATE INCOMPLETE` is no
-  result. After a fix, rerun affected checks; don't repeat a green on an unchanged candidate.
+- **Default final check:** `bun run test` runs cached typecheck and static checks, then seven
+  hermetic files (four boot-wiring probes, three Postgres schema checks). Report a pass as "lean
+  gate green"; `LEAN GATE INCOMPLETE` is no result. After a fix, rerun affected checks; don't repeat a green on an unchanged candidate.
 - **While working:** use `bun run test:file -- <paths> [-t "name"]` when focused tests answer
   a concrete question. Don't rerun broad lanes after every edit.
 - **Risky areas:** choose the specialized lane matching the change: the store shard for
@@ -114,6 +121,10 @@ routing. Drive the smallest affected interaction once and observe the external e
 - Web UI through Playwright: [docs/agents/driving-podium.md](docs/agents/driving-podium.md).
 - The desktop shell, when the boundary is the shell itself (cross-origin, cookies, sidecar
   spawn): [docs/agents/driving-desktop.md](docs/agents/driving-desktop.md).
+- Fresh Linux installer, VPS onboarding, join and upgrade tests: the Docker VPS lab at
+  [`tools/vps-lab/`](tools/vps-lab/README.md). On a shared Docker host, choose and claim a slot
+  first; `lab up` recreates existing boxes. See
+  [testing.md § Disposable VPS lab](docs/agents/testing.md#disposable-vps-lab).
 - Windows (desktop app, ConPTY, installers): a boat.dev sandbox,
   [docs/agents/boat-windows.md](docs/agents/boat-windows.md).
 - Instance identity, state, endpoints, CLI routing or lifecycle: run fully separate instances,

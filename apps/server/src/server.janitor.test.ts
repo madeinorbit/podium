@@ -70,7 +70,7 @@ describe('startServer hosts the janitor itself', () => {
   }
 
   it('starts exactly one worker, dialing its own bound port with its own credential', async () => {
-    const calls: Array<{ serverUrl: string; token: string }> = []
+    const calls: Parameters<StartJanitorWorkerFn>[0][] = []
     const start: StartJanitorWorkerFn = async (options) => {
       calls.push(options)
       return fakeWorker()
@@ -80,6 +80,32 @@ describe('startServer hosts the janitor itself', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.serverUrl).toContain(`:${handle.port}`)
     expect(calls[0]?.token).toBeTruthy()
+
+    const rotate = calls[0]?.token
+    if (typeof rotate !== 'function') throw new Error('Worker credential does not rotate')
+    const oldToken = rotate()
+    const token = rotate()
+    expect(oldToken).not.toBe(token)
+    for (const path of ['/maintenance/handshake', '/maintenance/command']) {
+      for (const refused of [undefined, 'wrong-token', oldToken]) {
+        const response = await fetch(`http://127.0.0.1:${handle.port}${path}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            ...(refused ? { authorization: `Bearer ${refused}` } : {}),
+          },
+          body: '{}',
+        })
+        expect(response.status, `${path}: stale or absent credential`).toBe(401)
+      }
+      const response = await fetch(`http://127.0.0.1:${handle.port}${path}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: '{}',
+      })
+      // Authentication succeeds, then the malformed contract is refused.
+      expect(response.status).toBe(400)
+    }
 
     const janitor = await janitorOnVersion(handle.port)
     expect(janitor.state).toBe('running')

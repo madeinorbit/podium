@@ -55,9 +55,7 @@ export class TaskCostView extends RequestAnswer<readonly TaskCostRowWire[]> {
   @lazy({ equals: compareShallow }) get visibleCandidates() {
     return (
       this.answer?.filter(
-        (row) =>
-          row.windowModels.length > 0 &&
-          !isGone(this.pool.row('issue', row.issueId, 'summary-fields')),
+        (row) => row.windowModels.length > 0 && !isGone(this.pool.stub(row.issueId)),
       ) ?? null
     )
   }
@@ -78,14 +76,24 @@ export class TaskCostView extends RequestAnswer<readonly TaskCostRowWire[]> {
   }
 
   private projectOf(issueId: string): { key: string; name: string } | undefined {
-    // These repo fields are declared by ISSUE_PAGE_SUMMARIES. Cold tasks use
-    // that summary and the joined repo row without fetching a full issue.
-    const issue = here(this.pool.row('issue', issueId, 'summary-fields')) as
+    // A held issue names its repository itself; otherwise its stub carries the
+    // repo id and the repository row the name (POD-7087). Neither loads the issue.
+    // untracked-read: task-cost-project-peek
+    const held = here(this.pool.row('issue', issueId, 'peek')) as
       | { repoId?: string | null; repoPath?: string; repoName?: string }
       | undefined
-    if (!issue) return undefined
-    const key = issue.repoId ?? machinePathKey(issue.repoPath ?? '')
-    const name = issueRepoName({ repoName: issue.repoName, repoPath: issue.repoPath ?? '' })
+    const stub = held ?? here(this.pool.stub(issueId))
+    if (!stub) return undefined
+    const repoId = stub.repoId ?? null
+    const repo =
+      repoId && !held?.repoName
+        ? (here(this.pool.row('repo', repoId)) as
+            | { name?: string | null; path?: string }
+            | undefined)
+        : undefined
+    const repoPath = held?.repoPath ?? repo?.path ?? ''
+    const key = repoId ?? machinePathKey(repoPath)
+    const name = issueRepoName({ repoName: held?.repoName ?? repo?.name ?? undefined, repoPath })
     return key && name ? { key, name } : undefined
   }
 

@@ -12,6 +12,7 @@ import {
   agentIdentityFromSessionId,
   asSessionId,
   asUserId,
+  asWorkspaceId,
   InviteId,
   MachineId,
   MachineIdField,
@@ -26,6 +27,7 @@ import {
   sessionIdFromAgentIdentity,
   UserId,
   userIdFromMemberId,
+  WorkspaceId,
 } from './brands'
 
 /**
@@ -92,10 +94,6 @@ const EMPTY_ID_PAYLOADS: Array<
       title: 't',
       cwd: '/w',
       status: 'live',
-      controllerId: '',
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
       createdAt: 'now',
       lastActiveAt: 'now',
       origin: { kind: 'spawn' },
@@ -307,8 +305,8 @@ describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
   })
 
   // Inspect value properties, not parameter/type annotations. This remains a
-  // conservative source ratchet over ALL object literals (including extracted
-  // field groups), rather than guessing which calls construct Zod schemas.
+  // schema declaration ratchet, including extracted field groups. Row
+  // mappers carry values rather than schema declarations; TypeScript checks them.
   const machineIdProperties = (src: string) => {
     const source = ts.createSourceFile('entity.ts', src, ts.ScriptTarget.Latest, true)
     const properties: Array<{ rhs: string; line: number; text: string }> = []
@@ -332,7 +330,10 @@ describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
 
   const unbrandedProperties = (src: string) =>
     machineIdProperties(src).filter(
-      ({ rhs }) => !rhs.includes('MachineIdField') && !composedFromBrand(rhs),
+      ({ rhs }) =>
+        /(?:\bz\.|\bMachineId(?:Field)?\b|\.shape\.)/.test(rhs) &&
+        !/\bMachineId(?:Field)?\b/.test(rhs) &&
+        !composedFromBrand(rhs),
     )
 
   it('distinguishes helper parameters and type annotations from value fields', () => {
@@ -376,9 +377,17 @@ describe('MachineId is adopted at EVERY entity field (POD-318)', () => {
       machineId: MachineIdField,
       sourceMachineId: MachineIdField.optional(),
       machine_id: IssueWorkspace.shape.machineId,
+      targetMachineId: MachineId.optional(),
     }`
-    expect(machineIdProperties(src)).toHaveLength(3)
+    expect(machineIdProperties(src)).toHaveLength(4)
     expect(unbrandedProperties(src)).toEqual([])
+  })
+
+  it('does not mistake mapped record values for schema declarations', () => {
+    expect(
+      unbrandedProperties(`const row = { machineId: source.machineId ?? null,
+      sourceMachineId: asMachineId(source.id) }`),
+    ).toEqual([])
   })
 
   it('has no machine-id-shaped field left unbranded', () => {
@@ -489,5 +498,22 @@ describe('MessageId is checked where a sender hands one in (POD-4763)', () => {
     ]) {
       expect(MessageId.safeParse(bad).success).toBe(false)
     }
+  })
+})
+
+/**
+ * The workspace brand (POD-6959 design 2.4): text whose shape belongs to whoever mints it —
+ * `'local'` on a self-hosted install, a `ws_` KSUID on hosted — so it checks only non-emptiness,
+ * and the minting helper changes nothing about the string.
+ */
+describe('the workspace brand', () => {
+  it('accepts the self-hosted and the hosted forms, and refuses the empty string', () => {
+    expect(WorkspaceId.safeParse('local').success).toBe(true)
+    expect(WorkspaceId.safeParse('ws_2M3kq9yVt0bU1d5nC8xWfZpL7aE').success).toBe(true)
+    expect(WorkspaceId.safeParse('').success).toBe(false)
+  })
+
+  it('mints without changing the string', () => {
+    expect(asWorkspaceId('local')).toBe('local')
   })
 })

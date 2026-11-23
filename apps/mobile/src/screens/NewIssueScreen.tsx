@@ -35,6 +35,7 @@ import {
   selectedFirstTaskRepository,
 } from '@podium/client-core/new-task'
 import {
+  useCommands,
   useFirstTaskRepositoryPicker,
   useHarnessDescriptors,
   useModelCatalog,
@@ -48,15 +49,18 @@ import {
 import { LOADING } from '@podium/client-graph/loading'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { useOpeningView } from '@podium/client-graph/react'
-import { createSettingsViews } from '@podium/client-graph/settings-views'
+import {
+  createSettingsViews,
+  readSettingsCatalog,
+  type SettingsCatalog,
+} from '@podium/client-graph/settings-views'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
   asIssueId,
   asMachineId,
   asMutationId,
   asSessionId,
   DEFAULT_HARNESS_AGENT,
-  type GitRepositoryWire,
-  type MachineWire,
   machinePathBasename,
 } from '@podium/model'
 import { useLocalSearchParams } from 'expo-router'
@@ -65,10 +69,10 @@ import { observer } from 'mobx-react-lite'
 import { use, useCallback, useEffect, useRef, useState } from 'react'
 import { Platform, type TextInput, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useStoreActions, useTrpc, useUiState } from '../client/hooks'
+import { useTrpc, useUiState } from '../client/hooks'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
+import { useMyCodingHarness } from '../client/my-preferences'
 import type { MobileTrpc } from '../client/trpc'
-import { useSettingsRecord } from '../client/use-settings-record'
 import { ComposeBody, ComposeFieldRow } from '../components/compose/ComposeBody'
 import type { ComposeMenuItem } from '../components/compose/ComposeMenu'
 import { ComposeSheetHeader } from '../components/compose/ComposeSheetHeader'
@@ -83,7 +87,7 @@ import { sessionBackTarget, sessionHref } from '../lib/session-route'
 import { useRootScreenRouter } from '../navigation/use-root-screen-router'
 import { color } from '../theme/theme'
 
-const EMPTY_CATALOG = { repos: [] as GitRepositoryWire[], machines: [] as MachineWire[] }
+const EMPTY_CATALOG: SettingsCatalog = { repos: [], machines: [] }
 const EMPTY_SETUP = {
   usage: new Map<string, number>(),
   defaultAgent: DEFAULT_HARNESS_AGENT as string,
@@ -99,7 +103,9 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const params = useLocalSearchParams<{ repoPath?: string; backTo?: string }>()
   const trpc = useTrpc()
   const uiState = useUiState()
-  const { spawnDraftAgent } = useStoreActions()
+  const commands = useCommands<MobileTrpc>()
+  const { spawnDraftAgent } = commands.sessions
+  const { setPreferences } = commands.preferences
   const pool = useMobilePool()
   const view = useOpeningView(pool, createSettingsViews)
   const readCatalog = useCallback(() => view?.catalog() ?? EMPTY_CATALOG, [view])
@@ -122,7 +128,8 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     readLastLaunchPicks,
     JSON.stringify,
   )
-  const settings = useSettingsRecord()
+  // My coding default is my synced `userPreferences` record (POD-6673).
+  const codingHarness = useMyCodingHarness()
   const [pickedMachine, setPickedMachine] = useState<string>()
   const [busy, setBusy] = useState(false)
   const starting = useRef(false)
@@ -143,8 +150,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const checkout = selectedRepo
     ? checkoutForMachine(repos, selectedRepo, machine?.id, draft.repoPath)
     : undefined
-  const defaultAgent =
-    issueAgentKind(settings?.model?.codingHarness ?? setup.defaultAgent) ?? DEFAULT_HARNESS_AGENT
+  const defaultAgent = issueAgentKind(codingHarness ?? setup.defaultAgent) ?? DEFAULT_HARNESS_AGENT
   const agent = launchAgentKind({
     picked: issueAgentKind(draft.agent),
     preferred: defaultAgent,
@@ -164,7 +170,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const [uploadScope] = useState(() => asSessionId(`coldstart-${randomUUID()}`))
   const attachments = useComposerAttachments(uploadScope, {
     destination: 'issue',
-    draft: { attachments: draft.attachments, uiState, pool },
+    draft: { attachments: draft.attachments, uiState },
   })
   const insets = useSafeAreaInsets()
   const headerHeight = use(HeaderHeightContext) ?? 0
@@ -180,9 +186,9 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
       ...draft,
       repoPath: aliases.includes(draft.repoPath) ? draft.repoPath : selectedRepo.path,
       machineId: machine?.id ?? '',
-      ...(draft.agent || !settings?.model ? {} : { agent }),
+      ...(draft.agent || codingHarness === undefined ? {} : { agent }),
     }
-    if (!shell && machine && (draft.agent || settings?.model)) {
+    if (!shell && machine && (draft.agent || codingHarness !== undefined)) {
       const context = { machineId: machine.id, harness: agent }
       next = draftForLaunchContext(next, previousContext.current, context, lastLaunchPicks)
       previousContext.current = context
@@ -201,7 +207,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     busy,
     draft,
     shell,
-    settings?.model,
+    codingHarness,
     agent,
     reported,
     lastLaunchPicks,
@@ -329,9 +335,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
         shell ? { model: AUTO, effort: AUTO } : current,
       )
       if (!shell && agent !== defaultAgent)
-        void trpc.settings.updatePersonal
-          .mutate({ values: { 'roles.coding.accountId': nativeAccountId(agent) } })
-          .catch(() => {})
+        void setPreferences({ 'roles.coding.accountId': nativeAccountId(agent) }).catch(() => {})
       void launched.settled.then((accepted) => {
         if (accepted) clearAccepted(reserved)
         else persistFailure(reserved, "Couldn't start the agent.")
@@ -370,7 +374,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     }
     setDraft(reserved)
     try {
-      const issue = await trpc.issues.create.mutate({
+      const issue = await issueWrites(trpc).create.mutate({
         ...newTaskInput({
           repoPath: checkout?.path ?? selectedRepo.path,
           title: promptTitle(current.title),

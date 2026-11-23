@@ -1,0 +1,38 @@
+{
+  "family": "session-auth",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "SessionAuthMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "sessionAuth",
+        "sessionId": "sessionId",
+        "method": "api-key"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionAuth\",\"sessionId\":\"sessionId\",\"method\":\"api-key\"}"
+    },
+    {
+      "schema": "SessionAuthMessage",
+      "variant": "full",
+      "wire": {
+        "type": "sessionAuth",
+        "sessionId": "sessionId",
+        "method": "api-key",
+        "source": "source",
+        "delivered": true,
+        "identity": {
+          "email": "identity.email",
+          "fingerprint": "identity.fingerprint"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"sessionAuth\",\"sessionId\":\"sessionId\",\"method\":\"api-key\",\"source\":\"source\",\"delivered\":true,\"identity\":{\"email\":\"identity.email\",\"fingerprint\":\"identity.fingerprint\"}}"
+    }
+  ]
+}

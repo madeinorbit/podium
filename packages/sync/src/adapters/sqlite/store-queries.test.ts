@@ -17,12 +17,21 @@
 
 import { describe, expect, it } from 'vitest'
 import { SyncRepository } from './sync-repository'
-import { createTestSyncDatabase, createTestSyncQueries, testSyncServerTables } from './test-support'
+import {
+  createTestSyncDatabase,
+  createTestSyncQueries,
+  TEST_WORKSPACE_ID,
+  testSyncServerTables,
+} from './test-support'
 
 describe('the sync adapter query port', () => {
   it('runs the adapter statements on the connection the port carries', async () => {
     const db = createTestSyncDatabase()
-    const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
+    const repo = new SyncRepository(
+      createTestSyncQueries(db),
+      testSyncServerTables,
+      TEST_WORKSPACE_ID,
+    )
 
     await repo.writeFeedIdentity({ feedId: 'feed-1', epoch: 'epoch-1' }, 1)
 
@@ -30,7 +39,7 @@ describe('the sync adapter query port', () => {
     // the repository — so the assertion is that the port carried the caller's
     // database, not merely that the repository is self-consistent.
     expect(
-      db.prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1').get(),
+      db.prepare("SELECT feed_id, epoch FROM sync_feed WHERE workspace_id = 'local'").get(),
     ).toEqual({ feed_id: 'feed-1', epoch: 'epoch-1' })
   })
 
@@ -43,7 +52,7 @@ describe('the sync adapter query port', () => {
     // its own it would have committed independently and the rows would survive.
     const db = createTestSyncDatabase()
     const queries = createTestSyncQueries(db)
-    const repo = new SyncRepository(queries, testSyncServerTables)
+    const repo = new SyncRepository(queries, testSyncServerTables, TEST_WORKSPACE_ID)
 
     await expect(
       queries.createOrJoinTransaction(async () => {

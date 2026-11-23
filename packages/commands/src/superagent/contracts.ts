@@ -11,10 +11,11 @@
  *
  * L1 DATA ONLY. Every handler lives with the superagent feature in
  * `apps/server/src/modules/superagent` and is joined to its contract at
- * `modules/superagent/registry.ts`. The two READS this surface also serves —
- * `listThreads` and `history` — are not contracts and stay hand-written
- * queries: a `visibility` class describes what a command WRITES, and a read
- * writes nothing (the same line `modules/workflows/queries.ts` draws).
+ * `modules/superagent/registry.ts`. The READ this surface also serves —
+ * `history` — is not a contract and stays a hand-written query: a
+ * `visibility` class describes what a command WRITES, and a read writes
+ * nothing (the same line `modules/workflows/queries.ts` draws). The thread
+ * list is the synced `superagentThread` record (POD-6675).
  *
  * ---------------------------------------------------------------------------
  * `send` IS GONE, AND WHICH NAME SURVIVED WAS DECIDED BY WHAT CALLS IT
@@ -347,8 +348,8 @@ const MACHINE_ERRORS = {
  * rather than being silently swapped, which is the behaviour the rest of the
  * spawn surfaces already have.
  *
- * `'auto'` is meaningful and is the way to CLEAR a choice: it returns the thread
- * to the `superagent` settings role.
+ * `'auto'` is meaningful: this turn follows the `superagent` settings role,
+ * whatever the thread holds.
  */
 const backendChoice = z.string().min(1).max(120)
 
@@ -373,12 +374,14 @@ export const superagentSendTurnInput = z.object({
    * session rides in as context rather than as a thread of its own.
    */
   attachSessionId: z.string().max(128).pipe(SessionIdField).optional(),
-  /** Persisted onto the thread and used for this turn and every later one until
-   *  changed. Omitted = leave the thread's current choice alone. */
+  /** THIS turn's model and effort only (POD-6675), never written to the
+   *  thread: the thread's own choice is a spec field whose one writer is the
+   *  owner's generic edit (`records.superagentThread.edit`). Omitted = the turn
+   *  runs the thread's choice. */
   model: backendChoice.optional(),
   effort: backendChoice.optional(),
   /** Prompt-box connector pick. When set, this turn (and later ones, until Auto)
-   *  runs that harness — Settings → Superagent is only the default. Switching
+   *  runs that harness — Settings → Agents → Superagent is only the default. Switching
    *  harness starts a fresh session (#199). Omitted = leave the current rule
    *  alone (settings default, or the thread's last explicit pick). */
   agentKind: HarnessAgent.optional(),

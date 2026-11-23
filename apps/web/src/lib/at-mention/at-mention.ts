@@ -25,7 +25,7 @@
  * menu maps every kind to an icon, so adding one is a compile error at the place
  * that has to draw it instead of a row with a blank leading column.
  */
-export type AtMentionKind = 'issue' | 'file' | 'repo' | 'worktree' | 'conversation'
+export type AtMentionKind = 'issue' | 'file' | 'repo' | 'worktree' | 'conversation' | 'member'
 
 /**
  * One offered mention.

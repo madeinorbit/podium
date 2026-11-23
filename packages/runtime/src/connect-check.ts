@@ -20,6 +20,8 @@ export type CheckError =
   | 'UNREACHABLE'
   | 'NOT_PODIUM'
   | 'IDENTITY_MISMATCH'
+  /** Connect cannot probe this port. No opinion about the address's reachability. */
+  | 'PORT_UNSUPPORTED'
   /** Connect itself could not be reached or refused the request. Never a failed check. */
   | 'CONNECT_UNAVAILABLE'
 
@@ -32,8 +34,8 @@ export type CheckResult =
  * with a default — so adding a code breaks the build until its sentence is
  * written here, and the cli-setup totality test fails the same way at runtime.
  *
- * CONNECT_UNAVAILABLE keeps an entry for totality but is never displayed: the
- * setup flow treats "we could not ask" as "no opinion" and proceeds silently.
+ * Unavailable checks have no opinion about reachability. PORT_UNSUPPORTED is
+ * displayed while the address is saved; CONNECT_UNAVAILABLE proceeds silently.
  */
 export const CHECK_ERROR_SENTENCES: Record<CheckError, string> = {
   INVALID_URL:
@@ -52,18 +54,55 @@ export const CHECK_ERROR_SENTENCES: Record<CheckError, string> = {
     'Nothing is listening on that port from the outside. Make sure the funnel or tunnel ' +
     'command is still running, and that no firewall or tailnet ACL blocks it.',
   UNREACHABLE:
-    'Nothing answered at that address. The machine may be offline, or the tunnel or funnel ' +
-    'has stopped.',
+    'The outside probe could not reach Podium at that address. The machine may be offline, ' +
+    'or its tunnel, funnel or reverse proxy may need attention.',
   NOT_PODIUM:
     'Something answered, but it is not Podium. Another service may be on that address, or ' +
     'the reverse proxy is pointing at the wrong port.',
   IDENTITY_MISMATCH:
     'That address serves a different Podium instance, not this one. Paste the URL of the ' +
     'machine you are setting up.',
+  PORT_UNSUPPORTED:
+    'Podium Connect could not check this port. Reachability from outside is unknown; ' +
+    'you can still use this address.',
   CONNECT_UNAVAILABLE:
     'Podium Connect could not be reached, so the URL was not probed. Setup continues without the check.',
 }
 
 export function describeCheckError(error: CheckError): string {
   return CHECK_ERROR_SENTENCES[error]
+}
+
+/**
+ * Older Connect deployments call their port restriction an invalid URL. Translate
+ * only that refusal, for an explicit non-443 HTTPS port; other URL errors keep
+ * their meaning. Apply at the transport and UI boundaries for mixed deployments.
+ */
+// LEGACY(remove-after: 2027-05): Deployed Connect rejects non-443 ports as invalid URLs.
+export function normalizeCheckResult(url: string, verdict: CheckResult): CheckResult {
+  if (
+    verdict.ok ||
+    verdict.error !== 'INVALID_URL' ||
+    typeof verdict.detail !== 'string' ||
+    verdict.detail.trim() !== 'must be on port 443'
+  ) {
+    return verdict
+  }
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol === 'https:' && parsed.port && parsed.port !== '443') {
+      return { ok: false, error: 'PORT_UNSUPPORTED', detail: '' }
+    }
+  } catch {
+    // A malformed URL still needs correcting.
+  }
+  return verdict
+}
+
+export function isCheckUnavailable(verdict: CheckResult | undefined): boolean {
+  return (
+    verdict === undefined ||
+    (!verdict.ok &&
+      (verdict.error === 'CONNECT_UNAVAILABLE' || verdict.error === 'PORT_UNSUPPORTED'))
+  )
 }

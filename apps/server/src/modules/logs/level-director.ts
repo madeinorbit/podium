@@ -62,7 +62,11 @@ const log = createLogger('server:logs')
  */
 export interface ClientConnectionsPort {
   values(): IterableIterator<{ id: string; origin?: ClientLogOrigin }>
-  deliver(conn: { id: string }, msg: ServerMessage): void
+  /** The account-events path (ADR 7 Amendment 2): topic when held, else the frame. */
+  deliverAccountEvent(
+    conn: { id: string },
+    msg: Extract<ServerMessage, { type: 'setLogLevel' }>,
+  ): void
 }
 
 /** One connection a raise reached, as the operator needs to see it. */
@@ -100,7 +104,7 @@ export class ClientLogLevelDirector {
   constructor(private readonly clients: ClientConnectionsPort) {}
 
   setLevel(input: LogsSetLevelInput): SetLevelResult {
-    const message: ServerMessage = {
+    const message: Extract<ServerMessage, { type: 'setLogLevel' }> = {
       type: 'setLogLevel',
       level: input.level,
       ...(input.ttlMs !== undefined ? { ttlMs: input.ttlMs } : {}),
@@ -108,7 +112,7 @@ export class ClientLogLevelDirector {
     const reached: RaisedClient[] = []
     for (const conn of this.clients.values()) {
       if (!matches(conn, input.target)) continue
-      this.clients.deliver(conn, message)
+      this.clients.deliverAccountEvent(conn, message)
       reached.push({
         clientId: conn.id,
         ...(conn.origin?.role !== undefined ? { role: conn.origin.role } : {}),

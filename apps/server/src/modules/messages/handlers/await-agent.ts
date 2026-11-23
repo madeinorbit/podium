@@ -17,8 +17,8 @@
  */
 
 import type { awaitAgentContract, ContractInput } from '@podium/commands'
-import type { SessionMeta, SessionId } from '@podium/model'
-import { isSpawnedBy } from '@podium/model'
+import type { SessionId, SessionMeta } from '@podium/model'
+import { isSpawnedBy, shownSessionStatus } from '@podium/model'
 import type { Capability } from '../../../issue-authz'
 import type { MailHandlerContext } from './context'
 
@@ -45,7 +45,6 @@ export async function awaitAgentHandler(
   // ack from a previous round must not satisfy a new await, or the parent
   // believes new work finished when the child never acked the new instruction.
   const waitStart = deps.now?.() ?? new Date().toISOString()
-  // biome-ignore lint/nursery/noConstantCondition: loop exits via return
   for (;;) {
     const s = await deps.sessionById(input.sessionId)
     if (!s) {
@@ -68,7 +67,7 @@ export async function awaitAgentHandler(
         done: true,
         result: 'acked',
         ack: await access.wire(ack),
-        snapshot: snap(s),
+        snapshot: snap(s, deps),
       })
     }
     // Actionable phase/status — parent must never read these as "working".
@@ -81,7 +80,7 @@ export async function awaitAgentHandler(
         isParent,
         caller,
         input.sessionId,
-        { done: true, result: 'gone', snapshot: snap(s) },
+        { done: true, result: 'gone', snapshot: snap(s, deps) },
         phase,
         s.status,
       )
@@ -93,7 +92,7 @@ export async function awaitAgentHandler(
         isParent,
         caller,
         input.sessionId,
-        { done: true, result: 'blocked', snapshot: snap(s) },
+        { done: true, result: 'blocked', snapshot: snap(s, deps) },
         phase,
         s.status,
       )
@@ -105,22 +104,23 @@ export async function awaitAgentHandler(
         isParent,
         caller,
         input.sessionId,
-        { done: true, result: 'done', snapshot: snap(s) },
+        { done: true, result: 'done', snapshot: snap(s, deps) },
         phase,
         s.status,
       )
     }
     if (Date.now() >= deadline) {
-      return { done: false, result: 'working', snapshot: snap(s) }
+      return { done: false, result: 'working', snapshot: snap(s, deps) }
     }
     await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())))
   }
 }
 
-function snap(s: SessionMeta): Record<string, unknown> {
+function snap(s: SessionMeta, deps: MailHandlerContext['deps']): Record<string, unknown> {
   return {
     sessionId: s.sessionId,
-    status: s.status,
+    // As shown: `reconnecting` while the server has no daemon link to its machine.
+    status: shownSessionStatus(s.status, s.machineId ? deps.machineOnline?.(s.machineId) : undefined),
     ...(s.agentState?.phase ? { phase: s.agentState.phase } : {}),
     // Carry need/error so a blocked parent can act without a second lookup.
     ...(s.agentState?.need ? { need: s.agentState.need } : {}),
@@ -151,12 +151,17 @@ function finishAwait(
 ): { done: boolean; result: string; snapshot: unknown; ack?: unknown } {
   if (isParent && shouldConsumeSessionParentSettle(outcome.result, phase, status)) {
     const parentId = caller.capability.actorSessionId
-    if (parentId) {
+    if (parentId && ctx.observed) {
+      // On the sync write entry point, as its own write after the wait (POD-6525).
+      ctx.observed(childSessionId)
+    } else if (parentId) {
       try {
-        ctx.deps.retireNotificationFact?.(
-          `sessionparentnudge:phase-reported:${childSessionId}`,
-          parentId,
-        )
+        void Promise.resolve(
+          ctx.deps.retireNotificationFact?.(
+            `sessionparentnudge:phase-reported:${childSessionId}`,
+            parentId,
+          ),
+        ).catch(() => undefined)
       } catch {
         // never throw from await
       }

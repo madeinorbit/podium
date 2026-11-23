@@ -1,7 +1,6 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
 
-
 import type { MobxPool } from '@podium/client-graph'
 import { asSessionId, type SessionMeta } from '@podium/model'
 import { cleanup, render, waitFor } from '@testing-library/react'
@@ -10,12 +9,18 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const store = vi.hoisted(() => ({ value: {} as Record<string, unknown>, reads: [] as string[] }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: () => {
+  readFixture: () => {
     throw new Error('Dock lifecycle read the old store')
   },
 }))
 const owner = withKeyedInputs({ getSnapshot: () => store.value, subscribe: () => () => {} })
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => owner }))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => owner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+  }
+})
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPoolProjection: <T>(read: (pool: MobxPool) => T) =>
     read({
@@ -61,9 +66,8 @@ describe('dock shell lifecycle', () => {
     expect(dockShellIsParked(session({ sessionId: 'exited', status: 'exited' }))).toBe(false)
     expect(dockShellIsDead(session({ sessionId: 'archived', archived: true }))).toBe(true)
     expect(dockShellIsDead(session({ sessionId: 'starting', status: 'starting' }))).toBe(false)
-    expect(dockShellIsDead(session({ sessionId: 'reconnecting', status: 'reconnecting' }))).toBe(
-      false,
-    )
+    // Reconnecting (its machine's link down) is still `live` (ADR 12 D1).
+    expect(dockShellIsDead(session({ sessionId: 'reconnecting', status: 'live' }))).toBe(false)
   })
 
   it('selects only dead, unarchived shells owned by the dock mapping', () => {

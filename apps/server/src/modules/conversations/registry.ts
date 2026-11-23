@@ -15,11 +15,11 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import type { z } from 'zod'
-import type { MemoryReaderView } from '../memory/service'
+import type { MemoryCommandView } from '../memory/service'
 
 /** A conversation handler is a method ON the service; everything it needs is
  *  already a constructor dependency. */
-export type ConversationHandler<In, Out> = (svc: MemoryReaderView, input: In) => Out
+export type ConversationHandler<In, Out> = (svc: MemoryCommandView, input: In) => Out
 
 export interface ConversationCommand {
   readonly contract: AnyCommandContract
@@ -32,7 +32,8 @@ export interface ConversationCommand {
 export const CONVERSATION_COMMANDS_TRPC = {
   setMeta: {
     contract: CONVERSATION_CONTRACTS.setMeta,
-    handler: (async (svc, input) => await svc.setConversationMeta(input)) satisfies ConversationHandler<
+    handler: (async (svc, input) =>
+      await svc.setConversationMeta(input)) satisfies ConversationHandler<
       z.infer<(typeof CONVERSATION_CONTRACTS)['setMeta']['input']>,
       unknown
     >,

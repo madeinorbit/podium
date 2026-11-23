@@ -1,8 +1,10 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
+import { seedInstancePreferences } from '@podium/client-graph/instance-preferences-fixture'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { asUserId, resolveUserPreferences } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
@@ -26,9 +28,9 @@ vi.mock('./stable-access', () => ({
   useSettingsTrpc: () => seam.owner.trpc,
 }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (state: any) => unknown) => read(seam.owner),
+  readFixture: (read: (state: any) => unknown) => read(seam.owner),
 }))
-vi.mock('@/lib/use-feature', () => ({ useFeature: () => false, invalidateFeatures() {} }))
+vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/lib/use-model-catalog', () => ({
   useModelCatalog: () => ({}),
   useModelCatalogState: () => ({ catalog: {}, status: 'unavailable' }),
@@ -43,6 +45,7 @@ afterEach(() => {
   cleanup()
   seam.pool?.dispose()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
 })
 const settle = async () => {
   for (let i = 0; i < 8; i++)
@@ -70,9 +73,10 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
       worktrees: [],
     }))
     const devices = Array.from({ length: 8 * scale }, (_, i) => ({
-      sessionId: String(i).padStart(24, '0'),
+      id: String(i).padStart(24, '0'),
       userId: 'operator',
       label: 'mobile',
+      kind: 'phone',
       deviceId: `device-${i}`,
       deviceName: `Phone ${i}`,
       platform: 'ios',
@@ -98,7 +102,7 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
         }
       },
     } as RoutedUiState
-    let state = { machines, repos, settingsTab: 'sessions', sessions: [] }
+    let state = { machines, repos, settingsTab: 'agents', sessions: [] }
     const owner = withKeyedInputs({
       getSnapshot: () => state as object,
       ui,
@@ -111,6 +115,19 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
     })
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
     seam.pool = pool
+    // My settings record, as the row source publishes it (POD-6673).
+    pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'userPreferences',
+          id: 'me',
+          value: { ...resolveUserPreferences(undefined, asUserId('me')), id: 'me' } as never,
+        },
+      ],
+    })
+    // The instance settings record, as the feed delivers it (POD-6677).
+    seedInstancePreferences(pool)
     // The logical repo records the replica carries beside those scans.
     pool.apply({
       type: 'update',
@@ -131,9 +148,23 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
     const rowReads = vi.spyOn(pool, 'row')
     const settings = normalizeSettings({})
     const trpc = {
+      // The devices route now opens the Account page, which also mounts the
+      // profile/password section (POD-6652).
+      auth: {
+        profile: { query: async () => ({ email: null }) },
+        status: { query: async () => null },
+      },
       settings: {
         get: { query: async () => settings },
-        viewer: { query: async () => ({ permitted: {} }) },
+        viewer: {
+          query: async () => ({
+            permitted: {
+              'records.userPreferences.edit': true,
+              'records.instancePreferences.edit': true,
+            },
+          }),
+        },
+        telegramBotPresence: { query: vi.fn().mockResolvedValue(true) },
         secretPresence: { query: async () => [] },
       },
       accounts: { list: { query: async () => [] } },
@@ -161,17 +192,23 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(
-        async () =>
-          new Response(JSON.stringify({ sessions: devices }), {
-            headers: { 'content-type': 'application/json' },
-          }),
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              // An admin's viewer: Workspace pages are authorized by the viewer (POD-6299).
+              String(url).endsWith('/auth/admin/viewer')
+                ? { sections: ['people', 'access', 'machines', 'instance', 'audit'] }
+                : { signIns: devices },
+            ),
+            { headers: { 'content-type': 'application/json' } },
+          ),
       ),
     )
     const publish = (patch: Partial<typeof state>) => {
       state = { ...state, ...patch }
       for (const wake of listeners) wake()
     }
-    for (const tab of ['sessions', 'updates', 'repos', 'devices']) {
+    for (const tab of ['agents', 'updates', 'projects', 'account']) {
       publish({ machines, repos, settingsTab: tab })
       const Surface = () => insideReader(tab, () => SettingsView({ onClose() {} }))
       let view!: ReturnType<typeof render>
@@ -183,8 +220,8 @@ it('measures the mounted settings sections at 1x and 4x', async () => {
             await settle()
             if (action === 'open') {
               if (tab === 'updates') await view.findByRole('button', { name: 'Check now' })
-              if (tab === 'repos') await view.findByText('project-0')
-              if (tab === 'devices') await view.findByText('Phone 0')
+              if (tab === 'projects') await view.findByText('project-0')
+              if (tab === 'account') await view.findByText('Phone 0')
             }
           },
           { pool },

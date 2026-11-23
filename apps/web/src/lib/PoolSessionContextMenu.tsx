@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import type { SessionId } from '@podium/model/browser'
@@ -18,11 +18,13 @@ export type PoolSessionContextMenuProps = Omit<
 /** Mounted only when a menu opens. Read its own session; handoff additionally
  * needs the attached issue's worktree and the machine/repository choices. */
 export function PoolSessionContextMenu({ sessionId, ...props }: PoolSessionContextMenuProps) {
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const handoffEnabled = useFeature('session-handoff')
   const read = useCallback(
     (pool: MobxPool) =>
-      measurePoolMission(owner, () => readMissionActionInputs(missionView(pool), [], sessionId, handoffEnabled)),
+      measurePoolMission(owner, () =>
+        readMissionActionInputs(missionView(pool), [], sessionId, handoffEnabled),
+      ),
     [owner, sessionId, handoffEnabled],
   )
   const values = useWorklistPoolProjection(read, LOADING)

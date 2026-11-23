@@ -1,5 +1,9 @@
-import type { ArtifactId, IssueId, MachineId, SessionId } from '@podium/model'
-import { machinePathBasename as basename, isMachinePathWithinRoot, normalizeMachinePath } from '@podium/model'
+import type { ArtifactId, IssueId, IssuePanel, MachineId, SessionId } from '@podium/model'
+import {
+  machinePathBasename as basename,
+  isMachinePathWithinRoot,
+  normalizeMachinePath,
+} from '@podium/model'
 import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
 import type { IssueViewModel } from '../values/issue-type'
@@ -63,7 +67,7 @@ export function cwdInWorktree(cwd: string, root: string): boolean {
  *  active session. Null = nothing to show. */
 export function resolveActiveWorktree(args: {
   paneA: string | null
-  fileTabs: FileTab[]
+  fileTabs: readonly FileTab[]
   sessions: SessionView[]
 }): ActiveWorktree | null {
   const { paneA, fileTabs, sessions } = args
@@ -93,8 +97,12 @@ export function resolveActiveWorktree(args: {
  *  seq — never on broadcast array order (#243). */
 type IssuePanelLike = Pick<
   IssueViewModel,
-  'id' | 'worktreePath' | 'archived' | 'deletedAt' | 'seq' | 'parentId' | 'panel'
->
+  'id' | 'worktreePath' | 'archived' | 'deletedAt' | 'seq' | 'parentId'
+> & {
+  /** The issue's panel, its own records (POD-6778): `IssueModel.panel`
+   *  answers it; a plain row carries none. */
+  readonly panel?: IssuePanel | undefined
+}
 
 export function issueForCwd<T extends IssuePanelLike>(issues: T[], cwd: string): T | null {
   let best: T | null = null

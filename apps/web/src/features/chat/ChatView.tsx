@@ -11,8 +11,10 @@ import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import { observer } from 'mobx-react-lite'
 import type { JSX, MutableRefObject, RefObject } from 'react'
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
+import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import {
   markQuoteSinkFocused,
   type QuoteInput,
@@ -31,6 +33,7 @@ import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
 import { useQuotes } from './QuoteTokens'
 import { SessionModelChip } from './SessionModelChip'
+import { SessionModeChip } from './SessionPosture'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatLayout } from './use-chat-layout'
 import { useConversation, type WebConversation } from './use-conversation'
@@ -43,7 +46,9 @@ import { useConversation, type WebConversation } from './use-conversation'
  * time a session is actually stopped on something.
  */
 const PendingInteractionBar = lazy(() =>
-  import('./PendingInteractionBar').then((module) => ({ default: module.PendingInteractionBar })),
+  throughRestarts(() => import('./PendingInteractionBar')).then((module) => ({
+    default: module.PendingInteractionBar,
+  })),
 )
 
 /** Layout is local; live chat state is read by narrow observer leaves. */
@@ -222,6 +227,7 @@ export const ScopedChatComposer = observer(function ScopedChatComposer({
         canInterrupt={chat.view.canInterrupt}
         onInterrupt={interrupt}
         interruptError={chat.view.interruptError}
+        {...(superThread ? {} : { stop: chat.view.session })}
         offer={chat.view.offer}
         onOfferAction={chat.sendOfferPrompt}
         onOfferDismiss={chat.dismissOffer}
@@ -239,7 +245,15 @@ export const ScopedChatComposer = observer(function ScopedChatComposer({
               onBackendModelChange: chat.view.setBackendModel,
               onBackendEffortChange: chat.view.setBackendEffort,
             }
-          : { modelControl: <SessionModelChip session={chat.view.session} /> })}
+          : {
+              posture: chat.view.session,
+              modelControl: (
+                <span className="flex min-w-0 items-center">
+                  <SessionModelChip session={chat.view.session} />
+                  <SessionModeChip session={chat.view.session} />
+                </span>
+              ),
+            })}
       />
     </>
   )

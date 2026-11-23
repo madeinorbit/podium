@@ -117,22 +117,31 @@ describe('update prompt', () => {
     expect(src).toContain('withReloadPreparation(')
     expect(src).toContain("recover: () => forceReload('service-worker-handoff-incomplete', false)")
     const handshake = readWeb('src/features/updates/reload-handshake.ts')
-    expect(handshake).toContain("addEventListener('controllerchange'")
-    expect(handshake).toContain("postMessage({ type: 'SKIP_WAITING' })")
+    expect(handshake).toContain("from '@podium/client-core/service-worker'")
+    expect(handshake).toContain('startSharedReloadHandshake({ ...deps, log: reloadLog })')
+    const shared = readFileSync(
+      new URL(
+        '../../../packages/client-core/src/service-worker/reload-handshake.ts',
+        import.meta.url,
+      ),
+      'utf8',
+    )
+    expect(shared).toContain("addEventListener('controllerchange'")
+    expect(shared).toContain("postMessage({ type: 'SKIP_WAITING' })")
   })
 
-  /**
-   * The two switches that decide whether a new worker waits, and what it does
-   * once it stops waiting (POD-2253). They are asserted as a PAIR because each
-   * is only correct given the other: claiming without waiting would purge the
-   * precache under a running tab, and waiting without claiming leaves the
-   * authorised swap needing a second navigation to take effect.
-   */
-  it('the new worker waits to activate, then claims the clients it activates over', () => {
+  it('activates over stale login pages and repairs old windows while preserving edits', () => {
     const cfg = readWeb('vite.config.ts')
     expect(cfg).toContain('clientsClaim: true')
-    expect(cfg).toContain("registerType: 'prompt'")
-    expect(cfg).not.toContain('skipWaiting: true')
+    expect(cfg).toContain('skipWaiting: true')
+    expect(cfg).toContain("importScripts: ['sw-interface-repair.js']")
+    const repair = readWeb('public/sw-interface-repair.js')
+    expect(repair).toContain('activate')
+    expect(repair).toContain('message')
+    expect(repair).toContain('postMessage')
+    // Reload preparation in the page must still save pending edits before a
+    // service-worker navigation, including automatic repair of an older tab.
+    expect(readWeb('src/features/updates/UpdatesEngine.tsx')).toContain('withReloadPreparation(')
   })
 
   /**

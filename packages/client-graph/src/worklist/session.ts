@@ -5,7 +5,7 @@ import type { SliceSession } from '../shared/slice-types'
 import { coordinatorLive, type SeatSessionFacts, sessionErrorFact } from '@podium/model/browser'
 import { attentionGroup, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type RoleVerdict, roleVerdictOf, type SeatVerdict } from './rollup'
 import { roleWaiting, roleWorking, type SidebarSessionFacts, type SidebarSessionOrder } from './sidebar-row'
-import { type Retention, retentionOf, type SessionVisibility } from './visible'
+import { type Retention, retentionOf, type SessionVisibility, withLiveBusy } from './visible'
 
 /** Retention and display contributions of a session in the worklist. */
 export class WorklistSession implements SessionVisibility {
@@ -95,7 +95,12 @@ export class WorklistSession implements SessionVisibility {
   }
 
   private get verdictRow(): SliceSession {
-    return this.host.visibleInputs.loadedSession(this.id) as SliceSession
+    // Joined with the session's live busy reading where a roll-up asks for it.
+    return withLiveBusy(
+      this.host.visibleInputs,
+      this.id,
+      this.host.visibleInputs.loadedSession(this.id) as SliceSession,
+    )
   }
 
   // Presence: resident sidebar verdicts (LOADING while cold)

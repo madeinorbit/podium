@@ -56,7 +56,7 @@ export function activitySingletonDisplay(block: ChatBlock): ActivitySingletonDis
       multiple: false,
       asBlock,
     }
-  return { kind: 'tool', block, inline: false, multiple: false, asBlock }
+  return { kind: 'tool', block, inline: block.execution !== undefined, multiple: false, asBlock }
 }
 
 interface SingletonSource {

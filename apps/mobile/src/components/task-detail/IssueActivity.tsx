@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import {
   type ActivityEntry,
   type ActivityItem,
@@ -87,7 +87,7 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   feed,
   history,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
   feed: ActivityItem[] | typeof LOADING

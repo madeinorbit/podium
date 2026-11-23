@@ -2,16 +2,19 @@ import {
   BOARD_STATE_FILTERS,
   type BoardFilter,
   ISSUES_ORDERING_LABELS,
+  type IssuesAssignedTo,
   type IssuesOrdering,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
+import type { MemberRoster } from '@podium/client-graph/member-roster'
 import {
   ALL_ISSUE_STATUSES,
   ISSUE_STATUS_LABELS,
   type IssueStatus,
   machinePathBasename,
 } from '@podium/model'
+import { memberDisplayName } from '../client/member-roster'
 import { useLaunchRepositoryPaths } from '../client/use-launch-inputs'
 import type { NativePickerOption } from './action-sheet-native'
 
@@ -25,7 +28,7 @@ import type { NativePickerOption } from './action-sheet-native'
  */
 export const ANY = '__any__'
 
-export type Facet = 'project' | 'stage' | 'priority' | 'ordering' | 'status'
+export type Facet = 'assignedTo' | 'project' | 'stage' | 'priority' | 'ordering' | 'status'
 
 export interface FacetConfig {
   label: string
@@ -40,15 +43,21 @@ export interface TaskFiltersSheetProps {
   ordering: IssuesOrdering
   showDone: boolean
   showAgentTasks: boolean
+  assignedTo?: IssuesAssignedTo
+  roster?: Pick<MemberRoster, 'shared' | 'members' | 'currentMemberId' | 'nameOf'> | undefined
+  /** Filters that differ from Reset; defaults to the sheet's own facets. */
+  count?: number
   onFilter: (filter: BoardFilter) => void
   onOrdering: (ordering: IssuesOrdering) => void
   onShowDone: (show: boolean) => void
   onShowAgentTasks: (show: boolean) => void
+  onAssignedTo?: (assignedTo: IssuesAssignedTo) => void
+  onReset?: () => void
   onClose: () => void
 }
 
 /** The board's filter groups, in the sheet's order: what to show, then how. */
-export const FILTER_FACETS: readonly Facet[] = ['project', 'stage', 'priority']
+export const FILTER_FACETS: readonly Facet[] = ['assignedTo', 'project', 'stage', 'priority']
 export const DISPLAY_FACETS: readonly Facet[] = ['ordering']
 export const MORE_FACETS: readonly Facet[] = ['status']
 
@@ -90,15 +99,50 @@ export function useProjectFacet({
   }
 }
 
-/** One filter-and-display sheet, two renderers: the facets are built here. */
+/**
+ * One filter-and-display sheet, two renderers: the facets are built here.
+ * Assigned to (on a shared instance) and Agent tasks are the member's own
+ * saved filters, the same ones the web's Filter menu writes (POD-6294,
+ * POD-6297); the other facets belong to this screen. Facets a renderer does
+ * not get (Assigned to off a shared instance) are absent from `configs`.
+ */
 export function useTaskFilterFacets(
-  props: Pick<TaskFiltersSheetProps, 'filter' | 'ordering' | 'onFilter' | 'onOrdering'>,
+  props: Pick<
+    TaskFiltersSheetProps,
+    | 'filter'
+    | 'ordering'
+    | 'onFilter'
+    | 'onOrdering'
+    | 'assignedTo'
+    | 'roster'
+    | 'count'
+    | 'onAssignedTo'
+    | 'onReset'
+  >,
 ) {
-  const { filter, ordering, onFilter, onOrdering } = props
+  const { filter, ordering, onFilter, onOrdering, roster, count, onAssignedTo, onReset } = props
+  const assignedTo = props.assignedTo ?? 'me'
+  const shared = roster?.shared === true && onAssignedTo !== undefined
+  const others = shared
+    ? (roster?.members ?? []).filter((member) => member.id !== roster?.currentMemberId)
+    : []
   const set = <K extends keyof BoardFilter>(key: K, value: BoardFilter[K] | undefined) =>
     onFilter(withFilter(filter, key, value))
   const project = useProjectFacet({ filter, onFilter })
-  const configs: Record<Facet, FacetConfig> = {
+  const assignedToConfig: FacetConfig = {
+    label: 'Assigned to',
+    value: assignedTo,
+    options: [
+      { value: 'me', label: 'Me' },
+      { value: 'all', label: 'All users' },
+      ...others.map((member) => ({
+        value: member.id,
+        label: memberDisplayName(roster, member.id),
+      })),
+    ],
+    apply: (value) => onAssignedTo?.(value),
+  }
+  const facets: Record<Exclude<Facet, 'assignedTo'>, FacetConfig> = {
     project,
     priority: {
       label: 'Priority',
@@ -142,7 +186,10 @@ export function useTaskFilterFacets(
     },
   }
   /** Clear every filter, keeping the search text the field still shows. */
-  const reset = () => onFilter(filter.text ? { text: filter.text } : {})
-  const activeCount = Object.keys(filter).filter((key) => key !== 'text').length
+  const configs: Partial<Record<Facet, FacetConfig>> = shared
+    ? { assignedTo: assignedToConfig, ...facets }
+    : facets
+  const reset = () => (onReset ? onReset() : onFilter(filter.text ? { text: filter.text } : {}))
+  const activeCount = count ?? Object.keys(filter).filter((key) => key !== 'text').length
   return { configs, set, reset, activeCount }
 }

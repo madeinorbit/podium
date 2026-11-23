@@ -1,7 +1,7 @@
 // WHICH VARIABLES A SPAWN DELETES, decided at the frame (POD-2296, widened by
 // POD-2117).
 //
-// WHY THE LIST IS SIX AND NOT TWO. `harnessChildStripEnv` unions TWO manifest
+// WHY THE LIST IS SIX AND NOT TWO. `harnessChildEnv`'s strip unions TWO manifest
 // declarations, and they answer different questions:
 //
 //   inventory.foreignCredentialEnv  — credentials for this CLI that, if
@@ -39,7 +39,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
+import { HomeRegistry } from '../homes/registry'
 import { stubDurable, testSessions, testTerminalRuntime } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 
 /** Claude's hook settings file is written here at spawn; nothing reads it back. */
@@ -64,8 +66,9 @@ const fakeSpawn = (opts: SpawnOptions) => {
 
 const { launchTerminalProcess, sessionHandlers } = await import('./session')
 
-function contextForSpawn(): DaemonContext {
+function contextForSpawn(extra: Partial<DaemonContext> = {}): DaemonContext {
   const ctx = {
+    ...extra,
     send: () => {},
     instanceId: 'default',
     backend: 'none',
@@ -86,6 +89,7 @@ function contextForSpawn(): DaemonContext {
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   // Admits an agent spawn (every profiled kind needs a runtime to create it):
   // the runtime's terminal create runs the daemon's launch with no
@@ -97,9 +101,12 @@ function contextForSpawn(): DaemonContext {
   return ctx
 }
 
-async function spawnOptionsFor(frame: Record<string, unknown>): Promise<SpawnOptions> {
+async function spawnOptionsFor(
+  frame: Record<string, unknown>,
+  extra: Partial<DaemonContext> = {},
+): Promise<SpawnOptions> {
   captured = undefined
-  await sessionHandlers.spawn(contextForSpawn(), {
+  await sessionHandlers.spawn(contextForSpawn(extra), {
     type: 'spawn',
     cwd: '/repo',
     geometry: { cols: 80, rows: 24 },
@@ -120,7 +127,9 @@ beforeEach(() => {
   captured = undefined
 })
 
-/** The full resolved list for a claude spawn: credentials, then parent controls. */
+/** The full resolved list for a claude spawn: credentials, then parent
+ *  controls, then the operator folder selectors the child does not carry
+ *  (POD-6604: the PTY spreads the daemon's env, whose copy must not return). */
 const CLAUDE_STRIP = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_AUTH_TOKEN',
@@ -128,6 +137,13 @@ const CLAUDE_STRIP = [
   'CLAUDE_CODE_SESSION_ID',
   'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_CONFIG_DIR',
+  'CLAUDE_SECURESTORAGE_CONFIG_DIR',
+  // POD-6613: Claude's update, URL handler, locks and profile follow XDG too.
+  'XDG_DATA_HOME',
+  'XDG_CONFIG_HOME',
+  'XDG_STATE_HOME',
+  'XDG_CACHE_HOME',
 ]
 
 it('deletes what would outrank a claude session’s own login, and what would make it another session’s child', async () => {
@@ -136,7 +152,7 @@ it('deletes what would outrank a claude session’s own login, and what would ma
 })
 
 it('deletes them for a NATIVE LOGIN pane, which is filed as a shell', async () => {
-  // THE ONE THAT WOULD HAVE BEEN MISSED. `accounts/native-login.ts` creates the
+  // THE ONE THAT WOULD HAVE BEEN MISSED. `credentials/native-login.ts` creates the
   // session with agentKind 'shell' and loginHarness set — so reading agentKind
   // alone would exempt the exact pane whose purpose is to establish an account,
   // and `claude login` would run under the inherited key it is meant to replace.
@@ -146,6 +162,44 @@ it('deletes them for a NATIVE LOGIN pane, which is filed as a shell', async () =
     loginHarness: 'claude-code',
   })
   expect(opts.stripEnv).toEqual(CLAUDE_STRIP)
+})
+
+it('runs a NATIVE LOGIN pane on the login harness context’s executable', async () => {
+  // The manifest declares the login argv only (POD-6536); argv[0] is bound here,
+  // at the spawn site, to the context built for the login harness, never a
+  // basename looked up on the daemon's PATH.
+  const opts = await spawnOptionsFor({
+    sessionId: 'strip-login-cmd',
+    agentKind: 'shell',
+    loginHarness: 'claude-code',
+  })
+  expect(opts.cmd).toBe('launch-seam:claude-code')
+  expect(opts.args).toEqual(['auth', 'login'])
+})
+
+it('runs a sign-in pane whose access names a home inside that home (credential management §6 way 2)', async () => {
+  // Task 9: adding a subscription opens the vendor's own sign-in with the
+  // harness's directory variable pointed at the home made for that login, so
+  // the login lands there and never in the person's own directory.
+  const root = mkdtempSync(join(tmpdir(), 'podium-signin-home-'))
+  try {
+    const homes = new HomeRegistry({ root })
+    const credentialId = 'cred_00000000-0000-4000-8000-0000000000a9'
+    const { home } = await homes.ensure(credentialId, 'claude-code')
+    const opts = await spawnOptionsFor(
+      {
+        sessionId: 'signin-home',
+        agentKind: 'shell',
+        loginHarness: 'claude-code',
+        access: { credentialId, delivery: { kind: 'home', homeId: home.homeId } },
+      },
+      { homes } as Partial<DaemonContext>,
+    )
+    expect(opts.args).toEqual(['auth', 'login'])
+    expect(opts.env?.CLAUDE_CONFIG_DIR).toBe(home.dir)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 it('leaves a plain operator shell alone', async () => {
@@ -187,7 +241,7 @@ it('still deletes a parent CONTROL on the frame — the exemption is credential-
   // never resolves one for a child — nothing in the daemon writes a
   // `CLAUDE_CODE_*` control onto a spawn frame, and if something ever starts,
   // the value it would be passing on is the parent conversation's identity,
-  // which is the exact leak POD-2117 closed. So `harnessChildStripEnv` filters
+  // which is the exact leak POD-2117 closed. So `harnessChildEnv` filters
   // `sessionEnv` out of the credential half only.
   const opts = await spawnOptionsFor({
     sessionId: 'strip-control-on-frame',

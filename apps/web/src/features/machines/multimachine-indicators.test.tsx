@@ -4,6 +4,7 @@ import { enableFixtureHeader } from '@/test-support/pool-fixture'
 enableFixtureHeader()
 import '@/test-support/mock-pool-store-handle'
 import { readFileSync } from 'node:fs'
+import type { TopicListener } from '@podium/client-core/socket-transport'
 // @vitest-environment happy-dom
 /**
  * #136: the host status strip is machine-aware.
@@ -14,7 +15,8 @@ import { readFileSync } from 'node:fs'
  */
 import type { MachineQuotaWire } from '@podium/model'
 import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import type { TopicPayload } from '@podium/protocol'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { HeaderHostIndicators, HostIndicators } from './HostIndicators'
@@ -31,13 +33,39 @@ const reclaimInventory = vi.fn(async () => ({
   candidates: [],
   orphans: [],
   diagnostics: [],
-  estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null },
+  estimate: { status: 'unknown' as const, recoverableBytes: null, measuredAt: null },
 }))
 const quotaSummary = vi.fn()
+// The current producer pushes one addressed processes reading. These fixture
+// callbacks supply the same breakdown and reclaim payloads used by the suite.
+const processHub = {
+  subscribeTopic: vi.fn(
+    (_kind: string, id: string, listener: TopicListener<TopicPayload<'machine.processes'>>) => {
+      let open = true
+      void Promise.all([memoryBreakdown({ machineId: asMachineId(id) }), reclaimInventory()]).then(
+        ([breakdown, reclaim]) => {
+          if (open)
+            listener.onState?.({
+              status: 'value',
+              value: { breakdown, reclaim },
+              position: { epoch: 'fixture', seq: 1 },
+            })
+        },
+      )
+      return () => {
+        open = false
+      }
+    },
+  ),
+  refreshTopic: vi.fn(),
+}
+const processReplica = { rows: () => [], subscribeAddressedBatch: () => () => {} }
 let maxIdleSessions = 8
 let hibernationEnabled = false
 let hibernationMemoryPct = 80
 let sessions: SessionMeta[] = []
+// Machine records the signed-in member holds without an access row of their own.
+let otherMembersMachines: unknown[] = []
 const settingsGet = vi.fn(async () => ({
   hibernation: {
     enabled: hibernationEnabled,
@@ -81,10 +109,6 @@ const agentSession = (
     title: sessionId,
     cwd: `/repo/.worktrees/${sessionId}`,
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-08-08T00:00:00.000Z',
     lastActiveAt: '2026-08-08T00:00:00.000Z',
     origin: { kind: 'user' },
@@ -97,6 +121,8 @@ const agentSession = (
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
+    hub: processHub,
+    replica: processReplica,
     hostMetrics: [host('podium-host', 'podium-host'), host('vmi', 'vmi34')],
     outboxSize: 0,
     // POD-316: the strip now also carries the dead-letter recovery chip, which
@@ -122,6 +148,7 @@ vi.mock('@/app/store', () => {
         lastSeenAt: 0,
         inventory: { os: 'linux', arch: 'x64', podiumVersion: '0.4.1', agents: [], tools: [] },
       },
+      ...otherMembersMachines,
     ],
     setView,
     setSettingsTab,
@@ -140,17 +167,20 @@ vi.mock('@/app/store', () => {
   return {
     useStore,
     useHostMetrics: () => useStore().hostMetrics,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
 // Connection is machine-agnostic here; keep it healthy + hidden so it stays out
 // of the way and we don't pull in the real websocket-backed hooks.
 vi.mock('./ConnectionIndicator', () => ({
-  useStableConnection: () => ({ health: { status: 'ok', rttMs: 10 }, visible: false }),
-  useConnectionHealth: () => ({ status: 'ok', rttMs: 10 }),
+  useStableConnection: () => ({
+    health: { state: 'online', pingMs: 10, since: 0 },
+    visible: false,
+  }),
+  useConnectionHealth: () => ({ state: 'online', pingMs: 10, since: 0 }),
+  connectionSeverity: () => 'ok',
   describeHealth: () => ({ headline: 'Connected', detail: '' }),
-  ConnectionIndicator: () => null,
 }))
 
 const machineQuota = (
@@ -184,6 +214,7 @@ beforeEach(() => {
   hibernationEnabled = false
   hibernationMemoryPct = 80
   sessions = []
+  otherMembersMachines = []
   memoryBreakdown.mockResolvedValue(breakdownFor('vmi'))
   quotaSummary.mockResolvedValue([])
   // happy-dom lacks matchMedia; useIsMobile needs it.
@@ -215,6 +246,11 @@ describe('memory chip is machine-aware', () => {
       expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('vmi34') }),
     )
     expect(memoryBreakdown).not.toHaveBeenCalledWith({ machineId: asMachineId('podium-host') })
+    expect(processHub.subscribeTopic).toHaveBeenCalledWith(
+      'machine.processes',
+      'vmi34',
+      expect.anything(),
+    )
   })
 
   it('requests the first machine when its own chip is clicked', async () => {
@@ -225,17 +261,25 @@ describe('memory chip is machine-aware', () => {
     await waitFor(() =>
       expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('podium-host') }),
     )
+    expect(processHub.subscribeTopic).toHaveBeenCalledWith(
+      'machine.processes',
+      'podium-host',
+      expect.anything(),
+    )
   })
 
   it('keeps memory process labels for addressed sessions and unknown ids', async () => {
     hibernationEnabled = true
-    hibernationMemoryPct = 30
+    // The producer admits thresholds from 50 through 95; put this sample
+    // above a valid threshold so the active-pressure explainer is exercised.
+    hibernationMemoryPct = 50
     sessions = [
       agentSession('known-session', 'working'),
       { ...agentSession('parked-session', 'idle'), status: 'hibernated' },
     ]
     memoryBreakdown.mockResolvedValue({
       ...breakdownFor('vmi'),
+      memory: { ...breakdownFor('vmi').memory, availableBytes: 8e9 },
       agents: [
         { sessionId: 'known-session', bytes: 1e9, processCount: 2 },
         { sessionId: 'missing-session', bytes: 1e8, processCount: 1 },
@@ -246,7 +290,36 @@ describe('memory chip is machine-aware', () => {
     expect(await screen.findByText('Codex — known-session')).toBeTruthy()
     expect(screen.getByText('missing-')).toBeTruthy()
     expect(screen.getByText('2 processes')).toBeTruthy()
-    expect(await screen.findByText(/1 hibernated/)).toBeTruthy()
+    expect(await screen.findByText(/1 paused/)).toBeTruthy()
+  })
+
+  it('updates an open memory view when its machine processes topic pushes', async () => {
+    render(<HostIndicators />)
+    fireEvent.click(screen.getByRole('button', { name: /vmi — memory/i }))
+    await screen.findByLabelText('Host info')
+    expect(screen.queryByText('3 processes')).toBeNull()
+    const listener = processHub.subscribeTopic.mock.calls.find(([, id]) => id === 'vmi34')?.[2]
+    if (!listener) throw new Error('The clicked machine has no processes subscription')
+    act(() =>
+      listener.onState?.({
+        status: 'value',
+        position: { epoch: 'fixture', seq: 2 },
+        value: {
+          breakdown: {
+            ...breakdownFor('vmi'),
+            agents: [{ sessionId: asSessionId('pushed-session'), bytes: 1e9, processCount: 3 }],
+          },
+          reclaim: {
+            candidates: [],
+            orphans: [],
+            diagnostics: [],
+            estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null },
+          },
+        },
+      }),
+    )
+    expect(await screen.findByText('3 processes')).toBeTruthy()
+    expect(screen.getByText('pushed-s')).toBeTruthy()
   })
 })
 
@@ -683,5 +756,48 @@ describe('header machine chip carries host-pressure readouts', () => {
     expect(idle?.querySelector('.header-value')?.textContent).toBe('1/2')
     expect(idle?.querySelector('.header-value')?.getAttribute('data-tone')).toBe('ok')
     expect(idle?.querySelector<HTMLElement>('.header-meter > span')?.style.width).toBe('50%')
+  })
+})
+
+// POD-6908: the desktop's own machine was enrolled by the previous person. The
+// next person cannot see it, so the header must not present it — only say what
+// this computer is, with nothing of the other member.
+describe('this computer in another member’s custody', () => {
+  afterEach(() => {
+    delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
+  })
+
+  it('says this computer is another member’s machine and never shows that machine', async () => {
+    otherMembersMachines = [
+      {
+        id: asMachineId('desk-id'),
+        name: 'desk',
+        hostname: 'desk',
+        online: false,
+        lastSeenAt: new Date(Date.now() - 60_000).toISOString(),
+        use: undefined,
+      },
+    ]
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'linux',
+      machineId: 'desk-id',
+    }
+    render(<HeaderHostIndicators />)
+    const chip = await screen.findByTestId('this-computer-other-member')
+    expect(chip.getAttribute('aria-label')).toBe("This computer is another member's machine")
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+    expect(screen.queryByText('desk')).toBeNull()
+    expect(screen.queryByRole('button', { name: /desk/ })).toBeNull()
+  })
+
+  it('shows nothing extra when this computer is one of mine', async () => {
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'linux',
+      machineId: 'vmi34',
+    }
+    render(<HeaderHostIndicators />)
+    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: /vmi/i })).toBeTruthy()
+    expect(screen.queryByTestId('this-computer-other-member')).toBeNull()
   })
 })

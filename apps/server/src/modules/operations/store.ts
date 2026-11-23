@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 import { UpdateChannel } from '@podium/model'
 import type { UpdateTarget } from '@podium/protocol'
 import {
@@ -6,14 +7,16 @@ import {
   parseOperation,
   TERMINAL_OPERATION_STATES,
 } from '@podium/protocol'
+import { asc, desc, eq, notExists, notInArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
-import { and, asc, desc, eq, notExists, notInArray, sql } from 'drizzle-orm'
-import { operations } from '../../migrations/schema'
+import type { operations } from '../../migrations/schema'
 import type {
-  StoreQueries,
-  StoreDrizzle,
+  StoreTables,
   TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
 } from '../../store/executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from '../../store/executor/sync-drizzle'
 
 /**
  * Persistence for durable operations (POD-2097) — the `operations` table and
@@ -122,12 +125,216 @@ export const DEFAULT_OPERATION_HISTORY_LIMIT = 20
 /** §9.6: twenty operations, server-side. */
 export const DEFAULT_RETENTION = 20
 
+// ---------------------------------------------------------------------------
+// Every query this store runs, prepared once per store [POD-6147, server-data
+// rule 1], each held to the store's workspace (POD-6959 design 2.4): an
+// operation is started by a member on the workspace's machines, so its group,
+// its history and its sweep are that workspace's.
+// ---------------------------------------------------------------------------
+
+/** The eight columns of a row, as placeholders named after {@link rowFor}'s fields. */
+const rowPlaceholders = {
+  id: sql.placeholder('id'),
+  kind: sql.placeholder('kind'),
+  exclusionGroup: sql.placeholder('exclusionGroup'),
+  state: sql.placeholder('state'),
+  createdAt: sql.placeholder('createdAt'),
+  updatedAt: sql.placeholder('updatedAt'),
+  finishedAt: sql.placeholder('finishedAt'),
+  payload: sql.placeholder('payload'),
+}
+
+const idIs = (t: StoreTables) =>
+  inWorkspace(t.operations, eq(t.operations.id, param(t.operations.id, 'id')))
+
+const insertOperation = prepared((db, t) =>
+  db
+    .insert(t.operations)
+    .values({ workspaceId: WORKSPACE, ...rowPlaceholders })
+    .prepare(),
+)
+
+/**
+ * The claim: the row, inserted only while no live operation of this workspace
+ * holds its group (see {@link OperationStore.claimGroup}).
+ *
+ * The terminal states are the protocol's, bound as literal values when the
+ * statement is prepared: one definition of terminality, shared with
+ * `activeByGroup` and everything that renders one. Unknown states stay live,
+ * including rows whose newer payload this binary cannot parse.
+ */
+const claimOperationGroup = prepared((db, t) =>
+  db
+    .insert(t.operations)
+    .select(
+      db
+        // The values as named placeholders, in the column order {@link rowFor}
+        // states, after the workspace. `(SELECT 1)` is the one-row source SQLite
+        // needs to hang a `WHERE` on a constant row — the predicate below is the
+        // whole point of the statement.
+        .select({
+          workspaceId: sql`${WORKSPACE}`.as('workspace_id'),
+          id: sql`${rowPlaceholders.id}`.as('id'),
+          kind: sql`${rowPlaceholders.kind}`.as('kind'),
+          exclusionGroup: sql`${rowPlaceholders.exclusionGroup}`.as('exclusion_group'),
+          state: sql`${rowPlaceholders.state}`.as('state'),
+          createdAt: sql`${rowPlaceholders.createdAt}`.as('created_at'),
+          updatedAt: sql`${rowPlaceholders.updatedAt}`.as('updated_at'),
+          finishedAt: sql`${rowPlaceholders.finishedAt}`.as('finished_at'),
+          payload: sql`${rowPlaceholders.payload}`.as('payload'),
+        })
+        .from(sql`(SELECT 1)`)
+        .where(
+          notExists(
+            db
+              .select({ live: sql`1` })
+              .from(t.operations)
+              .where(
+                inWorkspace(
+                  t.operations,
+                  eq(t.operations.exclusionGroup, sql.placeholder('exclusionGroup')),
+                  notInArray(t.operations.state, [...TERMINAL_OPERATION_STATES]),
+                ),
+              ),
+          ),
+        ),
+    )
+    .returning({ id: t.operations.id })
+    .prepare(),
+)
+
+/** Every column but the key and the payload: the update that leaves the bytes alone. */
+const updateOperationColumns = prepared((db, t) =>
+  db
+    .update(t.operations)
+    .set({
+      kind: sql.placeholder('kind'),
+      exclusionGroup: sql.placeholder('exclusionGroup'),
+      state: sql.placeholder('state'),
+      createdAt: sql.placeholder('createdAt'),
+      updatedAt: sql.placeholder('updatedAt'),
+      finishedAt: sql.placeholder('finishedAt'),
+    })
+    .where(idIs(t))
+    .prepare(),
+)
+
+/** Every column but the key, the merged payload included. */
+const updateOperationWithPayload = prepared((db, t) =>
+  db
+    .update(t.operations)
+    .set({
+      kind: sql.placeholder('kind'),
+      exclusionGroup: sql.placeholder('exclusionGroup'),
+      state: sql.placeholder('state'),
+      createdAt: sql.placeholder('createdAt'),
+      updatedAt: sql.placeholder('updatedAt'),
+      finishedAt: sql.placeholder('finishedAt'),
+      payload: sql.placeholder('payload'),
+    })
+    .where(idIs(t))
+    .prepare(),
+)
+
+/** THREE COLUMNS, and `payload` is not one of them: see {@link OperationStore.markTerminal}. */
+const markOperationTerminal = prepared((db, t) =>
+  db
+    .update(t.operations)
+    .set({
+      state: sql.placeholder('state'),
+      updatedAt: sql.placeholder('at'),
+      finishedAt: sql.placeholder('at'),
+    })
+    .where(idIs(t))
+    .prepare(),
+)
+
+const operationById = prepared((db, t) => db.select().from(t.operations).where(idIs(t)).prepare())
+
+const operationsOfGroupNewestFirst = prepared((db, t) =>
+  db
+    .select()
+    .from(t.operations)
+    .where(
+      inWorkspace(
+        t.operations,
+        eq(t.operations.exclusionGroup, param(t.operations.exclusionGroup, 'group')),
+      ),
+    )
+    .orderBy(desc(t.operations.createdAt))
+    .prepare(),
+)
+
+const operationsNewestFirst = prepared((db, t) =>
+  db
+    .select()
+    .from(t.operations)
+    .where(inWorkspace(t.operations))
+    .orderBy(desc(t.operations.createdAt))
+    .prepare(),
+)
+
+const operationsByUpdate = prepared((db, t) =>
+  db
+    .select()
+    .from(t.operations)
+    .where(inWorkspace(t.operations))
+    .orderBy(asc(t.operations.updatedAt))
+    .prepare(),
+)
+
+const kindIs = (t: StoreTables) =>
+  inWorkspace(t.operations, eq(t.operations.kind, param(t.operations.kind, 'kind')))
+
+const recentOperations = prepared((db, t) =>
+  db
+    .select()
+    .from(t.operations)
+    .where(inWorkspace(t.operations))
+    .orderBy(desc(t.operations.createdAt))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+const recentOperationsOfKind = prepared((db, t) =>
+  db
+    .select()
+    .from(t.operations)
+    .where(kindIs(t))
+    .orderBy(desc(t.operations.createdAt))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+
+/** Every operation of a kind, newest first: what the approval scan reads, unbounded. */
+const operationsOfKindNewestFirst = prepared((db, t) =>
+  db.select().from(t.operations).where(kindIs(t)).orderBy(desc(t.operations.createdAt)).prepare(),
+)
+
+/**
+ * TWO COLUMNS, named rather than spread [spec rule 39]: the statement this
+ * replaced read `id, state` out of the eight, and a sweep that dragged the
+ * payload of every finished operation back with it would read seven columns
+ * nobody asked for, on every row, on every sweep.
+ */
+const sweepCandidates = prepared((db, t) =>
+  db
+    .select({ id: t.operations.id, state: t.operations.state })
+    .from(t.operations)
+    .where(kindIs(t))
+    .orderBy(desc(t.operations.createdAt))
+    .prepare(),
+)
+
+const deleteOperation = prepared((db, t) => db.delete(t.operations).where(idIs(t)).prepare())
+
 export class OperationStore {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  /** One workspace's queries (POD-6959 design 2.4): every statement binds its workspace. */
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -139,13 +346,13 @@ export class OperationStore {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  private get db() {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Unconditional seeding/restoration write. New starts must use {@link claimGroup}. */
   async insert(operation: PersistedOperation): Promise<void> {
-    await this.db.insert(operations).values(rowFor(operation)).run()
+    await insertOperation(this.db).run(rowFor(operation))
   }
 
   /**
@@ -158,49 +365,14 @@ export class OperationStore {
    * The transaction keeps a refused claim and its holder lookup in one write
    * lease, so the holder cannot finish between them. It contains only database
    * work; planning, announcements and runners must stay outside this span.
-   * Terminality comes from the protocol at runtime, avoiding a schema-level
-   * state list that would need a migration when the protocol gains an outcome.
+   * Terminality comes from the protocol (bound into the statement when it is
+   * prepared), avoiding a schema-level state list that would need a migration
+   * when the protocol gains an outcome.
    */
   async claimGroup(operation: PersistedOperation): Promise<GroupClaim> {
     const values = rowFor(operation)
-    // Share activeByGroup's terminal definition. Unknown states remain live,
-    // including rows whose newer payload this binary cannot parse.
-    const terminal = [...TERMINAL_OPERATION_STATES]
     return await this.createOrJoinTransaction(async () => {
-      const claimed = await this.db
-        .insert(operations)
-        .select(
-          this.db
-            // The eight values as bound parameters, in the column order
-            // {@link rowFor} states. `(SELECT 1)` is the one-row source SQLite
-            // needs to hang a `WHERE` on a constant row — the predicate below is
-            // the whole point of the statement.
-            .select({
-              id: sql`${values.id}`.as('id'),
-              kind: sql`${values.kind}`.as('kind'),
-              exclusionGroup: sql`${values.exclusionGroup}`.as('exclusion_group'),
-              state: sql`${values.state}`.as('state'),
-              createdAt: sql`${values.createdAt}`.as('created_at'),
-              updatedAt: sql`${values.updatedAt}`.as('updated_at'),
-              finishedAt: sql`${values.finishedAt ?? null}`.as('finished_at'),
-              payload: sql`${values.payload}`.as('payload'),
-            })
-            .from(sql`(SELECT 1)`)
-            .where(
-              notExists(
-                this.db
-                  .select({ live: sql`1` })
-                  .from(operations)
-                  .where(
-                    and(
-                      eq(operations.exclusionGroup, operation.exclusionGroup),
-                      notInArray(operations.state, terminal),
-                    ),
-                  ),
-              ),
-            ),
-        )
-        .returning({ id: operations.id })
+      const claimed = await claimOperationGroup(this.db).all(values)
       if (claimed.length === 1) return { claimed: true }
       const held = await this.activeByGroup(operation.exclusionGroup)
       if (held) return { claimed: false, heldBy: held }
@@ -221,13 +393,17 @@ export class OperationStore {
     await this.createOrJoinTransaction(async () => {
       const current = await this.get(operation.id)
       if (!current) return
-      const { id, payload, ...columns } = rowFor(operation)
-      await this.db.update(operations).set({
-        ...columns,
-        ...(current.operation ? {
-          payload: JSON.stringify(mergePayload(JSON.parse(current.payload), JSON.parse(payload), Operation)),
-        } : {}),
-      }).where(eq(operations.id, id)).run()
+      const { payload, ...columns } = rowFor(operation)
+      if (current.operation) {
+        await updateOperationWithPayload(this.db).run({
+          ...columns,
+          payload: JSON.stringify(
+            mergePayload(JSON.parse(current.payload), JSON.parse(payload), Operation),
+          ),
+        })
+      } else {
+        await updateOperationColumns(this.db).run(columns)
+      }
     })
   }
 
@@ -246,15 +422,11 @@ export class OperationStore {
     // THREE COLUMNS, and `payload` is not one of them — see above. A `set` names
     // exactly the columns it lists, so the bytes are left untouched rather than
     // rewritten with a value this binary may not have been able to read.
-    await this.db
-      .update(operations)
-      .set({ state, updatedAt: at, finishedAt: at })
-      .where(eq(operations.id, id))
-      .run()
+    await markOperationTerminal(this.db).run({ id, state, at })
   }
 
   async get(id: string): Promise<OperationRow | undefined> {
-    const r = await this.db.select().from(operations).where(eq(operations.id, id)).get()
+    const r = await operationById(this.db).get({ id })
     return r ? toRow(r) : undefined
   }
 
@@ -267,12 +439,7 @@ export class OperationStore {
    * set is at most a handful of rows — history is swept to twenty.
    */
   async activeByGroup(group: string): Promise<OperationRow | undefined> {
-    const rows = await this.db
-      .select()
-      .from(operations)
-      .where(eq(operations.exclusionGroup, group))
-      .orderBy(desc(operations.createdAt))
-      .all()
+    const rows = await operationsOfGroupNewestFirst(this.db).all({ group })
     return rows.map(toRow).find((row) => !isTerminalOperationState(row.state))
   }
 
@@ -285,17 +452,13 @@ export class OperationStore {
    * operation nothing will ever drive.
    */
   async active(): Promise<OperationRow[]> {
-    const rows = await this.db.select().from(operations).orderBy(desc(operations.createdAt)).all()
+    const rows = await operationsNewestFirst(this.db).all()
     return rows.map(toRow).filter((row) => !isTerminalOperationState(row.state))
   }
 
   /** Terminal rows whose kind cleanup still needs an idempotent retry. */
   async pendingCleanup(): Promise<OperationRow[]> {
-    const rows = await this.db
-      .select()
-      .from(operations)
-      .orderBy(asc(operations.updatedAt))
-      .all()
+    const rows = await operationsByUpdate(this.db).all()
     return rows.map(toRow).filter((row) => {
       if (!isTerminalOperationState(row.state) || !row.operation) return false
       const details = row.operation.details
@@ -311,20 +474,17 @@ export class OperationStore {
   }
 
   /** Newest first — what Settings → Updates lists (§3.7). */
-  async history(kind?: string, limit: number = DEFAULT_OPERATION_HISTORY_LIMIT): Promise<OperationRow[]> {
+  async history(
+    kind?: string,
+    limit: number = DEFAULT_OPERATION_HISTORY_LIMIT,
+  ): Promise<OperationRow[]> {
     // The two arms stay two statements rather than one with a conditional
     // predicate: an absent `kind` means EVERY kind here, not a kind that is
     // null, and folding them would make that distinction a runtime accident.
     const rows =
       kind === undefined
-        ? await this.db.select().from(operations).orderBy(desc(operations.createdAt)).limit(limit).all()
-        : await this.db
-            .select()
-            .from(operations)
-            .where(eq(operations.kind, kind))
-            .orderBy(desc(operations.createdAt))
-            .limit(limit)
-            .all()
+        ? await recentOperations(this.db).all({ limit })
+        : await recentOperationsOfKind(this.db).all({ kind, limit })
     return rows.map(toRow)
   }
 
@@ -335,7 +495,8 @@ export class OperationStore {
   }
 
   private async approvalRows(): Promise<OperationRow[]> {
-    return (await this.history('update', -1)).filter((row) => {
+    const rows = await operationsOfKindNewestFirst(this.db).all({ kind: 'update' })
+    return rows.map(toRow).filter((row) => {
       const operation = row.operation
       const target = operation?.details?.target as UpdateTarget | undefined
       return (
@@ -354,17 +515,10 @@ export class OperationStore {
    * turn a full history into a lost update.
    */
   async sweepRetention(kind: string, keep: number = DEFAULT_RETENTION): Promise<number> {
-    // TWO COLUMNS, named rather than spread [spec rule 39]: the statement this
-    // replaces read `id, state` out of the eight, and a sweep that dragged the
-    // payload of every finished operation back with it would read seven columns
-    // nobody asked for, on every row, on every sweep.
-    const finished = (await this.db
-      .select({ id: operations.id, state: operations.state })
-      .from(operations)
-      .where(eq(operations.kind, kind))
-      .orderBy(desc(operations.createdAt))
-      .all())
-      .filter((r) => isTerminalOperationState(r.state))
+    // Two columns only: see `sweepCandidates`.
+    const finished = (await sweepCandidates(this.db).all({ kind })).filter((r) =>
+      isTerminalOperationState(r.state),
+    )
     // KEEP THE NEWEST SETTLED APPROVAL PER CHANNEL. It is the cancel fallback for
     // any active update, so these few durable rows are exempt from history
     // retention. dev/mw added this protection; the merge took this method from
@@ -382,7 +536,7 @@ export class OperationStore {
     }
     const doomed = finished.slice(keep).filter((row) => !protectedIds.has(row.id))
     for (const row of doomed) {
-      await this.db.delete(operations).where(eq(operations.id, row.id)).run()
+      await deleteOperation(this.db).run({ id: row.id })
     }
     return doomed.length
   }
@@ -401,9 +555,12 @@ export class OperationStore {
  * INSERT named all eight, so there is no column the conversion newly binds. And
  * `operations` declares no DEFAULT on any of its eight (verified with
  * `pragma table_info` against the migrated table), so there is no default for an
- * explicit null to override even in principle.
+ * explicit null to override even in principle. `workspace_id` is not one of the
+ * eight: the store's workspace handle fills it (POD-6959 design 2.4).
  */
-function rowFor(operation: PersistedOperation): typeof operations.$inferInsert {
+function rowFor(
+  operation: PersistedOperation,
+): Required<Omit<typeof operations.$inferInsert, 'workspaceId'>> {
   return {
     id: operation.id,
     kind: operation.kind,
@@ -427,9 +584,10 @@ function mergePayload(stored: unknown, incoming: unknown, schema: z.ZodTypeAny):
   }
   if (schema instanceof z.ZodArray && Array.isArray(stored) && Array.isArray(incoming)) {
     return incoming.map((value) => {
-      const old = isObject(value) && typeof value.id === 'string'
-        ? stored.find((entry) => isObject(entry) && entry.id === value.id)
-        : undefined
+      const old =
+        isObject(value) && typeof value.id === 'string'
+          ? stored.find((entry) => isObject(entry) && entry.id === value.id)
+          : undefined
       return mergePayload(old, value, schema.element)
     })
   }

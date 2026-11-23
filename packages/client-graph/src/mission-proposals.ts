@@ -1,3 +1,5 @@
+import { randomUUID } from '@podium/client-core/id'
+import type { StartIssueSession } from '@podium/client-core/spawn-agent'
 import { discoveredPlacement } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, asMutationId } from '@podium/model'
@@ -17,12 +19,15 @@ type ProposalInput = {
   id: ReturnType<typeof asIssueId>
   mutationId: ReturnType<typeof asMutationId>
 }
-export interface ProposalCommands {
-  issues: {
-    promote: { mutate(input: ProposalInput): Promise<unknown> }
-    start: { mutate(input: ProposalInput): Promise<unknown> }
-    close: { mutate(input: ProposalInput & { reason: 'declined' }): Promise<unknown> }
-  }
+/** What a proposal's verbs write through; each client binds its own. */
+export interface ProposalPorts {
+  /** Backlog: the synced promote write (`issueWrites(…).promote`). */
+  promote(input: ProposalInput): Promise<unknown>
+  /** Dismiss: close the proposal as declined. */
+  decline(input: ProposalInput): Promise<unknown>
+  /** Start: an `issue.begin` record (POD-6526). It owns promotion, placement
+   *  and proposal → parent → mission profiles. */
+  readonly startIssueSession: StartIssueSession
 }
 
 export type ProposalAction = 'backlog' | 'start' | 'dismiss'
@@ -142,21 +147,18 @@ export class ProposalSubmissions {
     return [...this.receiptOrder.filter((id) => remaining.delete(id)), ...remaining]
   }
 
-  @action async submit(id: string, verb: ProposalAction, trpc: ProposalCommands): Promise<void> {
+  @action async submit(id: string, verb: ProposalAction, ports: ProposalPorts): Promise<void> {
     const previous = this.byId.get(id)
     // Synchronous guard: even two clicks in the same React turn issue one command.
     if (previous?.phase === 'pending' || previous?.phase === 'success') return
-    const mutationId =
-      previous?.action === verb ? previous.mutationId : asMutationId(crypto.randomUUID())
+    const mutationId = previous?.action === verb ? previous.mutationId : asMutationId(randomUUID())
     if (this.receipts === 'brief') this.receiptOrder = this.ids
     this.byId.set(id, { action: verb, mutationId, phase: 'pending' })
     try {
       const input = { id: asIssueId(id), mutationId }
-      // The operator-authenticated client uses the existing commands. In particular,
-      // start owns promotion, placement and proposal → parent → mission profiles.
-      if (verb === 'backlog') await trpc.issues.promote.mutate(input)
-      else if (verb === 'start') await trpc.issues.start.mutate(input)
-      else await trpc.issues.close.mutate({ ...input, reason: 'declined' })
+      if (verb === 'backlog') await ports.promote(input)
+      else if (verb === 'start') await startProposal(ports.startIssueSession, input)
+      else await ports.decline(input)
       runInAction(() =>
         this.byId.set(id, {
           action: verb,
@@ -176,6 +178,24 @@ export class ProposalSubmissions {
       )
     }
   }
+}
+
+/**
+ * Start a proposal: an `issue.begin` record (POD-6526) under the card's
+ * mutation id, so a retry writes the same record. Started once it is durably
+ * queued: the starting session paints from the record (also while its machine
+ * is offline), and a later failure is told once on this device.
+ */
+async function startProposal(
+  startIssueSession: StartIssueSession,
+  input: ProposalInput,
+): Promise<void> {
+  const { settled: queued } = startIssueSession({
+    issueId: input.id,
+    mode: 'begin',
+    mutationId: input.mutationId,
+  })
+  if (!(await queued)) throw new Error("Couldn't start the task")
 }
 
 // The opening's Full view model owns this companion's lifetime. A temporary

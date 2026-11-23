@@ -1,11 +1,11 @@
 import {
-  readBrowserSignInWithEmail,
-  rememberBrowserSignInWithEmail,
+  type AuthCapabilities,
+  type AuthStatus,
+  accountPageUrl,
+  type SignInPrompt,
 } from '@podium/client-core/accounts'
-import { webAuth, webAccounts } from '@/lib/accounts'
-import { AccountContext } from '@/lib/account-context'
-import { nativeDesktopBridge } from '@/lib/nativeDesktop'
-import { InviteView } from './InviteView'
+import { SIGNED_OUT_COPY, type SignedOutReason } from '@podium/client-core/live-connection'
+import { httpsRequiredRefusal } from '@podium/protocol'
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -14,10 +14,22 @@ import {
   useRef,
   useState,
 } from 'react'
+import { clientRegistration } from '@/app/client-registration'
+import { HttpsRequiredScreen } from '@/app/HttpsRequiredScreen'
 import { LoadingScreen } from '@/app/LoadingScreen'
 import { serverConfig } from '@/app/trpc'
+import {
+  AccountContext,
+  expiredPrincipalOf,
+  expiredReasonOf,
+  SYNC_AUTH_EXPIRED_EVENT,
+} from '@/lib/account-context'
+import { webAccounts, webAuth } from '@/lib/accounts'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { ServerAuthStatusContext } from '@/lib/server-auth-status'
 import type { AuthBootstrap } from '@/lib/use-kernel-replica'
+import { InviteView } from './InviteView'
 import { AsciiWordmark, prefersReducedMotion } from './podium-wordmark'
 
 type GatePhase = 'loading' | 'login' | 'success' | 'reveal' | 'ready'
@@ -60,99 +72,78 @@ function originHost(httpOrigin: string): string {
 
 /* ── Login view ───────────────────────────────────────────────────────────── */
 
-export function CloudLoginView({
-  signInUrl,
-  deniedReason,
+/** Account providers and native handover use the same server-reported destination. */
+function AccountSignInButton({
+  capabilities,
+  httpOrigin,
+  label,
 }: {
-  signInUrl?: string
-  deniedReason?: string
+  capabilities: AuthCapabilities
+  httpOrigin: string
+  label: string
 }): ReactNode {
-  const desktop = nativeDesktopBridge()
-  const [error, setError] = useState<string | null>(
-    new URLSearchParams(window.location.search).get('handoff') === 'failed'
-      ? 'That sign-in link expired or was already used. Please try again.'
-      : null,
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const destination = accountPageUrl(
+    capabilities,
+    'sign-in',
+    window.location.pathname + window.location.search + window.location.hash,
   )
-  const returnTo = window.location.pathname + window.location.search + window.location.hash
-  const destination = new URL(signInUrl ?? '/account/sign-in', window.location.origin)
-  destination.searchParams.set('returnTo', returnTo)
-  if (desktop) destination.searchParams.set('handoff', 'desktop')
-  const openDesktopSignIn = async () => {
-    if (!desktop?.beginCloudSignIn)
-      throw new Error('Update Podium Desktop to sign in through your browser.')
-    const response = await fetch(
-      `${serverConfig(window.location).httpOrigin}/platform/auth/handoff/begin`,
-      {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'content-type': 'application/json' },
-        body: '{}',
-      },
-    )
-    if (!response.ok) throw new Error('Could not start sign-in')
-    const { challenge } = await response.json()
-    if (typeof challenge !== 'string' || !/^[a-f0-9]{64}$/.test(challenge))
-      throw new Error('Invalid sign-in challenge')
-    await desktop.beginCloudSignIn(destination.href, challenge)
-  }
+  if (!destination) return null
   return (
-    <main
-      style={{
-        minHeight: '100dvh',
-        display: 'grid',
-        placeItems: 'center',
-        background: C.bg,
-        color: C.text,
-      }}
-    >
-      {deniedReason ? (
-        <p
-          role="alert"
-          style={{ margin: 24, color: C.errorText, fontFamily: MONO, textAlign: 'center' }}
-        >
-          {deniedReason}
-        </p>
-      ) : (
-        <>
-          <a
-            onClick={
-              desktop
-                ? (event) => {
-                    if (event.defaultPrevented) return // The native capture shim already opened an external host.
-                    event.preventDefault()
-                    event.stopPropagation()
-                    setError(null)
-                    if (!desktop.beginCloudSignIn) {
-                      setError('Update Podium Desktop to sign in through your browser.')
-                      return
-                    }
-                    void openDesktopSignIn().catch(() => {
-                      setError('Could not open your browser. Please try again.')
-                    })
-                  }
-                : undefined
-            }
-            href={
-              desktop
-                ? '#sign-in'
-                : signInUrl
-                  ? destination.href
-                  : destination.pathname + destination.search + destination.hash
-            }
-            style={{
-              padding: '16px 24px',
-              borderRadius: 8,
-              background: C.accent,
-              color: C.accentText,
-              fontFamily: MONO,
-            }}
-          >
-            Continue with Podium Cloud
-          </a>
-          {error && <p role="alert">{error}</p>}
-        </>
-      )}
-    </main>
+    <div>
+      <button
+        data-pressable
+        type="button"
+        disabled={busy}
+        style={{
+          padding: '12px 20px',
+          borderRadius: 8,
+          border: `1px solid ${C.border}`,
+          background: C.bar,
+          color: C.text,
+          fontFamily: MONO,
+          cursor: 'pointer',
+        }}
+        onClick={() => {
+          const desktop = nativeDesktopBridge()
+          if (!desktop) {
+            window.location.assign(destination)
+            return
+          }
+          setBusy(true)
+          setError(null)
+          void (async () => {
+            if (!desktop.beginCloudSignIn)
+              throw new Error('Update Podium Desktop to sign in through your browser.')
+            const response = await fetch(`${httpOrigin}/platform/auth/handoff/begin`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'content-type': 'application/json' },
+              body: '{}',
+            })
+            if (!response.ok) throw new Error('Could not start sign-in')
+            const { challenge } = await response.json()
+            if (typeof challenge !== 'string' || !/^[a-f0-9]{64}$/.test(challenge))
+              throw new Error('Invalid sign-in challenge')
+            const page = new URL(destination)
+            page.searchParams.set('handoff', 'desktop')
+            await desktop.beginCloudSignIn(page.href, challenge)
+          })()
+            .catch((cause) =>
+              setError(
+                cause instanceof Error
+                  ? cause.message
+                  : 'Could not open your browser. Please try again.',
+              ),
+            )
+            .finally(() => setBusy(false))
+        }}
+      >
+        {label}
+      </button>
+      {error && <p role="alert">{error}</p>}
+    </div>
   )
 }
 
@@ -166,14 +157,21 @@ export function LoginView({
   httpOrigin,
   onLoggedIn,
   leaving = false,
+  capabilities,
+  prompt,
+  membershipError,
+  signedOutNotice,
 }: {
   httpOrigin: string
   onLoggedIn: (principal: string) => void | Promise<void>
   leaving?: boolean
+  capabilities: AuthCapabilities
+  prompt: SignInPrompt
+  membershipError?: string
+  /** Why the server ended this device's previous sign-in (POD-6910). */
+  signedOutNotice?: string
 }): ReactNode {
-  // The first admin signs in as `user:sole`; invited members reveal the email
-  // field once, and the accounts owner remembers that form choice for this browser.
-  const [withEmail, setWithEmail] = useState(readBrowserSignInWithEmail)
+  const withEmail = prompt === 'email-password'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -190,14 +188,19 @@ export function LoginView({
   }, [withEmail])
 
   const submit = async (): Promise<void> => {
-    if ((withEmail && !email.trim()) || !password || busy || ok) return
+    if (!password || busy || ok || !capabilities.passwordSignIn) return
     setBusy(true)
     setError(null)
     try {
-      // An empty email is sent as `user:sole`, the first admin.
-      const result = await webAuth.login(httpOrigin, password, undefined, withEmail ? email : '')
+      const result = await webAuth.login(
+        httpOrigin,
+        password,
+        undefined,
+        withEmail ? email : '',
+        undefined,
+        nativeDesktopBridge() ? 'desktop' : undefined,
+      )
       if (result.ok && result.principal) {
-        rememberBrowserSignInWithEmail(withEmail)
         await onLoggedIn(result.principal)
         setBusy(false)
         setOk(true)
@@ -318,173 +321,201 @@ export function LoginView({
         {host ? `Sign in to ${host}` : 'Sign in'}
       </div>
 
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          void submit()
-        }}
-        onAnimationEnd={() => setShaking(false)}
-        style={{
-          width: '100%',
-          maxWidth: 520,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          border: `1px solid ${error ? C.error : C.border}`,
-          borderRadius: 13,
-          background: C.bar,
-          padding: '6px 6px 6px 18px',
-          boxShadow: error ? `0 0 0 1px ${C.error}33, 0 0 18px ${C.error}26` : 'none',
-          animation: shaking ? 'podium-login-shake .35s ease' : 'none',
-          transition: 'border-color .25s, box-shadow .25s',
-        }}
-      >
-        {withEmail && (
-          <input
-            ref={emailRef}
-            type="text"
-            inputMode="email"
-            aria-label="Email"
-            placeholder="Email"
-            autoComplete="username"
-            autoCapitalize="none"
-            required
-            maxLength={254}
-            spellCheck={false}
-            value={email}
-            onChange={(e) => {
-              setEmail(e.target.value)
-              if (error) setError(null)
+      {signedOutNotice && !ok && <p role="alert">{signedOutNotice}</p>}
+      {membershipError && <p role="alert">{membershipError}</p>}
+      {!ok && new URLSearchParams(window.location.search).get('handoff') === 'failed' && (
+        <p role="alert">That sign-in link expired or was already used. Please try again.</p>
+      )}
+      {capabilities.passwordSignIn && !membershipError && (
+        <>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void submit()
             }}
+            onAnimationEnd={() => setShaking(false)}
             style={{
-              flex: 1,
-              minWidth: 0,
-              background: 'transparent',
-              border: 0,
-              color: C.text,
-              fontFamily: MONO,
-              fontSize: 16,
-            }}
-          />
-        )}
-        <input
-          ref={passwordRef}
-          type="password"
-          aria-label="Password"
-          placeholder="Password"
-          autoComplete="current-password"
-          spellCheck={false}
-          value={password}
-          aria-invalid={error ? true : undefined}
-          onChange={(e) => {
-            setPassword(e.target.value)
-            if (error) setError(null)
-          }}
-          onKeyDown={trackCaps}
-          onKeyUp={trackCaps}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            background: 'transparent',
-            border: 0,
-            outline: 'none',
-            fontFamily: MONO,
-            fontSize: 16,
-            letterSpacing: '.06em',
-            color: C.text,
-            caretColor: C.accent,
-          }}
-        />
-        <button
-          data-pressable
-          type="submit"
-          aria-label="Log in"
-          style={{
-            flex: 'none',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 42,
-            height: 42,
-            border: 0,
-            borderRadius: 9,
-            background: ok ? C.success : C.accent,
-            color: C.accentText,
-            fontFamily: MONO,
-            fontSize: 16,
-            fontWeight: 600,
-            cursor: 'pointer',
-            opacity: (password && !busy) || ok ? 1 : 0.45,
-            transition: 'opacity .3s, background .4s',
-          }}
-        >
-          {btnGlyph}
-        </button>
-      </form>
-
-      <div
-        role={error ? 'alert' : 'status'}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 9,
-          minHeight: 20,
-          fontFamily: MONO,
-          fontSize: 11,
-          color: statColor,
-          transition: 'color .4s',
-        }}
-      >
-        {state !== 'busy' && (
-          <span
-            aria-hidden
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: 99,
-              background: statColor,
-              animation: ok ? 'podium-login-ping 1.2s ease infinite' : 'none',
-              transition: 'background .4s',
-            }}
-          />
-        )}
-        {statText}
-        {caps && !ok && (
-          <span
-            style={{
-              fontSize: 9,
-              letterSpacing: '.08em',
-              color: '#161006',
-              background: C.warn,
-              borderRadius: 99,
-              padding: '2px 8px',
-              animation: 'podium-login-pop .3s ease',
+              width: '100%',
+              maxWidth: 520,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              border: `1px solid ${error ? C.error : C.border}`,
+              borderRadius: 13,
+              background: C.bar,
+              padding: '6px 6px 6px 18px',
+              boxShadow: error ? `0 0 0 1px ${C.error}33, 0 0 18px ${C.error}26` : 'none',
+              animation: shaking ? 'podium-login-shake .35s ease' : 'none',
+              transition: 'border-color .25s, box-shadow .25s',
             }}
           >
-            ⇪ CAPS LOCK ON
-          </span>
-        )}
-      </div>
+            {withEmail && (
+              <input
+                ref={emailRef}
+                type="text"
+                inputMode="email"
+                aria-label="Email"
+                placeholder="Email"
+                autoComplete="username"
+                autoCapitalize="none"
+                maxLength={254}
+                spellCheck={false}
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value)
+                  if (error) setError(null)
+                }}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  background: 'transparent',
+                  border: 0,
+                  color: C.text,
+                  fontFamily: MONO,
+                  fontSize: 16,
+                }}
+              />
+            )}
+            <input
+              ref={passwordRef}
+              type="password"
+              aria-label="Password"
+              placeholder="Password"
+              autoComplete="current-password"
+              spellCheck={false}
+              value={password}
+              aria-invalid={error ? true : undefined}
+              onChange={(e) => {
+                setPassword(e.target.value)
+                if (error) setError(null)
+              }}
+              onKeyDown={trackCaps}
+              onKeyUp={trackCaps}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                background: 'transparent',
+                border: 0,
+                outline: 'none',
+                fontFamily: MONO,
+                fontSize: 16,
+                letterSpacing: '.06em',
+                color: C.text,
+                caretColor: C.accent,
+              }}
+            />
+            <button
+              data-pressable
+              type="submit"
+              aria-label="Log in"
+              style={{
+                flex: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 42,
+                height: 42,
+                border: 0,
+                borderRadius: 9,
+                background: ok ? C.success : C.accent,
+                color: C.accentText,
+                fontFamily: MONO,
+                fontSize: 16,
+                fontWeight: 600,
+                cursor: 'pointer',
+                opacity: (password && !busy) || ok ? 1 : 0.45,
+                transition: 'opacity .3s, background .4s',
+              }}
+            >
+              {btnGlyph}
+            </button>
+          </form>
 
-      {!ok && (
-        <button
-          type="button"
-          onClick={() => {
-            setWithEmail(!withEmail)
-            setError(null)
-          }}
-          style={{
-            border: 0,
-            background: 'transparent',
-            padding: 4,
-            fontFamily: MONO,
-            fontSize: 11,
-            color: C.textFaint,
-            cursor: 'pointer',
-          }}
-        >
-          {withEmail ? 'Sign in with password only' : 'Sign in with email'}
-        </button>
+          <div
+            role={error ? 'alert' : 'status'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 9,
+              minHeight: 20,
+              fontFamily: MONO,
+              fontSize: 11,
+              color: statColor,
+              transition: 'color .4s',
+            }}
+          >
+            {state !== 'busy' && (
+              <span
+                aria-hidden
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: 99,
+                  background: statColor,
+                  animation: ok ? 'podium-login-ping 1.2s ease infinite' : 'none',
+                  transition: 'background .4s',
+                }}
+              />
+            )}
+            {statText}
+            {caps && !ok && (
+              <span
+                style={{
+                  fontSize: 9,
+                  letterSpacing: '.08em',
+                  color: '#161006',
+                  background: C.warn,
+                  borderRadius: 99,
+                  padding: '2px 8px',
+                  animation: 'podium-login-pop .3s ease',
+                }}
+              >
+                ⇪ CAPS LOCK ON
+              </span>
+            )}
+          </div>
+        </>
+      )}
+      {!ok && capabilities.passwordReset === 'admin-link' && !membershipError && (
+        <p style={{ fontFamily: MONO, fontSize: 11, color: C.textDim, textAlign: 'center' }}>
+          {prompt === 'password' ? (
+            <>
+              Forgot it? Run <code>podium setup</code> on the machine that runs Podium.
+            </>
+          ) : (
+            'Forgot your password? Ask an admin for a reset link.'
+          )}
+        </p>
+      )}
+      {!ok && capabilities.accountUrl && (
+        <>
+          {prompt === 'email-password' &&
+            capabilities.providers.map((provider) => (
+              <AccountSignInButton
+                key={provider}
+                capabilities={capabilities}
+                httpOrigin={httpOrigin}
+                label={`Continue with ${provider === 'google' ? 'Google' : 'GitHub'}`}
+              />
+            ))}
+          {membershipError && (
+            <AccountSignInButton
+              capabilities={capabilities}
+              httpOrigin={httpOrigin}
+              label="Use another account"
+            />
+          )}
+          {capabilities.passwordReset === 'mail' && (
+            <a style={{ color: C.textDim }} href={accountPageUrl(capabilities, 'forgot-password')}>
+              Forgot password?
+            </a>
+          )}
+          {capabilities.selfSignUp && (
+            <a style={{ color: C.textDim }} href={accountPageUrl(capabilities, 'sign-up')}>
+              Create account
+            </a>
+          )}
+        </>
       )}
     </div>
   )
@@ -509,26 +540,62 @@ export function LoginGate({
   const [inviteToken, setInviteToken] = useState(() =>
     new URLSearchParams(window.location.hash.slice(1)).get('invite'),
   )
-  const [mode, setMode] = useState<'local' | 'cloud'>('local')
-  const [signInUrl, setSignInUrl] = useState<string>()
-  const [deniedReason, setDeniedReason] = useState<string>()
+  useEffect(() => {
+    const changed = () =>
+      setInviteToken(new URLSearchParams(window.location.hash.slice(1)).get('invite'))
+    window.addEventListener('hashchange', changed)
+    window.addEventListener('popstate', changed)
+    return () => {
+      window.removeEventListener('hashchange', changed)
+      window.removeEventListener('popstate', changed)
+    }
+  }, [])
+  const [status, setStatus] = useState<AuthStatus>()
+  const [membershipError, setMembershipError] = useState<string>()
+  const [signedOutReason, setSignedOutReason] = useState<SignedOutReason>()
   const [phase, setPhase] = useState<GatePhase>('loading')
   const [auth, setAuth] = useState<AuthBootstrap>()
+  // Sign-out is offered only where a login is required: in open mode a sign-out
+  // would sign straight back in as the sole member (POD-6292).
+  const [loginRequired, setLoginRequired] = useState(false)
   const [authAttempt, setAuthAttempt] = useState(0)
   const authGeneration = useRef(0)
   const credentialOwner = authGeneration.current
+  const mountedAuth = useRef<AuthBootstrap | undefined>(undefined)
+  mountedAuth.current = auth
   useEffect(() => {
-    const expired = () => {
+    const expired = (event: Event) => {
+      // Only the mounted account can expire. A late refusal from one that is
+      // already gone (a request in flight across a sign-out) must not throw
+      // away the next person's sign-in (POD-6292).
+      const mounted = mountedAuth.current
+      if (mounted === undefined) return
+      const named = expiredPrincipalOf(event)
+      if (named !== undefined && mounted.kind === 'principal' && mounted.principal !== named) return
+      clientRegistration.invalidateLogin()
       authGeneration.current += 1
+      setSignedOutReason(expiredReasonOf(event))
       setAuth(undefined)
       setPhase('loading')
-      setAuthAttempt((n) => n + 1)
+      // The server refused this account: disabled, removed or signed out
+      // elsewhere, possibly while this device was offline. Its stored data
+      // goes before anything is shown again (POD-6293); a failed erase is
+      // retried from the cleanup intent at the next start.
+      const refused = named ?? (mounted.kind === 'principal' ? mounted.principal : undefined)
+      void (
+        refused === undefined
+          ? Promise.resolve()
+          : webAccounts(serverConfig(window.location).httpOrigin).removePrincipal(refused)
+      )
+        .catch(() => {})
+        .finally(() => setAuthAttempt((n) => n + 1))
     }
-    window.addEventListener('podium:sync-auth-expired', expired)
-    return () => window.removeEventListener('podium:sync-auth-expired', expired)
+    window.addEventListener(SYNC_AUTH_EXPIRED_EVENT, expired)
+    return () => window.removeEventListener(SYNC_AUTH_EXPIRED_EVENT, expired)
   }, [])
   const httpOrigin = serverConfig(window.location).httpOrigin
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: authAttempt explicitly re-probes live credentials after sign-out or expiry.
   useEffect(() => {
     if (inviteToken) return
     let alive = true
@@ -544,13 +611,13 @@ export function LoginGate({
     })()
       .then((decision) => {
         if (!current()) return
+        setStatus(decision.status)
         if (decision.kind !== 'ready') {
-          setMode(decision.status.mode ?? 'local')
-          setSignInUrl(decision.status.signInUrl)
-          setDeniedReason(decision.kind === 'membership-denied' ? decision.reason : undefined)
+          setMembershipError(decision.kind === 'membership-denied' ? decision.reason : undefined)
           setPhase('login')
           return
         }
+        setLoginRequired(decision.status?.needsAuth === true)
         setAuth(decision.auth)
         setPhase('ready')
       })
@@ -579,6 +646,7 @@ export function LoginGate({
   }
   const account = {
     signOut: async () => {
+      setSignedOutReason(undefined)
       await webAuth.logout(httpOrigin)
       await removeLocalAccount()
     },
@@ -600,24 +668,37 @@ export function LoginGate({
   if (inviteToken)
     return (
       <InviteView
+        key={inviteToken}
         token={inviteToken}
         httpOrigin={httpOrigin}
-        onDone={() => {
+        onDone={async (completed) => {
+          if (completed) {
+            await webAuth.logout(httpOrigin)
+            await webAccounts(httpOrigin).remove()
+            clientRegistration.invalidateLogin()
+          }
+          setAuth(undefined)
+          setPhase('loading')
           window.history.replaceState(null, '', window.location.pathname + window.location.search)
           setInviteToken(null)
         }}
       />
     )
   if (phase === 'loading' || (phase === 'ready' && auth === undefined)) return <LoadingScreen />
+  if (auth?.kind === 'failure' && auth.failure.kind === 'auth-insecure')
+    return <HttpsRequiredScreen guidance={auth.failure.guidance ?? httpsRequiredRefusal()} />
   const app =
     auth === undefined ? null : (
-      <AccountContext.Provider value={account}>
-        {typeof children === 'function' ? children(auth) : children}
-      </AccountContext.Provider>
+      <ServerAuthStatusContext.Provider value={status ?? null}>
+        <AccountContext.Provider value={loginRequired ? account : null}>
+          {typeof children === 'function' ? children(auth) : children}
+        </AccountContext.Provider>
+      </ServerAuthStatusContext.Provider>
     )
   if (phase === 'ready') return <>{app}</>
 
-  if (mode === 'cloud') return <CloudLoginView signInUrl={signInUrl} deniedReason={deniedReason} />
+  if (!status?.capabilities || !status.prompt)
+    return <p role="alert">Sign-in options are unavailable. Reload to try again.</p>
   const reduced = prefersReducedMotion()
   const appMounted = phase === 'success' || phase === 'reveal'
   const blurred = phase === 'success' && !reduced
@@ -637,6 +718,10 @@ export function LoginGate({
       )}
       <LoginView
         httpOrigin={httpOrigin}
+        capabilities={status.capabilities}
+        prompt={status.prompt}
+        membershipError={membershipError}
+        {...(signedOutReason ? { signedOutNotice: SIGNED_OUT_COPY[signedOutReason] } : {})}
         leaving={phase === 'reveal'}
         onLoggedIn={async (principal) => {
           if (credentialOwner !== authGeneration.current) return
@@ -645,6 +730,9 @@ export function LoginGate({
             () => credentialOwner === authGeneration.current,
           )
           if (credentialOwner !== authGeneration.current) return
+          clientRegistration.retryAfterSignIn()
+          setSignedOutReason(undefined)
+          setLoginRequired(true)
           setAuth({ kind: 'principal', principal })
           setPhase('success')
         }}

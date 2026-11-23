@@ -94,7 +94,7 @@ It was NOT deleted in this sweep, for two reasons, the second blocking:
    row first, and that cannot be a SQL migration (SQL cannot read `auth.json`).
 2. **A product decision is required.** An instance may run with NO password —
    the loopback/all-in-one default — and `clearPassword` is a supported "opt out
-   of login" action in Settings → Security. Under real accounts, "no auth" and
+   of login" action in Settings → Account. Under real accounts, "no auth" and
    "per-user accounts" are different regimes, and `clearPassword` has no per-user
    meaning: one user cannot turn login off for the instance. How the two regimes
    coexist is exactly the per-feature call `docs/multi-user-readiness.md` leaves

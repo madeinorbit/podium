@@ -13,6 +13,6 @@ export const grokInstall: HarnessInstall = {
   url: (env) => env.PODIUM_GROK_INSTALL_URL ?? 'https://x.ai/cli/install.sh',
   runInstaller(scriptPath, binDir, ports) {
     // Without GROK_BIN_DIR the vendor script installs to the wrong directory.
-    ports.run('bash', [scriptPath], { ...ports.env, GROK_BIN_DIR: binDir })
+    ports.runTool('bash', [scriptPath], { ...ports.env, GROK_BIN_DIR: binDir })
   },
 }

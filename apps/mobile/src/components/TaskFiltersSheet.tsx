@@ -22,7 +22,7 @@ export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
   const { visible, filter, showDone, showAgentTasks, onShowDone, onShowAgentTasks, onClose } = props
   const [step, setStep] = useState<Facet | null>(null)
   const { configs, set, reset, activeCount } = useTaskFilterFacets(props)
-  const current = step ? configs[step] : null
+  const current = step ? (configs[step] ?? null) : null
   const close = () => {
     setStep(null)
     onClose()
@@ -77,7 +77,9 @@ export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
         />
       ) : (
         <View style={styles.groups}>
-          <View style={styles.group}>{FILTER_FACETS.map(renderFacet)}</View>
+          <View style={styles.group}>
+            {FILTER_FACETS.filter((facet) => configs[facet]).map(renderFacet)}
+          </View>
           <View style={styles.group}>
             {DISPLAY_FACETS.map(renderFacet)}
             <ToggleRow label="Show done" value={showDone} onChange={onShowDone} />
@@ -108,6 +110,7 @@ export function TaskFiltersSheet(props: TaskFiltersSheetProps) {
 
   function renderFacet(facet: Facet, index: number) {
     const config = configs[facet]
+    if (!config) return null
     return (
       <NativePicker
         key={facet}

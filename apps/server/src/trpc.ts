@@ -1,14 +1,25 @@
-import { createLogger, describeError } from '@podium/logger'
-import type { ServerReadiness } from '@podium/model'
+import { createLogger, describeError, type Logger } from '@podium/logger'
+import { credentialRefusalCode, type ServerReadiness } from '@podium/model'
 import type { MobileWebIdentity, ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
 import { attribute } from '@podium/runtime/loop-accounting'
 import type { TelemetryEmitter } from '@podium/telemetry'
-import { initTRPC } from '@trpc/server'
+import { initTRPC, type TRPCError } from '@trpc/server'
+import type {
+  inferParser,
+  MiddlewareBuilder,
+  MiddlewareFunction,
+  Overwrite,
+  Parser,
+  ProcedureBuilder,
+  Simplify,
+  UnsetMarker,
+} from '@trpc/server/unstable-core-do-not-import'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import type { CommandPrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
 import type { ConnectPublisher } from './modules/connect/publisher'
+import { credentialRefusalIn, refusalInPlaceOfFault } from './modules/credentials/refusal-error'
 import type { IssueCaller } from './modules/issues/command-ctx'
 import { IssueRevisionConflict } from './modules/issues/conflict'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
@@ -16,7 +27,6 @@ import type { SuperagentService } from './modules/superagent'
 import type { PrepareCoordinatorUpdate } from './modules/updates/installed-restart'
 import type { ServerPlacement } from './modules/updates/service'
 import type { RegistryModules, SessionRegistry } from './relay'
-import type { MachineRepoDiscovery } from './repo-discovery'
 import type { RepoRegistry } from './repo-registry'
 import type { ServerRoleConfig } from './roles'
 import { withOperation } from './store/executor/operation-scope'
@@ -37,9 +47,6 @@ export interface Context {
   repos: RepoRegistry
   /** Stable hosted workspace identity for pre-auth join URLs; absent on self-hosted. */
   workspaceId?: string
-  /** Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Optional so test
-   *  callers that don't exercise discovery need not construct one. */
-  discovery?: MachineRepoDiscovery
   superagent: SuperagentService
   cloud?: CloudRuntimeProvider
   /** What this caller may do with issues. The authenticated principal below is
@@ -79,6 +86,9 @@ export interface Context {
   users?: UsersRepository
   /** Is login required on this instance — `credentialsRequired()` from server.ts. */
   loginRequired?: () => boolean | Promise<boolean>
+  loginPolicy?: () => Promise<import('./modules/instance/service').InstanceLoginPolicy>
+  /** The HTTP request passed the same host-local check as open-mode access. */
+  hostLocalRequest?: boolean
   /**
    * This process's event-loop accounting rings, which `perf.snapshot` reports
    * alongside the timings (loop design §7.2).
@@ -170,6 +180,11 @@ export function issueCaller(ctx: Context): IssueCaller {
  * all (POD-3802 §2). It is a string rather than a serialized error: this travels
  * to a client, and a stack is for the server log.
  *
+ * `data.refusalCode` is a credential refusal's code (`credential:<refusal>`,
+ * POD-7066), the same code a refused launch record carries, so a caller says
+ * why and offers the way out by the code, never by the sentence. The sentence
+ * is the message, so a refusal carries no `causeChain`.
+ *
  * Exported because it is the only testable seam here — `initTRPC.create()`
  * swallows the formatter, and `createCaller` never runs it.
  */
@@ -178,25 +193,85 @@ export function errorShapeWithCause<TShape extends { data: Record<string, unknow
   error: { readonly cause?: unknown },
 ): TShape {
   const conflict = error.cause instanceof IssueRevisionConflict ? error.cause.detail : undefined
+  const refused = credentialRefusalIn(error.cause)
+  const refusalCode = refused ? credentialRefusalCode(refused.refusal) : undefined
   const causeChain =
-    error.cause === undefined || error.cause === null ? undefined : describeError(error.cause)
-  if (conflict === undefined && causeChain === undefined) return shape
+    refused || error.cause === undefined || error.cause === null
+      ? undefined
+      : describeError(error.cause)
+  if (conflict === undefined && causeChain === undefined && refusalCode === undefined) return shape
   return {
     ...shape,
     data: {
       ...shape.data,
       ...(conflict === undefined ? {} : { conflict }),
       ...(causeChain === undefined ? {} : { causeChain }),
+      ...(refusalCode === undefined ? {} : { refusalCode }),
     },
   }
 }
 
+/**
+ * The server-side trace of a failed /trpc call (proc, code, and the error with
+ * its cause chain; no payloads). Without it, 500s were invisible in the server
+ * log. A credential refusal is a reply, not a fault (POD-7066): one line with
+ * its code, no stack.
+ */
+export function logProcedureFailure(
+  log: Pick<Logger, 'info' | 'warn'>,
+  failure: { error: TRPCError; path: string | undefined; type: string },
+): void {
+  const { error, path, type } = failure
+  const refused = error.code === 'INTERNAL_SERVER_ERROR' ? undefined : credentialRefusalIn(error)
+  if (refused) {
+    log.info('tRPC procedure refused', {
+      callType: type,
+      path: path ?? '<unknown>',
+      code: error.code,
+      refusal: refused.refusal,
+    })
+    return
+  }
+  log.warn('tRPC procedure failed', {
+    callType: type,
+    path: path ?? '<unknown>',
+    code: error.code,
+    // `err`, not `error.message`: a TRPCError keeps the real failure in
+    // `cause`, the logger walks it recursively, and a message-only line is
+    // what hid a store refusal behind Drizzle's wrapper (POD-3802 §2).
+    err: error,
+  })
+}
+
+/**
+ * What a WRITE route says about itself (ADR 12 D9, POD-6593): the registration it
+ * reaches and which path that registration is on. Only the write-route
+ * generator (`modules/write-routes/`) sets it, on every mutation it
+ * builds; a query carries none. A test walks the served router and holds every
+ * mutation to a registration in the sync or the plain registry.
+ */
+export interface WriteRouteMeta {
+  /** The registration's wire name (`layout.set`, `logs.forward`), or
+   *  {@link ANY_SYNC_REGISTRATION} for `sync.submit`, whose envelope names one. */
+  readonly registration: string
+  readonly path: 'sync' | 'plain' | 'direct'
+}
+
+/** `sync.submit`'s registration: whichever the envelope names. */
+export const ANY_SYNC_REGISTRATION = '*'
+
+/** A procedure's meta: a write route's, or nothing (a query). */
+export type RouteMeta = Partial<WriteRouteMeta>
+
 /** Composed at rebase with POD-701's timing core: one create() carries both. */
-const core = initTRPC.context<Context>().create({
-  errorFormatter({ shape, error }) {
-    return errorShapeWithCause(shape, error)
-  },
-})
+const core = initTRPC
+  .context<Context>()
+  .meta<RouteMeta>()
+  .create({
+    errorFormatter({ shape, error }) {
+      return errorShapeWithCause(shape, error)
+    },
+  })
 
 /** Slow-call visibility [POD-701]: one warning when a procedure exceeds
  *  this, throttled per path so a storm can't flood the logs. */
@@ -240,11 +315,125 @@ const rpcTiming = core.middleware(async ({ path, next }) => {
 /** One call is one operation [POD-6189]: memos that opt in (the grants loader)
  *  answer a row once for the whole call, before, inside and after its write
  *  spans. See `store/executor/operation-scope.ts`. */
-const oneOperation = core.middleware(async ({ next }) => await withOperation(async () => await next()))
+const oneOperation = core.middleware(
+  async ({ next }) => await withOperation(async () => await next()),
+)
+
+/**
+ * A credential refusal answers as one (POD-7066): a launch refused for its
+ * credential throws the refusal from deep inside the start, and tRPC would
+ * take that plain throw for a 500. Every procedure answers it as
+ * `PRECONDITION_FAILED` with the sentence, and its code in the shape
+ * ({@link errorShapeWithCause}).
+ */
+const credentialRefusals = core.middleware(async ({ next }) => {
+  const result = await next()
+  if (result.ok) return result
+  const refused = refusalInPlaceOfFault(result.error)
+  return refused ? { ...result, error: refused } : result
+})
+
+/** The base procedure: the always-on timing middleware, the operation scope,
+ *  and credential refusals answered as refusals. */
+const baseProcedure = core.procedure.use(rpcTiming).use(oneOperation).use(credentialRefusals)
+
+// ---------------------------------------------------------------------------
+// The query-only builder (ADR 12 D9, POD-6593)
+// ---------------------------------------------------------------------------
+
+/** tRPC's own (unexported) `IntersectIfDefined`, which its builder chains with. */
+type IntersectIfDefined<A, B> = A extends UnsetMarker
+  ? B
+  : B extends UnsetMarker
+    ? A
+    : Simplify<A & B>
+
+/**
+ * A procedure builder with NO `.mutation`: `.input`, `.output`, `.meta` and
+ * `.use` chain to another query-only builder, and it ends in `.query` or
+ * `.subscription`. It is the builder every module gets as `t.procedure`, so a
+ * module cannot build a write route: every write route is generated from a
+ * registration by `modules/write-routes/`, which alone holds the full builder
+ * ({@link claimWriteProcedureBuilder}). `write-routes.typecheck.ts` holds the
+ * missing `.mutation` with `@ts-expect-error`.
+ *
+ * The signatures are tRPC's own (`ProcedureBuilder`), without its compile-time
+ * refusal to chain an optional parser onto a required one.
+ */
+export interface QueryProcedureBuilder<C, M, CO, II, IO, OI, OO> {
+  input<$P extends Parser>(
+    schema: $P,
+  ): QueryProcedureBuilder<
+    C,
+    M,
+    CO,
+    IntersectIfDefined<II, inferParser<$P>['in']>,
+    IntersectIfDefined<IO, inferParser<$P>['out']>,
+    OI,
+    OO
+  >
+  output<$P extends Parser>(
+    schema: $P,
+  ): QueryProcedureBuilder<
+    C,
+    M,
+    CO,
+    II,
+    IO,
+    IntersectIfDefined<OI, inferParser<$P>['in']>,
+    IntersectIfDefined<OO, inferParser<$P>['out']>
+  >
+  meta(meta: M): QueryProcedureBuilder<C, M, CO, II, IO, OI, OO>
+  use<$CO>(
+    fn: MiddlewareBuilder<Overwrite<C, CO>, M, $CO, IO> | MiddlewareFunction<C, M, CO, $CO, IO>,
+  ): QueryProcedureBuilder<C, M, Overwrite<CO, $CO>, II, IO, OI, OO>
+  query: ProcedureBuilder<C, M, CO, II, IO, OI, OO, false>['query']
+  subscription: ProcedureBuilder<C, M, CO, II, IO, OI, OO, false>['subscription']
+}
+
+/** The query-only view of a full builder. */
+type QueryOnly<B> =
+  B extends ProcedureBuilder<
+    infer C,
+    infer M,
+    infer CO,
+    infer II,
+    infer IO,
+    infer OI,
+    infer OO,
+    false
+  >
+    ? QueryProcedureBuilder<C, M, CO, II, IO, OI, OO>
+    : never
+
+/** The builder modules get: queries only. */
+export type ModuleProcedureBuilder = QueryOnly<typeof baseProcedure>
 
 /** The shared tRPC core: identical to `initTRPC.create()` except `procedure`
- *  carries the always-on timing middleware and the operation scope. */
+ *  carries the always-on timing middleware and the operation scope, and builds
+ *  QUERIES only ({@link QueryProcedureBuilder}). */
 export const t = {
   ...core,
-  procedure: core.procedure.use(rpcTiming).use(oneOperation),
+  procedure: baseProcedure as ModuleProcedureBuilder,
+}
+
+/** The builder a write route is built from. */
+export type WriteProcedureBuilder = typeof baseProcedure
+
+let writeBuilderClaimed = false
+
+/**
+ * The builder WRITE routes are made from, handed out ONCE (POD-6593). The
+ * write-route generator claims it when it loads; any second claimant fails at
+ * boot. So the one module that may build a mutation is the one that holds it,
+ * and every write route is generated there from a registration.
+ */
+export function claimWriteProcedureBuilder(): WriteProcedureBuilder {
+  if (writeBuilderClaimed) {
+    throw new Error(
+      'trpc: the write procedure builder is already claimed; write routes are generated by modules/write-routes/ only',
+    )
+  }
+  writeBuilderClaimed = true
+  return baseProcedure
 }

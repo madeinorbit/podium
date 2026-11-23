@@ -9,6 +9,7 @@ import type {
   GrokAcpRuntimeHost,
 } from './runtime.js'
 import type { GrokAcpTransport } from './client.js'
+import { testHarnessContext, testEngineTerms } from '../../testing/harness-context.js'
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -31,6 +32,8 @@ function adoptionWorld(options: { deferStop?: boolean; deferLoad?: boolean } = {
   let launches = 0
 
   const host: GrokAcpRuntimeHost = {
+    ...testEngineTerms(),
+    harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     stageAttachment: createMemoryAttachmentStager(),
     bindings: {
       recorded: (sessionId) => entries.get(sessionId),
@@ -313,6 +316,8 @@ describe('§4.8 failure ownership — unrecoverable adopt is reported, not swall
           bound: () => {},
           released: () => {},
         },
+        ...testEngineTerms(),
+        harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
         launch: async () => {
           throw new Error('engine never started')
         },

@@ -1,10 +1,11 @@
 import { rmSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   auditClosureAt,
   auditDirectAt,
+  auditHarnessEntries,
   auditPackageExportsAt,
   auditServerClosureAt,
   extractImports,
@@ -21,6 +22,12 @@ import {
  * `bun scripts/audit-harness-entries.ts --probe` proves the same arms against
  * the shipped script; these pin the functions.
  */
+
+describe('the shipped harness entries', () => {
+  it('keep the contract and server closures free of host and family code', () => {
+    expect(auditHarnessEntries()).toEqual([])
+  })
+})
 
 describe('isForbiddenSpecifier', () => {
   it('refuses the host, process and family specifiers', () => {
@@ -199,9 +206,9 @@ describe('auditServerClosureAt', () => {
     // move, the guard must move with them rather than pass on an
     // unresolvable root.
     const root = join(dirname(fileURLToPath(import.meta.url)), '..')
-    expect(
-      resolveToSource(root, 'packages/harness/src/browser.ts', './store/cursor-codec'),
-    ).toBe('packages/harness/src/store/cursor-codec.ts')
+    expect(resolveToSource(root, 'packages/harness/src/browser.ts', './store/cursor-codec')).toBe(
+      'packages/harness/src/store/cursor-codec.ts',
+    )
     expect(
       resolveToSource(
         root,

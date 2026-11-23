@@ -1,13 +1,17 @@
 import { createLogger } from '@podium/logger'
-import type { MetadataChange, Principal } from '@podium/protocol'
+import type { WorkspaceId } from '@podium/model'
+import type { MetadataChange } from '@podium/protocol'
 import {
   type AuthorityPort,
+  CHANGE_LOG_OBSERVER,
   DEVICE_GRADE_PRINCIPAL,
+  extendBatch,
   type FeedScopingGrade,
   type ScopedChange,
   type ScopedDelivery,
 } from '@podium/sync'
 import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
+import { holdOperation } from '../store/executor/operation-scope'
 import type { EventBus } from './bus'
 import { perfPrincipal } from './perf/principal'
 import { perf } from './perf/registry'
@@ -16,6 +20,8 @@ const log = createLogger('server:funnel')
 
 export interface WriteFunnelDeps {
   onPublicationIdle?: OnPublicationIdle
+  /** The workspace whose writes this funnel publishes: its perf partition is keyed by it. */
+  workspaceId: WorkspaceId
   bus: EventBus
   /**
    * THE SERVING EDGE (POD-1203) — the one tail entity truth leaves through.
@@ -44,8 +50,8 @@ export interface WriteFunnelDeps {
 
 /** What the funnel needs of the serving edge. Narrow so a test can drive it. */
 export interface FeedServingPort {
-  publish(principal: typeof DEVICE_GRADE_PRINCIPAL, delivery: ScopedDelivery): void
-  flushPending(): void
+  publish(principal: typeof DEVICE_GRADE_PRINCIPAL, delivery: ScopedDelivery): void | Promise<void>
+  flushPending(): void | Promise<void>
   /** ADR 2 D1's `(feedId, epoch)`. Needed by the wire-v2 catch-up read, which is
    *  an HTTP query and therefore has no frame to read identity off. */
   identity():
@@ -66,25 +72,19 @@ export class WriteFunnel {
     // Enqueueing before the emit makes arrival order equal append order no
     // matter what a listener does.
     //
-    // THE PRINCIPAL, AND WHICH HALF OF SCOPING THIS SITE HAS (POD-1077). The
-    // Authority's feed is per-principal (ADR 2 Am1 D12), and this subscription
-    // names `DEVICE_GRADE_PRINCIPAL` because that is what this transport can
-    // honestly authenticate: `auth-store.ts` is one shared password and
-    // `gateway/client-principal.ts` still asserts `CLIENT_PRINCIPAL_GRADE ===
-    // 'device'`, so two connections presenting it are indistinguishable AS
-    // PERSONS. Per-connection principals arrive with per-user login.
+    // THE BUS IS THE SERVER'S OWN OBSERVER, NOT A CLIENT (POD-6285). It used to
+    // read the device-grade principal's slice, which was everything only because
+    // that user id had an all-read exception. It now subscribes as the named
+    // system observer, which sees the same rows, and the device-grade slice that
+    // feeds the serving edge below is an ordinary, owner-checked one.
+    //
+    // Registered AFTER the serving queue: the Authority delivers each batch to its
+    // subscribers in registration order, so the pipe still sees batch N before a
+    // bus listener can commit N+1 (#247).
     deps.authority.subscribe(DEVICE_GRADE_PRINCIPAL, (delivery) => {
-      // BOTH ARMS ARE NOW EXPRESSIBLE, which is what the cutover bought.
-      // POD-1077 had to THROW here on a `rescope`, because the pre-cutover wire
-      // had no frame for "your rights changed, re-bootstrap" and degrading it to
-      // silence is the invisible-gap failure. Wire v2 carries it, so it rides the
-      // same ordered pipe as everything else.
-      //
-      // The `evict` refusal that lived here has MOVED rather than been dropped —
-      // is genuinely inexpressible. That is the point of the cutover: a scoped
-      // principal must be served wire v2 or not served, and the failure is loud
-      // at the edge that cannot express it instead of loud for everyone.
       this.queue(delivery)
+    })
+    deps.authority.subscribe(CHANGE_LOG_OBSERVER, (delivery) => {
       if (delivery.kind !== 'batch') return
       const wire = delivery.changes.flatMap(toBusChange)
       if (wire.length > 0) deps.bus.emit('oplog.appended', { changes: wire })
@@ -98,11 +98,8 @@ export class WriteFunnel {
    */
   async run<T>(op: { authorize?: () => Promise<void>; write: () => Promise<T> }): Promise<T> {
     // Through the KERNEL, so the order is the Authority's to enforce rather than
-    // this method's to remember. `changes: () => []` is the honest declaration
-    // for these call sites: issue mail, subscriptions and locks are durable
-    // writes with no publishable change, so there is nothing to append — which
-    // is a different statement from "we did not get round to declaring it", and
-    // the empty array says so at each call rather than in a comment here.
+    // this method's to remember. Source repositories name any records they
+    // change; a write without affected records appends nothing.
     //
     // No `arbitrate`, so this cannot be rejected; the outcome is committed by
     // construction. Asserted rather than cast, because "cannot happen" plus a
@@ -110,7 +107,6 @@ export class WriteFunnel {
     const outcome = await this.deps.authority.commit({
       ...(op.authorize === undefined ? {} : { authorize: op.authorize }),
       write: op.write,
-      changes: () => [],
     })
     if (outcome.outcome !== 'committed') {
       throw new Error(
@@ -119,20 +115,6 @@ export class WriteFunnel {
       )
     }
     return outcome.result
-  }
-
-  /** Cursor catch-up read (sync.changesSince) — null when compacted/future. */
-  async changesSince(
-    cursor: number | null,
-    principal: Principal = DEVICE_GRADE_PRINCIPAL,
-  ): Promise<MetadataChange[] | null> {
-    const delivery = await this.deps.authority.changesSince(cursor, principal)
-    if (delivery === null || delivery.kind !== 'batch') return null
-    return delivery.changes.flatMap(toBusChange)
-  }
-
-  async snapshot(principal: Principal = DEVICE_GRADE_PRINCIPAL): Promise<MetadataChange[]> {
-    return (await this.deps.authority.bootstrap(principal)).changes.flatMap(toBusChange)
   }
 
   async cursor(): Promise<number> {
@@ -145,63 +127,13 @@ export class WriteFunnel {
     return this.deps.authority.visibilityGrade()
   }
 
-  /** This feed's `(feedId, epoch)` (ADR 2 D1) — stamped onto every delta frame
-   *  and catch-up reply so a replica can compare the identity of the stream it
-   *  is reading, not just its position in it. Read from the serving edge, which
-   *  is the same source every published frame reads it from. */
-  async feedIdentity(): Promise<{ readonly feedId: string; readonly epoch: string }> {
-    return await this.deps.serving.identity()
-  }
-
-  /** The published retention horizon (ADR 2 D5), from that same source. */
-  async minAvailableSeq(): Promise<number> {
-    return await this.deps.serving.retentionFloor()
-  }
-
-  /**
-   * THE AUTHORITY'S OWN VIEW OF THIS PRINCIPAL'S SLICE (POD-376).
-   *
-   * The third snapshot of the shadow comparison — see
-   * `docs/agents/pod-376-shadow-comparison-basis.md` §2.1. It is NOT a fourth
-   * opinion about visibility: `AuthorityPort.bootstrap` applies the authority
-   * visibility policy. The HTTP equivalent is `sync-worker/producer.ts`, whose
-   * `bootstrapVisibility` composition in `sync-worker/visibility.ts` constructs
-   * that same GrantEdgeVisibilityPolicy over the worker snapshot. Both call
-   * `forBootstrap` and `decide` for the authenticated principal; they do not
-   * maintain separate visibility rules. That shared policy is the reason the comparison can classify an absence rather than
-   * suppress it — a harness that computed its own expectation of the slice would
-   * be grading the cutover against a second implementation of the thing under
-   * test.
-   *
-   * Keys and revisions only, never payloads: the classification needs identity
-   * and a version, and shipping every row's value to a diagnostic read would make
-   * a debugging aid the largest response on the wire.
-   */
-  async feedSlice(principal: import('@podium/protocol').Principal): Promise<{
-    feedId: string
-    epoch: string
-    throughSeq: number
-    rows: { entity: string; entityId: string }[]
-  }> {
-    const identity = await this.deps.serving.identity()
-    const world = await this.deps.authority.bootstrap(principal)
-    return {
-      feedId: identity.feedId,
-      epoch: identity.epoch,
-      throughSeq: world.throughSeq,
-      rows: world.changes.map((change) => ({
-        entity: change.entity,
-        entityId: change.entityId,
-      })),
-    }
-  }
-
   // ---- THE ordered, coalesced delivery pipe (#256) ----
   // Appends arrive in seq order from the single writer;
   // `pending` preserves arrival order,
   // so the flushed delivery is seq-ordered by construction.
   private pending: ScopedDelivery[] = []
   private cancelScheduledFlush: (() => void) | undefined
+  private publicationTail: Promise<void> = Promise.resolve()
 
   private queue(delivery: ScopedDelivery): void {
     this.pending.push(delivery)
@@ -214,38 +146,51 @@ export class WriteFunnel {
 
   /** Emit any coalesced (pending) delivery NOW. Deterministic seam for tests
    *  and dispose; cancel the scheduled flush and its idle subscription. */
-  flushDeltas(): void {
-    void Promise.resolve(this.deps.serving.flushPending()).catch((err) => {
-      log.warn('coalesced feed publication failed', { err })
-    })
+  flushDeltas(): Promise<void> {
+    const work = [
+      this.publicationTail,
+      Promise.resolve(this.deps.serving.flushPending()).catch((err) => {
+        log.warn('coalesced feed publication failed', { err })
+      }),
+    ]
     this.cancelScheduledFlush?.()
     this.cancelScheduledFlush = undefined
-    if (this.pending.length === 0) return
-    // `feedPublish.total` IS `sessionsBroadcast.total`'s successor, and the
-    // equivalence is structural rather than asserted [POD-736]: the deleted
-    // phase timed one whole coalesced publication of session truth to every
-    // connection, and so does this — the burst is coalesced here, then framed
-    // and delivered once per connection inside `serving.publish`. There is no
-    // other tail; a client sees nothing this method did not push.
-    const t0 = performance.now()
-    const perfKey = perfPrincipal(DEVICE_GRADE_PRINCIPAL)
-    const queued = this.pending
-    this.pending = []
-    const deliveries = coalesce(queued)
-    // `feedPublish.scope` is `sessionsBroadcast.list`'s successor: the work that
-    // decides WHAT this principal gets. The Authority evaluated the slice before
-    // handing it over (that cost lands in the committing write), so what is left
-    // to time on this side is the coalescing that merges the evaluated ranges.
-    perf.record('phase', 'feedPublish.scope', performance.now() - t0, perfKey)
-    for (const delivery of deliveries) {
-      this.deps.onPublished(delivery.throughSeq)
-      void Promise.resolve(this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)).catch(
-        (err) => {
-          log.warn('coalesced feed publication failed', { err })
-        },
-      )
+    if (this.pending.length > 0) {
+      // `feedPublish.total` IS `sessionsBroadcast.total`'s successor, and the
+      // equivalence is structural rather than asserted [POD-736]: the deleted
+      // phase timed one whole coalesced publication of session truth to every
+      // connection, and so does this — the burst is coalesced here, then framed
+      // and delivered once per connection inside `serving.publish`. There is no
+      // other tail; a client sees nothing this method did not push.
+      const t0 = performance.now()
+      const perfKey = perfPrincipal(this.deps.workspaceId, DEVICE_GRADE_PRINCIPAL)
+      const queued = this.pending
+      this.pending = []
+      const deliveries = coalesce(queued)
+      // `feedPublish.scope` is `sessionsBroadcast.list`'s successor: the work that
+      // decides WHAT this principal gets. The Authority evaluated the slice before
+      // handing it over (that cost lands in the committing write), so what is left
+      // to time on this side is the coalescing that merges the evaluated ranges.
+      perf.record('phase', 'feedPublish.scope', performance.now() - t0, perfKey)
+      for (const delivery of deliveries) {
+        this.deps.onPublished(delivery.throughSeq)
+        work.push(
+          Promise.resolve(this.deps.serving.publish(DEVICE_GRADE_PRINCIPAL, delivery)).catch(
+            (err) => {
+              log.warn('coalesced feed publication failed', { err })
+            },
+          ),
+        )
+      }
+      perf.record('phase', 'feedPublish.total', performance.now() - t0, perfKey)
     }
-    perf.record('phase', 'feedPublish.total', performance.now() - t0, perfKey)
+    // A second, empty flush must also wait for work an earlier flush handed to
+    // the asynchronous serving edge. Keep the originating operation alive until
+    // its publications finish, without changing when they are dispatched.
+    const completion = Promise.all(work).then(() => undefined)
+    this.publicationTail = completion
+    holdOperation(completion)
+    return completion
   }
 }
 
@@ -263,11 +208,7 @@ function coalesce(deliveries: readonly ScopedDelivery[]): ScopedDelivery[] {
   for (const delivery of deliveries) {
     const previous = out[out.length - 1]
     if (delivery.kind === 'batch' && previous?.kind === 'batch') {
-      out[out.length - 1] = {
-        kind: 'batch',
-        throughSeq: delivery.throughSeq,
-        changes: [...previous.changes, ...delivery.changes],
-      }
+      out[out.length - 1] = extendBatch(previous, delivery)
       continue
     }
     out.push(delivery)

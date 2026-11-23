@@ -1,16 +1,17 @@
 /** Real production consumers and one offline runtime. Every row is synthetic. */
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
+import { observable, runInAction } from 'mobx'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Toaster } from 'sonner'
-import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { ApprovalDialog } from '../src/app/ApprovalDialog'
@@ -18,7 +19,10 @@ import { AutoContinueDialog } from '../src/app/AutoContinueDialog'
 import { BrowserOpenOverlay } from '../src/app/BrowserOpenOverlay'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { isComplexFlightDeckMission } from '../src/app/flight-deck-display'
-import { MachinesPanel } from '../src/app/MachinesPanel'
+import { MachinesPanel } from '../src/features/settings/MachinesPanel'
+import { AdminViewerContext } from '../src/features/settings/admin-viewer'
+import { SettingsOpening } from '../src/features/settings/SettingsOpening'
+import { SettingsFrame } from '../src/features/settings/settings-frame'
 import { RightDock } from '../src/app/RightDock'
 import { RightRail } from '../src/app/RightRail'
 import { useShellChrome, useShellClose, useShellDock } from '../src/app/shell-data'
@@ -30,6 +34,12 @@ import { activatePodiumHref } from '../src/lib/podium-link'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 import '../src/styles.css'
+
+const settingsViewer = {
+  status: 'ready' as const,
+  sections: ['people', 'access', 'machines', 'instance', 'audit'],
+  retry: () => {},
+}
 
 const sessionIndex = { calls: 0, first: undefined as string | undefined }
 Object.assign(globalThis, { __shellSessionIndex: sessionIndex })
@@ -93,13 +103,44 @@ fixture.records.set(`shipLane:${lane.id}`, {
   value: lane,
   provenance: { seq: 1 },
 })
+// Two agent requests waiting for this person (POD-6674): `approval` effect
+// records on the feed. The dialog is mounted when the proof asks for it.
+for (const index of [0, 1]) {
+  const id = `apr_synthetic-approval-${index}`
+  fixture.records.set(`effect:${id}`, {
+    entity: 'effect',
+    entityId: id,
+    value: {
+      id,
+      kind: 'approval',
+      target: { kind: 'session', id: `synthetic-session-${index}` },
+      input: {
+        op: { kind: 'channel', target: 'dev' },
+        machineId: 'host-one',
+        sessionId: `synthetic-session-${index}`,
+        issueId: null,
+      },
+      cancelRequested: false,
+      decision: null,
+      effect: { status: 'pending', attempts: 0, stage: 'awaiting-approval' },
+      createdBy: 'shell-test',
+      createdAt: `2026-11-08T10:00:0${index}.000Z`,
+      updatedAt: `2026-11-08T10:00:0${index}.000Z`,
+      revision: 1,
+    },
+    provenance: { seq: 1 },
+  })
+}
+const approvalGate = observable({ shown: false })
+const ApprovalGate = observer(function ApprovalGate() {
+  return approvalGate.shown ? <ApprovalDialog /> : null
+})
 const lifecycle = {
   ...fixture.inputs().lifecycle,
   autoContinue: { enabled: false, promptDismissed: false },
 }
 Object.assign(fixture.api, {
   settings: { get: { query: async () => lifecycle }, updatePersonal: { mutate: async () => ({}) } },
-  approvals: { approve: { mutate: async () => ({}) }, deny: { mutate: async () => ({}) } },
   features: {
     state: {
       query: async () => ({
@@ -127,7 +168,9 @@ const recordCommit = (id: string) => {
 storeStats.enable()
 document.documentElement.classList.add('dark')
 const emit = (kind: string, value: unknown) =>
-  (runtime!.hub as unknown as { emit(kind: string, value: unknown): void }).emit(kind, value)
+  (
+    runtime!.services.connection.hub as unknown as { emit(kind: string, value: unknown): void }
+  ).emit(kind, value)
 const apply = (value: object) => (runtime as unknown as { apply(value: object): void }).apply(value)
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
@@ -143,8 +186,7 @@ const ChromeControls = observer(function ChromeControls() {
         {isComplexFlightDeckMission(chrome.missionRoot) ? 'Expanded' : 'Compact'} mission chrome
       </p>
       <p>
-        {chrome.repoCount} repositories · {chrome.worktreeCount} worktrees · {chrome.sessionCount}{' '}
-        sessions
+        {chrome.repoCount} repositories · {chrome.worktreeCount} worktrees
       </p>
       <p>
         Palette {String(chrome.paletteOpen)} · Superagent {String(chrome.superOpen)}
@@ -175,7 +217,7 @@ const DockContext = observer(function DockContext() {
   )
 })
 function Surfaces() {
-  const owner = useStoreHandle() as ClientRuntime,
+  const owner = useClientRuntime() as ClientRuntime,
     graph = useWorklistPool()
   useEffect(() => {
     runtime = owner
@@ -215,7 +257,18 @@ function Surfaces() {
       <div className="flex">
         <section data-proof="machines" className="w-1/2 p-4">
           <Profiler id="machines" onRender={recordCommit}>
-            <MachinesPanel />
+            <SettingsOpening>
+              <AdminViewerContext.Provider value={settingsViewer}>
+                <SettingsFrame
+                  page="machines"
+                  viewer={settingsViewer}
+                  onPageChange={() => {}}
+                  onClose={() => {}}
+                >
+                  <MachinesPanel />
+                </SettingsFrame>
+              </AdminViewerContext.Provider>
+            </SettingsOpening>
           </Profiler>
         </section>
         <section data-proof="dock" className="w-1/2 min-h-[400px]">
@@ -229,7 +282,7 @@ function Surfaces() {
           </Profiler>
         </section>
       </div>
-      <ApprovalDialog />
+      <ApprovalGate />
       <AutoContinueDialog />
       <BrowserOpenOverlay />
       <PodiumLinkHost />
@@ -250,9 +303,9 @@ root.render(
     onFatalError={(message) => failures.push(message)}
     attachRuntime={(owner) => {
       runtime = owner
-      fixture.bindHub(owner.hub)
+      fixture.bindHub(owner.services.connection.hub, undefined, owner.live)
       fixture.publishMachines()
-      Object.assign(owner.hub, {
+      Object.assign(owner.services.connection.hub, {
         dismissOpenUrl: () => {
           effects.dismisses++
         },
@@ -260,7 +313,6 @@ root.render(
           effects.callbacks++
         },
       })
-      void referenceState(owner).refreshRepos()
       return attachWorklistPool(owner, (error) => failures.push(error.message))
     }}
   >
@@ -362,21 +414,9 @@ const driver = {
     referenceState(runtime!).setSelectedIssueId(id ? asIssueId(id) : null)
   },
   approvals() {
-    emit(
-      'approvals',
-      [0, 1].map((index) => ({
-        id: `synthetic-approval-${index}`,
-        machineId: 'host-one',
-        machineName: 'Host 1',
-        sessionId: `synthetic-session-${index}`,
-        issueSeq: 1000 + index,
-        issueDisplayRef: `SYN-${1000 + index}`,
-        issueTitle: `Synthetic task ${index}`,
-        op: { kind: 'channel', target: 'dev' },
-        status: 'pending',
-        createdAt: new Date().toISOString(),
-      })),
-    )
+    runInAction(() => {
+      approvalGate.shown = true
+    })
   },
   prompt() {
     apply({ autoContinuePromptSessionId: 'synthetic-session-0' })
@@ -405,7 +445,7 @@ const driver = {
   }),
   artifacts: () =>
     referenceState(runtime!).fileTabs.filter((file) => file.scope.kind === 'artifact').length,
-  artifactCold: () => pool?.residency?.isCold('issue', artifactIssueId) ?? null,
+  artifactCold: () => (pool ? !pool.tables.issue.has(artifactIssueId) : null),
 }
 Object.assign(window, { __shellReaders: driver })
 declare global {

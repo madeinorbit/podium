@@ -1,11 +1,13 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { spawnIssueAgent } from '@podium/client-core/values'
+import type { IssueId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { observer } from 'mobx-react-lite'
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { ScrollView, StyleSheet, Text } from 'react-native'
 import { useTrpc } from '../client/hooks'
-import { useSettingsRecord } from '../client/use-settings-record'
+import { useMyCodingHarness } from '../client/my-preferences'
+import type { MobileTrpc } from '../client/trpc'
 import { IssueLaunchForm } from '../lib/issue-launch-draft'
 import { type LaunchPlan, launchPlanCanSubmit } from '../lib/launch-configuration'
 import { color } from '../theme/theme'
@@ -38,17 +40,20 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
   topInset?: number
 }) {
   const trpc = useTrpc()
-  const settingsRequest = useSettingsRecord()
+  const { startIssueSession } = useCommands<MobileTrpc>().sessions
+  const codingHarness = useMyCodingHarness()
+  const harnessRef = useRef(codingHarness)
+  harnessRef.current = codingHarness
   const form = useMemo(
     () =>
       issue
         ? new IssueLaunchForm(
             issue,
             (patch) => trpc.issues.update.mutate({ id: issue.id, patch }),
-            () => settingsRequest?.model?.codingHarness,
+            () => harnessRef.current,
           )
         : null,
-    [issue, trpc, settingsRequest],
+    [issue, trpc],
   )
   const [plan, setPlan] = useState<LaunchPlan | null>(null)
   const [busy, setBusy] = useState(false)
@@ -61,7 +66,10 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
     try {
       form.patch(plan.configuration)
       await form.edits.submit()
-      await spawnIssueAgent(trpc.issues, { id: issue.id })
+      // One more agent, or the first when the task was never started: an
+      // effect record, painted on the task at once (POD-6526).
+      const { settled } = startIssueSession({ issueId: issue.id as IssueId })
+      if (!(await settled)) throw new Error("Couldn't start the task")
       onClose()
       onStarted?.()
     } catch (cause) {

@@ -23,9 +23,12 @@ import {
 } from './procedures.js'
 import type { SessionSpec } from './session-spec.js'
 import { createFakeDriver, resetFakeRuntime, type FakeDriver } from './testing/fake-driver.js'
+import { testHarnessContext, testSessionTerms } from './testing/harness-context.js'
 
 const SPEC: SessionSpec = {
   harness: 'fake-harness',
+  ...testSessionTerms(),
+  harnessContext: testHarnessContext({ kind: 'codex' }),
   selection: { auth: 'unknown', platform: 'linux', available: ['fake'] },
   workdir: '/repo',
   model: {},

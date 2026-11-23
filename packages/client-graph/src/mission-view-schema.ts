@@ -28,7 +28,7 @@ export const FULL_DECK_SESSION_FIELDS: Readonly<Record<string, FieldSpec>> = {
 export const MISSION_VIEW_SUMMARIES = {
   issue: ['id', 'parentId', 'archived', 'deletedAt', 'stage', 'closedReason', 'updatedAt',
     // Open menus show these authored fields, never a full history projection.
-    'seq', 'title', 'repoId', 'repoPath', 'repoName', 'deps', 'labels', 'priority', 'pinned',
+    'seq', 'title', 'repoId', 'repoPath', 'repoName', 'deps', 'labels', 'priority',
     'worktreePath', 'deferUntil', 'duplicateOf', 'defaultAgent', 'needsHuman', 'blocked', 'isDraftVessel', 'audience'],
   session: ['sessionId', 'issueId', 'archived', 'headless', 'agentKind', 'lastActiveAt'],
 } as const

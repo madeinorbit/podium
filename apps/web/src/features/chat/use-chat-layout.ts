@@ -1,15 +1,18 @@
+import { useHttpOrigin, useRequestClient, useUi } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { matchesQuestionInteraction, type SuperThreadRef } from '@podium/client-core/values'
 import { isMachineOfflineForLiveTerminal, type SessionId } from '@podium/model/browser'
 import type { RefObject } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePoolMachine } from '@/app/header-data'
-import { useRuntimeActions } from '@/app/keyed-runtime'
+import type { Trpc } from '@/app/trpc'
+import type { MediaLightboxItem } from '@/components/MediaLightbox'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
-import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
+import { useAnswerSession } from './answer-session'
 import { ChatViewModel } from './chat-view-model'
 import { RENDER_WINDOW } from './conversation-presentation'
 import { revealFoldedRow } from './fold-reveal'
+import type { ChatImagePreview } from './ImageLightbox'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import type { WebConversation } from './use-conversation'
 import { useTranscriptReveal } from './use-transcript-reveal'
@@ -40,8 +43,8 @@ export interface ChatSurface {
   revealedRow: number | undefined
   /** A minimap jump into a closed fold (POD-2285); see fold-reveal.ts. */
   revealFoldedRow: (index: number) => boolean
-  lightbox: string | null
-  setLightbox: (url: string | null) => void
+  lightbox: string | ChatImagePreview | null
+  setLightbox: (url: string | null, items?: readonly MediaLightboxItem[], index?: number) => void
   setDraft: (text: string) => void
   submitDraft: (draft: string) => void
   sendOfferPrompt: (prompt: string, at: string) => Promise<void>
@@ -55,18 +58,15 @@ export interface ChatSurface {
   openFile: (sessionId: SessionId, path: string) => void
 }
 
-const LAYOUT_ACTIONS = [
-  'trpc',
-  'openFile',
-  'httpOrigin',
-  'clearAttachedSession',
-  'clearTranscriptReveal',
-] as const
-
 export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
   const { conversation, sessionId, active, compact } = opts
-  const { trpc, openFile, httpOrigin, clearAttachedSession, clearTranscriptReveal } =
-    useRuntimeActions(LAYOUT_ACTIONS)
+  const { trpc, openFile, httpOrigin, clearAttachedSession } = {
+    trpc: useRequestClient<Trpc>(),
+    openFile: useUi().openFile,
+    httpOrigin: useHttpOrigin(),
+    clearAttachedSession: useUi().clearAttachedSession,
+  }
+  const answerSession = useAnswerSession()
   // Thread routing belongs to the conversation's existing identity. An inline
   // parent prop with the same thread must not replace this mounted reader.
   const view = useMemo(
@@ -84,12 +84,26 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     return () => view.close()
   }, [view])
   const presentation = view.presentation
-  const sticky = useStickyPromptsPreference()
-  useEffect(() => view.setOptions(active, sticky.enabled), [view, active, sticky.enabled])
+  useEffect(() => view.setActive(active), [view, active])
 
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const taRef = useRef<HTMLTextAreaElement | null>(null)
-  const [lightbox, setLightbox] = useState<string | null>(null)
+  const [lightbox, updateLightbox] = useState<string | ChatImagePreview | null>(null)
+  // The ordered album is a UI snapshot taken on open, so later transcript
+  // changes cannot move an image out from under the person inspecting it.
+  const setLightbox = useCallback(
+    (url: string | null, items?: readonly MediaLightboxItem[], index = 0) => {
+      updateLightbox(
+        url && items?.length
+          ? {
+              items,
+              index: Math.max(0, Math.min(index, items.length - 1)),
+            }
+          : url,
+      )
+    },
+    [],
+  )
   const log = conversation.transcript
   const loadOlder = useCallback(() => {
     void presentation.loadOlder().catch(() => {})
@@ -131,7 +145,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     setRenderCount: presentation.setRenderCount,
     loadOlder: scroll.loadOlder,
     scrollToBlock: scroll.scrollToBlock,
-    clear: clearTranscriptReveal,
+    clear: view.clearTranscriptReveal,
   })
   // Unknown presence does not count as a reconnect. Losing the selected
   // machine or hiding the pane also does not fabricate an online transition.
@@ -212,14 +226,20 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
           !matchesQuestionInteraction(question, answer.question))
       )
         throw new Error('The question changed; wait for the current menu.')
-      const sent = (await trpc.sessions.answerAskUserQuestion.mutate(
+      // A `session.answer` record (POD-6415); its result is the delivery's reply.
+      const sent = await answerSession(
+        sessionId,
         'skip' in answer
-          ? { sessionId, interactionId: answer.interactionId, skip: true }
-          : { sessionId, interactionId: answer.interactionId, choices: answer.choices },
-      )) as { ok?: boolean; reason?: string } | undefined
-      if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+          ? { via: 'menu', interactionId: answer.interactionId, skip: true }
+          : {
+              via: 'menu',
+              interactionId: answer.interactionId,
+              choices: answer.choices as readonly Record<string, unknown>[],
+            },
+      )
+      if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
     },
-    [view, conversation, trpc, sessionId, scroll.pinToBottom],
+    [view, conversation, answerSession, sessionId, scroll.pinToBottom],
   )
   const activeRow = presentation.search.activeRow
   const activeMatch = presentation.search.activeMatch
@@ -228,10 +248,13 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     if (activeRow === undefined || activeMatch === undefined || activeMatchKey === undefined) return
     // Materialize the turn owner, then land on the selected member. Several
     // commands share one row address; cursor moves within that row still scroll.
-    const owner = presentation.turnFolds.byMember.get(activeRow)?.start ?? activeRow
-    const land = () => scroll.scrollToBlock(owner, { memberKey: activeMatchKey })
-    if (owner < presentation.renderStart) {
-      presentation.setRenderCount(presentation.rowCount - owner + RENDER_WINDOW)
+    const boundary = presentation.turnBoundaryAt(activeRow)
+    const land = () => {
+      const owner = presentation.turnFolds.byMember.get(activeRow)?.start ?? activeRow
+      scroll.scrollToBlock(owner, { memberKey: activeMatchKey })
+    }
+    if (boundary < presentation.renderStart) {
+      presentation.setRenderCount(presentation.rowCount - boundary + RENDER_WINDOW)
       const frame = requestAnimationFrame(land)
       return () => cancelAnimationFrame(frame)
     }

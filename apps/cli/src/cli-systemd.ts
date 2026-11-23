@@ -3,9 +3,19 @@
 // one source (including the CPU/IO tiers from e4660620 and the health backstop from 54d60a8b).
 // Design: docs/internal/superpowers/specs/2026-07-06-headless-process-model-design.md
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { userInfo } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { DAEMON_BLOCKED_EXIT_CODE } from '@podium/runtime/connectivity'
 import {
@@ -804,22 +814,74 @@ export function disarmSystemdUnits(units: string[]): void {
   run('systemctl', ['--user', 'disable', ...units])
 }
 
+interface RuntimeUnitDeps {
+  run?: (cmd: string, args: string[]) => void
+  runtimeDir?: () => string
+}
+
+function runtimeControlDir(deps: RuntimeUnitDeps): string {
+  const environment: Record<string, string | undefined> = process.env
+  const root = deps.runtimeDir?.() ?? environment.XDG_RUNTIME_DIR ?? `/run/user/${userInfo().uid}`
+  return join(root, 'systemd', 'user.control')
+}
+
+function runtimeMaskPath(unit: string, deps: RuntimeUnitDeps): string {
+  if (basename(unit) !== unit || !/\.(service|timer)$/.test(unit))
+    throw new Error(`not a user unit name: ${unit}`)
+  return join(runtimeControlDir(deps), unit)
+}
+
+function runtimeMaskState(path: string): 'absent' | 'mask' | 'definition' {
+  try {
+    return lstatSync(path).isSymbolicLink() && readlinkSync(path) === '/dev/null'
+      ? 'mask'
+      : 'definition'
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 'absent'
+    throw error
+  }
+}
+
+/** Only our runtime fence, not a persistent operator mask. */
+export function systemdUnitRuntimeMasked(unit: string, deps: RuntimeUnitDeps = {}): boolean {
+  return runtimeMaskState(runtimeMaskPath(unit, deps)) === 'mask'
+}
+
 /**
  * Runtime-only mask: a running unit stays up, but Restart=always cannot
  * resurrect it. The mask lives in /run and vanishes on reboot, so a kill
  * mid-handover still boots into the fully-armed legacy set.
  */
-export function maskSystemdUnitsRuntime(
-  units: string[],
-  deps: { run?: (cmd: string, args: string[]) => void } = {},
-): void {
+export function maskSystemdUnitsRuntime(units: string[], deps: RuntimeUnitDeps = {}): void {
   if (units.length === 0) return
-  ;(deps.run ?? run)('systemctl', ['--user', 'mask', '--runtime', ...units])
+  const paths = units.map((unit) => ({ unit, path: runtimeMaskPath(unit, deps) }))
+  // A persistent user definition outranks an ordinary `mask --runtime` link.
+  // user.control precedes it without changing the reboot-safe persistent file.
+  for (const { unit, path } of paths)
+    if (runtimeMaskState(path) === 'definition')
+      throw new Error(`refusing to overwrite a runtime user unit definition: ${unit}`)
+  mkdirSync(runtimeControlDir(deps), { recursive: true })
+  for (const { path } of paths) {
+    try {
+      symlinkSync('/dev/null', path)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || runtimeMaskState(path) !== 'mask')
+        throw error
+    }
+  }
+  ;(deps.run ?? run)('systemctl', ['--user', 'daemon-reload'])
 }
 
-export function unmaskSystemdUnits(units: string[]): void {
+export function unmaskSystemdUnits(units: string[], deps: RuntimeUnitDeps = {}): void {
   if (units.length === 0) return
-  run('systemctl', ['--user', 'unmask', ...units])
+  for (const unit of units) {
+    const path = runtimeMaskPath(unit, deps)
+    if (runtimeMaskState(path) === 'mask') rmSync(path, { force: true })
+  }
+  // Also clear an ordinary runtime mask left by an older migrator. Neither
+  // operation removes a caller's non-mask definition or its .d drop-ins.
+  // Limit systemctl to runtime state so persistent operator masks survive.
+  ;(deps.run ?? run)('systemctl', ['--user', '--runtime', 'unmask', ...units])
 }
 
 export function startSystemdUnits(units: string[]): void {
@@ -833,6 +895,40 @@ export function restartSystemdUnits(units: string[]): void {
   run('systemctl', ['--user', 'restart', ...units])
 }
 
+function resetRetiredFailedUnits(
+  units: readonly string[],
+  runCommand: (cmd: string, args: string[]) => void,
+): void {
+  for (const unit of units) {
+    try {
+      runCommand('systemctl', ['--user', 'reset-failed', unit])
+    } catch (error) {
+      // Inactive names may already have been collected; other failures surface.
+      if (!(error instanceof Error) || !/\bnot loaded\b/.test(error.message)) throw error
+    }
+  }
+}
+
+/** Remove enablement that systemctl cannot see through the runtime fence. */
+function removeRetiredUnitLinks(dir: string, units: readonly string[]): void {
+  if (!existsSync(dir)) return
+  const definitions = new Set(units.map((unit) => resolve(dir, unit)))
+  const removeSelectedLink = (path: string) => {
+    if (definitions.has(resolve(dirname(path), readlinkSync(path)))) rmSync(path)
+  }
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isSymbolicLink()) removeSelectedLink(path)
+    // Only immediate dependency directories; never follow an operator's
+    // symlinked directory or recurse into drop-ins or unrelated configuration.
+    else if (entry.isDirectory() && /\.(?:wants|requires|upholds)$/.test(entry.name)) {
+      for (const link of readdirSync(path, { withFileTypes: true })) {
+        if (link.isSymbolicLink()) removeSelectedLink(join(path, link.name))
+      }
+    }
+  }
+}
+
 /**
  * Stop, disable, unlink, and daemon-reload so the definitions disappear.
  * Used only AFTER the parent reports healthy. Empty input is a no-op.
@@ -841,6 +937,7 @@ export async function removeUserUnits(
   units: string[],
   deps: {
     unitDir?: () => string
+    runtimeDir?: () => string
     run?: (cmd: string, args: string[]) => void
     afterStop?: (unit: string, remaining: number) => void | Promise<void>
     beforeRemove?: () => void | Promise<void>
@@ -849,11 +946,6 @@ export async function removeUserUnits(
   if (units.length === 0) return
   const dir = (deps.unitDir ?? userUnitDir)()
   const runCommand = deps.run ?? run
-  try {
-    runCommand('systemctl', ['--user', 'unmask', ...units])
-  } catch {
-    // not masked — fine
-  }
   for (let i = 0; i < units.length; i++) {
     const unit = units[i] as string
     try {
@@ -866,8 +958,17 @@ export async function removeUserUnits(
     await deps.afterStop?.(unit, units.length - i - 1)
   }
   await deps.beforeRemove?.()
+  // Keep the runtime fence and definitions until all old processes have stopped.
+  // A masked unit hides its [Install] section from systemctl disable, so remove
+  // only links to these exact definitions before removing the definitions.
+  removeRetiredUnitLinks(dir, units)
+  // Clear failure while every name is still known and fenced: a crash after
+  // unlink must not strand a not-found failed unit that discovery cannot see.
+  resetRetiredFailedUnits(units, runCommand)
   for (const unit of units) {
     rmSync(join(dir, unit), { force: true })
   }
+  unmaskSystemdUnits(units, { run: runCommand, runtimeDir: deps.runtimeDir })
   runCommand('systemctl', ['--user', 'daemon-reload'])
+  resetRetiredFailedUnits(units, runCommand)
 }

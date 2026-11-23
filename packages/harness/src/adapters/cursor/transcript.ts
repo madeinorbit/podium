@@ -1,14 +1,15 @@
 import type { TranscriptItem } from '@podium/model'
-import { toolInputPreview } from '../claude-code/transcript.js'
-import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
-import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 import { cursorSessionPaths } from '../../cursor/paths.js'
 import {
   fileTranscript,
   supported,
-  transcriptFileExists,
   type TranscriptSourceInput,
+  transcriptFileExists,
 } from '../../manifest.js'
+import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
+import { toolInputPreview } from '../claude-code/transcript.js'
+import { commandExecution, executionOutput, executionText } from '../shared/execution.js'
+import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 
 /** Normalize one Cursor agent-transcripts JSONL record into Podium chat items. */
 export function cursorRecordToItems(record: unknown): TranscriptItem[] {
@@ -113,20 +114,28 @@ function toolCallItem(record: Record<string, unknown>): TranscriptItem | undefin
     stringField(record, 'tool_call_id')
   const input = record.input ?? record.arguments ?? record.args
   const toolInputJson = safeToolEditJsonFromInput(toolName, input)
+  const command =
+    ['Bash', 'bash', 'Shell', 'shell_command'].includes(toolName) &&
+    isRecord(input) &&
+    typeof input.command === 'string'
+      ? input.command
+      : undefined
+  const description =
+    isRecord(input) && typeof input.description === 'string' ? input.description : undefined
   return {
     id: toolUseId ?? SYNTHESIZED_ITEM_ID_PREFIX,
     role: 'tool',
     text: '',
     toolName,
     toolInput: toolInputPreview(input),
+    ...(command !== undefined ? { toolExecution: commandExecution(command, description) } : {}),
     ...(toolInputJson ? { toolInputJson } : {}),
     ...(toolUseId ? { toolUseId } : {}),
   }
 }
 
 function toolResultItem(record: Record<string, unknown>): TranscriptItem | undefined {
-  const resultText = contentText(record.result ?? record.output ?? record.content)
-  if (!resultText) return undefined
+  const resultText = executionText(record.result ?? record.output ?? record.content)
   const toolUseId =
     stringField(record, 'tool_use_id') ??
     stringField(record, 'tool_call_id') ??
@@ -135,7 +144,11 @@ function toolResultItem(record: Record<string, unknown>): TranscriptItem | undef
     id: toolUseId ? `${toolUseId}:out` : SYNTHESIZED_ITEM_ID_PREFIX,
     role: 'tool',
     text: '',
-    toolResult: truncate(resultText, 2000),
+    ...executionOutput(resultText, {
+      ...(typeof record.is_error === 'boolean'
+        ? { status: record.is_error ? ('failed' as const) : ('completed' as const) }
+        : {}),
+    }),
     ...(toolUseId ? { toolUseId } : {}),
   }
 }
@@ -203,13 +216,12 @@ function stringField(value: unknown, key: string): string | undefined {
 // authoritative transcript definition for this harness (spec §4).
 // ---------------------------------------------------------------------------
 
-
 export async function cursorChainPaths(input: TranscriptSourceInput): Promise<string[]> {
   if (!input.resumeValue) return []
   const path = cursorSessionPaths({
     cwd: input.cwd,
     chatId: input.resumeValue,
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    homeDir: input.account.home,
   }).transcriptPath
   return (await transcriptFileExists(path)) ? [path] : []
 }

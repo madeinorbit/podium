@@ -43,6 +43,9 @@
  * 3. WRITE + APPEND, in ONE transact span (ADR 2 D10). "The entity row changed"
  *    and "the change log says so" commit or roll back together, which is why the
  *    feed can never disagree with the tables.
+ *    Writers name no records: the database captures which model rows the
+ *    write changed, and the Authority builds the records those rows reach and
+ *    appends each whole (POD-6920). No published copy is read by a write.
  * 4. BROADCAST. After the span, never inside it: a subscriber must not be able to
  *    observe — or worse, act on — a change that a later throw rolls back.
  *
@@ -82,19 +85,15 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { MetadataEntityKind, type Principal, principalRoutingId } from '@podium/protocol'
-import {
-  type ChangeLogStore,
-  ChangeRangeBootstrapRequired,
-  detectionKey,
-  differsFromStored,
-  storedKeyOf,
-} from '../change-log'
+import type { ChangeProvenanceFields } from '@podium/model'
+import { type MetadataEntityKind, type Principal, principalRoutingId } from '@podium/protocol'
+import { type ChangeLogStore, ChangeRangeBootstrapRequired } from '../change-log'
 import type {
   FeedScopingGrade,
   FeedVisibilityPolicy,
   VisibilityAnchorPort,
 } from '../feed/visibility'
+import type { RecordIdsByKind } from '../record-builders'
 import { arbitrate } from './arbitration'
 import type { ScopedChange, SequencedChange, StagedChangeSpec } from './change-lifecycle'
 import type {
@@ -104,6 +103,8 @@ import type {
   AuthorityPort,
   ChangeSubscriber,
   PostCommitFollowUpPort,
+  ProvenancePort,
+  RecordSourcePort,
   TransactPort,
 } from './ports'
 import {
@@ -141,10 +142,6 @@ export interface AuthorityDeps {
    * is a SAVEPOINT. "After my savepoint released" is not "after the transaction
    * committed": the outer body can still throw, and every subscriber has already
    * been told about changes the database then rolls back.
-   *
-   * Dedup does not move with the delivery: `stage` and `reconcile` read the
-   * stored rows inside the span (POD-6156), so they see the span's own earlier
-   * writes and forget them on a rollback with no memory to keep in step.
    */
   postCommit?: PostCommitFollowUpPort
   /**
@@ -162,6 +159,17 @@ export interface AuthorityDeps {
   anchors: VisibilityAnchorPort
   /** D14.4's terminal-path bound. Defaults to {@link DEFAULT_RESCOPE_THRESHOLD}. */
   rescopeThreshold?: number
+  /**
+   * The command now appending (ADR 2 D8; POD-6272). Read once per `commit`. Unset means no row is stamped, which is
+   * what every caller outside the write entry point gets.
+   */
+  provenance?: ProvenancePort
+  /**
+   * Current records built from model tables, and which of them a write
+   * changed (the drained capture, POD-6920), for the append, bootstrap and
+   * access checks. Required: a log cannot answer current-state reads.
+   */
+  records: RecordSourcePort
 }
 
 /**
@@ -182,20 +190,51 @@ interface StagedRow {
   payload: string | null
 }
 
+/** One record as built from the database: its value and its serialized form. */
+interface BuiltState {
+  readonly value: unknown
+  readonly json: string
+}
+
 /** One subscription: who it is for, and where its deliveries go. */
 interface ScopedSubscription {
   readonly principal: Principal
   readonly deliver: ChangeSubscriber
 }
 
-const ABSENT: unique symbol = Symbol('absent')
+/**
+ * The DEFINED fields of a provenance group, or `undefined` when it names none.
+ * One place decides "absent stays absent": a field reported or spread as
+ * `undefined` is not a key on the stored row, the broadcast or the read.
+ */
+function definedProvenance(
+  p: ChangeProvenanceFields | undefined,
+): ChangeProvenanceFields | undefined {
+  if (p === undefined) return undefined
+  const out: ChangeProvenanceFields = {}
+  if (p.originId !== undefined) out.originId = p.originId
+  if (p.causationId !== undefined) out.causationId = p.causationId
+  if (p.mutationId !== undefined) out.mutationId = p.mutationId
+  return out.originId === undefined && out.causationId === undefined && out.mutationId === undefined
+    ? undefined
+    : out
+}
 
-/** A stored payload's value, or {@link ABSENT} for a corrupt one: the same rule
- *  as dedup (`storedKeyOf`), so a row dedup treats as "not there" is not in a
- *  snapshot either. */
-function installedValueOf(entity: MetadataEntityKind, payload: string | null): unknown | typeof ABSENT {
-  if (payload === null || storedKeyOf(entity, payload) === undefined) return ABSENT
-  return JSON.parse(payload)
+/**
+ * Each spec with its provenance group settled: its OWN group when it names any
+ * field (the whole group, so an ambient field is never grafted onto a writer's
+ * explicit provenance), else the ambient one, else none.
+ */
+function stampProvenance(
+  specs: readonly StagedChangeSpec[],
+  ambient: ChangeProvenanceFields | undefined,
+): StagedChangeSpec[] {
+  return specs.map((spec) => {
+    const { originId, causationId, mutationId, ...rest } = spec
+    const own = definedProvenance({ originId, causationId, mutationId })
+    const group = own ?? ambient
+    return group === undefined ? rest : { ...rest, ...group }
+  })
 }
 
 export class Authority implements AuthorityPort {
@@ -203,39 +242,32 @@ export class Authority implements AuthorityPort {
 
   constructor(private readonly deps: AuthorityDeps) {}
 
-  /**
-   * Current durable values of one entity kind, in seq order: the installed rows,
-   * read from the database (inside the caller's span, if one is open). A corrupt
-   * payload (see `storedKeyOf`) is left out, as dedup treats it as absent.
-   */
+  /** Current values from the model tables, in the caller's snapshot. */
   async snapshot(entity: MetadataEntityKind): Promise<readonly unknown[]> {
     const values: unknown[] = []
-    for (const row of await this.deps.store.installedStatesOf(entity)) {
-      const value = installedValueOf(entity, row.payload)
-      if (value !== ABSENT) values.push(value)
+    for await (const page of this.deps.records.streamAll(entity)) {
+      for (const record of page) values.push(record.value)
     }
     return values
   }
 
-  /**
-   * The current durable value of each of these entities, by id: one grouped
-   * read of exactly these rows [POD-6156]. An id with no installed row, or a
-   * corrupt one, is absent.
-   */
+  /** Current values of exactly these ids; a missing model record is absent. */
   async installedValues(
     entity: MetadataEntityKind,
     ids: readonly string[],
   ): Promise<ReadonlyMap<string, unknown>> {
     const out = new Map<string, unknown>()
     if (ids.length === 0) return out
-    for (const row of await this.deps.store.installedStates(ids.map((entityId) => ({ entity, entityId })))) {
-      const value = installedValueOf(entity, row.payload)
-      if (value !== ABSENT) out.set(row.entityId, value)
-    }
+    for (const record of await this.deps.records.build(entity, ids))
+      out.set(record.id, record.value)
     return out
   }
 
   async commit<T>(op: AuthorityCommit<T>): Promise<AuthorityCommitOutcome<T>> {
+    // The causing command, read ONCE and before the first await, so the answer
+    // is the caller's even if the write awaits into another context.
+    const ambient = this.ambientProvenance()
+
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
     await op.authorize?.()
 
@@ -247,7 +279,10 @@ export class Authority implements AuthorityPort {
     //    its own clock the only one a field-LWW row may arbitrate on, and the
     //    port has nowhere for a caller to supply a different one.
     const eventTime = this.deps.now()
-    const committed = await this.deps.transact(async () => {
+    // Where this commit starts in the capture: what an enclosing write
+    // captured before it is that write's to drain, not this commit's.
+    const mark = (await this.deps.records.captureMark?.()) ?? 0
+    const body = async () => {
       if (op.arbitrate !== undefined) {
         const { current, ...request } = op.arbitrate
         const verdict = arbitrate({
@@ -262,12 +297,22 @@ export class Authority implements AuthorityPort {
         }
       }
 
+      // DERIVED CHANGE CAPTURE (POD-6253 design §3, POD-6920): the write
+      // names nothing. The database captured every model row the transaction
+      // changed since this commit started; draining it answers the records
+      // those rows reach, and
+      // each is built as it is now, in this span, so nothing else can write
+      // between the build and the append.
       const result = await op.write()
-      const rows = await this.stage(await op.changes(result))
+      const rows = await this.stageTouched(await this.deps.records.drainCapture(mark), ambient)
       const seqs = rows.length > 0 ? await this.append(rows, eventTime) : []
       const changes = await this.finalize(rows, seqs)
       return { outcome: 'committed', result, changes } as const
-    })
+    }
+    const records = this.deps.records
+    const committed = await this.deps.transact(async () =>
+      records.inCommit === undefined ? await body() : await records.inCommit(body),
+    )
 
     if (committed.outcome === 'rejected') return committed
 
@@ -278,54 +323,6 @@ export class Authority implements AuthorityPort {
       result: committed.result,
       changes: committed.changes,
     }
-  }
-
-  async capture(specs: readonly StagedChangeSpec[]): Promise<readonly SequencedChange[]> {
-    const eventTime = this.deps.now()
-    // The read that decides "unchanged" and the append it decides run in ONE
-    // span, so no other writer can append between them.
-    const { staged, seqs } = await this.deps.transact(async () => {
-      const staged = await this.stage(specs)
-      return { staged, seqs: staged.length > 0 ? await this.append(staged, eventTime) : [] }
-    })
-    return await this.finalize(staged, seqs)
-  }
-
-  /**
-   * Reconcile one kind's FULL TRUTH: upsert every listed row that changed, and
-   * remove every installed id the list no longer names — the only remove diff
-   * left in the system, and the reason reconcile exists at all: an entity
-   * deleted while the Authority was down has no write to have declared it.
-   *
-   * ONE read of the kind's installed rows, inside the span that appends,
-   * answers both questions [POD-6156]. The removes follow seq order.
-   */
-  async reconcile(
-    entity: MetadataEntityKind,
-    rows: readonly { readonly id: string; readonly value: unknown }[],
-  ): Promise<readonly SequencedChange[]> {
-    const eventTime = this.deps.now()
-    const { staged, seqs } = await this.deps.transact(async () => {
-      const installed = await this.deps.store.installedStatesOf(entity)
-      const stored = new Map<string, string>()
-      for (const row of installed) {
-        if (row.payload !== null) stored.set(entityOverlayKey(entity, row.entityId), row.payload)
-      }
-      const specs: StagedChangeSpec[] = rows.map((r) => ({
-        entity,
-        entityId: r.id,
-        op: 'upsert',
-        value: r.value,
-      }))
-      // `stage` drops a remove of a corrupt row, which was never "there".
-      const listed = new Set(rows.map((r) => r.id))
-      for (const row of installed) {
-        if (!listed.has(row.entityId)) specs.push({ entity, entityId: row.entityId, op: 'remove' })
-      }
-      const staged = await this.stage(specs, stored)
-      return { staged, seqs: staged.length > 0 ? await this.append(staged, eventTime) : [] }
-    })
-    return await this.finalize(staged, seqs)
   }
 
   /**
@@ -392,50 +389,19 @@ export class Authority implements AuthorityPort {
   }
 
   /**
-   * THE INSTALLED WORLD for one principal, at the current head (POD-1203).
-   *
-   * This is what makes bootstrap a FEED FEATURE rather than a parallel mechanism.
-   * Before the serving-path cutover the server answered "what is there?" by
-   * asking five features to rebuild their own full lists, and the delta stream
-   * answered "what changed?" — two paths over one truth, agreeing by assumption.
-   * Here both answers come out of the same log: the world is the latest retained
-   * row per (entity, id), and the position it was read at is the same `cursor()`
-   * the next delta certifies from.
-   *
-   * Rows and head are read with two separate awaits. Consistency requires the
-   * snapshot owned by POD-3933's sync worker; this method itself does not hold
-   * a snapshot across those reads.
+   * Current model records stamped with the feed head. The caller owns the
+   * read snapshot across the head and the stream (the sync worker does so).
+   * No current-state read depends on catch-up retention.
    */
   async bootstrap(principal: Principal): Promise<ScopedBootstrap> {
+    const head = await this.cursor()
     const state: SequencedChange[] = []
-    for (const row of await this.deps.store.latestChangeStates()) {
-      if (
-        row.op !== 'upsert' ||
-        row.payload === null ||
-        !MetadataEntityKind.safeParse(row.entity).success
-      )
-        continue
-      try {
-        state.push({
-          seq: row.seq,
-          entity: row.entity as MetadataEntityKind,
-          entityId: row.entityId,
-          op: 'upsert',
-          value: JSON.parse(row.payload),
-        })
-      } catch {
-        // A corrupt payload is skipped rather than failing the attach: the row is
-        // unreadable for every consumer of the log (dedup treats it as absent
-        // for the same reason), and the next write of that entity re-upserts it
-        // into every replica.
+    for await (const { entity, records: page } of this.deps.records.streamAllKinds()) {
+      for (const record of page) {
+        state.push({ seq: head, entity, entityId: record.id, op: 'upsert', value: record.value })
       }
     }
-    return await scopeBootstrap(
-      { policy: this.deps.visibility },
-      principal,
-      state,
-      await this.cursor(),
-    )
+    return await scopeBootstrap({ policy: this.deps.visibility }, principal, state, head)
   }
 
   /**
@@ -463,6 +429,16 @@ export class Authority implements AuthorityPort {
     return () => {
       this.subscribers.delete(subscription)
     }
+  }
+
+  /**
+   * Resolves once every delivery pass queued so far has run. Deliveries trail
+   * the commits that queued them (post-commit, append order), so a test that
+   * counts a later operation's statements waits here first, or the passes of
+   * its setup's writes land in the count.
+   */
+  async settled(): Promise<void> {
+    await this.broadcastTail
   }
 
   /** The principals currently subscribed, by stable id. Telemetry and tests. */
@@ -506,76 +482,52 @@ export class Authority implements AuthorityPort {
   }
 
   // -------------------------------------------------------------------------
-  // Staging and dedup
+  // Derived change capture (POD-6253 design §3, POD-6920)
   // -------------------------------------------------------------------------
 
   /**
-   * Dedup declared specs against the STORED rows, IN ORDER, tracking a batch-local
-   * overlay so several specs for one (entity, id) in one batch compare against
-   * the batch's own staged state — a first-sight upsert followed by a remove
-   * stages both, not just the upsert.
-   *
-   * Dedup is byte-equality on the serialized wire JSON, except conversations,
-   * which compare on a stable-field projection (`updatedAt`/`messageCount`/
-   * `statusHint` excluded from DETECTION while the durable payload stays the full
-   * value — the 81MB/day churn fix). A no-op upsert and a remove of an id the log
-   * never recorded are both dropped, so a fully-deduped commit appends nothing.
-   *
-   * The stored rows come from ONE grouped read of the batch's keys inside the
-   * caller's span (or `preloaded`, a reconcile's read of the whole kind). That
-   * read replaces the in-memory baseline that held every installed row
-   * [POD-6156]; the same savepoint and rollback rules hold because the database
-   * enforces them.
+   * One row per touched record, in the order the capture reached them: an
+   * upsert of the record as the database holds it now, or a remove when it
+   * is gone. There is no build before the write and no compare: a record the
+   * capture reached is appended whole.
    */
-  private async stage(
-    specs: readonly StagedChangeSpec[],
-    preloaded?: ReadonlyMap<string, string>,
+  private async stageTouched(
+    touched: RecordIdsByKind,
+    ambient: ChangeProvenanceFields | undefined,
   ): Promise<StagedRow[]> {
-    const stored =
-      specs.length === 0 ? new Map<string, string>() : (preloaded ?? (await this.storedPayloads(specs)))
-    const storedOf = (spec: StagedChangeSpec) => stored.get(entityOverlayKey(spec.entity, spec.entityId))
-    const rows: StagedRow[] = []
-    type Overlay = { op: 'upsert'; json: string; value: unknown } | { op: 'remove' }
-    const overlay = new Map<string, Overlay>()
-    for (const spec of specs) {
-      const key = entityOverlayKey(spec.entity, spec.entityId)
-      const prior = overlay.get(key)
-      if (spec.op === 'upsert') {
-        const json = JSON.stringify(spec.value)
-        const changed = prior
-          ? prior.op === 'remove' ||
-            detectionKey(spec.entity, prior.value, prior.json) !==
-              detectionKey(spec.entity, spec.value, json)
-          : differsFromStored(spec.entity, storedOf(spec), spec.value, json)
-        if (!changed) continue
-        rows.push({ spec, payload: json })
-        overlay.set(key, { op: 'upsert', json, value: spec.value })
-      } else {
-        const present = prior ? prior.op === 'upsert' : storedKeyOf(spec.entity, storedOf(spec)) !== undefined
-        if (!present) continue
-        rows.push({ spec, payload: null })
-        overlay.set(key, { op: 'remove' })
+    if (touched.size === 0) return []
+    const built = new Map<string, BuiltState>()
+    for await (const { entity, records: page } of this.deps.records.buildMany(touched)) {
+      for (const record of page) {
+        built.set(entityOverlayKey(entity, record.id), {
+          value: record.value,
+          json: JSON.stringify(record.value),
+        })
       }
     }
-    return rows
+    const specs: StagedChangeSpec[] = []
+    const payloads: (string | null)[] = []
+    for (const [entity, ids] of touched) {
+      for (const entityId of ids) {
+        const now = built.get(entityOverlayKey(entity, entityId))
+        if (now === undefined) {
+          specs.push({ entity, entityId, op: 'remove' })
+          payloads.push(null)
+        } else {
+          specs.push({ entity, entityId, op: 'upsert', value: now.value })
+          payloads.push(now.json)
+        }
+      }
+    }
+    return stampProvenance(specs, ambient).map((spec, i) => ({
+      spec,
+      payload: payloads[i] as string | null,
+    }))
   }
 
-  /**
-   * The stored payload of every key a batch names, in ONE grouped read inside the
-   * caller's span [POD-6156]: the database already shows the span's own earlier
-   * writes and forgets them on a rollback, which is what the old in-memory
-   * baseline's pending layer existed to imitate.
-   */
-  private async storedPayloads(specs: readonly StagedChangeSpec[]): Promise<Map<string, string>> {
-    const keys = new Map<string, { entity: string; entityId: string }>()
-    for (const spec of specs) {
-      keys.set(entityOverlayKey(spec.entity, spec.entityId), { entity: spec.entity, entityId: spec.entityId })
-    }
-    const out = new Map<string, string>()
-    for (const row of await this.deps.store.installedStates([...keys.values()])) {
-      if (row.payload !== null) out.set(entityOverlayKey(row.entity, row.entityId), row.payload)
-    }
-    return out
+  /** The ambient command's provenance, with undefined fields dropped. */
+  private ambientProvenance(): ChangeProvenanceFields | undefined {
+    return definedProvenance(this.deps.provenance?.current())
   }
 
   private async append(rows: readonly StagedRow[], eventTime: number): Promise<number[]> {
@@ -585,14 +537,15 @@ export class Authority implements AuthorityPort {
         entityId: r.spec.entityId,
         op: r.spec.op,
         payload: r.payload,
+        // Already settled by `stampProvenance`; passed through as stored.
+        ...definedProvenance(r.spec),
       })),
       eventTime,
     )
   }
 
   /**
-   * Post-span tail: build the sequenced rows and notify. Nothing is folded
-   * into memory: the next dedup reads the stored rows [POD-6156].
+   * Post-span tail: build the sequenced rows and notify after commit.
    *
    * Per-subscriber try/catch: the changes are already durable, so a subscriber
    * throwing must not make a committed write look failed to its caller, and must

@@ -20,7 +20,12 @@
  * from a machine other than the one the request was sent to (POD-1175).
  */
 
-import type { ConversationDiagnosticWire, ConversationSummaryWire, MachineId } from '@podium/model'
+import type {
+  ConversationDiagnosticWire,
+  ConversationDiscoveryWire,
+  MachineId,
+  SessionId,
+} from '@podium/model'
 import type { DaemonPtyInputBatch, DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { RpcDaemonFrame, SessionsDaemonFrame } from './daemon-frame-routing'
@@ -48,6 +53,8 @@ export type DaemonControlPeer = ControlSend | DaemonControlTransport
  * D8/D16; POD-394).
  */
 export interface SessionInputGatewayPort {
+  /** The daemon connection and this session's PTY bind both exist now. */
+  canSendInput(sessionId: SessionId): boolean
   sendInput(machineId: MachineId, input: DaemonPtyInputBatch): void
 }
 
@@ -59,7 +66,7 @@ export interface SessionInputGatewayPort {
 export interface SessionsDaemonPort {
   /** This machine's daemon just became reachable: drain, park, re-probe, re-bind. */
   onMachineAttached(principal: MachinePrincipal): Promise<void>
-  /** Its daemon went away: this machine's live sessions drop to 'reconnecting'. */
+  /** Its daemon went away: this machine's live sessions await a daemon rebind. */
   onMachineDetached(principal: MachinePrincipal): void
   /** One session-owned frame, attributed to the machine that sent it. */
   onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void
@@ -79,11 +86,13 @@ export interface MachinesDaemonPort {
   ): Promise<void>
   detach(machineId: MachineId, transport?: DaemonControlPeer): boolean
   flushQueued(machineId: MachineId): void | Promise<void>
-  broadcastMachines(): Promise<void>
-  /** Live-only fan-out. A socket attach/detach cannot yield, so it schedules
-   *  this and the service logs any rejection (rule 51b). */
-  scheduleBroadcastMachines(): void
-  recordDaemonReadiness(machineId: MachineId, readiness: DaemonFrame<'hostMetrics'>['daemonReadiness']): void
+  /** Write a machine's synced records after a write that may have moved them
+   *  (POD-6644). A socket attach cannot yield, so it schedules this and the
+   *  service logs any rejection (rule 51b). */
+  recordDaemonReadiness(
+    machineId: MachineId,
+    readiness: DaemonFrame<'hostMetrics'>['daemonReadiness'],
+  ): void
   recordInventory(
     machineId: MachineId,
     inventory: DaemonFrame<'inventoryReport'>['inventory'],
@@ -129,10 +138,10 @@ export interface HostsDaemonPort {
 export interface ConversationsDaemonPort {
   onDiscovery(
     machineId: MachineId,
-    conversations: ConversationSummaryWire[],
+    conversations: ConversationDiscoveryWire[],
     diagnostics: ConversationDiagnosticWire[],
     removed?: string[],
-  ): void
+  ): void | Promise<void>
   onTranscriptMirrorResult(machineId: MachineId, msg: DaemonFrame<'transcriptMirrorResult'>): void
   triggerLakeSweep(machineId: MachineId): void
 }
@@ -181,6 +190,15 @@ export interface AgentRelayDaemonPort {
   run(machineId: MachineId, msg: DaemonFrame<'agentRelayRequest'>): void
 }
 
+/**
+ * TOPICS (ADR 7 Amendment 2 D21). A daemon-produced value for one key. The
+ * machine comes from the transport: a daemon may publish only keys its own
+ * machine produces, and the port refuses any other.
+ */
+export interface TopicsDaemonPort {
+  onTopicPublish(machineId: MachineId, msg: DaemonFrame<'topicPublish'>): void
+}
+
 /** Everything the mux is given. */
 export interface DaemonFeaturePorts {
   sessions: SessionsDaemonPort
@@ -193,4 +211,5 @@ export interface DaemonFeaturePorts {
   agentRelay: AgentRelayDaemonPort
   updates: UpdatesDaemonPort
   logs: LogsDaemonPort
+  topics: TopicsDaemonPort
 }

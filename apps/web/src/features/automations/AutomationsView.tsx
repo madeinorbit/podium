@@ -1,10 +1,9 @@
-import { AutomationOpening } from '@/app/automation-readers'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useRequestClient } from '@podium/client-core/react'
 import type { AutomationRunWire, AutomationWire } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useAutomation, useAutomationList } from '@/app/automation-readers'
+import { AutomationOpening, useAutomation, useAutomationList } from '@/app/automation-readers'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { NewAutomationDialog } from './NewAutomationDialog'
@@ -24,7 +23,7 @@ export function AutomationsView(): JSX.Element {
 }
 
 function AutomationsViewBody(): JSX.Element {
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const { automations, pending } = useAutomationList()
   const [error, setError] = useState('')
   const [dialogAutomationId, setDialogAutomationId] = useState<string | null | undefined>()

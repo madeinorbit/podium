@@ -1,16 +1,19 @@
 // @vitest-environment happy-dom
+
 import { readFileSync, writeFileSync } from 'node:fs'
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { SESSION_WORD_LABEL, TASK_WORD_LABEL, type TaskWord } from '@podium/model/browser'
-import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { fixtureRuntimeRender } from '@/test-support/fixture-runtime-render'
 import { FlightDeckFullCoordinator } from './FlightDeckFullSeats'
 import {
   FlightDeckV6Rows,
@@ -19,9 +22,8 @@ import {
   V6_DEPTH_STEP,
 } from './FlightDeckV6Rows'
 
-vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (value: unknown) => unknown) => read({ renameSession: vi.fn() }),
-}))
+// The deck reads its commands from the runtime root (792821bc50).
+const render = fixtureRuntimeRender({ renameSession: vi.fn() })
 vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
@@ -90,7 +92,8 @@ async function open(
       return () => listeners.delete(listener)
     },
   }
-  attachPreferenceSource(pool, uiState)
+  // The product's device preferences are observable (UiStore); so is this port.
+  attachPreferenceSource(pool, observableFixtureKeys(uiState))
   pool.apply({
     type: 'replace',
     rows: [
@@ -139,13 +142,14 @@ async function open(
   return { pool, screen, full: screen.full, actions, ui, task, fold, agent }
 }
 
-it('strip pointer and keyboard fold only; session pointer and keyboard open the existing pane', async () => {
+it('issue pointer and keyboard open details and fold; session actions open the existing pane', async () => {
   const f = await open()
   expect(f.agent()).toBeNull()
   const keyboard = userEvent.setup()
   f.fold().focus()
   await keyboard.keyboard('{Enter}')
   expect(f.fold().getAttribute('aria-expanded')).toBe('true')
+  expect(f.actions.onOpenTask).toHaveBeenCalledExactlyOnceWith(f.full.task('task'))
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
   fireEvent.click(f.agent().querySelector('button.deck-agent')!)
   expect(f.actions.onSelectSession).toHaveBeenLastCalledWith(
@@ -166,7 +170,36 @@ it('strip pointer and keyboard fold only; session pointer and keyboard open the 
   f.fold().focus()
   await keyboard.keyboard(' ')
   expect(f.agent()).toBeNull()
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(2)
   expect(f.actions.onSelectSession).toHaveBeenCalledTimes(3)
+  await act(async () => {
+    fireEvent.click(f.task().querySelector('.flight-v6-fold')!)
+  })
+  expect(f.agent()).not.toBeNull()
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(2)
+  await act(async () => {
+    fireEvent.click(f.task().querySelector('.flight-v6-strip')!)
+  })
+  expect(f.agent()).toBeNull()
+  expect(f.actions.onOpenTask).toHaveBeenCalledTimes(3)
+})
+
+it('caret toggles by pointer, Enter and Space without opening issue details', async () => {
+  const f = await open()
+  const caret = f.ui.getByRole('button', { name: 'Expand Task task' })
+  const keyboard = userEvent.setup()
+  await act(async () => {
+    fireEvent.click(caret)
+  })
+  expect(f.agent()).not.toBeNull()
+  expect(f.actions.onOpenTask).not.toHaveBeenCalled()
+  caret.focus()
+  await keyboard.keyboard('{Enter}')
+  expect(f.agent()).toBeNull()
+  await keyboard.keyboard(' ')
+  expect(f.agent()).not.toBeNull()
+  expect(f.actions.onOpenTask).not.toHaveBeenCalled()
+  expect(f.actions.onSelectSession).not.toHaveBeenCalled()
 })
 
 it('anchors the team-forms step-in card on a collapsed sub-task strip, then on its session rows', async () => {
@@ -373,6 +406,7 @@ it('keeps task menu, status picker and rename access independent of fold and ses
   expect(f.fold().getAttribute('aria-expanded')).toBe('false')
   fireEvent.click(f.ui.getByTestId('issue-status-picker'))
   expect(f.fold().getAttribute('aria-expanded')).toBe('false')
+  expect(f.actions.onOpenTask).not.toHaveBeenCalled()
   expect(f.actions.onSelectSession).not.toHaveBeenCalled()
   cleanup()
   const renamed = render(

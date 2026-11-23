@@ -679,7 +679,7 @@ Expected: no errors.
 
 ```bash
 git add apps/web/src/SettingsView.tsx apps/web/test/settings.structure.test.ts
-git commit -m "feat(web): auto-continue toggle in Settings -> New sessions"
+git commit -m "feat(web): auto-continue toggle in Settings → Agents"
 ```
 
 ---
@@ -803,7 +803,7 @@ export function AutoContinueDialog(): JSX.Element | null {
         </DialogHeader>
         <p className="text-[12px] text-muted-foreground">
           Heads up: this can keep an agent running indefinitely and consuming tokens with no
-          one watching. You can turn it off anytime in Settings → New sessions.
+          one watching. You can turn it off anytime in Settings → Agents.
         </p>
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={() => void finish(false)}>
@@ -1009,7 +1009,7 @@ http
 2. Launch a Claude Code session through Podium with `ANTHROPIC_BASE_URL=http://localhost:8788` in its environment (so its API calls hit the proxy).
 3. Send it any prompt → the first calls 500 → the session shows the red **Continue** button (phase `errored`, class `server_error`, retryable).
 4. Click **Continue** once → confirm the agent gets nudged AND the opt-in popup appears.
-5. Click **Enable auto-continue** → confirm: popup never returns, Settings → New sessions shows the toggle ON, and the backend keeps re-sending `continue` on escalating delays until `FAIL_FIRST` is exhausted and the agent recovers.
+5. Click **Enable auto-continue** → confirm: popup never returns, Settings → Agents shows the toggle ON, and the backend keeps re-sending `continue` on escalating delays until `FAIL_FIRST` is exhausted and the agent recovers.
 6. Toggle the setting OFF in Settings → confirm a freshly-errored session is no longer auto-nudged.
 7. Cross-check against the `agentinsight` proxy DB on this machine that the injected error envelope matches real upstream 500/529s (classes `server_error` / `overloaded`).
 

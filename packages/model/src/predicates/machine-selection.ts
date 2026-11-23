@@ -41,8 +41,12 @@ export interface SelectableMachine {
   components?: readonly MachineComponent[]
   serviceAssignment?: MachineServiceAssignment
   availability?: { daemon: boolean }
-  /** Live supervisor-owned execution state. Absent during the legacy window. */
-  services?: MachineServiceReport
+  /** Live supervisor-owned execution state. Absent during the legacy window.
+   *  The synced record drops each status's heartbeat time; nothing here reads it. */
+  services?: Omit<MachineServiceReport, 'server' | 'agentExecution'> & {
+    server: Omit<MachineServiceReport['server'], 'observedAt'>
+    agentExecution: Omit<MachineServiceReport['agentExecution'], 'observedAt'>
+  }
   /**
    * The calling principal's `use` decision, when someone has resolved it.
    * ABSENT means NOT EVALUATED — never "granted"; see {@link MachineUseDecision}

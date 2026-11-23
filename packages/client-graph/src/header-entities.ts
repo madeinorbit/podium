@@ -3,7 +3,7 @@ declare module './source-registry' { interface PoolSourceRows { repository: Pool
 import type { MobxPool } from './pool'
 import type { PoolTables } from './tables'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
-import { compareStructural, computed, observable, runInAction } from 'mobx'
+import { compareStructural, computed, observable, observe, reaction, runInAction } from 'mobx'
 import { debugName } from './debug-name'
 import { createHeaderRepositoryRelations } from './header-repositories'
 import { createShippingIndex } from './header-shipping-index'
@@ -19,6 +19,12 @@ import {
 import { createKeyedAnswer } from './query-result'
 
 const EMPTY_SHIPPING: ShippingCounts = { unfinishedCount: 0, decisionCount: 0 }
+/** What the offline list reads of a machine's live condition. */
+export interface MachineLiveCondition {
+  readonly online: boolean
+  readonly lastSeenAt?: string
+  readonly availability?: { readonly daemon: boolean }
+}
 interface OfflineMachine {
   id: string
   order: string
@@ -27,7 +33,15 @@ interface OfflineMachine {
 
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
  * or feed. Product reads call pool.row; get is the pool reader's storage seam. */
-export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repository'>) {
+export function createHeaderEntities(
+  shared?: Pick<PoolTables, 'machine' | 'repository'>,
+  /**
+   * The machine's LiveStore condition (POD-5798, POD-6644): whether it is
+   * online, its daemon's availability and when the server last heard from it.
+   * Undefined until read; the header source refreshes a machine when it changes.
+   */
+  liveCondition: (machineId: string) => MachineLiveCondition | undefined = () => undefined,
+) {
   // Approved applying-action indexes (POD-5542): these reverse lookups and
   // scalar totals avoid rebuilding all rows for each header question.
   const repositories = createHeaderRepositoryRelations()
@@ -45,7 +59,6 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
   const sessionIds = observable.map<string, true>(undefined, { deep: false })
   const shipping = observable.map<string, ShippingCounts>(undefined, { deep: false })
   const shippingIndex = createShippingIndex()
-  const idleCapUnmet = observable.box(0)
   const repositoryPathsRevision = observable.box(0)
   // Scalar source membership, including expired candidates. Window reads skip
   // history through subtree deadline bounds and never open historical rows.
@@ -54,20 +67,42 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
   let offlineTime = createKeyedAnswer<OfflineMachine>((a, b) => a.expires - b.expires)
   const offlineRevision = observable.box(0)
   const offlineListeners = new Set<(id: string | undefined) => void>()
+  /**
+   * My fleet (POD-6644): the machines that carry my own access row (`use` is
+   * set). Every member holds every machine record, so the fleet is not the
+   * machine table. Kept per machine write, so fleet readers read no row.
+   */
+  const fleet = observable.set<string>(undefined, { deep: false, name: debugName(() => 'header.fleet') })
+  const placeInFleet = (id: string, value: unknown) => {
+    if (value !== null && typeof value === 'object' && (value as { use?: unknown }).use !== undefined) fleet.add(id)
+    else fleet.delete(id)
+  }
+  runInAction(() => {
+    for (const [id, value] of tables.machine) placeInFleet(id, value)
+  })
+  const stopFleet = observe(tables.machine, (change) =>
+    runInAction(() => placeInFleet(change.name, change.type === 'delete' ? undefined : change.newValue)),
+  )
   const machineArrival = new Map<string, number>()
   let machineSequence = 0
   let machineOrder = new Map<string, number>()
 
   function refreshOffline(id: string): boolean {
     const machine = tables.machine.get(id) as HeaderRows['machine'] | undefined
-    const seen = machine && Date.parse(machine.lastSeenAt)
+    // Presence is the LiveStore's, never the record's (POD-6644): a machine
+    // whose condition is not read yet is not listed.
+    const condition = liveCondition(id)
+    const seen = condition?.lastSeenAt === undefined ? Number.NaN : Date.parse(condition.lastSeenAt)
+    // Only my fleet (POD-6908). Every member holds every machine record, so a
+    // record alone would put another member's machine in my header.
     const eligible =
+      fleet.has(id) &&
       machine &&
-      isMachineOfflineForLiveTerminal(machine) &&
+      condition &&
+      isMachineOfflineForLiveTerminal(condition) &&
       !machine.revokedAt &&
       !machine.supersededBy &&
       machine.serviceAssignment?.agentExecution !== false &&
-      !relations.many(`machine:${id}:metrics`).length &&
       Number.isFinite(seen)
     const explicit = machineOrder.get(id)
     const order =
@@ -97,14 +132,6 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
   // Kernel facade rows use ascending canonical IDs. Membership changes alone
   // invalidate this order; per-session activity never sorts the whole fleet.
   const sessionOrder = computed(() => [...sessionIds.keys()].sort(), { equals: compareStructural })
-  // Borrow the last successful API response for opt-in differential checks.
-  // Same objects as the rows, no second fetch, replica or mutation owner.
-  const received: {
-    quotas: HeaderRows['quota'][]
-    history?: HeaderRows['history']
-    lifecycle?: HeaderRows['lifecycle']
-  } = { quotas: [] }
-
   function shippingContribution(value: object | undefined) {
     const order = value as HeaderRows['shipOrder'] | undefined
     if (!order?.repoId) return undefined
@@ -142,8 +169,15 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
 
   return {
     tables,
-    received,
     orders,
+    /** Whether `id` is in my fleet: its record carries my access row. Reads no row. */
+    inFleet: (id: string): boolean => fleet.has(id),
+    /** Stop following the machine table (the view's disposal). */
+    stopFleet,
+    /** A machine's live condition changed: re-decide whether it is offline. */
+    refreshMachines(ids: Iterable<string>): void {
+      runInAction(() => flushOffline(ids))
+    },
     order(entity: HeaderEntity, ids: readonly string[]): void {
       if (!compareStructural(orders.get(entity), ids)) {
         if (entity === 'repository') repositories.order(ids)
@@ -171,7 +205,6 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
     shippingCounts: (repoId: string | null) => (repoId && shipping.get(repoId)) || EMPTY_SHIPPING,
     shippingUnfinished: shippingIndex.unfinished,
     recentShipped: shippingIndex.recentShipped,
-    idleCapUnmetCount: () => idleCapUnmet.get(),
     repositoryPathsRevision: () => repositoryPathsRevision.get(),
     repositoryGroup: (path: string) => repositories.group(path),
     repositoryRootIds: () => repositories.rootIds(),
@@ -245,16 +278,6 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
               record.value as HeaderRows['shipOrder'] | undefined,
             )
           }
-          if (record.kind === 'hostMetric') {
-            const beforeMachine = (previous as HeaderRows['hostMetric'] | undefined)?.machineId
-            const afterMachine = (record.value as HeaderRows['hostMetric'] | undefined)?.machineId
-            if (beforeMachine) offlineChanges.add(beforeMachine)
-            if (afterMachine) offlineChanges.add(afterMachine)
-            const key = HEADER_SCHEMA.hostMetric.counts.idleCapUnmet
-            const before = (previous as HeaderRows['hostMetric'] | undefined)?.[key] ?? 0
-            const after = (record.value as HeaderRows['hostMetric'] | undefined)?.[key] ?? 0
-            if (before !== after) idleCapUnmet.set(idleCapUnmet.get() + after - before)
-          }
           if (record.kind === 'repository') {
             repositories.set(record.id, record.value as HeaderRows['repository'] | undefined)
             const key = HEADER_SCHEMA.repository.revisionFields.paths
@@ -286,7 +309,6 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
       sessionIds.clear()
       shipping.clear()
       shippingIndex.clear()
-      idleCapUnmet.set(0)
       repositories.clear()
       offline.clear()
       offlineOrder = createKeyedAnswer<OfflineMachine>(undefined, (value) => -value.expires)
@@ -303,8 +325,40 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
 /** The screen registry owns creation and teardown of this view. */
 export function headerEntities(pool: MobxPool): ReturnType<typeof createHeaderEntities> & { dispose(): void } {
   return pool.sources.view('header.entities', () => {
-    const view = createHeaderEntities(pool.tables)
+    const view = createHeaderEntities(pool.tables, (id) => {
+      const reading = pool.live?.conditionOf(id)
+      if (reading === undefined) return undefined
+      // A lost link keeps its last facts but is not known online.
+      const value = reading.known ? reading.value : reading.last
+      if (value === undefined) return undefined
+      return {
+        online: reading.known && value.online,
+        ...(value.lastSeenAt !== undefined ? { lastSeenAt: value.lastSeenAt } : {}),
+        ...(value.availability !== undefined ? { availability: value.availability } : {}),
+      }
+    })
     pool.sources.register(['repository'], { read: (_entity, id) => view.get('repository', id) as PoolRows['repository'] | undefined, dispose() {} })
-    return Object.assign(view, { dispose: () => view.clear() })
+    // A machine the server sees connected is never listed offline (POD-5798):
+    // re-decide one machine whenever its LiveStore condition changes.
+    let stopConditions: (() => void) | undefined
+    const stopLive = reaction(
+      () => pool.live,
+      (live) => {
+        stopConditions?.()
+        stopConditions = live
+          ? observe(live.machineConditions, (change) => view.refreshMachines([change.name]))
+          : undefined
+        if (live) view.refreshMachines([...live.machineConditions.keys()])
+      },
+      { fireImmediately: true },
+    )
+    return Object.assign(view, {
+      dispose: () => {
+        stopLive()
+        stopConditions?.()
+        view.stopFleet()
+        view.clear()
+      },
+    })
   })
 }

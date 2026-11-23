@@ -1,14 +1,15 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useCommands, useRequestClient } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   discoveredPlacement,
   type ProposalPlacement,
   reposToViews,
-  spawnIssueAgent,
 } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
 import { missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
+  asIssueId,
   DEFER_NEXT_MESSAGE,
   type IssueId,
   type IssueStage,
@@ -26,7 +27,6 @@ import { createPortal } from 'react-dom'
 import { toast } from 'sonner'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
-import { useSettingsRecord } from '@/features/settings/record-readers'
 import { useConfirm } from '@/lib/hooks/use-confirm'
 import { issueAgentIcon, issueDefaultAgentKind } from '@/lib/issue-agents'
 import {
@@ -42,12 +42,14 @@ import {
   MENU_SECTION,
   MENU_SUBTEXT,
 } from '@/lib/menu-surface'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import {
   type ContextMenuAnchor,
   handoffBlockerText,
   handoffRejectionText,
   issueHandoffBlockerText,
 } from '@/lib/session-context-menu'
+import { useSessionHandoff } from '@/lib/session-handoff'
 import { useCursorMenu } from '@/lib/use-cursor-menu'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
@@ -146,21 +148,23 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   )
   const origins = useWorklistPoolProjection(readOrigins, undefined)
   const allIssues = origins ?? suppliedIssues
-  const {
-    trpc,
-    markIssueRead,
-    markIssueUnread,
-    updateIssue,
-    deleteIssue,
-    closeIssue,
-    deferIssue,
-    undeferIssue,
-    setIssueLabels,
-    setIssuePlacement,
-    restoreIssue,
-  } = useStoreHandle<Trpc>().access
-  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
-  const settingsRequest = useSettingsRecord(readSettings)
+  const trpc = useRequestClient<Trpc>(),
+    {
+      markRead: markIssueRead,
+      markUnread: markIssueUnread,
+      update: updateIssue,
+      delete: deleteIssue,
+      close: closeIssue,
+      defer: deferIssue,
+      undefer: undeferIssue,
+      setLabels: setIssueLabels,
+      setPlacement: setIssuePlacement,
+      restore: restoreIssue,
+    } = useCommands<Trpc>().issues,
+    { setPinned } = useCommands<Trpc>().preferences,
+    { startIssueSession } = useCommands<Trpc>().sessions
+  const handOff = useSessionHandoff()
+  const codingHarness = useMyCodingHarness()
   const { sessions, repos, machines } = poolInputs
   const handoffEnabled = useFeature('session-handoff')
   // The app-wide dialog, replacing two raw `window.confirm` calls (POD-1077).
@@ -186,11 +190,14 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   // its own. Non-null means the panel has handed over to the dialog.
   const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
+  const [targetQuery, setTargetQuery] = useState('')
   const choiceViews = useIssueViews(sub?.kind === 'labels' || sub?.kind === 'duplicate')
   const readChoices = useCallback(
     (pool: import('@podium/client-graph').MobxPool) =>
-      choiceViews ? readIssueMenuChoices(pool, sub?.kind, choiceViews) : undefined,
-    [sub?.kind, choiceViews],
+      choiceViews
+        ? readIssueMenuChoices(pool, sub?.kind, choiceViews, targetQuery, issues[0]?.repoPath)
+        : undefined,
+    [sub?.kind, choiceViews, targetQuery, issues],
   )
   const choices = useWorklistPoolProjection(readChoices, undefined)
   const needsCloseGuard = useIssueCloseGuard()
@@ -266,16 +273,14 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     onClose()
   }
 
+  // A `session.handoff` effect record (POD-6422); the hook tells how it ended.
   const handoffTo = (machineId: MachineId, machineName: string): void => {
     if (!handoffSession) return
     onClose()
-    void trpc.sessions.handoff.mutate({ sessionId: handoffSession.sessionId, machineId }).then(
-      () => toast.success(`${sessionDisplayName(handoffSession)} resumed on ${machineName}`),
-      (error: unknown) =>
-        toast.error(
-          `Handover to ${machineName} failed — ${error instanceof Error ? error.message : String(error)}`,
-        ),
-    )
+    handOff(handoffSession.sessionId, machineId, {
+      session: sessionDisplayName(handoffSession),
+      machine: machineName,
+    })
   }
 
   // Every one of these is optimistic + outboxed (POD-781). The menu serves the
@@ -289,9 +294,13 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     run(() =>
       Promise.all(toggleLabelAcross(issues, label).map((p) => setIssueLabels(p.id, p.labels))),
     )
+  // One more agent, or the first when the issue was never started: an effect
+  // record, painted on the issue on the press (POD-6526).
   const assignAgent = (agentKind: string): void =>
-    run(() =>
-      spawnIssueAgent(trpc.issues, agentKind ? { id: first.id, agentKind } : { id: first.id }),
+    run(
+      () =>
+        startIssueSession({ issueId: asIssueId(first.id), ...(agentKind ? { agentKind } : {}) })
+          .settled,
     )
   const close = (reason: IssueCloseReason): void => {
     if (onRequestClose) {
@@ -320,7 +329,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
     onClose()
   }
   const duplicateOf = (canonicalId: string): void =>
-    run(() => trpc.issues.duplicate.mutate({ id: first.id, canonicalId }))
+    run(() => issueWrites(trpc).duplicate.mutate({ id: first.id, canonicalId }))
   const del = (): void => {
     const n = ids.length
     const sessionCount = cascadeSessionCount(issues)
@@ -398,7 +407,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
   }
 
   const menuData = createIssueMenuData({
-    codingHarness: settingsRequest?.model?.codingHarness,
+    codingHarness,
     issues,
     allIssues,
     choiceIssues: () => choices ?? [],
@@ -448,7 +457,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
         onClose()
         return
       case 'start':
-        run(() => trpc.issues.start.mutate({ id: first.id }))
+        run(() => startIssueSession({ issueId: asIssueId(first.id), mode: 'begin' }).settled)
         return
       case 'rename':
         rename()
@@ -460,7 +469,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
         run(() => markIssueRead(first.id))
         return
       case 'pin':
-        run(() => updateIssue(first.id, { pinned: !first.pinned }))
+        run(() => setPinned('issue', first.id, !first.pinned))
         return
       case 'archive':
         // The archive/unarchive TOGGLE — `issues.update`, not the one-way
@@ -552,8 +561,7 @@ export const IssueContextMenu = observer(function IssueContextMenu({
       return <PriorityGlyph priority={Number(option.value)} />
     if (entry.id === 'agent')
       return issueAgentIcon(
-        option.value ||
-          issueDefaultAgentKind(first.defaultAgent, settingsRequest?.model?.codingHarness),
+        option.value || issueDefaultAgentKind(first.defaultAgent, codingHarness),
       )
     return option.icon ? renderIcon(option.icon) : null
   }
@@ -699,6 +707,18 @@ export const IssueContextMenu = observer(function IssueContextMenu({
           className={`absolute left-full z-[61] max-h-[60vh] min-w-[180px] overflow-y-auto ${MENU_PANEL}`}
           style={flyoutStyle}
         >
+          {sub.kind === 'duplicate' && (
+            <input
+              aria-label="Search duplicate targets"
+              placeholder="Search tasks…"
+              value={targetQuery}
+              className="mx-1 mb-1 h-7 rounded border border-border bg-background px-2 text-xs"
+              onChange={(event) => setTargetQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Escape') event.stopPropagation()
+              }}
+            />
+          )}
           {submenuItems.get(sub.kind)}
         </div>
       )}

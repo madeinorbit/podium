@@ -819,7 +819,9 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
         const source = stripComments(readFileSync(full, 'utf8'))
         if (
           /^\s*import\s+[^'"]*from\s+['"]node:child_process['"]/m.test(source) ||
-          /(?:^|[^.\w$])(?:spawn|spawnSync|execFile|execFileSync|exec|execSync|fork)\s*\(/.test(source)
+          /(?:^|[^.\w$])(?:spawn|spawnSync|execFile|execFileSync|exec|execSync|fork)\s*\(/.test(
+            source,
+          )
         ) {
           violations.push(relative(repoRoot, full))
         }
@@ -836,7 +838,7 @@ describe('the Claude Agent SDK does not run in any process that hosts the daemon
     // supervision verbs are gone with the migration — a family file naming
     // them is the lifecycle decision sitting in the wrong place.
     const source = readFileSync(join(repoRoot, ENGINE_HOST), 'utf8')
-    expect(source).toContain('engines?: EngineProcessOwner')
+    expect(source).toMatch(/engines\?: SessionEngineOwner<Claude[^>]+>/)
     expect(source).toContain('startEngine')
     expect(source).toContain("supervision?: Pick<EngineSupervisor, 'scopeUnitFor'>")
     expect(source).not.toContain('spawnHeadless')

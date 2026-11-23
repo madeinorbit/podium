@@ -61,6 +61,8 @@ const ui = vi.hoisted(() => {
   }
 })
 
+const fixture = vi.hoisted(() => ({ issues: null as Record<string, unknown>[] | null }))
+
 function sess(
   id: string,
   issueId: string | null,
@@ -72,10 +74,6 @@ function sess(
     cwd: '/repo',
     title: id,
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-07-06T12:00:00.000Z',
     lastActiveAt: '2026-07-06T12:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -158,7 +156,7 @@ const SESSIONS = [
 ]
 
 const ISSUES = [
-  issue('root', 'Operator workspace', { childCount: 1, }),
+  issue('root', 'Operator workspace', { childCount: 1 }),
   issue('child', 'Flight deck spine', { parentId: 'root', seq: 2 }),
   issue('grandchild', 'Task inspector', { parentId: 'child', seq: 3 }),
   issue('solo', 'Sidebar unread dot', { seq: 4 }),
@@ -180,7 +178,7 @@ vi.mock('@/app/store', () => {
     machines: [],
     pins: { panels: [], worktrees: [], repos: [] },
     setPinned: vi.fn(),
-    issues: ISSUES,
+    issues: fixture.issues ?? ISSUES,
     trpc: {
       settings: {
         get: { query: vi.fn(async () => ({ sessionDefaults: { agent: 'claude-code' } })) },
@@ -198,7 +196,7 @@ vi.mock('@/app/store', () => {
     fileTabs: [],
     view: 'workspace',
     setView: vi.fn(),
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
     markIssueRead: vi.fn(async () => {}),
     markSessionRead: vi.fn(async () => {}),
@@ -206,7 +204,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -218,6 +216,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 afterEach(() => {
   cleanup()
   ui.reset()
+  fixture.issues = null
 })
 
 const missionRow = (): HTMLElement =>
@@ -258,14 +257,14 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(rowToggles).toEqual([])
   })
 
-  it('keeps descendant attention separate from the child-derived task status', async () => {
+  it('keeps descendant attention without a redundant single-leaf tally', async () => {
     render(<SidebarUnified />)
     // A grandchild session is asking, so the row keeps its attention colour.
-    // Its words describe the task tree instead of adopting the session state.
     const status = missionRow().querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
-    // The calm row (POD-2074) says the ask once, with the task tally beside it.
+    // POD-2237 counts leaf tasks: root -> child -> grandchild is one unit.
+    // The calm row (POD-2074) says the ask once and omits a redundant 0/1.
     expect(status.textContent).toContain('Waiting on you')
-    expect(status.textContent).toContain('0/2')
+    expect(status.textContent).not.toMatch(/\d+\/\d+/)
     // The ochre is on the PHRASE, not the whole line: the trailing facts (git,
     // the spin-off tick) must not inherit an ask they are not part of.
     expect(
@@ -282,6 +281,26 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(
       soloStatus.querySelector<HTMLElement>('[data-testid="row-status-phrase"]')?.style.color,
     ).not.toBe('var(--attention)')
+  })
+
+  it.each([
+    ['in_progress', '0/2'],
+    ['done', '1/2'],
+  ])('tallies a second %s leaf beside descendant attention as %s', (stage, tally) => {
+    fixture.issues = [
+      ...ISSUES,
+      issue('sibling', 'Second delivery', { parentId: 'root', seq: 7, stage }),
+    ]
+    render(<SidebarUnified />)
+    const status = missionRow().querySelector('[data-testid="row-lifecycle-status"]') as HTMLElement
+    const phrase = status.querySelector<HTMLElement>('[data-testid="row-status-phrase"]')
+    // The intermediate child is a container; only grandchild and sibling count.
+    expect(phrase?.textContent).toBe('Waiting on you')
+    expect(phrase?.style.color).toBe('var(--attention)')
+    const fraction = screen.getByText(`· ${tally}`)
+    expect(status.contains(fraction)).toBe(true)
+    expect(fraction.classList.contains('text-text-faint')).toBe(true)
+    expect(screen.queryByText('Second delivery')).toBeNull()
   })
 
   it('draws no agent stack on the row: the Flight Deck owns the fleet (POD-2074)', async () => {
@@ -306,7 +325,9 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
       expect(['project-group-label', 'pinned-section-label']).toContain(
         button.getAttribute('data-testid'),
       )
-    await act(async () => { fireEvent.click(closed) })
+    await act(async () => {
+      fireEvent.click(closed)
+    })
     expect(screen.getByText('Balanced desktop shell')).toBeTruthy()
   })
 
@@ -327,9 +348,13 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(screen.queryByTestId('proposed-issue-fold')).toBeNull()
     expect(screen.queryByText('Review captures')).toBeNull()
     // Not hiding in the two folds that remain, either.
-    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-closed')) })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('work-lane-closed'))
+    })
     expect(screen.queryByText('Review captures')).toBeNull()
-    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-snoozed')) })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('work-lane-snoozed'))
+    })
     expect(screen.queryByText('Review captures')).toBeNull()
   })
 
@@ -352,7 +377,9 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
 
   it('writes a fold through the store rather than holding it in local state', async () => {
     render(<SidebarUnified />)
-    await act(async () => { fireEvent.click(screen.getByTestId('project-group-label')) })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('project-group-label'))
+    })
     // The press wrote; the value came back through the subscription. One source
     // of truth, so the rendered fold and the stored row cannot diverge.
     expect(ui.get(projectFoldKey('/repo'))).toBe('true')

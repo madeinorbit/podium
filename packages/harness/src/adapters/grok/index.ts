@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import { grokPromptTextMatches, promptEchoCorrelation, submitHookCorrelation } from '../../accept-correlation.js'
-import { grokStateProvider, observeGrokState } from './state-provider.js'
-import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
-import { locateGrokTranscript } from './state-locate.js'
+import {
+  grokPromptTextMatches,
+  promptEchoCorrelation,
+  submitHookCorrelation,
+} from '../../accept-correlation.js'
 import { withStateChannel } from '../../agent-state/types.js'
-import { createGrokConversationProvider } from './discovery.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
@@ -14,17 +14,23 @@ import {
   type HarnessEnvironment,
   isSet,
   promptArgv,
+  selectedRoot,
   selectRuntimeDriver,
   supported,
   unsupported,
 } from '../../manifest.js'
-import { grokTranscript } from './transcript.js'
-import { grokCredentials, hasValidGrokCredential } from './credentials.js'
-import { grokInstall } from './install.js'
-import { grokUsage } from './usage.js'
-import { grokCatalog } from './catalog.js'
-import { grokDescriptor } from './descriptor.js'
 import { GROK_ACP_VERSION_POLICY, harnessVersionFloor } from '../../version-policy.js'
+import { grokCatalog } from './catalog.js'
+import { grokCredentials, hasValidGrokCredential } from './credentials.js'
+import { grokDescriptor } from './descriptor.js'
+import { createGrokConversationProvider } from './discovery.js'
+import { grokInstall } from './install.js'
+import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
+import { grokPosture } from './posture.js'
+import { locateGrokTranscript } from './state-locate.js'
+import { grokStateProvider, observeGrokState } from './state-provider.js'
+import { grokTranscript } from './transcript.js'
+import { grokUsage } from './usage.js'
 
 interface GrokAuthRecord {
   key?: unknown
@@ -36,7 +42,7 @@ interface GrokAuthRecord {
   account_id?: unknown
 }
 
-function grokHome(homeDir: string, env: HarnessEnvironment = process.env): string {
+function grokHome(homeDir: string, env: HarnessEnvironment): string {
   return env.GROK_HOME?.trim() || join(homeDir, '.grok')
 }
 
@@ -104,6 +110,16 @@ export const grokManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'grok-session',
+  // GROK_HOME relocates auth, personal hooks and the sessions store.
+  roots: (home, env) => {
+    const state = selectedRoot(env, 'GROK_HOME', home, '.grok')
+    return {
+      state,
+      credentials: state,
+      transcripts: join(state, 'sessions'),
+      hooks: join(state, 'hooks'),
+    }
+  },
   environment: {
     removeInherited: [],
     instanceHome: { variable: 'GROK_HOME', relativeDir: '.grok' },
@@ -112,7 +128,7 @@ export const grokManifest: AgentManifest = {
   inventory: {
     executable: { names: ['grok'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Grok login detection still uses its local credential file'),
-    loginCommand: supported({ cmd: 'grok', args: ['login'] }),
+    loginCommand: supported({ args: ['login'] }),
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       grokCredentials.identity(credentialFileReader(grokCredentials, homeDir, env)),
     ),
@@ -123,7 +139,9 @@ export const grokManifest: AgentManifest = {
     // Its presence flips grok from the OIDC session in `auth.json` to
     // API-key/custom-endpoint auth.
     foreignCredentialEnv: ['XAI_API_KEY'],
-    detectLogin(homeDir, env?: HarnessEnvironment) {
+    // An xAI key or Grok login is none of the registry's credential types.
+    accepts: [],
+    detectLogin(homeDir, env: HarnessEnvironment) {
       const path = grokHome(homeDir, env)
       try {
         // ONE readiness rule (POD-4803): the same expiry-aware check as the
@@ -150,10 +168,10 @@ export const grokManifest: AgentManifest = {
   usage: supported(grokUsage),
   install: supported(grokInstall),
 
+  posture: grokPosture,
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {
-      cmd: 'grok',
       args: [
         ...(opts.resume ? ['--resume', opts.resume.value] : []),
         // A bare `grok` creates no session state at all until the first turn —
@@ -189,7 +207,7 @@ export const grokManifest: AgentManifest = {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
-    return { cmd: 'grok', args: [...(model ? ['--model', model] : []), '--single', prompt] }
+    return { args: [...(model ? ['--model', model] : []), '--single', prompt] }
   }),
 
   runtime: {
@@ -228,8 +246,12 @@ export const grokManifest: AgentManifest = {
          * where the defect and the evidence are.
          */
         parkOnRelease: false,
-        launch: ({ cwd, conversation }) =>
-          grokManifest.launch({ cwd, resume: { kind: 'grok-session', value: conversation } }),
+        launch: ({ cwd, conversation, harnessContext }) =>
+          grokManifest.launch({
+            cwd,
+            harnessContext,
+            resume: { kind: 'grok-session', value: conversation },
+          }),
       }),
     }),
     embedded: unsupported('grok ships no library to host in-process'),
@@ -285,15 +307,14 @@ export const grokManifest: AgentManifest = {
         .filter(Boolean)
         .join('\n\n')
       return {
-        cmd: 'grok',
         args: [
           ...(opts.resumeValue
             ? ['--resume', opts.resumeValue]
             : ['--session-id', opts.sessionId ?? '']),
           ...(model ? ['--model', model] : []),
-          ...(opts.permissionMode === 'auto' && opts.toolPolicy !== 'none'
-            ? ['--permission-mode', 'auto']
-            : []),
+          // The mode and the allow rules are the posture section's
+          // (POD-6858). A tool-less turn runs on no-agent terms, so its own
+          // `dontAsk` below is the only mode it carries.
           ...(opts.toolPolicy === 'none'
             ? [
                 '--tools',
@@ -373,7 +394,7 @@ export const grokManifest: AgentManifest = {
         ...(input.statTick ? { statTick: input.statTick } : {}),
         ...(resumeValue ? { resumeValue } : {}),
         ...(input.pathHint ? { pathHint: input.pathHint } : {}),
-        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        homeDir: input.account.home,
         ...(input.startedAtMs !== undefined ? { startedAtMs: input.startedAtMs } : {}),
         onLivePollComplete: (cursor) => host.onLiveObservationCycle?.(cursor),
         onSessionCandidate: (grokSessionId) => {
@@ -420,7 +441,7 @@ export const grokManifest: AgentManifest = {
           const derived = grokSessionPaths({
             cwd: input.cwd,
             sessionId: grokSessionId,
-            ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+            homeDir: input.account.home,
           })
           host.tailFile(derived.updatesPath)
           const generation = ++authorityGeneration
@@ -439,7 +460,7 @@ export const grokManifest: AgentManifest = {
               cwd: input.cwd,
               sessionId: grokSessionId,
               ...(input.pathHint ? { pathHint: input.pathHint } : {}),
-              ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+              homeDir: input.account.home,
               ...(input.transcriptRoot ? { transcriptRoot: input.transcriptRoot } : {}),
             })
               .then((path) => {

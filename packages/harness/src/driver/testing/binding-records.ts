@@ -43,9 +43,27 @@ export function createMemoryBindingRecords<TFacts extends { sessionId: SessionId
 /** The process verbs a test scripts, each answering the way the session
  *  layer's durable owner would. Unscripted verbs refuse or answer "nothing
  *  alive", so a test only states what it exercises. */
+/**
+ * What a scripted `startEngine` sees: the request with its bound command
+ * flattened back to `cmd`/`args` (and the listener's argv appended, as the
+ * session layer would), so a test reads exactly what the host would exec.
+ */
+export type TestEngineSpawn = Omit<EngineSpawnRequest, 'command'> & { cmd: string; args: string[] }
+
+/** A request with its bound command flattened to `cmd`/`args`, for a test's
+ *  own fake owner to record and assert on. */
+export function flattenEngineSpawn(req: EngineSpawnRequest): TestEngineSpawn {
+  const { command, ...rest } = req
+  return { ...rest, cmd: command.cmd, args: [...command.args] }
+}
+
 export interface TestEngineVerbs {
-  startEngine?(req: EngineSpawnRequest): Promise<EngineAttachment>
-  reattachEngine?(input: { label: string; fromSeq: 'tail' | bigint; sessionId?: SessionId }): Promise<EngineAttachment>
+  startEngine?(req: TestEngineSpawn): Promise<EngineAttachment>
+  reattachEngine?(input: {
+    label: string
+    fromSeq: 'tail' | bigint
+    sessionId?: SessionId
+  }): Promise<EngineAttachment>
   engineAlive?(label: string): Promise<boolean>
   destroyEngine?(label: string, sessionId?: SessionId): Promise<void>
 }
@@ -72,8 +90,10 @@ export function createTestEngineOwner<TFacts extends { sessionId: SessionId }>(
       const address = req.listen
         ? `unix://${options.socketRoot ?? '/tmp'}/test-engine-${minted++}.sock`
         : undefined
-      const args = req.listen && address ? [...req.args, ...req.listen.argv(address)] : req.args
-      const attachment = await verbs.startEngine({ ...req, args })
+      const { command, ...rest } = req
+      const args =
+        req.listen && address ? [...command.args, ...req.listen.argv(address)] : [...command.args]
+      const attachment = await verbs.startEngine({ ...rest, cmd: command.cmd, args })
       return { attachment, ...(address ? { address } : {}) }
     },
     async reattachEngine(input) {
@@ -84,6 +104,7 @@ export function createTestEngineOwner<TFacts extends { sessionId: SessionId }>(
       return { attachment, ...(address ? { address } : {}) }
     },
     engineAlive: (label) => verbs.engineAlive?.(label) ?? Promise.resolve(false),
-    destroyEngine: (label, sessionId) => verbs.destroyEngine?.(label, sessionId) ?? Promise.resolve(),
+    destroyEngine: (label, sessionId) =>
+      verbs.destroyEngine?.(label, sessionId) ?? Promise.resolve(),
   }
 }

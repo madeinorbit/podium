@@ -13,10 +13,12 @@ import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
+import { loggedRows } from './test-support/logged-rows'
+import { StoreModelLedger as Ledger } from './test-support/model-ledger'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -29,6 +31,7 @@ import { OPERATOR } from './test-support/capabilities'
 import { attachTestClient } from './test-support/client-transport'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 import { seedMailboxRow } from './test-support/seed-issue-mail'
 
 /**
@@ -66,7 +69,7 @@ function sink() {
 // ---------------------------------------------------------------------------
 
 describe('characterization: session roundtrip across daemon reconnect (contract 1)', () => {
-  it('server seq stays monotonic, the epoch does not bump, and the replay buffer survives a daemon disconnect + rebind', async () => {
+  it('server seq stays monotonic, the epoch does not bump, and late viewers join the live stream after a daemon disconnect + rebind', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const daemon1: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => daemon1.push(m))
@@ -103,13 +106,15 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
       })
     }
 
-    // Daemon connection drops: the session degrades to reconnecting (not exited).
+    // Daemon connection drops: the session stays live (not exited) and reads as
+    // reconnecting from the machine's link (ADR 12 D1).
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     expect(
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
         (s) => s.sessionId === sessionId,
       )?.status,
-    ).toBe('reconnecting')
+    ).toBe('live')
+    expect(reg.modules.machines.hasDaemon(reg.sessionStore.hostMachineId)).toBe(false)
 
     // A new daemon connection reattaches; bind promotes the session back to live.
     const daemon2: ControlMessage[] = []
@@ -149,46 +154,33 @@ describe('characterization: session roundtrip across daemon reconnect (contract 
     ])
     expect(new Set(live.map((f) => f.epoch))).toEqual(new Set([0]))
 
-    // A client that disconnected mid-way resumes from its cursor: sinceSeq=2 →
-    // resumed:true and EXACTLY the two missed frames, in order.
-    const resumer = sink()
-    const resumerId = attachTestClient(reg.clientGateway, resumer.send)
-    await reg.clientGateway.routeClientFrame(resumerId, {
-      type: 'hello',
-      clientId: resumerId,
-      wireVersion: CLIENT_WIRE_VERSION,
-      viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: ['sync.http.v1'],
-    })
-    await reg.clientGateway.routeClientFrame(resumerId, { type: 'attach', sessionId, sinceSeq: 2 })
-    expect(resumer.sent.find((m) => m.type === 'attached')).toMatchObject({
-      sessionId,
-      epoch: 0,
-      resumed: true,
-    })
-    expect(
-      resumer.sent.filter((m) => m.type === 'outputFrame').map((f) => [f.seq, f.data]),
-    ).toEqual([
-      [3, 'RA=='],
-      [4, 'RQ=='],
-    ])
-
-    // A fresh mount (no cursor) gets the FULL buffer — pre-disconnect frames were
-    // not dropped by the reconnect.
-    const fresh = sink()
-    const freshId = attachTestClient(reg.clientGateway, fresh.send)
-    await reg.clientGateway.routeClientFrame(freshId, {
-      type: 'hello',
-      clientId: freshId,
-      wireVersion: CLIENT_WIRE_VERSION,
-      viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: ['sync.http.v1'],
-    })
-    await reg.clientGateway.routeClientFrame(freshId, { type: 'attach', sessionId })
-    expect(fresh.sent.find((m) => m.type === 'attached')).toMatchObject({ resumed: false })
-    expect(fresh.sent.filter((m) => m.type === 'outputFrame').map((f) => f.seq)).toEqual([
-      0, 1, 2, 3, 4,
-    ])
+    // Late viewers receive live bytes from the daemon picture/tail boundary;
+    // the server no longer keeps historical PTY replay buffers.
+    for (const sinceSeq of [2, undefined]) {
+      const late = sink()
+      const lateId = attachTestClient(reg.clientGateway, late.send)
+      await reg.clientGateway.routeClientFrame(lateId, {
+        type: 'hello',
+        clientId: lateId,
+        wireVersion: CLIENT_WIRE_VERSION,
+        viewport: { cols: 80, rows: 24, dpr: 1 },
+        caps: ['sync.http.v1'],
+      })
+      await reg.clientGateway.routeClientFrame(lateId, { type: 'attach', sessionId, sinceSeq })
+      expect(late.sent.find((message) => message.type === 'attached')).toMatchObject({
+        sessionId,
+        epoch: 0,
+      })
+      expect(late.sent.filter((message) => message.type === 'outputFrame')).toEqual([])
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentFrameBatch',
+        sessionId,
+        frames: ['Rg=='],
+      })
+      expect(late.sent.filter((message) => message.type === 'outputFrame')).toEqual([
+        expect.objectContaining({ seq: sinceSeq === 2 ? 5 : 6, data: 'Rg==', epoch: 0 }),
+      ])
+    }
     await reg.dispose()
   })
 })
@@ -233,7 +225,7 @@ async function observe(reg: SessionRegistry, issueId: string): Promise<Lifecycle
     // Compare the FOLDED oplog state, not row counts: sync writes coalesce
     // differently than awaited ones, but the final recorded truth must match.
     oplogIssues: normalize(
-      (await store.sync.latestChangeStates())
+      (await loggedRows(store))
         .filter((r) => r.entity === 'issueProjection')
         .map((r) => ({ op: r.op, payload: r.payload == null ? null : JSON.parse(r.payload) })),
     ),
@@ -281,15 +273,25 @@ describe('characterization: issue lifecycle equivalence across entry points (con
     try {
       // (a) IssueService direct.
       const regA = await freshRegistry()
-      const a = await regA.issues.crud.create({
+      const a = await regA.issues.crud.create(regA.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'Lifecycle',
         description: 'characterize me',
         startNow: false,
       })
-      await regA.issues.crud.claim(a.id, asUserId('agent:test'))
-      await regA.issues.commentsMail.addCallerComment(a.id, 'progress note', AS_OPERATOR)
-      await regA.issues.crud.close(a.id, 'done')
+      await regA.issues.crud.claim(regA.issues.reports.store.serverWriter, a.id, {
+        owner: firstAdminMemberId(),
+        caller: firstAdminMemberId(),
+      })
+      await regA.issues.commentsMail.addCallerComment(
+        regA.issues.reports.store.serverWriter,
+        a.id,
+        'progress note',
+        AS_OPERATOR,
+      )
+      await regA.issues.crud.close(regA.issues.reports.store.serverWriter, a.id, 'done', {
+        caller: await firstAdminMemberId(regA.sessionStore),
+      })
 
       // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
       // registry's in-process IssueTrpc-shaped client.
@@ -309,7 +311,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       )
       const seq = /created (?:[A-Z]{2,5}-|#)(\d+)/.exec(created)?.[1]
       if (!seq) throw new Error(`no seq in: ${created}`)
-      await runIssueCli(['claim', seq, '--assignee', 'agent:test'], cli)
+      await runIssueCli(['claim', seq, '--assignee', 'me'], cli)
       await runIssueCli(['comment', seq, '--body', 'progress note'], cli)
       await runIssueCli(['close', seq, '--reason', 'done'], cli)
       const bId = await regB.issues.reports.resolveRef(seq)
@@ -323,7 +325,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
         description: 'characterize me',
         startNow: false,
       })
-      await trpc.issues.claim({ id: c.id, assignee: 'agent:test' })
+      await trpc.issues.claim({ id: c.id, assignee: 'me' })
       await trpc.issues.addComment({ id: c.id, body: 'progress note' })
       await trpc.issues.close({ id: c.id, reason: 'done' })
 
@@ -336,10 +338,11 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       expect(obsA.wire).toMatchObject({
         stage: 'done',
         closedReason: 'done',
-        assignee: 'agent:test',
+        // The assignee is the owner (POD-6287): the operator's claim keeps it theirs.
+        assignee: firstAdminMemberId(),
       })
+      // Boot no longer reconciles the log (POD-6221), so it records no event.
       expect((obsA.events as { kind: string }[]).map((e) => e.kind)).toEqual([
-        'issue.boot_reconciled',
         'issue.created',
         'issue.stage_changed',
         'issue.closed',
@@ -382,8 +385,14 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.crud.create({ repoPath: '/r', title: 'bimodal', startNow: false })
-      const patched = await reg.issues.crud.update(w.id, { closedReason: 'wontfix' })
+      const w = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'bimodal',
+        startNow: false,
+      })
+      const patched = await reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, {
+        closedReason: 'wontfix',
+      })
       // #24: closing via reason IS closing — stage follows to 'done'.
       expect(patched.stage).toBe('done')
       expect(patched.closedReason).toBe('wontfix')
@@ -400,7 +409,10 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(closed[0]?.payload).toMatchObject({ seq: w.seq, reason: 'wontfix' })
       // A contradictory patch (non-null reason + non-done stage) is nonsensical.
       await expect(
-        reg.issues.crud.update(w.id, { stage: 'in_progress', closedReason: 'wontfix' }),
+        reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, {
+          stage: 'in_progress',
+          closedReason: 'wontfix',
+        }),
       ).rejects.toThrow(/closedReason/)
     } finally {
       await reg.dispose()
@@ -411,10 +423,16 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.crud.create({ repoPath: '/r', title: 'reopen me', startNow: false })
-      await reg.issues.crud.close(w.id) // stage done + closedReason 'done'
+      const w = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'reopen me',
+        startNow: false,
+      })
+      await reg.issues.crud.close(reg.issues.reports.store.serverWriter, w.id) // stage done + closedReason 'done'
       // The obvious "reopen": drag the card back to in_progress.
-      const reopened = await reg.issues.crud.update(w.id, { stage: 'in_progress' })
+      const reopened = await reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, {
+        stage: 'in_progress',
+      })
       expect(reopened.stage).toBe('in_progress')
       // #24: closedReason clears with the stage move, so the reopened issue is
       // open/ready-visible again — no explicit closedReason:null needed.
@@ -438,14 +456,16 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
     try {
-      const w = await reg.issues.crud.create({
+      const w = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
         repoPath: '/r',
         title: 'audible re-close',
         startNow: false,
       })
-      await reg.issues.crud.close(w.id)
-      await reg.issues.crud.update(w.id, { stage: 'in_progress' }) // real reopen: reason clears
-      await reg.issues.crud.update(w.id, { stage: 'done' }) // drag back to done
+      await reg.issues.crud.close(reg.issues.reports.store.serverWriter, w.id)
+      await reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, {
+        stage: 'in_progress',
+      }) // real reopen: reason clears
+      await reg.issues.crud.update(reg.issues.reports.store.serverWriter, w.id, { stage: 'done' }) // drag back to done
       // #24: the reopen flipped the derived predicate false, so the re-close
       // flips it true again and issue.closed fires a second time.
       const closed = (await reg.sessionStore.events.listEventsSince(0)).filter(
@@ -487,7 +507,7 @@ describe('characterization: change-log delta client heals to identical state (co
 
   it('a client that missed N deltas reconstructs the exact live state from changesSince(cursor)', async () => {
     const store = await openTestStore(':memory:')
-    const ledger = new Ledger({
+    const ledger = new Ledger(store, {
       repo: store.sync,
       now: Date.now,
       transact: async (fn) => await store.transact(fn),
@@ -497,10 +517,14 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Round 1 — both clients see it. reconcile() is the full-truth diff path
     // (the same semantics the deleted broadcast-seam oplog's record() had).
-    let changes = await ledger.reconcile('issueProjection', [
-      { id: 'a', value: { id: 'a', title: 'a1' } },
-      { id: 'b', value: { id: 'b', title: 'b1' } },
-    ])
+    let changes = (
+      await testLedgerWriter(ledger).commit(
+        ledger.rowWrite([
+          { entity: 'issueProjection', id: 'a', op: 'upsert', value: { id: 'a', title: 'a1' } },
+          { entity: 'issueProjection', id: 'b', op: 'upsert', value: { id: 'b', title: 'b1' } },
+        ]),
+      )
+    ).changes
     apply(liveState, changes)
     const lagCursor = apply(lagState, changes)
 
@@ -508,12 +532,23 @@ describe('characterization: change-log delta client heals to identical state (co
     // and a brand-new entity.
     apply(
       liveState,
-      await ledger.reconcile('issueProjection', [{ id: 'a', value: { id: 'a', title: 'a2' } }]),
+      (
+        await testLedgerWriter(ledger).commit(
+          ledger.rowWrite([
+            { entity: 'issueProjection', id: 'a', op: 'upsert', value: { id: 'a', title: 'a2' } },
+            { entity: 'issueProjection', id: 'b', op: 'remove' },
+          ]),
+        )
+      ).changes,
     )
-    changes = await ledger.reconcile('issueProjection', [
-      { id: 'a', value: { id: 'a', title: 'a3' } },
-      { id: 'c', value: { id: 'c', title: 'c1' } },
-    ])
+    changes = (
+      await testLedgerWriter(ledger).commit(
+        ledger.rowWrite([
+          { entity: 'issueProjection', id: 'a', op: 'upsert', value: { id: 'a', title: 'a3' } },
+          { entity: 'issueProjection', id: 'c', op: 'upsert', value: { id: 'c', title: 'c1' } },
+        ]),
+      )
+    ).changes
     apply(liveState, changes)
 
     // Heal: exactly the missed range, and folding it reproduces the live state.
@@ -564,9 +599,19 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       agentKind: 'claude-code',
       cwd: '/proj',
     })
-    const issue = await reg1.issues.crud.create({ repoPath: '/repo', title: 'survive', startNow: false })
-    await reg1.issues.commentsMail.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
-    await reg1.issues.crud.close(issue.id, 'done')
+    const issue = await reg1.issues.crud.create(reg1.issues.reports.store.serverWriter, {
+      repoPath: '/repo',
+      title: 'survive',
+      startNow: false,
+    })
+    await reg1.issues.commentsMail.addComment(
+      reg1.issues.reports.store.serverWriter,
+      issue.id,
+      'agent:test',
+      'durable note',
+      AS_OPERATOR,
+    )
+    await reg1.issues.crud.close(reg1.issues.reports.store.serverWriter, issue.id, 'done')
     await reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({
       ok: true,
     }))
@@ -584,6 +629,8 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
       applied: await store1.sync.getAppliedMutation(asMutationId('mut-char-1')),
       queued: await store1.sync.listQueuedMessages(sessionId),
     }
+    // This fixture writes directly through MutationLedger, without actor scoping.
+    expect(before.applied).toBeDefined()
     expect(before.sessionIds).toContain(sessionId)
     expect(before.issue).not.toBeNull()
     expect(before.changes.length).toBeGreaterThan(0)
@@ -596,6 +643,9 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     // Reopen with the SAME code: the constructor migration pass must not fire any
     // destructive ALTER twice, drop data, or reshape the schema.
     const store2 = await openTestStore(file)
+    // A test store installs its change capture when a log attaches; a
+    // production boot installs it at open (POD-6920).
+    await store2.attachChangeLog()
     const after = {
       sessionIds: (await store2.sessions.loadSessions()).map((s) => s.id),
       issue: await store2.issues.getIssue(issue.id),
@@ -701,9 +751,14 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       expect(await outcome(op.issues.update({ id: B.id, patch: { brief: 'op' } }))).toBe('OK')
 
       // mailClaim resolves the message target under the caller's visibility first.
-      // An out-of-scope invisible target is deliberately indistinguishable from absence.
+      // Every member reads every task (design §2.2, §4.1; 6d0dc46741 retired the
+      // owner-or-grant task read), so another member's task B is visible and an
+      // out-of-scope claim on it is the same overridable scope violation as the
+      // middleware's, not an absence.
       expect(await outcome(viewer.issues.mailClaim({ messageId: mailA.id }))).toBe('FORBIDDEN')
-      expect(await outcome(worker.issues.mailClaim({ messageId: mailB.id }))).toBe('NOT_FOUND')
+      expect(await outcome(worker.issues.mailClaim({ messageId: mailB.id }))).toBe(
+        'PRECONDITION_FAILED',
+      )
       expect(await outcome(worker.issues.mailClaim({ messageId: mailA.id }))).toBe('OK')
 
       // The override lever unlocks exactly the PRECONDITION_FAILED cases, on both
@@ -721,7 +776,9 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         'OK',
       )
       expect(await outcome(overridden.issues.mailClaim({ messageId: mailC.id }))).toBe('OK')
-      expect(await outcome(overridden.issues.mailClaim({ messageId: mailB.id }))).toBe('NOT_FOUND')
+      // B is visible to the worker's human, who may write it (§2.2), so the
+      // override lever reaches it like C.
+      expect(await outcome(overridden.issues.mailClaim({ messageId: mailB.id }))).toBe('OK')
       const overriddenViewer = caller(
         {
           role: 'viewer',

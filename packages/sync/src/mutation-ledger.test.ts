@@ -11,7 +11,12 @@
 
 import { asMutationId, type MutationId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { type AppliedMutationStore, MutationLedger } from './mutation-ledger'
+import {
+  type AppliedMutationStore,
+  MutationLedger,
+  RECEIPT_RESULT_INLINE_MAX,
+  type ReceiptCompaction,
+} from './mutation-ledger'
 
 function fakeStore(): AppliedMutationStore & {
   rows: Map<string, { proc: string; result: string }>
@@ -171,9 +176,13 @@ describe('MutationLedger', () => {
       const store = fakeStore()
       const failure = new Error(`${stage} unavailable`)
       let enter!: () => void
-      const entered = new Promise<void>((resolve) => { enter = resolve })
+      const entered = new Promise<void>((resolve) => {
+        enter = resolve
+      })
       let reject!: (reason: Error) => void
-      const blocked = new Promise<never>((_, fail) => { reject = fail })
+      const blocked = new Promise<never>((_, fail) => {
+        reject = fail
+      })
       let shouldFail = true
       const failOnce = async () => {
         if (!shouldFail) return
@@ -185,18 +194,23 @@ describe('MutationLedger', () => {
         if (stage === 'lookup') await failOnce()
         return store.getAppliedMutation(id)
       })
-      const record = vi.fn(async (...args: Parameters<AppliedMutationStore['recordAppliedMutation']>) => {
-        if (stage === 'record') await failOnce()
-        await store.recordAppliedMutation(...args)
-      })
+      const record = vi.fn(
+        async (...args: Parameters<AppliedMutationStore['recordAppliedMutation']>) => {
+          if (stage === 'record') await failOnce()
+          await store.recordAppliedMutation(...args)
+        },
+      )
       const body = vi.fn(async () => {
         if (stage === 'body') await failOnce()
         return 'done'
       })
-      const led = new MutationLedger({
-        getAppliedMutation: lookup,
-        recordAppliedMutation: record,
-      }, () => 1_000)
+      const led = new MutationLedger(
+        {
+          getAppliedMutation: lookup,
+          recordAppliedMutation: record,
+        },
+        () => 1_000,
+      )
       const id = asMutationId('m-failure')
       const owner = led.apply(id, 'sessions.create', body)
       await entered
@@ -216,11 +230,13 @@ describe('MutationLedger', () => {
       expect(store.rows.size).toBe(0)
 
       await expect(led.apply(id, 'sessions.create', body)).resolves.toEqual({
-        outcome: 'applied', value: 'done',
+        outcome: 'applied',
+        value: 'done',
       })
       expect(store.rows.get(id)?.result).toBe('"done"')
       await expect(led.apply(id, 'sessions.create', joinerBody)).resolves.toEqual({
-        outcome: 'replayed', value: 'done',
+        outcome: 'replayed',
+        value: 'done',
       })
       expect(joinerBody).not.toHaveBeenCalled()
       expect(body).toHaveBeenCalledTimes(stage === 'lookup' ? 1 : 2)
@@ -245,8 +261,12 @@ describe('MutationLedger', () => {
     const body = () => {
       runs += 1
     }
-    expect((await led.apply(asMutationId('m-void'), 'sessions.setArchived', body)).outcome).toBe('applied')
-    expect((await led.apply(asMutationId('m-void'), 'sessions.setArchived', body)).outcome).toBe('replayed')
+    expect((await led.apply(asMutationId('m-void'), 'sessions.setArchived', body)).outcome).toBe(
+      'applied',
+    )
+    expect((await led.apply(asMutationId('m-void'), 'sessions.setArchived', body)).outcome).toBe(
+      'replayed',
+    )
     expect(runs).toBe(1)
     expect(store.rows.get(asMutationId('m-void'))?.result).toBe('null')
   })
@@ -255,60 +275,258 @@ describe('MutationLedger', () => {
 /** Each gate is an actual suspension in the check-run-record pass. The replay
  * enters before releasing the owner, never Promise.all([await a, await b]). */
 describe('MutationLedger async suspension admission', () => {
-  it.each(['lookup', 'body', 'record'] as const)(
-    'joins a replay while the original is suspended at %s',
-    async (stage) => {
-      let release = () => {}
-      const blocked = new Promise<void>((resolve) => { release = resolve })
-      let entered = () => {}
-      const atGate = new Promise<void>((resolve) => { entered = resolve })
-      const pause = async () => {
-        entered()
-        await blocked
-      }
-      const rows = new Map<MutationId, string>()
-      let lookups = 0
-      let runs = 0
-      let records = 0
-      const store: AppliedMutationStore = {
-        getAppliedMutation: async (id) => {
-          lookups += 1
-          const prior = rows.get(id)
-          if (stage === 'lookup') await pause()
-          return prior
-        },
-        recordAppliedMutation: async (id, _proc, result) => {
-          records += 1
-          if (stage === 'record') await pause()
-          if (!rows.has(id)) rows.set(id, result)
-        },
-      }
-      const led = new MutationLedger(store, () => 1_000)
-      const id = asMutationId(`suspended-${stage}`)
-      // Lookup and recording cases deliberately use a synchronous body: it is
-      // the store's awaits, not just an async handler, that need admission.
-      const body = () => {
-        runs += 1
-        const value = { run: runs }
-        return stage === 'body' ? pause().then(() => value) : value
-      }
-      const original = led.apply(id, 'issues.create', body)
-      await atGate
-      const replay = led.apply(id, 'issues.create', body)
-      const lookupsWhileBlocked = lookups
-      release()
-      const [first, second] = await Promise.all([original, replay])
+  it.each([
+    'lookup',
+    'body',
+    'record',
+  ] as const)('joins a replay while the original is suspended at %s', async (stage) => {
+    let release = () => {}
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let entered = () => {}
+    const atGate = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const pause = async () => {
+      entered()
+      await blocked
+    }
+    const rows = new Map<MutationId, string>()
+    let lookups = 0
+    let runs = 0
+    let records = 0
+    const store: AppliedMutationStore = {
+      getAppliedMutation: async (id) => {
+        lookups += 1
+        const prior = rows.get(id)
+        if (stage === 'lookup') await pause()
+        return prior
+      },
+      recordAppliedMutation: async (id, _proc, result) => {
+        records += 1
+        if (stage === 'record') await pause()
+        if (!rows.has(id)) rows.set(id, result)
+      },
+    }
+    const led = new MutationLedger(store, () => 1_000)
+    const id = asMutationId(`suspended-${stage}`)
+    // Lookup and recording cases deliberately use a synchronous body: it is
+    // the store's awaits, not just an async handler, that need admission.
+    const body = () => {
+      runs += 1
+      const value = { run: runs }
+      return stage === 'body' ? pause().then(() => value) : value
+    }
+    const original = led.apply(id, 'issues.create', body)
+    await atGate
+    const replay = led.apply(id, 'issues.create', body)
+    const lookupsWhileBlocked = lookups
+    release()
+    const [first, second] = await Promise.all([original, replay])
 
-      expect(lookupsWhileBlocked, 'replay must join before a second durable lookup').toBe(1)
-      expect(runs, 'one mutation body despite concurrent delivery').toBe(1)
-      expect(records, 'one durable receipt').toBe(1)
-      expect(first).toEqual({ outcome: 'applied', value: { run: 1 } })
-      expect(second).toEqual({ outcome: 'replayed', value: { run: 1 } })
-      expect(rows.get(id)).toBe('{"run":1}')
-      // Cleanup of the reservation must hand the next replay to durable storage.
-      expect(await led.apply(id, 'issues.create', body)).toEqual(second)
-      expect(lookups).toBe(2)
-      expect(runs).toBe(1)
-    },
-  )
+    expect(lookupsWhileBlocked, 'replay must join before a second durable lookup').toBe(1)
+    expect(runs, 'one mutation body despite concurrent delivery').toBe(1)
+    expect(records, 'one durable receipt').toBe(1)
+    expect(first).toEqual({ outcome: 'applied', value: { run: 1 } })
+    expect(second).toEqual({ outcome: 'replayed', value: { run: 1 } })
+    expect(rows.get(id)).toBe('{"run":1}')
+    // Cleanup of the reservation must hand the next replay to durable storage.
+    expect(await led.apply(id, 'issues.create', body)).toEqual(second)
+    expect(lookups).toBe(2)
+    expect(runs).toBe(1)
+  })
+})
+
+/**
+ * THE DEDUP RECORD INSIDE THE UNIT OF WORK (ADR 12 D2 step 7, POD-6273).
+ *
+ * Without a `unit`, the body commits and THEN the record is written: a crash or a
+ * failed insert between the two leaves a write that applied with nothing to say
+ * so, and the retry applies it again. With a `unit`, body and record run inside
+ * one unit of work, so they commit or roll back together.
+ */
+describe('MutationLedger with a unit of work', () => {
+  /** A unit double that stages the store's records and keeps them only on commit. */
+  function transactionalStore() {
+    const committed = new Map<string, string>()
+    let staged: Map<string, string> | undefined
+    const store: AppliedMutationStore = {
+      getAppliedMutation: (id) => staged?.get(id) ?? committed.get(id),
+      recordAppliedMutation: (id, _proc, result) => {
+        const target = staged ?? committed
+        if (!target.has(id)) target.set(id, result)
+      },
+    }
+    const events: string[] = []
+    const unit = async <T>(fn: () => Promise<T>): Promise<T> => {
+      staged = new Map()
+      events.push('open')
+      try {
+        const value = await fn()
+        for (const [k, v] of staged) committed.set(k, v)
+        events.push('commit')
+        return value
+      } catch (error) {
+        events.push('rollback')
+        throw error
+      } finally {
+        staged = undefined
+      }
+    }
+    return { store, committed, unit, events }
+  }
+
+  it('records the result inside the unit, before it commits', async () => {
+    const { store, committed, unit, events } = transactionalStore()
+    const led = new MutationLedger(store, () => 1_000)
+    const seenInside: Array<string | undefined> = []
+    const wrapped = async <T>(fn: () => Promise<T>): Promise<T> =>
+      await unit(async () => {
+        const value = await fn()
+        // Still inside the unit: the record must already be staged here.
+        seenInside.push(await store.getAppliedMutation(asMutationId('m-u')))
+        return value
+      })
+
+    const applied = await led.apply(asMutationId('m-u'), 'test.write', async () => 'ok', {
+      unit: wrapped,
+    })
+
+    expect(applied).toEqual({ outcome: 'applied', value: 'ok' })
+    expect(seenInside).toEqual([JSON.stringify('ok')])
+    expect(events).toEqual(['open', 'commit'])
+    expect(committed.get(asMutationId('m-u'))).toBe(JSON.stringify('ok'))
+  })
+
+  it('a unit that rolls back after the record keeps nothing, so a retry runs again', async () => {
+    const { store, committed, unit } = transactionalStore()
+    const led = new MutationLedger(store, () => 1_000)
+    const failing = async <T>(fn: () => Promise<T>): Promise<T> =>
+      await unit(async () => {
+        await fn()
+        throw new Error('commit refused')
+      })
+
+    await expect(
+      led.apply(asMutationId('m-r'), 'test.write', async () => 'first', { unit: failing }),
+    ).rejects.toThrow('commit refused')
+    expect(committed.has(asMutationId('m-r'))).toBe(false)
+
+    const retry = await led.apply(asMutationId('m-r'), 'test.write', async () => 'second', { unit })
+    expect(retry).toEqual({ outcome: 'applied', value: 'second' })
+  })
+
+  it('a recorded id replays without opening the unit', async () => {
+    const { store, unit, events } = transactionalStore()
+    const led = new MutationLedger(store, () => 1_000)
+    await led.apply(asMutationId('m-p'), 'test.write', async () => 1, { unit })
+    events.length = 0
+    const body = vi.fn(async () => 2)
+
+    const replay = await led.apply(asMutationId('m-p'), 'test.write', body, { unit })
+
+    expect(replay).toEqual({ outcome: 'replayed', value: 1 })
+    expect(body).not.toHaveBeenCalled()
+    expect(events).toEqual([])
+  })
+
+  it('without a mutationId the body still runs inside the unit and nothing is recorded', async () => {
+    const { store, committed, unit, events } = transactionalStore()
+    const led = new MutationLedger(store, () => 1_000)
+
+    const applied = await led.apply(undefined, 'test.write', async () => 'x', { unit })
+
+    expect(applied).toEqual({ outcome: 'applied', value: 'x' })
+    expect(events).toEqual(['open', 'commit'])
+    expect(committed.size).toBe(0)
+  })
+})
+
+describe('MutationLedger: a large answer is stored as a digest (POD-7035)', () => {
+  const big = (marker: string) => ({
+    id: 'iss_1',
+    marker,
+    panel: 'p'.repeat(RECEIPT_RESULT_INLINE_MAX),
+  })
+  const compaction = (
+    replayed: (digest: unknown) => unknown,
+  ): ReceiptCompaction & { replays: unknown[] } => {
+    const replays: unknown[] = []
+    return {
+      replays,
+      digest: (value) => ({ issue: (value as { id: string }).id }),
+      replay: async (digest) => {
+        replays.push(digest)
+        return replayed(digest)
+      },
+    }
+  }
+
+  it('stores the digest, never the bulk, and a replay rebuilds the answer without running the body', async () => {
+    const { led, store } = ledger()
+    let runs = 0
+    const codec = compaction(() => ({ id: 'iss_1', marker: 'rebuilt' }))
+    const first = await led.apply(
+      asMutationId('m-big'),
+      'issues.setState',
+      () => {
+        runs += 1
+        return big('first')
+      },
+      { compaction: codec },
+    )
+    const stored = store.rows.get(asMutationId('m-big'))?.result ?? ''
+    expect(stored.length).toBeLessThan(200)
+    expect(JSON.parse(stored)).toEqual({ $receiptDigest: { issue: 'iss_1' } })
+    expect(first.value.marker).toBe('first')
+
+    const replay = await led.apply(
+      asMutationId('m-big'),
+      'issues.setState',
+      () => {
+        runs += 1
+        return big('second')
+      },
+      { compaction: codec },
+    )
+    expect(runs).toBe(1)
+    expect(replay).toEqual({ outcome: 'replayed', value: { id: 'iss_1', marker: 'rebuilt' } })
+    expect(codec.replays).toEqual([{ issue: 'iss_1' }])
+  })
+
+  it('stores a small answer whole even when the command has a digest', async () => {
+    const { led, store } = ledger()
+    const codec = compaction(() => 'never')
+    await led.apply(asMutationId('m-small'), 'issues.setState', () => ({ id: 'iss_1' }), {
+      compaction: codec,
+    })
+    expect(store.rows.get(asMutationId('m-small'))?.result).toBe('{"id":"iss_1"}')
+    const replay = await led.apply(asMutationId('m-small'), 'issues.setState', () => null, {
+      compaction: codec,
+    })
+    expect(replay.value).toEqual({ id: 'iss_1' })
+    expect(codec.replays).toEqual([])
+  })
+
+  it('stores a large answer whole when its command has no digest for it', async () => {
+    const { led, store } = ledger()
+    const value = big('whole')
+    await led.apply(asMutationId('m-whole'), 'p', () => value, {
+      compaction: { digest: () => undefined, replay: async () => 'never' },
+    })
+    expect(store.rows.get(asMutationId('m-whole'))?.result).toBe(JSON.stringify(value))
+    await led.apply(asMutationId('m-plain'), 'p', () => value)
+    expect(store.rows.get(asMutationId('m-plain'))?.result).toBe(JSON.stringify(value))
+  })
+
+  it('refuses to replay a digest through a call that cannot rebuild the answer', async () => {
+    const { led } = ledger()
+    await led.apply(asMutationId('m-d'), 'issues.setState', () => big('x'), {
+      compaction: compaction(() => 'rebuilt'),
+    })
+    await expect(led.apply(asMutationId('m-d'), 'issues.setState', () => 'ran')).rejects.toThrow(
+      /holds a digest/,
+    )
+  })
 })

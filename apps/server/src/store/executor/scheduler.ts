@@ -11,9 +11,10 @@
  * connection: this queue on bun:sqlite, the platform on Turso.
  *
  * ADMISSION. One FIFO of waiters, scanned in order:
- *   - `write` and `exclusive` need the single write slot, so writes stay FIFO
- *     among themselves.
- *   - `read` takes the write slot too when the driver's `readConcurrency` is 0
+ *   - `write` needs a write slot. On a driver that declares no per-workspace
+ *     writes (bun:sqlite, libsql) there is ONE, so writes stay FIFO among
+ *     themselves — today's behaviour exactly.
+ *   - `read` takes a write slot too when the driver's `readConcurrency` is 0
  *     (bun:sqlite: one connection, one lane, today's behaviour exactly), and
  *     otherwise runs on its own slots and may overtake a blocked write — which
  *     is what "the remote implementation may run the read lane concurrently"
@@ -22,14 +23,38 @@
  *     and a stream of reads cannot starve it. It starts only when the scheduler
  *     is empty.
  *
+ * ONE WRITE SLOT PER WORKSPACE [POD-6996, POD-6958 design 2.4]. A driver that
+ * serialises each workspace's writers itself — Postgres, whose write takes the
+ * workspace's `sync_feed` row lock first (contract C4) — declares
+ * `LanePolicy.workspaceWrites` (driver.ts). The scheduler then keys a write's
+ * slot by the workspace of its {@link StoreContext}: one slot per workspace, so a
+ * workspace's writes stay FIFO and never overlap, while writes of different
+ * workspaces run at once, up to `workspaceWrites` of them (a bound the driver sets
+ * below its pool size, so reads keep connections). Global-context writes share
+ * one slot of their own. A waiter blocked by its own workspace does not hold up
+ * a later write of another one. `exclusive` is still a barrier over all of them.
+ * The in-process slot and the database lock agree on purpose: a write that
+ * reaches the lock has no in-process rival for it, so the lock only ever waits
+ * for another PROCESS.
+ *
  * The slot is taken in the caller's own turn, before the first `await`, so the
  * queue order is the call order — which is what makes the interleaving tests
  * deterministic rather than merely usually right.
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { rootStatementContext } from './context'
 import type { BusyRetryPolicy, DriverSession, Lane, StoreDriver } from './driver'
 import { SchedulerClosedError, StaleTransactionError } from './errors'
+import type { StoreContext } from './executor'
+import { withWorkspaceWriteAdmission, workspaceWriteMetrics } from './workspace-write-metrics'
+
+/** The one write slot of a driver without per-workspace writes. */
+const PROCESS_SLOT = 'process'
+/** The write slot global-context work shares on a driver with per-workspace writes. */
+const GLOBAL_SLOT = 'global'
+/** A workspace's write slot. Prefixed, so no workspace id can name another slot. */
+const workspaceSlot = (workspaceId: string): string => `workspace:${workspaceId}`
 
 export interface Lease {
   readonly id: number
@@ -147,7 +172,15 @@ export type SchedulerState = 'open' | 'accepting' | 'draining' | 'closed'
 
 export interface Scheduler {
   readonly state: SchedulerState
-  run<T>(lane: Lane, body: (lease: Lease) => Promise<T>): Promise<T>
+  /**
+   * Run `body` on a lease of `lane`.
+   *
+   * `context` is the work's store context, which picks a write's slot on a driver
+   * with per-workspace writes (`LanePolicy.workspaceWrites`). Absent, it is the
+   * workspace of the root statement being run (`rootStatementContext()`), and
+   * failing that the global context. Every other driver ignores it.
+   */
+  run<T>(lane: Lane, body: (lease: Lease) => Promise<T>, context?: StoreContext): Promise<T>
   /**
    * A read on a connection outside the lanes, for the committed view from
    * inside an open body. Rejects when the driver has no such connection.
@@ -168,6 +201,8 @@ type LeaseOutcome<T> =
 
 interface Waiter {
   readonly lane: Lane
+  /** The write slot it needs; undefined for a read on its own lane and for `exclusive`. */
+  readonly slot: string | undefined
   readonly start: () => void
 }
 
@@ -354,8 +389,22 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     }
   }
   const readConcurrency = driver.lanes.readConcurrency
-  /** Reads with no lane of their own take the write slot (bun:sqlite). */
+  /** Reads with no lane of their own take a write slot (bun:sqlite). */
   const readsUseWriteSlot = readConcurrency === 0
+  const declaredWorkspaceWrites = driver.lanes.workspaceWrites
+  if (
+    declaredWorkspaceWrites !== undefined &&
+    (!Number.isInteger(declaredWorkspaceWrites) || declaredWorkspaceWrites < 1)
+  ) {
+    throw new Error(
+      `driver ${driver.kind} declares ${declaredWorkspaceWrites} workspace write slots: ` +
+        'the bound must be a positive integer',
+    )
+  }
+  /** Writes are keyed by workspace (Postgres); otherwise one slot serves them all. */
+  const perWorkspace = declaredWorkspaceWrites !== undefined
+  /** Write slots that may be held at once. */
+  const writeSlots = declaredWorkspaceWrites ?? 1
 
   /** The sink is itself a caller's adapter, so it gets the same isolation it provides. */
   function reportIdleFailure(error: unknown): void {
@@ -368,8 +417,11 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
 
   const pending: Waiter[] = []
   const idleListeners = new Set<() => void>()
-  let writeSlotHeld = false
+  /** The write slots held, by key: at most one lease per key, at most `writeSlots` keys. */
+  const heldSlots = new Set<string>()
   let exclusiveSlotHeld = false
+  /** Exclusive requests in `pending`: a barrier no newcomer may pass. */
+  let pendingExclusive = 0
   let readsInFlight = 0
   let inFlight = 0
   let state: SchedulerState = options.startOpen ? 'open' : 'accepting'
@@ -380,35 +432,50 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
   let closing: Promise<void> | undefined
   let finishClose: (() => void) | undefined
 
-  function canStart(lane: Lane): boolean {
+  /**
+   * The write slot `lane` needs for work of `context`, or undefined when it needs
+   * none: a read on its own lane, and `exclusive`, which is a barrier rather than
+   * a slot.
+   */
+  function slotFor(lane: Lane, context: StoreContext | undefined): string | undefined {
+    if (lane === 'exclusive') return undefined
+    if (lane === 'read' && !readsUseWriteSlot) return undefined
+    if (!perWorkspace) return PROCESS_SLOT
+    // A read that takes a write slot reads; it does not need its workspace's lock.
+    if (lane === 'read') return GLOBAL_SLOT
+    return context?.kind === 'workspace' ? workspaceSlot(context.workspaceId) : GLOBAL_SLOT
+  }
+
+  function canStart(lane: Lane, slot: string | undefined): boolean {
     // Concurrent readers may share an ordinary writer, but never an exclusive lease.
-    // Keep this separate from writeSlotHeld so reads retain their independent lane.
+    // Keep this separate from the write slots so reads retain their independent lane.
     if (exclusiveSlotHeld) return false
     if (lane === 'exclusive') return inFlight === 0
-    if (lane === 'write') return !writeSlotHeld
-    return readsUseWriteSlot ? !writeSlotHeld : readsInFlight < readConcurrency
+    if (slot === undefined) return readsInFlight < readConcurrency
+    return !heldSlots.has(slot) && heldSlots.size < writeSlots
   }
 
-  function take(lane: Lane): void {
+  function take(lane: Lane, slot: string | undefined): void {
     if (lane === 'exclusive') exclusiveSlotHeld = true
     inFlight++
-    if (lane === 'read' && !readsUseWriteSlot) readsInFlight++
-    else writeSlotHeld = true
+    if (slot !== undefined) heldSlots.add(slot)
+    else if (lane === 'read') readsInFlight++
   }
 
-  function give(lane: Lane): void {
+  function give(lane: Lane, slot: string | undefined): void {
     if (lane === 'exclusive') exclusiveSlotHeld = false
     inFlight--
-    if (lane === 'read' && !readsUseWriteSlot) readsInFlight--
-    else writeSlotHeld = false
+    if (slot !== undefined) heldSlots.delete(slot)
+    else if (lane === 'read') readsInFlight--
   }
 
   function pump(): void {
     for (let i = 0; i < pending.length; ) {
       const waiter = pending[i] as Waiter
-      if (canStart(waiter.lane)) {
+      if (canStart(waiter.lane, waiter.slot)) {
         pending.splice(i, 1)
-        take(waiter.lane)
+        if (waiter.lane === 'exclusive') pendingExclusive--
+        take(waiter.lane, waiter.slot)
         waiter.start()
         continue
       }
@@ -430,17 +497,36 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     }
   }
 
-  function admit(lane: Lane): Promise<void> | undefined {
-    if (pending.length === 0 && canStart(lane)) {
-      take(lane)
+  /**
+   * May a newcomer start without queueing?
+   *
+   * With one write slot, only when nothing is queued: the queue is the call order,
+   * exactly as before per-workspace slots existed. With per-workspace slots, when
+   * no exclusive request is queued: after every pump each queued waiter is blocked
+   * (by its own workspace's slot, the bound, or the read lane), so a newcomer that
+   * can start overtakes no waiter it competes with — a queued write of its own
+   * workspace would hold its slot blocked, and the bound blocks both alike.
+   */
+  function mayBypassQueue(): boolean {
+    return perWorkspace ? pendingExclusive === 0 : pending.length === 0
+  }
+
+  function admit(lane: Lane, slot: string | undefined): Promise<void> | undefined {
+    if (mayBypassQueue() && canStart(lane, slot)) {
+      take(lane, slot)
       return undefined
     }
+    if (lane === 'exclusive') pendingExclusive++
     return new Promise<void>((resolve) => {
-      pending.push({ lane, start: resolve })
+      pending.push({ lane, slot, start: resolve })
     })
   }
 
-  async function runLease<T>(lane: Lane, body: (lease: Lease) => Promise<T>): Promise<T> {
+  async function runLease<T>(
+    lane: Lane,
+    body: (lease: Lease) => Promise<T>,
+    context: StoreContext | undefined,
+  ): Promise<T> {
     if (state === 'open' && lane !== 'exclusive') state = 'accepting'
     if (
       state !== 'accepting' &&
@@ -452,8 +538,18 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     // Capture the caller once per lease, before queueing, without paying for a
     // stack capture on every statement in the transaction.
     const stack = watchdog ? (new Error('Transaction lease requested').stack ?? '') : ''
-    const queued = admit(lane)
+    const admittedContext = context ?? rootStatementContext()
+    const measuredWorkspace =
+      perWorkspace && lane === 'write' && admittedContext?.kind === 'workspace'
+        ? admittedContext.workspaceId
+        : undefined
+    const queueStartedAt = measuredWorkspace === undefined ? 0 : now()
+    const slot = slotFor(lane, admittedContext)
+    const queued = admit(lane, slot)
     if (queued) await queued
+    const queueMs = measuredWorkspace === undefined ? 0 : now() - queueStartedAt
+    if (measuredWorkspace !== undefined)
+      workspaceWriteMetrics.recordQueue(measuredWorkspace, queueMs)
     /**
      * THE SLOT IS HELD FROM HERE, so everything that can reject is inside the
      * release `finally` — acquiring the connection as much as the body and
@@ -536,14 +632,16 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
         return { ok: false, error }
       }
     }
-    let outcome = await acquireAndRun()
+    let outcome = await (measuredWorkspace === undefined
+      ? acquireAndRun()
+      : withWorkspaceWriteAdmission(queueMs, acquireAndRun))
     try {
       // Only a session that was actually acquired is closed.
       if (session) await session.close()
     } catch (closeError) {
       outcome = closeOutcome(outcome, closeError)
     } finally {
-      give(lane)
+      give(lane, slot)
       pump()
     }
     if (outcome.ok) return outcome.value
@@ -556,9 +654,13 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
    * the driver's problem, so a double failure is reported as both.
    */
   function closeOutcome<T>(
-    outcome: LeaseOutcome<T>,
+    outcome: LeaseOutcome<T> | undefined,
     closeError: unknown,
   ): { ok: false; error: unknown } {
+    if (outcome === undefined)
+      throw new Error('store scheduler invariant: closing a reader without an outcome', {
+        cause: closeError,
+      })
     if (outcome.ok) return { ok: false, error: closeError }
     return {
       ok: false,
@@ -573,8 +675,8 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     get state() {
       return state
     },
-    async run(lane, body) {
-      return await runLease(lane, body)
+    async run(lane, body, context) {
+      return await runLease(lane, body, context)
     },
     async detachedRead<T>(body: (session: DriverSession) => Promise<T>): Promise<T> {
       if (state === 'closed') throw new SchedulerClosedError('scheduler is closed')
@@ -591,7 +693,7 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
       let drainTimer: ReturnType<typeof setTimeout> | undefined
       let revoking: Promise<void> | undefined
       let drain: (() => void) | undefined
-      let outcome: LeaseOutcome<T>
+      let outcome: LeaseOutcome<T> | undefined
       try {
         session = await openReader.call(driver)
         const activity = leaseActivity(session, now)
@@ -625,17 +727,18 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
             try {
               await revoking
             } catch (error) {
-              outcome = closeOutcome(outcome!, error)
+              outcome = closeOutcome(outcome, error)
             }
           }
           await session?.close()
         } catch (error) {
-          outcome = closeOutcome(outcome!, error)
+          outcome = closeOutcome(outcome, error)
         } finally {
           inFlight--
           pump()
         }
       }
+      if (outcome === undefined) throw new Error('store scheduler invariant: reader has no outcome')
       if (outcome.ok) return outcome.value
       throw outcome.error
     },

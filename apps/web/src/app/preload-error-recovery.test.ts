@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { recoverFromVitePreloadError } from './preload-error-recovery'
+import { type ChunkRecoveryDeps, retryChunkImport } from '@/lib/chunk-recovery'
+import { recoverFromVitePreloadError, retryOnOnline } from './preload-error-recovery'
 
-function preloadError(message: string): VitePreloadErrorEvent {
+function preloadError(
+  message = 'Failed to fetch dynamically imported module: /assets/terminal.js',
+): VitePreloadErrorEvent {
   const event = new Event('vite:preloadError', { cancelable: true }) as VitePreloadErrorEvent
   event.payload = new TypeError(message)
   return event
@@ -15,126 +18,170 @@ function memoryStorage(): Pick<Storage, 'getItem' | 'setItem'> {
   }
 }
 
+function options() {
+  return {
+    build: 'https://podium.test/assets/app-a.js',
+    storage: memoryStorage(),
+    reload: vi.fn(),
+    isOnline: () => true,
+    probe: vi.fn(async () => ({ status: 404 })),
+  }
+}
+
 describe('Vite preload-error recovery', () => {
-  it('reloads once for the same module URL across browser error wording', () => {
-    const storage = memoryStorage()
-    const reload = vi.fn()
+  it('leaves the event and reload guard alone offline, without probing', async () => {
+    const deps = { ...options(), isOnline: () => false }
+    const write = vi.spyOn(deps.storage, 'setItem')
+    const event = preloadError()
+    expect(await recoverFromVitePreloadError(event, deps)).toBe(false)
+    expect(event.defaultPrevented).toBe(false)
+    expect(deps.reload).not.toHaveBeenCalled()
+    expect(deps.probe).not.toHaveBeenCalled()
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('reloads once for the same missing URL across browser error wording', async () => {
+    const deps = options()
     const first = preloadError(
       'Failed to fetch dynamically imported module: https://podium.test/assets/terminal.js',
     )
-    const repeated = preloadError(
-      'error loading dynamically imported module: /assets/terminal.js',
-    )
-
-    expect(
-      recoverFromVitePreloadError(first, {
-        build: 'https://podium.test/assets/app-a.js',
-        storage,
-        reload,
-      }),
-    ).toBe(true)
+    const repeated = preloadError('error loading dynamically imported module: /assets/terminal.js')
+    expect(await recoverFromVitePreloadError(first, deps)).toBe(true)
     expect(first.defaultPrevented).toBe(true)
-    expect(reload).toHaveBeenCalledTimes(1)
-
-    expect(
-      recoverFromVitePreloadError(repeated, {
-        build: 'https://podium.test/assets/app-a.js',
-        storage,
-        reload,
-      }),
-    ).toBe(false)
+    expect(await recoverFromVitePreloadError(repeated, deps)).toBe(false)
     expect(repeated.defaultPrevented).toBe(false)
-    expect(reload).toHaveBeenCalledTimes(1)
+    expect(deps.reload).toHaveBeenCalledOnce()
+    expect(deps.probe).toHaveBeenCalledWith('https://podium.test/assets/terminal.js')
   })
 
-  it('gives distinct module URLs their own reload', () => {
-    const storage = memoryStorage()
-    const reload = vi.fn()
-    const terminal = preloadError('Failed to fetch dynamically imported module: /terminal.js')
-    const drag = preloadError('Failed to fetch dynamically imported module: /workspace-drag.js')
-    const options = {
-      build: 'https://podium.test/assets/app-a.js',
-      storage,
-      reload,
-    }
-
-    expect(recoverFromVitePreloadError(terminal, options)).toBe(true)
-    expect(recoverFromVitePreloadError(drag, options)).toBe(true)
-    expect(reload).toHaveBeenCalledTimes(2)
-  })
-
-  it('does not let generic WebKit wording suppress a distinct chunk', () => {
-    const storage = memoryStorage()
-    const reload = vi.fn()
-    const terminal = preloadError('Importing a module script failed.')
-    const drag = preloadError('Importing a module script failed.')
-
-    expect(
-      recoverFromVitePreloadError(terminal, { build: '/assets/app-a.js', storage, reload }),
-    ).toBe(true)
-    expect(
-      recoverFromVitePreloadError(drag, { build: '/assets/app-a.js', storage, reload }),
-    ).toBe(true)
-    expect(terminal.defaultPrevented).toBe(true)
-    expect(drag.defaultPrevented).toBe(true)
-    expect(reload).toHaveBeenCalledTimes(2)
-  })
-
-  it('bounds a persistent URL-less failure despite changing browser wording', () => {
-    const storage = memoryStorage()
-    const reload = vi.fn()
-    const errors = [
-      preloadError('Importing a module script failed.'),
-      preloadError('Load failed'),
-      preloadError('Failed to fetch dynamically imported module'),
-    ]
-
-    expect(
-      recoverFromVitePreloadError(errors[0]!, { build: '/assets/app-a.js', storage, reload }),
-    ).toBe(true)
-    expect(
-      recoverFromVitePreloadError(errors[1]!, { build: '/assets/app-a.js', storage, reload }),
-    ).toBe(true)
-    expect(
-      recoverFromVitePreloadError(errors[2]!, { build: '/assets/app-a.js', storage, reload }),
-    ).toBe(false)
-    expect(errors[2]!.defaultPrevented).toBe(false)
-    expect(reload).toHaveBeenCalledTimes(2)
-  })
-
-  it('gives an expired guard and a new app build a fresh budget', () => {
-    const storage = memoryStorage()
-    const reload = vi.fn()
-    const recover = (build: string, now: number) =>
-      recoverFromVitePreloadError(preloadError('Importing a module script failed.'), {
-        build,
-        storage,
-        reload,
-        now,
-      })
-
-    expect(recover('/assets/app-a.js', 1_000)).toBe(true)
-    expect(recover('/assets/app-a.js', 1_001)).toBe(true)
-    expect(recover('/assets/app-a.js', 1_002)).toBe(false)
-    expect(recover('/assets/app-b.js', 1_003)).toBe(true)
-    expect(recover('/assets/app-b.js', 5 * 60_000 + 1_003)).toBe(true)
-    expect(reload).toHaveBeenCalledTimes(4)
-  })
-
-  it('does not reload or cancel the import rejection when storage is unavailable', () => {
-    const reload = vi.fn()
-    const event = preloadError('Failed to fetch /assets/terminal.js')
-    const storage = {
-      getItem: vi.fn(() => {
-        throw new Error('storage disabled')
-      }),
-      setItem: vi.fn(),
-    }
-
-    expect(recoverFromVitePreloadError(event, { build: '/assets/app-a.js', storage, reload })).toBe(
-      false,
+  it('gives distinct missing URLs their own reload within the existing build budget', async () => {
+    const deps = options()
+    const events = ['/terminal.js', '/workspace-drag.js', '/settings.js'].map((url) =>
+      preloadError(`Failed to fetch dynamically imported module: ${url}`),
     )
+    expect(await recoverFromVitePreloadError(events[0]!, deps)).toBe(true)
+    expect(await recoverFromVitePreloadError(events[1]!, deps)).toBe(true)
+    expect(await recoverFromVitePreloadError(events[2]!, deps)).toBe(false)
+    expect(events[2]!.defaultPrevented).toBe(false)
+    expect(deps.reload).toHaveBeenCalledTimes(2)
+  })
+
+  it('retains the guard across concurrent failures', async () => {
+    const deps = options()
+    expect(
+      await Promise.all([
+        recoverFromVitePreloadError(preloadError(), deps),
+        recoverFromVitePreloadError(preloadError(), deps),
+      ]),
+    ).toEqual([true, false])
+    expect(deps.reload).toHaveBeenCalledOnce()
+  })
+
+  it('gives an expired guard and a new build a fresh budget', async () => {
+    const deps = options()
+    const recover = (build: string, now: number) =>
+      recoverFromVitePreloadError(preloadError(), { ...deps, build, now })
+    expect(await recover('https://podium.test/assets/app-a.js', 1_000)).toBe(true)
+    expect(await recover('https://podium.test/assets/app-a.js', 1_001)).toBe(false)
+    expect(await recover('https://podium.test/assets/app-b.js', 1_002)).toBe(true)
+    expect(await recover('https://podium.test/assets/app-b.js', 5 * 60_000 + 1_003)).toBe(true)
+    expect(deps.reload).toHaveBeenCalledTimes(3)
+  })
+
+  it.each([
+    200, 403, 500,
+  ])('does not reload for a response other than missing (%s)', async (status) => {
+    const deps = { ...options(), probe: async () => ({ status }) }
+    const event = preloadError()
+    expect(await recoverFromVitePreloadError(event, deps)).toBe(false)
     expect(event.defaultPrevented).toBe(false)
-    expect(reload).not.toHaveBeenCalled()
+    expect(deps.reload).not.toHaveBeenCalled()
+  })
+
+  it('does not reload for a network error even if the device reports online', async () => {
+    const deps = {
+      ...options(),
+      probe: vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    }
+    const event = preloadError()
+    expect(await recoverFromVitePreloadError(event, deps)).toBe(false)
+    expect(event.defaultPrevented).toBe(false)
+    expect(deps.reload).not.toHaveBeenCalled()
+  })
+
+  it('rechecks connectivity after the missing-file probe', async () => {
+    let online = true
+    const deps = {
+      ...options(),
+      isOnline: () => online,
+      probe: async () => {
+        online = false
+        return { status: 404 }
+      },
+    }
+    const event = preloadError()
+    expect(await recoverFromVitePreloadError(event, deps)).toBe(false)
+    expect(event.defaultPrevented).toBe(false)
+    expect(deps.reload).not.toHaveBeenCalled()
+  })
+
+  it('leaves URL-less failures alone because they cannot prove a missing file', async () => {
+    const deps = options()
+    expect(
+      await recoverFromVitePreloadError(preloadError('Importing a module script failed.'), deps),
+    ).toBe(false)
+    expect(deps.reload).not.toHaveBeenCalled()
+  })
+
+  it('does not reload or cancel the rejection when storage is unavailable', async () => {
+    const deps = {
+      ...options(),
+      storage: {
+        getItem: () => {
+          throw new Error('storage disabled')
+        },
+        setItem: vi.fn(),
+      },
+    }
+    const event = preloadError()
+    expect(await recoverFromVitePreloadError(event, deps)).toBe(false)
+    expect(event.defaultPrevented).toBe(false)
+    expect(deps.reload).not.toHaveBeenCalled()
+  })
+
+  it('retries the failed import once on online, using a fresh native module URL', async () => {
+    const target = new EventTarget()
+    const error = preloadError().payload
+    const load = vi.fn(async () => {
+      throw error
+    })
+    const module = { default: 'screen' }
+    const deps: ChunkRecoveryDeps = {
+      askServer: async () => 'ok',
+      wait: async () => {},
+      now: () => 0,
+      importUrl: vi.fn(async () => module),
+    }
+    const retries: Promise<unknown>[] = []
+    const cancel = retryOnOnline(() => {
+      retries.push(retryChunkImport(load, error, 1, deps))
+    }, target)
+    expect(load).not.toHaveBeenCalled()
+    target.dispatchEvent(new Event('online'))
+    target.dispatchEvent(new Event('online'))
+    expect(await Promise.all(retries)).toEqual([module])
+    expect(load).toHaveBeenCalledOnce()
+    expect(deps.importUrl).toHaveBeenCalledWith('/assets/terminal.js?podium-retry=1')
+    cancel()
+  })
+
+  it('removes an unmounted screen’s pending online retry', () => {
+    const target = new EventTarget()
+    const retry = vi.fn()
+    retryOnOnline(retry, target)()
+    target.dispatchEvent(new Event('online'))
+    expect(retry).not.toHaveBeenCalled()
   })
 })

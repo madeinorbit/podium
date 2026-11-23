@@ -5,31 +5,31 @@ import {
   hostMemoryView,
 } from '@podium/client-core/values'
 import type { HeaderAggregate } from '@podium/client-graph/header-views'
-import type { HostMetricsWire, MachineId, MachineWire } from '@podium/model/browser'
+import type { HostMetricsWire, MachineFacts, MachineId } from '@podium/model/browser'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
-import { CircleArrowUp, CloudUpload, MemoryStick } from 'lucide-react'
+import { CircleArrowUp, MemoryStick } from 'lucide-react'
 import type { JSX } from 'react'
-import { lazy, memo, Suspense, useState } from 'react'
+import { memo, Suspense, useState } from 'react'
 import {
   useHeaderActions,
-  useHeaderOutboxSize,
   usePoolHeaderMetrics,
   usePoolHostAggregate,
   usePoolMachine,
   usePoolMetric,
   usePoolMetricIds,
   usePoolOfflineMachines,
+  useThisComputer,
 } from '@/app/header-data'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
+import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { cn } from '@/lib/utils'
 import { machineNeedsUpdate, useServerAppVersion } from '@/lib/version-skew'
-import { MessageNoticeIndicator } from '../chat/MessageNotices'
-import { ConnectionIndicator, describeHealth, useStableConnection } from './ConnectionIndicator'
+import { connectionSeverity, useStableConnection } from './ConnectionIndicator'
 import { HealthPopover } from './HealthPopover'
 import type { HostInfoTab } from './HostMemoryView'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
-import { OutboxRecoveryIndicator } from './OutboxRecovery'
 import { QuotaIndicator } from './QuotaIndicator'
 import { SEVERITY, TONE_KEY } from './severity'
 
@@ -47,10 +47,10 @@ const LoadPanel = lazy(() =>
 )
 
 /**
- * Host health strip. Just two glyphs: a memory icon with a fullness bar (one per
- * daemon machine) and — only while the link is degraded or down — the connection
- * icon beside it. An always-green connection icon and a running GB readout are
- * both noise; the bar conveys pressure at a glance and a click opens the numbers.
+ * Host health strip: a memory icon with a fullness bar per daemon machine. A
+ * running GB readout is noise; the bar conveys pressure at a glance and a click
+ * opens the numbers. Link health, queued and refused changes and undelivered
+ * messages live in the status strip's sync item (POD-6852), not here.
  *
  * `compact` (mobile header) drops the bar, leaving the severity-colored icon —
  * header pixels belong to session selection there. Tapping either still opens
@@ -58,25 +58,12 @@ const LoadPanel = lazy(() =>
  */
 export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.Element {
   const hostMetrics = usePoolHeaderMetrics()
-  const outboxSize = useHeaderOutboxSize()
-  const { health, visible: connVisible } = useStableConnection()
   const hibernation = useHibernationSetting()
   // The open host-info modal, plus which machine it's about. A memory chip opens
   // its own machine; the connection glyph is machine-agnostic (its tab lists all
   // hosts), so it opens without a specific machine.
   const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: MachineId } | null>(null)
   const showHostname = !compact && hostMetrics.length > 1
-  // The visible icon only shows the detail on hover; a persistent polite live
-  // region announces degraded/down transitions to assistive tech (empty while
-  // healthy, so recovery isn't announced as noise). HostIndicators re-renders
-  // only on health change, so the message isn't re-announced every second.
-  const announce =
-    health.status === 'ok'
-      ? ''
-      : (() => {
-          const d = describeHealth(health, Date.now())
-          return `${d.headline}. ${d.detail}`
-        })()
   return (
     <div
       className={cn(
@@ -86,9 +73,6 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
           : 'mt-auto flex-wrap gap-1.5 border-t border-border bg-card px-3 py-2',
       )}
     >
-      <span className="sr-only" role="status" aria-live="polite">
-        {announce}
-      </span>
       {hostMetrics.map((host) => {
         const mem = hostMemoryView(host)
         const tone = SEVERITY[mem.severity]
@@ -144,36 +128,6 @@ export function HostIndicators({ compact = false }: { compact?: boolean }): JSX.
           </Tooltip>
         )
       })}
-      {connVisible && (
-        <ConnectionIndicator health={health} onOpen={() => setInfo({ tab: 'connection' })} />
-      )}
-      {/* Offline-authored writes waiting in the client outbox. Appears only while
-          something is actually pending — a permanent "0 pending" would be noise. */}
-      {outboxSize > 0 && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1 whitespace-nowrap text-[11px] text-muted-foreground',
-                  compact && 'min-w-[30px] justify-center px-1',
-                )}
-              >
-                <CloudUpload size={14} aria-hidden="true" />
-                {!compact && <span>{outboxSize} pending</span>}
-              </span>
-            }
-          />
-          <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
-            <strong>
-              {outboxSize} pending {outboxSize === 1 ? 'change' : 'changes'}
-            </strong>
-            <span className="text-background/70">changes queued — will sync when reconnected</span>
-          </TooltipContent>
-        </Tooltip>
-      )}
-      <OutboxRecoveryIndicator compact={compact} />
-      <MessageNoticeIndicator compact={compact} />
       <QuotaIndicator compact={compact} />
       {info && (
         <Suspense fallback={null}>
@@ -195,7 +149,7 @@ export function HeaderHostIndicators(): JSX.Element {
 type OpenHostInfo = (info: { tab: HostInfoTab; machineId?: MachineId }) => void
 interface MachineChipProps {
   host: HostMetricsWire
-  machine: MachineWire | undefined
+  machine: MachineFacts | undefined
   aggregate: HeaderAggregate
   lifecycle: ReturnType<typeof useHostLifecycleSettings>
   serverAppVersion: ReturnType<typeof useServerAppVersion>
@@ -358,7 +312,7 @@ const HeaderMachineChip = memo(function HeaderMachineChip({
             needsUpdate ? (
               <div className="hp-dim-line text-warning">
                 Update available: {machine?.inventory?.podiumVersion} → {updateTargetVersion} —
-                apply it from Settings → Machines
+                apply it from Settings → Updates
               </div>
             ) : undefined
           }
@@ -380,41 +334,68 @@ const PoolMachineReadout = memo(function PoolMachineReadout({
   const host = usePoolMetric(id)
   const machine = usePoolMachine(host?.machineId)
   const aggregate = usePoolHostAggregate(host?.machineId)
-  return (
-    host ? (
-      <HeaderMachineChip
-        host={host}
-        machine={machine}
-        aggregate={aggregate}
-        lifecycle={lifecycle}
-        serverAppVersion={serverAppVersion}
-        healthStatus={healthStatus}
-        onInfo={onInfo}
-      />
-    ) : null
-  )
+  return host ? (
+    <HeaderMachineChip
+      host={host}
+      machine={machine}
+      aggregate={aggregate}
+      lifecycle={lifecycle}
+      serverAppVersion={serverAppVersion}
+      healthStatus={healthStatus}
+      onInfo={onInfo}
+    />
+  ) : null
 })
+
+/**
+ * This computer runs a machine in another member's custody. I cannot see that
+ * machine, so the header says only that much: no name, no owner, no readings.
+ */
+function AnotherMembersComputer(): JSX.Element {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className="header-machine-chip"
+            role="note"
+            aria-label="This computer is another member's machine"
+            data-testid="this-computer-other-member"
+          >
+            <span
+              className="size-1.5 flex-none rounded-full bg-muted-foreground"
+              aria-hidden="true"
+            />
+            <span className="header-machine-name">This computer</span>
+            <span className="header-readout">
+              <span className="header-value">another member's</span>
+            </span>
+          </span>
+        }
+      />
+      <TooltipContent className="max-w-60 flex-col items-start gap-0.5">
+        <strong>This computer is another member's machine</strong>
+        <span className="text-background/70">
+          It is not one of your machines, so its status is not shown here.
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
 
 function PoolHeaderHostIndicators(): JSX.Element {
   const ids = usePoolMetricIds()
   const offline = usePoolOfflineMachines()
+  // The desktop shell's own machine, when it is not one I may see (POD-6908).
+  const thisComputer = useThisComputer(nativeDesktopBridge()?.machineId)
   const { trpc } = useHeaderActions()
   const lifecycle = useHostLifecycleSettings()
   const serverAppVersion = useServerAppVersion(trpc)
   const { health } = useStableConnection()
   const [info, setInfo] = useState<{ tab: HostInfoTab; machineId?: MachineId } | null>(null)
-  const description =
-    health.status === 'ok'
-      ? ''
-      : (() => {
-          const d = describeHealth(health, Date.now())
-          return `${d.headline}. ${d.detail}`
-        })()
   return (
     <div className="topbar-well header-host-indicators">
-      <span className="sr-only" role="status" aria-live="polite">
-        {description}
-      </span>
+      {thisComputer === 'another-member' && <AnotherMembersComputer />}
       {ids.length === 0 && offline.length === 0 && (
         <button
           data-pressable
@@ -426,9 +407,9 @@ function PoolHeaderHostIndicators(): JSX.Element {
           <span
             className={cn(
               'size-1.5 flex-none rounded-full',
-              health.status === 'ok'
+              connectionSeverity(health) === 'ok'
                 ? 'bg-success'
-                : health.status === 'degraded'
+                : connectionSeverity(health) === 'degraded'
                   ? 'bg-warning'
                   : 'bg-destructive',
             )}
@@ -443,7 +424,7 @@ function PoolHeaderHostIndicators(): JSX.Element {
           id={id}
           lifecycle={lifecycle}
           serverAppVersion={serverAppVersion}
-          healthStatus={health.status}
+          healthStatus={connectionSeverity(health)}
           onInfo={setInfo}
         />
       ))}
@@ -465,8 +446,6 @@ function PoolHeaderHostIndicators(): JSX.Element {
           </span>
         </button>
       ))}
-      <OutboxRecoveryIndicator compact />
-      <MessageNoticeIndicator compact />
       <span className="header-strip-seam" aria-hidden="true" />
       <QuotaIndicator header />
       {info && (

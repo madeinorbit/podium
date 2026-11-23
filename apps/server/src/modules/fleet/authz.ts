@@ -59,6 +59,7 @@ import {
   machineAccessMessage,
   ownershipSnapshotFromMachines,
 } from '../../machine-access'
+import type { RegistryModules } from '../../relay'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
 
@@ -103,9 +104,7 @@ const named = (machineId: MachineId | undefined): FleetTarget =>
  */
 export const FLEET_TARGETS = {
   'machines.setAssignment': (input: unknown) => named((input as { id: MachineId }).id),
-  'machines.rename': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.applyUpdate': (input: unknown) => named((input as { id: MachineId }).id),
-  'machines.setUpdateChannel': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.share': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.unshare': (input: unknown) => named((input as { id: MachineId }).id),
   // The TARGET is the machine being given away, not the recipient. Reading
@@ -208,11 +207,22 @@ export async function fleetAuthzFailure(
   const contract = FLEET_CONTRACTS[name]
   const { policy } = contract
 
-  // New enrollment is admin-only. A retained identity's personal grantee may
-  // explicitly replace that identity; the handler also checks its revoked state.
-  if (name === 'machines.pairingCode' && deps.role !== 'admin') {
-    const target = (input as { replaceMachineId?: string } | undefined)?.replaceMachineId
-    if (!target || !isMachineOwner(deps.principal, asMachineId(target), deps.ownership)) {
+  // New enrollment is any signed-in member's, for their own custody (POD-6883):
+  // the code carries the minter, so it can only ever enroll into theirs. The
+  // member floor below still requires an enabled account. An agent never mints
+  // a new machine. Client recovery stays an administrator's, and replacing a
+  // retained identity its admin's or its personal grantee's; the handler also
+  // checks the revoked state.
+  if (name === 'machines.pairingCode') {
+    const { replaceMachineId: target, clientRegistration } =
+      (input as { replaceMachineId?: string; clientRegistration?: unknown } | undefined) ?? {}
+    if (clientRegistration !== undefined && deps.role !== 'admin') {
+      return new TRPCError({ code: 'FORBIDDEN', message: 'machines.pairingCode client registration requires an admin account' })
+    }
+    if (!target && deps.principal.kind !== 'user') {
+      return new TRPCError({ code: 'FORBIDDEN', message: 'new enrollment requires a signed-in member' })
+    }
+    if (target && deps.role !== 'admin' && !isMachineOwner(deps.principal, asMachineId(target), deps.ownership)) {
       return new TRPCError({ code: 'FORBIDDEN', message: 'machines.pairingCode requires an admin account or the replacement machine grantee' })
     }
   }
@@ -341,7 +351,9 @@ async function machineUnownedRefusal(
   })
 }
 
-async function machineRefusal(
+/** The fleet gate's verb check on one machine, for a write that names it:
+ *  the generic machine record edits (POD-6644) use it as the commands did. */
+export async function machineRefusal(
   machineId: MachineId,
   verb: MachineVerb,
   deps: FleetAuthzDeps,
@@ -365,7 +377,6 @@ async function machineRefusal(
  * calling" is what ADR 3 D7 exists to prevent.
  */
 export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
-  const machines = mods(ctx).machines
   const sessions = mods(ctx).sessions
   const principal = await resolvePrincipalAsync(ctx.capability, {
     parentSessionOf: async (sessionId) =>
@@ -374,10 +385,23 @@ export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
       // waste — `sessionSpawnedBy` reads the one field under the same check.
       spawnedByParentSessionId(await sessions.sessionSpawnedBy(sessionId)),
   })
+  return await fleetAuthzDepsFor(mods(ctx).machines, principal, await accountRoleOf(principal, ctx))
+}
+
+/**
+ * The gate's dependencies for a principal the transport already resolved: the
+ * sync write entry point's (POD-6417), which has no request. `role` is the
+ * account's role NOW (ADR 3 D16).
+ */
+export async function fleetAuthzDepsFor(
+  machines: RegistryModules['machines'],
+  principal: CommandPrincipal,
+  role: UserRole | undefined,
+): Promise<FleetAuthzDeps> {
   return {
     principal,
     ownership: await ownershipSnapshotFromMachines(machines),
-    role: await accountRoleOf(principal, ctx),
+    role,
     defaultMachine: async () => await machines.defaultMachine(),
     allMachineIds: async () => (await machines.ownershipRows()).map((row) => row.id),
     machineName: async (machineId) => (await machines.ownershipRows()).find((r) => r.id === machineId)?.name,

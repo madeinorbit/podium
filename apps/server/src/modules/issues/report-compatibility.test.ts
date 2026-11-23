@@ -3,7 +3,10 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
 import { appRouter } from '../../router'
+import { authoritySnapshot } from '../../test-support/authority-snapshot'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
+import { seedRows } from '../../test-support/seed-rows'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -11,9 +14,28 @@ afterEach(async () => {
 })
 
 async function fixture() {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  const registry = await SessionRegistry.create(await openTestStore(':memory:'), undefined, {
+    instanceId: 'default',
+  })
   registries.push(registry)
-  await registry.sessionStore.repos.addRepo('/report-fixture', registry.sessionStore.hostMachineId)
+  await seedRows(
+    registry.sessionStore,
+    async () =>
+      await registry.sessionStore.repos.addRepo(
+        '/report-fixture',
+        registry.sessionStore.hostMachineId,
+      ),
+  )
+  // This report-only fixture has no daemon to answer automatic base-branch probes.
+  await seedRows(
+    registry.sessionStore,
+    async () =>
+      await registry.sessionStore.repos.setRepoDefaultParentBranch(
+        registry.sessionStore.hostMachineId,
+        '/report-fixture',
+        'main',
+      ),
+  )
   const user = firstAdminMemberId()
   const capability = { ...OPERATOR, actorUser: user, onBehalfOf: user }
   const api = appRouter.createCaller({
@@ -44,7 +66,7 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
   await api.addComment({ id: created.id, body: 'Comment fetched separately' })
   const updated = await api.update({
     id: created.id,
-    patch: { brief: 'Plain text note', pinned: true },
+    patch: { brief: 'Plain text note' },
   })
   const shown = await api.get({ id: created.id })
   const listed = (await api.list({ repoPath: '/report-fixture' })).find(
@@ -69,7 +91,6 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
     childCount: 1,
     childDoneCount: 0,
     brief: 'Plain text note',
-    pinned: true,
     deps: [],
     dependents: [{ id: child.id, type: 'parent-child' }],
     ready: true,
@@ -87,6 +108,8 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
       'asked',
       'intentOrigin',
       'isDraftVessel',
+      // A pin is the reader's own `pin` record (POD-6692), never a report field.
+      'pinned',
     ]) {
       expect(json).not.toHaveProperty(key)
     }
@@ -94,7 +117,6 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
   expect(created).toMatchObject({
     commentCount: 0,
     childCount: 0,
-    pinned: false,
     draft: false,
     origin: 'human',
   })
@@ -111,12 +133,14 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
     omittedChildren: 0,
     children: [expect.objectContaining({ id: child.id, children: [] })],
   })
-  const snapshot = await registry.modules.sessions.syncChangesSince(null)
-  expect(snapshot.kind).toBe('snapshot')
-  if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
-  expect(snapshot.issues).toEqual([])
-  expect(snapshot.issueProjections?.find((row) => row.id === created.id)?.description).toEqual({
-    value: 'Plain text body',
+  const snapshot = await authoritySnapshot(registry)
+  // The description is a record of its own, off the issue record (POD-6921).
+  expect(snapshot.issueProjections?.find((row) => row.id === created.id)).not.toHaveProperty(
+    'description',
+  )
+  expect(snapshot.issueDescriptions?.find((row) => row.id === created.id)).toEqual({
+    id: created.id,
+    text: 'Plain text body',
   })
 })
 
@@ -140,8 +164,7 @@ it('records the authenticated asking user without inventing a session delivery a
   expect(report.humanQuestionAskedBy).toBeUndefined()
   const row = await registry.sessionStore.issues.getIssue(issue.id)
   expect(row?.humanQuestionAttribution).toEqual({ actor: actorUser(user), onBehalfOf: user })
-  const snapshot = await registry.modules.sessions.syncChangesSince(null)
-  if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
+  const snapshot = await authoritySnapshot(registry)
   expect(snapshot.issueProjections?.find((row) => row.id === issue.id)?.asked).toMatchObject({
     question: 'Which option?',
     attribution: { actor: actorUser(user), onBehalfOf: user },
@@ -174,7 +197,7 @@ it('joins an issue list once per request and never counts comments per issue', a
   }
 })
 
-it('reuses only own-row projections while labels, hierarchy, comments and personal state stay fresh', async () => {
+it('keeps labels, hierarchy and comments fresh across report and tree reads', async () => {
   const { registry, api } = await fixture()
   const parent = await api.create({
     repoPath: '/report-fixture',
@@ -183,10 +206,17 @@ it('reuses only own-row projections while labels, hierarchy, comments and person
   })
   const read = async () =>
     (await api.list({ repoPath: '/report-fixture' })).find((row) => row.id === parent.id)!
-  expect(await read()).toMatchObject({ labels: [], commentCount: 0, childCount: 0, pinned: false })
-  await registry.sessionStore.issues.setIssueLabels(parent.id, ['alpha'])
+  expect(await read()).toMatchObject({ labels: [], commentCount: 0, childCount: 0 })
+  expect(await read()).not.toHaveProperty('pinned')
+  await seedRows(
+    registry.sessionStore,
+    async () => await registry.sessionStore.issues.setIssueLabels(parent.id, ['alpha']),
+  )
   expect(await read()).toMatchObject({ labels: ['alpha'] })
-  await registry.sessionStore.issues.setIssueLabels(parent.id, ['beta'])
+  await seedRows(
+    registry.sessionStore,
+    async () => await registry.sessionStore.issues.setIssueLabels(parent.id, ['beta']),
+  )
   await api.addComment({ id: parent.id, body: 'Fresh comment count' })
   const child = await api.create({
     repoPath: '/report-fixture',
@@ -194,14 +224,13 @@ it('reuses only own-row projections while labels, hierarchy, comments and person
     parentId: parent.id,
     startNow: false,
   })
-  await api.update({ id: parent.id, patch: { pinned: true, title: 'Changed report parent' } })
+  await api.update({ id: parent.id, patch: { title: 'Changed report parent' } })
   expect(await read()).toMatchObject({
     title: 'Changed report parent',
     labels: ['beta'],
     commentCount: 1,
     childCount: 1,
     childDoneCount: 0,
-    pinned: true,
   })
   await api.close({ id: child.id })
   expect(await read()).toMatchObject({ childCount: 1, childDoneCount: 1 })
@@ -209,8 +238,10 @@ it('reuses only own-row projections while labels, hierarchy, comments and person
   const counts = vi.spyOn(registry.sessionStore.issues, 'commentCountsOfIssues')
   try {
     expect((await api.tree({ id: parent.id, maxNodes: 1000 })).totalNodes).toBe(2)
-    expect(labels).not.toHaveBeenCalled()
-    expect(counts).not.toHaveBeenCalled()
+    // Command authorization reads the root report once; the tree needs no
+    // additional report joins per node.
+    expect(labels).toHaveBeenCalledTimes(1)
+    expect(counts).toHaveBeenCalledTimes(1)
   } finally {
     labels.mockRestore()
     counts.mockRestore()

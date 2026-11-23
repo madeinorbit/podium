@@ -1,5 +1,7 @@
 import { DraftStore } from '@podium/client-core/conversation'
-import { MobxPool } from '@podium/client-graph'
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
+import { fixtureUi } from '@podium/client-core/test-support/ui'
+import { TranscriptRevealActions } from '@podium/client-core/ui'
 import {
   chatActivityState,
   chatSessionReference,
@@ -8,6 +10,7 @@ import {
   transcriptAttributionTable,
   transcriptPhase,
 } from '@podium/client-core/values'
+import { MobxPool } from '@podium/client-graph'
 import { asSessionId, isAgentComputing } from '@podium/model'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
@@ -76,7 +79,9 @@ function fixture() {
       connectionHealth: () => ({ status: 'ok' }),
     } as never,
   })
-  const runtime = {
+  const runtime = fixtureRoot({
+    ui: fixtureUi(),
+    transcriptReveals: new TranscriptRevealActions(),
     drafts,
     access: {
       hub: { subscribeTranscript: () => () => {} },
@@ -85,7 +90,7 @@ function fixture() {
       },
       getUserFocus: () => ({}),
     },
-  } as any
+  }) as any
   const conversation = createWebConversation(runtime, pool, id, {})
   const view = new ChatViewModel(conversation, false, undefined, () => {})
   view.open()
@@ -160,7 +165,7 @@ const newAnswers = (view: ChatViewModel) => ({
 it('matches the old display answers for each session state and rejects a wrong visible field', () => {
   const f = fixture()
   try {
-    for (const status of ['starting', 'live', 'reconnecting', 'hibernated', 'exited']) {
+    for (const status of ['starting', 'live', 'hibernated', 'exited']) {
       f.pool.apply({ type: 'update', rows: [f.session('Shown', status)] })
       expect(newAnswers(f.view)).toEqual(oldAnswers(f))
     }
@@ -217,6 +222,22 @@ it('keeps backend choices and captured context on each view', () => {
     expect(two.backend).toMatchObject({ model: 'auto', effort: 'auto' })
     expect('backendPick' in f.conversation).toBe(false)
     expect('ctxSeq' in f.conversation).toBe(false)
+  } finally {
+    f.dispose()
+  }
+})
+
+it('reads sticky prompt preference from UiStore across view reopenings without a copied option', () => {
+  const f = fixture()
+  try {
+    expect(f.view.stickyPrompts).toBe(true)
+    f.conversation.runtime.ui.setDevicePref('podium.chat.stickyPrompts', 'false')
+    expect(f.view.stickyPrompts).toBe(false)
+    const reopened = new ChatViewModel(f.conversation, false, undefined, () => {})
+    expect(reopened.stickyPrompts).toBe(false)
+    f.conversation.runtime.ui.setDevicePref('podium.chat.stickyPrompts', null)
+    expect(reopened.stickyPrompts).toBe(true)
+    reopened.close()
   } finally {
     f.dispose()
   }

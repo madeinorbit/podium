@@ -18,6 +18,8 @@ export const nodeTestExclude = [
   // `apps/mobile/vitest.config.ts` supplies. Without this line the node lane
   // collects them and dies in the transform (POD-1220).
   'apps/mobile/**',
+  // The live rewrite-audit baseline belongs only to the explicit test:rearch lane.
+  'scripts/rearch-audit.test.ts',
 ]
 
 // Keep forked test runs below the shared development host resource ceiling by default.
@@ -52,6 +54,9 @@ export const sharedTestWorkerLimits = {
  * options, spread into every lane config (vitest.unit/integration/agent-smoke). */
 export const sharedVitestConfig = {
   resolve: {
+    // Server auth tests import the phone client, whose credential module only has
+    // platform entries. Keep Vite's normal order, then fall back to the web entry.
+    extensions: ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json', '.web.ts'],
     // Array form (not the object map): it takes anchored RegExp `find`s, which is the
     // only way to alias a package that exposes subpaths. A *string* alias matches by
     // prefix, so '@podium/runtime' would rewrite the '@podium/runtime/sqlite' subpath
@@ -71,15 +76,11 @@ export const sharedVitestConfig = {
       // path the daemon's composer-sync reaches is anchored too.
       {
         find: /^@podium\/harness\/browser$/,
-        replacement: fileURLToPath(
-          new URL('./packages/harness/src/browser.ts', import.meta.url),
-        ),
+        replacement: fileURLToPath(new URL('./packages/harness/src/browser.ts', import.meta.url)),
       },
       {
         find: /^@podium\/harness\/driver$/,
-        replacement: fileURLToPath(
-          new URL('./packages/harness/src/driver.ts', import.meta.url),
-        ),
+        replacement: fileURLToPath(new URL('./packages/harness/src/driver.ts', import.meta.url)),
       },
       {
         find: /^@podium\/harness\/driver\/host$/,
@@ -156,8 +157,9 @@ export const sharedVitestConfig = {
         replacement: fileURLToPath(
           new URL(
             './packages/harness/src/adapters/claude-code/instrumentation.ts',
-            import.meta.url),
+            import.meta.url,
           ),
+        ),
       },
       // Fixture harness (POD-4474): the test-only seventh manifest the
       // server→daemon route test registers. Same anchored shape as every
@@ -171,9 +173,7 @@ export const sharedVitestConfig = {
       },
       {
         find: /^@podium\/harness\/store$/,
-        replacement: fileURLToPath(
-          new URL('./packages/harness/src/store.ts', import.meta.url),
-        ),
+        replacement: fileURLToPath(new URL('./packages/harness/src/store.ts', import.meta.url)),
       },
       {
         find: /^@podium\/harness$/,
@@ -198,9 +198,7 @@ export const sharedVitestConfig = {
       // the unbuilt dist.
       {
         find: /^@podium\/harness\/inventory$/,
-        replacement: fileURLToPath(
-          new URL('./packages/harness/src/inventory.ts', import.meta.url),
-        ),
+        replacement: fileURLToPath(new URL('./packages/harness/src/inventory.ts', import.meta.url)),
       },
       // Anchored RegExp, not a bare string: model is the L0 root every lane resolves,
       // and the prefix-match hazard described above is not worth re-learning if it
@@ -306,11 +304,15 @@ export const sharedVitestConfig = {
     // The third one is POD-523's pre-migrated store fixture: ordinary apps/server
     // test files clone a current-schema database instead of replaying all 54
     // migrations. It is a setupFile because the decision is per test FILE and has to
-    // be made before the file is imported. No-op for every other package.
+    // be made before the file is imported. No-op for every other package. The
+    // fourth loads the client's record declarations (see that file).
     setupFiles: [
       './test-hermetic-env.ts',
       './test-hermetic-vitest-hooks.ts',
       './test-pre-migrated-store.ts',
+      // The client's record declarations, loaded as the outbox's open loads
+      // them in the app (POD-6423). No-op for server and daemon files.
+      './test-record-declarations.ts',
     ],
     // The other half of that fixture: build the schema image once per lane, in the
     // main process, so no fork ever loads the migration chain's module graph. An

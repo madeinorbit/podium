@@ -1,8 +1,8 @@
-import type { Store } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
+import { useUiValue } from '@podium/client-core/react'
 import { type IssueNavigationModel, planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
+import { myPreferences, pinnedIds } from '@podium/client-graph/per-user-records'
 import {
   compareStructural,
   computed,
@@ -34,12 +34,12 @@ import {
 } from 'react'
 import { toast } from 'sonner'
 import { usePanelVisible } from '@/app/panel-visible'
-import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
+import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
 import { PHONE_APP_IN_STORES } from '@/features/mobile-handoff/mobile-handoff'
 import { FirstFlightsBadge } from '@/features/tips/FirstFlightsBadge'
-import { GitHubStarOnFinishedTask } from '@/features/tips/github-star-tip'
+import { useMemberRoster } from '@/lib/member-roster'
 import { type RowTransitionItem, type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
@@ -103,15 +103,21 @@ type Item = RowTransitionItem<Slot>
 const itemKey = (item: Item) => item.key
 const itemDragId = (item: Item) => (item.phase !== 'exiting' ? item.value.id : undefined)
 const NO_DRAG_ROWS: readonly string[] = []
-const selectLayout = (s: Store) => ({
-  projectOrder: s.sidebarSettings.repoOrder,
-  pinnedRepos: s.pins.repos,
-  pinnedWorktrees: s.pins.worktrees,
-})
+const NO_PATHS: readonly string[] = Object.freeze([])
 
+/** My project order and pins, from my synced records (POD-6673). Read inside
+ *  an observer: a pin or an order changed on my other device moves it. Each
+ *  list keeps its identity while it is equal, so the layout does too. */
 export function usePoolLayoutState(): SidebarState {
-  const layout = useRuntimeSelector(selectLayout, shallowEqual)
-  return useMemo(() => layout, [layout])
+  const pool = useWorklistPool()
+  const projectOrder = (pool ? myPreferences(pool)?.repoOrder : undefined) ?? NO_PATHS
+  const projectSort = pool ? myPreferences(pool)?.sidebar.repoSort : undefined
+  const pinnedRepos = pool ? pinnedIds(pool, 'repo') : NO_PATHS
+  const pinnedWorktrees = pool ? pinnedIds(pool, 'worktree') : NO_PATHS
+  return useMemo(
+    () => ({ projectOrder, projectSort, pinnedRepos, pinnedWorktrees }),
+    [projectOrder, projectSort, pinnedRepos, pinnedWorktrees],
+  )
 }
 
 function slotsFor(
@@ -142,7 +148,7 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
 }
 
 const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }) {
-  const clear = useRuntimeSelector((s) => s.setSelectedIssueId)
+  const clear = useUiValue('setSelectedIssueId')
   const evicted = sidebarView(pool).selectionGone()
   useEffect(() => {
     if (evicted) clear(null)
@@ -158,6 +164,9 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
   const pool = useWorklistPool()
   const state = usePoolLayoutState()
   const model = pool ? worklistView(pool) : null
+  // The sidebar is personal on a shared instance (POD-6294): the always-on
+  // sidebar owns the member roster's demand, which decides that.
+  useMemberRoster(true)
   useEffect(() => {
     model?.setLayout(state)
   }, [model, state])
@@ -206,7 +215,10 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
   return (
     <WorklistProvider model={model}>
       <NewTaskRow />
-      <WorkSearchField filter={{ ...input, total: count.total, hits: count.hits }} />
+      <WorkSearchField
+        filter={{ ...input, total: count.total, hits: count.hits }}
+        trailing={<ScreenRefreshMark refreshing={pool ? sidebarView(pool).refreshing : false} />}
+      />
       <WorkLaneSwitch lane={lane} counts={count.counts} onChange={setLane} />
       <div
         ref={scrollRef}
@@ -225,7 +237,6 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
       {PHONE_APP_IN_STORES && <MobilePromoCard />}
       <FirstFlightsBadge />
       <FirstSendTip />
-      <GitHubStarOnFinishedTask />
     </WorklistProvider>
   )
 })
@@ -323,7 +334,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
   const [collapsed, toggle] = useCollapsedKeys(keys)
   const needle = normalizeWorkQuery(query)
   const filtering = needle.length > 0
-  const selectedId = useRuntimeSelector((s) => s.selectedIssueId)
+  const selectedId = useUiValue('selectedIssueId')
   const revealedSelection = useRef<string | null>(null)
   useEffect(() => {
     if (!selectedId) {
@@ -884,9 +895,9 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const draftOnly = fresh && fresh !== LOADING ? fresh.sessionOnlyDraft : snapshot?.draftAgentOnly
   const firstSessionId =
     fresh && fresh !== LOADING ? fresh.firstSessionId : snapshot?.firstSessionId
-  const draftPane = useRuntimeSelector(
-    (s) => visible && draftOnly === true && s.paneA === firstSessionId,
-  )
+  const activePane = useUiValue('paneA')
+  const draftPane = visible && draftOnly === true && activePane === firstSessionId
+
   const active = visible && companion?.selected === true
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'

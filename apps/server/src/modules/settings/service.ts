@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { decodeSettingsPreferencePatch, readSettingsLeaf } from '@podium/commands'
 import {
   classifySettingsPath,
+  type MachineId,
   redeemTelegramClaimCode,
   SERVER_SECRET_KEYS,
   type SecretPresenceWire,
@@ -10,14 +11,15 @@ import {
   type TelegramClaimCode,
   telegramClaimCodeIsLive,
   type UserId,
-  type MachineId,
 } from '@podium/model'
-import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import type { PodiumSettings } from '@podium/runtime'
 import { configPath, onConfigChanged } from '@podium/runtime/config'
+import type { LedgerWriter } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import { ModelCatalog, type ModelCatalogSnapshot, type ModelProbe } from '../../model-catalog'
 import type { TelegramConfig } from '../../notify'
 import type { SessionStore } from '../../store'
+import { afterCommit, spanOpen } from '../../store/executor/executor'
 import type { SettingsAuditOutcome } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import { recordSettingsCommand, type SettingsAuditPort } from './audit'
@@ -59,6 +61,7 @@ interface PendingTelegramSetup {
  *  the store, and so a test can observe the binding directly. */
 export interface TelegramBindingWriter {
   upsert(binding: TelegramChatBinding): Promise<void>
+  removeForUser(userId: UserId): Promise<void>
 }
 
 export interface TelegramSetupStartResult {
@@ -196,6 +199,7 @@ type SettingsStore = Pick<
   | 'getSettingsFor'
   | 'setSettingsFor'
   | 'applyPreferencePatch'
+  | 'preferenceRecordFor'
   | 'getModelCatalog'
   | 'setModelCatalog'
 >
@@ -211,11 +215,22 @@ type SettingsStore = Pick<
  */
 type SecretStore = Pick<
   SessionStore['secrets'],
-  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'apiKeyFor' | 'fingerprintKey'
+  'get' | 'getOrEmpty' | 'set' | 'clear' | 'presence' | 'fingerprintKey'
 >
+
+/** What a preference write commits through: the command's own writer, or the
+ *  service's system writer for a server-originated one (POD-6673). */
+export type PreferenceWriter = Pick<LedgerWriter, 'commit'>
 
 export interface SettingsServiceOptions {
   telegramBindings: TelegramBindingWriter
+  /**
+   * The writer of server-originated preference writes (the Telegram setup, the
+   * superagent default seed): a system principal on the Authority, so the
+   * `userPreferences` record they change reaches the person's devices.
+   * Optional only for unit tests of the service; production always wires it.
+   */
+  preferenceWriter?: PreferenceWriter
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
@@ -235,8 +250,7 @@ export interface SettingsServiceOptions {
    * It lives HERE rather than being reached out of the store by `trpc.ts`. That
    * is `rearch-audit`'s `router-triple-access` rule and it is the right shape
    * independently: a transport that can reach `sessionStore` directly is a
-   * transport that can grow a second policy for it — the same reasoning
-   * {@link apiKeyFor} already carries.
+   * transport that can grow a second policy for it.
    */
   audit: SettingsAuditPort
   /** Override the database-held MAC key in tests. */
@@ -275,6 +289,19 @@ export function bridgeConfigChanged(bus: EventBus): () => void {
 }
 
 /**
+ * A preference patch refused for what it IS, not for anything that might pass on
+ * a retry: a definitive verdict. The sync write entry point answers it as an
+ * `invalid` refusal, so the client outbox dead-letters it instead of retrying a
+ * write that can never apply (POD-6350).
+ */
+export class SettingsPatchRefused extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SettingsPatchRefused'
+  }
+}
+
+/**
  * Settings + model catalog + telegram-setup flow — peeled off SessionRegistry
  * (issue #13 Phase 2). setSettings persists first, then emits 'settings.changed'
  * on the bus; reactions (notification replay, auto-continue re-arm) live with
@@ -288,6 +315,7 @@ export class SettingsService {
   private readonly now: () => number
   private readonly fingerprintKey: () => Buffer | Promise<Buffer>
   private readonly audit: SettingsAuditPort
+  private readonly preferenceWriter: PreferenceWriter | undefined
   // SWR cache of live per-agent model lists (grok/cursor/opencode), keyed by
   // machineId. Query-driven: nothing probes until a client asks via
   // getModelCatalog(machineId).
@@ -301,6 +329,7 @@ export class SettingsService {
   ) {
     this.telegramBindings = options.telegramBindings
     this.audit = options.audit
+    this.preferenceWriter = options.preferenceWriter
     this.telegramSetup = options.telegramSetup ?? DEFAULT_TELEGRAM_SETUP_CLIENT
     this.generateTelegramSetupCode = options.generateTelegramSetupCode ?? defaultTelegramSetupCode
     this.now = options.now ?? Date.now
@@ -345,9 +374,8 @@ export class SettingsService {
   /**
    * Record one settings command, applied or refused (POD-421).
    *
-   * A pass-through to {@link recordSettingsCommand}, and it exists for the
-   * reason {@link apiKeyFor} does: so the ROUTER does not reach into
-   * `sessionStore` for the audit repository. `rearch-audit`'s
+   * A pass-through to {@link recordSettingsCommand}, and it exists so the
+   * ROUTER does not reach into `sessionStore` for the audit repository. `rearch-audit`'s
    * `router-triple-access` counts exactly that, and it caught this on the first
    * run — the reach-through grew the census 18 → 19, which is the ratchet doing
    * its job on a line that was architecturally wrong for an independent reason.
@@ -383,7 +411,10 @@ export class SettingsService {
    * save through the legacy command would fail. Only a CHANGE is refused, which
    * is precisely the write that must go through the secret commands.
    */
-  private async assertNoSecretChange(_previous: PodiumSettings, next: PodiumSettings): Promise<void> {
+  private async assertNoSecretChange(
+    _previous: PodiumSettings,
+    next: PodiumSettings,
+  ): Promise<void> {
     // POD-419 CHANGED WHAT "UNCHANGED" MEANS, and the comparison had to follow.
     //
     // POD-420 compared the incoming blob against the PREVIOUS BLOB, which was
@@ -398,15 +429,17 @@ export class SettingsService {
     // upgrade.
     const leaf = (blob: PodiumSettings, key: ServerSecretKey): string =>
       String(readSettingsLeaf(blob, key) ?? '')
-    const changes = await Promise.all(SERVER_SECRET_KEYS.map(async (key) => {
-      const incoming = leaf(next, key)
-      const stored = await this.secrets.getOrEmpty(key)
-      // A blank incoming member is the scrubbed blob coming home, never a
-      // request to clear: clearing is `settings.clearSecret`, which is
-      // online-only and admin-grade. Treating it as a clear would let any
-      // preference save from a client that never had the material delete it.
-      return incoming !== '' && incoming !== stored ? key : null
-    }))
+    const changes = await Promise.all(
+      SERVER_SECRET_KEYS.map(async (key) => {
+        const incoming = leaf(next, key)
+        const stored = await this.secrets.getOrEmpty(key)
+        // A blank incoming member is the scrubbed blob coming home, never a
+        // request to clear: clearing is `settings.clearSecret`, which is
+        // online-only and admin-grade. Treating it as a clear would let any
+        // preference save from a client that never had the material delete it.
+        return incoming !== '' && incoming !== stored ? key : null
+      }),
+    )
     const changed = changes.filter((key): key is ServerSecretKey => key !== null)
     if (changed.length === 0) return
     // Names the KEYS and never a value: the key vocabulary is public (the
@@ -437,7 +470,7 @@ export class SettingsService {
     await this.assertNoSecretChange(previous, settings)
     await this.store.setSettingsFor(userId, settings, new Date(this.now()).toISOString())
     const next = await this.store.getSettingsFor(userId)
-    await this.emitSettingsChanged(previous, next)
+    await this.emitSettingsChanged(previous, next, userId)
     // The CALLER is served what it now resolves to, not the shared blob: a client
     // that posted its own preferences must get them back, or the next render
     // would show it the instance defaults and look like the save was lost.
@@ -466,9 +499,26 @@ export class SettingsService {
    * whole blob on every edit, so an unchanged save must not make every
    * subscriber re-run.
    */
-  private async emitSettingsChanged(previous: PodiumSettings, next: PodiumSettings): Promise<void> {
+  private async emitSettingsChanged(
+    previous: PodiumSettings,
+    next: PodiumSettings,
+    member: UserId,
+  ): Promise<void> {
     if (JSON.stringify(previous) === JSON.stringify(next)) return
-    await this.bus.emitSettled('settings.changed', { previous, next })
+    // AFTER THE COMMIT inside a unit of work [POD-6349]. Subscribers reach the
+    // network (the Telegram adapter reconfigures, notify replays to targets) and
+    // the sessions (auto-continue re-arms), so from inside a unit of work they
+    // would act on a change that can still roll back. Their recovery is the row:
+    // each one reads the current settings at boot. With no span open the event
+    // fires here and is awaited, as before.
+    if (spanOpen()) {
+      afterCommit(
+        async () => await this.bus.emitSettled('settings.changed', { previous, next, member }),
+        'settings-changed',
+      )
+      return
+    }
+    await this.bus.emitSettled('settings.changed', { previous, next, member })
   }
 
   // -------------------------------------------------------------------------
@@ -476,7 +526,7 @@ export class SettingsService {
   // -------------------------------------------------------------------------
 
   /**
-   * `settings.updatePersonal` / `settings.updateInstance` — a path-addressed
+   * `records.userPreferences.edit` / `records.instancePreferences.edit` — a path-addressed
    * preference patch.
    *
    * ONE METHOD FOR BOTH TIERS, and the tier gate is deliberately NOT here: it is
@@ -502,7 +552,11 @@ export class SettingsService {
    * {@link emitSettingsChanged} gives: the subscribers react to leaves that are
    * personal now, and the instance blob does not move when one of those changes.
    */
-  async updatePreferences(actor: UserId, values: Readonly<Record<string, unknown>>): Promise<PodiumSettings> {
+  async updatePreferences(
+    actor: UserId,
+    values: Readonly<Record<string, unknown>>,
+    writer: PreferenceWriter | undefined = this.preferenceWriter,
+  ): Promise<PodiumSettings> {
     // THE SECRET REFUSAL SURVIVES THE ROUTING CHANGE (POD-1213).
     //
     // POD-420's patch write reached the blob through `setSettings`, so
@@ -517,18 +571,29 @@ export class SettingsService {
     if (secrets.length > 0) {
       // Names the KEYS and never a value, for the reason `assertNoSecretChange`
       // does: the key vocabulary is public, the material is not.
-      throw new Error(
+      throw new SettingsPatchRefused(
         `a preference patch may not write server-owned secrets (${secrets.join(', ')}) — ` +
           'use settings.setSecret / settings.clearSecret, which are online-only and never queued (ADR 1 D6)',
       )
     }
     const previous = await this.store.getSettingsFor(actor)
-    const next = await this.store.applyPreferencePatch(
-      actor,
-      decodeSettingsPreferencePatch(values),
-      new Date(this.now()).toISOString(),
-    )
-    await this.emitSettingsChanged(previous, next)
+    const patch = decodeSettingsPreferencePatch(values)
+    const at = new Date(this.now()).toISOString()
+    const tiers = new Set(Object.keys(patch).map((path) => classifySettingsPath(path)?.tier))
+    const personal = tiers.has('personal-preference')
+    // A personal leaf is a field of the person's `userPreferences` record: the
+    // rows and the record's change entry commit together (POD-6673). An
+    // instance leaf is a field of the `instancePreferences` record, whose change
+    // the blob write's own feed capture appends inside this same unit (POD-6677).
+    const next =
+      (personal || tiers.has('instance-preference')) && writer !== undefined
+        ? (
+            await writer.commit({
+              write: async () => await this.store.applyPreferencePatch(actor, patch, at),
+            })
+          ).result
+        : await this.store.applyPreferencePatch(actor, patch, at)
+    await this.emitSettingsChanged(previous, next, actor)
     return next
   }
 
@@ -545,9 +610,8 @@ export class SettingsService {
    * changed token (the notify service's replay, the messaging bridge) must react
    * whichever command wrote it.
    *
-   * The material lands in the LEGACY blob path (`apiKeys.openai`, …) because
-   * that is where secrets still live; POD-419 owns moving them into the keyed
-   * store. The RETURN carries no material: `secretPresence` names presence, an
+   * The material lands in the keyed store. Provider keys are credentials.
+   * The RETURN carries no material: `secretPresence` names presence, an
    * opaque fingerprint and a rotation time, and has no value key by construction.
    */
   async setSecret(key: ServerSecretKey, value: string): Promise<SecretPresenceWire> {
@@ -601,17 +665,49 @@ export class SettingsService {
     )
   }
 
-  /**
-   * The provider API key for an LLM backend's provider, or `undefined`.
-   *
-   * A pass-through to the keyed store, and it exists so the ROUTER does not have
-   * to reach into `sessionStore.secrets` itself: `rearch-audit`'s
-   * `hand-written state reach-through in router.ts` counts exactly that, and it
-   * caught this on the first run. A router that can read the secret store
-   * directly is a router that can grow a second policy for it.
-   */
-  async apiKeyFor(provider: string): Promise<string | undefined> {
-    return await this.secrets.apiKeyFor(provider)
+  /** Member-visible availability, without reading material or deriving a fingerprint. */
+  async telegramBotPresence(): Promise<boolean> {
+    return (await this.secrets.presence()).some(
+      (row) => row.key === 'notifications.telegramBotToken' && row.present,
+    )
+  }
+
+  /** Revoke the caller's chats and routing preference in the same ledger unit.
+   * No supplied user/chat id can target another person's connection. */
+  async disconnectTelegram(actor: UserId): Promise<void> {
+    if (!this.preferenceWriter)
+      throw new Error('Telegram disconnect requires the preference writer')
+    const { previous, next } = await this.writeTelegramRoute(
+      actor,
+      '',
+      async () => await this.telegramBindings.removeForUser(actor),
+    )
+    for (const [id, setup] of this.telegramSetups) {
+      if (setup.mint.userId === actor) this.telegramSetups.delete(id)
+    }
+    await this.emitSettingsChanged(previous, next, actor)
+  }
+
+  /** The authenticated binding and the outgoing notification route change together. */
+  private async writeTelegramRoute(
+    actor: UserId,
+    chatId: string,
+    writeBinding: () => Promise<void>,
+  ): Promise<{ previous: PodiumSettings; next: PodiumSettings }> {
+    const previous = await this.store.getSettingsFor(actor)
+    const write = async () => {
+      await writeBinding()
+      return await this.store.applyPreferencePatch(
+        actor,
+        { 'notifications.telegramChatId': chatId },
+        this.nowIso(),
+      )
+    }
+    const next = this.preferenceWriter
+      ? // The capture names the preference record the rows changed (POD-6920).
+        (await this.preferenceWriter.commit({ write })).result
+      : await write()
+    return { previous, next }
   }
 
   /** Live per-agent model lists for ONE machine (SWR — returns cached instantly,
@@ -691,9 +787,9 @@ export class SettingsService {
    * contract's error-consistency cell: distinguishing them would tell a caller
    * whether someone else's ceremony is open.
    */
-  async pollTelegramSetup(setupId: string): Promise<TelegramSetupPollResult> {
+  async pollTelegramSetup(setupId: string, actor: UserId): Promise<TelegramSetupPollResult> {
     const setup = this.telegramSetups.get(setupId)
-    if (!setup) return { status: 'expired' }
+    if (!setup || setup.mint.userId !== actor) return { status: 'expired' }
     const now = this.nowIso()
     if (!telegramClaimCodeIsLive(setup.mint, now)) {
       this.telegramSetups.delete(setupId)
@@ -704,6 +800,8 @@ export class SettingsService {
     if (!botToken) throw new Error('Telegram bot token is required before setup')
 
     const updates = await this.telegramSetup.getUpdates(botToken)
+    // Disconnect can cancel a ceremony while the external request is in flight.
+    if (this.telegramSetups.get(setupId) !== setup) return { status: 'expired' }
     const match = updates.find((update) => telegramTextHasCode(update.text, setup.mint.code))
     if (!match) return { status: 'pending', expiresAt: setup.mint.expiresAt }
 
@@ -717,24 +815,15 @@ export class SettingsService {
       this.telegramSetups.delete(setupId)
       return { status: 'expired' }
     }
-    await this.telegramBindings.upsert(binding)
-
-    // The INBOUND half is the binding above. This write is the OUTBOUND routing
-    // address — a different fact on a different row (`preferences-personal`) —
-    // and POD-1213 made it PER-USER, which is what ADR 9 D8 S3 asked for and
-    // POD-1080 recorded as still outstanding.
-    //
-    // IT IS WRITTEN FOR `setup.mint.userId`, NOT FOR THE POLLING CALLER. The two
-    // are the same principal today, and naming the mint's user is what keeps them
-    // the same principal when they stop being: the whole mechanism of D22.1 is
-    // that identity is captured at MINT time on an authenticated transport, and a
-    // routing address derived from whoever happened to poll would be a second,
-    // weaker answer sitting beside it. Both halves of the ceremony now name one
-    // user, from one place.
-    const next = await this.updatePreferences(setup.mint.userId, {
-      'notifications.telegramChatId': chatId,
-    })
+    // The inbound binding and outgoing routing preference both belong to the
+    // user captured by the mint. The observed chat id never comes from the caller.
+    const { previous, next } = await this.writeTelegramRoute(
+      setup.mint.userId,
+      chatId,
+      async () => await this.telegramBindings.upsert(binding),
+    )
     this.telegramSetups.delete(setupId)
+    await this.emitSettingsChanged(previous, next, setup.mint.userId)
     await this.telegramSetup.sendMessage(
       { botToken, chatId },
       'Telegram notifications are connected to Podium.',

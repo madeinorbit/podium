@@ -1,20 +1,22 @@
-import { here, omitGone } from './lookup'
-import type { SessionModel } from './models'
-import { headerModel } from './header-companion'
-import { headerEntities } from './header-entities'
-import { keyedComputed } from '@podium/mobx-helpers'
+import { lastValue } from '@podium/client-core/live'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
-import type { MachineId } from '@podium/model/browser'
+import { keyedComputed } from '@podium/mobx-helpers'
+import type { HostMetricsWire, MachineId, MachineQuotaWire } from '@podium/model/browser'
 import { machinePathKey } from '@podium/model/browser'
 import { compareStructural, computed, createAtom, reaction } from 'mobx'
 import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
+import { headerModel } from './header-companion'
+import { headerEntities } from './header-entities'
+import { headerRequests } from './header-requests'
 import type { HeaderEntity, HeaderRows } from './header-schema'
-import { type HeaderAggregate } from './header-session'
+import type { HeaderAggregate } from './header-session'
 import { HeaderSessions } from './header-sessions'
+import { instancePreferences } from './instance-preferences'
+import { here, omitGone } from './lookup'
 import { missions } from './mission'
-import type { IssueModel } from './models'
+import type { IssueModel, MachineModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
 import { sessionSeats } from './session-seats'
@@ -24,6 +26,8 @@ import { isSessionWorking, LOADING } from './worklist/rollup'
 import { sidebarIssueProgress } from './worklist/sidebar'
 
 export { EMPTY_HOST_AGGREGATE, type HeaderAggregate } from './header-session'
+
+const EMPTY_QUOTAS: readonly MachineQuotaWire[] = []
 
 const sessionPresentOnTask = (session: SessionView) =>
   !session.archived && session.status !== 'exited'
@@ -53,14 +57,15 @@ function createHeaderViews(pool: MobxPool) {
     (_key: string, read: () => unknown) => read(),
     { equals: compareStructural },
   )
+  const machineModel = (id: string) => here(pool.model('machine', id)) as MachineModel | undefined
   let sessions: HeaderSessions | undefined
-  let offline: ReturnType<typeof createQueryResult<HeaderRows['machine']>> | undefined
-  function offlineMachines(): HeaderRows['machine'][] {
-    offline ??= createQueryResult<HeaderRows['machine']>({
+  let offline: ReturnType<typeof createQueryResult<MachineModel>> | undefined
+  function offlineMachines(): MachineModel[] {
+    offline ??= createQueryResult<MachineModel>({
       name: 'header.offlineMachines',
       ids: () => headerEntities(pool).offlineMachineIds(pool.clock.peekNow()),
       has: (id) => headerEntities(pool).hasOfflineMachine(id, pool.clock.peekNow()),
-      read: (id) => row('machine', id),
+      read: (id) => machineModel(id),
       order: (id) => headerEntities(pool).offlineMachineOrder(id),
       subscribe(changed) {
         const stopSource = headerEntities(pool).subscribeOfflineMachines(changed)
@@ -88,15 +93,26 @@ function createHeaderViews(pool: MobxPool) {
     const value = offline.get()
     return value === LOADING ? [] : (value ?? [])
   }
-  const sessionDemand = createAtom('pool.header.sessions.demand',
-    () => { sessions ??= new HeaderSessions(pool) },
-    () => { sessions?.dispose(); sessions = undefined })
+  const sessionDemand = createAtom(
+    'pool.header.sessions.demand',
+    () => {
+      sessions ??= new HeaderSessions(pool)
+    },
+    () => {
+      sessions?.dispose()
+      sessions = undefined
+    },
+  )
   function sessionIndex<T>(read: (index: HeaderSessions) => T): T {
     sessionDemand.reportObserved()
     if (sessions) return read(sessions)
     // An untracked read must not leave the feed subscribed for the pool's life.
     const index = new HeaderSessions(pool)
-    try { return read(index) } finally { index.dispose() }
+    try {
+      return read(index)
+    } finally {
+      index.dispose()
+    }
   }
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   // Chrome shows a number. Keep each scan's length behind a scalar computed,
@@ -116,7 +132,7 @@ function createHeaderViews(pool: MobxPool) {
     return omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
   }
   function issueSummary(id: string): (Partial<SliceIssue> & { machineId?: MachineId }) | undefined {
-    const value = omitGone(pool.row('issue', id, 'summary'))
+    const value = omitGone(pool.row('issue', id))
     return value === LOADING
       ? undefined
       : (value as (Partial<SliceIssue> & { machineId?: MachineId }) | undefined)
@@ -124,9 +140,10 @@ function createHeaderViews(pool: MobxPool) {
   function sessionSummary(
     id: string,
   ): (Partial<SliceSession> & { machineId?: MachineId }) | undefined {
-    const model = here(pool.row('session', id, 'mark')) === undefined ? undefined : pool.sessionObject(id)
+    const model =
+      here(pool.row('session', id, 'mark')) === undefined ? undefined : pool.sessionObject(id)
     if (model) return headerModel(pool).session(model).headerDock
-    const value = omitGone(pool.row('session', id, 'summary'))
+    const value = omitGone(pool.row('session', id))
     return value === LOADING
       ? undefined
       : (value as (Partial<SliceSession> & { machineId?: MachineId }) | undefined)
@@ -145,7 +162,9 @@ function createHeaderViews(pool: MobxPool) {
     return memo('workingCount', () => sessionIndex((index) => index.workingCount()))
   }
   function aggregate(machineId: MachineId | undefined): HeaderAggregate {
-    return memo(`aggregate:${machineId ?? ''}`, () => sessionIndex((index) => index.aggregate(machineId)))
+    return memo(`aggregate:${machineId ?? ''}`, () =>
+      sessionIndex((index) => index.aggregate(machineId)),
+    )
   }
   function occupancyKey(): string {
     return memo('occupancy', () =>
@@ -157,21 +176,20 @@ function createHeaderViews(pool: MobxPool) {
             const member = session ? headerModel(pool).session(session).headerHost : null
             return member ? [member.cwd] : []
           }
-          const summary = omitGone(pool.row('session', id, 'summary')) as
+          const summary = omitGone(pool.row('session', id)) as
             | SessionView
             | typeof LOADING
             | undefined
           const member =
-            summary &&
-            summary !== LOADING &&
-            ['live', 'starting', 'reconnecting'].includes(summary.status)
+            summary && summary !== LOADING && ['live', 'starting'].includes(summary.status)
               ? memo(`coldHost:${id}`, () => {
-                  const value = omitGone(pool.row('session', id, 'summary')) as
+                  const value = omitGone(pool.row('session', id)) as
                     | SessionView
                     | typeof LOADING
                     | undefined
                   return value && value !== LOADING
-                    ? headerModel(pool).session(pool.sessionObject(id)).headerHost : null
+                    ? headerModel(pool).session(pool.sessionObject(id)).headerHost
+                    : null
                 })
               : null
           return member ? [member.cwd] : []
@@ -279,7 +297,7 @@ function createHeaderViews(pool: MobxPool) {
       for (const child of grafts.get(id) ?? []) collect(child)
     }
     collect(root.id)
-    const crew = [...sessions.values()].filter(member => member.open)
+    const crew = [...sessions.values()].filter((member) => member.open)
     if (
       root.isDraftVessel &&
       !root.worktreePath &&
@@ -296,7 +314,7 @@ function createHeaderViews(pool: MobxPool) {
       root,
       progress: progress && progress !== LOADING ? progress : NO_PROGRESS,
       live: crew.length,
-      working: crew.filter(member => member.executing).length,
+      working: crew.filter((member) => member.executing).length,
       needs,
       loading,
     }
@@ -373,6 +391,18 @@ function createHeaderViews(pool: MobxPool) {
       return headerEntities(pool).shippingCounts(repoId)
     })
   }
+  /** My fleet: the machines I may see, those with my own access row
+   *  (POD-6644). A machine record alone (every member has it) is not one. */
+  const fleetIds = (): readonly string[] =>
+    memo('fleetIds', () => headerIds(pool, 'machine').filter((id) => headerEntities(pool).inFleet(id)))
+  function fleetMetrics(): HostMetricsWire[] {
+    return memo('metrics', () =>
+      fleetIds().flatMap((id) => {
+        const metric = machineModel(id)?.metrics
+        return metric ? [metric] : []
+      }),
+    )
+  }
   return {
     row,
     selectedIssue,
@@ -384,41 +414,60 @@ function createHeaderViews(pool: MobxPool) {
     worktreeCount: () => worktreeCount.get(),
     repository: (path: string) =>
       memo(`repository:${machinePathKey(path)}`, () => {
-        const scans = headerEntities(pool).repositoryGroup(path).flatMap((id) => {
-          const scan = row('repository', id)
-          return scan ? [scan] : []
-        })
+        const scans = headerEntities(pool)
+          .repositoryGroup(path)
+          .flatMap((id) => {
+            const scan = row('repository', id)
+            return scan ? [scan] : []
+          })
         return reposToViews(scans)[0]
       }),
-    idleCapUnmetCount: () => headerEntities(pool).idleCapUnmetCount(),
+    /** Machines whose host sample reports an unmet idle cap (the live readings). */
+    idleCapUnmetCount: () =>
+      memo('idleCapUnmet', () =>
+        fleetMetrics().reduce((sum, metric) => sum + (metric.idleCapUnmet ?? 0), 0),
+      ),
+    /** One machine's live sample; with no machine named, the first fleet machine that has one. */
     panelMetric: (machineId: MachineId | undefined) => {
-      const id = machineId ?? headerEntities(pool).firstId('hostMetric')
-      return id ? row('hostMetric', id) : undefined
+      if (machineId) return machineModel(machineId)?.metrics
+      // The first that has one; later machines are neither read nor watched.
+      for (const id of fleetIds()) {
+        const metric = machineModel(id)?.metrics
+        if (metric) return metric
+      }
+      return undefined
     },
+    /** One machine's live sample (the machine model's field). */
+    metric: (machineId: string) => machineModel(machineId)?.metrics,
+    /** The fleet machines that have a live sample, in fleet order. */
+    metricIds: () =>
+      memo('metricIds', () => fleetIds().filter((id) => machineModel(id)?.metrics !== undefined)),
     ids: (entity: HeaderEntity) => headerIds(pool, entity),
-    metrics: () =>
-      headerIds(pool, 'hostMetric').flatMap((id) => {
-        const metric = row('hostMetric', id)
-        return metric ? [metric] : []
-      }),
-    machines: () =>
-      // The fleet section follows the live keyed order, not every table row:
-      // feed companions land in the tables for joins (S6) but are not fleet
-      // members. Pre-S6 the tables held live rows only, so this restores that
-      // membership exactly; joins and offline detection keep reading tables.
-      (headerEntities(pool).orders.get('machine') ?? []).flatMap((id) => {
-        const machine = row('machine', id)
+    /** Live samples of the fleet machines, in fleet order (watching them holds their topics). */
+    metrics: fleetMetrics,
+    /**
+     * Whose machine this computer is, for the desktop header (POD-6908): `mine`
+     * when it is in my fleet, `another-member` when its record exists without
+     * my access row, `undefined` when the record is unknown here. The answer
+     * names no one: the other member's machine is never read past its access.
+     */
+    thisComputer: (machineId: string | undefined): 'mine' | 'another-member' | undefined => {
+      if (!machineId) return undefined
+      if (headerEntities(pool).inFleet(machineId)) return 'mine'
+      return headerEntities(pool).get('machine', machineId) ? 'another-member' : undefined
+    },
+    /** My fleet's machine models (records, my access, live condition). */
+    machines: (): MachineModel[] =>
+      fleetIds().flatMap((id) => {
+        const machine = machineModel(id)
         return machine ? [machine] : []
       }),
-    quotas: () =>
-      headerIds(pool, 'quota').flatMap((id) => {
-        const quota = row('quota', id)
-        return quota ? [quota] : []
-      }),
+    /** This account's plan quota per machine: the LiveStore's newest reading in this run. */
+    quotas: () => lastValue(pool.live?.quota)?.machines ?? EMPTY_QUOTAS,
     offlineMachines,
     history: () =>
       memo('history', () => {
-        const reading = row('history', 'fleet')
+        const reading = headerRequests(pool)?.history
         if (!reading) return null
         const working = workingCount()
         const buckets = reading.buckets.map((bucket, index) =>
@@ -428,11 +477,15 @@ function createHeaderViews(pool: MobxPool) {
         )
         return { ...reading, peak: Math.max(reading.peak, working), buckets }
       }),
-    connection: () => row('connection', 'server'),
+    /** The connection condition (LiveStore). */
+    connection: () => pool.live?.connection,
+    /** The host lifecycle settings: the synced instance settings (POD-6677). */
+    lifecycle: () => instancePreferences(pool)?.lifecycle ?? null,
     working: workingRoster,
     workingIds,
     workingCount,
-    session: (id: string) => omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined,
+    session: (id: string) =>
+      omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined,
     clear: () => {
       sessions?.dispose()
       sessions = undefined
@@ -445,7 +498,9 @@ function createHeaderViews(pool: MobxPool) {
 }
 
 /** The screen registry owns creation and teardown of this view. */
-export function headerView(pool: MobxPool): ReturnType<typeof createHeaderViews> & { dispose(): void } {
+export function headerView(
+  pool: MobxPool,
+): ReturnType<typeof createHeaderViews> & { dispose(): void } {
   return pool.sources.view('header.views', () => {
     const view = createHeaderViews(pool)
     return Object.assign(view, { dispose: () => view.clear() })

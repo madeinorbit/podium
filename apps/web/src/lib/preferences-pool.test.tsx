@@ -1,7 +1,7 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { createRoutedUiState, type RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
@@ -10,6 +10,7 @@ import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asUserId } from '@podium/model'
 import { act, cleanup, render } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
 import { StrictMode } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
@@ -29,7 +30,7 @@ function poolFor(ui: RoutedUiState) {
   return pool
 }
 function port() {
-  const values = new Map<string, string>()
+  const values = observable.map<string, string>()
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const emit = (keys: ReadonlySet<string> = new Set()) => {
     for (const wake of [...listeners]) wake(keys)
@@ -41,11 +42,11 @@ function port() {
     hydrate: async () => {},
     get: vi.fn((key: string) => values.get(key) ?? null),
     set: (key: string, value: string | null) => {
-      value === null ? values.delete(key) : values.set(key, value)
+      runInAction(() => (value === null ? values.delete(key) : values.set(key, value)))
       emit(new Set([key]))
     },
     clear: (key: string) => {
-      values.delete(key)
+      runInAction(() => values.delete(key))
       emit(new Set([key]))
     },
     subscribe: (wake: (keys: ReadonlySet<string>) => void) => {
@@ -68,19 +69,21 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
     replicated = port()
   const ui = createRoutedUiState({ local, replicated })
   const pool = poolFor(ui)
-  const projection = createPoolProjection(pool, (p) => [
-    omitGone(p.row('preference', FOLD)),
-    omitGone(p.row('preference', STICKY)),
-  ])
+  const projection = createPoolProjection(pool, (p) =>
+    [FOLD, STICKY].map((key) => {
+      const row = omitGone(p.row('preference', key))
+      return row && row !== LOADING ? row.value : null
+    }),
+  )
   const wake = vi.fn(),
     stop = projection.subscribe(wake)
   try {
-    expect(projection.getSnapshot()).toEqual([LOADING, LOADING])
-    expect(local.get).not.toHaveBeenCalled()
-    expect(replicated.get).not.toHaveBeenCalled()
+    expect(projection.getSnapshot()).toEqual([null, null])
+    expect(local.get).toHaveBeenCalledWith(STICKY)
+    expect(replicated.get).toHaveBeenCalledWith('sidebar.section.pinned')
     expect(() => omitGone(pool.row('preference', 'unclassified.key'))).toThrow('Unclassified')
     await Promise.resolve()
-    expect((preferenceSource(pool)?.counts ?? null)?.batches).toBe(1)
+    expect(preferenceSource(pool)?.counts.batches).toBe(0)
     expect(checkPreferences(pool, ui)).toMatchObject({ differences: 0, pending: 0, positions: 2 })
     // Each step exercises the same declared per-user key through the existing
     // optimistic writer or a later authoritative replacement/eviction.
@@ -95,9 +98,7 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
       change()
       await Promise.resolve()
       expect(checkPreferences(pool, ui)).toMatchObject({ differences: 0, pending: 0, positions: 2 })
-      expect(
-        projection.getSnapshot().map((row) => (typeof row === 'object' ? row?.value : row)),
-      ).toEqual([ui.get(FOLD), ui.get(STICKY)])
+      expect(projection.getSnapshot()).toEqual([ui.get(FOLD), ui.get(STICKY)])
     }
     expect(wake).toHaveBeenCalled()
     const original = pool.row.bind(pool)
@@ -120,8 +121,9 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
 it('releases the source and cancels queued reads on disposal', async () => {
   const ui = port(),
     pool = poolFor(ui)
-  expect(omitGone(pool.row('preference', STICKY))).toBe(LOADING)
-  expect(ui.listeners.size).toBe(1)
+  expect(omitGone(pool.row('preference', STICKY))).toMatchObject({ value: null })
+  expect(ui.listeners.size).toBe(0)
+  ui.get.mockClear()
   pool.dispose()
   ui.emit()
   await Promise.resolve()
@@ -140,7 +142,7 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
     pool: MobxPool | null = null
   const failures: string[] = []
   function Probe() {
-    owner = useStoreHandle() as ClientRuntime
+    owner = useClientRuntime() as ClientRuntime
     pool = useWorklistPool()
     const [value, set] = usePersistedUiState(STICKY, parse, serialize)
     return (
@@ -181,8 +183,8 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
     oldPool = pool!
   await act(async () => view.container.querySelector('button')!.click())
   expect(view.container.textContent).toBe('false')
-  expect(owner.ui.get(STICKY)).toBe('false')
-  expect(checkPreferences(pool!, owner.ui)).toMatchObject({ differences: 0, pending: 0 })
+  expect(owner.deviceState.get(STICKY)).toBe('false')
+  expect(checkPreferences(pool!, owner.deviceState)).toMatchObject({ differences: 0, pending: 0 })
   expect(
     storeStats
       .snapshot()
@@ -199,7 +201,7 @@ it('uses one offline runtime pool and no legacy preference reads across StrictMo
   expect(owner).not.toBe(oldOwner)
   expect(pool).not.toBe(oldPool)
   expect(preferenceSource(oldPool)?.keys() ?? []).toEqual([])
-  await act(async () => oldOwner.ui.set(STICKY, 'old-person'))
+  await act(async () => oldOwner.deviceState.set(STICKY, 'old-person'))
   expect(view.container.textContent).toBe('absent')
   view.rerender(tree(null))
   expect(view.container.textContent).toBe('')

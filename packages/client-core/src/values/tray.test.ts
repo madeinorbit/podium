@@ -21,7 +21,6 @@ const makeIssue = (
     repoPath: '/r',
     seq: 4,
     title: 'Fix login',
-    description: '',
     stage: 'in_progress',
     worktreePath: '/r/wt',
     createdAt: 't',

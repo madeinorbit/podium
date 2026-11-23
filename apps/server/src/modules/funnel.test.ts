@@ -1,9 +1,11 @@
 import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
-import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { type OnPublicationIdle, scheduleFeedFlush } from '../gateway/feed-serving'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { afterCommit, applyAfterCommit, spanOpen } from '../store/executor/executor'
+import { StoreModelLedger as Ledger } from '../test-support/model-ledger'
 import { openTestStore } from '../test-support/open-test-store'
 import { EventBus } from './bus'
 import { WriteFunnel } from './funnel'
@@ -14,7 +16,9 @@ function recordingServing() {
   return {
     published,
     port: {
-      publish: (_principal: unknown, delivery: ScopedDelivery) => published.push(delivery),
+      publish: (_principal: unknown, delivery: ScopedDelivery) => {
+        published.push(delivery)
+      },
       flushPending: () => {},
       // Fixed identity: these cases exercise the publication pipe, not D1. The
       // v2 catch-up read has its own coverage where the identity actually varies.
@@ -31,7 +35,7 @@ async function makeFunnel() {
   const bus = new EventBus()
   const serving = recordingServing()
   const onPublished = vi.fn()
-  const ledger = new Ledger({
+  const ledger = new Ledger(store, {
     repo: store.sync,
     now: () => 1_000,
     transact: async (fn) => await store.transact(fn),
@@ -40,6 +44,7 @@ async function makeFunnel() {
   })
   // THE SAME Authority the Ledger wraps — the wiring production uses (POD-305).
   const funnel = new WriteFunnel({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     bus,
     serving: serving.port,
     onPublished,
@@ -139,24 +144,6 @@ describe('WriteFunnel.run ordering', () => {
   })
 })
 
-describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
-  it('serves ledger-appended changes from a cursor (one shared durable log)', async () => {
-    const { funnel, ledger } = await makeFunnel()
-    await ledger.commit({
-      write: async () => {},
-      changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 1 } }],
-    })
-    const cursor = await funnel.cursor()
-    await ledger.commit({
-      write: async () => {},
-      changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 2 } }],
-    })
-    const changes = await funnel.changesSince(cursor)
-    expect(changes?.map((c) => c.id)).toEqual(['c1'])
-    expect(await funnel.cursor()).toBe(2)
-  })
-})
-
 /**
  * THE ASSERTION THAT FLIPPED (POD-1203).
  *
@@ -186,6 +173,7 @@ describe('the funnel has ONE output, and it is the feed', () => {
     const serving = recordingServing()
     bus.on('oplog.appended', appended)
     const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       bus,
       serving: serving.port,
       onPublished: vi.fn(),
@@ -211,6 +199,7 @@ describe('the funnel has ONE output, and it is the feed', () => {
     const serving = recordingServing()
     bus.on('oplog.appended', appended)
     const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       bus,
       serving: serving.port,
       onPublished: vi.fn(),
@@ -232,6 +221,7 @@ describe('the funnel has ONE output, and it is the feed', () => {
     const fake = fakeAuthority()
     const serving = recordingServing()
     const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       bus,
       serving: serving.port,
       onPublished: vi.fn(),
@@ -252,12 +242,51 @@ describe('the funnel has ONE output, and it is the feed', () => {
 })
 
 describe('the ordered, coalesced delivery pipe (#256)', () => {
+  it('waits for asynchronous serving work, including a previous flush with no new rows', async () => {
+    const fake = fakeAuthority()
+    let finishPending!: () => void
+    let finishPublication!: () => void
+    const pending = new Promise<void>((resolve) => {
+      finishPending = resolve
+    })
+    const publication = new Promise<void>((resolve) => {
+      finishPublication = resolve
+    })
+    const publish = vi.fn(() => publication)
+    const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      bus: new EventBus(),
+      serving: {
+        ...recordingServing().port,
+        flushPending: () => pending,
+        publish,
+      },
+      onPublished: vi.fn(),
+      authority: fake.authority,
+    })
+    fake.emit([{ seq: 1, entity: 'session', id: 's1', op: 'remove' }] as MetadataChange[])
+    const firstDone = vi.fn()
+    const emptyDone = vi.fn()
+    const first = funnel.flushDeltas().then(firstDone)
+    const empty = funnel.flushDeltas().then(emptyDone)
+    expect(publish).toHaveBeenCalledTimes(1)
+    finishPending()
+    await Promise.resolve()
+    expect(firstDone).not.toHaveBeenCalled()
+    expect(emptyDone).not.toHaveBeenCalled()
+    finishPublication()
+    await Promise.all([first, empty])
+    expect(firstDone).toHaveBeenCalledTimes(1)
+    expect(emptyDone).toHaveBeenCalledTimes(1)
+  })
+
   function pipedFunnel(onPublicationIdle?: OnPublicationIdle) {
     const bus = new EventBus()
     const serving = recordingServing()
     const onPublished = vi.fn()
     const fake = fakeAuthority()
     const funnel = new WriteFunnel({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       bus,
       serving: serving.port,
       onPublished,
@@ -396,19 +425,23 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
       reentered = true
       funnel.flushDeltas()
       rowsAtBusEmit = serving.rows().map((change) => change.entityId)
-      innerCommit = ledger.commit({
+      innerCommit = testLedgerWriter(ledger).commit(
+        ledger.modelOperation({
+          write: async () => {},
+          rows: () => [
+            { entity: 'issueProjection', id: 'inner', op: 'upsert', value: { id: 'inner' } },
+          ],
+        }),
+      )
+    })
+    await testLedgerWriter(ledger).commit(
+      ledger.modelOperation({
         write: async () => {},
-        changes: () => [
-          { entity: 'issueProjection', id: 'inner', op: 'upsert', value: { id: 'inner' } },
+        rows: () => [
+          { entity: 'issueProjection', id: 'outer', op: 'upsert', value: { id: 'outer' } },
         ],
-      })
-    })
-    await ledger.commit({
-      write: async () => {},
-      changes: () => [
-        { entity: 'issueProjection', id: 'outer', op: 'upsert', value: { id: 'outer' } },
-      ],
-    })
+      }),
+    )
     await innerCommit
     funnel.flushDeltas()
     const emitted = serving.rows()

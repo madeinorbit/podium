@@ -2,12 +2,11 @@ import { type Lookup, omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { keyedComputed } from '@podium/mobx-helpers'
 import {
-  canonicalIssueRef,
   type IssueReferenceModel,
   type IssueReferenceSource,
   issueReferenceModel,
 } from '@podium/client-core/values'
-import { parseAnyRef } from '@podium/protocol'
+import { issueRefText, parseAnyRef } from '@podium/protocol'
 import {
   compareStructural,
   createAtom,
@@ -27,7 +26,7 @@ export function issueRefKey(token: string): string {
 /** Only the existing pool supplies rows and relations. No viewmodel list,
  * replica, old-record read or mutation owner is accepted by this seam. */
 export interface IssueReferenceHost {
-  row(entity: 'issue' | 'repo', id: string, mode?: 'summary-fields' | 'load'): Lookup<object>
+  row(entity: 'issue' | 'repo', id: string): Lookup<object>
   readonly queries: { issueReferenceId(token: string): string | undefined }
   readonly relations: Pick<RelationReader, 'one'>
 }
@@ -37,7 +36,7 @@ export interface IssueReferenceReader {
   id(token: string): Loaded<string | null>
 }
 
-/** The source owns canonical identity and cold/resident alias precedence.
+/** The source owns canonical identity and alias precedence.
  * Each displayed token observes that keyed answer and one named model. No
  * resident table is enumerated or watched when this reader is constructed. */
 export class IssueReferences implements IssueReferenceReader {
@@ -64,28 +63,6 @@ export class IssueReferences implements IssueReferenceReader {
     })
   }
 
-  /** An arriving cold row can satisfy a previously missing demand key.
-   * Refresh only that key inside the pool's publication action. */
-  arrived(
-    row: Pick<IssueReferenceSource, 'prefix' | 'displayRef' | 'seq'> & { repoId?: string | null },
-  ): void {
-    if (this.requests.size === 0) return
-    // Normalized projections carry repoId and seq, not a derived prefix.
-    // Use the same resident repo join as source(), without warming this issue.
-    const repo = row.repoId ? omitGone(this.host.row('repo', row.repoId)) : undefined
-    if (repo === LOADING) return
-    const prefix = (repo as { prefix?: string | null } | undefined)?.prefix ?? row.prefix
-    const ref = row.repoId
-      ? prefix
-        ? `${prefix}-${row.seq}`
-        : `#${row.seq}`
-      : canonicalIssueRef(row)
-    const key = issueRefKey(ref)
-    if (!this.requests.has(key)) return
-    this.requests.set(key, LOADING)
-    this.queue(key)
-  }
-
   constructor(
     private readonly host: IssueReferenceHost,
     private readonly queue: (ref: string) => void,
@@ -94,12 +71,7 @@ export class IssueReferences implements IssueReferenceReader {
   }
 
   private source(id: string): Loaded<IssueReferenceSource> {
-    const summary = omitGone(this.host.row('issue', id, 'summary-fields'))
-    // A pool may declare only stage/residency fields for cold issues. A
-    // reference needs identity and label fields too; load this named row
-    // through the existing window when its declared summary is incomplete.
-    const row = summary === LOADING || (summary && !['id', 'seq', 'title', 'stage'].every(field => Object.hasOwn(summary, field)))
-      ? omitGone(this.host.row('issue', id, 'load')) : summary
+    const row = omitGone(this.host.row('issue', id))
     if (row === LOADING) return LOADING
     if (row === undefined) return undefined
     const issue = row as IssueReferenceSource
@@ -119,7 +91,7 @@ export class IssueReferences implements IssueReferenceReader {
       // The repo relation owns canonical identity after normalization. A
       // temporary pre-projection input can still carry a real displayRef.
       displayRef:
-        repoId !== null ? (prefix ? `${prefix}-${issue.seq}` : `#${issue.seq}`) : issue.displayRef,
+        repoId !== null ? issueRefText(issue.seq, prefix) : issue.displayRef,
     }
   }
 
@@ -172,7 +144,7 @@ export class IssueReferences implements IssueReferenceReader {
   }
 
   /** The local replica supplies opaque ids. Displayed fields still come
-   * through the ONE pool row reader and its cold-row load window. */
+   * through the ONE pool row reader. */
   resolved(ref: string, id: string | null): void {
     const key = issueRefKey(ref)
     // A queued window may finish after its chip disappeared. Its response

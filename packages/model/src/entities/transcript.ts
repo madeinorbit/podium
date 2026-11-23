@@ -28,6 +28,43 @@ export const TranscriptTag = z.object({
 })
 export type TranscriptTag = z.infer<typeof TranscriptTag>
 
+/** Retained input of an observed execution. Inputs listed inside a script are
+ * not separate execution records and never carry inferred outcomes. */
+export const TranscriptExecutionInput = z.object({
+  kind: z.enum(['command', 'tool', 'continuation']),
+  toolName: z.string(),
+  text: z.string(),
+  description: z.string().optional(),
+  capture: z.enum(['complete', 'truncated', 'unknown']),
+})
+export type TranscriptExecutionInput = z.infer<typeof TranscriptExecutionInput>
+
+/** A recorded provider boundary, independent of the UI's adjacency folding. */
+export const TranscriptToolBatch = z.object({
+  id: z.string(),
+  kind: z.enum(['message', 'step']),
+})
+export type TranscriptToolBatch = z.infer<typeof TranscriptToolBatch>
+
+/** Native execution facts, normalized by the harness adapter. A call carries
+ * its inputs; a separately emitted result carries completion/capture facts.
+ * They join by toolUseId. The retained output text lives once, in toolResult. */
+export const TranscriptToolExecution = z.object({
+  kind: z.enum(['commands', 'actions', 'continuation']).optional(),
+  inputs: z.array(TranscriptExecutionInput).optional(),
+  omittedInputs: z.number().int().nonnegative().optional(),
+  status: z.enum(['running', 'completed', 'failed', 'interrupted']).optional(),
+  exitCode: z.number().int().optional(),
+  durationMs: z.number().finite().nonnegative().optional(),
+  output: z
+    .object({
+      capture: z.enum(['complete', 'truncated', 'unavailable', 'unknown']),
+      note: z.string().optional(),
+    })
+    .optional(),
+})
+export type TranscriptToolExecution = z.infer<typeof TranscriptToolExecution>
+
 /** A bounded, discriminated account of observed tool effects, separate from intent. */
 export const TranscriptToolEffect = z.discriminatedUnion('kind', [
   z.object({
@@ -101,6 +138,11 @@ export const TranscriptItem = z.object({
    *  transcript item is per-session detail, not a replicated entity, so it has no
    *  brand and no `MetadataEntityKind` membership. */
   id: z.string(),
+  /** The provider's id for the message this item came from, where a live
+   *  preview of the message is keyed by it rather than by the item (POD-6280):
+   *  Claude streams a reply under its API message id before the session file
+   *  holds the record. What `streamItemIdOf` returns when present. */
+  streamId: z.string().optional(),
   /** Opaque position anchor for read-from/subscribe-since paging. Stable across
    *  re-reads of the same bytes in the same session namespace, independent of path. */
   cursor: z.string().optional(),
@@ -149,6 +191,11 @@ export const TranscriptItem = z.object({
   /** Pairs a tool call with its result item. UNBRANDED: the HARNESS's tool-use
    *  id, in the provider's namespace. */
   toolUseId: z.string().optional(),
+  /** One execution's retained input and reported result facts. Clients render
+   * these fields without inspecting native argument or result envelopes. */
+  toolExecution: TranscriptToolExecution.optional(),
+  /** Known native message/step membership; absent when no boundary was recorded. */
+  toolBatch: TranscriptToolBatch.optional(),
   tags: z.array(TranscriptTag).optional(),
   /** Absolute file paths this item structurally references (tool file_path
    *  inputs and @-mention / edit / compact attachment filenames). Drives

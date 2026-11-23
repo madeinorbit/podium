@@ -11,7 +11,15 @@ const hostStore = vi.hoisted(() => {
     { id: 'iss_two', prefix: 'POD', seq: 1711, displayRef: 'POD-1711' },
   ]
   let issues = [...allIssues]
-  let namedIssues = new Map(issues.flatMap(row => [[row.id, row], [row.displayRef, row]] as const))
+  let namedIssues = new Map(
+    issues.flatMap(
+      (row) =>
+        [
+          [row.id, row],
+          [row.displayRef, row],
+        ] as const,
+    ),
+  )
   let revision = 0
   const listeners = new Set<() => void>()
   return {
@@ -21,7 +29,15 @@ const hostStore = vi.hoisted(() => {
     },
     set issues(rows: typeof issues) {
       issues = rows
-      namedIssues = new Map(rows.flatMap(row => [[row.id, row], [row.displayRef, row]] as const))
+      namedIssues = new Map(
+        rows.flatMap(
+          (row) =>
+            [
+              [row.id, row],
+              [row.displayRef, row],
+            ] as const,
+        ),
+      )
       revision++
       for (const listener of listeners) listener()
     },
@@ -39,7 +55,8 @@ const hostStore = vi.hoisted(() => {
     readSessions: vi.fn(),
     readIssue: vi.fn(),
     readSession: vi.fn(),
-    namedIssue: (identifier: string) => namedIssues.get(identifier) ?? namedIssues.get(identifier.trim()),
+    namedIssue: (identifier: string) =>
+      namedIssues.get(identifier) ?? namedIssues.get(identifier.trim()),
   }
 })
 
@@ -57,6 +74,7 @@ vi.mock('@/app/shell-data', async () => {
     useShellLinks: () => {
       useSyncExternalStore(hostStore.subscribe, hostStore.snapshot)
       return {
+        issueId: (identifier: string) => hostStore.namedIssue(identifier)?.id,
         readIssue: hostStore.readIssue,
         readSession: hostStore.readSession,
         artifactIssue: () => undefined,
@@ -65,12 +83,12 @@ vi.mock('@/app/shell-data', async () => {
   }
 })
 
+import { setKnownPodiumOrigins } from '@/lib/podium-link'
 import {
   PODIUM_LINK_QUEUE_CAPACITY,
   PODIUM_LINK_RESOLUTION_TIMEOUT_MS,
   PodiumLinkHost,
 } from './PodiumLinkHost'
-import { setKnownPodiumOrigins } from '@/lib/podium-link'
 
 interface NativeOpenWindow extends Window {
   __PODIUM_DELIVER_NATIVE_OPEN__?: (raw: unknown) => void
@@ -123,7 +141,9 @@ describe('PodiumLinkHost native delivery', () => {
     act(() => root.render(<PodiumLinkHost />))
     expect(hostStore.readIssues).not.toHaveBeenCalled()
     expect(hostStore.readSessions).not.toHaveBeenCalled()
-    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    act(() => {
+      hostStore.issues = [...hostStore.allIssues]
+    })
     act(() => nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1710'))
     expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
     hostStore.readIssues.mockClear()
@@ -140,7 +160,9 @@ describe('PodiumLinkHost native delivery', () => {
     act(() => root.render(<PodiumLinkHost />))
     expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
 
-    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    act(() => {
+      hostStore.issues = [...hostStore.allIssues]
+    })
     act(() => {
       root.render(<PodiumLinkHost />)
     })
@@ -149,7 +171,9 @@ describe('PodiumLinkHost native delivery', () => {
     expect(hostStore.setOpenIssueId).toHaveBeenNthCalledWith(2, asIssueId('iss_two'))
     expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(2)
 
-    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    act(() => {
+      hostStore.issues = [...hostStore.allIssues]
+    })
     act(() => root.render(<PodiumLinkHost />))
     expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(2)
   })
@@ -160,7 +184,9 @@ describe('PodiumLinkHost native delivery', () => {
     act(() => root.render(<PodiumLinkHost initialHref="http://127.0.0.1:18787/issues/POD-1710" />))
     expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
     const before = hostStore.readIssue.mock.calls.length
-    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    act(() => {
+      hostStore.issues = [...hostStore.allIssues]
+    })
     expect(hostStore.readIssue.mock.calls.length).toBeGreaterThan(before)
     expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
   })
@@ -191,7 +217,9 @@ describe('PodiumLinkHost native delivery', () => {
     act(() => vi.advanceTimersByTime(PODIUM_LINK_RESOLUTION_TIMEOUT_MS * 2))
     expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
 
-    act(() => { hostStore.issues = [hostStore.allIssues[0]!] })
+    act(() => {
+      hostStore.issues = [hostStore.allIssues[0]!]
+    })
     act(() => root.render(<PodiumLinkHost replicaReady={true} />))
     expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
     expect(hostStore.setOpenIssueId).toHaveBeenCalledTimes(1)
@@ -204,7 +232,9 @@ describe('PodiumLinkHost native delivery', () => {
 
     act(() => root.unmount())
     root = createRoot(container)
-    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    act(() => {
+      hostStore.issues = [...hostStore.allIssues]
+    })
     act(() => root.render(<PodiumLinkHost />))
 
     expect(hostStore.setOpenIssueId).toHaveBeenCalledWith(asIssueId('iss_one'))
@@ -222,7 +252,9 @@ describe('PodiumLinkHost native delivery', () => {
     )
     expect(hostStore.setOpenIssueId).not.toHaveBeenCalled()
 
-    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    act(() => {
+      hostStore.issues = [...hostStore.allIssues]
+    })
     act(() =>
       root.render(
         <StrictMode>
@@ -239,7 +271,9 @@ describe('PodiumLinkHost native delivery', () => {
     expect(appMainSource).toContain('const pendingInitialPodiumHref = useRef(initialPodiumHref)')
     expect(appMainSource).toContain('pendingInitialPodiumHref.current = null')
     expect(appShellSource).toContain('const pendingInitialPodiumHref = useRef(initialPodiumHref)')
-    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    act(() => {
+      hostStore.issues = [...hostStore.allIssues]
+    })
     let pendingInitialHref: string | null = 'podium://issues/POD-1710'
     const consumeInitialHref = (): void => {
       pendingInitialHref = null
@@ -286,7 +320,9 @@ describe('PodiumLinkHost native delivery', () => {
 
     act(() => root.unmount())
     root = createRoot(container)
-    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    act(() => {
+      hostStore.issues = [...hostStore.allIssues]
+    })
     act(() =>
       root.render(
         <PodiumLinkHost
@@ -302,7 +338,9 @@ describe('PodiumLinkHost native delivery', () => {
   })
 
   it('rejects excess entries without evicting earlier queued work', () => {
-    act(() => { hostStore.issues = [...hostStore.allIssues] })
+    act(() => {
+      hostStore.issues = [...hostStore.allIssues]
+    })
     act(() => root.render(<PodiumLinkHost />))
     const dispatchNativeOpen = (detail: string): void => {
       window.dispatchEvent(new CustomEvent('podium:native-open', { detail }))

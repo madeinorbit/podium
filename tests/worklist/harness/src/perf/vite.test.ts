@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 import { expect, it } from 'vitest'
 import { lowerDecorators } from '../../../../../scripts/vite-standard-decorators'
 import { instrumentProductWork } from './vite'
 
-const root = new URL('../../../../../', import.meta.url)
+const root = resolve(import.meta.dirname, '../../../../..')
 
 it.each([
   [
@@ -39,7 +39,7 @@ it.each([
     'memo(function RenamedMachineReadout(',
   ],
 ])('observes the actual source and loudly refuses a renamed seam: %s', (relative, anchor, rename) => {
-  const file = fileURLToPath(new URL(relative, root))
+  const file = resolve(root, relative)
   const source = readFileSync(file, 'utf8')
   expect(instrumentProductWork(source, file)).toMatch(/__(?:countIssueBoard|measureHeader)/)
   const planted = source.replace(anchor, rename)
@@ -48,7 +48,7 @@ it.each([
 })
 
 it('exposes lazy computed owners only in measurement builds and refuses a missing naming seam', () => {
-  const file = fileURLToPath(new URL('packages/mobx-helpers/src/lazy.ts', root))
+  const file = resolve(root, 'packages/mobx-helpers/src/lazy.ts')
   const source = readFileSync(file, 'utf8')
   const measured = instrumentProductWork(source, file)!
   expect(measured).toContain('context: this,')
@@ -65,7 +65,7 @@ it.each([
   'source',
   'lowered',
 ] as const)('counts the card getter once and refuses an ambiguous seam in %s code', async (form) => {
-  const file = fileURLToPath(new URL('packages/client-graph/src/issue-board-cards.ts', root))
+  const file = resolve(root, 'packages/client-graph/src/issue-board-cards.ts')
   const source = readFileSync(file, 'utf8')
   const code = form === 'lowered' ? (await lowerDecorators(source, file)).code : source
   const measured = instrumentProductWork(code, file)!

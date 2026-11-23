@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { auditWorkspaceImports } from './workspace-import-audit'
+import { auditWorkspaceImports, sourceResolutionMatches } from './workspace-import-audit'
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url))
 
@@ -27,6 +27,32 @@ describe('Podium workspace imports', () => {
     )
     expect(result.status, `${result.stdout}${result.stderr}`).toBe(0)
     expect(result.stdout).toContain('resolve to this checkout source')
+  })
+
+  it('accepts declared source exports outside src without accepting built or neighboring copies', () => {
+    const root = '/repo/packages/core'
+    const manifest = {
+      name: '@podium/core',
+      exports: {
+        './test-support/ui': { '@podium/source': './test-support/ui.ts', import: './dist/ui.js' },
+      },
+    }
+    expect(
+      sourceResolutionMatches(
+        `${root}/test-support/ui.ts`,
+        root,
+        manifest,
+        '@podium/core/test-support/ui',
+      ),
+    ).toBe(true)
+    for (const path of [
+      `${root}/dist/ui.js`,
+      `${root}/test-support/other.ts`,
+      '/other/packages/core/test-support/ui.ts',
+    ])
+      expect(sourceResolutionMatches(path, root, manifest, '@podium/core/test-support/ui')).toBe(
+        false,
+      )
   })
 
   it('detects a fixture import with no manifest edge', () => {

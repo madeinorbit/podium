@@ -15,7 +15,6 @@ import {
   JSC_DEFAULT_SAMPLE_US,
   LAYERED_ENV,
   LAYERED_KEYS,
-  PodiumConfig,
   LOGGING_MODE_ENV,
   loadConfig,
   localServerUrl,
@@ -23,13 +22,12 @@ import {
   migrateConfig,
   migrateConfigFile,
   needsSetup,
+  PodiumConfig,
   profileSamplerEnv,
   resolveAgentHomeDir,
   resolveAgentRelay,
   resolveAgentRelayPort,
   resolveAllowedOrigins,
-  resolveAuthMode,
-  resolveAuthSignInUrl,
   resolveAppUrl,
   resolveConnectBaseUrl,
   resolveConnectEnabled,
@@ -54,6 +52,7 @@ import {
   resolveTranscriptLakeSetting,
   resolveUpdateChannel,
   resolveUpdateFeed,
+  resolveUpdateFeedPolling,
   resolveUpdateScope,
   resolveUpdateTarget,
   saveConfig,
@@ -286,12 +285,6 @@ describe('layered resolvers (#251): env → config.json → default', () => {
       }),
     ).toEqual({ a: true, b: false })
   })
-  it('round-trips cloud auth mode and leaves the default unchanged', () => {
-    saveConfig({ mode: 'server' })
-    expect(loadConfig().auth?.mode).toBeUndefined()
-    saveConfig({ mode: 'server', auth: { mode: 'cloud' } })
-    expect(loadConfig().auth?.mode).toBe('cloud')
-  })
   it('PodiumConfig accepts features record and round-trips via save/load', () => {
     saveConfig({ mode: 'server', features: { 'sample-experiment': true, other: false } })
     expect(loadConfig().features).toEqual({ 'sample-experiment': true, other: false })
@@ -302,6 +295,21 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     ).toBe('http://env')
     expect(resolveUpdateFeed({ updateFeed: 'http://cfg' }, {})).toBe('http://cfg')
     expect(resolveUpdateFeed({}, {})).toBeUndefined()
+  })
+  it('release feed polling defaults on and follows explicit env > config', () => {
+    expect(resolveUpdateFeedPolling({}, {})).toBe(true)
+    expect(resolveUpdateFeedPolling({ updateFeedPolling: false }, {})).toBe(false)
+    expect(
+      resolveUpdateFeedPolling({ updateFeedPolling: true }, { PODIUM_UPDATE_FEED_POLLING: 'off' }),
+    ).toBe(false)
+    expect(
+      resolveUpdateFeedPolling({ updateFeedPolling: false }, { PODIUM_UPDATE_FEED_POLLING: 'on' }),
+    ).toBe(true)
+    expect(() => resolveUpdateFeedPolling({}, { PODIUM_UPDATE_FEED_POLLING: 'auto' })).toThrow(
+      'PODIUM_UPDATE_FEED_POLLING',
+    )
+    saveConfig({ updateFeedPolling: false })
+    expect(loadConfig().updateFeedPolling).toBe(false)
   })
   it('resolveDevArtifactOrigin: env > publicUrl > disabled', () => {
     expect(
@@ -1165,57 +1173,5 @@ describe('resolveProfileStallMs', () => {
         DEFAULT_PROFILE_STALL_MS,
       )
     }
-  })
-})
-
-describe('layered authentication configuration', () => {
-  it('resolves mode from env, file, then the local default with provenance', () => {
-    expect(resolveAuthMode({}, {})).toBe('local')
-    expect(resolveAuthMode({ auth: { mode: 'cloud' } }, {})).toBe('cloud')
-    expect(resolveAuthMode({ auth: { mode: 'cloud' } }, { PODIUM_AUTH_MODE: 'local' })).toBe(
-      'local',
-    )
-    expect(
-      resolveSetting('authMode', { auth: { mode: 'local' } }, { PODIUM_AUTH_MODE: 'cloud' }),
-    ).toEqual({ value: 'cloud', source: 'env', env: 'PODIUM_AUTH_MODE' })
-    expect(() => resolveAuthMode({}, { PODIUM_AUTH_MODE: 'weird' })).toThrow(/PODIUM_AUTH_MODE/)
-    expect(() => resolveAuthMode({}, { PODIUM_AUTH_MODE: '' })).toThrow(/PODIUM_AUTH_MODE/)
-  })
-  it('resolves the destination from env, file, then undefined', () => {
-    const config = { auth: { signInUrl: 'https://file.example/account/sign-in' } }
-    expect(resolveAuthSignInUrl({}, {})).toBeUndefined()
-    expect(resolveAuthSignInUrl(config, {})).toBe(config.auth.signInUrl)
-    expect(
-      resolveSetting('authSignInUrl', config, {
-        PODIUM_AUTH_SIGN_IN_URL: 'https://env.example/login?org=one#start',
-      }),
-    ).toEqual({
-      value: 'https://env.example/login?org=one#start',
-      source: 'env',
-      env: 'PODIUM_AUTH_SIGN_IN_URL',
-    })
-    expect(PodiumConfig.parse(config).auth?.signInUrl).toBe(config.auth.signInUrl)
-  })
-  it.each([
-    'https://cloud.example/login',
-    'http://localhost:3000/login',
-    'http://127.0.0.1/login',
-    'http://[::1]/login',
-  ])('accepts secure or loopback destination %s', (value) => {
-    expect(resolveAuthSignInUrl({}, { PODIUM_AUTH_SIGN_IN_URL: value })).toBe(value)
-    expect(PodiumConfig.safeParse({ auth: { signInUrl: value } }).success).toBe(true)
-  })
-  it.each([
-    'http://cloud.example/login',
-    'javascript:alert(1)',
-    '/account/sign-in',
-    '',
-    'https://user:password@cloud.example/login',
-  ])('rejects invalid destination %s in both layers', (value) => {
-    expect(() => resolveAuthSignInUrl({}, { PODIUM_AUTH_SIGN_IN_URL: value })).toThrow(
-      /PODIUM_AUTH_SIGN_IN_URL/,
-    )
-    expect(() => resolveAuthSignInUrl({ auth: { signInUrl: value } }, {})).toThrow(/auth.signInUrl/)
-    expect(PodiumConfig.safeParse({ auth: { signInUrl: value } }).success).toBe(false)
   })
 })

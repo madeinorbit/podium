@@ -1,5 +1,5 @@
+import { loadingNavigationProvider } from '@podium/client-core/ui'
 import { createPoolNavigationProvider } from '@podium/client-graph/navigation-provider'
-import { loadingNavigationProvider } from '@podium/client-core/engine'
 /**
  * The feeds a pool under test consumes from a scenario engine: the row source
  * and the engine-backed locals channel, drained together after each write,
@@ -95,14 +95,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     ...(raw.source.issueIdByRef
       ? { issueIdByRef: (ref: string) => outsideArm(() => raw.source.issueIdByRef!(ref)) }
       : {}),
-    // POD-5407: the feed's own cold index, as production hands it to the pool:
-    // the feed applies each publication to it before the arm hears it, so its
-    // upkeep is the feed's work, not the arm's.
-    ...(raw.source.cold
-      ? { cold: (summaries) => outsideArm(() => raw.source.cold!(summaries)) }
-      : {}),
-    // POD-6136: the feed's facts index covers cold history sessions; the
-    // pool's own index would count only the sessions it loaded.
+    // POD-6136: the feed's session facts index, as production hands it to the pool.
     ...(raw.source.issueSessionFact ? { issueSessionFact: raw.source.issueSessionFact } : {}),
     subscribe: (listener) =>
       raw.source.subscribe((event) => {
@@ -144,11 +137,14 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     locals,
     ...(transactions === null ? {} : { transactions }),
     attachPool(pool: MobxPool): void {
-      const clock = (ctx.engine as unknown as { fixtureClock?: { subscribe(tick: (now: number) => void): () => void } }).fixtureClock
-      if (clock) clockStops.push(clock.subscribe(value => pool.clock.advance(value)))
+      const clock = (
+        ctx.engine as unknown as {
+          fixtureClock?: { subscribe(tick: (now: number) => void): () => void }
+        }
+      ).fixtureClock
+      if (clock) clockStops.push(clock.subscribe((value) => pool.clock.advance(value)))
       ctx.engine.setNavigationProvider(createPoolNavigationProvider(pool))
-      if (transactions !== null)
-        pool.attachTransactions(transactions, true)
+      if (transactions !== null) pool.attachTransactions(transactions, true)
     },
     flush(): void {
       rows.flush()

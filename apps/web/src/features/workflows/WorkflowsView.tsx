@@ -6,7 +6,8 @@
  *
  *  - `packages/client-core/src/viewmodels/slices/workflows.ts` — the derivations,
  *    platform-neutral and unit-testable without a DOM;
- *  - `use-workflows.ts` — the source: fetching, dispatch, denial and eviction;
+ *  - `use-workflows.ts` — the source: the pool's synced records (POD-6676),
+ *    dispatch, denial and eviction;
  *  - `workflow-commands.ts` — every write as DATA, with its POD-641 contract and
  *    its rights predicate;
  *  - `WorkflowLibrary` / `RunProgress` / `AgentProfiles` — the three tabs.
@@ -22,16 +23,15 @@
  * seam for real. When the wire carries a decision, one constant is replaced and
  * nothing else moves.
  */
-import { RefreshCw, Workflow } from 'lucide-react'
+import { Workflow } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { AgentProfiles } from './AgentProfiles'
 import { RunProgress } from './RunProgress'
 import { useWorkflows } from './use-workflows'
-import { OPERATOR_WORKFLOW_RIGHTS } from './workflow-commands'
 import { WorkflowLibrary } from './WorkflowLibrary'
+import { OPERATOR_WORKFLOW_RIGHTS } from './workflow-commands'
 
 type Tab = 'library' | 'progress' | 'profiles'
 
@@ -59,17 +59,6 @@ export function WorkflowsView(): JSX.Element {
             with.
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          pending={source.refreshing}
-          pendingLabel="Refreshing…"
-          onClick={() => void source.refresh()}
-        >
-          <RefreshCw size={13} aria-hidden="true" />
-          Refresh
-        </Button>
       </header>
 
       <nav className="flex flex-none gap-1 border-b px-5 pt-2" aria-label="Workflow sections">

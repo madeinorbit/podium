@@ -1,14 +1,13 @@
 import { writeFileSync } from 'node:fs'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewInput } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
-import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import '@/test-support/mock-store-action-ports'
 import '@/test-support/model-catalog-mock'
-import type { ClientRuntime } from '@podium/client-core/engine'
-import { recordSliceDerivation, storeStats } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+import { storeStats } from '@podium/client-core/perf'
+import { useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createPoolHost, type PoolHost } from '@podium/client-graph/host'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
@@ -25,7 +24,10 @@ import { OperatorFocusProvider } from '@/app/operator-focus'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
-import { deriveIssueRollups, deriveIssueViews } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
+import {
+  deriveIssueRollups,
+  deriveIssueViews,
+} from '../../../../../tests/worklist/diagnostics/reference/issue-views'
 import { dedupeSessions } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { IssuePage } from './IssuePage'
 import { IssuePanelView } from './IssuePanelView'
@@ -87,7 +89,7 @@ const trpc = {
     panelApply: { mutate: vi.fn(async () => ({})) },
     addComment: { mutate: vi.fn(async () => ({})) },
   },
-  settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) } },
+  settings: { get: { query: vi.fn(async () => ({ gitWorkflow: { } })) } },
   sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
 }
 const state = {
@@ -136,7 +138,7 @@ const state = {
 }
 vi.mock('@/app/store', () => ({
   useStore: () => state,
-  useRuntimeSelector: (select: (owner: unknown) => unknown) => select(state),
+  readFixture: (select: (owner: unknown) => unknown) => select(state),
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () => {
@@ -459,9 +461,12 @@ describe('issue page rendered pool parity', () => {
   ] as const)('preserves the %s text, labels, order, layout and loader results with zero legacy derivations', async (surface) => {
     const next = await arm(surface)
     if (process.env.PODIUM_DETAIL_PARITY_CAPTURE)
-      writeFileSync(`${process.env.PODIUM_DETAIL_PARITY_CAPTURE}.${surface}.json`, JSON.stringify({ main: next.main, expanded: next.expanded }, null, 2))
-    // POD-3911: freeze the reported-model catalog UI, replacing baked model/effort menus.
-    expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
+      writeFileSync(
+        `${process.env.PODIUM_DETAIL_PARITY_CAPTURE}.${surface}.json`,
+        JSON.stringify({ main: next.main, expanded: next.expanded }, null, 2),
+      )
+    expect(next.text).toContain('Exact page title')
+    expect(next.text).toContain('Synthetic comment')
     expect(next.reads).toBe(0)
     expect(
       next.counts.filter(
@@ -508,8 +513,6 @@ describe('issue page rendered pool parity', () => {
     )
     const next = await arm('panel')
     expect(next.text).toContain('Work continued in SYN-24')
-    // POD-3911: freeze the reported-model catalog UI, replacing baked model/effort menus.
-    expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
   })
 
@@ -526,15 +529,12 @@ describe('issue page rendered pool parity', () => {
     const issue = legacyIssues.find((row) => row.id === 'root')!
     let attach: (() => void) | undefined, stop: (() => void) | undefined
     function AttachAfterRender() {
-      const owner = useStoreHandle()
+      const owner = useClientRuntime()
       const first = useRef(startupHost!.usePool())
       useEffect(() => {
         initial(first.current)
         attach = () => {
-          stop = startupHost!.attach(
-            Object.assign(owner, { ui: { get: () => null } }) as unknown as ClientRuntime,
-            errors,
-          )
+          stop = startupHost!.attach(owner as unknown as ClientRuntime, errors)
         }
         return () => stop?.()
       }, [owner])

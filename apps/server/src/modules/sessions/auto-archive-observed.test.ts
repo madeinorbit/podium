@@ -1,3 +1,4 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * The APPLY side of stopped-session auto-archive (POD-1229).
  *
@@ -64,7 +65,11 @@ async function stoppedAndRead(bindTo?: (reg: SessionRegistry) => Promise<IssueId
   await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
   // Read AFTER the stop: `readAt >= stoppedAt` is one of the preconditions, so a
   // fixture read before stopping would fail for a reason these tests do not name.
-  await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId)
+  await reg.modules.sessions.markSessionRead(
+    reg.modules.sessions.serverWriter,
+    firstAdminMemberId(),
+    sessionId,
+  )
   const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
     (s) => s.sessionId === sessionId,
   )
@@ -77,6 +82,56 @@ const observation = (sessionId: SessionId, readerUserId: string) => ({
   stoppedAt: '',
   readerUserId: asUserId(readerUserId),
   archived: false as const,
+})
+
+describe('a member’s own read retires their session, not the first admin’s (POD-6285)', () => {
+  it('applies the owner’s read and refuses the first admin’s on a second member’s session', async () => {
+    const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    registries.push(reg)
+    await attachHostDaemon(reg, (msg) => {
+      if (msg.type !== 'repoOpRequest') return
+      queueMicrotask(() =>
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          type: 'repoOpResult',
+          requestId: msg.requestId,
+          ok: true,
+          output: '',
+        }),
+      )
+    })
+    const bob = asUserId('mem_auto_archive_bob')
+    await memberFacts(reg.sessionStore).create({
+      id: bob,
+      displayName: 'Bob',
+      email: 'bob@example.test',
+      role: 'member',
+      createdAt: new Date().toISOString(),
+      disabledAt: null,
+    })
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r',
+      ownerUserId: bob,
+    })
+    await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
+    await reg.modules.sessions.markSessionRead(reg.issues.reports.store.serverWriter, bob, sessionId)
+    const stoppedAt = (await reg.sessionStore.sessions.getSession(sessionId))?.stoppedAt ?? ''
+    const later = Date.parse(stoppedAt) + 8 * DAY_MS
+    // The first admin cannot read Bob's session, so their read means nothing.
+    expect(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
+        { ...observation(sessionId, firstAdminMemberId()), stoppedAt },
+        later,
+      ),
+    ).toBe('precondition')
+    // Bob's own read retires it. Without the fix only the first admin's counted.
+    expect(
+      await reg.modules.sessions.tryAutoArchiveStoppedObserved(
+        { ...observation(sessionId, bob), stoppedAt },
+        later,
+      ),
+    ).toBe('applied')
+  })
 })
 
 describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)', () => {
@@ -152,7 +207,11 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
       (s) => s.sessionId === sessionId,
     )
-    await reg.modules.sessions.markSessionRead(firstAdminMemberId(), sessionId) // re-read, "now"
+    await reg.modules.sessions.markSessionRead(
+      reg.modules.sessions.serverWriter,
+      firstAdminMemberId(),
+      sessionId,
+    ) // re-read, "now"
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, firstAdminMemberId()), stoppedAt: meta?.stoppedAt ?? '' },
@@ -171,7 +230,11 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
     const meta = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
       (s) => s.sessionId === sessionId,
     )
-    await reg.modules.sessions.markSessionUnread(firstAdminMemberId(), sessionId) // deletes the marker
+    await reg.modules.sessions.markSessionUnread(
+      reg.modules.sessions.serverWriter,
+      firstAdminMemberId(),
+      sessionId,
+    ) // deletes the marker
     expect(
       await reg.modules.sessions.tryAutoArchiveStoppedObserved(
         { ...observation(sessionId, firstAdminMemberId()), stoppedAt: meta?.stoppedAt ?? '' },
@@ -215,15 +278,24 @@ describe('SessionService.tryAutoArchiveStoppedObserved — whose read (POD-1229)
  */
 describe('SessionService.tryAutoArchiveStoppedObserved — the issue record it reads (POD-4971)', () => {
   const topLevel = async (reg: SessionRegistry) =>
-    (await reg.modules.issues.crud.create({ repoPath: '/r', title: 'Top level', startNow: false })).id
+    (
+      await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'Top level',
+        startNow: false,
+      })
+    ).id
   const child = async (reg: SessionRegistry) => {
-    const parent = await reg.modules.issues.crud.create({
-      repoPath: '/r',
-      title: 'Parent',
-      startNow: false,
-    })
+    const parent = await reg.modules.issues.crud.create(
+      reg.modules.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Parent',
+        startNow: false,
+      },
+    )
     return (
-      await reg.modules.issues.crud.create({
+      await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
         repoPath: '/r',
         title: 'Child',
         parentId: parent.id,

@@ -1,56 +1,73 @@
-import { parseIssueEventRowId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+// workspace-scoped (POD-6959)
+import type { WorkspaceId } from '@podium/model'
 import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bootstrap-worker'
-import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { makeFeedVisibility } from '../feed-visibility'
-import { syncServerTables } from '../migrations/sync-server-tables'
-import { createBunStoreExecutor } from '../store/executor/bun-driver'
-import { IssuesRepository } from '../store/issues'
-import { SessionsRepository } from '../store/sessions'
-import { ShippingRepository } from '../store/shipping'
-import { AutomationsRepository } from '../store/automations'
-import { GrantsRepository } from '../store/grants'
+import { effectPublication } from '../modules/effects/published-input'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { CollectionsRepository } from '../store/collections'
+import type { QueryClient } from '../store/executor/driver'
+import type { RootStoreExecutor } from '../store/executor/executor'
+import { legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
+import { databaseRecords } from '../sync/record-source'
+import { recordReadsOf } from './record-reads'
 
-const unsupported = (): never => { throw new Error('snapshot cannot use writer state') }
+export interface BootstrapVisibilityOptions {
+  /** The effect kinds the server serves: an effect record's published input
+   *  depends on them (`modules/effects/published-input.ts`). */
+  readonly effectKinds?: readonly string[]
+  /** Test fixtures can preserve their record clock without changing deadlines. */
+  readonly now?: () => number
+  /**
+   * The workspace whose records and feed are read (POD-7021); the self-hosted
+   * install's when omitted (see `BootstrapJob.workspaceId`).
+   */
+  readonly workspaceId?: WorkspaceId
+}
 
-/** Construct only query repositories: no SessionStore, migrations, authority or publication. */
-export function bootstrapVisibility(database: SqlDatabase) {
-  const executor = createBunStoreExecutor({ database })
+/**
+ * The sharing rules and the record builders over one read session's executor
+ * (`read-session.ts`, on either engine): query repositories only, with no
+ * SessionStore, migrations, authority or publication. Every statement of that
+ * executor runs in the session's read transaction, so every read below belongs
+ * to its snapshot. The caller owns the session and closes it.
+ */
+export function bootstrapVisibility(
+  executor: RootStoreExecutor<QueryClient>,
+  options: BootstrapVisibilityOptions = {},
+) {
   const context = (async () => {
-  const q = executor.queries
-  // Caller has already established the read transaction; every grant read
-  // below asks for the resources it needs and belongs to that snapshot.
-  const grants = new GrantsRepository(q)
-  const sync = new SyncRepository(q, syncServerTables)
-  // The publisher mutates its window before capture and may swallow failure
-  // (POD-4033). Only committed rows belong to this snapshot, in event-id order.
-  const eventSubjects = new Map<string, { entity: 'issueEvent'; entityId: string }[]>()
-  const eventRows = database.prepare("SELECT entity_id FROM change_latest WHERE entity = 'issueEvent'").all() as { entity_id: string }[]
-  const events = eventRows.flatMap(row => {
-    try { return [{ ...parseIssueEventRowId(row.entity_id), entityId: row.entity_id }] }
-    catch { return [] }
-  }).sort((a, b) => a.eventId - b.eventId)
-  for (const event of events) {
-    const subjects = eventSubjects.get(event.subject) ?? []
-    subjects.push({ entity: 'issueEvent', entityId: event.entityId })
-    eventSubjects.set(event.subject, subjects)
-  }
-  const visibility = makeFeedVisibility({
-    store: {
-      issues: new IssuesRepository(q, unsupported),
-      sessions: new SessionsRepository(q, unsupported),
-      shipping: new ShippingRepository(q),
-      automations: new AutomationsRepository(q),
-      grants,
+    const reads = recordReadsOf(executor.queries, {
+      effectExecutors: effectPublication(options.effectKinds ?? []),
+      ...(options.now && { now: options.now }),
+      ...(options.workspaceId && { workspaceId: options.workspaceId }),
+    })
+    const { grants, sync } = reads.store
+    // The start-up load streams these, and the sharing rules re-send current
+    // values from them (POD-6770): every kind, built from the model tables.
+    const records = databaseRecords(reads)
+    const visibility = makeFeedVisibility({
+      store: reads.store,
+      audiencesFor: (kind, ids) => grants.visibilityAudiencesFor(kind, ids),
+      // A job-local cache lives only as long as this immutable read snapshot.
+      authorizationRevision: () => sync.maxChangeSeq(),
+      currentRecords: records.build,
+    })
+    return {
+      policy: new GrantEdgeVisibilityPolicy(visibility.state, new NoDelegationsGranted()),
+      anchors: visibility.anchors,
       sync,
-    },
-    audiencesFor: (kind, ids) => grants.visibilityAudiencesFor(kind, ids),
-    // A job-local cache lives only as long as this immutable read snapshot.
-    authorizationRevision: () => sync.maxChangeSeq(),
-    issueEventSubjects: issueId => eventSubjects.get(issueId) ?? [],
-  })
-  return { policy: new GrantEdgeVisibilityPolicy(visibility.state, new NoDelegationsGranted()), anchors: visibility.anchors, sync }
+      records,
+      // The collection fetch's reads (POD-7085), on the same snapshot and in
+      // the job's workspace.
+      collections: new CollectionsRepository(
+        legacyWorkspaceQueries(executor.queries, options.workspaceId ?? SELF_HOSTED_WORKSPACE_ID),
+      ),
+    }
   })()
-  // Return ownership before the first async read can fail, so the caller always closes it.
-  return { context, get policy() { return context.then(value => value.policy) }, executor }
+  return {
+    context,
+    get policy() {
+      return context.then((value) => value.policy)
+    },
+  }
 }

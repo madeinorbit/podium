@@ -11,14 +11,12 @@
  * this file would turn it red.
  *
  * ---------------------------------------------------------------------------
- * ONE ROW PER (USER, ISSUE), NOT THREE
+ * ONE ROW PER (USER, ISSUE), NOT ONE PER MARKER
  * ---------------------------------------------------------------------------
- * `readAt`, `tuckedAt` and `pinnedAt` share a key, are written by the same
- * principal, and are read together by exactly one caller (the issue projection).
- * Three tables would be three joins on every issue list for no invariant gained:
- * they are independent VALUES, but they are not independent ROWS, and the
- * `single-writer` rule the family gets from having the user in the key applies to
- * the row either way.
+ * `readAt` and `tuckedAt` (and the personal records below) share a key, are
+ * written by the same principal, and are read together by exactly one caller
+ * (the issue projection). Separate tables would be joins on every issue list
+ * for no invariant gained.
  *
  * The session half is deliberately NOT folded in with them. `session_user_state`
  * and `snoozes` stay two tables because `snoozes` already exists, is already
@@ -26,20 +24,12 @@
  * with no reader asking for one.
  *
  * ---------------------------------------------------------------------------
- * `pinnedAt` IS A TIMESTAMP, WHERE `issues.pinned` WAS A FLAG
+ * AN ISSUE'S PIN IS A PIN RECORD (POD-6692)
  * ---------------------------------------------------------------------------
- * The column was `integer NOT NULL DEFAULT 0`. Per-user it becomes a nullable
- * timestamp, matching `pins.pinned_at` — because the eventual collapse of the two
- * pin mechanisms (inventory §7.1: *"note it is a **second** pin mechanism;
- * POD-1076 should collapse the two"*) needs both sides to carry the same value,
- * and a boolean cannot be widened into an ordering later without a second
- * migration. The wire projection keeps `pinned: boolean` — `pinnedAt != null` —
- * so no client changes.
- *
- * The collapse ITSELF is not done here. It is a wire and UI change across the
- * `pins` table's three kinds, and POD-1076 closes without it: both mechanisms are
- * correctly keyed per user after this. It is filed as a spin-off with a
- * `discovered-from` edge rather than absorbed into a migration issue's diff.
+ * The pin was a third marker here (`pinned_at`) beside the `pins` table that
+ * held every other pin. Since POD-6692 it is a `pin` record of kind 'issue'
+ * (`synced-records.ts`), so one rule covers all pins: pin = create, unpin =
+ * remove. This row carries no pin, and its wire has no `pinned`.
  */
 
 import { z } from 'zod'
@@ -48,11 +38,22 @@ import { asIssueId, type IssueId, IssueIdField, type UserId } from '../ids'
 import { perUserKeyOfString } from './session-state'
 
 /**
+ * HOW A PERSON CAME TO A TASK (POD-6290). The first reason is kept.
+ * - `start`: the person started work on it themselves (created it, or started a
+ *   session of their own on it).
+ * - `agent`: one of their agents did (a session their agent spawned landed on it,
+ *   or their agent created or joined it): their own agent's elevation.
+ * - `join`: they joined it explicitly.
+ */
+export const IssueJoinVia = z.enum(['start', 'agent', 'join'])
+export type IssueJoinVia = z.infer<typeof IssueJoinVia>
+
+/**
  * ISSUE PER-USER STATE — `(userId, issueId)` → this person's read marker, tuck
- * marker and pin.
+ * marker and personal records.
  *
- * All three are nullable and all three mean the same thing when null: this
- * person has not done that. An absent ROW is equivalent to a row of three nulls,
+ * All are nullable and all mean the same thing when null: this person has not
+ * done that. An absent ROW is equivalent to a row of nulls,
  * and the storage deletes rather than storing one — same rule as the session
  * half, for the same reason.
  */
@@ -61,11 +62,32 @@ export const IssueUserState = perUserKey(IssueIdField).extend({
   readAt: z.string().nullable(),
   /** When this person tucked it away. `null` = not tucked. */
   tuckedAt: z.string().nullable(),
-  /** When this person pinned it. `null` = not pinned. See the header on why this
-   *  is a timestamp and the wire keeps a boolean. */
-  pinnedAt: z.string().nullable(),
+  /**
+   * PERSONAL RECORDS (POD-6290; docs/design/multi-user-instance.md §2.2, §4.4).
+   * When this person first started or joined the task, and how. Opening,
+   * searching or reading a task writes only `readAt`, never these. Optional on
+   * the wire so a row from an older server reads as "no record".
+   */
+  joinedAt: z.string().nullable().optional(),
+  joinedVia: IssueJoinVia.nullable().optional(),
+  /** The removable "assigned to you by X" row: when the task was assigned to this
+   *  person, and by whom. Cleared when it is reassigned away or dismissed. */
+  assignedAt: z.string().nullable().optional(),
+  assignedBy: z.string().nullable().optional(),
 })
 export type IssueUserState = z.infer<typeof IssueUserState>
+
+/** A task is in a person's personal set when they started or joined it, or it
+ *  carries their assigned row. One function, so the server and every client
+ *  spell it the same way. */
+export const inPersonalSet = (
+  row: Pick<IssueUserState, 'joinedAt' | 'assignedAt'> | undefined,
+): boolean => row != null && (row.joinedAt != null || row.assignedAt != null)
+
+/** A collaborator is a person with a start or join record (design §2.2). An
+ *  assignment alone does not make one, and being one grants no access. */
+export const isCollaboratorRecord = (row: Pick<IssueUserState, 'joinedAt'> | undefined): boolean =>
+  row?.joinedAt != null
 
 /**
  * TRACKER-MAIL READ STATE — `(userId, issueMessageId)` → when this person read
@@ -102,43 +124,40 @@ export const ISSUE_USER_STATE_MEMBERS = [
  *
  * The issue twin of `SessionUserOverlay`, and it exists for the same reason: the
  * projection needs a viewer, so the viewer's values arrive as an ARGUMENT rather
- * than as fields on the shared row. `pinned` is the boolean the wire has always
- * carried, derived here so the derivation has exactly one home.
+ * than as fields on the shared row.
  */
 export interface IssueUserOverlay {
   readonly readAt: string | null
   readonly tuckedAt: string | null
-  readonly pinned: boolean
 }
 
 /** The overlay of a user who has never touched an issue. */
 export const NO_ISSUE_USER_STATE: IssueUserOverlay = {
   readAt: null,
   tuckedAt: null,
-  pinned: false,
 }
 
-/** Project a stored row onto the overlay the wire wants. One function, so
- *  `pinnedAt != null` is spelled once and cannot drift between the issue list,
- *  the single-issue read and the CLI. */
+/** Project a stored row onto the overlay the wire wants. One function, so the
+ *  issue list, the single-issue read and the CLI cannot drift. */
 export const issueOverlayOf = (
-  row: Pick<IssueUserState, 'readAt' | 'tuckedAt' | 'pinnedAt'> | undefined,
+  row: Pick<IssueUserState, 'readAt' | 'tuckedAt'> | undefined,
 ): IssueUserOverlay =>
-  row === undefined
-    ? NO_ISSUE_USER_STATE
-    : { readAt: row.readAt, tuckedAt: row.tuckedAt, pinned: row.pinnedAt != null }
+  row === undefined ? NO_ISSUE_USER_STATE : { readAt: row.readAt, tuckedAt: row.tuckedAt }
 
-/** R4 personal issue markers. The key and timestamps compose the stored shape;
- * the pin keeps the existing boolean wire meaning. An absent row means none. */
-export const IssueUserStateWire = IssueUserState.omit({ pinnedAt: true }).extend({
-  pinned: z.boolean(),
-})
+/** R4 personal issue markers: the stored row as it is. An absent row means none. */
+export const IssueUserStateWire = IssueUserState
 export type IssueUserStateWire = z.infer<typeof IssueUserStateWire>
 
 export const issueUserStateToWire = (row: IssueUserState): IssueUserStateWire => ({
   userId: row.userId,
   entityId: row.entityId,
   ...issueOverlayOf(row),
+  // The personal records ride the same row (POD-6290), present only when set
+  // so a row without them keeps its exact former shape.
+  ...(row.joinedAt != null ? { joinedAt: row.joinedAt, joinedVia: row.joinedVia ?? null } : {}),
+  ...(row.assignedAt != null
+    ? { assignedAt: row.assignedAt, assignedBy: row.assignedBy ?? null }
+    : {}),
 })
 
 /** The family's canonical composite encoding, also used for removes/evictions. */

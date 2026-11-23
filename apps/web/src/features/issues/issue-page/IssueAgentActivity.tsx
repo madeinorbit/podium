@@ -1,3 +1,5 @@
+import { useHttpOrigin } from '@podium/client-core/react'
+import { useUiValue } from '@podium/client-core/react'
 import { resolveMachinePath } from '@podium/model/browser'
 import { issueObserver as observer } from './issue-observer'
 /**
@@ -40,14 +42,13 @@ import { issueObserver as observer } from './issue-observer'
  * owner or origin anywhere, and `payload-identity.test.ts` keeps it that way.
  */
 
-import { shallowEqual } from '@podium/client-core'
 import { relativeTime } from '@podium/client-core/focus'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueWithBodies } from '@/app/store'
 import { ArtifactLightbox, artifactLightboxKey } from '@/components/ArtifactLightbox'
 import { Button } from '@/components/ui/button'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
@@ -57,16 +58,13 @@ import { IssueAge } from './IssueAge'
 export const IssueAgentActivity = observer(function IssueAgentActivity({
   issue,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
 }): JSX.Element | null {
-  const { httpOrigin, openFileInWorktree, openArtifact } = useRuntimeSelector(
-    (s) => ({
-      httpOrigin: s.httpOrigin,
-      openFileInWorktree: s.openFileInWorktree,
-      openArtifact: s.openArtifact,
-    }),
-    shallowEqual,
-  )
+  const { httpOrigin, openFileInWorktree, openArtifact } = {
+    httpOrigin: useHttpOrigin(),
+    openFileInWorktree: useUiValue('openFileInWorktree'),
+    openArtifact: useUiValue('openArtifact'),
+  }
   const [lightbox, setLightbox] = useState<string | null>(null)
 
   const artifacts = issue.panel?.artifacts ?? []

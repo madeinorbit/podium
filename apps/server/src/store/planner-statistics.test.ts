@@ -10,15 +10,15 @@
  * inside a transaction is refused, and that the timer refreshes until close.
  */
 
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
+import { PLANNER_STATISTICS_ROW_FLOOR } from '../migrations/store-lifecycle'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import { ExclusiveInsideLeaseError, probeStatements, type StatementProbeHolder } from './executor'
-import { PLANNER_STATISTICS_ROW_FLOOR } from '../migrations/store-lifecycle'
 
 const cleanup: (() => void | Promise<void>)[] = []
 afterEach(async () => {
@@ -152,28 +152,35 @@ describe('POD-6148 — planner statistics', () => {
 
 /** The runtime-event drain's list query (`runtimeEventsAfter` in `events.ts`), as the bench caught it. */
 const DRAIN =
-  "SELECT id, subject, payload FROM podium_events WHERE kind = 'session.runtime' AND id > ? ORDER BY id LIMIT 128"
+  "SELECT id, subject, payload FROM podium_events WHERE workspace_id = 'local' AND kind = 'session.runtime' AND id > ? ORDER BY id LIMIT 128"
 
 function addEvents(database: SqlDatabase, count: number): void {
   const insert = database.prepare(
-    'INSERT INTO podium_events (ts, kind, subject, repo_path, payload) VALUES (?, ?, ?, ?, ?)',
+    "INSERT INTO podium_events (workspace_id, ts, kind, subject, repo_path, payload) VALUES ('local', ?, ?, ?, ?, ?)",
   )
   database.exec('BEGIN')
   for (let i = 0; i < count; i++) {
     // Mostly runtime events, as on a server with sessions running.
-    insert.run(new Date(1_700_000_000_000 + i).toISOString(), i % 20 === 0 ? 'session.state' : 'session.runtime',
-      `ses_${i % 20}`, '/repo', '{"t":"item"}')
+    insert.run(
+      new Date(1_700_000_000_000 + i).toISOString(),
+      i % 20 === 0 ? 'session.state' : 'session.runtime',
+      `ses_${i % 20}`,
+      '/repo',
+      '{"t":"item"}',
+    )
   }
   database.exec('COMMIT')
 }
 
 const planOf = (database: SqlDatabase, sql: string): string[] =>
-  (database.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(0) as { detail: string }[]).map((row) => row.detail)
+  (database.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(0) as { detail: string }[]).map(
+    (row) => row.detail,
+  )
 
 const statsOf = (database: SqlDatabase, table: string): string[] =>
-  (database.prepare('SELECT stat FROM sqlite_stat1 WHERE tbl = ?').all(table) as { stat: string }[]).map(
-    (row) => row.stat,
-  )
+  (
+    database.prepare('SELECT stat FROM sqlite_stat1 WHERE tbl = ?').all(table) as { stat: string }[]
+  ).map((row) => row.stat)
 
 describe('POD-6223 — a table analysed while tiny', () => {
   it('plans the runtime-event drain by index once it has grown', async () => {
@@ -185,7 +192,7 @@ describe('POD-6223 — a table analysed while tiny', () => {
     expect(statsOf(database, 'podium_events')).toEqual([])
     addEvents(database, 9_999)
     expect(planOf(database, DRAIN)).toEqual([
-      'SEARCH podium_events USING INDEX idx_podium_events_kind (kind=? AND rowid>?)',
+      'SEARCH podium_events USING INDEX idx_podium_events_kind (workspace_id=? AND kind=? AND rowid>?)',
     ])
   })
 
@@ -198,7 +205,7 @@ describe('POD-6223 — a table analysed while tiny', () => {
     expect(stats.every((stat) => stat.startsWith(`${PLANNER_STATISTICS_ROW_FLOOR} `))).toBe(true)
     addEvents(database, 9_000)
     expect(planOf(database, DRAIN)).toEqual([
-      'SEARCH podium_events USING INDEX idx_podium_events_kind (kind=? AND rowid>?)',
+      'SEARCH podium_events USING INDEX idx_podium_events_kind (workspace_id=? AND kind=? AND rowid>?)',
     ])
   })
 
@@ -213,6 +220,8 @@ describe('POD-6223 — a table analysed while tiny', () => {
     await store.refreshPlannerStatistics('periodic')
     const stats = statsOf(database, 'podium_events')
     expect(stats.length).toBeGreaterThan(0)
-    expect(stats.every((stat) => Number(stat.split(' ')[0]) >= PLANNER_STATISTICS_ROW_FLOOR)).toBe(true)
+    expect(stats.every((stat) => Number(stat.split(' ')[0]) >= PLANNER_STATISTICS_ROW_FLOOR)).toBe(
+      true,
+    )
   })
 })

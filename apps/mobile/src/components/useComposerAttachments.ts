@@ -3,9 +3,7 @@ import {
   updateFirstTaskDraftAttachments,
 } from '@podium/client-core/first-task-draft'
 import { randomUUID } from '@podium/client-core/id'
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY, type UiState } from '@podium/client-core/ui-state'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { preferenceSource } from '@podium/client-graph/preference-source'
+import type { UiState } from '@podium/client-core/ui-state'
 import type { SessionId } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useRef, useState } from 'react'
@@ -93,11 +91,10 @@ export function useComposerAttachments(
     pickMedia?: () => Promise<PickedFile[]>
     /** The New Task composer holds uploads until sessions.create claims them. */
     destination?: 'session' | 'issue'
-    /** New Task reads its chips from the shared draft, through the preference pool. */
+    /** New Task reads its chips from the shared draft in device state. */
     draft?: {
       attachments: ComposerAttachment[]
       uiState: Pick<UiState, 'get' | 'set'>
-      pool: MobxPool | null
     }
   } = {},
 ): ComposerAttachmentsApi {
@@ -117,8 +114,8 @@ export function useComposerAttachments(
         ? updateFirstTaskDraftAttachments(draft.uiState, change)
         : change(latest.current)
       latest.current = next
-      if (draft?.pool) preferenceSource(draft.pool)?.refreshKey(FIRST_TASK_ACTIVATION_DRAFT_KEY)
-      else if (!draft) setAttachments(next)
+      // The draft is device state; its subscription repaints the chips.
+      if (!draft) setAttachments(next)
     },
     [],
   )

@@ -3,8 +3,8 @@ import type { SessionId } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useTrpc } from '../client/hooks'
 import { usePoolInteractionCards } from '../client/use-pool-notices'
+import { useAnswerSession } from '../lib/answer-session'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { decisionTile } from './decision-tile'
 import { PressableScale } from './PressableScale'
@@ -40,7 +40,7 @@ const PendingInteractionBandBody = observer(function PendingInteractionBandBody(
 }: {
   cards: readonly PendingInteractionCard[]
 }) {
-  const trpc = useTrpc()
+  const answerSession = useAnswerSession()
   const [sending, setSending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   if (cards.length === 0) return null
@@ -53,11 +53,13 @@ const PendingInteractionBandBody = observer(function PendingInteractionBandBody(
       // NOTHING OPTIMISTIC. The feed carries the OPEN set only, so a resolved
       // ask is removed from the replica and this band unmounts itself — a local
       // "sent" state would be a second source of truth for one row.
-      const outcome = await trpc.interactions.answer.mutate({
-        id: card.id,
-        answer: action.answer,
+      // A `session.answer` record (POD-6415): its result is the delivery's reply.
+      const outcome = await answerSession(card.sessionId as SessionId, {
+        via: 'interaction',
+        interactionId: card.id,
+        answer: action.answer as { kind: string } & Record<string, unknown>,
       })
-      if (!outcome.ok) setError(outcome.detail ?? outcome.reason ?? 'That answer was refused.')
+      if (!outcome.ok) setError(outcome.reason ?? 'That answer was refused.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not send that answer.')
     } finally {

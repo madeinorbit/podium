@@ -38,6 +38,7 @@ import {
   systemdUnitActive,
   systemdUnitEnabled,
   systemdUnitManaged,
+  systemdUnitRuntimeMasked,
   unmaskSystemdUnits,
   userSystemdUnavailable,
   userUnitDir,
@@ -126,9 +127,13 @@ export function observeTopology(deps: TopologyReconcileDeps = {}): TopologyObser
   const unitEnabled =
     deps.unitEnabled ??
     ((name: string) => (name === desired ? systemdUnitEnabled(name) : systemdUnitManaged(name)))
+  const unitMasked = deps.unitMasked ?? systemdUnitRuntimeMasked
+  const masked = installed.filter((name) => unitMasked(name))
+  // A restarted migrator must still restore/retire the legacy set it fenced.
+  const maskedLegacy = new Set(presentLegacyUnits(masked, instanceId))
   const enabled = installed.filter((name) => {
     try {
-      return unitEnabled(name)
+      return unitEnabled(name) || maskedLegacy.has(name)
     } catch {
       return false
     }
@@ -140,7 +145,6 @@ export function observeTopology(deps: TopologyReconcileDeps = {}): TopologyObser
       return false
     }
   })
-  const masked = installed.filter((name) => deps.unitMasked?.(name))
   const live = listLive()
   const parentLive = Boolean(liveRecord('parent'))
   return {

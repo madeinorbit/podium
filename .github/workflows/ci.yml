@@ -218,6 +218,10 @@ jobs:
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: no raw NUL bytes in TypeScript sources or docs
         run: bun run lint:no-nul
+      # The repository is public; committed captures once carried an account
+      # address. Same cheap text-scan class as the NUL check, so it shares the job.
+      - name: no e-mail addresses in committed evidence or fixtures
+        run: bun run lint:public-emails
 
   typecheck:
     runs-on: ubuntu-latest
@@ -314,6 +318,71 @@ jobs:
       # This dry-runs `generate` and fails when it still has DDL to emit.
       - name: migration chain has not drifted from the schema
         run: bun run audit:migration-drift
+
+  # The store shard's Postgres leg [POD-6980, POD-6958 design 2.10]: every store-shard
+  # file that apps/server/test-store-engines.json does not exclude, on Postgres 17 (the
+  # Debian image, glibc collation, as on PlanetScale). The service container stands in
+  # for the shared podium-test-pg container a developer host runs; PODIUM_TEST_PG_URL
+  # tells the lane to use it instead of starting Docker. Pull requests run it only when
+  # they touch the store, migrations, sync or the harness; merge groups always do.
+  store-pg:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_PASSWORD: podium-test
+        ports:
+          - 5432:5432
+        options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=2g
+          --shm-size 256m
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      PODIUM_TEST_PG_URL: postgres://postgres:podium-test@127.0.0.1:5432/postgres
+      # Two workers, so the isolation pair (src/store/pg-test-isolation-*.test.ts) runs.
+      PODIUM_TEST_WORKERS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: does this change reach the Postgres leg
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE_SHA" HEAD | grep -qE '^(apps/server/src/(store|migrations|sync|sync-worker|test-support)/|apps/server/src/store[^/]*\.ts$|packages/sync/|apps/server/test-(store-engines|shards)\.json$|apps/server/vitest\.(store-pg\.config|shard)\.ts$|scripts/test-lanes\.ts$|\.github/workflows/ci\.yml$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No store, migration, sync or harness file changed; the Postgres leg is skipped."
+          fi
+      - if: steps.scope.outputs.run == 'true'
+        uses: jdx/mise-action@v2
+        with:
+          install_args: bun
+      - if: steps.scope.outputs.run == 'true'
+        uses: ./.github/actions/bun-cache
+        with:
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - if: steps.scope.outputs.run == 'true'
+        run: bun install --frozen-lockfile --ignore-scripts
+      - if: steps.scope.outputs.run == 'true'
+        name: store shard on Postgres
+        run: bun run test:lane -- server-store-pg
+      - if: steps.scope.outputs.run == 'true'
+        name: server started on a Postgres URL (POD-6994)
+        run: bun run test:file -- apps/server/src/server.postgres.bun.test.ts
+      - if: steps.scope.outputs.run == 'true'
+        name: sync worker suites on Postgres (POD-6994)
+        env:
+          PODIUM_TEST_STORE_ENGINE: pg
+        run: bun run test:file -- apps/server/src/sync-worker/worker.bun.test.ts apps/server/src/sync/bootstrap-worker.bun.test.ts
 
   # The desktop shell's RUST tests — the native NDJSON log sink, its rotation
   # bound, the panic hook's payloads and the pending-crash queue. Nothing ran

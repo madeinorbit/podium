@@ -1,0 +1,502 @@
+import {
+  credentialsLoginContract,
+  credentialsUseOnMyMachinesContract,
+} from './native-login-contracts'
+
+export {
+  credentialsLoginContract,
+  credentialsLoginInput,
+  credentialsUseOnMyMachinesContract,
+  credentialsUseOnMyMachinesInput,
+} from './native-login-contracts'
+
+/**
+ * THE CREDENTIAL CONTRACTS (credential management design §6, §8, §12; epic Task 4).
+ *
+ * `credentials.add · rename · renew · remove · share · unshare · allowMachine ·
+ * disallowMachine · chatgptSignInStart · chatgptSignInComplete · signInStart ·
+ * signInCancel · login · useOnMyMachines`. A credential belongs to the person who added it. Its owner,
+ * or a person the owner gave `manage`, may change it; a person with `use` may run
+ * on it and change nothing. Being an admin gives no access to another person's
+ * credential. Every write is a person's: an agent session is refused, whoever it
+ * acts for.
+ *
+ * Secret writes use `online-sensitive`; the interactive machine login uses
+ * `online-only`. Nothing here is queued on a device or replayed later. `add` and `renew` carry the secret and
+ * redact it; the results never echo it. The read is the `credentials.list` query.
+ */
+
+import { CREDENTIAL_TYPE_IDS, CredentialIdField, MachineIdField, UserIdField } from '@podium/model'
+import { z } from 'zod'
+import type {
+  AttributionPolicy,
+  CommandContract,
+  DeliveryPolicy,
+  ErrorConsistency,
+  RedactionPolicy,
+  TransportTag,
+  VisibilityClass,
+} from '../contract'
+
+/** What a person is told before sharing any credential (§12: use means the other person can obtain it). */
+export const CREDENTIAL_SHARE_DISCLOSURE =
+  'Anyone you give use of this credential can read it on the machines they run sessions on.'
+
+/** The additional warning before sharing a subscription (types with `sharing: 'warn'`). */
+export const CREDENTIAL_SHARE_WARNING =
+  'This is a subscription sold to one person. Sharing it may break the provider’s terms and puts your account at risk.'
+
+/** What the owner is told before allowing a machine they do not look after (§8). */
+export const CREDENTIAL_MACHINE_DISCLOSURE =
+  'Everyone who runs on this machine’s operating-system account will be able to read this credential.'
+
+const SERVED_ON: readonly TransportTag[] = ['trpc']
+const VISIBILITY: VisibilityClass = 'secret'
+
+const DELIVERY: DeliveryPolicy = {
+  class: 'online-sensitive',
+  outboxReconciliation:
+    'NEVER queued: a `secret` resource forces `online-sensitive`. A queued `add` would leave the ' +
+    'secret in a device outbox until drain, and a queued `remove` or `unshare` would leave access ' +
+    'live for the length of an offline window.',
+  applyTimeReauthorization:
+    'Not reachable, since the class forbids queuing; stated for totality (ADR 3 D8). Owner, ' +
+    '`manage` and the person-only check are evaluated at the call.',
+}
+
+const ATTRIBUTION: AttributionPolicy = {
+  actor: 'from-capability',
+  onBehalfOf: 'from-delegation',
+  wirePlacement: 'separate-field',
+  reservedWireKeys: ['actor', 'onBehalfOf'],
+  rationale:
+    'Both halves from the transport principal, never from payload. Agents are refused, so the ' +
+    'actor and the person it acts for are the same person, recorded on each credential event.',
+}
+
+/** Commands that name an existing credential: unseen and nonexistent answer alike. */
+const NAMED_TARGET: ErrorConsistency = {
+  callerSuppliedTargetId: true,
+  invisibleFailsAs: 'nonexistent',
+  distinguishesUnauthorizedFromUnreachable: false,
+  note:
+    'A credential the caller may not see answers exactly as one that does not exist, so the ' +
+    'reply says nothing about other people’s credentials. A person with `use` sees it, and is ' +
+    'told they may not change it.',
+}
+
+const NO_SECRET: RedactionPolicy = {
+  reviewed: true,
+  inputPaths: [],
+  outputPaths: [],
+  note: 'The input names a credential, a label, a person or a machine; none is secret. The result echoes no secret.',
+}
+
+const SECRET_IN: RedactionPolicy = {
+  reviewed: true,
+  inputPaths: ['secret'],
+  outputPaths: [],
+  note:
+    '`secret` is the credential itself and is redacted from every log and audit record. The ' +
+    'result is the credential id or `{ ok: true }`; identity shows a masked form only.',
+}
+
+const NO_NEW_ROWS = (note: string) => ({ creates: [] as const, note })
+
+const credentialId = CredentialIdField
+const label = z.string().trim().min(1).max(80)
+
+export const credentialsAddInput = z.object({
+  type: z.enum(CREDENTIAL_TYPE_IDS),
+  label,
+  secret: z.string().min(1).max(16_384),
+})
+
+export const credentialsRenameInput = z.object({ credentialId, label })
+
+export const credentialsRenewInput = z.object({
+  credentialId,
+  secret: z.string().min(1).max(16_384),
+})
+
+export const credentialsRemoveInput = z.object({ credentialId })
+
+/** A person, or every member of the instance. */
+export const CredentialGrantee = z.union([
+  z.literal('all-members'),
+  z.object({ userId: UserIdField }),
+])
+export type CredentialGrantee = z.infer<typeof CredentialGrantee>
+
+export const CredentialGrantVerb = z.enum(['use', 'manage'])
+
+export const credentialsShareInput = z.object({
+  credentialId,
+  grantee: CredentialGrantee,
+  verb: CredentialGrantVerb,
+  /** The person read {@link CREDENTIAL_SHARE_DISCLOSURE}. Required for every type. */
+  acknowledgeDisclosure: z.boolean(),
+  /** The person read {@link CREDENTIAL_SHARE_WARNING}. Required for subscriptions. */
+  acknowledgeWarning: z.boolean().optional(),
+})
+
+export const credentialsUnshareInput = z.object({
+  credentialId,
+  grantee: CredentialGrantee,
+  /** Omitted: both verbs. */
+  verb: CredentialGrantVerb.optional(),
+})
+
+export const credentialsAllowMachineInput = z.object({
+  credentialId,
+  machineId: MachineIdField,
+  /** The owner read {@link CREDENTIAL_MACHINE_DISCLOSURE}. */
+  acknowledgeDisclosure: z.boolean(),
+})
+
+export const credentialsDisallowMachineInput = z.object({ credentialId, machineId: MachineIdField })
+
+/**
+ * Sign in with ChatGPT (§11). With `machineId`, that machine (one the caller
+ * looks after, on the computer whose browser signs in) listens for the
+ * browser's return; without it the person pastes the address the browser
+ * ended on. With `credentialId`, sign in again to that ChatGPT credential.
+ */
+export const credentialsChatgptSignInStartInput = z.object({
+  label: label.optional(),
+  machineId: MachineIdField.optional(),
+  credentialId: credentialId.optional(),
+})
+
+/**
+ * Sign in to a subscription on a machine (§6 way 2): a home-stored type, the
+ * machine, a name, and the credential to sign in again when there is one.
+ */
+export const credentialsSignInStartInput = z.object({
+  type: z.enum(CREDENTIAL_TYPE_IDS),
+  machineId: MachineIdField,
+  label: label.optional(),
+  credentialId: credentialId.optional(),
+})
+
+/** Give up a sign-in on a machine; `credentialId` is what `signInStart` returned. */
+export const credentialsSignInCancelInput = z.object({ credentialId })
+
+/** The address the browser ended on, pasted. It holds a one-time code. */
+export const credentialsChatgptSignInCompleteInput = z.object({
+  attemptId: z.string().min(1).max(100),
+  pastedUrl: z.string().min(1).max(16_384),
+})
+
+const common = {
+  version: 1,
+  visibility: VISIBILITY,
+  exposure: SERVED_ON,
+  delivery: DELIVERY,
+  attribution: ATTRIBUTION,
+  conflict: 'cmd',
+} as const
+
+export const credentialsAddContract = {
+  ...common,
+  name: 'credentials.add',
+  input: credentialsAddInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'A member stores their own key or token (types obtained by pasting). Sealed by the vault ' +
+      'before it is written; owned by the caller; private until shared. An agent may not add one ' +
+      'for its person.',
+  },
+  redaction: SECRET_IN,
+  ownership: {
+    creates: ['credential'],
+    owner: 'on-behalf-of-human',
+    visibility: VISIBILITY,
+    inheritanceOnCreate: 'on-behalf-of-human',
+    note: 'Mints a credential owned by the signed-in caller, with no grants.',
+  },
+  errorConsistency: {
+    callerSuppliedTargetId: false,
+    note: 'The id is minted by the server; the owner is the caller.',
+  },
+  conflictRule:
+    'The same secret of the same type for the same owner is one credential: a second add is refused and names the first',
+} as const satisfies CommandContract<typeof credentialsAddInput>
+
+export const credentialsRenameContract = {
+  ...common,
+  name: 'credentials.rename',
+  input: credentialsRenameInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale: 'Changes the label. Owner or `manage`.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS('Changes the label of an existing credential.'),
+  errorConsistency: NAMED_TARGET,
+  conflictRule: 'Last write wins',
+} as const satisfies CommandContract<typeof credentialsRenameInput>
+
+export const credentialsRenewContract = {
+  ...common,
+  name: 'credentials.renew',
+  input: credentialsRenewInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Stores the next version of the secret under the same id, so every selection keeps ' +
+      'pointing at it. Owner or `manage`.',
+  },
+  redaction: SECRET_IN,
+  ownership: NO_NEW_ROWS('Adds a secret version to an existing credential.'),
+  errorConsistency: NAMED_TARGET,
+  conflictRule:
+    'Versioned: a renew that raced another is refused with a conflict and stores nothing',
+} as const satisfies CommandContract<typeof credentialsRenewInput>
+
+export const credentialsRemoveContract = {
+  ...common,
+  name: 'credentials.remove',
+  input: credentialsRemoveInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Deletes the stored secret and every grant; the record stays as removed so sessions that ' +
+      'name it read "removed". Owner or `manage`.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS('Removes the secret and grants of an existing credential.'),
+  errorConsistency: NAMED_TARGET,
+  conflictRule: 'Idempotent: removing a removed credential answers not found',
+} as const satisfies CommandContract<typeof credentialsRemoveInput>
+
+export const credentialsShareContract = {
+  ...common,
+  name: 'credentials.share',
+  input: credentialsShareInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Gives another member, or all members, `use` (or a member `manage`) as a grant, checked at ' +
+      'every use. Owner or `manage`. The caller acknowledges that use discloses the secret, and ' +
+      'for a subscription the provider-terms warning too.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS('Writes a grant edge on an existing credential; mints no entity.'),
+  errorConsistency: NAMED_TARGET,
+  conflictRule: 'Idempotent: sharing the same verb with the same grantee again changes nothing',
+} as const satisfies CommandContract<typeof credentialsShareInput>
+
+export const credentialsUnshareContract = {
+  ...common,
+  name: 'credentials.unshare',
+  input: credentialsUnshareInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Takes a grant back; the next launch or call by that person is refused. Owner or `manage`.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS('Deletes grant edges of an existing credential.'),
+  errorConsistency: NAMED_TARGET,
+  conflictRule: 'Idempotent revocation',
+} as const satisfies CommandContract<typeof credentialsUnshareInput>
+
+export const credentialsAllowMachineContract = {
+  ...common,
+  name: 'credentials.allowMachine',
+  input: credentialsAllowMachineInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Lets the credential be delivered to a machine its owner does not look after (§8), after ' +
+      'the caller acknowledges who there can read it. Owner or `manage`; an enrolled machine only.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS('Records one allowed machine for an existing credential.'),
+  errorConsistency: NAMED_TARGET,
+  conflictRule: 'Idempotent',
+} as const satisfies CommandContract<typeof credentialsAllowMachineInput>
+
+export const credentialsDisallowMachineContract = {
+  ...common,
+  name: 'credentials.disallowMachine',
+  input: credentialsDisallowMachineInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Takes an allowed machine back; the next launch there is refused. Owner or `manage`.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS('Deletes one allowed machine of an existing credential.'),
+  errorConsistency: NAMED_TARGET,
+  conflictRule: 'Idempotent revocation',
+} as const satisfies CommandContract<typeof credentialsDisallowMachineInput>
+
+const SIGN_IN_REDACTION: RedactionPolicy = {
+  reviewed: true,
+  inputPaths: ['pastedUrl'],
+  outputPaths: ['authorizeUrl'],
+  note:
+    'The pasted address carries a one-time sign-in code, and a returning sign-in’s authorize ' +
+    'address carries the retained ID token as a hint: both stay out of logs and audit records. ' +
+    'The token set never appears in an input or a result.',
+}
+
+export const credentialsChatgptSignInStartContract = {
+  ...common,
+  name: 'credentials.chatgptSignInStart',
+  input: credentialsChatgptSignInStartInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Begins a person’s own ChatGPT sign-in: the server keeps the PKCE verifier and returns ' +
+      'the authorize address. An agent may not sign its person in.',
+  },
+  redaction: SIGN_IN_REDACTION,
+  ownership: NO_NEW_ROWS(
+    'Creates a sign-in attempt in server memory for ten minutes; the credential is created when it completes.',
+  ),
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'A machine or credential the caller may not use answers as one that does not exist.',
+  },
+  conflictRule:
+    'Each start is a new attempt; a newer listener on the same port replaces the older one',
+} as const satisfies CommandContract<typeof credentialsChatgptSignInStartInput>
+
+export const credentialsChatgptSignInCompleteContract = {
+  ...common,
+  name: 'credentials.chatgptSignInComplete',
+  input: credentialsChatgptSignInCompleteInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Completes the caller’s own attempt from the pasted address: the server checks the state, ' +
+      'exchanges the code and stores the token set sealed. Creates or updates a ChatGPT plan credential.',
+  },
+  redaction: SIGN_IN_REDACTION,
+  ownership: {
+    creates: ['credential'],
+    owner: 'on-behalf-of-human',
+    visibility: VISIBILITY,
+    inheritanceOnCreate: 'on-behalf-of-human',
+    note: 'Mints a credential owned by the caller, or updates theirs for the same ChatGPT account.',
+  },
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Another person’s attempt answers as an unknown one.',
+  },
+  conflictRule: 'An attempt completes once; a second completion is refused',
+} as const satisfies CommandContract<typeof credentialsChatgptSignInCompleteInput>
+
+export const credentialsSignInStartContract = {
+  ...common,
+  name: 'credentials.signInStart',
+  input: credentialsSignInStartInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Makes a home for a subscription login on a machine the caller holds custody of or sent ' +
+      'the credential to, and opens the vendor’s own sign-in there in a terminal. An agent may ' +
+      'not sign its person in.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS(
+    'Opens a sign-in terminal (a session the server writes) and keeps the attempt in server ' +
+      'memory; the credential is created when the machine reports the login.',
+  ),
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note:
+      'A credential the caller does not own or a machine that does not exist answers as one ' +
+      'that does not exist; a machine the credential was not sent to is `machine-not-allowed`.',
+  },
+  conflictRule:
+    'A second start for a credential already waiting on that machine returns that attempt',
+} as const satisfies CommandContract<typeof credentialsSignInStartInput>
+
+export const credentialsSignInCancelContract = {
+  ...common,
+  name: 'credentials.signInCancel',
+  input: credentialsSignInCancelInput,
+  policy: {
+    action: 'write',
+    roleFloor: 'member',
+    resource: 'secret',
+    confirmation: 'none',
+    rationale:
+      'Gives up the caller’s own sign-in on a machine: closes its terminal and removes the home ' +
+      'it made, so nothing is left behind.',
+  },
+  redaction: NO_SECRET,
+  ownership: NO_NEW_ROWS('Ends a sign-in attempt; creates nothing.'),
+  errorConsistency: {
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Another person’s attempt answers as an unknown one.',
+  },
+  conflictRule: 'Idempotent: a finished attempt is left as it is',
+} as const satisfies CommandContract<typeof credentialsSignInCancelInput>
+
+export const CREDENTIAL_CONTRACTS = {
+  login: credentialsLoginContract,
+  useOnMyMachines: credentialsUseOnMyMachinesContract,
+  add: credentialsAddContract,
+  chatgptSignInComplete: credentialsChatgptSignInCompleteContract,
+  chatgptSignInStart: credentialsChatgptSignInStartContract,
+  allowMachine: credentialsAllowMachineContract,
+  disallowMachine: credentialsDisallowMachineContract,
+  remove: credentialsRemoveContract,
+  rename: credentialsRenameContract,
+  renew: credentialsRenewContract,
+  share: credentialsShareContract,
+  signInCancel: credentialsSignInCancelContract,
+  signInStart: credentialsSignInStartContract,
+  unshare: credentialsUnshareContract,
+} as const
+export type CredentialContractName = keyof typeof CREDENTIAL_CONTRACTS
+export const CREDENTIAL_CONTRACT_NAMES = Object.keys(
+  CREDENTIAL_CONTRACTS,
+).sort() as CredentialContractName[]

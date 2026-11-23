@@ -94,8 +94,16 @@ const SURVIVORS = {
 
 /** A settings-shaped payload carrying ONE secret plus every survivor. */
 const payloadWith = (secret: string): Record<string, unknown> => ({
-  apiKeys: { openai: secret },
-  notifications: { telegramChatId: SURVIVORS.telegramChatId },
+  apiKeys: {
+    anthropic: `${secret}-anthropic`,
+    openai: `${secret}-openai`,
+    openrouter: `${secret}-openrouter`,
+  },
+  integrations: { linearApiKey: `${secret}-linear` },
+  notifications: {
+    telegramChatId: SURVIVORS.telegramChatId,
+    telegramBotToken: `${secret}-telegram`,
+  },
   experimental: SURVIVORS.experimental,
   nested: SURVIVORS.nested,
   unicode: SURVIVORS.unicode,
@@ -122,6 +130,7 @@ const outboxRecord = (
 function expectScrubbedButIntact(serialized: string, payload: Record<string, unknown>): void {
   for (const secret of ALL_SECRETS) expect(serialized).not.toContain(secret)
   expect(payload.apiKeys).toEqual({})
+  expect(payload.integrations).toEqual({})
   expect(payload.notifications).toEqual({ telegramChatId: SURVIVORS.telegramChatId })
   expect(payload.experimental).toEqual(SURVIVORS.experimental)
   expect(payload.nested).toEqual(SURVIVORS.nested)
@@ -232,13 +241,23 @@ describe('IndexedDB: a replica written by an earlier build is scrubbed at open',
     const report = reports[0]
     expect(report).toBeDefined()
     expect(report?.rewritten).toBe(5)
-    expect([...(report?.removed ?? [])].sort()).toEqual([
-      'entities[ada/settings/singleton].apiKeys.openai',
-      'meta[ada/cursor].leaked.apiKeys.openai',
-      'outbox[ada/mut-applied].input.settings.apiKeys.openai',
-      'outbox[ada/mut-dead].input.settings.apiKeys.openai',
-      'outbox[ada/mut-live].input.settings.apiKeys.openai',
-    ])
+    expect([...(report?.removed ?? [])].sort()).toEqual(
+      [
+        'entities[ada/settings/singleton]',
+        'meta[ada/cursor].leaked',
+        'outbox[ada/mut-applied].input.settings',
+        'outbox[ada/mut-dead].input.settings',
+        'outbox[ada/mut-live].input.settings',
+      ]
+        .flatMap((region) => [
+          `${region}.apiKeys.anthropic`,
+          `${region}.apiKeys.openai`,
+          `${region}.apiKeys.openrouter`,
+          `${region}.integrations.linearApiKey`,
+          `${region}.notifications.telegramBotToken`,
+        ])
+        .sort(),
+    )
 
     // …and it is DURABLE. Read through a connection of its own: the store's own
     // mirror could report clean while the material sat in the object store.
@@ -382,13 +401,32 @@ describe('mobile SQLite: a replica written by an earlier build is scrubbed at op
 
     // It found something, at named addresses across all three regions.
     expect(reports[0]?.rewritten).toBe(5)
-    expect([...(reports[0]?.removed ?? [])].sort()).toEqual([
-      'entities[ada/settings/singleton].apiKeys.openai',
-      'meta[ada/cursor].leaked.apiKeys.openai',
-      'outbox[ada/mut-applied].input.settings.apiKeys.openai',
-      'outbox[ada/mut-dead].input.settings.apiKeys.openai',
-      'outbox[ada/mut-live].input.settings.apiKeys.openai',
-    ])
+    expect([...(reports[0]?.removed ?? [])].sort()).toEqual(
+      [
+        'entities[ada/settings/singleton]',
+        'meta[ada/cursor].leaked',
+        'outbox[ada/mut-applied].input.settings',
+        'outbox[ada/mut-dead].input.settings',
+        'outbox[ada/mut-live].input.settings',
+      ]
+        .flatMap((region) => [
+          `${region}.apiKeys.anthropic`,
+          `${region}.apiKeys.openai`,
+          `${region}.apiKeys.openrouter`,
+          `${region}.integrations.linearApiKey`,
+          `${region}.notifications.telegramBotToken`,
+        ])
+        .sort(),
+    )
+
+    const secondReports: SecretScrubReport[] = []
+    await SqliteSyncStore.open({
+      openDatabase: () => sqliteEngine.open(file),
+      deleteDatabase: () => {},
+      onDegraded: () => {},
+      onSecretsScrubbed: (report) => secondReports.push(report),
+    })
+    expect(secondReports[0]).toMatchObject({ scanned: 5, rewritten: 0, removed: [] })
 
     // Durable, through a SECOND CONNECTION — never the store that wrote it.
     const durable = readDurableSqlite(file)

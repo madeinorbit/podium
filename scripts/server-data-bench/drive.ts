@@ -25,6 +25,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { CLAUDE_CODE_HARNESS_KIND } from '@podium/model'
 import type { BenchFixture } from './seed'
 import { parseArgs } from './seed'
 
@@ -78,15 +79,23 @@ export function sessionWriteTarget(
   live: readonly string[],
   parked: readonly string[],
 ): string {
-  if (targeting === 'uniform' || live.length === 0 || parked.length === 0) return all[(k * 7919) % all.length]!
+  if (targeting === 'uniform' || live.length === 0 || parked.length === 0)
+    return all[(k * 7919) % all.length]!
   const toLive = (k * 0.6180339887498949) % 1 < RUNNING_WRITE_SHARE
   const pool = toLive ? live : parked
   return pool[(k * 7919) % pool.length]!
 }
 
-const PTY_CHUNK = Buffer.from('\x1b[32m✔\x1b[0m compiled 1 file in 12ms\r\n'.repeat(4)).toString('base64')
+const PTY_CHUNK = Buffer.from('\x1b[32m✔\x1b[0m compiled 1 file in 12ms\r\n'.repeat(4)).toString(
+  'base64',
+)
 
-export function buildFrame(kind: FrameKind, sessionId: string, k: number, now: string): Record<string, unknown> {
+export function buildFrame(
+  kind: FrameKind,
+  sessionId: string,
+  k: number,
+  now: string,
+): Record<string, unknown> {
   switch (kind) {
     case 'agentFrameBatch':
       return { type: 'agentFrameBatch', sessionId, frames: [PTY_CHUNK] }
@@ -97,7 +106,10 @@ export function buildFrame(kind: FrameKind, sessionId: string, k: number, now: s
         sessionId,
         event: {
           t: 'state',
-          change: { kind: 'state_snapshot', state: { phase: k % 2 ? 'working' : 'idle', since: now, nativeSubagentCount: 0 } },
+          change: {
+            kind: 'state_snapshot',
+            state: { phase: k % 2 ? 'working' : 'idle', since: now, nativeSubagentCount: 0 },
+          },
           at: now,
           provenance: 'live',
           cursor: { segmentId: `bench-${sessionId}`, components: { seq: k } },
@@ -110,7 +122,7 @@ export function buildFrame(kind: FrameKind, sessionId: string, k: number, now: s
         type: 'agentObservation',
         observation: {
           podiumSessionId: sessionId,
-          provider: 'claude-code',
+          provider: CLAUDE_CODE_HARNESS_KIND,
           providerSessionId: null,
           bindingVersion: 1,
           providerTurnId: null,
@@ -131,7 +143,11 @@ export function buildFrame(kind: FrameKind, sessionId: string, k: number, now: s
         },
       }
     case 'agentState':
-      return { type: 'agentState', sessionId, state: { phase: k % 2 ? 'working' : 'idle', since: now, nativeSubagentCount: 0 } }
+      return {
+        type: 'agentState',
+        sessionId,
+        state: { phase: k % 2 ? 'working' : 'idle', since: now, nativeSubagentCount: 0 },
+      }
     case 'title':
       return { type: 'title', sessionId, title: `Bench session ${k % 97}` }
   }
@@ -152,7 +168,9 @@ interface Counters {
 }
 
 const pause = (ms: number) => new Promise((done) => setTimeout(done, ms))
-const bump = (record: Record<string, number>, key: string, by = 1) => { record[key] = (record[key] ?? 0) + by }
+const bump = (record: Record<string, number>, key: string, by = 1) => {
+  record[key] = (record[key] ?? 0) + by
+}
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
@@ -162,10 +180,27 @@ async function main(): Promise<void> {
   const startAt = Number(args['start-at'])
   const durationMs = Number(args['duration-ms'])
   const framesPerMinute = Number(args['frames-per-minute'])
-  const counters: Counters = { sent: {}, dropped: {}, reconnects: 0, received: {}, writes: { ok: 0, failed: 0 }, clientBytes: 0, clientMessages: 0, daemonsConnected: 0, clientsConnected: 0, errors: [] }
-  const note = (error: unknown) => { if (counters.errors.length < 20) counters.errors.push(String(error)) }
+  const counters: Counters = {
+    sent: {},
+    dropped: {},
+    reconnects: 0,
+    received: {},
+    writes: { ok: 0, failed: 0 },
+    clientBytes: 0,
+    clientMessages: 0,
+    daemonsConnected: 0,
+    clientsConnected: 0,
+    errors: [],
+  }
+  const note = (error: unknown) => {
+    if (counters.errors.length < 20) counters.errors.push(String(error))
+  }
 
-  const login = await fetch(`${origin}/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: args.password }) })
+  const login = await fetch(`${origin}/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ password: args.password }),
+  })
   if (!login.ok) throw new Error(`login failed (${login.status}): ${await login.text()}`)
   const cookie = login.headers.get('set-cookie')?.split(';', 1)[0] ?? ''
   const headers = { cookie, origin, 'content-type': 'application/json' }
@@ -176,70 +211,149 @@ async function main(): Promise<void> {
   // dropped, not queued, so the schedule stays the same and the report shows the loss.
   const totalLive = fixture.machines.reduce((n, machine) => n + machine.liveSessionIds.length, 0)
   let finished = false
-  type Daemon = { machine: (typeof fixture.machines)[number]; perMinute: number; socket?: WebSocket; open: boolean }
-  const connect = (daemon: Daemon) => new Promise<void>((resolve, reject) => {
-    const { machine } = daemon
-    const socket = new WebSocket(`ws://127.0.0.1:${args.port}/daemon?v=${protocol.DAEMON_WIRE_VERSION}`)
-    daemon.socket = socket
-    const timer = setTimeout(() => reject(new Error(`daemon ${machine.name}: no peerHelloOk in 15 s`)), 15_000)
-    socket.onopen = () => socket.send(JSON.stringify({
-      type: 'peerHello',
-      v: protocol.DAEMON_WIRE_VERSION,
-      caps: [],
-      credential: { kind: 'machineToken', token: machine.token, machineHint: machine.id },
-      bindingSessionIds: machine.liveSessionIds,
-      claims: { hostname: machine.name },
-    }))
-    socket.onmessage = (event) => {
-      if (typeof event.data !== 'string') { bump(counters.received, 'binary'); return }
-      let message: { type?: string; requestId?: string; sessionId?: string }
-      try { message = JSON.parse(event.data) } catch { bump(counters.received, 'unparsed'); return }
-      bump(counters.received, message.type ?? 'unknown')
-      if (message.type === 'peerHelloOk') {
-        clearTimeout(timer)
-        counters.daemonsConnected++
-        daemon.open = true
-        socket.send(JSON.stringify({ type: 'inventoryReport', machineId: machine.id, inventory: { os: 'linux', arch: 'x64', agents: [] } }))
-        resolve()
-      } else if (message.type === 'peerHelloRejected') {
-        clearTimeout(timer)
-        reject(new Error(`daemon ${machine.name} rejected: ${event.data}`))
-      } else if (message.type === 'runtimeLifecycleRequest') {
-        socket.send(JSON.stringify({ type: 'runtimeLifecycleResult', requestId: message.requestId, sessionId: message.sessionId, result: { ok: true, retirement: 'confirmed' } }))
+  type Daemon = {
+    machine: (typeof fixture.machines)[number]
+    perMinute: number
+    socket?: WebSocket
+    open: boolean
+  }
+  const connect = (daemon: Daemon) =>
+    new Promise<void>((resolve, reject) => {
+      const { machine } = daemon
+      const socket = new WebSocket(
+        `ws://127.0.0.1:${args.port}/daemon?v=${protocol.DAEMON_WIRE_VERSION}`,
+      )
+      daemon.socket = socket
+      const timer = setTimeout(
+        () => reject(new Error(`daemon ${machine.name}: no peerHelloOk in 15 s`)),
+        15_000,
+      )
+      socket.onopen = () =>
+        socket.send(
+          JSON.stringify({
+            type: 'peerHello',
+            v: protocol.DAEMON_WIRE_VERSION,
+            caps: [],
+            credential: { kind: 'machineToken', token: machine.token, machineHint: machine.id },
+            bindingSessionIds: machine.liveSessionIds,
+            claims: { hostname: machine.name },
+          }),
+        )
+      socket.onmessage = (event) => {
+        if (typeof event.data !== 'string') {
+          bump(counters.received, 'binary')
+          return
+        }
+        let message: { type?: string; requestId?: string; sessionId?: string }
+        try {
+          message = JSON.parse(event.data)
+        } catch {
+          bump(counters.received, 'unparsed')
+          return
+        }
+        bump(counters.received, message.type ?? 'unknown')
+        if (message.type === 'peerHelloOk') {
+          clearTimeout(timer)
+          counters.daemonsConnected++
+          daemon.open = true
+          socket.send(
+            JSON.stringify({
+              type: 'inventoryReport',
+              machineId: machine.id,
+              inventory: { os: 'linux', arch: 'x64', agents: [] },
+            }),
+          )
+          resolve()
+        } else if (message.type === 'peerHelloRejected') {
+          clearTimeout(timer)
+          reject(new Error(`daemon ${machine.name} rejected: ${event.data}`))
+        } else if (message.type === 'runtimeLifecycleRequest') {
+          socket.send(
+            JSON.stringify({
+              type: 'runtimeLifecycleResult',
+              requestId: message.requestId,
+              sessionId: message.sessionId,
+              result: { ok: true, retirement: 'confirmed' },
+            }),
+          )
+        }
       }
-    }
-    socket.onerror = (event) => note(`daemon ${machine.name} socket error ${String((event as ErrorEvent).message ?? '')}`)
-    socket.onclose = (event) => {
-      daemon.open = false
-      if (finished) return
-      bump(counters.received, `close:${event.code}`)
-      counters.reconnects++
-      setTimeout(() => { if (!finished) connect(daemon).catch(note) }, 1_000)
-    }
-  })
-  const daemons: Daemon[] = fixture.machines.filter((machine) => machine.liveSessionIds.length > 0)
-    .map((machine) => ({ machine, perMinute: (framesPerMinute * machine.liveSessionIds.length) / totalLive, open: false }))
+      socket.onerror = (event) =>
+        note(`daemon ${machine.name} socket error ${String((event as ErrorEvent).message ?? '')}`)
+      socket.onclose = (event) => {
+        daemon.open = false
+        if (finished) return
+        bump(counters.received, `close:${event.code}`)
+        counters.reconnects++
+        setTimeout(() => {
+          if (!finished) connect(daemon).catch(note)
+        }, 1_000)
+      }
+    })
+  const daemons: Daemon[] = fixture.machines
+    .filter((machine) => machine.liveSessionIds.length > 0)
+    .map((machine) => ({
+      machine,
+      perMinute: (framesPerMinute * machine.liveSessionIds.length) / totalLive,
+      open: false,
+    }))
   await Promise.all(daemons.map(connect))
 
   // ---- clients ----
-  const clients = await Promise.all(Array.from({ length: Number(args.clients ?? 0) }, (_, index) => new Promise<WebSocket>((resolve) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${args.port}/client?v=${protocol.CLIENT_WIRE_VERSION}&cap=${protocol.CAP_SYNC_HTTP_V1}`, { headers } as unknown as string[])
-    socket.onopen = () => {
-      counters.clientsConnected++
-      socket.send(JSON.stringify({ type: 'hello', clientId: `bench-client-${index}`, viewport: { cols: 120, rows: 40, dpr: 1 }, wireVersion: protocol.CLIENT_WIRE_VERSION, caps: ['metadataDelta', protocol.CAP_SYNC_HTTP_V1] }))
-      resolve(socket)
-    }
-    socket.onmessage = (event) => { counters.clientMessages++; counters.clientBytes += typeof event.data === 'string' ? event.data.length : (event.data as ArrayBuffer).byteLength }
-    socket.onerror = () => { note(`client ${index} socket error`); resolve(socket) }
-  })))
+  const clients = await Promise.all(
+    Array.from(
+      { length: Number(args.clients ?? 0) },
+      (_, index) =>
+        new Promise<WebSocket>((resolve) => {
+          const socket = new WebSocket(
+            `ws://127.0.0.1:${args.port}/client?v=${protocol.CLIENT_WIRE_VERSION}&cap=${protocol.CAP_SYNC_HTTP_V1}`,
+            { headers } as unknown as string[],
+          )
+          socket.onopen = () => {
+            counters.clientsConnected++
+            socket.send(
+              JSON.stringify({
+                type: 'hello',
+                clientId: `bench-client-${index}`,
+                viewport: { cols: 120, rows: 40, dpr: 1 },
+                wireVersion: protocol.CLIENT_WIRE_VERSION,
+                caps: ['metadataDelta', protocol.CAP_SYNC_HTTP_V1],
+              }),
+            )
+            resolve(socket)
+          }
+          socket.onmessage = (event) => {
+            counters.clientMessages++
+            counters.clientBytes +=
+              typeof event.data === 'string'
+                ? event.data.length
+                : (event.data as ArrayBuffer).byteLength
+          }
+          socket.onerror = () => {
+            note(`client ${index} socket error`)
+            resolve(socket)
+          }
+        }),
+    ),
+  )
 
   // ---- writes ----
   const rpc = async (path: string, input: unknown) => {
     try {
-      const response = await fetch(`${origin}/trpc/${path}`, { method: 'POST', headers, body: JSON.stringify(input) })
+      const response = await fetch(`${origin}/trpc/${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(input),
+      })
       if (response.ok) counters.writes.ok++
-      else { counters.writes.failed++; counters.writes.lastError = `${path} ${response.status} ${(await response.text()).slice(0, 300)}` }
-    } catch (error) { counters.writes.failed++; counters.writes.lastError = String(error) }
+      else {
+        counters.writes.failed++
+        counters.writes.lastError = `${path} ${response.status} ${(await response.text()).slice(0, 300)}`
+      }
+    } catch (error) {
+      counters.writes.failed++
+      counters.writes.lastError = String(error)
+    }
   }
 
   const wait = startAt - Date.now()
@@ -252,7 +366,8 @@ async function main(): Promise<void> {
   const sessionRate = Number(args['session-writes-per-minute'] ?? 0)
   const issueRate = Number(args['issue-writes-per-minute'] ?? 0)
   const targeting = (args['session-write-targeting'] ?? 'running') as SessionWriteTargeting
-  if (targeting !== 'running' && targeting !== 'uniform') throw new Error(`--session-write-targeting must be running or uniform, not ${targeting}`)
+  if (targeting !== 'running' && targeting !== 'uniform')
+    throw new Error(`--session-write-targeting must be running or uniform, not ${targeting}`)
   const liveIds = fixture.machines.flatMap((machine) => machine.liveSessionIds)
   const liveSet = new Set(liveIds)
   const parkedIds = fixture.sessionIds.filter((id) => !liveSet.has(id))
@@ -269,7 +384,10 @@ async function main(): Promise<void> {
       let k = streamSent.get(daemon) ?? 0
       for (; k < due; k++) {
         const kind = frameKindAt(k)
-        if (!daemon.open || !daemon.socket) { bump(counters.dropped, kind); continue }
+        if (!daemon.open || !daemon.socket) {
+          bump(counters.dropped, kind)
+          continue
+        }
         const sessionId = daemon.machine.liveSessionIds[k % daemon.machine.liveSessionIds.length]!
         daemon.socket.send(JSON.stringify(buildFrame(kind, sessionId, k, now)))
         bump(counters.sent, kind)
@@ -278,25 +396,55 @@ async function main(): Promise<void> {
       const metricsDue = Math.floor(elapsed / 5_000) + 1
       for (let m = metricsSent.get(daemon) ?? 0; m < metricsDue; m++) {
         metricsSent.set(daemon, m + 1)
-        if (!daemon.open || !daemon.socket) { bump(counters.dropped, 'hostMetrics'); continue }
-        daemon.socket.send(JSON.stringify({ type: 'hostMetrics', hostname: daemon.machine.name, sampledAt: now, memory: { totalBytes: 32e9, availableBytes: 16e9, swapTotalBytes: 8e9, swapFreeBytes: 8e9 } }))
+        if (!daemon.open || !daemon.socket) {
+          bump(counters.dropped, 'hostMetrics')
+          continue
+        }
+        daemon.socket.send(
+          JSON.stringify({
+            type: 'hostMetrics',
+            hostname: daemon.machine.name,
+            sampledAt: now,
+            memory: {
+              totalBytes: 32e9,
+              availableBytes: 16e9,
+              swapTotalBytes: 8e9,
+              swapFreeBytes: 8e9,
+            },
+          }),
+        )
         bump(counters.sent, 'hostMetrics')
       }
     }
     for (; sessionWrites < framesDue(sessionRate, elapsed); sessionWrites++) {
-      const id = sessionWriteTarget(sessionWrites, targeting, fixture.sessionIds, liveIds, parkedIds)
+      const id = sessionWriteTarget(
+        sessionWrites,
+        targeting,
+        fixture.sessionIds,
+        liveIds,
+        parkedIds,
+      )
       if (liveSet.has(id)) liveWrites++
-      const call = rpc('sessions.rename', { sessionId: id, name: `Bench rename ${sessionWrites}` }).finally(() => inflight.delete(call))
+      const call = rpc('sessions.rename', {
+        sessionId: id,
+        name: `Bench rename ${sessionWrites}`,
+      }).finally(() => inflight.delete(call))
       inflight.add(call)
     }
     for (; issueWrites < framesDue(issueRate, elapsed); issueWrites++) {
       const id = fixture.issueIds[(issueWrites * 104729) % fixture.issueIds.length]!
-      const call = rpc('issues.update', { id, patch: { priority: issueWrites % 4 } }).finally(() => inflight.delete(call))
+      const call = rpc('issues.update', { id, patch: { priority: issueWrites % 4 } }).finally(() =>
+        inflight.delete(call),
+      )
       inflight.add(call)
     }
     for (; mails < framesDue(mailRate, elapsed); mails++) {
       const to = mailTargets[mails % mailTargets.length]!
-      const call = rpc('messages.send', { to, body: `Bench mail ${mails}`, urgency: 'fyi' }).finally(() => inflight.delete(call))
+      const call = rpc('messages.send', {
+        to,
+        body: `Bench mail ${mails}`,
+        urgency: 'fyi',
+      }).finally(() => inflight.delete(call))
       inflight.add(call)
     }
     await pause(50)
@@ -305,7 +453,18 @@ async function main(): Promise<void> {
   finished = true
   for (const daemon of daemons) daemon.socket?.close()
   for (const client of clients) client.close()
-  console.log(JSON.stringify({ benchDrive: true, wallMs: Date.now() - begin, sessionWrites, liveWrites, targeting, issueWrites, mails, ...counters }))
+  console.log(
+    JSON.stringify({
+      benchDrive: true,
+      wallMs: Date.now() - begin,
+      sessionWrites,
+      liveWrites,
+      targeting,
+      issueWrites,
+      mails,
+      ...counters,
+    }),
+  )
 }
 
 if (import.meta.main) await main()

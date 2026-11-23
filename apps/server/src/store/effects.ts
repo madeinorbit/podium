@@ -1,0 +1,1048 @@
+// workspace-scoped (POD-6959)
+/**
+ * Effect records (ADR 12 D5 E2, POD-6357): the `effects` table. Pure persistence;
+ * the lifecycle (who may move a record where, the trigger, the sweep, the feed)
+ * lives in `modules/effects/`.
+ *
+ * EVERY WRITE GOES THROUGH ONE FUNNEL ({@link EffectsRepository.write}): the rows a
+ * statement returned are handed to the feed capture INSIDE its transaction, so
+ * the table and the change log commit or roll back together, and handed to the
+ * {@link EffectsRepository.onCommitted} listeners as an after-commit effect
+ * (mechanism 3, `afterCommit`): after the OUTERMOST commit, outside its lease,
+ * and never for a write that rolled back. That is what the one generic trigger
+ * listens to.
+ *
+ * STATUS MOVES ARE GUARDED IN SQL. A move into a status is written as
+ * `UPDATE … WHERE status IN (EffectLifecycle.allowedFrom(to))`, so zero rows back
+ * means "refused": a claim (`pending` → `running`) that a second trigger lost, an
+ * expiry of a record that has started, a finish of one already settled.
+ */
+
+import {
+  type EffectDecision,
+  EffectLifecycle,
+  type EffectStatus,
+  type EffectTargetKind,
+  type UserId,
+} from '@podium/model'
+import type { WriteScope } from '@podium/sync'
+import { asc, desc, eq, gt, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm'
+import type { effects } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
+import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
+import { dialectOf } from './executor/dialect-prepared'
+import { afterCommit } from './executor/executor'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  prepared,
+  preparedFamily,
+  WORKSPACE,
+} from './executor/sync-drizzle'
+import { bareColumns, throughIndex } from './index-hints'
+
+type EffectSelect = typeof effects.$inferSelect
+
+/** One effect record, as the server holds it. Times are epoch milliseconds. */
+export interface EffectRow {
+  readonly id: string
+  readonly kind: string
+  readonly target: { readonly kind: EffectTargetKind; readonly id: string }
+  /** The whole input, as the executor reads it. */
+  readonly input: unknown
+  readonly result: unknown
+  readonly cancelRequested: boolean
+  readonly status: EffectStatus
+  readonly error: { readonly code: string; readonly message: string } | undefined
+  readonly deadlineAt: number | undefined
+  readonly attempts: number
+  readonly stage: string | undefined
+  /**
+   * A human gate (POD-6674): `awaiting` its person's decision, then `approve` or
+   * `deny`; `undefined` for a kind with no gate. An awaiting record is never
+   * claimed, swept or cancelled: a deny is how it ends unrun.
+   */
+  readonly decision: EffectStoredDecision | undefined
+  /** Who a gated record is routed to; `undefined`: its creator (POD-6674). */
+  readonly deciders: readonly UserId[] | undefined
+  readonly startedAt: number | undefined
+  readonly finishedAt: number | undefined
+  readonly createdBy: UserId | null
+  /** Who acted: `session:<id>` for an agent, the user id for a person. */
+  readonly actor: string | null
+  readonly createdAt: number
+  readonly updatedAt: number
+  readonly revision: number
+  readonly deletedAt: number | undefined
+}
+
+/** A gated record's decision as stored: `awaiting` is the wire's `null`. */
+export type EffectStoredDecision = 'awaiting' | EffectDecision
+
+const STORED_DECISIONS: readonly string[] = ['awaiting', 'approve', 'deny']
+
+/** Who an effect's audience is read from, through the tombstone. */
+export interface EffectAudience {
+  /** The executor's kind: an instance-wide kind is read by every admin (POD-6358). */
+  readonly kind: string
+  readonly targetKind: string
+  readonly targetId: string
+  readonly createdBy: UserId | null
+  /** A gated record's people (POD-6674): they read it too. */
+  readonly deciders?: readonly UserId[] | undefined
+}
+
+/** Run inside the write's transaction with the rows it returned. */
+export type EffectFeedCapture = ChangeLogCommit
+
+const parseJson = (text: string | null): unknown => {
+  if (text === null) return undefined
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+const orUndefined = <T>(value: T | null): T | undefined => (value === null ? undefined : value)
+
+/** A stored deciders list; anything but an array of ids reads as none. */
+function decidersOf(text: string | null): readonly UserId[] | undefined {
+  const value = parseJson(text)
+  return Array.isArray(value) && value.every((id) => typeof id === 'string')
+    ? (value as UserId[])
+    : undefined
+}
+
+export function rowToEffect(r: EffectSelect): EffectRow {
+  return {
+    id: r.id,
+    kind: r.kind,
+    // The service writes only known target kinds; the column is plain text.
+    target: { kind: r.targetKind as EffectTargetKind, id: r.targetId },
+    input: parseJson(r.inputJson),
+    result: parseJson(r.resultJson),
+    cancelRequested: r.cancelRequested,
+    // Text without a CHECK (see the schema); a successor's status reads as `unknown`.
+    status: EffectLifecycle.isState(r.status) ? r.status : 'unknown',
+    error: r.errorCode === null ? undefined : { code: r.errorCode, message: r.errorMessage ?? '' },
+    deadlineAt: orUndefined(r.deadlineAt),
+    attempts: r.attempts,
+    stage: orUndefined(r.stage),
+    decision:
+      r.decision !== null && STORED_DECISIONS.includes(r.decision)
+        ? (r.decision as EffectStoredDecision)
+        : undefined,
+    deciders: decidersOf(r.deciders),
+    startedAt: orUndefined(r.startedAt),
+    finishedAt: orUndefined(r.finishedAt),
+    createdBy: r.createdBy,
+    actor: r.actor,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    revision: r.revision,
+    deletedAt: orUndefined(r.deletedAt),
+  }
+}
+
+// Every query this repository runs, prepared once per store [POD-6147].
+
+const P = (name: string) => sql.placeholder(name)
+const idIs = (t: StoreTables) => eq(t.effects.id, param(t.effects.id, 'id'))
+const live = (t: StoreTables) => isNull(t.effects.deletedAt)
+const statusIn = (t: StoreTables, states: readonly EffectStatus[]) =>
+  inArray(t.effects.status, [...states])
+/** Not waiting for a person (POD-6674): no gate, or one already decided. */
+const notAwaiting = (t: StoreTables) =>
+  sql`(${t.effects.decision} IS NULL OR ${t.effects.decision} <> 'awaiting')`
+
+const insertEffect = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.effects)
+      .values({
+        workspaceId: WORKSPACE,
+        id: P('id'),
+        kind: P('kind'),
+        targetKind: P('targetKind'),
+        targetId: P('targetId'),
+        inputJson: P('inputJson'),
+        status: P('status'),
+        stage: P('stage'),
+        decision: P('decision'),
+        deciders: P('deciders'),
+        deadlineAt: P('deadlineAt'),
+        createdBy: P('createdBy'),
+        actor: P('actor'),
+        createdAt: P('now'),
+        updatedAt: P('now'),
+      })
+      .returning(),
+  ).prepare(),
+)
+
+/** By id, tombstones included: a create must never reuse a removed id. */
+const effectById = prepared((db, t) =>
+  db
+    .select()
+    .from(t.effects)
+    .where(inWorkspace(t.effects, idIs(t)))
+    .prepare(),
+)
+
+/** Live records (not tombstoned) by id, and every record a page at a time in
+ *  id order: the `effect` kind's records from the table (POD-6763). */
+const liveEffectsOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select()
+    .from(t.effects)
+    .where(inWorkspace(t.effects, inListOf(t.effects.id, size, 'ids'), isNull(t.effects.deletedAt)))
+    .prepare(),
+)
+
+// Tombstones included and left out by the caller: a `deleted_at IS NULL`
+// filter here let the planner take the full soft-delete index and sort
+// (`idx_effects_deleted`; partial since POD-7034).
+const effectsPage = prepared((db, t) =>
+  db
+    .select()
+    .from(t.effects)
+    .where(inWorkspace(t.effects, gt(t.effects.id, param(t.effects.id, 'after'))))
+    .orderBy(asc(t.effects.id))
+    .limit(P('limit'))
+    .prepare(),
+)
+
+const audiencesOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select({
+      id: t.effects.id,
+      kind: t.effects.kind,
+      targetKind: t.effects.targetKind,
+      targetId: t.effects.targetId,
+      createdBy: t.effects.createdBy,
+      deciders: t.effects.deciders,
+    })
+    .from(t.effects)
+    .where(inWorkspace(t.effects, inListOf(t.effects.id, size)))
+    .prepare(),
+)
+
+// The live records on targets of SEVERAL kinds in one read (POD-6401): every
+// listed kind crossed with every listed id, seeking `idx_effects_target`; the
+// caller keeps only the (kind, id) pairs it asked for. Keyed `<kinds>x<ids>`.
+// The caller orders across targets itself and needs only each target's
+// oldest-first order.
+//
+// TWO FORMS. SQLite names the index with INDEXED BY: on default statistics the
+// planner costs `deleted_at IS NULL` on the full soft-delete index (partial since
+// POD-7034) below the crossed seeks, and that walk reads every live record
+// (POD-6599). Ordered as the index is, by target, then `created_at`, then rowid,
+// so the seeks need no sort. Postgres has neither index hints nor a rowid: it
+// plans from its own statistics and breaks a `created_at` tie by the primary key.
+const liveOnTargetKeys = preparedFamily((db, t, shape: string) => {
+  const [kindSize, idSize] = shape.split('x').map(Number) as [number, number]
+  const pg = dialectOf(db) === 'pg'
+  return (
+    db
+      // Bare column names: the FROM is an INDEXED BY clause, not the table object.
+      .select({
+        id: sql<string>`id`,
+        targetKind: sql<string>`target_kind`,
+        targetId: sql<string>`target_id`,
+      })
+      .from(pg ? sql`${t.effects}` : sql`${t.effects} INDEXED BY idx_effects_target`)
+      .where(
+        inWorkspace(
+          t.effects,
+          inListOf(t.effects.targetKind, kindSize, 'kind'),
+          inListOf(t.effects.targetId, idSize, 'id'),
+          live(t),
+        ),
+      )
+      .orderBy(
+        asc(t.effects.targetKind),
+        asc(t.effects.targetId),
+        asc(t.effects.createdAt),
+        pg ? asc(t.effects.id) : asc(sql`rowid`),
+      )
+      .prepare()
+  )
+})
+
+/** One live record's place, as {@link EffectsRepository.liveOnTargets} returns it. */
+export interface EffectOnTarget {
+  readonly id: string
+  readonly targetKind: string
+  readonly targetId: string
+}
+
+/** Which records {@link EffectsRepository.newestOnTarget} asks for. */
+export type EffectPhase = 'active' | 'succeeded'
+
+const PHASE_STATUSES: Record<EffectPhase, readonly EffectStatus[]> = {
+  active: ['pending', 'running'],
+  succeeded: ['succeeded'],
+}
+
+/**
+ * One kind's newest live record on one target in a phase. EACH PHASE SEEKS THE
+ * SIDE THAT IS SMALL (POD-7031). The active records of the whole table are a
+ * handful, while one target's history of a kind is not: a machine keeps tens of
+ * thousands of finished scans, and the connect scan asks whether one is running
+ * about once a minute. Through `idx_effects_kind_target` that question walked
+ * every scan of the machine, each fetched with its result, to find none. So
+ * `active` seeks `idx_effects_status_deadline` on its two statuses, filters the
+ * few hits by kind and target and sorts them; `succeeded` stays on
+ * `idx_effects_kind_target`, newest first, where its first hit is nearly always
+ * the answer. Named with INDEXED BY on SQLite: real statistics average the scans
+ * over every target (a few rows a key), so the planner takes the target seek for
+ * both; the query-plan audit checks each under them. Postgres has no INDEXED BY
+ * and plans the same terms from its own statistics.
+ */
+const newestOnTargetIn = preparedFamily((db, t, phase: EffectPhase) =>
+  db
+    // Bare column names: the FROM is an INDEXED BY clause, not the table object.
+    .select(bareColumns(t.effects))
+    .from(
+      dialectOf(db) === 'pg'
+        ? sql`${t.effects}`
+        : phase === 'active'
+          ? sql`${t.effects} INDEXED BY idx_effects_status_deadline`
+          : sql`${t.effects} INDEXED BY idx_effects_kind_target`,
+    )
+    .where(
+      inWorkspace(
+        t.effects,
+        eq(t.effects.kind, param(t.effects.kind, 'kind')),
+        eq(t.effects.targetKind, param(t.effects.targetKind, 'targetKind')),
+        eq(t.effects.targetId, param(t.effects.targetId, 'targetId')),
+        statusIn(t, PHASE_STATUSES[phase]),
+        live(t),
+      ),
+    )
+    // `succeeded`: the index's own order after its three equalities, no sort.
+    // `active`: a sort of the target's few active records.
+    .orderBy(desc(t.effects.createdAt))
+    .limit(1)
+    .prepare(),
+)
+
+/** The claim: `pending` → `running`, one more attempt. Not when cancel was asked. */
+const claimEffect = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        status: 'running',
+        attempts: sql`${t.effects.attempts} + 1`,
+        startedAt: P('now'),
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      .where(
+        inWorkspace(
+          t.effects,
+          idIs(t),
+          live(t),
+          statusIn(t, EffectLifecycle.allowedFrom('running')),
+          eq(t.effects.cancelRequested, false),
+          // A gated record runs only once its person has approved it.
+          sql`(${t.effects.decision} IS NULL OR ${t.effects.decision} = 'approve')`,
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+/** An ending (or `unknown`): one shape per target status, each guarded by the machine. */
+const settleEffect = preparedFamily((db, t, to: EffectStatus) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        status: to,
+        errorCode: P('errorCode'),
+        errorMessage: P('errorMessage'),
+        // A settlement without a result keeps the one published while it ran.
+        resultJson: sql`coalesce(${P('resultJson')}, ${t.effects.resultJson})`,
+        stage: P('stage'),
+        finishedAt: EffectLifecycle.isTerminal(to) ? P('now') : sql`${t.effects.finishedAt}`,
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      .where(inWorkspace(t.effects, idIs(t), live(t), statusIn(t, EffectLifecycle.allowedFrom(to))))
+      .returning(),
+  ).prepare(),
+)
+
+/** A stage, and with it the result known so far when one is given (POD-6358). */
+const stageEffect = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        stage: P('stage'),
+        resultJson: sql`coalesce(${P('resultJson')}, ${t.effects.resultJson})`,
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      .where(inWorkspace(t.effects, idIs(t), live(t), eq(t.effects.status, 'running')))
+      .returning(),
+  ).prepare(),
+)
+
+/** Cancel asked of a record that has not started: it ends here, never runs. */
+const cancelPendingEffect = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        status: 'cancelled',
+        cancelRequested: true,
+        finishedAt: P('now'),
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      // An awaiting approval ends by its person's deny, never by a cancel.
+      .where(
+        inWorkspace(t.effects, idIs(t), live(t), eq(t.effects.status, 'pending'), notAwaiting(t)),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+/**
+ * A person's decision on a gated record (POD-6674): once, against the revision
+ * it was shown. `approve` leaves it `pending` for the trigger to claim; `deny`
+ * ends it `cancelled` in the same write. Zero rows: decided already, ended, or
+ * moved since (a stale revision).
+ */
+const decideEffect = preparedFamily((db, t, decision: EffectDecision) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set(
+        decision === 'approve'
+          ? {
+              decision: 'approve',
+              updatedAt: P('now'),
+              revision: sql`${t.effects.revision} + 1`,
+            }
+          : {
+              decision: 'deny',
+              status: 'cancelled',
+              stage: null,
+              finishedAt: P('now'),
+              updatedAt: P('now'),
+              revision: sql`${t.effects.revision} + 1`,
+            },
+      )
+      .where(
+        inWorkspace(
+          t.effects,
+          idIs(t),
+          live(t),
+          eq(t.effects.status, 'pending'),
+          eq(t.effects.decision, 'awaiting'),
+          eq(t.effects.revision, param(t.effects.revision, 'revision')),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+/** One kind's records waiting for a person, oldest first (`idx_effects_awaiting`). */
+const awaitingOfKind = prepared((db, t) =>
+  db
+    .select()
+    .from(t.effects)
+    .where(
+      inWorkspace(
+        t.effects,
+        eq(t.effects.kind, param(t.effects.kind, 'kind')),
+        sql`${t.effects.decision} = 'awaiting'`,
+        live(t),
+      ),
+    )
+    .orderBy(asc(t.effects.createdAt))
+    .limit(P('limit'))
+    .prepare(),
+)
+
+/**
+ * Rows a migration copied in that the feed has not seen (revision 0,
+ * `idx_effects_unpublished`), moved to revision 1 through the funnel, a batch.
+ */
+const publishCopied = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({ revision: 1 })
+      .where(
+        inWorkspace(
+          t.effects,
+          inArray(
+            t.effects.id,
+            db
+              .select({ id: t.effects.id })
+              .from(t.effects)
+              // A literal, so the planner can use the partial index.
+              .where(inWorkspace(t.effects, sql`${t.effects.revision} = 0`))
+              .limit(P('limit')),
+          ),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+/** Cancel asked of a running (or lost-track) record: the executor decides. */
+const flagCancelEffect = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({ cancelRequested: true, updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
+      .where(
+        inWorkspace(
+          t.effects,
+          idIs(t),
+          live(t),
+          inArray(t.effects.status, ['running', 'unknown']),
+          eq(t.effects.cancelRequested, false),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+/** Off the feed. Only a record that has ended (or that nobody can settle: `unknown`). */
+const tombstoneEffect = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({ deletedAt: P('now'), updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
+      .where(
+        inWorkspace(
+          t.effects,
+          idIs(t),
+          live(t),
+          inArray(t.effects.status, [...EffectLifecycle.terminal, 'unknown']),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+// THE SWEEP'S STATEMENTS NAME THEIR INDEX (POD-6970). Each one runs every
+// minute and is meant to read only the rows it acts on. Under real statistics
+// the planner costed `deleted_at IS NULL` on the full soft-delete index (partial
+// since POD-7034) as a few rows:
+// ANALYZE counts each NULL as its own value, so the live set looks selective.
+// It then walked every live record (41k on the operator's server, nearly all
+// finished machine scans with their results) and sorted them, twice a minute,
+// to return none. INDEXED BY keeps each statement on the index its own terms
+// seek, as `liveOnTargetKeys` above does (POD-6599); the query-plan audit checks
+// them under those statistics.
+
+/** The sweep's expiry: pending records whose deadline has passed, a bounded batch. */
+const expireDueEffects = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({
+        status: 'expired',
+        errorCode: 'deadline',
+        errorMessage: 'It waited past its deadline and never ran.',
+        finishedAt: P('now'),
+        updatedAt: P('now'),
+        revision: sql`${t.effects.revision} + 1`,
+      })
+      .where(
+        inWorkspace(
+          t.effects,
+          inArray(
+            t.effects.id,
+            db
+              // Bare column name: on SQLite the FROM is an INDEXED BY clause.
+              .select({ id: sql<string>`id` })
+              .from(throughIndex(db, t.effects, 'idx_effects_status_deadline'))
+              .where(
+                inWorkspace(
+                  t.effects,
+                  eq(t.effects.status, 'pending'),
+                  isNotNull(t.effects.deadlineAt),
+                  lte(t.effects.deadlineAt, param(t.effects.deadlineAt, 'now')),
+                  live(t),
+                ),
+              )
+              // NULLS FIRST is SQLite's own order for ASC, written out for Postgres,
+              // which puts them last (none reach here: the filter wants a deadline).
+              .orderBy(sql`${t.effects.deadlineAt} ASC NULLS FIRST`)
+              .limit(P('limit')),
+          ),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+/** Records in one status, oldest first, a bounded page (the sweep's re-dispatch). */
+const effectsInStatus = preparedFamily((db, t, status: 'pending' | 'running') =>
+  db
+    .select(bareColumns(t.effects))
+    .from(throughIndex(db, t.effects, 'idx_effects_status_deadline'))
+    // An awaiting record waits for its person, not for the sweep (POD-6674).
+    .where(inWorkspace(t.effects, eq(t.effects.status, status), live(t), notAwaiting(t)))
+    // The index's own order after the equality: no sort. NULLS FIRST is SQLite's
+    // order for ASC (a pending record without a deadline comes first), written out
+    // for Postgres, which puts them last.
+    .orderBy(sql`${t.effects.deadlineAt} ASC NULLS FIRST`)
+    .limit(P('limit'))
+    .prepare(),
+)
+
+/** Finished records that were kept for the retention window, a bounded batch. */
+const pruneFinishedEffects = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.effects)
+      .set({ deletedAt: P('now'), updatedAt: P('now'), revision: sql`${t.effects.revision} + 1` })
+      .where(
+        inWorkspace(
+          t.effects,
+          inArray(
+            t.effects.id,
+            db
+              .select({ id: sql<string>`id` })
+              .from(throughIndex(db, t.effects, 'idx_effects_status_finished'))
+              .where(
+                inWorkspace(
+                  t.effects,
+                  // `failed` and `unknown` stay until someone dismisses them (ADR 12 O5).
+                  inArray(t.effects.status, ['succeeded', 'cancelled', 'expired']),
+                  lte(t.effects.finishedAt, param(t.effects.finishedAt, 'cutoff')),
+                  live(t),
+                ),
+              )
+              .limit(P('limit')),
+          ),
+        ),
+      )
+      .returning(),
+  ).prepare(),
+)
+
+/**
+ * ENDED RECORDS OF ONE KIND THE SERVER STARTED FOR NO ONE, past their short
+ * retention (POD-6970): the connect scan's `machine.scan` records, which no
+ * device receives (`SYSTEM_EFFECT_KINDS_OFF_FEED`, POD-6941). They are deleted
+ * outright, not tombstoned: no device ever held them, so there is no removal
+ * to deliver, and the capture does not see them. The newest succeeded record
+ * on each target stays whatever its age: it is that machine's last scan
+ * (`discovery.lastMachineScan`). Read through `idx_effects_kind_target` (named
+ * on SQLite), so the cost follows that kind's records, and each candidate's
+ * newer sibling is a seek on the same index, in the same workspace.
+ */
+const purgeOffFeedFinished = prepared((db, t) => {
+  const pg = dialectOf(db) === 'pg'
+  const hint = pg ? sql`` : sql` INDEXED BY idx_effects_kind_target`
+  return captureWrite(
+    db
+      .delete(t.effects)
+      .where(
+        inWorkspace(
+          t.effects,
+          inArray(
+            t.effects.id,
+            db
+              .select({ id: sql<string>`candidate.id` })
+              .from(sql`${t.effects} AS candidate${hint}`)
+              .where(
+                sql`candidate.workspace_id = ${WORKSPACE}
+                  AND candidate.kind = ${sql.placeholder('kind')}
+                  AND candidate.created_by IS NULL
+                  AND candidate.deleted_at IS NULL
+                  AND candidate.status IN ('succeeded', 'failed', 'cancelled', 'expired')
+                  AND candidate.finished_at <= ${sql.placeholder('cutoff')}
+                  AND (candidate.status <> 'succeeded' OR EXISTS (
+                    SELECT 1 FROM ${t.effects} AS newer${hint}
+                    WHERE newer.workspace_id = candidate.workspace_id
+                      AND newer.kind = candidate.kind
+                      AND newer.target_kind = candidate.target_kind
+                      AND newer.target_id = candidate.target_id
+                      AND newer.created_at > candidate.created_at
+                      AND newer.status = 'succeeded'
+                      AND newer.deleted_at IS NULL))`,
+              )
+              .limit(P('limit')),
+          ),
+        ),
+      )
+      .returning({ id: t.effects.id }),
+  ).prepare()
+})
+
+/** Tombstones older than the feed's retention: gone from every device already.
+ *  A range on `idx_effects_tombstones`, which holds only the tombstones. */
+const purgeTombstones = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.effects)
+      .where(
+        inWorkspace(
+          t.effects,
+          inArray(
+            t.effects.id,
+            db
+              .select({ id: sql<string>`id` })
+              .from(throughIndex(db, t.effects, 'idx_effects_tombstones'))
+              .where(
+                inWorkspace(
+                  t.effects,
+                  lte(t.effects.deletedAt, param(t.effects.deletedAt, 'cutoff')),
+                ),
+              )
+              .limit(P('limit')),
+          ),
+        ),
+      )
+      .returning({ id: t.effects.id }),
+  ).prepare(),
+)
+
+/** Under SQLite's bound-parameter limit, like the other batched readers. */
+const AUDIENCE_CHUNK = 500
+
+export interface NewEffect {
+  readonly id: string
+  readonly kind: string
+  readonly target: { readonly kind: EffectTargetKind; readonly id: string }
+  readonly input: unknown
+  readonly deadlineAt: number | undefined
+  readonly createdBy: UserId | null
+  readonly actor?: string | null
+  /** A human gate (POD-6674): the record waits `awaiting` its person's decision. */
+  readonly gated?: boolean
+  /** Its stage from the start (a gated record's `awaiting-approval`). */
+  readonly stage?: string
+  /** Who a gated record is routed to: they read it and are offered the decision. */
+  readonly deciders?: readonly UserId[]
+}
+
+export interface EffectSettlement {
+  readonly error?: { readonly code: string; readonly message: string }
+  readonly result?: unknown
+  readonly stage?: string
+}
+
+/** Called with the rows of a committed write. */
+export type EffectsCommittedListener = (rows: readonly EffectRow[]) => void
+
+export class EffectsRepository {
+  private readonly scope: WorkspaceDb
+  private readonly transact: TransactionRunner
+  private feedCapture: EffectFeedCapture | undefined
+  private readonly listeners = new Set<EffectsCommittedListener>()
+
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
+    this.transact = queries.createOrJoinTransaction
+  }
+
+  /** Every committed write's rows, after the outermost commit: the trigger's one source. */
+  onCommitted(listener: EffectsCommittedListener): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  /** A getter: transactions are routed ambiently (see `AutomationsRepository.db`). */
+  protected get db(): WorkspaceDb {
+    return this.scope
+  }
+
+  /** Install the feed capture, run inside every write's transaction. */
+  setFeedCapture(capture: EffectFeedCapture): () => void {
+    this.feedCapture = capture
+    return () => {
+      if (this.feedCapture === capture) this.feedCapture = undefined
+    }
+  }
+
+  /**
+   * The one write funnel. `effects` is a synced table: every public writer takes
+   * the commit's write scope (ADR 12 D9, POD-6594), so it runs inside a
+   * `Ledger.commit` made by a sync command or a declared server origin. The
+   * capture installed here appends the rows' feed changes in that same unit.
+   */
+  private async write(query: () => Promise<EffectSelect[]>): Promise<EffectRow[]> {
+    return await inChangeLogTransaction(this.feedCapture, this.transact, async () => {
+      const written = (await query()).map(rowToEffect)
+      if (written.length === 0) return written
+      afterCommit(() => {
+        for (const listener of this.listeners) listener(written)
+      }, 'effects:committed')
+      return written
+    })
+  }
+
+  private async one(query: () => Promise<EffectSelect[]>): Promise<EffectRow | undefined> {
+    return (await this.write(query))[0]
+  }
+
+  async insert(_scope: WriteScope, effect: NewEffect, now: number): Promise<EffectRow> {
+    const row = await this.one(
+      async () =>
+        await insertEffect(this.db).all({
+          id: effect.id,
+          kind: effect.kind,
+          targetKind: effect.target.kind,
+          targetId: effect.target.id,
+          inputJson: JSON.stringify(effect.input ?? null),
+          status: 'pending',
+          stage: effect.stage ?? null,
+          decision: effect.gated === true ? 'awaiting' : null,
+          deciders: effect.deciders === undefined ? null : JSON.stringify(effect.deciders),
+          deadlineAt: effect.deadlineAt ?? null,
+          createdBy: effect.createdBy,
+          actor: effect.actor ?? null,
+          now,
+        }),
+    )
+    if (row === undefined) throw new Error(`effects: insert of ${effect.id} returned no row`)
+    return row
+  }
+
+  /** Live records by id, one read per 500; a tombstoned or absent id is left out. */
+  async liveByIds(ids: readonly string[]): Promise<EffectRow[]> {
+    const unique = [...new Set(ids)]
+    const out: EffectRow[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await liveEffectsOfIds(this.db, size).all(inListValues(chunk, size, 'ids')))
+        out.push(rowToEffect(row))
+    }
+    return out
+  }
+
+  /** Every live record, a page at a time in id order. */
+  async *livePages(pageSize = 500): AsyncGenerator<EffectRow[]> {
+    let after = ''
+    for (;;) {
+      const rows = await effectsPage(this.db).all({ after, limit: pageSize })
+      const live = rows.filter((row) => row.deletedAt === null).map(rowToEffect)
+      if (live.length > 0) yield live
+      if (rows.length < pageSize) return
+      after = rows[rows.length - 1]!.id
+    }
+  }
+
+  /** By id, tombstones included. */
+  async get(id: string): Promise<EffectRow | undefined> {
+    const row = await effectById(this.db).get({ id })
+    return row === undefined ? undefined : rowToEffect(row)
+  }
+
+  /**
+   * The newest live record of one kind on one target that is still running
+   * (`active`) or that succeeded: a machine's last scan, or the scan already
+   * under way there.
+   */
+  async newestOnTarget(
+    kind: string,
+    target: { readonly kind: EffectTargetKind; readonly id: string },
+    phase: EffectPhase,
+  ): Promise<EffectRow | undefined> {
+    const row = await newestOnTargetIn(this.db, phase).get({
+      kind,
+      targetKind: target.kind,
+      targetId: target.id,
+    })
+    return row === undefined ? undefined : rowToEffect(row)
+  }
+
+  /** Each asked effect's audience facts, through the tombstone; absent ids are absent. */
+  async audiencesOf(ids: readonly string[]): Promise<Map<string, EffectAudience>> {
+    const out = new Map<string, EffectAudience>()
+    const unique = [...new Set(ids)]
+    for (let at = 0; at < unique.length; at += AUDIENCE_CHUNK) {
+      const chunk = unique.slice(at, at + AUDIENCE_CHUNK)
+      const size = inListSize(chunk.length)
+      for (const row of await audiencesOfIds(this.db, size).all(inListValues(chunk, size))) {
+        out.set(row.id, {
+          kind: row.kind,
+          targetKind: row.targetKind,
+          targetId: row.targetId,
+          createdBy: row.createdBy,
+          deciders: decidersOf(row.deciders),
+        })
+      }
+    }
+    return out
+  }
+
+  /**
+   * The live records on any of these targets, oldest first per target: what a
+   * change in a target's audience re-scopes (POD-6401). Tombstones are left out,
+   * since they have no value left to deliver.
+   */
+  async liveOnTargets(
+    targets: readonly { readonly kind: string; readonly id: string }[],
+  ): Promise<EffectOnTarget[]> {
+    if (targets.length === 0) return []
+    const wanted = new Set(targets.map((target) => `${target.kind}\u0000${target.id}`))
+    const kinds = [...new Set(targets.map((target) => target.kind))]
+    const ids = [...new Set(targets.map((target) => target.id))]
+    const kindSize = inListSize(kinds.length)
+    const out: EffectOnTarget[] = []
+    for (let at = 0; at < ids.length; at += AUDIENCE_CHUNK) {
+      const chunk = ids.slice(at, at + AUDIENCE_CHUNK)
+      const idSize = inListSize(chunk.length)
+      const rows = await liveOnTargetKeys(this.db, `${kindSize}x${idSize}`).all(
+        inListValues(chunk, idSize, 'id', inListValues(kinds, kindSize, 'kind')),
+      )
+      for (const row of rows) {
+        if (wanted.has(`${row.targetKind}\u0000${row.targetId}`)) out.push(row)
+      }
+    }
+    return out
+  }
+
+  /** `pending` → `running`. `undefined`: someone else claimed it, or it ended. */
+  async claim(_scope: WriteScope, id: string, now: number): Promise<EffectRow | undefined> {
+    return await this.one(async () => await claimEffect(this.db).all({ id, now }))
+  }
+
+  /** A guarded move into `to`. `undefined`: the record is not where `to` may come from. */
+  async settle(
+    _scope: WriteScope,
+    id: string,
+    to: EffectStatus,
+    settlement: EffectSettlement,
+    now: number,
+  ): Promise<EffectRow | undefined> {
+    return await this.one(
+      async () =>
+        await settleEffect(this.db, to).all({
+          id,
+          now,
+          errorCode: settlement.error?.code ?? null,
+          errorMessage: settlement.error?.message ?? null,
+          resultJson: settlement.result === undefined ? null : JSON.stringify(settlement.result),
+          stage: settlement.stage ?? null,
+        }),
+    )
+  }
+
+  /**
+   * A running record's progress. `result` is what the executor already knows
+   * of its answer (an update's operation id), published while it runs; absent,
+   * the result stays as it was.
+   */
+  async setStage(
+    _scope: WriteScope,
+    id: string,
+    stage: string,
+    now: number,
+    result?: unknown,
+  ): Promise<EffectRow | undefined> {
+    const resultJson = result === undefined ? null : JSON.stringify(result)
+    return await this.one(
+      async () => await stageEffect(this.db).all({ id, stage, now, resultJson }),
+    )
+  }
+
+  /**
+   * A person's decision on a gated record, made against `revision` (POD-6674).
+   * `undefined`: not awaiting a decision any more, or moved since.
+   */
+  async decide(
+    _scope: WriteScope,
+    id: string,
+    decision: EffectDecision,
+    revision: number,
+    now: number,
+  ): Promise<EffectRow | undefined> {
+    return await this.one(
+      async () => await decideEffect(this.db, decision).all({ id, revision, now }),
+    )
+  }
+
+  /** One kind's live records waiting for a person, oldest first, at most `limit`. */
+  async listAwaiting(kind: string, limit: number): Promise<EffectRow[]> {
+    return (await awaitingOfKind(this.db).all({ kind, limit })).map(rowToEffect)
+  }
+
+  /**
+   * Put rows a migration copied in on the feed (POD-6674): each one is written
+   * again through the funnel, so its change reaches the log. A bounded batch;
+   * call until it returns none.
+   */
+  async publishCopied(_scope: WriteScope, limit: number): Promise<EffectRow[]> {
+    return await this.write(async () => await publishCopied(this.db).all({ limit }))
+  }
+
+  /** Cancel: a pending record ends `cancelled`; a running one is flagged for its executor. */
+  async requestCancel(_scope: WriteScope, id: string, now: number): Promise<EffectRow | undefined> {
+    return (
+      (await this.one(async () => await cancelPendingEffect(this.db).all({ id, now }))) ??
+      (await this.one(async () => await flagCancelEffect(this.db).all({ id, now })))
+    )
+  }
+
+  /** Dismiss: off the feed. `undefined` for a record that has not ended. */
+  async tombstone(_scope: WriteScope, id: string, now: number): Promise<EffectRow | undefined> {
+    return await this.one(async () => await tombstoneEffect(this.db).all({ id, now }))
+  }
+
+  async expireDue(_scope: WriteScope, now: number, limit: number): Promise<EffectRow[]> {
+    return await this.write(async () => await expireDueEffects(this.db).all({ now, limit }))
+  }
+
+  async listInStatus(status: 'pending' | 'running', limit: number): Promise<EffectRow[]> {
+    return (await effectsInStatus(this.db, status).all({ limit })).map(rowToEffect)
+  }
+
+  async pruneFinished(
+    _scope: WriteScope,
+    cutoff: number,
+    now: number,
+    limit: number,
+  ): Promise<EffectRow[]> {
+    return await this.write(
+      async () => await pruneFinishedEffects(this.db).all({ cutoff, now, limit }),
+    )
+  }
+
+  /**
+   * Delete the ended records of `kind` that the server started for no one and
+   * that ended at or before `cutoff`, keeping each target's newest succeeded
+   * one (see {@link purgeOffFeedFinished}). Only for a kind that stays off the
+   * feed. A bounded batch; returns how many went.
+   */
+  async purgeOffFeedFinished(
+    _scope: WriteScope,
+    kind: string,
+    cutoff: number,
+    limit: number,
+  ): Promise<number> {
+    return (await purgeOffFeedFinished(this.db).all({ kind, cutoff, limit })).length
+  }
+
+  /** Hard-delete tombstones; the feed removed them when they were tombstoned. */
+  async purgeTombstones(_scope: WriteScope, cutoff: number, limit: number): Promise<number> {
+    return (await purgeTombstones(this.db).all({ cutoff, limit })).length
+  }
+}

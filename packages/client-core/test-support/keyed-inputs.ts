@@ -1,10 +1,8 @@
-import {
-  createKeyedInputs,
-  type KeyedInputs,
-  type LocalKey,
-  type LocalsListener,
-} from '../src/engine/keyed-inputs'
-import type { EngineState } from '../src/engine/state'
+import type { ScreenState } from '../src/ui/state'
+import type { UiStore } from '../src/ui/ui-store'
+import { fixtureRoot } from './command-hooks'
+import { createKeyedInputs, type KeyedInputs, type LocalKey } from './keyed-channel'
+import { addFixtureUi } from './ui'
 
 /**
  * Keyed inputs over a hand-held snapshot store (fixtures and harness fakes
@@ -16,7 +14,7 @@ export function keyedInputsOverStore(store: {
   getSnapshot(): object
   subscribe(listener: () => void): () => void
 }): KeyedInputs & { dispose(): void } {
-  const state = () => (store.getSnapshot() ?? {}) as EngineState
+  const state = () => (store.getSnapshot() ?? {}) as ScreenState
   const channel = createKeyedInputs(state, true)
   // Only followed keys are compared (a fixture may forbid reading the rest),
   // and the store is followed only while someone follows a key, so an
@@ -30,7 +28,7 @@ export function keyedInputsOverStore(store: {
     const next = state()
     const changed = new Set<LocalKey>()
     for (const key of followed.keys()) {
-      const value = next[key]
+      const value = Reflect.get(next, key)
       if (previous.has(key) && Object.is(previous.get(key), value)) continue
       previous.set(key, value)
       changed.add(key)
@@ -65,15 +63,6 @@ export function keyedInputsOverStore(store: {
       previous.set(key, value)
       return value
     },
-    onList: (name, listener) => follow([name], channel.onList(name, listener)),
-    listIds: (name) => {
-      previous.set(name, state()[name])
-      return channel.listIds(name)
-    },
-    listRow: (name, id) => {
-      if (!previous.has(name)) previous.set(name, state()[name])
-      return channel.listRow(name, id)
-    },
     dispose() {
       off?.()
       off = null
@@ -86,28 +75,44 @@ export function keyedInputsOverStore(store: {
 /** Give a fixture's whole-snapshot runtime the keyed surface, in place. */
 export function withKeyedInputs<
   T extends { getSnapshot(): object; subscribe(listener: () => void): () => void },
->(fake: T): T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> } {
+>(
+  fake: T,
+): Omit<T, 'ui'> &
+  KeyedInputs & {
+    readonly commands: import('../src/runtime-root/root').ClientRuntime['commands']
+    readonly api: import('../src/runtime-root/root').ClientRuntime['api']
+    readonly services: import('../src/runtime-root/root').ClientRuntime['services']
+    readonly replica: import('../src/runtime-root/root').ClientRuntime['replica']
+    readonly pool: object | undefined
+    readonly attachPool: import('../src/runtime-root/root').ClientRuntime['attachPool']
+    batch(fn: () => void): void
+    readonly ui: UiStore
+    readonly deviceState: import('../src/ui-state').RoutedUiState
+    readonly access: ReturnType<T['getSnapshot']>
+  } {
+  addFixtureUi(fake as T & Record<string, unknown>)
   const { dispose: _dispose, ...inputs } = keyedInputsOverStore(fake)
   const fixture = fake as T & {
     services?: object
     replica?: { rowCount?: (kind: string) => number; rows(kind: string): unknown[] }
   }
-  if (!fixture.services) {
-    let services: object | undefined
-    Object.defineProperty(fixture, 'services', {
-      get: () => {
-        const snapshot = fake.getSnapshot()
-        return snapshot
-          ? (services ??= Object.fromEntries(
-              Object.entries(snapshot).filter(([, value]) => typeof value === 'function'),
-            ))
-          : {}
-      },
-    })
-  }
   if (fixture.replica && !fixture.replica.rowCount)
     fixture.replica.rowCount = (kind) => fixture.replica!.rows(kind).length
-  return Object.defineProperty(Object.assign(fake, inputs), 'access', {
-    get: () => fake.getSnapshot(),
-  }) as T & KeyedInputs & { readonly access: ReturnType<T['getSnapshot']> }
+  return fixtureRoot(
+    Object.defineProperty(Object.assign(fake, inputs), 'access', {
+      get: () => fake.getSnapshot(),
+    }),
+  ) as unknown as Omit<T, 'ui'> &
+    KeyedInputs & {
+      readonly commands: import('../src/runtime-root/root').ClientRuntime['commands']
+      readonly api: import('../src/runtime-root/root').ClientRuntime['api']
+      readonly services: import('../src/runtime-root/root').ClientRuntime['services']
+      readonly replica: import('../src/runtime-root/root').ClientRuntime['replica']
+      readonly pool: object | undefined
+      readonly attachPool: import('../src/runtime-root/root').ClientRuntime['attachPool']
+      batch(fn: () => void): void
+      readonly ui: UiStore
+      readonly deviceState: import('../src/ui-state').RoutedUiState
+      readonly access: ReturnType<T['getSnapshot']>
+    }
 }

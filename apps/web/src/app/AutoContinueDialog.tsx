@@ -1,3 +1,4 @@
+import { useClientRuntime } from '@podium/client-core/react'
 import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -10,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useShellActions, useShellWindow } from './shell-data'
+import { useShellActions } from './shell-data'
 
 /**
  * One-time opt-in shown the first time the user clicks Continue on an errored
@@ -18,8 +19,8 @@ import { useShellActions, useShellWindow } from './shell-data'
  * "Enable" also flips the global `autoContinue.enabled` switch on.
  */
 export const AutoContinueDialog = observer(function AutoContinueDialog(): JSX.Element | null {
-  const { trpc, closeAutoContinuePrompt } = useShellActions()
-  const autoContinuePromptSessionId = useShellWindow()?.autoContinuePromptSessionId ?? null
+  const { setPreferences, closeAutoContinuePrompt } = useShellActions()
+  const autoContinuePromptSessionId = useClientRuntime().autoContinueDialog.sessionId
   const [pendingAction, setPendingAction] = useState<'dismiss' | 'enable' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const busy = pendingAction !== null
@@ -30,12 +31,11 @@ export const AutoContinueDialog = observer(function AutoContinueDialog(): JSX.El
     setPendingAction(enable ? 'enable' : 'dismiss')
     setError(null)
     try {
-      const current = await trpc.settings.get.query()
-      await trpc.settings.updatePersonal.mutate({
-        values: {
-          'autoContinue.enabled': enable ? true : current.autoContinue.enabled,
-          'autoContinue.promptDismissed': true,
-        },
+      // My settings record (POD-6673): queued, shown at once, on every device.
+      // A dismissal leaves `enabled` as it is.
+      await setPreferences({
+        ...(enable ? { 'autoContinue.enabled': true } : {}),
+        'autoContinue.promptDismissed': true,
       })
       closeAutoContinuePrompt()
     } catch (cause) {
@@ -66,7 +66,7 @@ export const AutoContinueDialog = observer(function AutoContinueDialog(): JSX.El
         </DialogHeader>
         <p className="text-[12px] text-muted-foreground">
           Heads up: this can keep an agent running indefinitely and consuming tokens with no one
-          watching. You can turn it off anytime in Settings → New sessions.
+          watching. You can turn it off anytime in Settings › Agents.
         </p>
         {error && (
           <p role="alert" className="text-xs text-destructive">

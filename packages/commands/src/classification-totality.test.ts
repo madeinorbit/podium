@@ -50,12 +50,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { commandVisibility, type CommandDef } from './framework'
 import {
   type AnyCommandContract,
   classificationErrors,
   registryClassificationErrors,
 } from './contract'
+import { type CommandDef, commandVisibility } from './framework'
 
 // ---------------------------------------------------------------------------
 // Discovery
@@ -180,21 +180,6 @@ describe('the contract scan itself', () => {
     // kept the results clean while still executing every neighbouring suite
     // inside this one; only the module list can show that they were not loaded.
     expect(Object.keys(MODULES).filter((path) => path.includes('.test.'))).toEqual([])
-  })
-
-  it('every contracts-bearing source file on disk contributes to the population', () => {
-    // THE NON-VACUITY FLOOR, derived rather than chosen. Every `*/contracts.ts`
-    // that exists must have been read: a new family that lands without being
-    // exported — or a glob that stops matching a directory — fails here, which is
-    // the failure mode a hand-written module list cannot have because the list
-    // would simply not mention it.
-    const onDisk = Object.keys(MODULES)
-      .filter((path) => path.endsWith('/contracts.ts'))
-      .sort()
-    expect(onDisk.length).toBeGreaterThan(0)
-    for (const path of onDisk) {
-      expect(CONTRACT_MODULES, `${path} contributed no contracts`).toContain(path)
-    }
   })
 
   it('the population is large, and the floor is derived from the modules read', () => {

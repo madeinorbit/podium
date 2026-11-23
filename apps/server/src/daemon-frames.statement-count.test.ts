@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * The common daemon WebSocket frames run a fixed number of statements, whatever
  * the number of sessions on the server or items in the frame [POD-6149,
@@ -6,17 +7,20 @@
  */
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 import {
+  expectArmed,
   expectConstantStatements,
   type PinnedCounts,
   quietShipping,
   type StatementPin,
   type StatementTally,
+  settledCommand,
+  settledOperation,
 } from './test-support/statement-count'
 
 // RE-PINNED AFTER C1 (POD-6183; measured per commit on the polaris VM). Each
@@ -78,13 +82,28 @@ import {
 // row by id). runtimeEvent read the admin four times and the settings twice:
 // 33 -> 24; agentExit 33 -> 30; agentState 29 -> 20. Each now reads `users`,
 // `meta` and `user_preferences` once.
+//
+// RE-PINNED FOR POD-6341, measured on the polaris VM (statement lists diffed
+// against the integration branch's base). Sessions are private to their owner
+// (design §2.3, POD-6283) and a legacy session grant decides nothing (§4.1), so
+// a frame's session access check no longer reads the session's `grants`
+// (#92da1c94): agentObservation 12 -> 11, transcriptDelta 10 -> 9, agentExit
+// 30 -> 29, agentObservationRebind 21 -> 20, runtimeEvent binding (two checks)
+// 25 -> 23. runtimeEvent and agentState read the session's owner from its row
+// instead of its grants: 24 and 20, with no grant read. The activity flush's
+// projection pass no longer reads the busy sessions' issues' grants (#9119be47;
+// tasks are shared, §2.2, POD-6288): 4 -> 3. The users read gained a column
+// (`authz_generation`), not a statement.
 
 /**
  * Reads of the `grants` table in one tally [POD-6189]. Statement keys keep
  * their table since POD-6189, so a cut builder select still says `FROM "grants"`.
  */
 const grantReads = (tally: StatementTally): number =>
-  [...tally.byQuery].reduce((n, [key, count]) => (/^select\b.*\bfrom "grants"/i.test(key) ? n + count : n), 0)
+  [...tally.byQuery].reduce(
+    (n, [key, count]) => (/^select\b.*\bfrom "grants"/i.test(key) ? n + count : n),
+    0,
+  )
 
 /**
  * A frame reads each resource's grants at most once [POD-6189]: its access
@@ -105,21 +124,36 @@ interface Fixture {
 /** `size` bound codex sessions; on the app-server contract driver when `contract`. */
 async function fixture(size: number, contract = false): Promise<Fixture> {
   const store = await openTestStore(':memory:')
-  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  await attachHostDaemon(reg, () => {})
+  // Pin one inbound frame, with no unrelated timer-driven ledger/queue/file
+  // sweeps. On a remote engine those can otherwise overlap the counted window.
+  const reg = await SessionRegistry.create(store, undefined, {
+    instanceId: 'default',
+    rehearseBoot: true,
+  })
+  await settledCommand(() => attachHostDaemon(reg, () => {}))
   await quietShipping(reg)
+  // Complete the normal startup cursor load explicitly; later frames still
+  // exercise the live durable board projection and all of its statements.
+  await reg.modules.sessions.runtimeGateway.replayBoardProjection()
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'codex', cwd: `/w${i}` })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'bind',
-      sessionId,
-      cmd: 'codex',
-      cwd: `/w${i}`,
-      agentKind: 'codex',
-      geometry: { cols: 80, rows: 24 },
-      ...(contract ? { driverId: 'codex-app-server' } : {}),
-    } as never)
+    const { sessionId } = await settledCommand(() =>
+      reg.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: `/w${i}`,
+      }),
+    )
+    await settledOperation(() =>
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'bind',
+        sessionId,
+        cmd: 'codex',
+        cwd: `/w${i}`,
+        agentKind: 'codex',
+        geometry: { cols: 80, rows: 24 },
+        ...(contract ? { driverId: 'codex-app-server' } : {}),
+      } as never),
+    )
     ids.push(sessionId)
   }
   await settle(reg)
@@ -132,19 +166,26 @@ async function fixture(size: number, contract = false): Promise<Fixture> {
  * setup can fire inside the counted window at one size and not the other.
  */
 async function settle(reg: SessionRegistry): Promise<void> {
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
-  await reg.modules.sessions.flushBroadcasts()
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+  await reg.changeLedger.authority.settled()
+  await settledOperation(() => reg.modules.messages.flushDeliveryTriggers())
+  await settledOperation(() => reg.modules.sessions.flushBroadcasts())
+  await reg.changeLedger.authority.settled()
 }
 
 const route = async (f: Fixture, frame: unknown) => {
-  await f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never)
+  await settledOperation(() =>
+    f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never),
+  )
   await settle(f.reg)
 }
 
 const at = (second: number) => `2026-07-18T12:00:${String(second).padStart(2, '0')}.000Z`
-const idle: AgentRuntimeState = { phase: 'idle', since: at(10), workingMsTotal: 0, nativeSubagentCount: 0 }
+const idle: AgentRuntimeState = {
+  phase: 'idle',
+  since: at(10),
+  workingMsTotal: 0,
+  nativeSubagentCount: 0,
+}
 
 const observation = (sessionId: SessionId): AgentObservation => ({
   podiumSessionId: sessionId,
@@ -168,11 +209,16 @@ const observation = (sessionId: SessionId): AgentObservation => ({
   state: idle,
 })
 
-const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>): StatementPin<Fixture> => ({
+const pin = (
+  name: string,
+  run: (f: Fixture, size: number) => Promise<unknown>,
+  check?: (f: Fixture) => Promise<void>,
+): StatementPin<Fixture> => ({
   name,
   setup: fixture,
   target: (f) => f.store,
   run,
+  ...(check ? { check: async (_result: unknown, f: Fixture) => await check(f) } : {}),
   teardown: async (f) => {
     await f.reg.dispose()
     await f.store.close()
@@ -180,9 +226,32 @@ const pin = (name: string, run: (f: Fixture, size: number) => Promise<unknown>):
 })
 
 describe('daemon frames: pinned statement counts at 5 and 200', () => {
+  it('fences periodic activity writes while retaining explicit persistence', async () => {
+    const f = await fixture(5)
+    const flush = vi.spyOn(f.reg.modules.sessions, 'flushActivity')
+    try {
+      await route(f, { type: 'agentFrame', sessionId: f.ids[0], seq: 0, data: 'QQ==' })
+      vi.useFakeTimers()
+      await vi.advanceTimersByTimeAsync(12_000)
+      vi.useRealTimers()
+      expect(flush).not.toHaveBeenCalled()
+      await f.reg.modules.sessions.flushActivity()
+      expect((await f.store.sessions.getSession(f.ids[0]!))?.outputCount).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+      flush.mockRestore()
+      await f.reg.dispose()
+      await f.store.close()
+    }
+  })
+
   it('agentFrame (terminal output) touches no table; activity is flushed later', async () => {
     const counts = await expectConstantStatements(
-      pin('agentFrame', async (f) => await route(f, { type: 'agentFrame', sessionId: f.ids[0], seq: 0, data: 'QQ==' })),
+      pin(
+        'agentFrame',
+        async (f) =>
+          await route(f, { type: 'agentFrame', sessionId: f.ids[0], seq: 0, data: 'QQ==' }),
+      ),
       0,
     )
     expectGrantReads(counts, 0)
@@ -190,78 +259,215 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
 
   it('agentObservation (idle snapshot) of one session among many', async () => {
     const counts = await expectConstantStatements(
-      pin('agentObservation', async (f) => await route(f, { type: 'agentObservation', observation: observation(f.ids[0]!) })),
-      12,
+      pin(
+        'agentObservation',
+        async (f) =>
+          await route(f, { type: 'agentObservation', observation: observation(f.ids[0]!) }),
+        async (f) => {
+          expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.agentState).toMatchObject(idle)
+          expect(await f.store.observationCheckpoints.get(f.ids[0]!)).toMatchObject({
+            observationGeneration: 1,
+            checkpoint: {
+              lastTransitionId: 'snapshot-10',
+              providerCursor: { components: { file: 10 } },
+            },
+          })
+        },
+      ),
+      // POD-6920: derived change capture (no build before the write; one drain after it): 24 -> 17.
+      17,
     )
     expect(counts.small.statements).toBeGreaterThan(0)
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   // The echo confirmation behind this frame reads its rows together; that loop is
   // pinned where it runs, in modules/messages/transcript-echo.statement-count.test.ts.
   it('transcriptDelta with as many user items as the size', async () => {
     const counts = await expectConstantStatements(
-      pin('transcriptDelta', async (f, size) =>
-        await route(f, {
-          type: 'transcriptDelta',
-          sessionId: f.ids[0],
-          items: Array.from({ length: size }, (_, i) => ({
-            id: `u${i}`,
-            role: 'user',
-            text: `[podium message msg_unknown_${i} · from x]\nx\n[end podium message msg_unknown_${i}]`,
-            cursor: `c${i}`,
-          })),
-          tail: `c${size - 1}`,
-        }),
+      pin(
+        'transcriptDelta',
+        async (f, size) =>
+          await route(f, {
+            type: 'transcriptDelta',
+            sessionId: f.ids[0],
+            items: Array.from({ length: size }, (_, i) => ({
+              id: `u${i}`,
+              role: 'user',
+              text: `[podium message msg_unknown_${i} · from x]\nx\n[end podium message msg_unknown_${i}]`,
+              cursor: `c${i}`,
+            })),
+            tail: `c${size - 1}`,
+          }),
+        async (f) => {
+          const session = f.reg.modules.sessions.sessions.get(f.ids[0]!)
+          expect(session?.transcriptAvailable).toBe(true)
+          expect(session?.terminal.transcriptItems().map((item) => item.id)).toEqual(
+            f.ids.map((_, i) => `u${i}`),
+          )
+        },
       ),
-      10,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 22 -> 15.
+      15,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   it('runtimeEvent (contract session start) of one session among many', async () => {
     const counts = await expectConstantStatements(
       {
-        ...pin('runtimeEvent', async (f) =>
-          await route(f, {
-            type: 'runtimeEvent',
-            sessionId: f.ids[0],
-            deliveryId: 'state-1-20',
-            event: {
-              t: 'state',
-              change: { kind: 'session_started' },
-              at: at(20),
-              provenance: 'bootstrap',
-              cursor: { segmentId: 'runtime-segment', components: { seq: 20 } },
+        ...pin(
+          'runtimeEvent',
+          async (f) =>
+            await route(f, {
+              type: 'runtimeEvent',
+              sessionId: f.ids[0],
+              deliveryId: 'state-1-20',
+              event: {
+                t: 'state',
+                change: { kind: 'session_started' },
+                at: at(20),
+                provenance: 'bootstrap',
+                cursor: { segmentId: 'runtime-segment', components: { seq: 20 } },
+                observerGeneration: 1,
+                turnEpoch: 1,
+              },
+            }),
+          async (f) => {
+            expect(await f.store.events.runtimeEventCheckpoint(f.ids[0]!)).toMatchObject({
+              sessionId: f.ids[0],
               observerGeneration: 1,
               turnEpoch: 1,
-            },
-          }),
+              cursor: { segmentId: 'runtime-segment', components: { seq: 20 } },
+            })
+            expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.status).toBe('live')
+          },
         ),
         setup: async (size) => await fixture(size, true),
       },
-      24,
+      // Diffed against the original pin: the grouped queued_messages COUNT
+      // runs four times, formerly three, for current queue state in session
+      // projection/publication. Transcript presence moved from podium_events
+      // GROUP BY to an indexed sessions SELECT (one for one). Net 29 -> 30.
+      30,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
+  })
+
+  it('rejects runtime state for an evicted stopped session with one row read', async () => {
+    await expectConstantStatements(
+      {
+        ...pin(
+          'stopped runtimeEvent',
+          async (f) =>
+            await route(f, {
+              type: 'runtimeEvent',
+              sessionId: f.ids[0],
+              deliveryId: 'stopped-state',
+              event: {
+                t: 'state',
+                change: { kind: 'turn_completed' },
+                at: at(20),
+                provenance: 'bootstrap',
+                cursor: { segmentId: 'runtime-segment', components: { seq: 20 } },
+                observerGeneration: 2,
+                turnEpoch: 1,
+              },
+            }),
+        ),
+        setup: async (size) => {
+          const f = await fixture(size)
+          await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0 })
+          await f.reg.modules.sessions.flushActivity()
+          f.reg.modules.sessions.residency.sweep()
+          const id = f.ids[0]
+          if (!id) throw new Error('missing stopped session')
+          expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+          return f
+        },
+        check: (_result, f) => {
+          const id = f.ids[0]
+          if (!id) throw new Error('missing stopped session')
+          expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+        },
+      },
+      1,
+    )
+  })
+
+  it('deduplicates a parked transcript with bounded row, checkpoint and drain reads', async () => {
+    const event = {
+      t: 'item' as const,
+      item: {
+        kind: 'complete' as const,
+        item: { id: 'item', role: 'assistant' as const, text: 'Done', ts: at(20) },
+      },
+      at: at(20),
+      provenance: 'live' as const,
+      cursor: { segmentId: 'runtime-segment', components: { seq: 1 } },
+      observerGeneration: 1,
+      turnEpoch: 0,
+    }
+    await expectConstantStatements(
+      {
+        ...pin(
+          'parked runtime duplicate',
+          async (f) =>
+            await route(f, {
+              type: 'runtimeEvent',
+              sessionId: f.ids[0],
+              deliveryId: 'duplicate',
+              event,
+            }),
+        ),
+        setup: async (size) => {
+          const f = await fixture(size, true)
+          await route(f, {
+            type: 'runtimeEvent',
+            sessionId: f.ids[0],
+            deliveryId: 'original',
+            event,
+          })
+          await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0 })
+          await f.reg.modules.sessions.flushActivity()
+          f.reg.modules.sessions.residency.sweep()
+          const id = f.ids[0]
+          if (!id) throw new Error('missing stopped session')
+          expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+          return f
+        },
+        check: (_result, f) => {
+          const id = f.ids[0]
+          if (!id) throw new Error('missing stopped session')
+          expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+        },
+      },
+      3,
+    )
   })
 
   // Every busy session is written in one commit [POD-6175]: one many-row
-  // upsert and the projection pass's two reads (grants, queued messages). No
+  // upsert and the projection pass's read of queued messages (its grants read
+  // left with POD-6288: tasks are shared). No
   // change is appended: output counters live in the row, not in the session's
   // wire meta, so every change dedups away.
+  // POD-6790 adds one bounded read of the sessions' confirmed message tails.
+  // The trailing activity publisher adds one indexed pending read per tick (POD-6809).
   it('activity flush after output on every session', async () => {
     const counts = await expectConstantStatements(
       {
         ...pin('flushActivity', async (f) => await f.reg.modules.sessions.flushActivity()),
         setup: async (size) => {
           const f = await fixture(size)
-          for (const sessionId of f.ids) await route(f, { type: 'agentFrame', sessionId, seq: 0, data: 'QQ==' })
+          for (const sessionId of f.ids)
+            await route(f, { type: 'agentFrame', sessionId, seq: 0, data: 'QQ==' })
           return f
         },
       },
-      4,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 17 -> 3.
+      3,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 })
 
@@ -270,48 +476,177 @@ describe('daemon frames: pinned statement counts at 5 and 200', () => {
 // whatever the size. A binding event has two readers (the observer-generation
 // check in the daemon lifecycle and the binding gate), so it reads twice.
 describe('daemon frames that read an observation checkpoint: pinned at 5 and 200', () => {
+  const exit = pin(
+    'agentExit',
+    async (f) =>
+      await route(f, {
+        type: 'agentExit',
+        sessionId: f.ids[0],
+        code: 0,
+        observerGeneration: 1,
+      }),
+    async (f) => {
+      const id = f.ids[0]!
+      expect(await f.store.sessions.getSession(id)).toMatchObject({ status: 'exited', exitCode: 0 })
+      expect(f.reg.modules.sessions.sessions.has(id)).toBe(false)
+      expect(await f.store.observationCheckpoints.get(id)).toMatchObject({
+        observationGeneration: 1,
+      })
+    },
+  )
+
+  it('awaits the activity observer before completing an exit frame', async () => {
+    const f = await fixture(5)
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const activity = vi
+      .spyOn(f.reg.issues.gitWorkflow, 'onSessionActivity')
+      .mockImplementation(async () => await gate)
+    let completed = false
+    const frame = f.reg.gateway
+      .routeDaemonFrame(f.reg.sessionStore.hostMachineId, {
+        type: 'agentExit',
+        sessionId: f.ids[0]!,
+        code: 0,
+        observerGeneration: 1,
+      })
+      .then(() => {
+        completed = true
+      })
+    try {
+      await vi.waitFor(() => expect(activity).toHaveBeenCalledExactlyOnceWith(f.ids[0]))
+      expect(completed).toBe(false)
+      expect(await f.store.sessions.getSession(f.ids[0]!)).toMatchObject({
+        status: 'exited',
+        exitCode: 0,
+      })
+    } finally {
+      release()
+      await frame
+      activity.mockRestore()
+      await settle(f.reg)
+      await f.reg.dispose()
+      await f.store.close()
+    }
+  })
+
+  it('retains the interaction reaction until the frame operation settles', async () => {
+    const f = await fixture(5, true)
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const reaction = vi
+      .spyOn(f.reg.modules.interactions, 'onStateChanged')
+      .mockImplementation(async () => await gate)
+    let completed = false
+    const frame = settledOperation(() =>
+      f.reg.gateway.routeDaemonFrame(f.store.hostMachineId, {
+        type: 'runtimeEvent',
+        sessionId: f.ids[0]!,
+        deliveryId: 'retained-state',
+        event: {
+          t: 'state',
+          change: { kind: 'session_started' },
+          at: at(20),
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'retained-segment', components: { seq: 20 } },
+          observerGeneration: 1,
+          turnEpoch: 1,
+        },
+      }),
+    ).then(() => {
+      completed = true
+    })
+    try {
+      await vi.waitFor(() => expect(reaction).toHaveBeenCalledOnce())
+      expect(completed).toBe(false)
+      expect(await f.store.events.runtimeEventCheckpoint(f.ids[0]!)).toMatchObject({
+        observerGeneration: 1,
+        turnEpoch: 1,
+      })
+    } finally {
+      release()
+      await frame
+      reaction.mockRestore()
+      await settle(f.reg)
+      await f.reg.dispose()
+      await f.store.close()
+    }
+  })
+
   it('agentExit of the fenced observer', async () => {
-    const counts = await expectConstantStatements(
-      pin('agentExit', async (f) =>
-        await route(f, { type: 'agentExit', sessionId: f.ids[0], code: 0, observerGeneration: 1 })),
-      30,
-    )
-    expectGrantReads(counts, 1)
+    // Awaiting the activity reaction preserves its producer's session lease:
+    // SQLite no longer restores the exited row plus its five satellites after
+    // the lease retires (37 -> 31). Postgres already read the resident session.
+    const counts = await expectConstantStatements(exit, 31)
+    expectGrantReads(counts, 0)
+  })
+
+  it('agentExit pin is armed', async () => {
+    await expectArmed(exit, 31, (f) => {
+      const original = f.reg.gateway.routeDaemonFrame.bind(f.reg.gateway)
+      const planted = vi
+        .spyOn(f.reg.gateway, 'routeDaemonFrame')
+        .mockImplementation(async (...args) => {
+          for (const id of f.ids) await f.store.sessions.getSession(id)
+          return await original(...args)
+        })
+      return () => planted.mockRestore()
+    })
   })
 
   it('agentObservationRebind onto a new provider thread', async () => {
     const counts = await expectConstantStatements(
-      pin('agentObservationRebind', async (f) =>
-        await route(f, {
-          type: 'agentObservationRebind',
-          sessionId: f.ids[0],
-          provider: 'codex',
-          providerSessionId: null,
-          observerGeneration: 1,
-          bindingVersion: 1,
-          nextProviderSessionId: 'thread-2',
-          resumeKind: 'codex-thread',
-          rebindId: 'rebind-1',
-        })),
-      21,
+      pin(
+        'agentObservationRebind',
+        async (f) =>
+          await route(f, {
+            type: 'agentObservationRebind',
+            sessionId: f.ids[0],
+            provider: 'codex',
+            providerSessionId: null,
+            observerGeneration: 1,
+            bindingVersion: 1,
+            nextProviderSessionId: 'thread-2',
+            resumeKind: 'codex-thread',
+            rebindId: 'rebind-1',
+          }),
+        async (f) => {
+          expect(await f.store.observationCheckpoints.get(f.ids[0]!)).toMatchObject({
+            providerSessionId: 'thread-2',
+          })
+          expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.resume).toEqual({
+            kind: 'codex-thread',
+            value: 'thread-2',
+          })
+        },
+      ),
+      // POD-6920: derived change capture (no build before the write; one drain after it): 35 -> 30.
+      30,
     )
-    expectGrantReads(counts, 1)
+    expectGrantReads(counts, 0)
   })
 
   it('agentObserverLiveConfirmation without a terminal fence', async () => {
     const counts = await expectConstantStatements(
-      pin('agentObserverLiveConfirmation', async (f) =>
-        await route(f, {
-          type: 'agentObserverLiveConfirmation',
-          sessionId: f.ids[0],
-          provider: 'codex',
-          providerSessionId: null,
-          bindingVersion: 1,
-          observerGeneration: 1,
-          providerCursor: { segmentId: 'rollout-1', components: { file: 10 } },
-          livePollSequence: 1,
-          confirmedAt: at(30),
-        })),
+      pin(
+        'agentObserverLiveConfirmation',
+        async (f) =>
+          await route(f, {
+            type: 'agentObserverLiveConfirmation',
+            sessionId: f.ids[0],
+            provider: 'codex',
+            providerSessionId: null,
+            bindingVersion: 1,
+            observerGeneration: 1,
+            providerCursor: { segmentId: 'rollout-1', components: { file: 10 } },
+            livePollSequence: 1,
+            confirmedAt: at(30),
+          }),
+      ),
       1,
     )
     expectGrantReads(counts, 0)
@@ -319,38 +654,70 @@ describe('daemon frames that read an observation checkpoint: pinned at 5 and 200
 
   it('agentState (legacy, unfenced) of one session among many', async () => {
     const counts = await expectConstantStatements(
-      pin('agentState', async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle })),
-      20,
+      pin(
+        'agentState',
+        async (f) => await route(f, { type: 'agentState', sessionId: f.ids[0], state: idle }),
+        async (f) => {
+          expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.agentState).toMatchObject(idle)
+        },
+      ),
+      // As for runtimeEvent: one more grouped queued_messages COUNT supplies
+      // the fresh queue tally; transcript presence switches tables one for one.
+      // Measured at both sizes, 26 -> 27, without another session write.
+      27,
     )
-    expectGrantReads(counts, 1)
+    // The accepted state is part of the existing row upsert, never a second write.
+    for (const tally of [counts.small, counts.large])
+      expect(
+        [...tally.byQuery].reduce(
+          // Postgres wraps the same row upsert in its change-capture CTE.
+          (n, [sql, count]) => (/\binsert into "sessions"/i.test(sql) ? n + count : n),
+          0,
+        ),
+      ).toBe(1)
+    expectGrantReads(counts, 0)
   })
 
   it('runtimeEvent binding of a contract session', async () => {
     const counts = await expectConstantStatements(
       {
-        ...pin('runtimeEvent binding', async (f) =>
-          await route(f, {
-            type: 'runtimeEvent',
-            sessionId: f.ids[0],
-            deliveryId: 'binding-1-21',
-            event: {
-              t: 'binding',
-              resume: { kind: 'codex-thread', value: 'native-thread' },
-              confidence: 'exact',
-              ackRequested: true,
-              bindingVersion: 1,
-              at: at(21),
-              provenance: 'live',
-              cursor: { segmentId: 'runtime-segment', components: { seq: 21 } },
-              observerGeneration: 1,
-              turnEpoch: 1,
-            },
-          }),
+        ...pin(
+          'runtimeEvent binding',
+          async (f) =>
+            await route(f, {
+              type: 'runtimeEvent',
+              sessionId: f.ids[0],
+              deliveryId: 'binding-1-21',
+              event: {
+                t: 'binding',
+                resume: { kind: 'codex-thread', value: 'native-thread' },
+                confidence: 'exact',
+                ackRequested: true,
+                bindingVersion: 1,
+                at: at(21),
+                provenance: 'live',
+                cursor: { segmentId: 'runtime-segment', components: { seq: 21 } },
+                observerGeneration: 1,
+                turnEpoch: 1,
+              },
+            }),
+          async (f) => {
+            expect(f.reg.modules.sessions.sessions.get(f.ids[0]!)?.resume).toEqual({
+              kind: 'codex-thread',
+              value: 'native-thread',
+            })
+            expect(
+              await f.store.conversations.registry.podiumIds(f.store.hostMachineId, [
+                'native-thread',
+              ]),
+            ).toHaveProperty('size', 1)
+          },
         ),
         setup: async (size) => await fixture(size, true),
       },
-      25,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 50 -> 35.
+      35,
     )
-    expectGrantReads(counts, 2)
+    expectGrantReads(counts, 0)
   })
 })

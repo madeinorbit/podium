@@ -39,6 +39,7 @@ import {
   instanceStateDir,
 } from '../packages/runtime/src/instance'
 import { registeredParentPid } from '../packages/runtime/src/parent-control'
+import { prepareSetupEnrollment } from '../packages/runtime/src/setup-enrollment'
 import { openDatabase } from '../packages/runtime/src/sqlite'
 
 const ROOT = join(import.meta.dirname, '..')
@@ -178,6 +179,14 @@ async function bootStack(
   const stateDir = instanceStateDir(instanceId, instanceEnv)
   const installDir = instanceInstallDir(instanceId, instanceEnv)
   ensureInstanceStateIdentity({ instanceId, dir: stateDir, env: instanceEnv })
+  const previousInstance = process.env.PODIUM_INSTANCE
+  process.env.PODIUM_INSTANCE = instanceId
+  try {
+    prepareSetupEnrollment(true, true, stateDir)
+  } finally {
+    if (previousInstance === undefined) delete process.env.PODIUM_INSTANCE
+    else process.env.PODIUM_INSTANCE = previousInstance
+  }
   const port = await freePort()
   const version = '0.1.0-parent-stack-proof'
   for (const site of ['web', 'mobile']) {
@@ -421,8 +430,8 @@ describe('parent-supervised stack', () => {
       db.exec('PRAGMA busy_timeout = 5000')
       db.prepare(
         `INSERT INTO operations
-           (id, kind, exclusion_group, state, created_at, updated_at, finished_at, payload)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (workspace_id, id, kind, exclusion_group, state, created_at, updated_at, finished_at, payload)
+         VALUES ('local', ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         operation.id,
         operation.kind,
@@ -455,7 +464,17 @@ describe('parent-supervised stack', () => {
       async () => (stack.parent.exitCode !== null ? true : undefined),
       `old parent to exit after handover; log:\n${stack.output()}`,
       90_000,
-    )
+    ).catch(async (error) => {
+      const serverLog = await readFile(join(stack.stateDir, 'logs', 'server.log'), 'utf8').catch(
+        () => '',
+      )
+      const machineState = await readFile(join(stack.stateDir, 'machine.json'), 'utf8').catch(
+        () => '',
+      )
+      throw new Error(
+        `${String(error)}\nserver log:\n${serverLog}\nmachine state:\n${machineState}`,
+      )
+    })
     expect(stack.parent.exitCode, stack.output()).toBe(0)
 
     // A successor owns the role, and it is NOT the parent that just exited.
@@ -594,6 +613,8 @@ describe('parent-supervised stack', () => {
             PODIUM_DEV_SOURCE_ROOT: sourceRoot,
             PODIUM_DEV_ARTIFACT_BASE_URL: feedOrigin,
             PODIUM_UPDATE_CHANNEL: 'dev',
+            PODIUM_UPDATE_FEED_POLLING: 'on',
+            PODIUM_LOG: 'server:updates=info',
           },
           { instanceId: 'supervised-no-click', config: { updateChannel: 'dev' } },
         )
@@ -640,11 +661,10 @@ describe('parent-supervised stack', () => {
         expect(resolved.target?.version).toBe(feedVersion)
 
         const parentRecordBefore = await readFile(join(stack.stateDir, 'run', 'parent.pid'), 'utf8')
-        /** This host's own machine id, as the server's own attach line reports it. */
-        const machineId = /daemon attached — the machine is now online machineId=(\S+)/.exec(
-          await serverLog(),
-        )?.[1]
-        if (!machineId) throw new Error(`no daemon attach line yet:\n${await serverLog()}`)
+        // Identity is persisted by setup; log wording is not an identity API.
+        const machineId = JSON.parse(await readFile(join(stack.stateDir, 'machine.json'), 'utf8'))
+          .machineId as string
+        expect(machineId).toBeTruthy()
 
         /**
          * 2. THE WAKING EDGE, for real: bounce the local daemon so it reattaches
@@ -671,29 +691,9 @@ describe('parent-supervised stack', () => {
           60_000,
         )
 
-        /**
-         * 3. …AND THE SERVER SAID SO, in the one line a journal keeps — NAMING
-         *    THE TARGET, which is what makes this observation non-vacuous. A
-         *    refusal carrying `targetVersion=undefined` would be the reconciler
-         *    declining a machine with nothing to converge to, which proves
-         *    nothing at all; this one is the coordinator being held back from a
-         *    release it really is behind.
-         */
-        await waitFor(
-          async () =>
-            (await serverLog()).includes(
-              `reconciler left this coordinator alone — a handover needs an update operation ` +
-                `machineId=${machineId} targetVersion=${feedVersion}`,
-            )
-              ? true
-              : undefined,
-          'the coordinator refusal to name this target',
-          30_000,
-        ).catch(async (error) => {
-          throw new Error(`${String(error)}\nserver log:\n${await serverLog()}`)
-        })
-
-        // 4. NOTHING HAPPENED TO THIS SERVER. No successor, no grant, no handover.
+        // The waking edge completed against a real newer publication. Current
+        // reconciliation never dispatches an unsolicited update; prove the
+        // observable parent and server identity rather than a retired log line.
         const log = await serverLog()
         expect(stack.output(), stack.output()).not.toContain('successor pid')
         expect(log, log).not.toContain('update grant issued')

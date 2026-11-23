@@ -43,7 +43,7 @@ describe('SessionStore applied_mutations', () => {
     const store = await openTestStore(':memory:')
     await store.sync.recordAppliedMutation(asMutationId('old'), 'p', '"a"', 1_000)
     await store.sync.recordAppliedMutation(asMutationId('young'), 'p', '"b"', 9_000)
-    await store.sync.pruneAppliedMutations({ maxAgeMs: 5_000, now: 10_000 })
+    expect(await store.sync.pruneAppliedMutationsBatch(10_000 - 5_000, 100)).toBe(1)
     expect(await store.sync.getAppliedMutation(asMutationId('old'))).toBeUndefined()
     expect(await store.sync.getAppliedMutation(asMutationId('young'))).toBe('"b"')
   })
@@ -101,10 +101,10 @@ describe('SessionStore queued_messages', () => {
     await store.close()
   })
 
-  it('lists FIFO by queued_at, then insertion order for ties', async () => {
+  it('lists in the order the rows were queued, whatever their clock (POD-7075)', async () => {
     const store = await openTestStore(':memory:')
-    // Inserted out of time order + a same-timestamp pair to prove BOTH sort keys
-    // (queued_at first, rowid as the tiebreaker).
+    // Inserted out of time order + a same-timestamp pair: the queue's order is its
+    // `queue_order` column, not the clock and not an engine's row order.
     expect(
       await store.sync.enqueueMessage({
         id: 'q-b',
@@ -130,9 +130,9 @@ describe('SessionStore queued_messages', () => {
       }),
     ).toBe(true)
     expect((await store.sync.listQueuedMessages(asSessionId('s1'))).map((m) => m.text)).toEqual([
-      'a',
       'b',
       'c',
+      'a',
     ])
   })
 

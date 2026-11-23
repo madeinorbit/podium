@@ -169,23 +169,24 @@ podium auth mint-session                 # caches it; podium CLI calls now carry
 podium auth mint-session --print-only --ttl 10m   # prints only, for a browser context
 ```
 
-The printed value is the `podium_session` cookie. For Playwright:
+The printed value is a signed device credential. For Playwright on loopback HTTP
+use the `podium.session_token` cookie; for HTTPS use `__Secure-podium.session_token`.
 
 ```js
-await context.addCookies([{ name: 'podium_session', value: TOKEN, url: 'http://localhost:18787' }])
+await context.addCookies([{ name: 'podium.session_token', value: TOKEN, url: 'http://localhost:18787' }])
 ```
 
-Minting needs write access to the instance's `podium.db`, which already implies ownership
-of everything in it; `PODIUM_STATE_DIR` selects a non-default instance. **Trust model
+Minting needs the running server’s user-only control socket and a single member.
+`PODIUM_STATE_DIR` selects a non-default instance. **Trust model
 (ADR 3 D14 / POD-1402):** this is deliberate. Agents run as the operator's OS user, so a
 constrained agent can mint the same way and shed its relay identity for a direct `/trpc`
 call. Agent/operator scope is accident prevention on the default path, not containment of
 a co-resident adversarial agent — do not build on a stronger assumption. Sessions are
-labelled, so clean up after yourself without signing the operator's browsers out:
+grouped by device kind, so clean up after yourself without signing the operator's browsers out:
 
 ```sh
-podium auth sessions          # label, token hash, expiry
-podium auth revoke-sessions   # drops the 'break-glass' class only
+podium auth sessions          # device kind, public ID, expiry
+podium auth revoke-sessions   # ends host sign-ins only
 ```
 
 If a `podium` command ever fails with `HTTP 401 unauthorized`, that is this — mint a
@@ -238,6 +239,49 @@ await page.mouse.move(x, y); await page.waitForTimeout(250); await page.mouse.cl
 It is the user's real workspace with many live sessions. Only interact with sessions
 **you** created. Spawning a session starts a real agent process — clean up (archive/kill)
 what you spawn, or tell the user exactly what you left (title + repo) so they can.
+
+## Checking every main screen: `probe:screens`
+
+Startup probes only cover startup. Each screen loads its own data on demand, and each one
+can fail on its own once the data is larger than the device budgets: the deck lost its
+tree to the cache trim (POD-7155), and a large install froze the page (POD-7165). The
+screens probe (`apps/web/harness/screens-probe.py` and `screens-probe.mjs`, POD-7163)
+opens every main screen: the sidebar, the flight deck of the largest mission, the board,
+an issue page, search (the board's task filter), and the phone's mission details. It opens
+them once cold and once warm, moving between them, and then again offline, in-app and
+without a reload. For each screen it prints the data requests (`/sync/` and issue search,
+offline attempts included), the load hops, the LOADING time, the longest main-thread task
+and the JS heap after a GC. It flags any screen that never becomes ready, any screen that
+takes more hops than declared (deck 2, board 1, issue page 2, search 1), and any request
+made while offline.
+
+**Before landing** (every task of POD-7157): run it on an agent VM against your tip, with
+the synthetic operator corpus (8,687 issues, 6,941 sessions, a 970-issue mission). This is
+above every budget:
+
+```sh
+LANE_LOCK_TTL=30m remote-lane vega3 <issue> run bun run probe:screens -- <tip>
+```
+
+It prepares the checkout first: Chromium and its libraries, podium-host, the production
+web and phone builds, and the corpus. Then it prints the table, and the evidence goes to
+`.artifacts/screens-probe/<round>-<sha>/` on the VM. To probe another commit, name it:
+it runs in a sibling checkout with this checkout's harness files. The probe exits non-zero
+when it flags a screen.
+
+**After a deploy**: run the same walk against the live install. It is read-only: a short
+session is minted (`podium auth mint-session --print-only`), and every non-GET request
+except the collection route is refused in the browser, as are command frames on the
+socket. The report counts each refusal.
+
+```sh
+bun run probe:screens -- --live=http://127.0.0.1:18787
+```
+
+On the live install the probe picks its own targets: the first mission in the sidebar,
+and two done tasks from the board. Do not say a deploy works until this table shows
+every screen ready and offline reopens with no request. Opening the Work view alone is
+not enough.
 
 ## Quick reference — verifying a UI feature on your branch
 

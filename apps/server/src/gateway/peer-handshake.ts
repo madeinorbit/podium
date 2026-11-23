@@ -1,6 +1,6 @@
+import { randomBytes } from 'node:crypto'
 import { asMachineId } from '@podium/model'
 import { verifyWithMachineKey } from '@podium/runtime/machine-credential'
-import { randomBytes } from 'node:crypto'
 /**
  * THE GATEWAY'S HANDSHAKE COMPOSITION ROOT — where `wsServer` meets the shared
  * framing of ADR 5 D3 and the strategy modules of D5.
@@ -14,13 +14,19 @@ import { randomBytes } from 'node:crypto'
  */
 
 import type { MachineId, UserId } from '@podium/model'
-import { CAP_DELIVERY_ACCEPTED, CAP_DELIVERY_NOT_IN_CONVERSATION } from '@podium/protocol/daemon'
 import {
   type AcceptorStep,
+  CAP_CHECKOUT_CHANGED_V1,
+  CAP_CONVERSATION_PREPARE,
+  CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
+  CAP_HARNESS_HOMES,
+  CAP_MACHINE_PROCESSES_V1,
+  CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
+  CAP_TOPICS_V1,
   type CapabilityRef,
   createDefaultAuthRegistry,
   createHandshakeAcceptor,
@@ -31,20 +37,21 @@ import {
   helloFromLegacyDaemonFrame,
   isLegacyDaemonFrame,
   legacyReplyFor,
-  type MachinePrincipal,
-  type MachineChallenge,
-  machineRotationTranscript,
-  machineHelloTranscript,
   localVersionSupport,
+  type MachineChallenge,
+  type MachinePrincipal,
+  machineHelloTranscript,
+  machineRotationTranscript,
   negotiateVersion,
   type PeerBuild,
   PeerHello,
   type PeerHelloReply,
 } from '@podium/protocol'
+import { CAP_DELIVERY_ACCEPTED, CAP_DELIVERY_NOT_IN_CONVERSATION } from '@podium/protocol/daemon'
 import {
+  createResolvedMachineDirectory,
   type MachineAuthenticationInput,
   type MachineAuthenticator,
-  createResolvedMachineDirectory,
   type ResolvedMachineAuthenticator,
   resolvedMachineAuthenticator,
 } from './machine-directory'
@@ -95,13 +102,8 @@ export interface PreparedDaemonAcceptor {
  * floor (never delivered, no principal) and the socket keeps waiting for a real
  * handshake, which `wsServer.daemon.test.ts` pins.
  *
- * NOTE ON THE CONSOLE ROLE: no `clientSessions` port is passed, because per-user
- * client sessions do not exist yet (POD-1075). The registry therefore holds an
- * explicit REFUSAL for the console role rather than a gap, and `/client` keeps its
- * existing cookie gate until POD-1075 lands the (user, device) resolution this
- * strategy needs. Wiring the console strategy to today's single instance password
- * would resolve every cookie to one ambient operator — the exact hole this work
- * removes.
+ * Console admission uses the shared identity boundary on `/client`. This
+ * registry serves machine handshakes and refuses person credentials.
  */
 const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): HandshakeAcceptor =>
   createHandshakeAcceptor({
@@ -120,12 +122,27 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // the moment the frame exists so the negotiation is in place; the session
       // module reads the accepted set to choose its geometry writer path.
       CAP_DAEMON_GEOMETRY_APPLIED,
+      CAP_CREDENTIAL_IDENTITY_GUARD,
+      // Credential management §8: this server sends a session's credential in
+      // `access`, only to a daemon that accepted this.
+      CAP_SESSION_ACCESS,
+      // Credential management §10: this server asks for homes and for a
+      // propagated login's removal only from a daemon that accepted this.
+      CAP_HARNESS_HOMES,
+      // Credential management §9: this server asks for a conversation to be
+      // placed before a switched session resumes, only from a daemon that accepted this.
+      CAP_CONVERSATION_PREPARE,
       // POD-4886: this server reads the delivery outcome `accepted`; a daemon
       // sends it only once this is accepted.
       CAP_DELIVERY_ACCEPTED,
       // POD-4887: this server reads a proven "not delivered" cause
       // (`dropped-by-agent`, `not-recorded`, `agent-exited`) on `failed`.
       CAP_DELIVERY_NOT_IN_CONVERSATION,
+      // ADR 7 Amendment 2 (POD-5800): this server sends topicWatch demand and
+      // reads topicPublish; a daemon that accepts it samples only on demand.
+      CAP_TOPICS_V1,
+      CAP_CHECKOUT_CHANGED_V1,
+      CAP_MACHINE_PROCESSES_V1,
     ],
     transport: {
       endpoint: '/daemon',
@@ -273,19 +290,25 @@ export async function prepareDaemonFrame(
   if (inventoryHello.success && inventoryHello.data.credential.kind === 'machineKey') {
     const hello = inventoryHello.data
     const credential = inventoryHello.data.credential
-    const refuse = (): PreparedDaemonFrame => ({ outcome: { kind: 'rejected',
-      reply: { type: 'peerHelloRejected', reason: 'auth-failed' } } })
+    const refuse = (): PreparedDaemonFrame => ({
+      outcome: { kind: 'rejected', reply: { type: 'peerHelloRejected', reason: 'auth-failed' } },
+    })
     const support = localVersionSupport()
-    if ((hello.peerRole !== undefined && hello.peerRole !== 'machine')
-      || !negotiateVersion({ min: hello.vmin ?? hello.v, max: hello.v }, support).ok) return refuse()
+    if (
+      (hello.peerRole !== undefined && hello.peerRole !== 'machine') ||
+      !negotiateVersion({ min: hello.vmin ?? hello.v, max: hello.v }, support).ok
+    )
+      return refuse()
     if (!credential.proof) {
       if (prepared.challenged || !prepared.deps.machines.installationId) return refuse()
       prepared.challenged = true
       const challenge: MachineChallenge = {
-        type: 'machineChallenge', machineId: credential.machineHint,
+        type: 'machineChallenge',
+        machineId: credential.machineHint,
         installationId: prepared.deps.machines.installationId,
         connectionId: prepared.deps.connectionId,
-        nonce: randomBytes(32).toString('base64url'), expiresAtMs: Date.now() + 30_000,
+        nonce: randomBytes(32).toString('base64url'),
+        expiresAtMs: Date.now() + 30_000,
       }
       prepared.challenge = challenge
       return { outcome: { kind: 'challenge', reply: challenge } }
@@ -293,18 +316,37 @@ export async function prepareDaemonFrame(
     const challenge = prepared.challenge
     // Consume before any async work, including a failed signature verification.
     delete prepared.challenge
-    if (!challenge || Date.now() >= challenge.expiresAtMs
-      || challenge.machineId !== credential.machineHint
-      || challenge.installationId !== prepared.deps.machines.installationId
-      || challenge.installationId !== credential.proof.installationId
-      || challenge.connectionId !== prepared.deps.connectionId
-      || challenge.connectionId !== credential.proof.connectionId
-      || challenge.nonce !== credential.proof.nonce) return refuse()
+    if (
+      !challenge ||
+      Date.now() >= challenge.expiresAtMs ||
+      challenge.machineId !== credential.machineHint ||
+      challenge.installationId !== prepared.deps.machines.installationId ||
+      challenge.installationId !== credential.proof.installationId ||
+      challenge.connectionId !== prepared.deps.connectionId ||
+      challenge.connectionId !== credential.proof.connectionId ||
+      challenge.nonce !== credential.proof.nonce
+    )
+      return refuse()
     if (credential.rotation) {
-      if (prepared.deps.verifyOnly || !prepared.deps.machines.rotateCredential
-        || !verifyWithMachineKey(credential.rotation.newPublicKey, machineHelloTranscript(challenge), credential.proof.signature)
-        || !await prepared.deps.machines.rotateCredential(asMachineId(credential.machineHint), credential.rotation,
-          machineRotationTranscript(challenge, credential.rotation.newKeyId, credential.rotation.newPublicKey))) return refuse()
+      if (
+        prepared.deps.verifyOnly ||
+        !prepared.deps.machines.rotateCredential ||
+        !verifyWithMachineKey(
+          credential.rotation.newPublicKey,
+          machineHelloTranscript(challenge),
+          credential.proof.signature,
+        ) ||
+        !(await prepared.deps.machines.rotateCredential(
+          asMachineId(credential.machineHint),
+          credential.rotation,
+          machineRotationTranscript(
+            challenge,
+            credential.rotation.newKeyId,
+            credential.rotation.newPublicKey,
+          ),
+        ))
+      )
+        return refuse()
       rotatedPublicKey = credential.rotation.newPublicKey
     }
   }
@@ -337,7 +379,8 @@ export async function prepareDaemonFrame(
   if (requested.type === 'pair' && requested.publicKey === undefined) {
     const version = inventoryHello.success ? inventoryHello.data.build?.appVersion : undefined
     const reply: PeerHelloReply = {
-      type: 'peerHelloRejected', reason: 'auth-failed',
+      type: 'peerHelloRejected',
+      reason: 'auth-failed',
       message: `Daemon ${version ?? 'unknown version'} cannot pair with this server: keypair enrollment is required; install the current daemon and pair again.`,
     }
     const legacy = asLegacyFrame(raw)
@@ -356,7 +399,10 @@ export async function prepareDaemonFrame(
   })
   const outcome = receiveResolvedDaemonFrame(acceptor, raw)
   if (rotatedPublicKey && outcome.kind === 'established' && outcome.reply.type === 'peerHelloOk') {
-    return { acceptor, outcome: { ...outcome, reply: { ...outcome.reply, enrolledPublicKey: rotatedPublicKey } } }
+    return {
+      acceptor,
+      outcome: { ...outcome, reply: { ...outcome.reply, enrolledPublicKey: rotatedPublicKey } },
+    }
   }
   return { acceptor, outcome }
 }

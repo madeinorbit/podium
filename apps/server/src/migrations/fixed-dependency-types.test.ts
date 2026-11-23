@@ -103,18 +103,27 @@ describe('fixed dependency types migration (POD-6100)', () => {
     const db = beforeMigration()
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
 
+    // The rows name their workspace: the column has no default since the keys migration.
+    const addLiveEdge = (type: string) =>
+      db
+        .prepare(
+          "INSERT INTO issue_deps (workspace_id, from_id, to_id, type) VALUES ('local', 'a', 'b', ?)",
+        )
+        .run(type)
     for (const type of ['blocks', 'waits-on', 'duplicate', 'parent-child', 'bogus'])
-      expect(() => addEdge(db, 'a', 'b', type), type).toThrow(/CHECK constraint failed/)
+      expect(() => addLiveEdge(type), type).toThrow(/CHECK constraint failed/)
     // The store's insert is `ON CONFLICT DO NOTHING`, which covers the primary
     // key only; a CHECK failure must still reach the caller.
     expect(() =>
       db
         .prepare(
-          "INSERT INTO issue_deps (from_id, to_id, type) VALUES ('a', 'b', 'blocks') ON CONFLICT DO NOTHING",
+          "INSERT INTO issue_deps (workspace_id, from_id, to_id, type) VALUES ('local', 'a', 'b', 'blocks') ON CONFLICT DO NOTHING",
         )
         .run(),
     ).toThrow(/CHECK constraint failed/)
-    db.prepare("INSERT INTO issue_deps (from_id, to_id) VALUES ('a', 'b')").run()
+    db.prepare(
+      "INSERT INTO issue_deps (workspace_id, from_id, to_id) VALUES ('local', 'a', 'b')",
+    ).run()
     expect(edges(db)).toEqual(['a->b blocked-by'])
   })
 
@@ -131,7 +140,7 @@ describe('fixed dependency types migration (POD-6100)', () => {
         )
         .all() as { name: string }[]
     ).map((r) => r.name)
-    expect(indexes).toEqual(['idx_issue_deps_from', 'idx_issue_deps_to'])
+    expect(indexes).toEqual(['idx_issue_deps_from', 'idx_issue_deps_to_from'])
 
     db.prepare('PRAGMA foreign_keys = ON').run()
     db.prepare("DELETE FROM issues WHERE id = 'a'").run()

@@ -1,12 +1,14 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import type { ConversationOutbox, ConversationRecords } from '@podium/client-core/conversation'
-import type { OutboxChatSend } from '@podium/client-core/engine'
+import type {
+  ConversationOutbox,
+  ConversationRecords,
+  OutboxChatSend,
+} from '@podium/client-core/conversation'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MessageModel } from '@podium/client-graph/message-models'
 import type { MobileSessionRows } from '@podium/client-graph/mobile-session-schema'
-import type { MachineWire, SessionId } from '@podium/model'
+import type { MachineFacts, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { compareShallow, reaction } from 'mobx'
 import { useCallback, useLayoutEffect, useMemo } from 'react'
@@ -15,8 +17,6 @@ import { useMobilePoolProjection } from './mobile-pool'
 
 type Reader = MobileSessionRows['mobileSessionReader']
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
-const EMPTY_SESSIONS: SessionView[] = []
-const EMPTY_ISSUES: IssueViewModel[] = []
 
 /** Each pool projection owns one memoized reader, including while attaching. */
 function useRead<T>(read: (reader: Reader) => T, empty: T): T {
@@ -37,6 +37,11 @@ export function useSessionContextSession(id: SessionId | undefined) {
     },
     [id],
   )
+  return useRead(read, undefined)
+}
+/** Terminal size is a live model reading, independent of the stored session row. */
+export function useSessionContextGeometry(id: SessionId | undefined) {
+  const read = useCallback((reader: Reader) => reader.geometry(id), [id])
   return useRead(read, undefined)
 }
 export function useSessionContextIssue(id: string | undefined) {
@@ -101,17 +106,9 @@ export function useSessionContextReferenceIssue(ref: string | undefined) {
   )
   return useMobilePoolProjection(read, undefined)
 }
-const sessionsRead = (reader: Reader) => reader.sessions().sessions
-const issuesRead = (reader: Reader) => reader.issues().issues
 /** The live Agents roster and issue list. */
-export function useSessionContextSessions() {
-  return useRead(sessionsRead, EMPTY_SESSIONS)
-}
-export function useSessionContextIssues() {
-  return useRead(issuesRead, EMPTY_ISSUES)
-}
 
-export function useSessionContextMachine(id: string | undefined): MachineWire | undefined {
+export function useSessionContextMachine(id: string | undefined): MachineFacts | undefined {
   const read = useCallback((reader: Reader) => reader.machine(id), [id])
   return useRead(read, undefined)
 }
@@ -233,7 +230,10 @@ export function mobileConversationPorts(
   return {
     records: {
       getSnapshot: () => read().records,
-      subscribe: (listener) => reaction(() => read().records.map(record => record.row), listener, { equals: compareShallow }),
+      subscribe: (listener) =>
+        reaction(() => read().records.map((record) => record.row), listener, {
+          equals: compareShallow,
+        }),
     },
     outbox: {
       held: () => read().sends,

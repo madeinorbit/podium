@@ -1,5 +1,10 @@
+import {
+  CLIENT_WIRE_VERSION,
+  MIN_CLIENT_WIRE_VERSION,
+  negotiateVersion,
+  type WireVersionOffer,
+} from '@podium/protocol'
 import type { MobileClientVersions } from './mobile-client-versions'
-import { negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, type WireVersionOffer } from '@podium/protocol'
 /**
  * THE CLIENT SOCKET MUX (POD-390, under POD-317's gateway).
  *
@@ -40,15 +45,20 @@ import { negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, type Wi
  */
 
 import { createLogger } from '@podium/logger'
-import type { MachineWire, SessionId, UserId, UserRole } from '@podium/model'
+import type { SessionId, UserId, UserRole, WorkspaceId } from '@podium/model'
 import {
   CAP_METADATA_DELTA,
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TOPICS_V1,
   type ClientMessage,
   type FeedCursorField,
   type PresenceRoomClientMessage,
+  type ServerFeatureFacts,
+  type SyncKindTokens,
+  type TopicClientMessage,
 } from '@podium/protocol'
+import type { MemberAccessChange } from '../hot-path-ports'
 import {
   type ClientPortId,
   clientPlaneClassFor,
@@ -62,6 +72,7 @@ import type { ClientConn, ClientRegistry } from './client-registry'
 import { traceFeedPeer } from './feed-peer-trace'
 import type { FeedServing } from './feed-serving'
 import type { PresenceRouting } from './presence-routing'
+import type { TopicRouting } from './topic-routing'
 
 const log = createLogger('server:gateway')
 
@@ -84,10 +95,20 @@ const toSessions = (mux: ClientMux, conn: ClientConn, msg: SessionsClientFrame):
     mux.ports.sessions.onSessionClientFrame(conn.principal, conn, msg),
   )
 
-const toPresence = (mux: ClientMux, conn: ClientConn, msg: PresenceRoomClientMessage): Promise<void> =>
+const toPresence = (
+  mux: ClientMux,
+  conn: ClientConn,
+  msg: PresenceRoomClientMessage,
+): Promise<void> =>
   mux.enqueueSessionWork(conn, async () => {
     const joined = await mux.presence.route(conn, msg)
     if (joined) mux.ports.sessions.onRoomJoined(conn, joined)
+  })
+
+/** Topics are subscription bookkeeping, like rooms: ordered per connection, never session work. */
+const toTopics = (mux: ClientMux, conn: ClientConn, msg: TopicClientMessage): Promise<void> =>
+  mux.enqueueSessionWork(conn, async () => {
+    await mux.topics.route(conn, msg)
   })
 
 const DISPATCH: Dispatcher = {
@@ -115,18 +136,25 @@ const DISPATCH: Dispatcher = {
   presenceUnsubscribe: toPresence,
   presenceUpdate: toPresence,
 
+  // ---- stream topics (ADR 7 Amendment 2) ----
+  topicSubscribe: toTopics,
+  topicUnsubscribe: toTopics,
+
   // ---- transport: the gateway answers its own liveness echo ----
-  ping: (mux, conn) => mux.registry.deliver(conn, { type: 'pong' }),
+  // The server's clock rides the pong: with the round-trip the client measures,
+  // that is its clock-skew reading (POD-5798).
+  ping: (mux, conn) => mux.registry.deliver(conn, { type: 'pong', serverTime: mux.now() }),
 }
 
 /** What a socket hands the mux when it attaches. Transport facts only. */
 export interface ClientTransport {
   /** End a failed admission; omitted only by in-process peers. */
   terminate?: () => void
+  /** Close because the member's access ended, with a code the client reads (POD-6910). */
+  endSignIn?: ClientConn['endSignIn']
   /** Authenticated account stamped by the websocket upgrade. */
   userId?: UserId
   userRole?: UserRole
-  machines?: readonly MachineWire[]
   /** Outbound sink for this socket (backpressure-guarded by the caller). */
   send: ClientConn['send']
   /** Lower-budget lossy sink for stream.live room fan-out. */
@@ -155,6 +183,8 @@ export interface ClientMuxDeps {
   readonly mobileVersions?: Pick<MobileClientVersions, 'connected' | 'disconnected'>
   readonly ports: ClientFeaturePorts
   readonly registry: ClientRegistry
+  /** The workspace whose gateway this is: every connection it admits is that workspace's. */
+  readonly workspaceId: WorkspaceId
   /**
    * THE SERVING EDGE (POD-1203) — where entity truth leaves this server.
    *
@@ -165,9 +195,24 @@ export interface ClientMuxDeps {
    */
   readonly feed: FeedServing
   readonly presence: PresenceRouting
+  readonly topics: TopicRouting
   /** Non-session bootstrap assembled after every contributing feature exists. */
   readonly bootstrap: (conn: ClientConn) => Promise<void>
+  /**
+   * The build this server runs, sent in every `welcome` (POD-5798): a client
+   * sees a redeploy on its reconnect instead of polling `/version` for it.
+   */
+  readonly serverBuild?: () => string
+  /** What this build and its config say about its feature flags, sent in every
+   *  `welcome` beside the build (POD-6677). */
+  readonly serverFeatures?: () => ServerFeatureFacts
+  readonly syncKindTokens: () => Promise<SyncKindTokens>
+  /** The clock `pong` reports, for the client's skew reading. */
+  readonly now?: () => number
 }
+
+/** The facts as the `welcome` schema spells them (its arrays are mutable). */
+const wireFacts = (facts: ServerFeatureFacts) => ({ ...facts, flags: [...facts.flags] })
 
 export class ClientMux {
   private readonly attachedAtByPeer = new Map<string, number>()
@@ -178,6 +223,11 @@ export class ClientMux {
     return this.deps.ports
   }
 
+  /** The clock `pong` carries. */
+  now(): number {
+    return (this.deps.now ?? Date.now)()
+  }
+
   get registry(): ClientRegistry {
     return this.deps.registry
   }
@@ -186,11 +236,16 @@ export class ClientMux {
     return this.deps.presence
   }
 
+  get topics(): TopicRouting {
+    return this.deps.topics
+  }
+
   /**
-   * A client socket connected. Mint its id and principal, register it, tell it
-   * its id, then hand it to the feature ports for their non-entity bootstrap.
+   * A client socket connected. Mint its id and principal, register it, then
+   * hand it to the feature ports for their non-entity bootstrap. The hello
+   * reply delivers its server-issued id and shape tokens together.
    *
-   * Registration and welcome are synchronous, before either bootstrap starts.
+   * Registration is synchronous, before either bootstrap starts.
    * The session hook, non-session bootstrap and feed admission start in that
    * order, but complete independently. Feed owns entity bootstrap/publication;
    * its completion is not a barrier for drafts, machines, approvals or hosts.
@@ -207,8 +262,10 @@ export class ClientMux {
       // TRANSPORT-DERIVED, always. The connection id is minted above and is the
       // only input; nothing a client can send participates.
       principal,
+      workspaceId: this.deps.workspaceId,
       send: transport.send,
       ...(transport.terminate ? { terminate: transport.terminate } : {}),
+      ...(transport.endSignIn ? { endSignIn: transport.endSignIn } : {}),
       ...(transport.sendBinary ? { sendBinary: transport.sendBinary } : {}),
       ...(transport.sendBinaryStream ? { sendBinaryStream: transport.sendBinaryStream } : {}),
       ...(transport.sendSequence ? { sendSequence: transport.sendSequence } : {}),
@@ -220,9 +277,7 @@ export class ClientMux {
         }),
       viewports: new Map(),
       attached: new Set(),
-      // No caps until hello — the feature's bootstrap snapshots go to everyone
-      // (a delta client uses them as its initial paint, then takes a cursor via
-      // sync.changesSince and rides the metadataDelta stream).
+      // Capabilities are negotiated by hello before feed admission.
       caps: new Set(),
       // Wire 1 until `hello` says otherwise — see `renegotiate`.
       wireVersion: 1,
@@ -247,21 +302,15 @@ export class ClientMux {
       peerId: id,
       wireVersion: conn.wireVersion,
     })
-    // `welcome` is the gateway's frame: it carries the id THIS module minted, and
-    // it is what makes the reconnect reclaim's `hello.clientId` a server-issued
-    // value rather than a client-chosen one.
-    this.deps.registry.deliver(conn, { type: 'welcome', clientId: id })
     // Deliberately NOT awaited (rule 51 case 2 / rule 57): wireClientSocket
     // needs the id in this turn to install message/close handlers. These are
     // independent streams, not a global bootstrap-complete barrier: SocketHub
     // stores machines, approvals and hosts separately from feed entities and
     // dispatches drafts by session id. Their frames may arrive after feed data.
     // Each task owns its rejection; failure must not prevent feed admission.
-    void this.deps.ports.sessions
-      .onClientAttached(conn.principal, conn, transport.machines ?? [])
-      .catch((error: unknown) => {
-        log.error('client session bootstrap failed', { clientId: id, error })
-      })
+    void this.deps.ports.sessions.onClientAttached(conn.principal, conn).catch((error: unknown) => {
+      log.error('client session bootstrap failed', { clientId: id, error })
+    })
     void this.deps.bootstrap(conn).catch((error: unknown) => {
       log.error('client non-session bootstrap failed', { clientId: id, error })
     })
@@ -281,10 +330,17 @@ export class ClientMux {
    * runs inside the port call. Deleting first means no re-entrant fan-out can
    * reach a socket that is already gone.
    */
-  detachClient(id: string, cause: 'socket-close' | 'reclaim' = 'socket-close'): void {
+  detachClient(
+    id: string,
+    cause: 'socket-close' | 'reclaim' | 'access-revoked' = 'socket-close',
+  ): void {
     const conn = this.deps.registry.get(id)
     if (!conn) return
     this.deps.mobileVersions?.disconnected(id)
+    // TOPICS FIRST. Presence forgets EVERY registry key this subscriber holds,
+    // topic keys included, without running the topic producer rule; releasing
+    // the topic keys first is what stops a daemon sampler nobody watches.
+    this.deps.topics.disconnect(conn)
     this.deps.presence.disconnect(conn)
     this.deps.registry.delete(id)
     const attachedAt = this.attachedAtByPeer.get(id)
@@ -389,14 +445,32 @@ export class ClientMux {
     // acts on for itself beyond the routing table, and it acts on the two
     // transport facts `hello` carries: the wire version and the delta capability.
     if (msg.type === 'hello') {
-      this.renegotiate(conn, { min: msg.wireVersionMin ?? msg.wireVersion ?? 1, max: msg.wireVersion ?? 1 }, msg.feedCursor)
+      this.renegotiate(
+        conn,
+        { min: msg.wireVersionMin ?? msg.wireVersion ?? 1, max: msg.wireVersion ?? 1 },
+        msg.feedCursor,
+      )
       if (conn.entityServingRefused) return Promise.resolve(completion)
-      this.deps.registry.deliver(conn, {
-        type: 'welcome',
+      const welcome = {
+        type: 'welcome' as const,
         wireVersion: conn.wireVersion,
         clientId: conn.id,
-        caps: conn.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) ? [CAP_TERMINAL_INPUT_BINARY_V1] : [],
+        caps: [
+          ...(conn.caps.has(CAP_TERMINAL_INPUT_BINARY_V1) ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
+          ...(conn.caps.has(CAP_TOPICS_V1) ? [CAP_TOPICS_V1] : []),
+        ],
+        // Topics: the account whose `account.events` this client may hold (D26).
+        ...(conn.caps.has(CAP_TOPICS_V1) ? { accountUser: conn.principal.user } : {}),
+        ...(this.deps.serverBuild ? { serverBuild: this.deps.serverBuild() } : {}),
+        ...(this.deps.serverFeatures
+          ? { serverFeatures: wireFacts(this.deps.serverFeatures()) }
+          : {}),
+      }
+      const delivered = this.deps.syncKindTokens().then((kindTokens) => {
+        if (this.deps.registry.get(conn.id) === conn && !conn.entityServingRefused)
+          this.deps.registry.deliver(conn, { ...welcome, kindTokens })
       })
+      return Promise.all([completion, delivered]).then(() => undefined)
     }
     return Promise.resolve(completion)
   }
@@ -419,7 +493,10 @@ export class ClientMux {
   ): void {
     // ABSENT MEANS 1. A pre-cutover client cannot send a field it was never built
     // with, so the absence is the advertisement.
-    const version = negotiateVersion(announced ?? 1, { wire: CLIENT_WIRE_VERSION, min: MIN_CLIENT_WIRE_VERSION })
+    const version = negotiateVersion(announced ?? 1, {
+      wire: CLIENT_WIRE_VERSION,
+      min: MIN_CLIENT_WIRE_VERSION,
+    })
     if (!version.ok) {
       this.deps.feed.detach(conn.id)
       conn.entityServingRefused = true
@@ -495,6 +572,37 @@ export class ClientMux {
       sendSequence: (source: Parameters<ClientRegistry['deliverSequence']>[1]) =>
         this.deps.registry.deliverSequence(conn, source),
     }
+  }
+
+  /**
+   * A MEMBER'S AUTHORITY CHANGED, AND THE CHANGE COMMITTED (POD-6293; design
+   * §4.5). Called from that commit's publication, so nothing the member had
+   * open outlives it by a heartbeat.
+   *
+   * - `revoked` (disabled, removed, signed out everywhere): every connection of
+   *   theirs is closed and detached now. Detaching leaves the feed, so no frame
+   *   queued for it reaches the socket; the reconnect is refused at the upgrade,
+   *   because the member's credentials went in the same commit.
+   * - `rescoped` (role change): the connections stay and carry the new role from
+   *   the next frame on. Feed visibility does not depend on the role (design
+   *   §4.1: an admin sees no more task or session data than a member), so the
+   *   role-dependent parts are what the caller re-sends.
+   *
+   * Returns the connections it changed.
+   */
+  applyAccessChange(change: MemberAccessChange): ClientConn[] {
+    const touched: ClientConn[] = []
+    for (const conn of [...this.deps.registry.values()]) {
+      if (conn.principal.user !== change.memberId) continue
+      touched.push(conn)
+      if (change.effect === 'revoked' || change.role === null) {
+        conn.terminate?.()
+        this.detachClient(conn.id, 'access-revoked')
+      } else {
+        conn.principal = userClientPrincipal(conn.id, conn.principal.user, change.role)
+      }
+    }
+    return touched
   }
 
   /** The principal a connection routes under — exposed for the routing audit. */

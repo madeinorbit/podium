@@ -119,7 +119,7 @@
 | Merge lock purpose | **[INFERRED]** The lock worked as a concurrency convention and failed only if misclassified as an authorization control; it was never capable of proving operator consent. |
 | “Never leave main broken” | **[MEASURED]** The landing session ran typecheck and integration checks, reran initially noisy lanes, observed the live restart, and health-checked the app. |
 | Health/testing purpose | **[INFERRED]** Those checks reduced broken-main risk but could not prevent an unauthorized healthy change; correctness and authorization are independent gates. |
-| Git identity | **[MEASURED]** Commit `3a1ca446` and repository Git configuration use `Michael Wirth <mike.wirth@gmail.com>`, the same identity used by agents and the operator. |
+| Git identity | **[MEASURED]** Commit `3a1ca446` and repository Git configuration use `Example Person <person@example.com>`, the same identity used by agents and the operator. |
 | Git attribution | **[MEASURED]** The commit trailer identifies POD-279 but contains no session ID, model, agent-versus-human marker, approval identity, or approval event. |
 | Main update enforcement | **[MEASURED]** The agent could advance local `main` with `git merge --ff-only` and update origin with `git push origin main`; no command event records a human-approval check or branch-protection refusal. |
 | Issue activity | **[MEASURED]** No activity entry recorded a new landing decision between the 01:11 handoff plan and the main update. |

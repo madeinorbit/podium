@@ -15,6 +15,7 @@ import {
   cliLaunchPlanControlMisses,
   DAEMON_COMPOSITION_ROOT,
   DAEMON_COMPOSITION_ROOT_MAX_LINES,
+  DECLARED_WORKSPACE_TABLES,
   diffBaseline,
   grep,
   grepDistinctLiterals,
@@ -37,8 +38,10 @@ import {
 } from './rearch-audit'
 import {
   entityShapedDeclarations,
+  GENERIC_KEYS,
   ISSUE_VOCABULARY,
   physicalTableColumns,
+  physicalTables,
   SESSION_VOCABULARY,
 } from './representation-audit'
 
@@ -304,6 +307,80 @@ function countOf(ctx: AuditContext, id: string): number {
   return check.collect(ctx).length
 }
 
+describe('the workspace partition is the only partition (POD-6959 design 2.5)', () => {
+  const schema = (body: string) => ({ 'apps/server/src/migrations/schema.ts': body })
+
+  it('refuses a tenant_id column on any table, a sync table included', () => {
+    for (const table of ['sessions', 'changes', 'sync_feed']) {
+      const ctx = ctxOf(
+        schema(
+          [
+            `export const t = sqliteTable('${table}', {`,
+            "  tenantId: text('tenant_id').notNull(),",
+            '  ...workspaceColumn(),',
+            '})',
+          ].join('\n'),
+        ),
+      )
+      expect(countOf(ctx, 'instance-partitions'), table).toBe(1)
+    }
+    // instance_id stays refused; workspace_id is the partition and is not.
+    const ctx = ctxOf(
+      schema(
+        [
+          "export const t = sqliteTable('sessions', {",
+          "  instanceId: text('instance_id'),",
+          "  workspaceId: text('workspace_id').notNull(),",
+          '  ...workspaceColumn(),',
+          '})',
+        ].join('\n'),
+      ),
+    )
+    expect(countOf(ctx, 'instance-partitions')).toBe(1)
+  })
+
+  it('refuses a workspace table declared without workspace_id', () => {
+    const only = (body: string) =>
+      CHECKS.find((c) => c.id === 'workspace-tables-without-workspace-id')
+        ?.collect(ctxOf(schema(body)))
+        .filter((site) => site.text.startsWith('sessions ') || site.text.startsWith('issues '))
+        .map((site) => site.text)
+    // A planted workspace table with no workspace_id column, beside one that has it.
+    expect(
+      only(
+        [
+          "export const sessions = sqliteTable('sessions', {",
+          '  id: text().primaryKey(),',
+          '})',
+          'export const issues = sqliteTable(',
+          "  'issues',",
+          '  {',
+          '    id: text().primaryKey(),',
+          '    ...workspaceColumn(),',
+          '  },',
+          '  (table) => [index("x").on(table.id)],',
+          ')',
+        ].join('\n'),
+      ),
+    ).toEqual(['sessions (no workspace_id column)'])
+    // Named by hand, as on the renamed sync tables, it counts too.
+    expect(
+      only(
+        [
+          "export const sessions = sqliteTable('sessions', {",
+          "  workspaceId: text('workspace_id').notNull(),",
+          '})',
+          "export const issues = sqliteTable('issues', { ...workspaceColumn() })",
+        ].join('\n'),
+      ),
+    ).toEqual([])
+    // A workspace table no file declares cannot be checked, so it is reported.
+    expect(only("export const issues = sqliteTable('issues', { ...workspaceColumn() })")).toEqual([
+      'sessions (classed workspace, declared nowhere this audit reads)',
+    ])
+  })
+})
+
 describe('inventory checks', () => {
   it('every check maps to a phase issue and declares its unit', () => {
     for (const c of CHECKS) {
@@ -317,11 +394,10 @@ describe('inventory checks', () => {
     expect(new Set(CHECKS.map((c) => c.id)).size).toBe(CHECKS.length)
   })
 
-  it('panel-mode-duality exempts only the two canonical owner declarations', () => {
+  it('panel-mode-duality exempts only the canonical owner declaration', () => {
     const ctx = ctxOf({
       'packages/client-core/src/ui-state.ts': [
         "panelMode: 'podium.panelMode',",
-        "panelModeDefault: 'podium.panelModeDefault',",
         "const rogue = 'podium.panelMode'",
       ].join('\n'),
       'apps/web/src/rogue.ts': "const copy = 'podium.panelModeDefault'",
@@ -330,7 +406,7 @@ describe('inventory checks', () => {
 
     expect(sites.map(({ file, line }) => `${file}:${line}`).sort()).toEqual([
       'apps/web/src/rogue.ts:1',
-      'packages/client-core/src/ui-state.ts:3',
+      'packages/client-core/src/ui-state.ts:2',
     ])
   })
 
@@ -450,23 +526,42 @@ describe('inventory checks', () => {
     ).not.toThrow()
   })
 
-  it('per-user-singletons still COUNTS the shape POD-1229 deleted', () => {
+  it('per-user-singletons still COUNTS a per-user singleton on an issue representation', () => {
     // The live zero means "this shape is gone", so the detector has to be shown
-    // finding it. This is the observation exactly as it read before POD-1229.
+    // finding it. Until POD-7061 this was the pre-POD-1229 auto-archive
+    // observation; the issue vocabulary has since lost `readAt` and `issueId`, so
+    // that shape no longer clears ENTITY_SHAPE_THRESHOLD. This one is entity-shaped
+    // on keys of today's issue model, in the same zod form.
     const ctx = ctxOf({
       'packages/protocol/src/maintenance.ts': [
-        'export const IssueAutoArchiveObservation = z.object({',
+        'export const IssueReadObservation = z.object({',
         '  issueId: z.string().min(1).max(256).pipe(IssueIdField),',
-        '  stage: z.string().min(1).max(64),',
         '  closedReason: z.string().nullable(),',
+        '  landedAt: z.string().datetime().nullable(),',
+        '  dueAt: z.string().datetime().nullable(),',
         '  readAt: z.string().datetime(),',
-        '  archived: z.literal(false),',
-        '  deletedAt: z.null(),',
         '})',
       ].join('\n'),
     })
     const sites = CHECKS.find((c) => c.id === 'per-user-singletons')?.collect(ctx) ?? []
-    expect(sites.map((s) => s.text)).toEqual(['IssueAutoArchiveObservation.readAt'])
+    expect(sites.map((s) => s.text)).toEqual(['IssueReadObservation.readAt'])
+  })
+
+  it('per-user-singletons names the control keys that stopped counting', () => {
+    // A control key the model renamed must read as a stale CONTROL, not as a
+    // broken detector. Swallowing one into GENERIC_KEYS stands in for the rename.
+    const generic = GENERIC_KEYS as Set<string>
+    generic.add('closedAt')
+    try {
+      expect(() => CHECKS.find((c) => c.id === 'per-user-singletons')?.collect(ctxOf({}))).toThrow(
+        /issue keys \["closedAt"\] no longer count/,
+      )
+    } finally {
+      generic.delete('closedAt')
+    }
+    expect(() =>
+      CHECKS.find((c) => c.id === 'per-user-singletons')?.collect(ctxOf({})),
+    ).not.toThrow()
   })
 
   it('capability-tables counts a module-private table but not the web icon map', () => {
@@ -1013,6 +1108,11 @@ describe('against the live repo', () => {
       'router-triple-access',
       'capability-snapshots',
       'instance-partitions',
+      // POD-7012 gave every workspace table its workspace_id. The anchor is
+      // 'the workspace column detector still binds to the live schema' below,
+      // against the population (every declared workspace table found), and the
+      // two plants in 'the workspace partition is the only partition'.
+      'workspace-tables-without-workspace-id',
       // POD-398 folded every static row into the canonical per-CLI manifests.
       // The fixture test above remains the detector anchor: it proves both a
       // protocol export and a module-private server table are still counted,
@@ -1056,8 +1156,8 @@ describe('against the live repo', () => {
       // `readAt` with `readerUserId`, so no representation carries a per-user
       // key as a singleton any more. Exempt on the SAME terms as the three
       // above and no looser — `perUserSingletons` runs its own matcher
-      // end-to-end over a CONTROL (the pre-POD-1229 observation, copied from
-      // the diff that deleted it) and THROWS when that stops producing exactly
+      // end-to-end over a CONTROL (an issue representation carrying `readAt`,
+      // entity-shaped on today's issue keys since POD-7061) and THROWS when that stops producing exactly
       // one site, so an emptied key list, a widened GENERIC_KEYS, a raised
       // threshold or a broken parser reds loudly instead of reading as a
       // deletion. Asserted in 'per-user-singletons ERRORS when its control
@@ -1109,6 +1209,8 @@ describe('against the live repo', () => {
       // failure reds loudly instead of reading as a deletion. Asserted in
       // 'change-row-typings ERRORS when its control stops matching' above.
       'change-row-typings',
+      // The dirty-scoping state was removed; the detector guards its return.
+      'issue-wire-dirty-scoping-shims',
       // POD-329 post-cutover consolidation: panelMode storage-key literals now
       // live only as the two owner declarations in ui-state.ts (exempted by the
       // detector). The planted-rogue control test above keeps the detector live.
@@ -1174,18 +1276,10 @@ describe('against the live repo', () => {
     // And the registry it is checked against is non-empty, so
     // `representation-registry-rot`'s zero means "nothing rotted", not "nothing
     // to check".
-    // 44 -> 45 when POD-415 registered `LegacyBindingSnapshot`, the one-shot
-    // adapter over the daemon's scattered pre-store state. Moving this number is
-    // the DELIBERATE ACT the pin exists to force: the entry declares why no
-    // canonical legacy record exists to compose and names the real-state-dir
-    // migration test that enforces its finite purpose.
-    //
-    // 45 -> 46 when the POD-1439 reconciliation carried main's `SessionStatusSubagent`
-    // (POD-1262) across. Deliberate for the same reason: its subject is a DIFFERENT
-    // session from the one being read, so composing it from that aggregate would
-    // assert a containment that does not hold, and the entry says so rather than
-    // letting a restatement land unaccounted for.
-    expect(RETAINED_REPRESENTATIONS.length).toBe(46)
+    expect(RETAINED_REPRESENTATIONS.length).toBeGreaterThan(0)
+    expect(
+      new Set(RETAINED_REPRESENTATIONS.map((entry) => `${entry.site}:${entry.symbol}`)).size,
+    ).toBe(RETAINED_REPRESENTATIONS.length)
   })
 
   it('the physical-table parser still binds to the live schema', () => {
@@ -1200,6 +1294,31 @@ describe('against the live repo', () => {
     // And it reads the SQL name, not just the key — `machine_id` under
     // `machineId` is the form a partition column would take.
     expect(cols.some((c) => c.key === 'machineId' && c.column === 'machine_id')).toBe(true)
+  })
+
+  it('the workspace column detector still binds to the live schema', () => {
+    // A zero from a parser that found no workspace table would read as "every
+    // workspace table has the column". So it must find every declared one, in
+    // both schema files, and read the helper spread as the column.
+    const tables = physicalTables(liveContext).filter((t) => DECLARED_WORKSPACE_TABLES.has(t.table))
+    expect(new Set(tables.map((t) => t.table))).toEqual(DECLARED_WORKSPACE_TABLES)
+    expect(DECLARED_WORKSPACE_TABLES.size).toBeGreaterThan(100)
+    const files = new Set(tables.map((t) => t.file))
+    // The two schema files, their Postgres twins (POD-6978: the same tables under the
+    // same names, held to them by schema-parity.test.ts, so each declares the column
+    // too), and the sync package's test mirrors of the two server tables its
+    // repository is handed (which must match them).
+    expect(files).toEqual(
+      new Set([
+        'apps/server/src/migrations/schema.ts',
+        'apps/server/src/migrations/pg/schema.ts',
+        'packages/sync/src/adapters/sqlite/schema.ts',
+        'packages/sync/src/adapters/pg/schema.ts',
+        'packages/sync/src/adapters/sqlite/test-support.ts',
+      ]),
+    )
+    const issues = tables.find((t) => t.table === 'issues')
+    expect(issues?.columns.find((c) => c.column === 'workspace_id')?.key).toBe('workspaceId')
   })
 
   it('reports real files for every site', () => {

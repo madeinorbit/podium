@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueBodyValues, IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 import {
   artifactKind,
@@ -29,7 +29,10 @@ function sess(id: string, cwd: string, over: Partial<SessionViewInput> = {}): Se
   } as unknown as SessionView
 }
 
-function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
+/** A row with its panel painted on (POD-6767), as the dock reads a pool issue. */
+type PanelIssue = IssueViewModel & IssueBodyValues
+
+function issue(over: Partial<UnbrandIds<PanelIssue>> = {}): PanelIssue {
   return {
     id: 'i1',
     seq: 7,
@@ -37,7 +40,7 @@ function issue(over: Partial<UnbrandIds<IssueViewModel>> = {}): IssueViewModel {
     worktreePath: '/repo/.worktrees/issue-7',
     panel: undefined,
     ...over,
-  } as unknown as IssueViewModel
+  } as unknown as PanelIssue
 }
 
 describe('readStoredDockTab', () => {

@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionModel } from '@podium/client-graph'
 import type { SessionOffer } from '@podium/model/browser'
 import { ChevronDown, Pencil, X } from 'lucide-react'
 import { type JSX, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
@@ -190,7 +190,7 @@ export function OfferBar({
   onDismiss?: (offerCreatedAt: string) => Promise<void> | void
   /** When given, the offer's issue-artifact evidence renders as a row of tiles
    *  [POD-120] (needs the session to find its issue + input recency). */
-  session?: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
+  session?: SessionModel
 }): JSX.Element {
   // `collapsed` is the card itself folded down to its header and headline.
   const [collapsed, setCollapsed] = useState(false)

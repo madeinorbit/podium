@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { fileByteSource } from './byte-source'
 import { decodeCursor, encodeCursor } from './cursor-codec'
 import type { ChainEntry } from './file-chain'
 import { fileIdFor } from './file-chain'
@@ -35,7 +36,7 @@ describe('readFileItems', () => {
         { id: t.uuid, role: t.type, text: t.message.content[0]?.text },
       ] as unknown as TranscriptItem[]
     }
-    const items = await readFileItems(path, 'FID', toItems)
+    const items = await readFileItems(fileByteSource(path), 'FID', toItems)
     expect(items.map((i) => i.text)).toEqual(['hi', 'yo'])
     const first = items[0]
     expect(first).toBeDefined()
@@ -67,7 +68,7 @@ describe('readFileItems', () => {
     // r2 are whole records within the window and survive. end is past EOF.
     const start = Math.floor(off1 / 2)
     const end = off2 + Buffer.byteLength(r2) + 1
-    const items = await readFileItems(path, 'FID', toItems, { start, end })
+    const items = await readFileItems(fileByteSource(path), 'FID', toItems, { start, end })
     // The record straddling `start` (r0) must NOT appear; the following whole
     // records do.
     expect(items.map((i) => i.text)).toEqual(['second', 'third'])
@@ -96,7 +97,7 @@ describe('readFileItems', () => {
     // tailer flushes this trailing record; a whole-file read must match it (not drop
     // it as a torn write) so a reset-driven re-read can't make the newest msg vanish.
     await writeFile(path, `${[r0, r1].join('\n')}\n${r2}`)
-    const items = await readFileItems(path, 'FID', idxToItems)
+    const items = await readFileItems(fileByteSource(path), 'FID', idxToItems)
     expect(items.map((i) => i.text)).toEqual(['first', 'second', 'third'])
     // The flushed record's cursor offset is its TRUE absolute file offset.
     const off2 = Buffer.byteLength(r0) + 1 + Buffer.byteLength(r1) + 1
@@ -114,7 +115,7 @@ describe('readFileItems', () => {
     // Window ends partway INTO r2 (strictly before EOF): r2 is an incomplete fragment
     // here, more bytes follow on disk, so it must be dropped — only an EOF read flushes.
     const end = off2 + Math.floor(Buffer.byteLength(r2) / 2)
-    const items = await readFileItems(path, 'FID', idxToItems, { start: 0, end })
+    const items = await readFileItems(fileByteSource(path), 'FID', idxToItems, { start: 0, end })
     expect(items.map((i) => i.text)).toEqual(['first', 'second'])
   })
 })
@@ -141,7 +142,7 @@ async function bigFile(n: number): Promise<{ chain: ChainEntry[]; path: string; 
   }
   await writeFile(path, `${lines.join('\n')}\n`)
   const { size } = await stat(path)
-  return { chain: [{ path, fileId: fileIdFor(path) }], path, size }
+  return { chain: [{ source: fileByteSource(path), fileId: fileIdFor(path) }], path, size }
 }
 
 /** Write two chained JSONL files: f1 holds items 0..4, f2 holds items 5..9.
@@ -155,8 +156,8 @@ async function twoFiles(): Promise<{ chain: ChainEntry[]; toItems: typeof idxToI
   await writeFile(f1, `${lines1.join('\n')}\n`)
   await writeFile(f2, `${lines2.join('\n')}\n`)
   const chain: ChainEntry[] = [
-    { path: f1, fileId: fileIdFor(f1) },
-    { path: f2, fileId: fileIdFor(f2) },
+    { source: fileByteSource(f1), fileId: fileIdFor(f1) },
+    { source: fileByteSource(f2), fileId: fileIdFor(f2) },
   ]
   return { chain, toItems: idxToItems }
 }
@@ -457,7 +458,7 @@ describe('readTranscriptSlice', () => {
       lines.push(JSON.stringify(r))
     }
     await writeFile(path, `${lines.join('\n')}\n`)
-    const chain: ChainEntry[] = [{ path, fileId: fileIdFor(path) }]
+    const chain: ChainEntry[] = [{ source: fileByteSource(path), fileId: fileIdFor(path) }]
 
     const newest = await readTranscriptSlice(chain, idxToItems, {
       direction: 'before',
@@ -534,7 +535,7 @@ describe('readTranscriptSlice', () => {
         { id: t.uuid, role: t.type, text: t.message.content[0]?.text },
       ] as unknown as TranscriptItem[]
     }
-    const chain: ChainEntry[] = [{ path, fileId: fileIdFor(path) }]
+    const chain: ChainEntry[] = [{ source: fileByteSource(path), fileId: fileIdFor(path) }]
 
     // Anchor on record A; page the `limit` after it. We want the first `'newer'`
     // window to span the anchor record A plus EXACTLY `limit` strictly-after records
@@ -608,7 +609,7 @@ describe('readTranscriptSlice', () => {
         text: c.text,
       })) as unknown as TranscriptItem[]
     }
-    const chain: ChainEntry[] = [{ path, fileId: fileIdFor(path) }]
+    const chain: ChainEntry[] = [{ source: fileByteSource(path), fileId: fileIdFor(path) }]
 
     // Sequence of items is: 0a,0b,1a,1b,2a,2b,3a,3b,4a,4b (record i → sub 0,1).
     const all = await readTranscriptSlice(chain, twoItems, { direction: 'before', limit: 100 })
@@ -668,7 +669,7 @@ describe('UUID-first rewrite anchoring', () => {
     const dir = await mkdtemp(join(tmpdir(), 'anchor-rewrite-'))
     const path = join(dir, 'transcript.jsonl')
     const lines = ['a', 'b', 'c'].map((uuid) => JSON.stringify({ uuid, text: uuid }))
-    const chain = [{ path, fileId: 'session' }]
+    const chain = [{ source: fileByteSource(path), fileId: 'session' }]
     await writeFile(path, `${lines.join('\n')}\n`)
     const initial = await readTranscriptSlice(chain, mapper, { direction: 'after', limit: 10 })
     expect(await readTranscriptSlice(chain, mapper, { direction: 'after', limit: 10 })).toEqual(
@@ -702,7 +703,7 @@ describe('UUID-first rewrite anchoring', () => {
     const dir = await mkdtemp(join(tmpdir(), 'anchor-position-'))
     const path = join(dir, 'transcript.jsonl')
     const lines = ['a', 'b', 'c'].map((text) => JSON.stringify({ text }))
-    const chain = [{ path, fileId: 'session' }]
+    const chain = [{ source: fileByteSource(path), fileId: 'session' }]
     await writeFile(path, `${lines.join('\n')}\n`)
     const initial = await readTranscriptSlice(chain, mapper, { direction: 'after', limit: 10 })
     expect(decodeCursor(initial.items[2]?.cursor ?? '')?.uuid).toBeNull()

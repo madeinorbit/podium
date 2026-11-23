@@ -43,9 +43,13 @@ import { decodeCursor, encodeCursor } from './cursor-codec'
  * The families do not agree on what identity means, which is exactly why this
  * cannot be `item.id`:
  *
- *   - CODEX and GROK give an item a provider id that is stable for its whole
- *     life (`msg_…`, `grok-assistant-<eventId>`). Their deltas already carry it
- *     and their complete items already are it.
+ *   - CODEX gives an item a provider id that is stable for its whole life
+ *     (`msg_…`). Its deltas already carry it and its complete items already
+ *     are it.
+ *   - GROK streams a reply under its first chunk's `grok-assistant-<eventId>`,
+ *     but files the whole reply under its last chunk's eventId, which is the
+ *     complete item's id (POD-7003); the complete item carries the first as
+ *     `streamId`.
  *   - OPENCODE assigns each item an encoded (session namespace, offset 0,
  *     partId, sub) identity. Text uses sub 0; tool calls/results use sub 0/1.
  *     Its paging cursor uses timeCreated as the offset, which does not change
@@ -61,6 +65,9 @@ import { decodeCursor, encodeCursor } from './cursor-codec'
  * refuses a driver whose fragments join to nothing.
  */
 export function streamItemIdOf(item: TranscriptItem): string {
+  // A grammar that knows the provider's message id names the stream by it
+  // (Claude: the API message id, streamed before the record exists).
+  if (item.streamId) return item.streamId
   return item.cursor ? (streamIdOfCursor(item.cursor) ?? item.id) : item.id
 }
 

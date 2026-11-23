@@ -33,25 +33,6 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
     return ancestors
   }
 
-  async ownedTarget(id: IssueId, action: IssueAction) {
-    const row = await readIssue(this.issues, id)
-    if (!row) return undefined
-    const covers = (verb: string): boolean =>
-      action === 'read'
-        ? verb === 'read' || verb === 'write' || verb === 'manage'
-        : action === 'write'
-          ? verb === 'write' || verb === 'manage'
-          : verb === 'manage'
-    return {
-      kind: 'owned' as const,
-      id: row.id,
-      owner: row.ownerUserId ?? null,
-      grants: (await this.grants.loadForResource('issue', row.id))
-        .filter((edge) => covers(edge.verb))
-        .map((edge) => edge.grantee),
-    }
-  }
-
   async getMeta(id: IssueId) {
     return await readIssue(this.issues, id)
   }

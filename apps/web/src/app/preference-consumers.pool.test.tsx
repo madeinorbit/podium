@@ -1,9 +1,7 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import { EXISTING_PODIUM_CLIENT_DRAFT_KEY, type RoutedUiState } from '@podium/client-core/ui-state'
 import { MobxPool } from '@podium/client-graph'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
+import { observable, runInAction } from 'mobx'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -23,12 +21,19 @@ const ports = vi.hoisted(() => ({
   ui: null as RoutedUiState | null,
 }))
 
-vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ get access() { return ({ uiState: ports.ui }) } }),
-  useRuntimeSelector: () => {
-    throw new Error('Preference consumers must use the pool')
-  },
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      get access() {
+        return { uiState: ports.ui }
+      },
+    })),
+    readFixture: () => {
+      throw new Error('Preference consumers must use the pool')
+    },
+  }
+})
 
 vi.mock('@/app/store-worklist-pool', async () => {
   const { useMemo, useSyncExternalStore } = await import('react')
@@ -50,16 +55,18 @@ vi.mock('@/app/store-worklist-pool', async () => {
   }
 })
 
-describe('pool-only preference consumers', () => {
+describe('preferences from their loaded device owner', () => {
   let pool: MobxPool
   let root: Root
   let container: HTMLDivElement
   let ui: RoutedUiState
-  const values = new Map<string, string>()
+  const values = observable.map<string, string>()
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const publish = (key: string, value: string | null) => {
-    if (value === null) values.delete(key)
-    else values.set(key, value)
+    runInAction(() => {
+      if (value === null) values.delete(key)
+      else values.set(key, value)
+    })
     for (const wake of listeners) wake(new Set([key]))
   }
   const paint = (node: ReactNode) => act(() => root.render(node))
@@ -104,7 +111,7 @@ describe('pool-only preference consumers', () => {
     ports.ui = null
   })
 
-  it('hydrates draft, persisted value and form seed together, retaining functional setters and later arrivals', async () => {
+  it('paints the loaded draft and form seed together, retaining functional setters and later arrivals', async () => {
     const key = EXISTING_PODIUM_CLIENT_DRAFT_KEY
     values.set(key, 'saved draft')
     function Draft() {
@@ -129,16 +136,20 @@ describe('pool-only preference consumers', () => {
       )
     }
     paint(<Draft />)
-    expect(container.querySelector('[data-value="draft"]')?.textContent).toBe('')
-    expect(container.querySelector('[data-value="seed"]')?.textContent).toBe('loading')
-    expect(ui.get).not.toHaveBeenCalled()
+    expect([...container.querySelectorAll('output')].map((row) => row.textContent)).toEqual([
+      'saved draft',
+      'saved draft',
+      'saved draft',
+    ])
     await settle()
     expect([...container.querySelectorAll('output')].map((row) => row.textContent)).toEqual([
       'saved draft',
       'saved draft',
       'saved draft',
     ])
-    expect(ui.get).toHaveBeenCalledTimes(1)
+    expect(new Set(vi.mocked(ui.get).mock.calls.map(([readKey]) => readKey))).toEqual(
+      new Set([key]),
+    )
     act(() => container.querySelector('button')?.click())
     expect(ui.set).toHaveBeenNthCalledWith(1, key, 'saved draft!')
     expect(ui.set).toHaveBeenNthCalledWith(2, key, 'saved draft!!')
@@ -184,20 +195,17 @@ describe('pool-only preference consumers', () => {
     )
   }
 
-  const density = (enabled: boolean) => (
-    <DensityProvider densityEnabled={enabled}>
+  const density = () => (
+    <DensityProvider>
       <Density />
     </DensityProvider>
   )
 
-  it('keeps compact dormant while disabled, then adopts saved and replicated density with the existing writer', async () => {
+  it('adopts saved and replicated density with the existing writer', async () => {
     values.set(SHELL_DENSITY_KEY, 'compact')
-    paint(density(false))
+    paint(density())
     await settle()
-    expect(container.textContent).toBe('balanced')
-    expect(document.documentElement.dataset.density).toBe('balanced')
     expect(ui.set).not.toHaveBeenCalled()
-    paint(density(true))
     expect(container.textContent).toBe('compact')
     expect(document.documentElement.dataset.density).toBe('compact')
     act(() => container.querySelector('button')?.click())
@@ -210,19 +218,21 @@ describe('pool-only preference consumers', () => {
     expect(document.documentElement.dataset.density).toBe('compact')
   })
 
-  it('paints balanced before the pool arrives and batches the declared density load', async () => {
+  it('reads saved density before the pool arrives and follows later device changes', async () => {
     values.set(SHELL_DENSITY_KEY, 'compact')
     ports.pool = null
-    paint(density(true))
-    expect(container.textContent).toBe('balanced')
-    expect(ui.get).not.toHaveBeenCalled()
-    ports.pool = pool
-    paint(density(true))
-    expect(omitGone(pool.row('preference', SHELL_DENSITY_KEY))).toBe(LOADING)
-    expect(container.textContent).toBe('balanced')
-    await settle()
+    paint(density())
     expect(container.textContent).toBe('compact')
-    expect(ui.get).toHaveBeenCalledExactlyOnceWith(SHELL_DENSITY_KEY)
-    expect((preferenceSource(pool)?.counts ?? null)?.batches).toBe(1)
+    expect(document.documentElement.dataset.density).toBe('compact')
+    expect(ui.set).not.toHaveBeenCalled()
+    // Density is a loaded device preference and has no dependency on a pool
+    // fetch or a second preference-value cache.
+    ports.pool = pool
+    paint(density())
+    expect(container.textContent).toBe('compact')
+    act(() => publish(SHELL_DENSITY_KEY, 'balanced'))
+    expect(container.textContent).toBe('balanced')
+    expect(document.documentElement.dataset.density).toBe('balanced')
+    expect((preferenceSource(pool)?.counts ?? null)?.batches).toBe(0)
   })
 })

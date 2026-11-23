@@ -1,4 +1,5 @@
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 /**
  * The server's statement path (POD-3239 B6, reshaped by POD-4771).
  *
@@ -30,6 +31,7 @@ function makeClient(id: string): Sent {
     id,
     principal: userClientPrincipal(id, OWNER, 'admin'),
     send: (m: ServerMessage) => sent.push(m),
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

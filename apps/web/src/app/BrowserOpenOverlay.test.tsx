@@ -1,6 +1,7 @@
 import { asSessionId } from '@podium/model'
 import type { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from '@podium/protocol'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const h = vi.hoisted(() => {
@@ -49,6 +50,19 @@ function emit(kind: 'openUrl' | 'openUrlResult', message: unknown): void {
 
 afterEach(cleanup)
 
+/** The toast's action is a node (copy + Open); render it and click a button by name. */
+function clickToastButton(name: string, call = 0): void {
+  const options = h.toast.mock.calls[call]?.[1] as { action: ReactElement }
+  const { container } = render(options.action)
+  act(() => fireEvent.click(within(container).getByRole('button', { name })))
+}
+
+function stubClipboard(): ReturnType<typeof vi.fn> {
+  const writeText = vi.fn(() => Promise.resolve())
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  return writeText
+}
+
 const request: SessionOpenUrlMessage = {
   type: 'sessionOpenUrl',
   sessionId: asSessionId('s1'),
@@ -94,7 +108,7 @@ describe('BrowserOpenOverlay', () => {
 
     expect(h.toast).toHaveBeenCalledWith(
       'Remote Codex wants to open auth.example',
-      expect.objectContaining({ action: expect.objectContaining({ label: 'Open' }) }),
+      expect.objectContaining({ action: expect.anything() }),
     )
     expect(opened).toEqual([])
 
@@ -165,8 +179,7 @@ describe('BrowserOpenOverlay', () => {
     expect(screen.queryByLabelText('Pending agent browser requests')).toBeNull()
     expect(h.toast).toHaveBeenCalledWith('Remote Codex wants to open claude.ai', expect.anything())
 
-    const options = h.toast.mock.calls[0]?.[1] as { action: { onClick: () => void } }
-    act(() => options.action.onClick())
+    clickToastButton('Open')
     expect(opened).toEqual([{ href: link.url, target: '_blank', rel: 'noopener noreferrer' }])
     expect(h.hub.dismissOpenUrl).toHaveBeenCalledWith('s1', 'open-2')
     // The revoke is what stops the server re-offering this request on every
@@ -177,12 +190,38 @@ describe('BrowserOpenOverlay', () => {
     expect(h.toast.dismiss).toHaveBeenCalledWith('browser-open-s1:open-2')
   })
 
+  it('copies the sign-in link from the login card without opening it', async () => {
+    const { opened } = captureOpens()
+    const writeText = stubClipboard()
+    render(<BrowserOpenOverlay />)
+    emit('openUrl', request)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy sign-in link' }))
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(request.url)
+    await vi.waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Sign-in link copied'))
+    expect(opened).toEqual([])
+    expect(h.hub.dismissOpenUrl).not.toHaveBeenCalled()
+  })
+
+  it('copies the URL from the toast and leaves the request open', async () => {
+    const { opened } = captureOpens()
+    const writeText = stubClipboard()
+    render(<BrowserOpenOverlay />)
+    emit('openUrl', { ...request, requestId: 'open-3', intent: 'link', callbackTarget: undefined })
+
+    clickToastButton('Copy link')
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(request.url)
+    await vi.waitFor(() => expect(h.toast.success).toHaveBeenCalledWith('Link copied'))
+    expect(opened).toEqual([])
+    expect(h.hub.dismissOpenUrl).not.toHaveBeenCalled()
+    expect(h.toast.dismiss).not.toHaveBeenCalled()
+  })
+
   it('keeps a login request pending after opening (fallback: callbackTarget implies login)', () => {
     captureOpens()
     render(<BrowserOpenOverlay />)
     emit('openUrl', request)
-    const options = h.toast.mock.calls[0]?.[1] as { action: { onClick: () => void } }
-    act(() => options.action.onClick())
+    clickToastButton('Open')
     expect(h.hub.dismissOpenUrl).not.toHaveBeenCalled()
     expect(screen.getByLabelText('Paste the localhost callback URL')).not.toBeNull()
   })

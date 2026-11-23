@@ -14,9 +14,9 @@ import {
   shipRepairRef,
 } from '@podium/model'
 import {
+  type ShippingJobRequestMessage,
   shippingJobRequestFingerprint,
   shippingTrainSubsetFingerprint,
-  type ShippingJobRequestMessage,
 } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it } from 'vitest'
 import { ShippingExecutionPlane } from './executor'
@@ -787,11 +787,7 @@ describe('shipping daemon restart recovery', () => {
         plane.handle(signed({ ...common, jobId: `proof-attempt:${operation}`, operation })),
       ).toMatchObject({ state: 'succeeded' })
     }
-    proofGit(
-      'update-ref',
-      'refs/podium/ship/other-order-proof-attempt-1-single/candidate',
-      head,
-    )
+    proofGit('update-ref', 'refs/podium/ship/other-order-proof-attempt-1-single/candidate', head)
     const otherOrder = plane.handle(
       signed({
         ...common,
@@ -864,6 +860,11 @@ describe('shipping daemon restart recovery', () => {
         daemonRuntime,
       ])
       let crashOutput = ''
+      let crashError = ''
+      crashed.stderr.setEncoding('utf8')
+      crashed.stderr.on('data', (chunk: string) => {
+        crashError += chunk
+      })
       crashed.stdout.setEncoding('utf8')
       crashed.stdout.on('data', (chunk: string) => {
         crashOutput += chunk
@@ -872,7 +873,7 @@ describe('shipping daemon restart recovery', () => {
         number | null,
         NodeJS.Signals | null,
       ]
-      expect(crashOutput).toContain('completion-boundary')
+      expect(crashOutput, crashError).toContain('completion-boundary')
       expect({ code, signal }).toEqual({ code: null, signal: 'SIGKILL' })
 
       const recoveredOutput = execFileSync(

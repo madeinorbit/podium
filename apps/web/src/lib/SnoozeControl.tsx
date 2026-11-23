@@ -1,11 +1,11 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
 import { AlarmClock, AlarmClockOff } from 'lucide-react'
 import { type JSX, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { MENU_ITEM, MENU_PANEL, MENU_SECTION_LABEL } from './menu-surface'
 import { useDeadlineNow } from './clock-hooks'
@@ -61,11 +61,15 @@ export function SnoozeControl({
    *  passes false so it reads as a normal, full-strength control. */
   dimmed?: boolean
 }): JSX.Element {
-  const { setSnooze, clearSnooze } = useRuntimeSelector(
-    (s) => ({ setSnooze: s.setSnooze, clearSnooze: s.clearSnooze }),
-    shallowEqual,
+  const { setSnooze, clearSnooze } = {
+    setSnooze: useCommands<Trpc>().sessions.snooze,
+    clearSnooze: useCommands<Trpc>().sessions.clearSnooze,
+  }
+  const now = useDeadlineNow(
+    session.snoozedUntil && session.snoozedUntil !== 'forever'
+      ? Date.parse(session.snoozedUntil)
+      : undefined,
   )
-  const now = useDeadlineNow(session.snoozedUntil && session.snoozedUntil !== 'forever' ? Date.parse(session.snoozedUntil) : undefined)
   const snoozed = isSnoozed(session, now)
   const menuKey = useId()
   const open = useIsActiveMenu(menuKey)

@@ -1,9 +1,114 @@
-import { asMachineId, type MachineId, machinePathKey, machinePathSeparator } from '@podium/model'
-import { and, eq, isNotNull, or, type SQL, sql } from 'drizzle-orm'
-import { conversations } from '../../migrations/schema'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from '../executor/sync-drizzle'
-import { executeRaw, inListOf, inListSize, inListValues, param, prepared, preparedFamily } from '../executor/sync-drizzle'
+// workspace-scoped (POD-6959)
+import {
+  asMachineId,
+  ConversationRecordWire,
+  type MachineId,
+  machinePathKey,
+  machinePathSeparator,
+} from '@podium/model'
+import type { WriteScope } from '@podium/sync'
+import {
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  gt,
+  isNotNull,
+  or,
+  type Placeholder,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
+import type { conversations } from '../../migrations/schema'
+import { captureWrite } from '../../sync/capture-pg'
+import { dialectOf } from '../executor/dialect-prepared'
+import type {
+  StoreDrizzle,
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from '../executor/sync-drizzle'
+import {
+  executeRaw,
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  prepared,
+  preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
+} from '../executor/sync-drizzle'
+import { withoutNul } from '../messages'
 import type { ConversationIndexRow } from '../types'
+import { conversationMatches, onSqliteOnly, tsqueryOf } from './search-pg'
+
+const recordColumns = (t: StoreTables) => ({
+  ...getTableColumns(t.conversations),
+  podiumId: t.conversationSegments.podiumId,
+})
+/** The segment of a conversation row, in the conversation's workspace. */
+const segmentOf = (t: StoreTables) =>
+  and(
+    sameWorkspace(t.conversationSegments, t.conversations),
+    eq(t.conversationSegments.machineId, t.conversations.machineId),
+    eq(t.conversationSegments.nativeId, t.conversations.id),
+  )
+const recordRows = preparedFamily((db, t, size: number) =>
+  db
+    .select(recordColumns(t))
+    .from(t.conversations)
+    .leftJoin(t.conversationSegments, segmentOf(t))
+    .where(inWorkspace(t.conversations, inListOf(t.conversations.id, size)))
+    .prepare(),
+)
+const recordPage = preparedFamily((db, t, phase: 'start' | 'after') =>
+  db
+    .select(recordColumns(t))
+    .from(t.conversations)
+    .leftJoin(t.conversationSegments, segmentOf(t))
+    .where(
+      inWorkspace(
+        t.conversations,
+        phase === 'after' ? gt(t.conversations.id, param(t.conversations.id, 'after')) : undefined,
+      ),
+    )
+    .orderBy(asc(t.conversations.id))
+    .limit(sql.placeholder('limit'))
+    .prepare(),
+)
+/** The synced record of one index row. `updatedAt` and `messageCount` stay in
+ *  the index for recency and search, never on the record (POD-6768). */
+function conversationRecordOf(
+  row: typeof conversations.$inferSelect & { podiumId: string | null },
+): ConversationRecordWire {
+  const {
+    resumeKind,
+    resumeValue,
+    // The workspace is the repository's, never a record field.
+    workspaceId: _workspaceId,
+    updatedAt: _updatedAt,
+    messageCount: _messageCount,
+    ...fields
+  } = row
+  return ConversationRecordWire.parse({
+    ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)),
+    ...(resumeKind !== null && resumeValue !== null
+      ? { resume: { kind: resumeKind, value: resumeValue } }
+      : {}),
+  })
+}
+
+/**
+ * The workspace as an INSERT ... SELECT item, BARE: the insert names its columns
+ * by the select's keys, so the item needs no alias, and the workspace-scope audit
+ * reads a bare placeholder as the workspace (it does not read through
+ * `? AS "workspace_id"`). Drizzle's types ask every select item for an alias;
+ * the cast says this one needs none.
+ */
+const workspaceItem = sql`${WORKSPACE}` as unknown as SQL.Aliased<unknown>
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
@@ -11,141 +116,215 @@ import type { ConversationIndexRow } from '../types'
  * Upsert every conversation of the bound JSON array `rows` in one statement
  * [POD-6227]: a discovery re-offers a machine's whole corpus, and one upsert
  * per row ran one statement per conversation.
+ *
+ * ON POSTGRES the array is read with `json_array_elements`, and each field
+ * with `->>`, which gives text there (SQLite's gives the JSON value's own
+ * type), so a number or timestamp field is cast to its column's type. A
+ * comparison of a value that may be NULL is `IS DISTINCT FROM`, Postgres's
+ * spelling of SQLite's `IS NOT`. A row offered twice in one array is folded
+ * into one before the statement on Postgres ({@link foldOffers}), which
+ * refuses an upsert that reaches the same row twice.
  */
-const upsertConversations = prepared((db: StoreDrizzle) => {
-  const field = (name: string) => sql.raw(`value ->> '$.${name}'`)
-  return db
-    .insert(conversations)
-    .select(
-      db
-        .select({
-          id: sql`${field('id')}`.as('id'),
-          agentKind: sql`${field('agentKind')}`.as('agent_kind'),
-          title: sql`${field('title')}`.as('title'),
-          projectPath: sql`${field('projectPath')}`.as('project_path'),
-          providerId: sql`${field('providerId')}`.as('provider_id'),
-          resumeKind: sql`${field('resumeKind')}`.as('resume_kind'),
-          resumeValue: sql`${field('resumeValue')}`.as('resume_value'),
-          createdAt: sql`${field('createdAt')}`.as('created_at'),
-          updatedAt: sql`${field('updatedAt')}`.as('updated_at'),
-          messageCount: sql`${field('messageCount')}`.as('message_count'),
-          machineId: sql`${field('machineId')}`.as('machine_id'),
-          parentConversationId: sql`${field('parentConversationId')}`.as('parent_conversation_id'),
-        })
-        .from(sql`json_each(${sql.placeholder('rows')})`)
-        // An INSERT ... SELECT with an upsert clause needs a WHERE, or SQLite
-        // reads ON CONFLICT as a join constraint of the SELECT.
-        .where(sql`true`),
+const upsertConversations = prepared((db, t) => {
+  const pg = dialectOf(db) === 'pg'
+  const field = (name: string, type?: 'bigint' | 'timestamptz') =>
+    sql.raw(
+      !pg
+        ? `value ->> '$.${name}'`
+        : type === undefined
+          ? `(value ->> '${name}')`
+          : `CAST(value ->> '${name}' AS ${type})`,
     )
-    .onConflictDoUpdate({
-      target: conversations.id,
-      set: {
-        agentKind: sql`excluded.agent_kind`,
-        providerId: sql`excluded.provider_id`,
-        machineId: sql`excluded.machine_id`,
-        title: sql`COALESCE(excluded.title,${conversations.title})`,
-        projectPath: sql`COALESCE(excluded.project_path,${conversations.projectPath})`,
-        resumeKind: sql`COALESCE(excluded.resume_kind,${conversations.resumeKind})`,
-        resumeValue: sql`COALESCE(excluded.resume_value,${conversations.resumeValue})`,
-        createdAt: sql`COALESCE(excluded.created_at,${conversations.createdAt})`,
-        updatedAt: sql`COALESCE(excluded.updated_at,${conversations.updatedAt})`,
-        messageCount: sql`COALESCE(excluded.message_count,${conversations.messageCount})`,
-        parentConversationId: sql`COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
-      },
-      // THE GUARD IS THE EXACT NEGATION OF THE SET LIST — each column
-      // compared against the effective value the SET would assign, `IS NOT`
-      // so NULL compares like any other value. A row that would change
-      // still changes; only a write with nothing to say is skipped.
-      setWhere: sql`${conversations.agentKind} IS NOT excluded.agent_kind
-         OR ${conversations.providerId} IS NOT excluded.provider_id
-         OR ${conversations.machineId} IS NOT excluded.machine_id
-         OR ${conversations.title} IS NOT COALESCE(excluded.title,${conversations.title})
-         OR ${conversations.projectPath} IS NOT COALESCE(excluded.project_path,${conversations.projectPath})
-         OR ${conversations.resumeKind} IS NOT COALESCE(excluded.resume_kind,${conversations.resumeKind})
-         OR ${conversations.resumeValue} IS NOT COALESCE(excluded.resume_value,${conversations.resumeValue})
-         OR ${conversations.createdAt} IS NOT COALESCE(excluded.created_at,${conversations.createdAt})
-         OR ${conversations.updatedAt} IS NOT COALESCE(excluded.updated_at,${conversations.updatedAt})
-         OR ${conversations.messageCount} IS NOT COALESCE(excluded.message_count,${conversations.messageCount})
-         OR ${conversations.parentConversationId} IS NOT COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
-    })
-    .prepare()
+  const offered = pg
+    ? sql`json_array_elements(CAST(${sql.placeholder('rows')} AS json)) AS r(value)`
+    : sql`json_each(${sql.placeholder('rows')})`
+  const isNot = sql.raw(pg ? 'IS DISTINCT FROM' : 'IS NOT')
+  return captureWrite(
+    db
+      .insert(t.conversations)
+      .select(
+        db
+          .select({
+            workspaceId: workspaceItem,
+            id: sql`${field('id')}`.as('id'),
+            agentKind: sql`${field('agentKind')}`.as('agent_kind'),
+            title: sql`${field('title')}`.as('title'),
+            projectPath: sql`${field('projectPath')}`.as('project_path'),
+            providerId: sql`${field('providerId')}`.as('provider_id'),
+            resumeKind: sql`${field('resumeKind')}`.as('resume_kind'),
+            resumeValue: sql`${field('resumeValue')}`.as('resume_value'),
+            createdAt: sql`${field('createdAt', 'timestamptz')}`.as('created_at'),
+            updatedAt: sql`${field('updatedAt', 'timestamptz')}`.as('updated_at'),
+            messageCount: sql`${field('messageCount', 'bigint')}`.as('message_count'),
+            machineId: sql`${field('machineId')}`.as('machine_id'),
+            parentConversationId: sql`${field('parentConversationId')}`.as(
+              'parent_conversation_id',
+            ),
+          })
+          .from(offered)
+          // An INSERT ... SELECT with an upsert clause needs a WHERE, or SQLite
+          // reads ON CONFLICT as a join constraint of the SELECT.
+          .where(sql`true`),
+      )
+      .onConflictDoUpdate({
+        target: [t.conversations.workspaceId, t.conversations.id],
+        set: {
+          agentKind: sql`excluded.agent_kind`,
+          providerId: sql`excluded.provider_id`,
+          machineId: sql`excluded.machine_id`,
+          title: sql`COALESCE(excluded.title,${t.conversations.title})`,
+          projectPath: sql`COALESCE(excluded.project_path,${t.conversations.projectPath})`,
+          resumeKind: sql`COALESCE(excluded.resume_kind,${t.conversations.resumeKind})`,
+          resumeValue: sql`COALESCE(excluded.resume_value,${t.conversations.resumeValue})`,
+          createdAt: sql`COALESCE(excluded.created_at,${t.conversations.createdAt})`,
+          updatedAt: sql`COALESCE(excluded.updated_at,${t.conversations.updatedAt})`,
+          messageCount: sql`COALESCE(excluded.message_count,${t.conversations.messageCount})`,
+          parentConversationId: sql`COALESCE(excluded.parent_conversation_id,${t.conversations.parentConversationId})`,
+        },
+        // THE GUARD IS THE EXACT NEGATION OF THE SET LIST — each column
+        // compared against the effective value the SET would assign, `IS NOT`
+        // so NULL compares like any other value. A row that would change
+        // still changes; only a write with nothing to say is skipped.
+        setWhere: sql`${t.conversations.agentKind} ${isNot} excluded.agent_kind
+         OR ${t.conversations.providerId} ${isNot} excluded.provider_id
+         OR ${t.conversations.machineId} ${isNot} excluded.machine_id
+         OR ${t.conversations.title} ${isNot} COALESCE(excluded.title,${t.conversations.title})
+         OR ${t.conversations.projectPath} ${isNot} COALESCE(excluded.project_path,${t.conversations.projectPath})
+         OR ${t.conversations.resumeKind} ${isNot} COALESCE(excluded.resume_kind,${t.conversations.resumeKind})
+         OR ${t.conversations.resumeValue} ${isNot} COALESCE(excluded.resume_value,${t.conversations.resumeValue})
+         OR ${t.conversations.createdAt} ${isNot} COALESCE(excluded.created_at,${t.conversations.createdAt})
+         OR ${t.conversations.updatedAt} ${isNot} COALESCE(excluded.updated_at,${t.conversations.updatedAt})
+         OR ${t.conversations.messageCount} ${isNot} COALESCE(excluded.message_count,${t.conversations.messageCount})
+         OR ${t.conversations.parentConversationId} ${isNot} COALESCE(excluded.parent_conversation_id,${t.conversations.parentConversationId})`,
+      }),
+  ).prepare()
 })
 
 // The FTS5 index and the three triggers that keep it fed, in the order the
-// original script had (see `enableFts`).
-const createFtsTable = prepared((db: StoreDrizzle) =>
-  db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
-        title, name, summary, project_path, content='conversations', content_rowid='rowid')`),
+// original script had (see `enableFts`). SQLite only: on Postgres each is the
+// check that the GIN index the baseline made is there (`onSqliteOnly`),
+// and `enableFts` runs only the first.
+const SEARCH_INDEX = 'idx_conversations_search'
+const sqliteOnly = (db: StoreDrizzle, statement: SQL): SQL =>
+  onSqliteOnly(db, SEARCH_INDEX, statement)
+const createFtsTable = prepared((db) =>
+  db.run(
+    sqliteOnly(
+      db,
+      sql`CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
+        title, name, summary, project_path, content='conversations', content_rowid='rowid')`,
+    ),
+  ),
 )
-const createFtsInsertTrigger = prepared((db: StoreDrizzle) =>
-  db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
+const createFtsInsertTrigger = prepared((db) =>
+  db.run(
+    sqliteOnly(
+      db,
+      sql`CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
         INSERT INTO conversations_fts(rowid,title,name,summary,project_path)
-        VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`),
+        VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`,
+    ),
+  ),
 )
-const createFtsDeleteTrigger = prepared((db: StoreDrizzle) =>
-  db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
+const createFtsDeleteTrigger = prepared((db) =>
+  db.run(
+    sqliteOnly(
+      db,
+      sql`CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
         INSERT INTO conversations_fts(conversations_fts,rowid,title,name,summary,project_path)
-        VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path); END`),
+        VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path); END`,
+    ),
+  ),
 )
-const createFtsUpdateTrigger = prepared((db: StoreDrizzle) =>
-  db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
+const createFtsUpdateTrigger = prepared((db) =>
+  db.run(
+    sqliteOnly(
+      db,
+      sql`CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
         INSERT INTO conversations_fts(conversations_fts,rowid,title,name,summary,project_path)
         VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path);
         INSERT INTO conversations_fts(rowid,title,name,summary,project_path)
-        VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`),
+        VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`,
+    ),
+  ),
 )
-const rebuildFts = prepared((db: StoreDrizzle) =>
-  db.run(sql`INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')`),
+const rebuildFts = prepared((db) =>
+  db.run(sqliteOnly(db, sql`INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')`)),
 )
-const dropFtsInsertTrigger = prepared((db: StoreDrizzle) => db.run(sql`DROP TRIGGER IF EXISTS conversations_ai`))
-const dropFtsDeleteTrigger = prepared((db: StoreDrizzle) => db.run(sql`DROP TRIGGER IF EXISTS conversations_ad`))
-const dropFtsUpdateTrigger = prepared((db: StoreDrizzle) => db.run(sql`DROP TRIGGER IF EXISTS conversations_au`))
+const dropFtsInsertTrigger = prepared((db) =>
+  db.run(sqliteOnly(db, sql`DROP TRIGGER IF EXISTS conversations_ai`)),
+)
+const dropFtsDeleteTrigger = prepared((db) =>
+  db.run(sqliteOnly(db, sql`DROP TRIGGER IF EXISTS conversations_ad`)),
+)
+const dropFtsUpdateTrigger = prepared((db) =>
+  db.run(sqliteOnly(db, sql`DROP TRIGGER IF EXISTS conversations_au`)),
+)
 
-/** The ids are ONE bound json_each parameter, `ids`, so the statement has one shape. */
-const deleteMachineConversations = prepared((db: StoreDrizzle) =>
-  db
-    .delete(conversations)
-    .where(
-      and(
-        eq(conversations.machineId, param(conversations.machineId, 'machineId')),
-        sql`${conversations.id} in (select value from json_each(${sql.placeholder('ids')}))`,
-      ),
-    )
-    .returning({ id: conversations.id })
-    .prepare(),
+/**
+ * The ids are ONE bound JSON array parameter, `ids`, so the statement has one
+ * shape: read with json_each on SQLite, json_array_elements_text on Postgres.
+ */
+const deleteMachineConversations = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.conversations)
+      .where(
+        inWorkspace(
+          t.conversations,
+          eq(t.conversations.machineId, param(t.conversations.machineId, 'machineId')),
+          dialectOf(db) === 'pg'
+            ? sql`${t.conversations.id} IN (SELECT j.value COLLATE "C" FROM json_array_elements_text(CAST(${sql.placeholder('ids')} AS json)) AS j(value))`
+            : sql`${t.conversations.id} in (select value from json_each(${sql.placeholder('ids')}))`,
+        ),
+      )
+      .returning({ id: t.conversations.id }),
+  ).prepare(),
 )
 
 /** The curated names and summaries of the conversations asked for, by primary key (POD-6172). */
-const curatedConversationsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const curatedConversationsOf = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: conversations.id, name: conversations.name, summary: conversations.summary })
-    .from(conversations)
-    .where(and(inListOf(conversations.id, size), or(isNotNull(conversations.name), isNotNull(conversations.summary))))
+    .select({
+      id: t.conversations.id,
+      name: t.conversations.name,
+      summary: t.conversations.summary,
+    })
+    .from(t.conversations)
+    .where(
+      inWorkspace(
+        t.conversations,
+        inListOf(t.conversations.id, size),
+        or(isNotNull(t.conversations.name), isNotNull(t.conversations.summary)),
+      ),
+    )
     .prepare(),
 )
 
-const conversationPresent = prepared((db: StoreDrizzle) =>
+const conversationPresent = prepared((db, t) =>
   db
     .select({ one: sql<number>`1` })
-    .from(conversations)
-    .where(eq(conversations.id, param(conversations.id, 'id')))
+    .from(t.conversations)
+    .where(inWorkspace(t.conversations, eq(t.conversations.id, param(t.conversations.id, 'id'))))
     .prepare(),
 )
 
-const setConversationName = prepared((db: StoreDrizzle) =>
-  db
-    .update(conversations)
-    .set({ name: sql.placeholder('name') })
-    .where(eq(conversations.id, param(conversations.id, 'id')))
-    .prepare(),
+const setConversationName = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.conversations)
+      .set({ name: sql.placeholder('name') })
+      .where(inWorkspace(t.conversations, eq(t.conversations.id, param(t.conversations.id, 'id')))),
+  ).prepare(),
 )
 
-const setConversationSummary = prepared((db: StoreDrizzle) =>
-  db
-    .update(conversations)
-    .set({ summary: sql.placeholder('summary') })
-    .where(eq(conversations.id, param(conversations.id, 'id')))
-    .prepare(),
+const setConversationSummary = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.conversations)
+      .set({ summary: sql.placeholder('summary') })
+      .where(inWorkspace(t.conversations, eq(t.conversations.id, param(t.conversations.id, 'id')))),
+  ).prepare(),
 )
 
 /** How a conversation read filters the project path. */
@@ -158,18 +337,33 @@ type SearchShape = `${'fts' | 'like'}|${PathShape}`
  * The project path filter. Every value is a bound placeholder: `projectPath` /
  * `projectPathPrefix` for posix, `machineKey` / `prefixLength` / `prefix` for
  * windows.
+ *
+ * ON POSTGRES the lowered path is compared in byte order (`COLLATE "C"`, design
+ * 2.3 rule 13), and `lower()` of the `COLLATE "C"` column folds ASCII only, as
+ * SQLite's does. SQLite's LIKE ignores ASCII case and has no escape character;
+ * Postgres's LIKE does neither, so there it is `ILIKE ... ESCAPE ''`, which under
+ * `COLLATE "C"` folds ASCII only too ({@link likeOf}).
  */
-const machinePathFilter = (path: string): SQL => {
-  const comparablePath = sql`lower(replace(c.project_path, '/', ${'\\'}))`
+const machinePathFilter = (db: StoreDrizzle, path: string): SQL => {
+  const pg = dialectOf(db) === 'pg'
+  const collateC = sql.raw(pg ? ' COLLATE "C"' : '')
+  const comparablePath = sql`lower(replace(c.project_path, '/', ${'\\'}))${collateC}`
   return path === 'windows'
-    ? sql` AND (${comparablePath} = ${sql.placeholder('machineKey')} OR substr(${comparablePath}, 1, ${sql.placeholder('prefixLength')}) = ${sql.placeholder('prefix')})`
+    ? sql` AND (${comparablePath} = ${sql.placeholder('machineKey')} OR substr(${comparablePath}, 1, ${sql.placeholder('prefixLength')})${collateC} = ${sql.placeholder('prefix')})`
     : path === 'posix'
-      ? sql` AND (c.project_path=${sql.placeholder('projectPath')} OR c.project_path LIKE ${sql.placeholder('projectPathPrefix')})`
+      ? sql` AND (c.project_path=${sql.placeholder('projectPath')} OR ${likeOf(db, sql`c.project_path`, sql.placeholder('projectPathPrefix'))})`
       : sql``
 }
 
+/** `text LIKE pattern` as SQLite reads it: ASCII case ignored, no escape character. */
+const likeOf = (db: StoreDrizzle, text: SQL, pattern: SQL | Placeholder): SQL =>
+  dialectOf(db) === 'pg' ? sql`${text} ILIKE ${pattern} ESCAPE ''` : sql`${text} LIKE ${pattern}`
+
 /** The bound values of {@link machinePathFilter} for a requested project path. */
-function pathFilterOf(projectPath: string | undefined): { path: PathShape; values: Record<string, unknown> } {
+function pathFilterOf(projectPath: string | undefined): {
+  path: PathShape
+  values: Record<string, unknown>
+} {
   const machineKey = projectPath ? machinePathKey(projectPath) : undefined
   if (machineKey && machinePathSeparator(machineKey) === '\\') {
     const prefix = machineKey + (machineKey.endsWith('\\') ? '' : '\\')
@@ -192,19 +386,19 @@ type RecentShape = `${'dated' | 'undated'}|${PathShape}`
  * before the cursor's `(updated_at, id)`; `undated` reads the rows with no
  * `updated_at` (which sort last) before the cursor's `id`.
  */
-const recentConversations = preparedFamily((db: StoreDrizzle, shape: RecentShape) => {
+const recentConversations = preparedFamily((db, _t, shape: RecentShape) => {
   const [phase, path] = shape.split('|')
-  const filter = machinePathFilter(path!)
+  const filter = machinePathFilter(db, path!)
   const limit = sql` LIMIT ${sql.placeholder('limit')}`
   return phase === 'dated'
     ? db.all<Record<string, unknown>>(
         sql`SELECT c.* FROM conversations c
-          WHERE (c.updated_at, c.id) < (${sql.placeholder('beforeUpdatedAt')}, ${sql.placeholder('beforeId')})${filter}${topLevel}
+          WHERE c.workspace_id = ${WORKSPACE} AND (c.updated_at, c.id) < (${sql.placeholder('beforeUpdatedAt')}, ${sql.placeholder('beforeId')})${filter}${topLevel}
           ORDER BY c.updated_at DESC, c.id DESC${limit}`,
       )
     : db.all<Record<string, unknown>>(
         sql`SELECT c.* FROM conversations c
-          WHERE c.updated_at IS NULL AND c.id < ${sql.placeholder('beforeId')}${filter}${topLevel}
+          WHERE c.workspace_id = ${WORKSPACE} AND c.updated_at IS NULL AND c.id < ${sql.placeholder('beforeId')}${filter}${topLevel}
           ORDER BY c.id DESC${limit}`,
       )
 })
@@ -215,22 +409,33 @@ const RECENT_START = '\uffff'
 
 /**
  * The term search statements, one per {@link SearchShape}: the path filter's
- * values and `fts` or `like` for the match.
+ * values and `fts` or `like` for the match. `fts` is the engine's own query
+ * text: an FTS5 MATCH expression on SQLite, a `tsquery` on Postgres, where the
+ * match reads the conversation's GIN index (`search-pg.ts`).
  */
-const searchConversations = preparedFamily((db: StoreDrizzle, shape: SearchShape) => {
+const searchConversations = preparedFamily((db, _t, shape: SearchShape) => {
   const [match, path] = shape.split('|')
-  const filter = machinePathFilter(path!)
+  const filter = machinePathFilter(db, path!)
   const order = sql` ORDER BY c.updated_at DESC NULLS LAST`
   if (match === 'fts') {
+    if (dialectOf(db) === 'pg') {
+      return db.all<Record<string, unknown>>(
+        sql`SELECT c.* FROM conversations c
+        WHERE c.workspace_id = ${WORKSPACE} AND ${conversationMatches()}${filter}${topLevel}${order}`,
+      )
+    }
     return db.all<Record<string, unknown>>(
       sql`SELECT c.* FROM conversations_fts f JOIN conversations c ON c.rowid=f.rowid
-        WHERE conversations_fts MATCH ${sql.placeholder('fts')}${filter}${topLevel}${order}`,
+        WHERE c.workspace_id = ${WORKSPACE} AND conversations_fts MATCH ${sql.placeholder('fts')}${filter}${topLevel}${order}`,
     )
   }
   const like = sql.placeholder('like')
+  const likes = ['title', 'name', 'summary', 'project_path'].map((column) =>
+    likeOf(db, sql.raw(`c.${column}`), like),
+  )
   return db.all<Record<string, unknown>>(
-    sql`SELECT c.* FROM conversations c WHERE
-        (c.title LIKE ${like} OR c.name LIKE ${like} OR c.summary LIKE ${like} OR c.project_path LIKE ${like})
+    sql`SELECT c.* FROM conversations c WHERE c.workspace_id = ${WORKSPACE} AND
+        (${sql.join(likes, sql` OR `)})
         ${filter}${topLevel}${order}`,
   )
 })
@@ -238,22 +443,51 @@ const searchConversations = preparedFamily((db: StoreDrizzle, shape: SearchShape
 /** Durable discovered-conversation summaries and their searchable curation. */
 export class ConversationIndexRepository {
   private ftsAvailable = false
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
-  constructor(
-    queries: StoreQueries,
-  ) {
-    this.rootDb = queries.rootDb
+  /** Whether this store is on Postgres, whose search index the baseline made (`search-pg.ts`). */
+  private readonly pg: boolean
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
+    this.pg = dialectOf(queries.db.drizzle) === 'pg'
   }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b]: the
-   * store's one drizzle instance, whose executor routes each statement to the
-   * current transaction.
+   * workspace's handle, which fills `workspaceId` in every statement and routes
+   * each to the current transaction.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
+  }
+
+  async recordEntries(
+    ids: readonly string[],
+  ): Promise<{ machineId: MachineId; value: ConversationRecordWire }[]> {
+    if (ids.length === 0) return []
+    const size = inListSize(ids.length)
+    return (await recordRows(this.db, size).all(inListValues(ids, size))).map((row) => ({
+      machineId: row.machineId,
+      value: conversationRecordOf(row),
+    }))
+  }
+
+  async records(ids: readonly string[]): Promise<ConversationRecordWire[]> {
+    return (await this.recordEntries(ids)).map(({ value }) => value)
+  }
+
+  async *recordPages(pageSize = 500): AsyncGenerator<ConversationRecordWire[]> {
+    let after: string | undefined
+    for (;;) {
+      const rows = await recordPage(this.db, after === undefined ? 'start' : 'after').all({
+        after: after ?? '',
+        limit: pageSize,
+      })
+      if (rows.length) yield rows.map(conversationRecordOf)
+      if (rows.length < pageSize) return
+      after = rows[rows.length - 1]!.id
+    }
   }
 
   /**
@@ -261,9 +495,17 @@ export class ConversationIndexRepository {
    * it from `conversations`. Called at boot only when the `command-palette` flag
    * is on; a build without FTS5 support falls into the catch and leaves
    * `ftsAvailable` false, which the LIKE fallback in `searchCandidates` covers.
+   *
+   * On Postgres the index is the baseline's GIN index, which Postgres keeps
+   * current itself: there is nothing to make or feed, and this checks it is there.
    */
   async enableFts(): Promise<void> {
     try {
+      if (this.pg) {
+        await executeRaw(createFtsTable(this.db))
+        this.ftsAvailable = true
+        return
+      }
       // ONE STATEMENT PER CALL, where the raw handle took a whole script: the
       // query layer prepares what it is given, so a multi-statement string would
       // run its first statement and silently drop the rest. The order is the one
@@ -291,8 +533,15 @@ export class ConversationIndexRepository {
    * The triggers MUST go before the table could ever be dropped: a trigger whose
    * `INSERT INTO conversations_fts` has no table fails every write to
    * `conversations`.
+   *
+   * On Postgres there are no triggers: the GIN index costs each write its update
+   * whether search is on or off, and search turns into the LIKE fallback.
    */
   async disableFts(): Promise<void> {
+    if (this.pg) {
+      this.ftsAvailable = false
+      return
+    }
     await executeRaw(dropFtsInsertTrigger(this.db))
     await executeRaw(dropFtsDeleteTrigger(this.db))
     await executeRaw(dropFtsUpdateTrigger(this.db))
@@ -313,17 +562,22 @@ export class ConversationIndexRepository {
    * like any other value. A row that would change still changes; only a write
    * with nothing to say is skipped.
    */
-  async upsert(rows: (ConversationIndexRow & { machineId: MachineId })[]): Promise<void> {
+  async upsert(
+    _scope: WriteScope,
+    rows: (ConversationIndexRow & { machineId: MachineId })[],
+  ): Promise<void> {
     if (rows.length === 0) return
     // One statement for the whole report, in its order: a conversation offered
-    // twice is inserted, then updated by its later offer, as one upsert per row did.
+    // twice is inserted, then updated by its later offer, as one upsert per row did
+    // (on Postgres folded into one offer first, with the same result).
     await upsertConversations(this.db).run({
       rows: JSON.stringify(
-        rows.map((row) => ({
+        (this.pg ? foldOffers(rows) : rows).map((row) => ({
           id: row.id,
           agentKind: row.agentKind,
-          title: row.title ?? null,
-          projectPath: row.projectPath ?? null,
+          // A daemon's text, without U+0000 (POD-6958 design 2.3 rule 9).
+          title: row.title === undefined ? null : withoutNul(row.title),
+          projectPath: row.projectPath === undefined ? null : withoutNul(row.projectPath),
           providerId: row.providerId,
           resumeKind: row.resumeKind ?? null,
           resumeValue: row.resumeValue ?? null,
@@ -346,7 +600,7 @@ export class ConversationIndexRepository {
    * parameter; returns the ids actually deleted, which is what the change log
    * may remove.
    */
-  async delete(machineId: MachineId, ids: string[]): Promise<string[]> {
+  async delete(_scope: WriteScope, machineId: MachineId, ids: string[]): Promise<string[]> {
     if (ids.length === 0) return []
     const rows = await deleteMachineConversations(this.db).all({
       machineId,
@@ -356,7 +610,9 @@ export class ConversationIndexRepository {
   }
 
   /** The curated name and summary of each of these conversations that has one. */
-  async curatedMetaOf(ids: readonly string[]): Promise<Map<string, { name?: string; summary?: string }>> {
+  async curatedMetaOf(
+    ids: readonly string[],
+  ): Promise<Map<string, { name?: string; summary?: string }>> {
     const unique = [...new Set(ids)]
     const rows: { id: string; name: string | null; summary: string | null }[] = []
     for (let i = 0; i < unique.length; i += 500) {
@@ -375,13 +631,23 @@ export class ConversationIndexRepository {
     )
   }
 
-  async setMeta(id: string, meta: { name?: string; summary?: string }): Promise<void> {
+  async setMeta(
+    _scope: WriteScope,
+    id: string,
+    meta: { name?: string; summary?: string },
+  ): Promise<void> {
     const present = await conversationPresent(this.db).get({ id })
     if (!present) {
-      throw new Error(`conversation ${id} has not been reported by a daemon; metadata cannot be set before discovery`)
+      throw new Error(
+        `conversation ${id} has not been reported by a daemon; metadata cannot be set before discovery`,
+      )
     }
-    if (meta.name !== undefined) await setConversationName(this.db).run({ id, name: meta.name })
-    if (meta.summary !== undefined) await setConversationSummary(this.db).run({ id, summary: meta.summary })
+    // A curated name or summary is a person's or an agent's text, stored without
+    // U+0000 (POD-6958 design 2.3 rule 9).
+    if (meta.name !== undefined)
+      await setConversationName(this.db).run({ id, name: withoutNul(meta.name) })
+    if (meta.summary !== undefined)
+      await setConversationSummary(this.db).run({ id, summary: withoutNul(meta.summary) })
   }
 
   /**
@@ -395,19 +661,29 @@ export class ConversationIndexRepository {
    * through the query layer now, and every value is still a bound parameter, so
    * the projectPath filter is a fragment rather than string concatenation.
    */
-  async searchCandidates(opts: { query: string; projectPath?: string }): Promise<ConversationIndexRow[]> {
+  async searchCandidates(opts: {
+    query: string
+    projectPath?: string
+  }): Promise<ConversationIndexRow[]> {
     const { path, values } = pathFilterOf(opts.projectPath)
     const query = opts.query.trim()
     let rows: Record<string, unknown>[]
     if (this.ftsAvailable) {
-      const fts = query
-        .split(/\s+/)
-        .filter(Boolean)
-        .map((token) => `"${token.replace(/"/g, '""')}"*`)
-        .join(' ')
+      const fts = this.pg
+        ? tsqueryOf(query)
+        : query
+            .split(/\s+/)
+            .filter(Boolean)
+            .map((token) => `"${token.replace(/"/g, '""')}"*`)
+            .join(' ')
+      // A term with no word in it matches nothing, as FTS5 reads it (`search-pg.ts`).
+      if (fts === undefined) return []
       rows = await executeRaw(searchConversations(this.db, `fts|${path}`), { ...values, fts })
     } else {
-      rows = await executeRaw(searchConversations(this.db, `like|${path}`), { ...values, like: `%${query}%` })
+      rows = await executeRaw(searchConversations(this.db, `like|${path}`), {
+        ...values,
+        like: `%${query}%`,
+      })
     }
     return rows.map(toIndexRow)
   }
@@ -447,12 +723,54 @@ export class ConversationIndexRepository {
     return rows.map(toIndexRow)
   }
 
-  async search(opts: { query?: string; projectPath?: string; limit?: number }): Promise<ConversationIndexRow[]> {
+  async search(opts: {
+    query?: string
+    projectPath?: string
+    limit?: number
+  }): Promise<ConversationIndexRow[]> {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
     const query = opts.query?.trim() ?? ''
-    if (!query) return await this.recentPage({ ...(opts.projectPath ? { projectPath: opts.projectPath } : {}), limit })
+    if (!query)
+      return await this.recentPage({
+        ...(opts.projectPath ? { projectPath: opts.projectPath } : {}),
+        limit,
+      })
     return (await this.searchCandidates({ ...opts, query })).slice(0, limit)
   }
+}
+
+/**
+ * The rows of one upsert with each id once: a later offer of an id overrides the
+ * fields the upsert overwrites and fills the ones it keeps when the offer has
+ * none, which is what the upsert does to the row the earlier offer wrote.
+ * Postgres refuses an `ON CONFLICT DO UPDATE` that reaches one row twice.
+ */
+function foldOffers<R extends ConversationIndexRow & { machineId: MachineId }>(
+  rows: readonly R[],
+): R[] {
+  const byId = new Map<string, R>()
+  for (const row of rows) {
+    const earlier = byId.get(row.id)
+    if (earlier === undefined) {
+      byId.set(row.id, row)
+      continue
+    }
+    byId.set(row.id, {
+      ...earlier,
+      agentKind: row.agentKind,
+      providerId: row.providerId,
+      machineId: row.machineId,
+      title: row.title ?? earlier.title,
+      projectPath: row.projectPath ?? earlier.projectPath,
+      resumeKind: row.resumeKind ?? earlier.resumeKind,
+      resumeValue: row.resumeValue ?? earlier.resumeValue,
+      createdAt: row.createdAt ?? earlier.createdAt,
+      updatedAt: row.updatedAt ?? earlier.updatedAt,
+      messageCount: row.messageCount ?? earlier.messageCount,
+      parentConversationId: row.parentConversationId ?? earlier.parentConversationId,
+    })
+  }
+  return [...byId.values()]
 }
 
 /** A recent-conversations page's keyset cursor: the last row of the previous

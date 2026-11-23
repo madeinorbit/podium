@@ -6,20 +6,13 @@
  * WHY THIS SLICE TAKES ITS ROWS AS ARGUMENTS RATHER THAN READING A STORE
  * ---------------------------------------------------------------------------
  *
- * Every other slice in this directory derives from the replica snapshot, because
- * its entities are replicated. Workflows are NOT: they reach the client through
- * RPC reads (`workflows.list · get · bindings · profiles · runs`), and whether
- * they should instead become replicated entities is an open decision that
- * POD-1127 owns and that is deliberately not settled here.
- *
- * So this module is the DERIVATION half of a slice with its source left open. It
- * is a set of pure functions over wires, with no knowledge of where the wires
- * came from — which is exactly the shape that survives POD-1127 either way. If
- * workflows become replicated, a `SliceDefinition` wraps these functions and
- * nothing in them changes; if they stay RPC read models, the RPC hook keeps
- * feeding them. What must not happen in the meantime is the alternative this
- * issue exists to end: the same derivations written inline in a component, where
- * a second surface cannot reach them and no test can drive them without a DOM.
+ * Workflows are synced records since POD-6676 (design POD-5620 §1.10): the
+ * screen reads them as the pool's shared models (`@podium/client-graph`'s
+ * `workflowRecords`), and only a run's history stays an RPC answer. These
+ * derivations are pure functions over the rows they are handed, models or wires
+ * alike, so they did not move when the source did; what must not happen is the
+ * same derivations written inline in a component, where a second surface
+ * cannot reach them and no test can drive them without a DOM.
  *
  * ---------------------------------------------------------------------------
  * THE LIBRARY IS THE PRINCIPAL'S SLICE, NOT THE INSTANCE'S
@@ -50,7 +43,6 @@
  */
 import { asMachineId, type MachineId } from '@podium/model'
 import type {
-  WorkflowDetailWire,
   WorkflowRevisionWire,
   WorkflowRunEventWire,
   WorkflowRunStepWire,
@@ -94,11 +86,18 @@ export function scopeLabel(scope: WorkflowScope, scopeRef: string | null): strin
  * badge is an affordance, and an affordance derived from a guess is worse than
  * an absent one.
  */
+/** A workflow and its revisions, newest first: the detail answer or the pool's
+ *  synced records (POD-6676). */
+export interface WorkflowDetailLike {
+  readonly workflow: Readonly<WorkflowWire>
+  readonly revisions: readonly Readonly<WorkflowRevisionWire>[]
+}
+
 export function workflowLibraryEntries(
-  workflows: readonly WorkflowWire[],
-  detail?: WorkflowDetailWire | null,
+  workflows: readonly Readonly<WorkflowWire>[],
+  detail?: WorkflowDetailLike | null,
 ): WorkflowLibraryEntry[] {
-  const headOf = (id: string): WorkflowRevisionWire | undefined =>
+  const headOf = (id: string): Readonly<WorkflowRevisionWire> | undefined =>
     detail?.workflow.id === id ? detail.revisions[0] : undefined
   return [...workflows]
     .sort(
@@ -162,9 +161,9 @@ export interface WorkflowRevisionDetail {
   readonly history: WorkflowRevisionRow[]
 }
 
-export function workflowRevisionDetail(detail: WorkflowDetailWire): WorkflowRevisionDetail {
+export function workflowRevisionDetail(detail: WorkflowDetailLike): WorkflowRevisionDetail {
   const head = detail.revisions[0]
-  const row = (r: WorkflowRevisionWire): WorkflowRevisionRow => ({
+  const row = (r: Readonly<WorkflowRevisionWire>): WorkflowRevisionRow => ({
     id: r.id,
     version: r.version,
     published: r.publishedAt !== null,
@@ -188,7 +187,9 @@ export function workflowRevisionDetail(detail: WorkflowDetailWire): WorkflowRevi
 /** The step a run is WAITING on: the one that is active or blocked, else the
  *  first pending one. Linear enforcement lives on the server; this is only the
  *  step the controls address. */
-export function currentStepOf(run: WorkflowRunWire): WorkflowRunStepWire | undefined {
+export function currentStepOf(
+  run: Pick<WorkflowRunWire, 'steps'>,
+): WorkflowRunStepWire | undefined {
   return (
     run.steps.find((step) => step.status === 'active' || step.status === 'blocked') ??
     run.steps.find((step) => step.status === 'pending')
@@ -204,7 +205,7 @@ export interface RunAdvances {
   readonly retry: boolean
 }
 
-export function runAdvances(run: WorkflowRunWire): RunAdvances {
+export function runAdvances(run: Pick<WorkflowRunWire, 'steps' | 'status'>): RunAdvances {
   const current = currentStepOf(run)
   const live = run.status === 'active' || run.status === 'blocked'
   if (!current || !live) return { skip: false, retry: false }
@@ -227,7 +228,7 @@ export interface RunAttributionRow {
   readonly delegated: boolean
 }
 
-export function runAttribution(run: WorkflowRunWire): RunAttributionRow[] {
+export function runAttribution(run: Pick<WorkflowRunWire, 'history'>): RunAttributionRow[] {
   return run.history.map((event: WorkflowRunEventWire) => ({
     kind: event.kind,
     actorKind: event.actorKind,
@@ -254,7 +255,7 @@ export interface RunSubjectReference<T> {
 }
 
 export function runSubjectReference<T>(
-  run: WorkflowRunWire,
+  run: Pick<WorkflowRunWire, 'subjectKind' | 'subjectId'>,
   lookup: (id: string) => T | undefined,
   exitOf: (id: string) => ReferentExit | undefined = () => undefined,
 ): RunSubjectReference<T> {

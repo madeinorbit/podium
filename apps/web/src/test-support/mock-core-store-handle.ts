@@ -1,17 +1,21 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
-import { workspaceKeyForState } from '@podium/client-core/engine'
+import { workspaceKeyForState } from '@podium/client-core/ui'
 import { vi } from 'vitest'
-import { useRuntimeSelector as selectLocals } from '@/app/store'
+import { fixtureSnapshot as selectLocals } from '@/test-support/fixture-snapshot'
+import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
 import './mock-screen-pool'
-const selectMockSnapshot = selectLocals as unknown as <T>(read: (state: ReferenceState<import('@/app/trpc').Trpc>) => T) => T
+const selectMockSnapshot = selectLocals as unknown as <T>(
+  read: (state: ReferenceState<import('@/app/trpc').Trpc>) => T,
+) => T
 
 // Opt-in for provider-free suites that replace the web store. Stable accessors
 // must reach the SAME fake owner as the suite's reactive selectors. Keeping this
 // out of global setup leaves real-provider and missing-provider checks intact.
 vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   const owner = withKeyedInputs({
     getSnapshot: () => {
@@ -24,7 +28,10 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
           ),
       )
       if (typeof state.workspaceKey !== 'function')
-        state.workspaceKey = () => workspaceKeyForState(state)
+        Object.defineProperty(state, 'workspaceKey', {
+          value: () => workspaceKeyForState(state),
+          configurable: true,
+        })
       return state
     },
     services: {},
@@ -32,5 +39,22 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
     subscribe: (notify: () => void) =>
       selectMockSnapshot((state) => state.uiState)?.subscribe(notify) ?? (() => {}),
   })
-  return { ...actual, useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
+  const emptyReplica = {
+    rows: () => [],
+    row: () => undefined,
+    subscribeAddressedBatch: () => () => {},
+  }
+  const emptyHub = { on: () => () => {}, subscribeTopic: () => () => {} }
+  Object.defineProperty(owner, 'replica', {
+    get: () => selectMockSnapshot((state) => state.replica) ?? emptyReplica,
+  })
+  Object.defineProperty(owner.services.connection, 'hub', {
+    get: () => selectMockSnapshot((state) => state.hub) ?? emptyHub,
+  })
+  return {
+    ...actual,
+    ...fixtureRuntimeHooks(() => owner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+    useHarnessDescriptors: () => ({ served: [] }),
+  }
 })

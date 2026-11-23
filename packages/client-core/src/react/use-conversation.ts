@@ -2,7 +2,7 @@ import type { SessionId } from '@podium/model'
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { DraftStore } from '../conversation/draft-store'
 import { type ConversationOptions, ConversationService } from '../conversation/model'
-import { useStoreHandle } from './provider'
+import { useClientRuntime } from './provider'
 
 const factories = new WeakMap<object, Map<SessionId, () => ConversationService>>()
 
@@ -12,7 +12,7 @@ export function useConversation<T extends ConversationService = ConversationServ
   createOptions: (drafts: DraftStore) => ConversationOptions | T,
   options: { warmLimit?: number; enabled?: boolean; activateTranscript?: boolean } = {},
 ): T | undefined {
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const create = useRef(createOptions)
   const [held, setHeld] = useState<{
     owner: typeof owner

@@ -167,6 +167,35 @@ describe('podium offer CLI (behavior)', () => {
     expect(out).toContain('cleared')
   })
 
+  it('sends set and clear on sync.submit when the server has it (POD-6419)', async () => {
+    const submit = vi.fn(async (env: { command: string }) => ({
+      outcome: 'applied',
+      result: env.command === 'offer.clear' ? { ok: true, cleared: true } : { ok: true },
+      receipt: { feedId: 'f', epoch: 'e', seq: 1 },
+      replayed: false,
+    }))
+    const c = { ...client(), sync: { submit: { mutate: submit } } } as unknown as OfferClient
+    await runOfferCli(['--message', 'Ready', '--action', 'Merge::Merge it'], c)
+    await runOfferCli(['clear'], c)
+    expect(submit.mock.calls.map(([env]) => env.command)).toEqual(['offer.set', 'offer.clear'])
+    expect(submit.mock.calls[0]?.[0]).toMatchObject({
+      input: { message: 'Ready', actions: [{ label: 'Merge', prompt: 'Merge it' }] },
+    })
+    expect(c.offer.set.mutate).not.toHaveBeenCalled()
+    expect(c.offer.clear.mutate).not.toHaveBeenCalled()
+  })
+
+  it('shows a refusal in the server’s own words', async () => {
+    const submit = vi.fn(async () => ({
+      outcome: 'rejected',
+      refusal: { kind: 'unauthorized', message: '`podium offer` is not available to this session' },
+    }))
+    const c = { ...client(), sync: { submit: { mutate: submit } } } as unknown as OfferClient
+    await expect(runOfferCli(['--message', 'm'], c)).rejects.toThrow(
+      '`podium offer` is not available to this session',
+    )
+  })
+
   it('requires a message when setting', async () => {
     await expect(runOfferCli([], client())).rejects.toThrow(OfferCliError)
   })

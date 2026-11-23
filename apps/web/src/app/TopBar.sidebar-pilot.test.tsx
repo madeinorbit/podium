@@ -3,13 +3,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TopBar } from './TopBar'
 
 vi.mock('./header-data', () => ({
-  useHeaderPolling: () => {},
+  useHeaderRequests: () => {},
   useHeaderView: () => 'workspace',
   useHeaderActions: () => ({ setView: vi.fn() }),
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/features/machines/HostIndicators', () => ({ HeaderHostIndicators: () => null }))
 vi.mock('./HostedWorkspaceSwitcher', () => ({ HostedWorkspaceSwitcher: () => null }))
+vi.mock('@/features/notices/NoticeTray', () => ({ NoticeTray: () => null }))
 
 afterEach(() => {
   cleanup()

@@ -5,6 +5,7 @@ import { asSessionId } from '@podium/model/browser'
 import { cleanup, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 const f = vi.hoisted(() => ({
@@ -14,19 +15,27 @@ const f = vi.hoisted(() => ({
   actions: {
     killSession: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
-    endSession: vi.fn<Store['endSession']>(async () => ({ ok: true })),
+    endSession: vi.fn<import('@podium/client-core/commands').Commands['sessions']['stop']>(
+      async () => ({ ok: true }),
+    ),
   },
   confirm: vi.fn(async () => true),
 }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (state: unknown) => unknown) => {
+  readFixture: (select: (state: unknown) => unknown) => {
     f.selectors++
     return select({ sessions: f.sessions, ...f.actions })
   },
 }))
-vi.mock('@podium/client-core/react', () => {
-  const owner = { get access() { return f.actions } }
-  return { useStoreHandle: () => owner }
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
+  const owner = {
+    get access() {
+      return f.actions
+    },
+  }
+  return { ...fixtureRuntimeHooks(() => owner) }
 })
 vi.mock('./use-confirm', () => ({ useConfirm: () => f.confirm }))
 vi.mock('@podium/client-core/values', async (importOriginal) => {
@@ -69,17 +78,15 @@ it('preserves guard decisions with pool sessions and zero store subscriptions', 
   hook.unmount()
 })
 
-it('keeps refusal, forced end and cancellation on the existing actions', async () => {
+it('ends with one edit, leaves a refusal to the session bar, and keeps cancellation', async () => {
   const id = asSessionId('guard-session')
   const hook = renderHook(() => useSessionGuard(id, false, []))
-  f.actions.endSession.mockResolvedValueOnce({ ok: false, reason: 'unsaved worktree' })
+  // POD-6399: a stop is an edit; an unsaved-worktree refusal arrives later on
+  // the session itself, whose bar offers "End anyway". No dialog here.
   f.actions.endSession.mockResolvedValueOnce({ ok: true })
   await hook.result.current.guardedEnd(id)
-  expect(f.confirm).toHaveBeenCalledTimes(1)
-  expect(f.confirm).toHaveBeenCalledWith(
-    expect.objectContaining({ description: expect.stringContaining('unsaved worktree') }),
-  )
-  expect(f.actions.endSession.mock.calls).toEqual([[id], [id, true]])
+  expect(f.confirm).not.toHaveBeenCalled()
+  expect(f.actions.endSession.mock.calls).toEqual([[id]])
   f.confirm.mockResolvedValueOnce(false)
   await hook.result.current.guardedDelete(id)
   expect(f.actions.killSession).not.toHaveBeenCalled()

@@ -31,11 +31,11 @@
  * authorization itself.
  */
 
-import type { Geometry, SessionId } from '@podium/model'
-import type { ClientLogOrigin, ServerMessage } from '@podium/protocol'
+import type { Geometry, SessionId, WorkspaceId } from '@podium/model'
+import type { AccountEventPayload, ClientLogOrigin, ServerMessage } from '@podium/protocol'
 import type { Send } from '../modules/sessions/session'
-import { SequenceBinary, type SendOutcome, type SendSequenceSource } from './ordered-client-send'
 import type { ClientPrincipal } from './client-principal'
+import { type SendOutcome, type SendSequenceSource, SequenceBinary } from './ordered-client-send'
 
 /**
  * ONE `/client` connection: its transport, its authenticated principal, and the
@@ -52,8 +52,20 @@ export interface ClientConn {
    * facts and NEVER from a frame body.
    */
   principal: ClientPrincipal
+  /**
+   * The workspace this connection belongs to: the one whose gateway admitted it.
+   * Its member ids mean something only inside it, so whatever this connection
+   * keys by principal (the perf partitions, `modules/perf/principal.ts`) keys by
+   * this too. Set by the mux from its graph, never from a frame.
+   */
+  readonly workspaceId: WorkspaceId
   /** Socket termination on admission failure; absent for in-process sinks. */
   terminate?: () => void
+  /**
+   * End this socket because the member's access ended (POD-6910): a close code
+   * the client reads to word its sign-in screen. Absent for in-process sinks.
+   */
+  endSignIn?: (close: { code: number; reason: string }) => void
   send: Send<ServerMessage>
   /**
    * Lossy stream sink. False means the frame was dropped under pressure;
@@ -174,6 +186,27 @@ export class ClientRegistry {
    *  through, so a later scoped feed has exactly one place to gate. */
   deliver(conn: ClientConn, msg: ServerMessage): void {
     conn.send(msg)
+  }
+
+  private accountEventRoute?: (conn: ClientConn, msg: AccountEventPayload) => boolean
+
+  /**
+   * Bind the `account.events` topic (ADR 7 Amendment 2 D26). Set once by the
+   * composition root, after the topic routing exists; it answers whether it
+   * took the notice.
+   */
+  routeAccountEvents(route: (conn: ClientConn, msg: AccountEventPayload) => boolean): void {
+    this.accountEventRoute = route
+  }
+
+  /**
+   * One account notice (attention, browser open, relocation, log level) to ONE
+   * connection: on its `account.events` topic when it holds that key, else as
+   * the pre-topics frame. POD-6680 removes the fallback.
+   */
+  deliverAccountEvent(conn: ClientConn, msg: AccountEventPayload): void {
+    if (this.accountEventRoute?.(conn, msg) === true) return
+    this.deliver(conn, msg)
   }
 
   /**

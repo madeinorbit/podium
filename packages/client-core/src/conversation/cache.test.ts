@@ -18,7 +18,6 @@ function fixture(warmLimit = 3) {
     hub: {
       on: () => () => {},
       sendDraftEdit: vi.fn(),
-      connectionHealth: () => ({ status: 'ok', rttMs: null, since: 0 }),
     },
   })
   const live = new Set<SessionId>(),

@@ -1,9 +1,9 @@
-import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 import { asSessionId } from '@podium/model/browser'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 
 /** Supply the runtime plumbing old component fixtures omitted. */
 export function fixtureStoreSnapshot(
-  input: import("@podium/client-core/engine").Store,
+  input: import('@podium/client-core/ui').ScreenState,
   onMutation?: () => void,
 ): Store & { batchGesture: (fn: () => void) => void } {
   const state = input as unknown as Store & { batchGesture?: (fn: () => void) => void }

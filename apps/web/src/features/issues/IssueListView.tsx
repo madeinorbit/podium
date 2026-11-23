@@ -9,8 +9,10 @@ import {
   useMemo,
   useRef,
 } from 'react'
+import { observer } from '@podium/client-graph/react'
 import { NotSavedMark } from '@/components/NotSavedMark'
 import { Badge } from '@/components/ui/badge'
+import { memberDisplayName, useMemberRoster } from '@/lib/member-roster'
 import { cn } from '@/lib/utils'
 import { BoardPoolRow } from './board-pool-row'
 import { CardAge } from './CardAge'
@@ -20,6 +22,16 @@ import { AssigneeAvatar, PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { isEpic } from './issue-hierarchy'
 import type { IssuesDisplay } from './issues-display'
 import { useBoundedVirtualList } from './use-bounded-virtual-list'
+
+/** The row's assignee by name (POD-6294): the wire carries a member id. */
+const MemberAvatar = observer(function MemberAvatar({ memberId }: { memberId?: string }) {
+  const roster = useMemberRoster()
+  return memberId ? (
+    <AssigneeAvatar assignee={memberId} name={memberDisplayName(roster, memberId)} />
+  ) : (
+    <AssigneeAvatar />
+  )
+})
 
 /**
  * Linear-style list: rows grouped by stage under sticky group headers. Rows come
@@ -298,7 +310,7 @@ function VirtualStageRows({
               <span className="hidden w-8 shrink-0 text-right font-mono text-[10px] text-text-faint tabular-nums md:inline">
                 <CardAge stamp={issue.updatedAt} now={now} />
               </span>
-              <AssigneeAvatar assignee={m.assignee} />
+              <MemberAvatar memberId={m.assignee} />
             </button>
               )
             }}</BoardPoolRow>

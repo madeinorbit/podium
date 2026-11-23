@@ -1,4 +1,3 @@
-import { hasLegacyAbduco, legacyAbducoBin } from '../../../packages/pty/src/legacy-abduco-fixture'
 import { execFileSync } from 'node:child_process'
 import {
   chmodSync,
@@ -13,17 +12,44 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  agentStateProviderFor,
+  claudeProjectSlug,
+  type LaunchOptions,
+  manifestFor,
+  shellCommand,
+} from '@podium/harness'
 import type {
   CodexRuntimeHost,
   CodexTransport,
   GrokAcpRuntimeHost,
   GrokAcpTransport,
 } from '@podium/harness/driver/host'
-import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions, manifestFor } from '@podium/harness'
-import { createMemoryAttachmentStager } from '@podium/harness/driver/testing'
+import {
+  createMemoryAttachmentStager,
+  testEngineTerms,
+  testHarnessContext,
+} from '@podium/harness/driver/testing'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
-import { asAgentIdentityId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
-import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
+import {
+  asAgentIdentityId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  type SessionId,
+} from '@podium/model'
+import {
+  CAP_CHECKOUT_CHANGED_V1,
+  CAP_MACHINE_PROCESSES_V1,
+  CAP_TOPICS_V1,
+  checkoutTopicId,
+  DAEMON_WIRE_VERSION,
+  type PeerHelloReply,
+  parseTopicKey,
+  topicKey,
+} from '@podium/protocol'
+import { hasLegacyAbduco, legacyAbducoBin } from '../../../packages/pty/src/legacy-abduco-fixture'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 
 /**
  * A member id, as a FIXTURE (A2). The daemon opens no instance, so
@@ -31,11 +57,13 @@ import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
  * no answer in this process.
  */
 const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
+
 import {
-  type DaemonMessage,
-  parseDaemonMessage,
-  encodeDaemonMessage as protocolEncode,
-} from '@podium/protocol/daemon'
+  codexEngineFacts,
+  createCodexSessionRuntime,
+  createGrokSessionRuntime,
+  grokEngineFacts,
+} from '@podium/harness/driver/host'
 import {
   abducoHasSession,
   directPtyDurableForTests,
@@ -47,6 +75,11 @@ import {
   reapAbducoTestSessions,
   waitForAbducoSocket,
 } from '@podium/process/durable'
+import {
+  type DaemonMessage,
+  parseDaemonMessage,
+  encodeDaemonMessage as protocolEncode,
+} from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -65,24 +98,20 @@ import {
 } from './daemon'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import { parseBackendArg } from './durable-backend'
-import {
-  codexAppServerVersionProbe,
-  resetCodexAppServerVersionProbe,
-} from './runtime/version-probe'
-import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/version-probe'
-import {
-  codexEngineFacts,
-  createCodexSessionRuntime,
-  createGrokSessionRuntime,
-  grokEngineFacts,
-} from '@podium/harness/driver/host'
 import { handleFor, runtimeHandlers } from './runtime/handlers'
 import { createDaemonMachineRuntime } from './runtime/machine-runtime'
-import { createVersionProbeCache } from './runtime/version-probe'
-import { createSessionObservers, type ReattachControl } from './session-observers'
-import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
+import {
+  codexAppServerVersionProbe,
+  createVersionProbeCache,
+  grokAcpVersionProbe,
+  resetCodexAppServerVersionProbe,
+  resetGrokAcpVersionProbe,
+} from './runtime/version-probe'
 import { driverSlotsOver } from './session/driver-slots.js'
 import { testSessions } from './session/testing.js'
+import { createSessionObservers, type ReattachControl } from './session-observers'
+import { TopicWatchRegistry } from './topics/watch-registry'
+import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -101,7 +130,8 @@ afterAll(async () => {
   if (isHostAvailable()) {
     for (const label of await listLiveHostLabels()) {
       const m = /^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/.exec(label)
-      if (m && (Number(m[1]) === process.pid || !pidAlive(Number(m[1])))) await killHostSession(label)
+      if (m && (Number(m[1]) === process.pid || !pidAlive(Number(m[1]))))
+        await killHostSession(label)
     }
   }
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
@@ -227,7 +257,22 @@ const TEST_BINDING_USER = asUserId('daemon-runtime-test-user')
  * Runtime tests exercise authenticated server traffic. Supply the binding
  * instruction that production server composition writes; the dedicated
  * session-binding control tests bypass this helper to prove absence refuses.
+ *
+ * That instruction carries the server-authored delegation (POD-3961): the
+ * binding store refuses a spawn or reattach without one (`delegation-missing`),
+ * so a helper that sent only the principal had every spawn below refused.
+ * The record is the one `binding-mint.ts` writes for a user's root session.
  */
+function testDelegation(sessionId: string) {
+  return {
+    actor: asAgentIdentityId(sessionId),
+    onBehalfOf: TEST_BINDING_USER,
+    grantedScope: { kind: 'none' as const },
+    parentBindingId: null,
+    revision: 1,
+  }
+}
+
 function withTestBindingInstruction(message: unknown): unknown {
   if (!message || typeof message !== 'object') return message
   const frame = message as Record<string, unknown>
@@ -240,6 +285,7 @@ function withTestBindingInstruction(message: unknown): unknown {
         transitionId: `test:spawn:${sessionId}`,
         machineAccess: 'allowed',
         principal: { kind: 'user', userId: TEST_BINDING_USER },
+        delegation: testDelegation(sessionId),
       },
     }
   }
@@ -251,6 +297,7 @@ function withTestBindingInstruction(message: unknown): unknown {
         machineAccess: 'allowed',
         sessionAccess: 'allowed',
         principal: { kind: 'user', userId: TEST_BINDING_USER },
+        delegation: testDelegation(sessionId),
       },
     }
   }
@@ -274,7 +321,8 @@ type FlatFrame = { sessionId: SessionId; data: string }
 // hello), then records every subsequent DaemonMessage — exactly what the old bare
 // `on('message')` did, minus the (now non-DaemonMessage) handshake frame.
 function handshakeAndCollect(
-  ws: WS, received: DaemonMessage[],
+  ws: WS,
+  received: DaemonMessage[],
   bindingConfirmations?: import('@podium/protocol').BindingConfirmations,
 ): Promise<void> {
   let authed = false
@@ -333,7 +381,7 @@ describe('daemon multi-bridge', () => {
       // inject the deterministic fixture instead of real claude/codex
       launch: (_kind, opts) => {
         launchOpts.push(opts)
-        return { cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }
+        return shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd })
       },
     })
     await connected
@@ -843,7 +891,8 @@ describe('daemon multi-bridge', () => {
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['gone-1'], diagnostics: [] }),
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
     await connected
     try {
@@ -943,7 +992,8 @@ describe('daemon multi-bridge', () => {
       durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
     await connected
     try {
@@ -1077,7 +1127,9 @@ describe('daemon multi-bridge', () => {
     await waitFor(() => fixtureFrame(sessionId) !== undefined)
     expect(existsSync(uploadDir)).toBe(true)
     // Send Ctrl-C to the fixture — it calls process.exit(0) on receiving \x03.
-    send({ type: 'input', sessionId, data: btoa('\x03') })
+    // A person's keypress: automation bytes for a contracted session (claude-code
+    // is one) are refused at the input adapter (POD-4279).
+    send({ type: 'input', sessionId, data: btoa('\x03'), inputOrigin: 'human' })
     // With backend=none the master IS the process; when it exits the onExit fires
     // and (with the fix) removeSessionUploads is called before agentExit.
     await waitFor(() => received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId))
@@ -1126,6 +1178,10 @@ function defaultServerTransport(kind: 'codex' | 'grok'): DefaultServerTransport 
   }
 }
 
+/** The installation admission probes are primed for (POD-6546: verdicts are
+ *  cached per installation). */
+const TEST_INSTALLATION = { executable: '/opt/rig/bin/codex', version: '', generation: 0 }
+
 function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
   const entries = new Map<SessionId, Parameters<CodexRuntimeHost['bindings']['bound']>[0]>()
   const host: CodexRuntimeHost = {
@@ -1143,6 +1199,8 @@ function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-codex-session'),
+    ...testEngineTerms(),
+    harnessContextFor: async () => testHarnessContext({ kind: 'codex' }),
     readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
       const transport = defaultServerTransport('codex') as CodexTransport
@@ -1156,7 +1214,8 @@ function defaultCodexRuntime(sent: DaemonMessage[], sessions = testSessions()) {
       }
     },
   }
-  return createCodexSessionRuntime({ driverSlots: driverSlotsOver(sessions),
+  return createCodexSessionRuntime({
+    driverSlots: driverSlotsOver(sessions),
     facts: codexEngineFacts(manifestFor('codex')!),
     engine: host,
     send: (msg) => void sent.push(msg),
@@ -1178,6 +1237,8 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
     },
     now: () => 1_786_700_000_000,
     mintSessionId: () => asSessionId('fixture-grok-session'),
+    ...testEngineTerms(),
+    harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     readHistory: async () => ({ items: [], hasMore: false }),
     async launch(input) {
       const transport = defaultServerTransport('grok') as GrokAcpTransport
@@ -1198,7 +1259,9 @@ function defaultGrokRuntime(sent: DaemonMessage[]) {
       }
     },
   }
-  return createGrokSessionRuntime({ stageAttachment: createMemoryAttachmentStager(), driverSlots: driverSlotsOver(testSessions()),
+  return createGrokSessionRuntime({
+    stageAttachment: createMemoryAttachmentStager(),
+    driverSlots: driverSlotsOver(testSessions()),
     facts: grokEngineFacts(manifestFor('grok')!),
     engine: host,
     send: (msg) => void sent.push(msg),
@@ -1255,6 +1318,10 @@ function defaultServerSpawnContext(
   return {
     send: (msg: DaemonMessage) => void sent.push(msg),
     machineId: 'default-server-machine',
+    // Every bind reads the session's applied size from the registry
+    // (`sendBind` → `sessionSize`), so a context without one throws on the
+    // first bind a path sends itself, like the parked-resume arm.
+    sessions: testSessions(),
     durableLabelFor: (id: SessionId) => `default-server-${id}`,
     sessionBinding: {
       transition: async () => ({ status: 'applied' }),
@@ -1281,6 +1348,7 @@ function defaultServerSpawnContext(
       },
       inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
     } as unknown as Parameters<typeof createDaemonMachineRuntime>[0]),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 }
 
@@ -1350,7 +1418,12 @@ describe('default server-driver spawn integration', () => {
   it('answers refused inside the codex readiness window, then delivers once the thread is minted', async () => {
     resetCodexAppServerVersionProbe()
     expect(
-      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+      (
+        await codexAppServerVersionProbe(TEST_INSTALLATION, {
+          env: {},
+          probe: () => ({ output: '0.147.0', ok: true }),
+        })
+      ).drivable,
     ).toBe(true)
     const sent: DaemonMessage[] = []
     const runtime = defaultCodexRuntime(sent)
@@ -1429,7 +1502,12 @@ describe('default server-driver spawn integration', () => {
   it('binds a server-family handle onto the session entry, and a kill removes the entry', async () => {
     resetCodexAppServerVersionProbe()
     expect(
-      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+      (
+        await codexAppServerVersionProbe(TEST_INSTALLATION, {
+          env: {},
+          probe: () => ({ output: '0.147.0', ok: true }),
+        })
+      ).drivable,
     ).toBe(true)
     const sent: DaemonMessage[] = []
     const sessions = testSessions()
@@ -1443,6 +1521,7 @@ describe('default server-driver spawn integration', () => {
       outputScheduler: { remove: vi.fn() },
       portableStateFence: { runSync: (fn: () => void) => fn() },
       instanceUuid: undefined,
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const sessionId = asSessionId('entry-owned-codex')
     sessionHandlers.spawn(
@@ -1569,7 +1648,8 @@ describe('default server-driver spawn integration', () => {
           cachePath: ':memory:',
         },
         workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
-        launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+        launch: (_kind, opts) =>
+          shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       })
       await connected
       serverSocket?.send(encode({ type: 'inventoryRequest' }))
@@ -1946,7 +2026,9 @@ describe('durable backend resolution', () => {
     expect(resolveDurableBackend({}, available, { PODIUM_DURABLE_BACKEND: 'abduco' })).toBe('host')
     expect(resolveDurableBackend({}, missing, { PODIUM_DURABLE_BACKEND: 'abduco' })).toBe('none')
     // An explicit option outranks the environment.
-    expect(resolveDurableBackend({ backend: 'none' }, available, { PODIUM_DURABLE_BACKEND: 'host' })).toBe('none')
+    expect(
+      resolveDurableBackend({ backend: 'none' }, available, { PODIUM_DURABLE_BACKEND: 'host' }),
+    ).toBe('none')
   })
 
   it('parses --backend host|none, ignores a legacy abduco and refuses anything else', () => {
@@ -1975,7 +2057,6 @@ describe('durable backend resolution', () => {
     expect(noDurableBackendWarning('linux')).toContain('refuses to start sessions')
   })
 })
-
 
 /**
  * SPEC-6 items 13–14: the survival suite runs against the durable host,
@@ -2006,7 +2087,8 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       agentRelay: { port: 0 },
       backend: 'host',
       discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
     await connected
 
@@ -2025,6 +2107,15 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       expect(await hostHasSession(label)).toBe(true)
 
+      const output = (): string =>
+        received
+          .filter(
+            (m): m is AgentFrameBatch => m.type === 'agentFrameBatch' && m.sessionId === sessionId,
+          )
+          .flatMap((m) => m.frames.map(decode))
+          .join('')
+      await waitFor(() => output().includes('PODIUM-FIXTURE'))
+
       // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
       received.length = 0
       send({
@@ -2036,24 +2127,27 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
         lastKnownGeometry: G,
       })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      const framesFlow = (): boolean =>
-        received.some(
-          (m) =>
-            m.type === 'agentFrameBatch' &&
-            m.sessionId === sessionId &&
-            m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
-        )
       // SPEC-6 item 13: the bind after the re-bind carries the program's real
       // size (the stage 5 record). The fresh-daemon case below is where the
       // host's size-neutral reattach itself is pinned; this daemon still holds
-      // the bridge, and that path repaints as it always has.
+      // the bridge. Rebinding it does not redraw an idle program (POD-4723).
       const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
         DaemonMessage,
         { type: 'bind' }
       >
       expect(bind.geometry).toEqual(G)
-      // So frames flow again from the re-bound session.
-      await waitFor(framesFlow)
+      // Drive new output after the bind: an idle survivor owes no unsolicited
+      // frames, and the initial paint must not accidentally satisfy this proof.
+      const input = 'after-reattach'
+      const inputHex = Buffer.from(input).toString('hex')
+      expect(output()).not.toContain(`last-input=${inputHex}`)
+      send({
+        type: 'input',
+        sessionId,
+        data: Buffer.from(input).toString('base64'),
+        inputOrigin: 'human',
+      })
+      await waitFor(() => output().includes(`last-input=${inputHex}`))
 
       // A reattach for a label no backend knows → reattachFailed.
       const goneId = `ab-gone-${process.pid}`
@@ -2116,11 +2210,12 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       agentRelay: { port: 0 },
       backend: 'host' as const,
       discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind: unknown, opts: { cwd: string }) => ({
-        cmd: process.execPath,
-        args: [FIXTURE],
-        cwd: opts.cwd,
-      }),
+      launch: (_kind: unknown, opts: { cwd: string }) =>
+        shellCommand({
+          cmd: process.execPath,
+          args: [FIXTURE],
+          cwd: opts.cwd,
+        }),
     }
 
     const waitFor = async (fn: () => boolean, timeout = 8000): Promise<void> => {
@@ -2152,7 +2247,9 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       await waitFor(() => painted().includes(`cols=${G.cols} rows=${G.rows}`))
       // The program's last screen before the restart: the highest paint counter seen.
-      const lastPaintBefore = Math.max(...[...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1])))
+      const lastPaintBefore = Math.max(
+        ...[...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1])),
+      )
 
       // The daemon dies; the agent keeps running in its own durable host.
       await first.close()
@@ -2175,8 +2272,12 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       await new Promise((r) => setTimeout(r, 800))
       // The agent is not touched by the reattach: not moved, not signalled, not
-      // even sent a redraw key. Nothing has asked it for anything.
-      expect(painted()).toBe('')
+      // even sent a redraw key. Nothing has asked it for anything. What does
+      // reach this pictureless server is the host's ring replay (POD-4290 seeds
+      // the recovered screen from it): the program's LAST screen, at the paint
+      // counter it already had. A new paint would mean the program was asked.
+      const reattachPaints = [...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1]))
+      expect(reattachPaints.every((paint) => paint <= lastPaintBefore)).toBe(true)
       expect(painted()).not.toContain('cols=120')
       // AND THE BIND SAYS SO (POD-3279). A real daemon, a real podium-host
       // survivor, a real size-neutral attach — and the frame that comes back
@@ -2254,11 +2355,8 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       })
       return { wss, received, ready, send: (msg) => socket.send(encode(msg as never)) }
     }
-    const launch = (_kind: unknown, opts: { cwd: string }) => ({
-      cmd: process.execPath,
-      args: [FIXTURE],
-      cwd: opts.cwd,
-    })
+    const launch = (_kind: unknown, opts: { cwd: string }) =>
+      shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd })
 
     const a = await startServer()
     const daemonA = await startDaemon({
@@ -2381,11 +2479,8 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
         })
         return { wss, received, ready, send: (msg) => socket.send(encode(msg as never)) }
       }
-      const launch = (_kind: unknown, opts: { cwd: string }) => ({
-        cmd: process.execPath,
-        args: [FIXTURE],
-        cwd: opts.cwd,
-      })
+      const launch = (_kind: unknown, opts: { cwd: string }) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd })
 
       const a = await startServer()
       const daemonA = await startDaemon({
@@ -2478,7 +2573,8 @@ describe.skipIf(!isHostAvailable())('daemon podium-host survival', () => {
       agentRelay: { port: 0 },
       backend: 'host',
       discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
     await connected
 
@@ -2530,7 +2626,13 @@ describe.skipIf(!hasLegacyAbduco)('daemon adopts a running abduco session', () =
   })
   const savedSocketDir = process.env.ABDUCO_SOCKET_DIR
   let socketRoot = ''
-  const envKeys = ['HOME', 'PATH', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_STATE_DIR', 'PODIUM_NO_SCOPE'] as const
+  const envKeys = [
+    'HOME',
+    'PATH',
+    'PODIUM_HOST_SOCKET_DIR',
+    'PODIUM_STATE_DIR',
+    'PODIUM_NO_SCOPE',
+  ] as const
   const savedEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]))
   beforeAll(() => {
     // Short and private: abduco composes `<root>/abduco/<user>/<label>@<host>`
@@ -2562,139 +2664,137 @@ describe.skipIf(!hasLegacyAbduco)('daemon adopts a running abduco session', () =
   async function startAbducoSessionLikeAnOlderPodium(label: string): Promise<void> {
     const bin = legacyAbducoBin
     if (!bin) throw new Error('no abduco binary')
-    execFileSync(bin, ['-n', label, process.execPath, FIXTURE], { env: process.env, stdio: 'ignore' })
+    execFileSync(bin, ['-n', label, process.execPath, FIXTURE], {
+      env: process.env,
+      stdio: 'ignore',
+    })
     await waitForAbducoSocket(label, process.env, { timeoutMs: 5000 })
   }
 
-  it(
-    're-adopts a running session after a daemon restart with no abduco binary on PATH',
-    async () => {
-      const sessionId = asSessionId(`ab-mixed-${process.pid}`)
-      const label = `podium-${sessionId}`
-      const wss = new WebSocketServer({ port: 0 })
-      await new Promise<void>((r) => wss.once('listening', () => r()))
-      const port = (wss.address() as { port: number }).port
-      const received: DaemonMessage[] = []
-      let serverSocket!: WS
-      const connected = new Promise<void>((r) => {
+  it('re-adopts a running session after a daemon restart with no abduco binary on PATH', async () => {
+    const sessionId = asSessionId(`ab-mixed-${process.pid}`)
+    const label = `podium-${sessionId}`
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const received: DaemonMessage[] = []
+    let serverSocket!: WS
+    const connected = new Promise<void>((r) => {
+      wss.once('connection', (ws) => {
+        serverSocket = ws
+        handshakeAndCollect(ws, received)
+        r()
+      })
+    })
+    const waitFor = async (fn: () => boolean, timeout = 8000): Promise<void> => {
+      const startedAt = Date.now()
+      while (!fn()) {
+        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+    const painted = (): string =>
+      received
+        .filter(
+          (m): m is Extract<DaemonMessage, { type: 'agentFrameBatch' }> =>
+            m.type === 'agentFrameBatch' && m.sessionId === sessionId,
+        )
+        .flatMap((m) => m.frames.map((f) => decode(f)))
+        .join('')
+
+    await startAbducoSessionLikeAnOlderPodium(label)
+    expect(await abducoHasSession(label)).toBe(true)
+    let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
+    try {
+      // The machine upgraded while the session was alive under abduco.
+      daemon = await startDaemon({
+        serverUrl: `ws://localhost:${port}`,
+        machineToken: 'test',
+        agentRelay: { port: 0 },
+        discovery: { background: false, cachePath: ':memory:' },
+        hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+        backend: 'host',
+        launch: (_kind, opts) =>
+          shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      })
+      await connected
+      send({
+        type: 'reattach',
+        sessionId,
+        durableLabel: label,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        lastKnownGeometry: G,
+        binding: legacyBinding(sessionId),
+      })
+      await waitFor(() =>
+        received.some(
+          (m) => (m.type === 'bind' || m.type === 'reattachFailed') && m.sessionId === sessionId,
+        ),
+      )
+      expect(received.find((m) => m.type === 'reattachFailed')).toBeUndefined()
+      expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
+      // It came back through the abduco adoption adapter — and behaves as an
+      // abduco session: an attach client that cannot read the size back.
+      const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
+        DaemonMessage,
+        { type: 'bind' }
+      >
+      expect(bind.cmd).toContain('abduco -a')
+      expect(bind).not.toHaveProperty('geometry')
+      received.length = 0
+      send({ type: 'resize', sessionId, cols: 120, rows: 45 })
+      await waitFor(() => painted().includes('cols=120 rows=45'))
+      await daemon.close()
+      expect(await abducoHasSession(label)).toBe(true)
+      expect(received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId)).toBe(false)
+      received.length = 0
+      const reconnected = new Promise<void>((resolve) => {
         wss.once('connection', (ws) => {
           serverSocket = ws
           handshakeAndCollect(ws, received)
-          r()
+          resolve()
         })
       })
-      const waitFor = async (fn: () => boolean, timeout = 8000): Promise<void> => {
-        const startedAt = Date.now()
-        while (!fn()) {
-          if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
-          await new Promise((r) => setTimeout(r, 20))
-        }
-      }
-      const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
-      const painted = (): string =>
-        received
-          .filter(
-            (m): m is Extract<DaemonMessage, { type: 'agentFrameBatch' }> =>
-              m.type === 'agentFrameBatch' && m.sessionId === sessionId,
-          )
-          .flatMap((m) => m.frames.map((f) => decode(f)))
-          .join('')
-
-      await startAbducoSessionLikeAnOlderPodium(label)
-      expect(await abducoHasSession(label)).toBe(true)
-      let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
-      try {
-        // The machine upgraded while the session was alive under abduco.
-        daemon = await startDaemon({
-          serverUrl: `ws://localhost:${port}`,
-          machineToken: 'test',
-          agentRelay: { port: 0 },
-          discovery: { background: false, cachePath: ':memory:' },
-          hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
-          backend: 'host',
-          launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
-        })
-        await connected
-        send({
-          type: 'reattach',
-          sessionId,
-          durableLabel: label,
-          agentKind: 'claude-code',
-          cwd: '/tmp',
-          lastKnownGeometry: G,
+      daemon = await startDaemon({
+        serverUrl: `ws://localhost:${port}`,
+        machineToken: 'test',
+        agentRelay: { port: 0 },
+        discovery: { background: false, cachePath: ':memory:' },
+        hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+        backend: 'host',
+      })
+      await reconnected
+      send({
+        type: 'reattach',
+        sessionId,
+        durableLabel: label,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        lastKnownGeometry: { cols: 90, rows: 20 },
         binding: legacyBinding(sessionId),
-        })
-        await waitFor(() =>
-          received.some(
-            (m) =>
-              (m.type === 'bind' || m.type === 'reattachFailed') && m.sessionId === sessionId,
-          ),
-        )
+      })
+      await waitFor(() =>
+        received.some(
+          (m) => (m.type === 'bind' || m.type === 'reattachFailed') && m.sessionId === sessionId,
+        ),
+      )
       expect(received.find((m) => m.type === 'reattachFailed')).toBeUndefined()
-        expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
-        // It came back through the abduco adoption adapter — and behaves as an
-        // abduco session: an attach client that cannot read the size back.
-        const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
-          DaemonMessage,
-          { type: 'bind' }
-        >
-        expect(bind.cmd).toContain('abduco -a')
-        expect(bind).not.toHaveProperty('geometry')
-        received.length = 0
-        send({ type: 'resize', sessionId, cols: 120, rows: 45 })
-        await waitFor(() => painted().includes('cols=120 rows=45'))
-        await daemon.close()
-        expect(await abducoHasSession(label)).toBe(true)
-        expect(received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId)).toBe(false)
-        received.length = 0
-        const reconnected = new Promise<void>((resolve) => {
-          wss.once('connection', (ws) => {
-            serverSocket = ws
-            handshakeAndCollect(ws, received)
-            resolve()
-          })
-        })
-        daemon = await startDaemon({
-          serverUrl: `ws://localhost:${port}`,
-          machineToken: 'test',
-          agentRelay: { port: 0 },
-          discovery: { background: false, cachePath: ':memory:' },
-          hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
-          backend: 'host',
-        })
-        await reconnected
-        send({
-          type: 'reattach',
-          sessionId,
-          durableLabel: label,
-          agentKind: 'claude-code',
-          cwd: '/tmp',
-          lastKnownGeometry: { cols: 90, rows: 20 },
-          binding: legacyBinding(sessionId),
-        })
-        await waitFor(() =>
-          received.some(
-            (m) =>
-              (m.type === 'bind' || m.type === 'reattachFailed') && m.sessionId === sessionId,
-          ),
-        )
-      expect(received.find((m) => m.type === 'reattachFailed')).toBeUndefined()
-        expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
-        send({
-          type: 'input',
-          sessionId,
-          inputOrigin: 'human',
-          data: Buffer.from('restart\r').toString('base64'),
-        })
-        await waitFor(() => painted().includes('last-input=726573746172740d'))
-      } finally {
-        await daemon?.close()
-        await killAbducoSession(label)
-        await new Promise<void>((r) => wss.close(() => r()))
-      }
-    },
-    40000,
-  )
+      expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
+      send({
+        type: 'input',
+        sessionId,
+        inputOrigin: 'human',
+        data: Buffer.from('restart\r').toString('base64'),
+      })
+      await waitFor(() => painted().includes('last-input=726573746172740d'))
+    } finally {
+      await daemon?.close()
+      await killAbducoSession(label)
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  }, 40000)
 
   it('does NOT report agentExit when the daemon detaches but the master survives', async () => {
     // Regression: a backend restart (disposeAll), a user detach, or a client crash
@@ -2728,7 +2828,8 @@ describe.skipIf(!hasLegacyAbduco)('daemon adopts a running abduco session', () =
       agentRelay: { port: 0 },
       backend: 'host',
       discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
     await connected
 
@@ -2753,8 +2854,7 @@ describe.skipIf(!hasLegacyAbduco)('daemon adopts a running abduco session', () =
       })
       await waitFor(() =>
         received.some(
-          (m) =>
-            (m.type === 'bind' || m.type === 'reattachFailed') && m.sessionId === sessionId,
+          (m) => (m.type === 'bind' || m.type === 'reattachFailed') && m.sessionId === sessionId,
         ),
       )
       expect(received.find((m) => m.type === 'reattachFailed')).toBeUndefined()
@@ -2809,7 +2909,8 @@ describe('daemon conversation discovery', () => {
       agentRelay: { port: 0 },
       backend: 'none',
       durable: directPtyDurableForTests(),
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['sess-old'], diagnostics: [] }),
       discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
     })
@@ -2860,7 +2961,8 @@ describe('daemon conversation discovery', () => {
       agentRelay: { port: 0 },
       backend: 'none',
       durable: directPtyDurableForTests(),
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
       discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
@@ -2914,7 +3016,8 @@ describe('daemon conversation discovery', () => {
       agentRelay: { port: 0 },
       backend: 'none',
       durable: directPtyDurableForTests(),
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: client,
       discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
@@ -2983,7 +3086,8 @@ describe('daemon conversation discovery', () => {
       agentRelay: { port: 0 },
       backend: 'none',
       durable: directPtyDurableForTests(),
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       // No background loop, so the ONLY indexRefresh job is the on-demand scan.
       discovery: { background: false, cachePath: ':memory:' },
@@ -3050,6 +3154,194 @@ describe('daemon host metrics', () => {
     }
   })
 
+  it('on a topics.v1 link samples only while the server demands machine.metrics', async () => {
+    const received: DaemonMessage[] = []
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    let server: WS | undefined
+    wss.on('connection', (ws) => {
+      server = ws
+      let authed = false
+      ws.on('message', (raw) => {
+        if (!authed) {
+          authed = true
+          const ok: PeerHelloReply = {
+            type: 'peerHelloOk',
+            v: DAEMON_WIRE_VERSION,
+            caps: [CAP_TOPICS_V1],
+            name: 'test',
+          }
+          ws.send(JSON.stringify(ok))
+          return
+        }
+        received.push(parseDaemonMessage(raw.toString()))
+      })
+    })
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      machineToken: 'test',
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+      agentRelay: { port: 0 },
+      backend: 'none',
+      durable: directPtyDurableForTests(),
+      discovery: { background: false, cachePath: ':memory:' },
+      metrics: { intervalMs: 25 },
+    })
+    const published = () => received.filter((m) => m.type === 'topicPublish')
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    try {
+      // The connect report (and any readiness change) goes out once, as topicPublish …
+      const start = Date.now()
+      while (published().length < 1) {
+        if (Date.now() - start > 5000) throw new Error('timed out waiting for the connect report')
+        await wait(10)
+      }
+      await wait(100)
+      // … and then nothing for many sampling intervals: nobody demands it.
+      const settled = published().length
+      await wait(200)
+      expect(published().length).toBe(settled)
+      expect(received.filter((m) => m.type === 'hostMetrics')).toEqual([])
+      // The daemon names its own key; demand exactly that one.
+      const key = (published()[0] as Extract<DaemonMessage, { type: 'topicPublish' }>).key
+      expect(key.startsWith('machine.metrics:')).toBe(true)
+      server?.send(JSON.stringify({ type: 'topicWatch', key, on: true }))
+      await wait(200)
+      const demanded = published().length
+      expect(demanded).toBeGreaterThan(settled + 3)
+      server?.send(JSON.stringify({ type: 'topicWatch', key, on: false }))
+      await wait(50)
+      const stopped = published().length
+      await wait(200)
+      expect(published().length).toBe(stopped)
+    } finally {
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
+
+  it('stops every topic producer when the server link drops; one left during the outage stays stopped (D22)', async () => {
+    // The REAL registry the host runtime builds: caught as it registers its producers.
+    const register = vi.spyOn(TopicWatchRegistry.prototype, 'register')
+    const received: DaemonMessage[] = []
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+    const servers: WS[] = []
+    // The second link's handshake is held: the outage lasts until the test lets it end.
+    let endOutage!: () => void
+    const outageOver = new Promise<void>((resolve) => {
+      endOutage = resolve
+    })
+    wss.on('connection', (ws) => {
+      const index = servers.push(ws) - 1
+      let authed = false
+      ws.on('message', (raw) => {
+        if (!authed) {
+          authed = true
+          const ok: PeerHelloReply = {
+            type: 'peerHelloOk',
+            v: DAEMON_WIRE_VERSION,
+            caps: [CAP_TOPICS_V1, CAP_CHECKOUT_CHANGED_V1, CAP_MACHINE_PROCESSES_V1],
+            name: 'test',
+          }
+          if (index === 0) ws.send(JSON.stringify(ok))
+          else void outageOver.then(() => ws.send(JSON.stringify(ok)))
+          return
+        }
+        received.push(parseDaemonMessage(raw.toString()))
+      })
+    })
+    const repo = trackTmp('podium-topic-checkout-')
+    execFileSync('git', ['init', '-q', repo])
+    const daemon = await startDaemon({
+      serverUrl: `ws://localhost:${port}`,
+      machineToken: 'test',
+      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+      agentRelay: { port: 0 },
+      backend: 'none',
+      durable: directPtyDurableForTests(),
+      discovery: { background: false, cachePath: ':memory:' },
+      metrics: { intervalMs: 25 },
+    })
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+    const waitFor = async (what: string, fn: () => boolean): Promise<void> => {
+      const start = Date.now()
+      while (!fn()) {
+        if (Date.now() - start > 5000) throw new Error(`timed out waiting for ${what}`)
+        await wait(10)
+      }
+    }
+    const published = (key: string) =>
+      received.filter((m) => m.type === 'topicPublish' && m.key === key).length
+    try {
+      const watches = register.mock.contexts[0] as TopicWatchRegistry
+      expect(watches).toBeInstanceOf(TopicWatchRegistry)
+      // The connect report names this machine's own metrics key.
+      await waitFor('the connect report', () => received.some((m) => m.type === 'topicPublish'))
+      const metricsKey = (
+        received.find((m) => m.type === 'topicPublish') as Extract<
+          DaemonMessage,
+          { type: 'topicPublish' }
+        >
+      ).key
+      const machineId = asMachineId(parseTopicKey(metricsKey)?.id ?? '')
+      const keys = {
+        metrics: metricsKey,
+        processes: topicKey('machine.processes', machineId),
+        checkout: topicKey('checkout.changed', checkoutTopicId(machineId, repo)),
+      }
+      const demand = (ws: WS | undefined, key: string, on: boolean) =>
+        ws?.send(
+          JSON.stringify({
+            type: 'topicWatch',
+            key,
+            on,
+            ...(key === keys.processes ? { input: { roots: [] } } : {}),
+          }),
+        )
+      for (const key of Object.values(keys)) demand(servers[0], key, true)
+      await waitFor('all three producers', () =>
+        Object.values(keys).every((key) => watches.isRunning(key)),
+      )
+      await waitFor('metrics samples', () => published(keys.metrics) > 3)
+
+      // THE SERVER LINK DROPS. Every producer stops with it, before any reconnect.
+      servers[0]?.terminate()
+      await waitFor('the redial', () => servers.length === 2)
+      for (const key of Object.values(keys)) expect(watches.isRunning(key)).toBe(false)
+      // Still inside the outage (the handshake is held): nothing restarts.
+      await wait(150)
+      for (const key of Object.values(keys)) expect(watches.isRunning(key)).toBe(false)
+
+      // The viewer of the checkout and the processes left during the outage, so
+      // the new link re-demands only metrics (D21). The others stay stopped.
+      const before = received.length
+      endOutage()
+      await waitFor('the second link', () => daemon.connected)
+      demand(servers[1], keys.metrics, true)
+      await waitFor('metrics on the new link', () =>
+        received.slice(before).some((m) => m.type === 'topicPublish' && m.key === keys.metrics),
+      )
+      await wait(200)
+      expect(watches.isRunning(keys.metrics)).toBe(true)
+      expect(watches.isRunning(keys.processes)).toBe(false)
+      expect(watches.isRunning(keys.checkout)).toBe(false)
+      const afterLink = received.slice(before)
+      expect(afterLink.filter((m) => m.type === 'topicPublish' && m.key !== keys.metrics)).toEqual(
+        [],
+      )
+      // A re-demand starts a producer afresh.
+      demand(servers[1], keys.checkout, true)
+      await waitFor('the checkout producer', () => watches.isRunning(keys.checkout))
+    } finally {
+      register.mockRestore()
+      await daemon.close()
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  })
+
   it('stays silent when metrics.background is false', async () => {
     const received: DaemonMessage[] = []
     const wss = new WebSocketServer({ port: 0 })
@@ -3069,8 +3361,15 @@ describe('daemon host metrics', () => {
       metrics: { background: false, intervalMs: 10 },
     })
     try {
-      await new Promise((r) => setTimeout(r, 80))
-      expect(received.filter((m) => m.type === 'hostMetrics')).toEqual([])
+      // The connect and readiness reports are change reports, not the sampler,
+      // and go out regardless (they already did before topics: this test used
+      // to assert none and failed on its base). What `background: false` turns
+      // off is the periodic sample, so the count must stop growing.
+      const metrics = () => received.filter((m) => m.type === 'hostMetrics').length
+      await new Promise((r) => setTimeout(r, 150))
+      const settled = metrics()
+      await new Promise((r) => setTimeout(r, 150))
+      expect(metrics()).toBe(settled)
     } finally {
       await daemon.close()
       await new Promise<void>((r) => wss.close(() => r()))
@@ -3101,7 +3400,8 @@ describe('daemon memory breakdown', () => {
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         workerClient: inlineWorkerClient(),
-        launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+        launch: (_kind, opts) =>
+          shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       })
       try {
         const waitFor = async (fn: () => boolean): Promise<void> => {
@@ -3160,10 +3460,18 @@ describe('Codex identity receipt recovery', () => {
         wss.once('connection', (ws) => {
           serverSocket = ws
           handshakeAndCollect(ws, received, {
-            'pane-a': { owner: A_MEMBER, machineId, closed: false, delegation: {
-              actor: asAgentIdentityId('receipt-agent'), onBehalfOf: A_MEMBER,
-              grantedScope: { kind: 'none' }, parentBindingId: null, revision: 1,
-            } },
+            'pane-a': {
+              owner: A_MEMBER,
+              machineId,
+              closed: false,
+              delegation: {
+                actor: asAgentIdentityId('receipt-agent'),
+                onBehalfOf: A_MEMBER,
+                grantedScope: { kind: 'none' },
+                parentBindingId: null,
+                revision: 1,
+              },
+            },
           })
           resolve()
         })
@@ -3178,7 +3486,8 @@ describe('Codex identity receipt recovery', () => {
         metrics: { background: false },
         hooks: { port: 0, settingsDir },
         agentRelay: { port: 0 },
-        launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+        launch: (_kind, opts) =>
+          shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       })
       await connected
       const waitFor = async (predicate: () => boolean): Promise<void> => {
@@ -3259,7 +3568,8 @@ describe('agent state instrumentation', () => {
       metrics: { background: false },
       hooks: { port: 0, settingsDir },
       agentRelay: { port: 0 },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
     await connected
   })
@@ -3681,7 +3991,8 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       backend: 'none',
       durable: directPtyDurableForTests(),
       discovery: { background: false, cachePath: ':memory:', homeDir },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      launch: (_kind, opts) =>
+        shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
     daemons.push(d)
     return d

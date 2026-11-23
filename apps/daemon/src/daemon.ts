@@ -11,6 +11,7 @@ import type { DaemonOptions } from './daemon-options'
 import { createDetachedRestart, waitForDetachedRestartParent } from './detached-restart'
 import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
+import { plainRemoteServerWarning } from './link-warning'
 import type { PortableStateControl } from './portable-state-fence'
 import { createQueueDrainOutbox } from './queue-drain-outbox'
 import { createRuntimeEventOutbox, prepareRuntimeEventDelivery } from './runtime-event-outbox'
@@ -67,7 +68,8 @@ export interface DaemonHandle {
  * each live in their owning modules; this function only wires their ports.
  */
 export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
-  if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Daemon execution disabled during upgrade rehearsal')
+  if (process.env.PODIUM_REHEARSAL === '1')
+    throw new Error('Daemon execution disabled during upgrade rehearsal')
   const parentOwnsMachinePresence = process.env[SUPERVISOR_MACHINE_ID_ENV] !== undefined
   if (parentOwnsMachinePresence) {
     const { pairCode: _legacyPairCode, ...parentOptions } = opts
@@ -91,6 +93,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     stateDir: process.env.PODIUM_STATE_DIR,
     installDir,
   })
+  // The server judges the connection and sends no credentials over a plain one
+  // (credential management §8); this line tells the person reading the log why.
+  const plainLink = opts.localLink ? undefined : plainRemoteServerWarning(opts.serverUrl)
+  if (plainLink !== undefined) log.warn(plainLink, { serverUrl: opts.serverUrl })
   /**
    * THE EXIT SEAM, DISARMED WHERE EXITING IS FATAL (POD-2210).
    *
@@ -151,6 +157,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     sendOutput: (batch: DaemonPtyOutputBatch) => connection?.sendOutput(batch),
     isConnected: () => connection?.state === 'connected',
     picturesAccepted: () => connection?.acceptsPictures() ?? false,
+    topicsAccepted: () => connection?.acceptsTopics() ?? false,
     retryHandshake: () => connection?.retryHandshake(),
     acknowledgeQueueDrainReport: (reportId) => {
       if (connection) connection.acknowledgeQueueDrainReport(reportId)
@@ -192,7 +199,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     throw error
   })
   connection = createDaemonConnection({
-    options,
+    options: {
+      ...options,
+      onAdmitted: () => {
+        instance.commitIdentity()
+        options.onAdmitted?.()
+      },
+    },
     build,
     reportUpdateIdentity: !parentOwnsMachinePresence,
     machineId: asMachineId(host.machineId),
@@ -204,8 +217,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     queueDrainOutbox,
     runtimeEventOutbox,
     onConnected: host.connected,
+    onLinkLost: host.linkLost,
     bindingSessionIds: host.bindingSessionIds,
-    onTerminal: host.close,
+    onTerminal: async () => {
+      try {
+        await host.close()
+      } finally {
+        instance.releaseGuards()
+      }
+    },
     restartAfterUpdate: options.restartAfterUpdate,
   })
   const startedAt = Date.now()

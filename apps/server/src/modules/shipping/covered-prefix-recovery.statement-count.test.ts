@@ -10,9 +10,12 @@ import { createHash } from 'node:crypto'
 import { asDeliveryReceiptId, asMachineId, asShipOrderId, firstAdminMemberId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { logStoreRecords } from '../../test-support/record-writer'
+import { seedRows } from '../../test-support/seed-rows'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import { expectConstantStatements } from '../../test-support/statement-count'
 import { IssueService } from '../issues/service'
@@ -38,6 +41,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
   const store = await openTestStore(':memory:')
   const ledger = new Ledger({
     repo: store.sync,
+    records: await logStoreRecords(store),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
   })
@@ -48,7 +52,6 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'codex' },
@@ -56,17 +59,20 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
     spawnSession: async () => ({ sessionId: 'session-1' as never, machine: 'machine-1' }),
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
-    ledger,
+    ledger: testLedgerWriter(ledger),
   })
   const service = new ShippingService({
+    workspaceId: store.workspaceId,
     repository: store.shipping,
     issues: {
       get: async (id) => (await issues.reports.get(id))!,
       children: async (id, recursive) => await issues.reports.children(id, recursive),
-      shippingCommit: issues.crud.shippingCommit.bind(issues.crud),
-      shippingCommitMany: issues.crud.shippingCommitMany.bind(issues.crud),
+      shippingCommit: async (writer, id, mutation, write) =>
+        await issues.crud.shippingCommit(writer, id, mutation, write),
+      shippingCommitMany: async (writer, entries, write) =>
+        await issues.crud.shippingCommitMany(writer, entries, write),
     },
-    ledger,
+    ledger: testLedgerWriter(ledger),
     daemon: {
       shippingJob: async () => {
         throw new Error('not used')
@@ -85,7 +91,7 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
     now: () => '2026-08-13T10:00:00.000Z',
     background: false,
   })
-  const created = await issues.crud.create({
+  const created = await issues.crud.create(issues.reports.store.serverWriter, {
     repoPath: '/history',
     title: 'history',
     startNow: false,
@@ -94,66 +100,76 @@ async function world(shipped: number): Promise<{ store: SessionStore; service: S
   const history = (await issues.reports.get(created.id))!
   for (let index = 0; index < shipped; index += 1) {
     const at = new Date(Date.UTC(2026, 7, 13, 0, index)).toISOString()
-    const order = await store.shipping.createOrder({
-      id: asShipOrderId(`shipped-${index}`),
-      issueId: history.id,
-      descendantManifest: [],
-      repoId: history.repoId!,
-      repoPath: '/history',
-      machineId: asMachineId('machine-1'),
-      targetBranch: 'main',
-      destination: 'local:main',
-      approvedBaseSha: 'base-sha',
-      approvedHeadSha: `head-${index}`,
-      deliveryDependsOn: [],
-      requestedBy,
-      requestedAt: at,
-      policyId: 'compatibility-local:main',
-      validationProfile: PROFILE,
-      validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
-      closeMode: 'after-destination',
-      state: 'queued',
-      stateChangedAt: at,
-    })
-    const { attempt } = await store.shipping.claimAttempt({
-      orderId: order.id,
-      expectedState: 'queued',
-      expectedAttemptId: null,
-      expectedGeneration: 0,
-      machineId: asMachineId('machine-1'),
-      startedAt: at,
-    })
+    const order = await seedRows(store, () =>
+      store.shipping.createOrder(fixtureWriteScope(), {
+        id: asShipOrderId(`shipped-${index}`),
+        issueId: history.id,
+        descendantManifest: [],
+        repoId: history.repoId!,
+        repoPath: '/history',
+        machineId: asMachineId('machine-1'),
+        targetBranch: 'main',
+        destination: 'local:main',
+        approvedBaseSha: 'base-sha',
+        approvedHeadSha: `head-${index}`,
+        deliveryDependsOn: [],
+        requestedBy,
+        requestedAt: at,
+        policyId: 'compatibility-local:main',
+        validationProfile: PROFILE,
+        validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
+        closeMode: 'after-destination',
+        state: 'queued',
+        stateChangedAt: at,
+      }),
+    )
+    const { attempt } = await seedRows(store, () =>
+      store.shipping.claimAttempt(fixtureWriteScope(), {
+        orderId: order.id,
+        expectedState: 'queued',
+        expectedAttemptId: null,
+        expectedGeneration: 0,
+        machineId: asMachineId('machine-1'),
+        startedAt: at,
+      }),
+    )
     for (const [from, to] of [
       ['preflight', 'composing'],
       ['composing', 'validating'],
       ['validating', 'landing'],
       ['landing', 'verifying'],
     ] as const) {
-      await store.shipping.transitionOrder(order.id, from, to, at)
+      await seedRows(store, () =>
+        store.shipping.transitionOrder(fixtureWriteScope(), order.id, from, to, at),
+      )
     }
-    await store.shipping.finishAttempt(attempt.id, attempt.leaseGeneration, {
-      finishedAt: at,
-      outcome: 'succeeded',
-      testedIntegrationSha: `head-${index}`,
-      landedRefSha: `head-${index}`,
-      destinationSha: `head-${index}`,
-      validationProfileId: 'default',
-      validationResult: 'passed',
-    })
-    await store.shipping.completeVerifiedOrder({
-      id: asDeliveryReceiptId(`receipt-${index}`),
-      orderId: order.id,
-      approvedBaseSha: order.approvedBaseSha,
-      approvedHeadSha: order.approvedHeadSha,
-      resultCommitSha: `head-${index}`,
-      testedIntegrationSha: `head-${index}`,
-      landedRefSha: `head-${index}`,
-      destinationSha: `head-${index}`,
-      validationProfileId: 'default',
-      validationResult: 'passed',
-      destination: order.destination,
-      completedAt: at,
-    })
+    await seedRows(store, () =>
+      store.shipping.finishAttempt(fixtureWriteScope(), attempt.id, attempt.leaseGeneration, {
+        finishedAt: at,
+        outcome: 'succeeded',
+        testedIntegrationSha: `head-${index}`,
+        landedRefSha: `head-${index}`,
+        destinationSha: `head-${index}`,
+        validationProfileId: 'default',
+        validationResult: 'passed',
+      }),
+    )
+    await seedRows(store, () =>
+      store.shipping.completeVerifiedOrder(fixtureWriteScope(), {
+        id: asDeliveryReceiptId(`receipt-${index}`),
+        orderId: order.id,
+        approvedBaseSha: order.approvedBaseSha,
+        approvedHeadSha: order.approvedHeadSha,
+        resultCommitSha: `head-${index}`,
+        testedIntegrationSha: `head-${index}`,
+        landedRefSha: `head-${index}`,
+        destinationSha: `head-${index}`,
+        validationProfileId: 'default',
+        validationResult: 'passed',
+        destination: order.destination,
+        completedAt: at,
+      }),
+    )
   }
   return { store, service }
 }

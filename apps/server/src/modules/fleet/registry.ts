@@ -24,13 +24,12 @@ import {
   discoveryScanFolderHandler,
   discoveryScanMachineHandler,
   type FleetHandler,
+  type FleetSyncHandler,
   machineAdoptHandler,
   machineSupersedeHandler,
   machineApplyUpdateHandler,
   machinePairingCodeHandler,
-  machineRenameHandler,
   machineSetAssignmentHandler,
-  machineSetUpdateChannelHandler,
   machineRevokeHandler,
   machineShareHandler,
   machineTransferOwnershipHandler,
@@ -50,8 +49,11 @@ import {
 /** One contract joined to the handler that implements it. */
 export interface FleetCommand {
   readonly contract: AnyCommandContract & { readonly serverRole: FleetServerRole }
+  /** A route's handler (`FleetHandler`, with the request), or, for a command on
+   *  the sync write entry point (`sync-write.ts`), one that runs from the
+   *  principal and the modules (`FleetSyncHandler`). */
   // biome-ignore lint/suspicious/noExplicitAny: heterogeneous fleet handler table
-  readonly handler: FleetHandler<any, unknown>
+  readonly handler: FleetHandler<any, unknown> | FleetSyncHandler<any, unknown>
 }
 
 /**
@@ -65,17 +67,9 @@ export interface FleetCommand {
  */
 export const FLEET_COMMANDS = {
   'machines.setAssignment': { contract: FLEET_CONTRACTS['machines.setAssignment'], handler: machineSetAssignmentHandler },
-  'machines.rename': {
-    contract: FLEET_CONTRACTS['machines.rename'],
-    handler: machineRenameHandler,
-  },
   'machines.applyUpdate': {
     contract: FLEET_CONTRACTS['machines.applyUpdate'],
     handler: machineApplyUpdateHandler,
-  },
-  'machines.setUpdateChannel': {
-    contract: FLEET_CONTRACTS['machines.setUpdateChannel'],
-    handler: machineSetUpdateChannelHandler,
   },
   'machines.share': {
     contract: FLEET_CONTRACTS['machines.share'],

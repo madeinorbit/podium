@@ -13,12 +13,13 @@ import {
 } from 'lucide-react'
 import type { ComponentType, JSX } from 'react'
 import { HeaderHostIndicators } from '@/features/machines/HostIndicators'
+import { NoticeTray } from '@/features/notices/NoticeTray'
 import { PodiumLogo } from '@/lib/icons/PodiumLogo'
 import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { HostedWorkspaceSwitcher } from './HostedWorkspaceSwitcher'
-import { useHeaderActions, useHeaderView, useHeaderPolling } from './header-data'
+import { useHeaderActions, useHeaderRequests, useHeaderView } from './header-data'
 import type { MainView } from './store'
 import { ToolbarSlotTarget, useToolbarSlotFilled } from './ToolbarSlot'
 
@@ -59,7 +60,7 @@ export function TopBar({
   /** The first bar after setup hands the window back — fade its contents in. */
   revealing?: boolean
 } = {}): JSX.Element {
-  useHeaderPolling(!chromeless)
+  useHeaderRequests(!chromeless)
   const view = useHeaderView()
   const { setView } = useHeaderActions()
   const workflowsEnabled = useFeature('workflows')
@@ -143,6 +144,8 @@ export function TopBar({
           from the utilities, and a rule between an object with internal
           hairlines and two loose glyphs read as a third kind of divider. */}
       <div className="desktop-topbar-utilities">
+        {/* My notices (POD-6881): what needs me, from anywhere in Podium. */}
+        <NoticeTray />
         <UtilityNavItem
           label="Usage & analytics"
           target="usage"

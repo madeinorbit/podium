@@ -2,22 +2,21 @@
 import { readFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { dedupeSessions } from '@podium/client-core/engine'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { sessionViews } from '@podium/client-core/session-values'
 import { NdjsonLineReader, readSyncStream } from '@podium/client-core/sync-stream'
-import { inBoardCheck } from '../../../tests/worklist/diagnostics/issue-board-check'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { dedupeSessions } from '@podium/client-core/ui'
 import {
   ISSUE_BOARD_ENTITIES,
   ISSUE_BOARD_SOURCE_KEY,
-  ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
-import { createReadOnlyRuntimePool } from '../../../tests/worklist/shared/src/read-only-pool'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { inBoardCheck } from '../../../tests/worklist/diagnostics/issue-board-check'
+import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
+import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
+import { createReadOnlyRuntimePool } from '../../../tests/worklist/shared/src/read-only-pool'
 import { ScenarioCache } from '../../../tests/worklist/shared/src/scenarios'
 import { DEFAULT_DISPLAY } from '../src/features/issues/issues-display'
 import { checkBoard } from './board-control'
@@ -91,7 +90,7 @@ async function main() {
     getSnapshot: () => state,
     subscribe: () => () => {},
   })
-  const handle = createReadOnlyRuntimePool(runtime as never, ISSUE_BOARD_SUMMARIES)
+  const handle = createReadOnlyRuntimePool(runtime as never)
   await handle.pool.sources.ensure(ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_ENTITIES, () =>
     createIssueBoardSource(handle.pool, runtime),
   )
@@ -131,7 +130,6 @@ async function main() {
         first: reports.find((report) => report.first)?.first ?? null,
         residentBefore: before,
         residentAfter: handle.pool.tables.issue.size,
-        cold: handle.pool.residency?.ids('issue', true).length,
       }),
     )
     if (

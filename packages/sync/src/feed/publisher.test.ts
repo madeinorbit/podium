@@ -174,6 +174,21 @@ describe('covered range — contiguous and non-overlapping PER CONNECTION', () =
     expect([frame?.fromSeq, frame?.seq]).toEqual([0, 5])
   })
 
+  it('frames an access move at once even with no rows, and the frame says so (POD-6947)', async () => {
+    const feed = publisher()
+    const connection = feed.connect('c1', 0, ALICE)
+    await feed.publish(ALICE, { kind: 'batch', throughSeq: 5, changes: [], access: true })
+    await emit(feed, [], 7)
+
+    // Not folded into the watermark that follows: the move is its own frame.
+    expect(
+      deltas(await connection.drain()).map((f) => [f.fromSeq, f.seq, f.changes.length, f.access]),
+    ).toEqual([
+      [0, 5, 0, true],
+      [5, 7, 0, undefined],
+    ])
+  })
+
   it('does NOT emit for a connection already at or past the range', async () => {
     const feed = publisher()
     const connection = feed.connect('c1', 9, ALICE)

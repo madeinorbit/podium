@@ -2,6 +2,8 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import type { AgentStateEvent } from '../../agent-state/types.js'
+import { testAccount } from '../../driver/testing/harness-context.js'
 import { piSessionDir } from '../../pi/paths.js'
 import {
   classifyPiIdleTranscript,
@@ -9,7 +11,9 @@ import {
   piStateProvider,
   translatePiRecord,
 } from './state.js'
-import type { AgentStateEvent } from '../../agent-state/types.js'
+
+/** No account folders exist: the payloads below name everything they need. */
+const NO_ACCOUNT = testAccount('pi', '/nonexistent-podium-home')
 
 const at = '2026-09-02T09:48:47.822Z'
 const entry = (message: Record<string, unknown>) => ({
@@ -77,7 +81,7 @@ describe('translatePiRecord', () => {
   })
 
   it('stamps poll-channel provenance at the provider boundary', async () => {
-    const events = await piStateProvider.translate(assistant('stop'))
+    const events = await piStateProvider.translate(assistant('stop'), NO_ACCOUNT)
     expect(events).toEqual([
       expect.objectContaining({ kind: 'turn_completed', source: 'poll', confidence: 0.7 }),
     ])

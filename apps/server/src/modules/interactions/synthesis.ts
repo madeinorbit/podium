@@ -167,9 +167,13 @@ export function interactionFingerprint(
 export function synthesizeAsk(
   sessionId: SessionId,
   state: AgentRuntimeState,
-  options: { readonly questionOptions?: QuestionPromptInput[] } = {},
+  options: {
+    readonly questionOptions?: QuestionPromptInput[]
+    /** Who a `login` ask names: the session's credential, when it has one. */
+    readonly provider?: string
+  } = {},
 ): SynthesizedAsk | null {
-  const spec = specFor(state, options.questionOptions)
+  const spec = specFor(state, options.questionOptions, options.provider)
   if (!spec) return null
   const source = sourceFor(state)
   // THE OCCURRENCE DISCRIMINATOR, for a source whose asks are real events.
@@ -215,6 +219,7 @@ export interface QuestionPromptInput {
 function specFor(
   state: AgentRuntimeState,
   questionOptions: QuestionPromptInput[] | undefined,
+  provider?: string,
 ): InteractionAskSpec | null {
   if (state.phase === 'needs_user') {
     // AN UNREADABLE PROMPT IS STILL A BLOCKED SESSION (POD-2414).
@@ -310,6 +315,7 @@ function specFor(
       errorClass: state.error.class,
       retryable: state.error.retryable,
       ...(state.error.detail ? { detail: state.error.detail } : {}),
+      ...(provider ? { provider } : {}),
     })
   }
   return null

@@ -16,11 +16,11 @@
  */
 
 import type { CostModelTotalWire, MachineId, SessionId } from '@podium/model'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { syncQueriesOver } from './executor/sync-drizzle'
-import { type TranscriptCostRecord, TranscriptCostsRepository } from './transcript-costs'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type EventStoreSlice, openEventStoreSlice } from '../test-support/event-store-slice'
+import type { TranscriptCostRecord, TranscriptCostsRepository } from './transcript-costs'
 
+let store: EventStoreSlice
 let costs: TranscriptCostsRepository
 
 const model = (messages: number): CostModelTotalWire => ({
@@ -49,8 +49,14 @@ const record = (over: Partial<TranscriptCostRecord> = {}): TranscriptCostRecord 
   ...over,
 })
 
-beforeEach(() => {
-  costs = new TranscriptCostsRepository(syncQueriesOver(openMigratedTestDatabase()))
+// On both engines (`openEventStoreSlice`).
+beforeEach(async () => {
+  store = await openEventStoreSlice()
+  costs = store.transcriptCosts
+})
+
+afterEach(async () => {
+  await store.close()
 })
 
 describe('TranscriptCostsRepository.costedSessionIds', () => {
@@ -65,7 +71,10 @@ describe('TranscriptCostsRepository.costedSessionIds', () => {
   })
 
   it('excludes a transcript that resolved to no session', async () => {
-    await costs.record([record({ nativeId: 'native-2', sessionId: null })], '2026-01-01T00:00:00.000Z')
+    await costs.record(
+      [record({ nativeId: 'native-2', sessionId: null })],
+      '2026-01-01T00:00:00.000Z',
+    )
 
     // The row exists and was counted as read — it just cannot name a session.
     expect(await costs.countAll()).toBe(1)

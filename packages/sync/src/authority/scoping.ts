@@ -45,15 +45,15 @@
  * chose, and `authority.scoped.test.ts` asserts the absence of any other route.
  */
 
-import { readChangesRange, type ChangeLogStore } from '../change-log'
-import { type Principal } from '@podium/protocol'
+import type { Principal } from '@podium/protocol'
+import { type ChangeLogStore, readChangesRange } from '../change-log'
 import type {
   EntityRef,
   FeedVisibilityPolicy,
   VisibilityAnchorPort,
   VisibilityEdge,
 } from '../feed/visibility'
-import { humanOf } from '../feed/visibility'
+import { humanOf, shapedValue } from '../feed/visibility'
 import type { ScopedChange, SequencedChange } from './change-lifecycle'
 
 /**
@@ -71,6 +71,14 @@ export type ScopedDelivery =
       readonly throughSeq: number
       /** Exactly the rows in that range this principal may see. MAY be empty. */
       readonly changes: readonly ScopedChange[]
+      /**
+       * THIS PRINCIPAL'S ACCESS MOVED in the range (POD-6947): a row in it is a
+       * visibility edge whose audience names them, in either direction. What
+       * they may see changed beyond these rows, so every decision taken against
+       * their old access (a live topic admitted or refused) is taken again.
+       * Absent when nothing moved.
+       */
+      readonly access?: true
     }
   | {
       readonly kind: 'rescope'
@@ -99,6 +107,17 @@ export interface ScopingDeps {
 }
 
 export const DEFAULT_RESCOPE_THRESHOLD = 32
+
+/**
+ * The bound a deployed authority serves with (POD-6834). {@link
+ * DEFAULT_RESCOPE_THRESHOLD} is the suite's number; serving with it made one
+ * machine report (its row anchors that machine's tasks, its access rows the
+ * member's checkouts: hundreds of rows) send every client back to a full
+ * bootstrap of the whole slice, tens of thousands of rows, after every such
+ * write. Enumerating a few thousand re-shaped rows in a delta costs a small
+ * fraction of that; past it, re-bootstrapping is the cheaper path again.
+ */
+export const FEED_RESCOPE_THRESHOLD = 2_000
 
 /**
  * ONE BATCH, EVALUATED ONCE, BEFORE ANY PRINCIPAL IS CONSIDERED [POD-3261].
@@ -145,7 +164,7 @@ export async function prepareBatch(
   changes: readonly SequencedChange[],
 ): Promise<PreparedBatch> {
   const edges = await deps.anchors.visibilityEdges(
-    changes.map(({ entity, entityId }) => ({ entity, entityId })),
+    changes.map(({ entity, entityId, seq }) => ({ entity, entityId, seq })),
   )
   const refs: EntityRef[] = changes.map(({ entity, entityId }) => ({ entity, entityId }))
   const subjects: EntityRef[] = []
@@ -195,6 +214,7 @@ export async function scopeBatch(
   const resolved = prepared ?? (await prepareBatch(deps, changes))
   const visible: ScopedChange[] = []
   const anchored: ScopedChange[] = []
+  let access = false
   const human = humanOf(principal)
   // Every decision in this pass — the ordinary rows and the anchored ones — goes
   // through the prepared policy, or the two halves would answer from two states.
@@ -202,7 +222,9 @@ export async function scopeBatch(
 
   for (const [index, change] of changes.entries()) {
     // 1. The ordinary path: is this row in this principal's slice right now?
-    if (scoped.policy.decide(principal, change).visible) visible.push(change)
+    if (scoped.policy.decide(principal, change).visible) {
+      visible.push(shapedChange(scoped.policy, principal, change))
+    }
 
     // 2. D14.3: did this row MOVE anyone's visibility? Asked of the port that
     //    owns the tables, never inferred from the payload — a payload-shaped
@@ -213,6 +235,9 @@ export async function scopeBatch(
     // A principal with no human (machine/system) is in nobody's audience by
     // construction — `audience` names HUMANS whose view moved (D14.3).
     if (human === null || !edge.audience.includes(human)) continue
+    // Named in the audience is the access move itself, even when no row
+    // follows from it (an edge with no subjects).
+    access = true
     for (const [subjectIndex, subject] of edge.subjects.entries()) {
       anchored.push(
         anchorFor(
@@ -240,7 +265,23 @@ export async function scopeBatch(
   // sort must be STABLE and must not attempt to order within a seq: uniqueness of
   // `seq` is a property of the global log, not of a per-principal frame.
   const rows = [...visible, ...anchored].sort((a, b) => a.seq - b.seq)
-  return { kind: 'batch', throughSeq, changes: rows }
+  return { kind: 'batch', throughSeq, changes: rows, ...(access ? { access: true } : {}) }
+}
+
+/**
+ * Two adjacent batches as one (D13.2's range extension): the later range's
+ * head, both row lists in order, and an access move if either carried one.
+ */
+export function extendBatch(
+  previous: Extract<ScopedDelivery, { kind: 'batch' }>,
+  next: Extract<ScopedDelivery, { kind: 'batch' }>,
+): Extract<ScopedDelivery, { kind: 'batch' }> {
+  return {
+    kind: 'batch',
+    throughSeq: next.throughSeq,
+    changes: [...previous.changes, ...next.changes],
+    ...(previous.access || next.access ? { access: true } : {}),
+  }
 }
 
 /**
@@ -300,9 +341,21 @@ export async function scopeBootstrap(
     // holding a tombstone for an entity it was never told about.
     if (row.op !== 'upsert') continue
     if (!policy.decide(principal, row).visible) continue
-    changes.push(row as ScopedChange)
+    changes.push(shapedChange(policy, principal, row) as ScopedChange)
   }
   return { throughSeq, changes: changes.sort((a, b) => a.seq - b.seq) }
+}
+
+/** A visible change as `principal` may receive it: an upsert's value through the
+ *  policy's shape (design §4.2), anything else as it is. */
+function shapedChange<C extends SequencedChange>(
+  policy: FeedVisibilityPolicy,
+  principal: Principal,
+  change: C,
+): C {
+  if (change.op !== 'upsert' || !policy.shape) return change
+  const value = shapedValue(policy, principal, change, (change as { value?: unknown }).value)
+  return value === (change as { value?: unknown }).value ? change : { ...change, value }
 }
 
 /**
@@ -325,7 +378,13 @@ function anchorFor(
 ): ScopedChange {
   const base = { seq, entity: subject.entity, entityId: subject.entityId }
   if (deps.policy.decide(principal, subject).visible) {
-    if (currentValue !== undefined) return { ...base, op: 'upsert', value: currentValue }
+    if (currentValue !== undefined) {
+      return {
+        ...base,
+        op: 'upsert',
+        value: shapedValue(deps.policy, principal, subject, currentValue),
+      }
+    }
   }
   return { ...base, op: 'evict' }
 }
@@ -349,10 +408,7 @@ export async function* scopeChangesRange(
       if (delivery.kind === 'rescope') return
       previous = end
     }
-    pending = page.map(change => {
-      const base = { seq: change.seq, entity: change.entity, entityId: change.id, op: change.op }
-      return change.op === 'upsert' ? { ...base, value: change.value } : base
-    })
+    pending = page
   }
-  yield { ...await scopeBatch(deps, principal, pending ?? [], through), fromSeq: previous }
+  yield { ...(await scopeBatch(deps, principal, pending ?? [], through)), fromSeq: previous }
 }

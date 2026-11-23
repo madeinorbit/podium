@@ -1,11 +1,11 @@
-import type { HarnessExecOptions, HarnessExecSpec } from '@podium/harness'
+import type { HarnessExecArgv, HarnessExecOptions } from '@podium/harness'
 import { harnessAdapterFor } from '@podium/harness'
 import type { HarnessAgent } from '@podium/model'
 
 /** @deprecated Unified with protocol's HarnessAgent (#158); kept as an alias. */
 export type HarnessAgentKind = HarnessAgent
 
-export type { HarnessExecSpec }
+export type { HarnessExecArgv }
 
 /**
  * Build the CLI command + args for one non-interactive ("full harness") agent
@@ -16,10 +16,7 @@ export type { HarnessExecSpec }
  * one-shot. Pure dispatch into the harness adapter registry (#158): each
  * adapter's `exec` is the unit-tested arg construction.
  */
-export function buildHarnessExec(
-  agent: HarnessAgent,
-  opts: HarnessExecOptions,
-): HarnessExecSpec {
+export function buildHarnessExec(agent: HarnessAgent, opts: HarnessExecOptions): HarnessExecArgv {
   const manifest = harnessAdapterFor(agent)
   if (!manifest) throw new Error(`no harness manifest for agent kind ${String(agent)}`)
   // Declared-unsupported is a DIFFERENT failure from unknown-kind, and the message

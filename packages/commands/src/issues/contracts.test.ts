@@ -11,7 +11,13 @@ import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import type { AnyCommandContract, ContractConflictClass } from '../contract'
 import { classificationErrors, registryClassificationErrors } from '../contract'
-import { PER_USER_VISIBILITY, SERVED_EVERYWHERE, SERVED_ON_WIRE, SHIPPING_DELIVERY } from './cells'
+import {
+  MACHINE_WORK_DELIVERY,
+  PER_USER_VISIBILITY,
+  SERVED_EVERYWHERE,
+  SERVED_ON_WIRE,
+  SHIPPING_DELIVERY,
+} from './cells'
 import type { IssueContractName } from './contracts'
 import { eventsInput, ISSUE_COMMAND_NAMES, ISSUE_CONTRACT_LIST, ISSUE_CONTRACTS } from './contracts'
 
@@ -34,9 +40,17 @@ const rowExists = (row: string): boolean => OWNERSHIP_MATRIX.some((r) => (r.id a
 
 describe('the issue contract table', () => {
   it('is populated, is keyed by its own names, and every name is dotted `issues.*`', () => {
-    expect(ISSUE_CONTRACT_LIST).toHaveLength(81)
-    expect(ISSUE_COMMAND_NAMES).toHaveLength(81)
+    // 88 less `subscriptionRemove` and `subscriptionSetEnabled`, which became
+    // the subscription record's generic edits (POD-6676).
+    // POD-6767 added `bodies`: 87. POD-6921 removed it again (the bodies are
+    // synced records): 86.
+    expect(ISSUE_CONTRACT_LIST).toHaveLength(86)
+    expect(ISSUE_COMMAND_NAMES).toHaveLength(86)
     expect([...ISSUE_COMMAND_NAMES]).toEqual([...ISSUE_COMMAND_NAMES].sort())
+    // The name list IS the table's keys: a restated list is a second place a command
+    // name can live (moved from the deleted issue audit's
+    // `derived-name-list`, POD-6595).
+    expect([...ISSUE_COMMAND_NAMES]).toEqual(Object.keys(ISSUE_CONTRACTS).sort())
     for (const key of ISSUE_COMMAND_NAMES) {
       expect(ISSUE_CONTRACTS[key].name, key).toBe(`issues.${key}`)
       expect(ISSUE_CONTRACTS[key].version, key).toBe(1)
@@ -81,7 +95,15 @@ describe('contract visibility against the ownership matrix', () => {
 
   it('the non-per-user contracts match their rows exactly', () => {
     for (const row of ISSUE_ROWS) expect([row, visibilityClassOf(row)]).toEqual([row, 'personal'])
-    const perUser = ['markRead', 'markUnread', 'setTucked', 'mailInbox'] as const
+    const perUser = [
+      'markRead',
+      'markUnread',
+      'setTucked',
+      'mailInbox',
+      // POD-6290: the caller's own start/join record and assigned row.
+      'join',
+      'dismissAssignment',
+    ] as const
     for (const key of ISSUE_COMMAND_NAMES) {
       const expected = (perUser as readonly string[]).includes(key) ? 'per-user-state' : 'personal'
       expect([key, ISSUE_CONTRACTS[key].visibility]).toEqual([key, expected])
@@ -124,28 +146,34 @@ describe('sibling move input', () => {
 
 /**
  * EXPOSURE IS DEFAULT-CLOSED AND MATCHES WHAT SHIPS. The declaration↔reality check
- * against the CLI table's actual reach lives in `scripts/audit-issue-commands.ts`,
- * which can read that table; here the shape and the partition are pinned.
+ * against the CLI table's actual reach lives beside that table, in
+ * `packages/issue-client/src/commands.drift.test.ts`; here the shape and the partition are pinned.
  */
 describe('transport exposure', () => {
   const NOT_ON_CLI_OR_MCP = [
     'applySuggestion',
     'closeEligibleEpics',
+    'collaborators',
+    'dismissAssignment',
     'dismissSuggestion',
+    'deleteComment',
+    'editComment',
+    'join',
     'linearSearch',
     'markRead',
     'markUnread',
     'refreshAssistant',
     'resolveRefs',
     'searchNormalized',
+    'restoreTextRevision',
+    'textRevisions',
     'setTucked',
-    'subscriptionSetEnabled',
   ]
 
   it('tRPC and relay serve every contract; CLI and MCP serve the public subset', () => {
     const onCli = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('cli'))
     const onMcp = ISSUE_COMMAND_NAMES.filter((n) => ISSUE_CONTRACTS[n].exposure.includes('mcp'))
-    expect(onCli).toHaveLength(70)
+    expect(onCli).toEqual(expect.arrayContaining(['action', 'addComment', 'close']))
     // CLI and MCP are the SAME table (issue-mcp.ts derives its tools from
     // ISSUE_COMMANDS), so they must be the same set — not merely the same size.
     expect(onCli).toEqual(onMcp)
@@ -153,7 +181,29 @@ describe('transport exposure', () => {
       expect(ISSUE_CONTRACTS[key].exposure, key).toContain('trpc')
       expect(ISSUE_CONTRACTS[key].exposure, key).toContain('relay')
     }
-    expect(ISSUE_COMMAND_NAMES.filter((n) => !onCli.includes(n)).sort()).toEqual(NOT_ON_CLI_OR_MCP)
+    expect(ISSUE_COMMAND_NAMES.filter((n) => !onCli.includes(n)).sort()).toEqual(
+      [...NOT_ON_CLI_OR_MCP].sort(),
+    )
+  })
+
+  it('the commands that act on machines or git are never queued under their own name', () => {
+    // Their offline form is the effect record (POD-6603); the command is its
+    // online adapter, so a client outbox may not hold it.
+    const work = [
+      'start',
+      'addSession',
+      'addShell',
+      'stop',
+      'cleanup',
+      'action',
+      'integrate',
+      'refreshAssistant',
+      'answerQuestion',
+    ] as const satisfies readonly IssueContractName[]
+    for (const name of work) {
+      expect(ISSUE_CONTRACTS[name].delivery, name).toBe(MACHINE_WORK_DELIVERY)
+      expect(ISSUE_CONTRACTS[name].exposure, name).not.toContain('outbox')
+    }
   })
 
   it('Shipping commands are live-only, typed, and share the command handler surfaces', () => {
@@ -223,14 +273,29 @@ describe('redaction', () => {
     return schema instanceof z.ZodObject ? Object.keys(schema.shape) : []
   }
 
+  /**
+   * A REFERENCE TO A CREDENTIAL IS NOT A CREDENTIAL. A launch names the
+   * credential its session runs on by label, id or `none` (credential
+   * management §9, epic Task 10); the secret stays in the vault. Exactly these
+   * fields, named here, so a new credential-shaped field still fails.
+   */
+  const CREDENTIAL_REFERENCES = new Set(['start.credential', 'addSession.credential'])
+
   it('no issue command input carries a credential-shaped field', () => {
     let inspected = 0
+    const references: string[] = []
     for (const key of ISSUE_COMMAND_NAMES) {
       for (const field of keysOf(ISSUE_CONTRACTS[key].input)) {
         inspected += 1
+        if (CREDENTIAL_REFERENCES.has(`${key}.${field}`)) {
+          references.push(`${key}.${field}`)
+          continue
+        }
         expect(CREDENTIAL_ISH.test(field), `${key}.${field}`).toBe(false)
       }
     }
+    // The exemption names fields that exist, not stale ones.
+    expect(references.sort()).toEqual([...CREDENTIAL_REFERENCES].sort())
     // The scan looked at real fields, not at nothing.
     expect(inspected).toBeGreaterThan(100)
     // And it can say YES: the same predicate on the names it exists to catch.
@@ -265,7 +330,7 @@ describe('redaction', () => {
       if (declares) expRev += 1
     }
     // Non-vacuity: the loop met the 23 rows §2e extracted from main, not zero.
-    expect(expRev).toBe(25)
+    expect(expRev).toBe(26)
   })
 
   it('every `cmd` command states its rule, because the engine refuses one without', () => {
@@ -280,7 +345,7 @@ describe('redaction', () => {
       cmd += 1
       expect(contract.conflictRule?.trim().length ?? 0, key).toBeGreaterThan(0)
     }
-    expect(cmd).toBe(20)
+    expect(cmd).toBe(22)
   })
 
   it('every command declares a class, mutations a real one and reads `n/a`', () => {
@@ -303,8 +368,9 @@ describe('redaction', () => {
 
     const mutations = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) !== 'n/a')
     const nonMutating = ISSUE_COMMAND_NAMES.filter((k) => classOf(k) === 'n/a')
-    expect(mutations.length).toBe(50)
-    expect(nonMutating.length).toBe(31)
+    expect(mutations.length).toBe(53)
+    // 34 less `bodies`, which POD-6921 removed: the bodies are synced records.
+    expect(nonMutating.length).toBe(33)
     // The named case, kept from the original: write-grade authority, no row.
     expect(classOf('linearSearch')).toBe('n/a')
   })

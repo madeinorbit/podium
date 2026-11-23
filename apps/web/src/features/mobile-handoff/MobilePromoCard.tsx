@@ -1,6 +1,7 @@
+import { useHttpOrigin, useRequestClient } from '@podium/client-core/react'
 import { X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useRuntimeSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { DeferredMobileHandoffQr } from './DeferredMobileHandoffQr'
 import {
   useFocusedHandoffSessionId,
@@ -20,14 +21,14 @@ import {
  * someone who was not looking for the app, which is exactly why it has to be
  * earned instead of shown on an empty shell.
  *
- * DISMISSES FOREVER, in one click, with no second ask. The answer is stored
+ * Dismisses in one click until tips are turned back on in Appearance. The answer is stored
  * per user (see `useMobilePromoDismissed`), so turning it down once turns it
  * down everywhere; the code stays reachable from the status strip and from
- * Settings → Connected devices, which is where a paired phone is managed anyway.
+ * Settings → Account, which is where a paired phone is managed anyway.
  */
 export function MobilePromoCard(): JSX.Element | null {
-  const trpc = useRuntimeSelector((s) => s.trpc)
-  const httpOrigin = useRuntimeSelector((s) => s.httpOrigin)
+  const trpc = useRequestClient<Trpc>()
+  const httpOrigin = useHttpOrigin()
   const sessionId = useFocusedHandoffSessionId()
   const url = useMobileHandoffUrl(trpc, httpOrigin, sessionId)
   const hasFirstTask = useHasFirstTask()

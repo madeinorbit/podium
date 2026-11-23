@@ -17,10 +17,10 @@
  * status per harness. Gating is UX only; the Authority re-authorizes at apply
  * (ADR 3 D8).
  */
+import { usePoolMachines, usePoolRepositories } from '@/app/header-data'
 import { type RepoView, reposToViews } from '@podium/client-core/values'
 import { machinesForRepoOrClone } from '@podium/model/browser'
 import { useMemo } from 'react'
-import { useRuntimeList } from '@/app/keyed-runtime'
 import type { IssueViewModel } from '@/app/store'
 import { agentFleetStatus, candidateFromAvailability } from '@/lib/agent-capability'
 import {
@@ -49,8 +49,9 @@ export interface AgentFleetOption {
 export function useAgentFleetOptions(
   issue: Partial<Pick<IssueViewModel, 'repoPath'>>,
 ): AgentFleetOption[] {
-  const repos = useRuntimeList('repos')
-  const machines = useRuntimeList('machines')
+  // Records (POD-6644): the repositories from checkouts, my machines' models.
+  const repos = usePoolRepositories()
+  const machines = usePoolMachines()
   const repoPath = issue.repoPath
   return useMemo(() => {
     const repoView: RepoView | undefined = reposToViews(repos).find((r) => r.path === repoPath)

@@ -1,26 +1,29 @@
 import { asUserId } from '@podium/model'
 import type { OutboxStorePort } from '@podium/sync/outbox'
 import {
+  CollectionLoader,
   Replica as KernelReplica,
+  type MemorySignals,
   type ReplicaCacheStore,
   type SyncUnitOfWork,
 } from '@podium/sync/replica'
 import type { PodiumClientApi } from '../api'
-import {
-  type CreateEngineOutbox,
-  type CreateReplicaForPrincipal,
-  openKernelEngineOutbox,
-} from '../engine'
 import { asClientPrincipal, type ClientPrincipal } from '../principal'
 import {
   createKernelReplica,
   createSideCache,
+  eraseLegacyTranscriptKeys,
   FeedSink,
   parseReplicaNamespaceKey,
   preparePrincipalNamespace,
   type Replica,
   type StorageApi,
 } from '../replica'
+import {
+  type CreateEngineOutbox,
+  type CreateReplicaForPrincipal,
+  openKernelEngineOutbox,
+} from '../runtime-root'
 import type { FeedSinkPort } from '../socket-transport'
 import {
   createSyncTransferTelemetry,
@@ -31,6 +34,13 @@ import {
   SyncCancelledError,
   SyncNetworkError,
 } from '../sync-stream'
+import {
+  createStoreTranscriptCache,
+  createTranscriptStore,
+  type StoreTranscriptCache,
+  type TranscriptStore,
+  type TranscriptStoreBackend,
+} from '../transcript-store'
 import { decideLegacyAdoption, type LegacyIdentityEvidence } from './adoption'
 import { ReplicaGateError } from './failure'
 import { SyncProgressStore } from './progress'
@@ -60,6 +70,19 @@ export interface ReplicaSettings {
 
 export type ReplicaDegradation = { kind: 'store-not-adopted'; reason: string }
 
+/**
+ * Chat history's own database, per signed-in user (POD-5801): IndexedDB on web and
+ * desktop, an expo-sqlite file on the phone. Never the entity store.
+ */
+export interface TranscriptDatabases {
+  open(principal: string): Promise<TranscriptStoreBackend>
+  /** Delete a user's database without opening it (sign-out, eviction). */
+  erase(principal: string): Promise<void>
+  /** Run the age/size sweep once the app is idle after startup. Defaults to a
+   *  timer followed by `requestIdleCallback` where the host has one. */
+  whenIdle?(run: () => void): () => void
+}
+
 export interface OpenReplicaAssemblyOptions<T extends ReplicaDataStore> {
   readonly openStore: (onDegraded: (detail: unknown) => void) => Promise<T>
   readonly settings: ReplicaSettings
@@ -68,13 +91,20 @@ export interface OpenReplicaAssemblyOptions<T extends ReplicaDataStore> {
   /** Compatibility callers can explicitly name the member of a legacy namespace. */
   readonly clientPrincipal?: string
   readonly evidence?: LegacyIdentityEvidence
-  readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch'>
+  readonly httpSync: Pick<HttpSyncSourceDeps, 'origin' | 'streamingFetch' | 'clientType'>
   readonly pendingPrincipalCleanups?: readonly { principal: string; complete(): Promise<void> }[]
   readonly onDegraded?: (detail: unknown) => void
   readonly onAuthExpired?: () => void
   readonly now?: () => number
   /** An app may keep its own event-to-phase mapping on the shared store. */
   readonly createProgress?: (now: () => number) => SyncProgressStore
+  /** Absent: chats keep no history on the device and read the server. */
+  readonly transcripts?: TranscriptDatabases
+  /**
+   * When memory may let go of the screens left (POD-7161): the platform's idle
+   * moments, background and memory warnings. Absent, nothing leaves memory.
+   */
+  readonly memorySignals?: MemorySignals
 }
 
 export interface ReplicaAssembly<T extends ReplicaDataStore = ReplicaDataStore> {
@@ -85,7 +115,15 @@ export interface ReplicaAssembly<T extends ReplicaDataStore = ReplicaDataStore> 
   readonly createOutboxFn: CreateEngineOutbox
   readonly store: T
   readonly progress: SyncProgressStore
+  /** This user's chat history store, when the host provides one. */
+  readonly transcripts?: TranscriptStore
   settled(): Promise<void>
+  /**
+   * Refuse every later write to this principal's device storage (POD-6908).
+   * Synchronous, so the account eraser can close the namespace the moment an
+   * erase is requested, before the screen that still writes there unmounts.
+   */
+  sealPrincipalData(): void
   erasePrincipalData(): Promise<void>
   dispose(): Promise<void>
 }
@@ -122,14 +160,25 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
   }
   let side: ReturnType<typeof createSideCache> | undefined
   let kernel: KernelReplica | undefined
+  let loader: CollectionLoader | undefined
+  let transcriptStore: TranscriptStore | undefined
+  let transcriptCache: StoreTranscriptCache | undefined
   try {
+    const eraseTranscripts = (principal: string): Promise<void> =>
+      principal === options.principal && transcriptStore
+        ? transcriptStore.erase()
+        : (options.transcripts?.erase(principal) ?? Promise.resolve())
     const erasePrincipal = async (
       namespace: { keyPrefix: string; erase(): void },
       principal: string,
     ): Promise<void> => {
       try {
         namespace.erase()
-        await Promise.all([store.erasePrincipal(principal), flushSettings()])
+        await Promise.all([
+          store.erasePrincipal(principal),
+          eraseTranscripts(principal),
+          flushSettings(),
+        ])
         if (settings.enumerateKeys().some((key) => key.startsWith(`${namespace.keyPrefix}.`))) {
           throw new Error('principal settings could not be erased')
         }
@@ -159,8 +208,12 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       await cleanup.complete()
     }
     const namespace = preparePrincipalNamespace({ ...settings, principal: options.principal, now })
-    for (const stalePrincipal of namespace.evictedPrincipals)
+    for (const stalePrincipal of namespace.evictedPrincipals) {
       await store.erasePrincipal(stalePrincipal)
+      await eraseTranscripts(stalePrincipal)
+    }
+    // Chat history left the shared key space; its old keys go, unread.
+    eraseLegacyTranscriptKeys(settings.storage, safeKeys(settings))
     if (!namespace.durable) throw storageFailure('principal namespace marker is unavailable')
     await flushSettings()
     settings.storage.removeItem('podium-kernel-identity-ledger')
@@ -187,6 +240,8 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       api: options.api,
       now,
       onDegraded: (detail) => options.onDegraded?.(detail),
+      // Late-bound: the replica is built below, after the queue it confirms.
+      confirmedThrough: () => kernel?.cursor ?? null,
     })
     side = createSideCache({
       ...settings,
@@ -194,11 +249,29 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       adoptLegacyOutbox: false,
       onDegraded: options.onDegraded,
     })
+    if (options.transcripts) {
+      const databases = options.transcripts
+      transcriptStore = createTranscriptStore({
+        backend: databases.open(options.principal),
+        now,
+        deleteDatabase: () => databases.erase(options.principal),
+        onDegraded: (detail) => options.onDegraded?.(detail),
+      })
+      transcriptCache = createStoreTranscriptCache(transcriptStore)
+    }
     const facade = createKernelReplica({
       cache: view.cache,
       side,
       exits: (entity, entityId) => kernel?.exitKind(entity, entityId),
+      collections: () => kernel,
+      loader: () => loader,
+      ...(transcriptCache ? { transcripts: transcriptCache } : {}),
     })
+    const cancelSweep = transcriptStore
+      ? (options.transcripts?.whenIdle ?? whenIdleAfterStartup)(() => {
+          void transcriptStore?.sweep()
+        })
+      : undefined
     const progress = options.createProgress?.(now) ?? new SyncProgressStore(now)
     let stopped = false
     let disposed = false
@@ -230,10 +303,10 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
     const replicaKernel = new KernelReplica({
       store: view.cache,
       authority: {
-        async *bootstrap(signal) {
+        async *bootstrap(signal, view) {
           progress.beginAttempt()
           try {
-            for await (const chunk of bootstraps.bootstrap(signal)) {
+            for await (const chunk of bootstraps.bootstrap(signal, view)) {
               if (chunk.last) progress.noteSaving()
               yield chunk
             }
@@ -242,8 +315,21 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
             throw error
           }
         },
+        // The one fetch route (POD-7085): what held records come with, a
+        // resumed first download, a kind reload. A failure here is the fetch's
+        // own; only a lost session or network says anything about the sync.
+        async *collections(instances, signal) {
+          try {
+            yield* bootstraps.collections(instances, signal)
+          } catch (error) {
+            if (error instanceof SyncAuthExpiredError || error instanceof SyncNetworkError)
+              reportFailure(error)
+            throw error
+          }
+        },
         async changesRange(cursor, signal, onTarget) {
           progress.beginAttempt()
+          const report = (error: unknown) => reportFailure(error)
           try {
             const range = await deltas.changesRange(cursor, signal, onTarget)
             if ('kind' in range) return range
@@ -251,24 +337,62 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
               try {
                 yield* range
               } catch (error) {
-                reportFailure(error)
+                report(error)
                 throw error
               }
             })()
           } catch (error) {
-            reportFailure(error)
+            report(error)
             throw error
           }
         },
       },
+      // WRITE CONFIRMATION (ADR 12, POD-6277). Every commit that covers an applied
+      // entry — by the provenance on its rows, or a cursor reaching its receipt —
+      // retires it in that same unit of work, with the rows and the cursor.
+      overlay: createOutboxFn.overlay,
+      unitOfWork: store.unitOfWork,
       onEvent: (event) => {
         syncTelemetry.noteReplicaEvent(event)
         progress.noteEvent(event)
         facade.onKernelEvent(event)
+        loader?.onEvent(event)
+        // A reply recorded while this commit was in flight was not yet applied when
+        // the commit decided what it covers. Its cursor is durable now, so ask again
+        // (from memory; a commit that covers nothing writes nothing).
+        if (event.type === 'cursor') {
+          void createOutboxFn
+            .confirmThrough(event.cursor)
+            .catch((error: unknown) => options.onDegraded?.(error))
+        }
       },
-      batchEvents: (emitAll) => facade.batch(emitAll),
+      // One burst, one notification of each kind: the facade's rows, then the
+      // loader's markers and stubs, each once per burst (POD-7165).
+      batchEvents: (emitAll) =>
+        loader === undefined ? facade.batch(emitAll) : loader.batch(() => facade.batch(emitAll)),
+      // The one loader (POD-7087): the visible view rides in the first
+      // download, and what held records come with shares its window.
+      view: () => loader?.takeView() ?? [],
+      request: (specs) => loader?.request(specs),
+      ...(options.memorySignals === undefined
+        ? {}
+        : { memory: { signals: options.memorySignals } }),
     })
     kernel = replicaKernel
+    loader = new CollectionLoader({ replica: replicaKernel })
+    // AT REST: what the persisted cursor already covers retires before anything
+    // paints — a receipt at or below it, and every applied entry without a receipt
+    // that an older build left behind (the stranded nulldisk clear). What is ahead
+    // of it keeps painting until the replica catches up.
+    // A store that cannot take this write is reported, never a reason to refuse
+    // the open: the entries stay, and the next commit confirms them.
+    if (replicaKernel.cursor !== null) {
+      try {
+        await createOutboxFn.confirmThrough(replicaKernel.cursor)
+      } catch (error) {
+        options.onDegraded?.(error)
+      }
+    }
     progress.begin(replicaKernel.posture)
     const sink = new FeedSink({ replica: replicaKernel })
     progress.retry = () => {
@@ -280,6 +404,9 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
     }
     const feed: FeedSinkPort = {
       syncHttp: true,
+      kindTokens: (tokens) => {
+        if (!stopped) sink.kindTokens(tokens)
+      },
       requestRebootstrap: () => {
         if (!stopped) sink.requestRebootstrap()
       },
@@ -287,24 +414,24 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       connected: () => {
         if (!stopped) sink.connected()
       },
-      disconnected: () => {
-        sink.disconnected()
-        // A socket that fails before opening never starts another heal. The
-        // kernel may already be stale, so no posture transition will report it.
-        // An independently running HTTP bootstrap still owns its progress.
-        if (replicaKernel.posture !== 'bootstrapping') progress.noteDisconnected()
-      },
+      disconnected: () => sink.disconnected(),
       frame: (frame) => {
         if (!stopped) sink.frame(frame)
       },
+      onAccessMoved: (listener) => sink.onAccessMoved(listener),
     }
     const settled = async (): Promise<void> => {
-      await Promise.all([store.settled(), flushSettings()])
+      transcriptCache?.flush()
+      await Promise.all([store.settled(), flushSettings(), transcriptStore?.settled()])
     }
     const stop = (): void => {
       stopped = true
       replicaKernel.disconnect()
+      replicaKernel.stopMemory()
       side?.dispose()
+      loader?.dispose()
+      cancelSweep?.()
+      transcriptCache?.dispose()
     }
     return {
       principal: asClientPrincipal(asUserId(memberId), identity?.syncBoundaryId),
@@ -324,9 +451,17 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
       createOutboxFn,
       store,
       progress,
+      ...(transcriptStore ? { transcripts: transcriptStore } : {}),
       settled,
+      sealPrincipalData: () => side?.seal(),
       erasePrincipalData: async () => {
         erased = true
+        // Seal first. The app that wrote here may still be mounted while this
+        // runs (web sign-out starts the erase before the screen unmounts), and
+        // its teardown flushes screen state and drafts. Those writes land in
+        // the await below, so the emptiness check would fail; one that lands
+        // after the check would leave the person's data behind (POD-6908).
+        side?.seal()
         stop()
         await erasePrincipal(namespace, options.principal)
       },
@@ -338,12 +473,16 @@ export async function openReplicaAssembly<T extends ReplicaDataStore>(
           await settled()
         } finally {
           store.close()
+          transcriptStore?.close()
         }
       },
     }
   } catch (error) {
     kernel?.disconnect()
+    kernel?.stopMemory()
     side?.dispose()
+    transcriptCache?.dispose()
+    transcriptStore?.close()
     store.close()
     throw error instanceof ReplicaGateError ? error : storageFailure(error)
   }
@@ -353,4 +492,35 @@ function storageFailure(error: unknown): ReplicaGateError {
   return new ReplicaGateError(error instanceof Error ? error.message : String(error), {
     kind: 'replica-blocked',
   })
+}
+
+function safeKeys(settings: ReplicaSettings): string[] {
+  try {
+    return settings.enumerateKeys()
+  } catch {
+    return []
+  }
+}
+
+/** First paint first: wait a few seconds, then for an idle moment where the host has one. */
+const SWEEP_DELAY_MS = 5_000
+
+function whenIdleAfterStartup(run: () => void): () => void {
+  let cancelled = false
+  let idle: number | undefined
+  const host = globalThis as {
+    requestIdleCallback?: (cb: () => void) => number
+    cancelIdleCallback?: (id: number) => void
+  }
+  const timer = setTimeout(() => {
+    if (cancelled) return
+    if (typeof host.requestIdleCallback === 'function') idle = host.requestIdleCallback(run)
+    else run()
+  }, SWEEP_DELAY_MS)
+  ;(timer as { unref?: () => void }).unref?.()
+  return () => {
+    cancelled = true
+    clearTimeout(timer)
+    if (idle !== undefined) host.cancelIdleCallback?.(idle)
+  }
 }

@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { StyleSheet, type TextProps } from 'react-native'
@@ -48,7 +48,7 @@ afterEach(() => {
 it('wraps the Brief subtitle by words within its label width through AX5 without limiting row height', () => {
   render(
     <ReferenceGroup>
-      <IssueBrief issue={{ brief: 'Keep this brief expanded.' } as IssueViewModel} />
+      <IssueBrief issue={{ brief: 'Keep this brief expanded.' } as IssueWithBodies} />
     </ReferenceGroup>,
   )
   const row = screen.getByRole('button', { name: 'Brief' })
@@ -87,7 +87,7 @@ it('invalidates native label and editor measurements across live type changes wh
         busy={false}
         onCommit={() => {}}
       />
-      <IssueBrief issue={{ brief: 'Keep this brief expanded.' } as IssueViewModel} />
+      <IssueBrief issue={{ brief: 'Keep this brief expanded.' } as IssueWithBodies} />
     </ReferenceGroup>,
   )
   fireEvent.click(screen.getByRole('button', { name: 'Brief' }))

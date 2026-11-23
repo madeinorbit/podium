@@ -9,66 +9,39 @@
  * carries no change is indistinguishable to them from one that does.
  */
 
-import {
-  type ReadPositionSnapshot,
-  type ReadPositionWire,
-  readPositionRowId,
-  type UserId,
-} from '@podium/model'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import { type UserId } from '@podium/model'
+import type { LedgerWriter } from '@podium/sync'
 import type { StoredReadPosition, UserReadPositionRepository } from '../../store/user-read-position'
 
 export interface ReadPositionServiceDeps {
   readonly cursors: UserReadPositionRepository
-  /**
-   * Write-seam ledger. Cursor rows ride entity kind `userReadPosition` so bootstrap
-   * and delta share one log. Optional only for pure unit tests of storage;
-   * production always wires it.
-   */
-  readonly ledger?: Pick<Ledger, 'capture'>
 }
+
+/** What a read mark is written through: the generic edit's own writer (ADR 12
+ *  D9; `records.userReadPosition.edit`, POD-6673). Cursor rows ride entity kind
+ *  `userReadPosition`, so bootstrap and delta share one log. */
+export type ReadPositionCommandWriter = Pick<LedgerWriter, 'commit'>
 
 export class ReadPositionService {
   constructor(private readonly deps: ReadPositionServiceDeps) {}
 
-  async getSnapshot(userId: UserId): Promise<ReadPositionSnapshot> {
-    return await this.deps.cursors.getSnapshot(userId)
-  }
-
   /**
-   * Advance one stream's position for one person and return their whole
-   * snapshot — the same response shape `layout.set` uses, so the client
-   * reconciles from one authoritative object rather than patching a delta it
-   * would have to merge itself.
+   * Advance one stream's position for one person. Nothing is answered: the
+   * person's devices learn the position from the `userReadPosition` row.
    */
   async advance(
+    writer: ReadPositionCommandWriter,
     userId: UserId,
     streamId: string,
     proposed: StoredReadPosition,
     now: string,
-  ): Promise<ReadPositionSnapshot> {
-    const moved = await this.deps.cursors.advance(userId, streamId, proposed, now)
-    if (moved !== null) {
-      await this.publish(userId, streamId, moved)
-    }
-    return await this.deps.cursors.getSnapshot(userId)
-  }
-
-  private async publish(userId: UserId, streamId: string, cursor: StoredReadPosition): Promise<void> {
-    const ledger = this.deps.ledger
-    if (!ledger) return
-    const value: ReadPositionWire = {
-      userId,
-      streamId,
-      lastEventId: cursor.lastEventId,
-      seenAt: cursor.seenAt,
-    }
-    const spec: EntityChangeSpec = {
-      entity: 'userReadPosition',
-      id: readPositionRowId(userId, streamId),
-      op: 'upsert',
-      value,
-    }
-    await ledger.capture([spec])
+  ): Promise<void> {
+    // One commit: the cursor row, and the change entry the Authority appends
+    // for the record the write changed (POD-6920). A proposal at or behind
+    // the stored position moves nothing and appends nothing.
+    await writer.commit({
+      write: async (scope) =>
+        await this.deps.cursors.advance(scope, userId, streamId, proposed, now),
+    })
   }
 }

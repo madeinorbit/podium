@@ -27,7 +27,7 @@ import {
 } from './IssueParentRow'
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel({} as never),
+  readFixture: (sel: (s: unknown) => unknown) => sel({} as never),
 }))
 
 afterEach(() => {
@@ -46,7 +46,10 @@ const stubConfirm = (answer: boolean) => {
   return fn
 }
 
-const PENDING_EDGE: IssueEdge<ReturnType<typeof makeIssue>> = { resolution: { state: 'pending' }, render: 'pending' }
+const PENDING_EDGE: IssueEdge<ReturnType<typeof makeIssue>> = {
+  resolution: { state: 'pending' },
+  render: 'pending',
+}
 
 /** `owner` is a BRANDED `UserId`, so a bare string literal will not type here.
  *  Branding at the fixture boundary keeps the assertions readable while leaving

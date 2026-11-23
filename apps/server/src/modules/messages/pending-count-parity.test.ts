@@ -16,7 +16,13 @@
  */
 
 import { createHash } from 'node:crypto'
-import { asSessionId, asThreadId, isMessagePending, type MessageDeliveryStatus } from '@podium/model'
+import {
+  asSessionId,
+  asThreadId,
+  isMessagePending,
+  type MessageDeliveryStatus,
+} from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { MessageRow, SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -31,10 +37,24 @@ afterEach(async () => {
 
 const at = '2026-10-15T00:00:00.000Z'
 const hash = (value: string) => createHash('sha256').update(value).digest().readUInt32BE(0)
-const STATUSES: MessageDeliveryStatus[] = ['stored', 'dispatched', 'typed', 'confirmed', 'failed', 'cancelled', 'expired']
+const STATUSES: MessageDeliveryStatus[] = [
+  'stored',
+  'dispatched',
+  'typed',
+  'confirmed',
+  'failed',
+  'cancelled',
+  'expired',
+]
 
-function message(id: string, toKind: MessageRow['toKind'], toId: string | null, status: MessageDeliveryStatus) {
-  const deliveredTo = status === 'typed' || status === 'dispatched' ? asSessionId(`delivered-${id}`) : null
+function message(
+  id: string,
+  toKind: MessageRow['toKind'],
+  toId: string | null,
+  status: MessageDeliveryStatus,
+) {
+  const deliveredTo =
+    status === 'typed' || status === 'dispatched' ? asSessionId(`delivered-${id}`) : null
   return {
     id,
     threadId: asThreadId(id),
@@ -69,7 +89,11 @@ function message(id: string, toKind: MessageRow['toKind'], toId: string | null, 
 type Target = { kind: 'issue' | 'session'; id: string }
 
 /** The SQL count against the rows' own statuses, read back one by one. */
-async function expectCounts(store: SessionStore, targets: readonly Target[], seeded: readonly { id: string; target: Target }[]) {
+async function expectCounts(
+  store: SessionStore,
+  targets: readonly Target[],
+  seeded: readonly { id: string; target: Target }[],
+) {
   const pending = new Map<string, number>()
   for (const { id, target } of seeded) {
     const row = await store.messages.getMessage(id)
@@ -79,7 +103,9 @@ async function expectCounts(store: SessionStore, targets: readonly Target[], see
     }
   }
   for (const target of targets) {
-    expect(await store.messages.countPending(target), `${target.kind} ${target.id}`).toBe(pending.get(`${target.kind}:${target.id}`) ?? 0)
+    expect(await store.messages.countPending(target), `${target.kind} ${target.id}`).toBe(
+      pending.get(`${target.kind}:${target.id}`) ?? 0,
+    )
   }
 }
 
@@ -88,7 +114,13 @@ describe('pending counts come from SQL', () => {
     const store = await openTestStore(':memory:')
     stores.push(store)
     const targets: Target[] = [
-      ...Array.from({ length: 40 }, (_, i): Target => ({ kind: i % 2 ? 'issue' : 'session', id: `${i % 2 ? 'iss_' : 'session-'}${i}` })),
+      ...Array.from(
+        { length: 40 },
+        (_, i): Target => ({
+          kind: i % 2 ? 'issue' : 'session',
+          id: `${i % 2 ? 'iss_' : 'session-'}${i}`,
+        }),
+      ),
       { kind: 'issue', id: 'iss_never-addressed' },
       { kind: 'session', id: 'session-never-addressed' },
     ]
@@ -100,12 +132,21 @@ describe('pending counts come from SQL', () => {
         const id = `msg-${target.kind}-${target.id}-${i}`
         const status = STATUSES[hash(id) % STATUSES.length]!
         seeded.push({ id, target })
-        writes.push(async () => await seedMessage(store.messages, message(id, target.kind, target.id, status)))
+        writes.push(
+          async () =>
+            await seedMessage(store.messages, message(id, target.kind, target.id, status)),
+        )
       }
     }
     // Operator (chat) messages: never a delivery target, never in an issue or session count.
     for (let i = 0; i < 50; i++) {
-      writes.push(async () => await seedMessage(store.messages, message(`op-${i}`, 'operator', null, i % 3 ? 'stored' : 'confirmed')))
+      writes.push(
+        async () =>
+          await seedMessage(
+            store.messages,
+            message(`op-${i}`, 'operator', null, i % 3 ? 'stored' : 'confirmed'),
+          ),
+      )
     }
     for (let i = 0; i < writes.length; i += 500) {
       await store.transact(async () => {
@@ -113,30 +154,65 @@ describe('pending counts come from SQL', () => {
       })
     }
     expect(seeded.length).toBeGreaterThan(30)
-    expect(new Set(await Promise.all(seeded.map(async ({ id }) => (await store.messages.getMessage(id))?.deliveryStatus))).size).toBeGreaterThan(4)
+    expect(
+      new Set(
+        await Promise.all(
+          seeded.map(async ({ id }) => (await store.messages.getMessage(id))?.deliveryStatus),
+        ),
+      ).size,
+    ).toBeGreaterThan(4)
     await expectCounts(store, targets, seeded)
 
     // Second wave: move a slice of the rows on, through the production moves.
     await store.transact(async () => {
       for (const { id } of seeded.filter(({ id }) => hash(`wave:${id}`) % 3 === 0)) {
         switch (hash(`move:${id}`) % 5) {
-          case 0: await store.messages.markDelivered(id, null, at); break
-          case 1: await store.messages.markDispatched(id, asSessionId(`delivered-${id}`), at); break
-          case 2: await store.messages.markDeadLetter(id, at); break
-          case 3: await store.messages.expireObserved({ id, createdAt: at, lifecycle: 'wait', expiresAt: null }); break
-          case 4: await store.messages.markRead(id, null, at); break
+          case 0:
+            await store.messages.markDelivered(fixtureWriteScope(), id, null, at)
+            break
+          case 1:
+            await store.messages.markDispatched(
+              fixtureWriteScope(),
+              id,
+              asSessionId(`delivered-${id}`),
+              at,
+            )
+            break
+          case 2:
+            await store.messages.markDeadLetter(fixtureWriteScope(), id, at)
+            break
+          case 3:
+            await store.messages.expireObserved(fixtureWriteScope(), {
+              id,
+              createdAt: at,
+              lifecycle: 'wait',
+              expiresAt: null,
+            })
+            break
+          case 4:
+            await store.messages.markRead(fixtureWriteScope(), id, null, at)
+            break
         }
       }
     })
     await expectCounts(store, targets, seeded)
 
     // A rolled-back wave moves neither.
-    const before = await Promise.all(targets.slice(0, 50).map(async (target) => await store.messages.countPending(target)))
-    await expect(store.transact(async () => {
-      for (const { id } of seeded.slice(0, 200)) await store.messages.markCancelled(id)
-      throw new Error('roll back')
-    })).rejects.toThrow('roll back')
-    expect(await Promise.all(targets.slice(0, 50).map(async (target) => await store.messages.countPending(target)))).toEqual(before)
+    const before = await Promise.all(
+      targets.slice(0, 50).map(async (target) => await store.messages.countPending(target)),
+    )
+    await expect(
+      store.transact(async () => {
+        for (const { id } of seeded.slice(0, 200))
+          await store.messages.markCancelled(fixtureWriteScope(), id)
+        throw new Error('roll back')
+      }),
+    ).rejects.toThrow('roll back')
+    expect(
+      await Promise.all(
+        targets.slice(0, 50).map(async (target) => await store.messages.countPending(target)),
+      ),
+    ).toEqual(before)
     await expectCounts(store, targets, seeded)
   })
 
@@ -147,7 +223,11 @@ describe('pending counts come from SQL', () => {
         setup: async (size) => {
           const store = await openTestStore(':memory:')
           stores.push(store)
-          for (let i = 0; i < size; i++) await seedMessage(store.messages, message(`pending-${i}`, 'issue', 'iss_busy', 'stored'))
+          for (let i = 0; i < size; i++)
+            await seedMessage(
+              store.messages,
+              message(`pending-${i}`, 'issue', 'iss_busy', 'stored'),
+            )
           const scheduler = new DeliveryScheduler({
             messages: store.messages,
             now: () => at,

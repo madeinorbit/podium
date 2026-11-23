@@ -1,6 +1,8 @@
 import { rankFirstTaskRepositories } from '@podium/client-core/new-task'
 import { useFirstTaskRepositoryPicker } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import type { RoutedUiState } from '@podium/client-core/ui-state'
 import {
   createRepositoryUsageSelector,
   indexedRepoUsageAt,
@@ -8,16 +10,13 @@ import {
 } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { SETUP_SESSION_SUMMARY_FIELDS } from '@podium/client-graph/settings-schema'
-import { attachSettingsSource, type SettingsOwner } from '@podium/client-graph/settings-source'
-import { createColdIndex } from '@podium/client-graph/shared/cold-index'
-import { SCHEMA } from '@podium/client-graph/shared/schema'
+import { attachSettingsSource } from '@podium/client-graph/settings-source'
 import type { RowRecord } from '@podium/client-graph/shared/source'
 import type { GitRepositoryWire } from '@podium/model'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { useSettingsCatalog, useSettingsSetupSummary } from '../settings/readers'
+import { useSettingsSetupSummary } from '../settings/readers'
 
 const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))
 vi.mock('@/app/store-worklist-pool', () => ({
@@ -69,26 +68,30 @@ it('preserves desktop New task summary and picker output with one activity query
         session(`foreign-${at}`, '/foreign', '2026-01-01T00:00:00Z'),
       ),
     ]
-    const cold = createColdIndex(SCHEMA, { session: SETUP_SESSION_SUMMARY_FIELDS })
-    cold.apply({ type: 'replace', rows })
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(recent) }, undefined, {
       settings: true,
-      cold: () => cold,
       load: () => undefined,
     })
     state.pool = pool
     pool.apply({ type: 'replace', rows })
-    attachSettingsSource(pool, {
-      listIds: (name: string) => (name === 'repos' ? repos.map((repo) => repo.path) : []),
-      listRow: (name: string, id: string) =>
-        name === 'repos' ? repos.find((repo) => repo.path === id) : undefined,
-      readLocal: () => 'sessions',
-      onList: () => () => {},
-      onLocals: () => () => {},
-    } as unknown as SettingsOwner)
+    // The repositories as the runtime owner carries them, as upstream's
+    // settings fixtures build it (POD-6644).
+    const ui = {
+      get: () => null,
+      set: () => {},
+      subscribe: () => () => {},
+    } as unknown as RoutedUiState
+    const owner = withKeyedInputs({
+      getSnapshot: () => ({ machines: [], repos, settingsTab: 'agents', sessions: [] }) as object,
+      ui,
+      subscribe: () => () => {},
+    })
+    attachSettingsSource(pool, owner)
     const activity = vi.spyOn(pool.queries, 'activity')
+    // The catalog itself is upstream's record reader (POD-6644); this measures
+    // the setup summary and picker over the repositories it hands them.
     const hook = renderHook(() => {
-      const catalog = useSettingsCatalog()
+      const catalog = { repos }
       const summary = useSettingsSetupSummary(catalog.repos)
       return {
         catalog,
@@ -121,7 +124,6 @@ it('preserves desktop New task summary and picker output with one activity query
       const changed = session('target', targetPath, '2026-01-03T00:00:00Z')
       act(() => {
         rows = [changed, ...rows.slice(1)]
-        cold.apply({ type: 'update', rows: [changed] })
         pool.apply({ type: 'update', rows: [changed] })
       })
       counts.push(activity.mock.calls.length)

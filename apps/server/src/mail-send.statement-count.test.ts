@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * SENDING MAIL RUNS A FIXED NUMBER OF STATEMENTS [POD-6227, server-data rule
  * 8], whatever the number of sessions on the server or of messages already in
@@ -24,6 +25,7 @@ import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { expectConstantRoundTrips } from './test-support/round-trip-count'
 import {
   describeGrowth,
   expectArmed,
@@ -77,8 +79,14 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
     { repos: ['/repo'] },
   )
   await quietShipping(reg)
-  const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Mail', startNow: false })
-  await reg.issues.crud.update(issue.id, { worktreePath: '/repo/.worktrees/mail' })
+  const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+    repoPath: '/repo',
+    title: 'Mail',
+    startNow: false,
+  })
+  await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, {
+    worktreePath: '/repo/.worktrees/mail',
+  })
   const start = async (cwd: string, issueId?: IssueId): Promise<SessionId> => {
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
@@ -110,7 +118,8 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
   })
   for (let i = 0; i < size + CONFIRMED_PER_SESSION; i++) {
     await call.messages.send({ to: target, body: `earlier ${i}` })
-    if (issueMail && i < size) await call.messages.send({ to: issue.id, body: `earlier to the issue ${i}` })
+    if (issueMail && i < size)
+      await call.messages.send({ to: issue.id, body: `earlier to the issue ${i}` })
   }
   // A shell's queue is typed one row at a time after the sends answered; let
   // it drain, or its tail falls into the counted send at the large size.
@@ -123,7 +132,12 @@ async function fixture(size: number, issueMail = true): Promise<Fixture> {
 
 let relayed = 0
 /** One relayed call from the sender's daemon, answered by the server's reply frame. */
-const relay = (f: Fixture, proc: string, input: unknown, router = 'messages'): Promise<RelayResult> => {
+const relay = (
+  f: Fixture,
+  proc: string,
+  input: unknown,
+  router = 'messages',
+): Promise<RelayResult> => {
   const requestId = `pod6227-${relayed++}`
   return new Promise((resolve) => {
     f.replies.set(requestId, resolve)
@@ -191,13 +205,43 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // POD-6229: the apply-time check of a message to an issue no longer reads the
   // machine rows and their grants (4 statements): tRPC to an issue 19 -> 15,
   // relayed 23 -> 19, mailSend 29 -> 25.
+  // POD-6341, measured on the polaris VM (statement lists diffed against the
+  // integration branch's base): sessions are private to their owner (design
+  // §2.3, POD-6283), so a session access check reads the session's owner from
+  // its row once (#7e28735b) instead of the session's grants each time
+  // (#92da1c94, 1 to 4 reads per send); a message to an issue drops its one
+  // session grants read. A relayed call also reads its delegation's human live
+  // (#835ef3a1, POD-6293). tRPC to a session 62 -> 61 (-2 grants, +1 owner),
+  // held 70 -> 68 (-3, +1), relayed held 61 -> 59 (-4, +1, +1 human), to an
+  // issue 15 -> 14, relayed to a session 53 -> 52 (-3, +1, +1 human), mailSend
+  // 25 -> 24 (-2 grants, +2 live human reads, and no read marker written: mail
+  // delivered to no session marks nobody's read state, POD-6291 9dd00e1e43,
+  // #347b6290). The users and issues reads gained columns, not statements.
+  // POD-6525: a send is a write on the sync write entry point. Every pin below
+  // gains the same fixed cost: the ledger's lookup and its record, the role
+  // floor's read of the sender's account, the receipt's head, and the
+  // undeliverable-address check in the write, before the hand-on after the
+  // commit. tRPC to a session 62 -> 71, its issue holding mail 70 -> 79, to an
+  // issue 15 -> 18; relayed (the agent's principal is resolved for the target
+  // check and for the handler) 53 -> 66, 61 -> 74, 19 -> 26; mailSend 25 -> 26.
+  // POD-6864: re-measured on integrate/6253-sync-log 964ad37114 at both
+  // sizes: to a session 119 -> 118, its issue holding mail 126 -> 125.
   it('over tRPC, to a running session', async () => {
-    await expectConstantStatements(trpcToSession, 62)
+    // POD-6920: derived change capture (no build before the write; one drain after it): tRPC messages.send to a session 118 -> 92.
+    await expectConstantStatements(trpcToSession, 92)
   })
 
   it('tRPC pin is armed', async () => {
-    await expectArmed(trpcToSession, 62, plantPerSession)
+    await expectArmed(trpcToSession, 92, plantPerSession)
   })
+
+  // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
+  // wait for the server, counted by the Postgres driver's pipelining (BEGIN with the first
+  // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
+  // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
+  it('over tRPC, to a running session: round trips', async () => {
+    await expectConstantRoundTrips(trpcToSession, 134)
+  }, 60_000)
 
   // The pass attempts every held message, and each attempt read the issue's
   // members and its sender's machine ownership on its own: 100 statements
@@ -213,19 +257,29 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
     sizes: [5, 150] as const,
   })
 
+  // POD-6790 builds changed message records and their windows at the write.
+  // Measured on c4a786c2a8, then this candidate, the held paths move 63 -> 71
+  // over tRPC and 55 -> 60 through the relay.
+
   it('over tRPC, to a running session whose issue holds mail', async () => {
     await expectConstantStatements(
-      heldIssueMail('tRPC messages.send to a session, issue mail held', async (f) =>
-        await f.call.messages.send({ to: f.target, body: 'counted' })),
-      70,
+      heldIssueMail(
+        'tRPC messages.send to a session, issue mail held',
+        async (f) => await f.call.messages.send({ to: f.target, body: 'counted' }),
+      ),
+      // POD-6920: derived change capture (no build before the write; one drain after it): 125 -> 99.
+      99,
     )
   })
 
   it('through the agent relay, to a running session whose issue holds mail', async () => {
     await expectConstantStatements(
-      heldIssueMail('relayed messages.send to a session, issue mail held', async (f) =>
-        await relay(f, 'send', { to: f.target, body: 'counted' })),
-      61,
+      heldIssueMail(
+        'relayed messages.send to a session, issue mail held',
+        async (f) => await relay(f, 'send', { to: f.target, body: 'counted' }),
+      ),
+      // POD-6920: derived change capture (no build before the write; one drain after it): 117 -> 91.
+      91,
     )
   })
 
@@ -233,7 +287,7 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   // the number of held messages from that sender (account reads go through the
   // per-operation loader). Here the held mail comes from one agent; the pins
   // above cover the pass's whole count.
-  it('over tRPC, the delivery pass reads the held mail\'s one sender once', async () => {
+  it("over tRPC, the delivery pass reads the held mail's one sender once", async () => {
     const counts = await measureAtSizes({
       ...pin(
         'tRPC messages.send to a session, issue mail from one sender held',
@@ -252,15 +306,24 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
       sizes: [5, 150],
     })
     const usersReads = (tally: StatementTally) =>
-      [...tally.byQuery].reduce((n, [key, count]) => (/^select\b.*\bfrom "users"/i.test(key) ? n + count : n), 0)
-    expect(usersReads(counts.large), describeGrowth(counts.small, counts.large)).toBe(usersReads(counts.small))
+      [...tally.byQuery].reduce(
+        (n, [key, count]) => (/^select\b.*\bfrom "users"/i.test(key) ? n + count : n),
+        0,
+      )
+    expect(usersReads(counts.large), describeGrowth(counts.small, counts.large)).toBe(
+      usersReads(counts.small),
+    )
     expect(usersReads(counts.small)).toBe(HELD_PASS_USERS_READS)
   })
 
   it('over tRPC, to an issue', async () => {
     await expectConstantStatements(
-      pin('tRPC messages.send to an issue', async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' })),
-      15,
+      pin(
+        'tRPC messages.send to an issue',
+        async (f) => await f.call.messages.send({ to: f.issueId, body: 'counted' }),
+      ),
+      // POD-6920: derived change capture (no build before the write; one drain after it): 17 -> 20.
+      20,
     )
   })
 
@@ -271,27 +334,41 @@ describe('mail send: pinned statement counts at 5 and 200 (held issue mail: 5 an
   )
 
   it('through the agent relay, to a running session', async () => {
-    await expectConstantStatements(relayToSession, 53)
+    // POD-6920: derived change capture (no build before the write; one drain after it): relayed messages.send to a session 110 -> 84.
+    await expectConstantStatements(relayToSession, 84)
   })
 
   it('relay pin is armed', async () => {
-    await expectArmed(relayToSession, 53, plantPerSession)
+    await expectArmed(relayToSession, 84, plantPerSession)
   })
+
+  it('through the agent relay, to a running session: round trips (POD-6992)', async () => {
+    await expectConstantRoundTrips(relayToSession, 120)
+  }, 60_000)
 
   it('through the agent relay, to its own issue', async () => {
     await expectConstantStatements(
-      pin('relayed messages.send to an issue', async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' })),
-      19,
+      pin(
+        'relayed messages.send to an issue',
+        async (f) => await relay(f, 'send', { to: f.issueId, body: 'counted' }),
+      ),
+      // POD-6920: derived change capture (no build before the write; one drain after it): 28 -> 33.
+      33,
     )
   })
 
   it('through the agent relay, issues.mailSend to its own issue', async () => {
     await expectConstantStatements(
-      pin('relayed issues.mailSend', async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues')),
-      25,
+      pin(
+        'relayed issues.mailSend',
+        async (f) => await relay(f, 'mailSend', { id: f.issueId, body: 'counted' }, 'issues'),
+      ),
+      // POD-6920: derived change capture (no build before the write; one drain after it): 26 -> 31.
+      31,
     )
   })
 })
 
-// Measured on the polaris VM (POD-6218).
-const HELD_PASS_USERS_READS = 1
+// Measured on the polaris VM (POD-6218). POD-6525: the counted send's target
+// check reads the sender's account for its role floor, once: 1 -> 2.
+const HELD_PASS_USERS_READS = 2

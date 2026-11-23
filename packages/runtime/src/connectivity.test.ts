@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  clearConnectivity,
   connectivityPath,
   DAEMON_BLOCKED_EXIT_CODE,
   readConnectivityForTest,
@@ -10,6 +11,7 @@ import {
   writeConnectivity,
 } from './connectivity'
 import { defaultInstanceGuardIo } from './instance-guard'
+import { readMachineState, readOrCreateLocalMachineId } from './local-machine'
 
 describe('connectivity status file (#19)', () => {
   let dir: string
@@ -61,6 +63,55 @@ describe('connectivity status file (#19)', () => {
 
   it('exports the distinct blocked exit code the systemd unit matches', () => {
     expect(DAEMON_BLOCKED_EXIT_CODE).toBe(78)
+  })
+
+  it('clears only connectivity, including a malformed status section', () => {
+    const retained = {
+      version: 1,
+      machineId: 'retained-machine',
+      importedFiles: {},
+      supervisor: { token: 'retained-token' },
+      extra: { nested: ['retained'] },
+    }
+    writeFileSync(
+      connectivityPath(dir),
+      JSON.stringify({ ...retained, connectivity: { malformed: true } }),
+    )
+    clearConnectivity(dir)
+    expect(readMachineState(dir)).toEqual(retained)
+    expect(readConnectivityForTest(dir)).toBeUndefined()
+  })
+
+  it('does not mint an identity or create a directory for absent connectivity', () => {
+    clearConnectivity(dir)
+    expect(readdirSync(dir)).toEqual([])
+    const missing = join(dir, 'not-created')
+    clearConnectivity(missing)
+    expect(existsSync(missing)).toBe(false)
+  })
+
+  it('does not rewrite an existing canonical file without connectivity', () => {
+    const id = readOrCreateLocalMachineId(dir)
+    const before = readFileSync(connectivityPath(dir))
+    clearConnectivity(dir)
+    expect(readFileSync(connectivityPath(dir))).toEqual(before)
+    expect(readOrCreateLocalMachineId(dir)).toBe(id)
+  })
+
+  it('propagates canonical corruption instead of treating it as absent status', () => {
+    writeFileSync(connectivityPath(dir), '{broken')
+    expect(() => clearConnectivity(dir)).toThrow()
+    expect(readFileSync(connectivityPath(dir), 'utf8')).toBe('{broken')
+  })
+
+  it('preserves malformed legacy inputs when import cannot commit', () => {
+    writeFileSync(join(dir, 'machine.id'), 'retained-machine')
+    writeFileSync(join(dir, 'daemon.json'), '{broken')
+    writeFileSync(join(dir, 'connectivity.json'), JSON.stringify({ state: 'connected' }))
+    expect(() => clearConnectivity(dir)).toThrow()
+    expect(readdirSync(dir).sort()).toEqual(['connectivity.json', 'daemon.json', 'machine.id'])
+    expect(readFileSync(join(dir, 'machine.id'), 'utf8')).toBe('retained-machine')
+    expect(readFileSync(join(dir, 'daemon.json'), 'utf8')).toBe('{broken')
   })
 })
 
@@ -148,7 +199,12 @@ describe('a record left by a previous boot is not current (POD-3837)', () => {
   const record = (over: Record<string, unknown>): void => {
     writeFileSync(
       connectivityPath(dir),
-      JSON.stringify({ version: 1, machineId: 'test-machine', importedFiles: {}, connectivity: { state: 'connected', updatedAt: '2026-09-10T08:50:57.458Z', ...over } }),
+      JSON.stringify({
+        version: 1,
+        machineId: 'test-machine',
+        importedFiles: {},
+        connectivity: { state: 'connected', updatedAt: '2026-09-10T08:50:57.458Z', ...over },
+      }),
     )
   }
 

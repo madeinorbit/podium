@@ -8,14 +8,10 @@ import { ComposerModelLabel } from './ComposerModelLabel'
 
 const source = vi.hoisted(() => ({
   catalog: {} as Record<string, { value: string; label: string }[]>,
-  configure: vi.fn(async () => ({ reason: 'not-found-in-transcript' })),
 }))
 vi.mock('@podium/client-core/react', () => ({
   useModelCatalog: () => source.catalog,
   useHarnessDescriptors: () => ({ served: undefined }),
-  useStoreHandle: () => ({
-    access: { trpc: { sessions: { configure: { mutate: source.configure } } } },
-  }),
 }))
 
 let pool: MobxPool
@@ -27,7 +23,6 @@ afterEach(() => {
   pool.dispose()
   vi.restoreAllMocks()
   source.catalog = {}
-  source.configure.mockClear()
 })
 
 function session(patch: Partial<SessionView> = {}): SessionModel {
@@ -67,7 +62,6 @@ describe('composer model info', () => {
     expect(label.getAttribute('aria-label')).toBe('Model and effort: Opus 5.5 · Medium')
     fireEvent.click(label)
     expect(alert).not.toHaveBeenCalled()
-    expect(source.configure).not.toHaveBeenCalled()
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 

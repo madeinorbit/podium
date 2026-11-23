@@ -49,6 +49,7 @@ const ADDRESSED = new Set([
 ])
 const SCALARS = new Set([
   'count',
+  'heldCount',
   'counts',
   'activity',
   'has',

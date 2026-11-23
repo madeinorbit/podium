@@ -1,19 +1,21 @@
 import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+
 // @vitest-environment happy-dom
 
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
-import { checkSuperagent } from '../../../../../tests/worklist/diagnostics/superagent-check'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asUserId } from '@podium/model/browser'
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, expect, it, vi } from 'vitest'
 import { DockHeaderSlotProvider } from '@/app/DockHeaderSlot'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
-import { ConciergeButton } from './ConciergeButton'
+import { checkSuperagent } from '../../../../../tests/worklist/diagnostics/superagent-check'
 import { createSuperagentFixture } from '../../../test/superagent/fixture'
+import { ConciergeButton } from './ConciergeButton'
 import { SuperagentView } from './SuperagentView'
 
 // The conversation is POD-5173's separately allocated surface. This proof
@@ -29,8 +31,11 @@ vi.mock('@/features/chat/ChatView', () => ({
     </div>
   ),
 }))
+let dockHeader: HTMLDivElement | undefined
 afterEach(() => {
   cleanup()
+  dockHeader?.remove()
+  dockHeader = undefined
   storeStats.enable(false)
 })
 
@@ -41,8 +46,10 @@ async function mount() {
   let runtime!: ClientRuntime,
     pool: ReturnType<typeof useWorklistPool> = null
   const header = document.createElement('div')
+  document.body.appendChild(header)
+  dockHeader = header
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
     pool = useWorklistPool()
     before.push(pool)
     return (
@@ -65,13 +72,11 @@ async function mount() {
       onFatalError={(error) => errors.push(error)}
       attachRuntime={(owner) => {
         runtime = owner
-        data.bindHub(owner.hub)
+        data.bindHub(owner.services.connection.hub, undefined, owner.live)
         owner.readPosition.replace({
           issueEvents: { lastEventId: 9, seenAt: '2026-10-02T00:00:00Z' },
         })
         const stop = attachWorklistPool(owner, (error) => errors.push(error.message))
-        void referenceState(owner).refreshSuperThreads()
-        void referenceState(owner).refreshRepos()
         return stop
       }}
     >
@@ -106,7 +111,10 @@ async function mount() {
 }
 const snapshot = (f: Awaited<ReturnType<typeof mount>>) => ({
   html: f.view.container.innerHTML,
-  controls: f.header.innerHTML,
+  controls: Array.from(
+    f.header.querySelectorAll('button'),
+    (button) => button.getAttribute('aria-label') ?? button.textContent,
+  ),
 })
 it('preserves saved thread, return marker, concierge and dock controls', async () => {
   const enabled = await mount()
@@ -132,7 +140,7 @@ it('executes zero legacy Superagent derivations through attach, feed, local and 
   await act(async () => {
     enabled.data.activity(1)
     referenceState(enabled.runtime).setSuperThreadId('btw-private' as never)
-    await enabled.data.updateThread(enabled.runtime, true)
+    await enabled.data.updateThread(true)
   })
   expect(
     enabled.view.container
@@ -151,11 +159,15 @@ it('executes zero legacy Superagent derivations through attach, feed, local and 
 it('keeps the existing mutation and navigation owner for clear, terminal and concierge actions', async () => {
   const enabled = await mount()
   await act(async () =>
-    fireEvent.click(enabled.header.querySelector('button[title^="Clear context"]')!),
+    userEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' })),
   )
   await act(async () =>
-    fireEvent.click(enabled.header.querySelector('button[title^="Open this conversation"]')!),
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Clear conversation' })),
   )
+  await act(async () =>
+    userEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' })),
+  )
+  await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: 'Open in terminal' })))
   await waitFor(() => expect(referenceState(enabled.runtime).paneA).toBe('synthetic-session-3'))
   fireEvent.click(enabled.view.container.querySelector('button[aria-label="Concierge"]')!)
   expect(enabled.data.actions).toMatchObject({ cleared: 1, opened: 1 })

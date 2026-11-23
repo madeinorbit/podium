@@ -1,25 +1,12 @@
-import { omitGone } from '@podium/client-graph/lookup'
+import type { Trpc } from './trpc'
+import { useCommands, useUi, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { allTabIds, orphanSessionFor } from '@podium/client-core/values'
+import { allTabIds } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { useCallback } from 'react'
-import { useRuntimeActions, useRuntimeList, useRuntimeLocal } from './keyed-runtime'
+import { usePoolRepositories } from './header-data'
 import { useWorklistPoolProjection } from './store-worklist-pool'
-
-const ACTIONS = [
-  'closeFileTab',
-  'markSessionRead',
-  'workspaceKey',
-  'openSessionTab',
-  'promoteWorkspaceTab',
-  'activateWorkspaceTab',
-  'closeWorkspaceTab',
-  'moveWorkspaceTab',
-  'splitWorkspacePane',
-  'closeWorkspacePane',
-  'focusWorkspacePane',
-  'resizeWorkspaceSplit',
-] as const
 const EMPTY_SESSIONS: SessionView[] = []
 const EMPTY_INPUTS = { sessions: EMPTY_SESSIONS, pendingIssueHasSession: false }
 
@@ -38,30 +25,21 @@ export function workspaceSessions(
     const present = fullIds.has(id) ? omitGone(pool.row('session', id, 'mark')) : undefined
     if (fullIds.has(id) && !present) return []
     const detail = fullIds.has(id) ? omitGone(pool.row('session', id)) : undefined
-    const row =
-      detail && typeof detail !== 'symbol' ? detail : omitGone(pool.row('session', id, 'summary-fields'))
+    const row = detail && typeof detail !== 'symbol' ? detail : omitGone(pool.row('session', id))
     return row && typeof row !== 'symbol' ? [row as unknown as SessionView] : []
   })
 }
 
-/** Only the missing-worktree fallback needs source-order discovery. Keeping
- * it in the fallback's own subscription leaves normal issue switches addressed. */
+/** The missing-worktree fallback asks the maintained path index for one winner.
+ * It never loads a session catalogue to choose the single pane it displays. */
 export function readOrphanWorkspaceSession(
   pool: MobxPool,
   selectedWorktree: string | null,
   paneA: string | null,
 ): SessionView | null {
   if (!selectedWorktree) return null
-  const ids = pool.queries.ids({ kind: 'shellSessions' }).sort((a, b) => {
-    const left = pool.queries.orderKey(a),
-      right = pool.queries.orderKey(b)
-    return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
-  })
-  return orphanSessionFor({
-    selectedWorktree,
-    paneA,
-    sessions: workspaceSessions(pool, new Set(), ids),
-  })
+  const id = pool.queries.workspaceSessionWithin(selectedWorktree, paneA)
+  return id ? (workspaceSessions(pool, new Set(), [id])[0] ?? null) : null
 }
 
 export function useOrphanWorkspaceSession(selectedWorktree: string | null, paneA: string | null) {
@@ -82,25 +60,30 @@ export function pendingWorkspaceIssueHasSession(pool: MobxPool, issueId: string)
 }
 
 export function useWorkspaceInputs(retainedIds: readonly string[] = [], pendingIssueId = '') {
-  const actions = useRuntimeActions(ACTIONS)
-  const selectedWorktree = useRuntimeLocal('selectedWorktree')
-  const paneA = useRuntimeLocal('paneA')
-  const selectedIssueId = useRuntimeLocal('selectedIssueId')
-  const dockShells = useRuntimeLocal('dockShells')
-  const workspaces = useRuntimeLocal('workspaces')
-  const fileTabs = useRuntimeList('fileTabs')
-  const repos = useRuntimeList('repos')
-  // Use the engine's resolver, including its pool navigation provider.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed selection changes invalidate the stable engine resolver.
-  const keyRead = useCallback(
-    () => actions.workspaceKey(),
-    [actions, selectedIssueId, selectedWorktree],
-  )
-  const workspaceKey = useWorklistPoolProjection(
-    keyRead,
-    'none' as ReturnType<typeof actions.workspaceKey>,
-  )
-  const layout = workspaces[workspaceKey]
+  const actions = {
+    closeFileTab: useUi().closeFileTab,
+    markSessionRead: useCommands<Trpc>().sessions.markRead,
+    workspaceKey: useUi().workspaceKey,
+    openSessionTab: useUi().openSessionTab,
+    promoteWorkspaceTab: useUi().promoteWorkspaceTab,
+    activateWorkspaceTab: useUi().activateWorkspaceTab,
+    closeWorkspaceTab: useUi().closeWorkspaceTab,
+    moveWorkspaceTab: useUi().moveWorkspaceTab,
+    splitWorkspacePane: useUi().splitWorkspacePane,
+    closeWorkspacePane: useUi().closeWorkspacePane,
+    focusWorkspacePane: useUi().focusWorkspacePane,
+    resizeWorkspaceSplit: useUi().resizeWorkspaceSplit,
+  }
+  const selectedWorktree = useUiValue('selectedWorktree')
+  const paneA = useUiValue('paneA')
+  const selectedIssueId = useUiValue('selectedIssueId')
+  const dockShells = useUiValue('dockShells')
+  const workspaces = useUiValue('workspaces')
+  const fileTabs = useUiValue('fileTabList')
+  const repos = usePoolRepositories()
+  const workspaceKey = useUiValue('workspaceKeyValue')
+  const workspaceLoading = useUiValue('workspaceLoading')
+  const layout = workspaceLoading ? undefined : workspaces[workspaceKey]
   const read = useCallback(
     (pool: MobxPool) => ({
       sessions: workspaceSessions(

@@ -1,20 +1,27 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState as Store } from './reference-state'
+import {
+  disposeFixtureUi,
+  observableFixtureKeys,
+  patchFixtureScreen,
+} from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { autorun } from 'mobx'
 import { COMMAND_ENTITIES } from '@podium/client-graph/command-launch-schema'
 import { CommandLaunchSource } from '@podium/client-graph/command-launch-source'
 import type { HeaderRows } from '@podium/client-graph/header-schema'
 import { attachHeaderSource } from '@podium/client-graph/header-source'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
+import { omitGone } from '@podium/client-graph/lookup'
 import { createMobileSessionSource } from '@podium/client-graph/mobile-session-context'
+import { pinnedIds } from '@podium/client-graph/per-user-records'
 import { PreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { replicaSourcePorts } from '@podium/client-graph/source-ports'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { autorun } from 'mobx'
+import type { ReferenceState as Store } from './reference-state'
 import { shellFixture } from './shell-fixture'
 
 const flush = async () => {
@@ -29,7 +36,6 @@ export function inputFixture(scale: 1 | 4) {
     openIssueId: null,
     recentFiles: [],
     sidebarSettings: {},
-    outboxSize: 0,
     trpc: {
       quota: { summary: { query: async () => [] } },
       settings: { get: { query: async () => ({}) } },
@@ -70,8 +76,9 @@ export function inputFixture(scale: 1 | 4) {
     hub: { connectionHealth: () => ({}), onConnectionHealth: () => () => {} },
     headerInputs: { read: () => undefined, onInput: () => () => {}, retain: () => () => {} },
   }) as unknown as ClientRuntime
+  f.pool.sources.view('test.inputFixture.ui', () => ({ dispose: () => disposeFixtureUi(runtime) }))
   const change = (patch: Partial<Store>) => {
-    state = { ...state, ...patch }
+    state = patchFixtureScreen(state, patch)
     for (const wake of listeners) wake()
   }
   const command = new CommandLaunchSource(f.pool, runtime)
@@ -79,7 +86,7 @@ export function inputFixture(scale: 1 | 4) {
   const mobile = createMobileSessionSource(runtime, f.pool)
   f.pool.sources.register(['mobileSessionWindow', 'mobileSessionReader'], mobile)
   const stopHeader = attachHeaderSource(f.pool, runtime)
-  const stopExit = attachIssuePageSource(f.pool, runtime)
+  const stopExit = attachIssuePageSource(f.pool, replicaSourcePorts(runtime))
   return {
     f,
     runtime,
@@ -136,18 +143,14 @@ export async function inputMechanisms(scale: 1 | 4) {
     const row = omitGone(f.pool.row('window', 'window')) as HeaderRows['window'] | undefined
     return row?.paneA
   })
-  watch('header.outbox', () => {
-    const row = omitGone(f.pool.row('window', 'window')) as HeaderRows['window'] | undefined
-    return row?.outboxSize
-  })
+  // Unsent writes are a LiveStore condition (POD-5798), read by the header.
+  watch('header.outbox', () => f.pool.live?.outbox.pending)
   watch('command.pane', () => {
     const row = omitGone(f.pool.row('commandWindow', 'window'))
     return row && row !== LOADING ? row.paneA : row
   })
-  watch('command.pins', () => {
-    const row = omitGone(f.pool.row('commandWindow', 'window'))
-    return row && row !== LOADING ? row.pins : row
-  })
+  // My pins are synced records since POD-6673, read off the pool's pin rows.
+  watch('command.pins', () => pinnedIds(f.pool, 'repo'))
   watch('mobile.cursor', () => {
     const row = omitGone(f.pool.row('mobileSessionWindow', 'window'))
     // Typed field access, never a quoted field check: the replica cursor's
@@ -186,8 +189,28 @@ export async function inputMechanisms(scale: 1 | 4) {
   const shell = await capture('palette click', () =>
     f.change({ paletteOpen: !f.state().paletteOpen }),
   )
-  const header = await capture('outbox enqueue', () => change({ outboxSize: 1 }))
-  const commands = await capture('pin click', () => change({ pins: ['one'] as never }))
+  const header = await capture('outbox enqueue', () =>
+    f.pool.live?.setOutbox({ pending: 1, deadLetters: [] }),
+  )
+  // A pin click lands as my pin record (POD-6673).
+  const commands = await capture('pin click', () =>
+    f.pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'pin',
+          id: 'pin-one',
+          value: {
+            id: 'pin-one',
+            userId: 'operator',
+            kind: 'repo',
+            entityId: 'one',
+            pinnedAt: 't',
+          } as never,
+        },
+      ],
+    }),
+  )
   const sessions = await capture('cursor tick', () => fixture.cursor(1))
   const repo = await capture('lane branch change', () =>
     f.pool.apply({
@@ -245,8 +268,14 @@ export async function inputMechanisms(scale: 1 | 4) {
       }
     },
   }
-  const preferences = new PreferenceSource(ui)
-  for (const key of keys) preferences.read(key)
+  const observableKeys = observableFixtureKeys(ui)
+  const preferences = new PreferenceSource(observableKeys)
+  const preferenceStops = keys.map((key) =>
+    autorun(() => {
+      const row = preferences.read(key)
+      if (row && row !== LOADING) row.value
+    }),
+  )
   await flush()
   preferenceReads = 0
   ui.set(keys[0]!, '1')
@@ -262,7 +291,9 @@ export async function inputMechanisms(scale: 1 | 4) {
     hiddenProjection: { reads: projectionReads, comparisons },
     preferenceReads,
   }
+  for (const stop of preferenceStops) stop()
   preferences.dispose()
+  observableKeys.dispose()
   stopProjection()
   for (const stop of stops) stop()
   fixture.dispose()

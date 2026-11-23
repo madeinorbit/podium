@@ -15,7 +15,7 @@ export function WorkGlyph({
     ? AlignLeft
     : mail || item?.role === 'user'
       ? Mail
-      : item?.toolName === 'Bash'
+      : item?.toolExecution?.inputs?.length || item?.toolName === 'Bash'
         ? Terminal
         : FileText
   return <Glyph size={15} strokeWidth={1.5} aria-hidden="true" />

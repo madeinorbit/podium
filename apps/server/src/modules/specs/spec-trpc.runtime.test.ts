@@ -1,13 +1,11 @@
 /**
  * THE DERIVED SPEC tRPC SURFACE, AGAINST THE RUNNING ROUTER (POD-386).
  *
- * `scripts/audit-spec-commands.ts` is the source-TEXT half of this gate: it
- * resolves no modules, runs in a fresh checkout, and can see a hand-written
- * `.mutation(` growing back in `router.ts`. It cannot see whether anything is
- * actually served — a `...specFamily` spread of an empty object satisfies every
- * claim it makes.
+ * A hand-written `.mutation(` cannot grow back in `router.ts`: the server
+ * typecheck refuses one (`write-routes.typecheck.ts`). That cannot see whether
+ * anything is actually served — a spread of an empty object satisfies it.
  *
- * This is the other half. It reads the built `appRouter`'s dispatch table, and
+ * This file can. It reads the built `appRouter`'s dispatch table, and
  * it drives a derived procedure's own handler through a REAL `SpecsService` over
  * a REAL temp repo. No Proxy, no fake service: POD-732's finding was a CLI suite
  * "green against a server serving nothing", and the fix is that the thing under

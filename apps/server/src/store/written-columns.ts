@@ -1,12 +1,14 @@
+// workspace-scoped (POD-6959)
 /**
  * WHAT A ROW HOLDS, AS THIS STORE LAST WROTE OR READ IT [POD-6234].
  *
  * The session upsert names an indexed column in its ON CONFLICT set only when
  * the value changed, and "changed" needs something to compare against that is
- * the row as stored. The live session's durable baseline is not that: a boot
- * restore holds a row stored as `live` as `reconnecting` without writing it, so
- * a rename compared against the baseline would leave `live` where the full
- * write stored `reconnecting`. So the store keeps what its own writes sent and
+ * the row as stored. The live session's durable baseline is not that: it can
+ * differ from the stored row without a write (until POD-6646 a boot restore
+ * held a row stored as `live` as `reconnecting`), and a rename compared against
+ * the baseline would then skip a column the full write changes. So the store
+ * keeps what its own writes sent and
  * its own reads returned, and answers "unknown" (write every column) whenever
  * it cannot be sure:
  *
@@ -42,15 +44,26 @@
  * exists, disable it (answer unknown always, so every upsert sets every column)
  * or invalidate it across processes. Declared as a write hint in
  * docs/agents/server-data.md ("Caching", rule 7).
+ *
+ * OFF ON POSTGRES [POD-6983, POD-6958 design 2.12]. A Postgres store is the
+ * deployment with more than one writer, and Postgres rewrites a row whole on
+ * every UPDATE whatever its SET names, so there is nothing to save either: the
+ * store builds it {@link WrittenColumns.forDialect} and, there, it is
+ * {@link WrittenColumns.off}: it knows nothing, records nothing, and every
+ * upsert sets every column.
  */
 
+import type { StoreDialect } from './executor/binding'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 
 type CommitRegistration = ReturnType<typeof applyAfterCommit>
 
 export class WrittenColumns<V> {
   private readonly committed = new Map<string, V>()
-  private readonly staged = new Map<string, { token: number; value: V; registration: CommitRegistration }>()
+  private readonly staged = new Map<
+    string,
+    { token: number; value: V; registration: CommitRegistration }
+  >()
   private nextToken = 0
   private asideInFlight = 0
   /** Moves on every write, promotion and forget, so a read can tell it was overtaken. */
@@ -59,11 +72,23 @@ export class WrittenColumns<V> {
   constructor(
     private readonly label: string,
     private readonly limit = 4096,
+    /** False: the hint is off (see the header). It knows nothing and records nothing. */
+    private readonly enabled = true,
   ) {}
+
+  /** A hint that is off: every row is unknown, so every write is a full write. */
+  static off<V>(label: string): WrittenColumns<V> {
+    return new WrittenColumns<V>(label, 0, false)
+  }
+
+  /** The hint for a store on `dialect`: on for SQLite, {@link off} for Postgres. */
+  static forDialect<V>(dialect: StoreDialect, label: string): WrittenColumns<V> {
+    return dialect === 'pg' ? WrittenColumns.off<V>(label) : new WrittenColumns<V>(label)
+  }
 
   /** What the row holds, or `undefined` when this store cannot know. */
   get(id: string): V | undefined {
-    if (!spanOpen() || this.asideInFlight > 0) return undefined
+    if (!this.enabled || !spanOpen() || this.asideInFlight > 0) return undefined
     const entry = this.staged.get(id)
     if (entry === undefined) return this.committed.get(id)
     if (entry.registration.live()) return entry.value
@@ -78,12 +103,13 @@ export class WrittenColumns<V> {
 
   /** Record rows a read issued at `mark` returned, when that is safe (see the header). */
   read(rows: Iterable<readonly [string, V]>, mark: number): void {
-    if (spanOpen() || this.asideInFlight > 0 || this.generation !== mark) return
+    if (!this.enabled || spanOpen() || this.asideInFlight > 0 || this.generation !== mark) return
     for (const [id, value] of rows) if (!this.staged.has(id)) this.commit(id, value)
   }
 
   /** Record a write of `value` that just ran. */
   wrote(id: string, value: V): void {
+    if (!this.enabled) return
     if (!spanOpen()) {
       this.forget(id)
       return

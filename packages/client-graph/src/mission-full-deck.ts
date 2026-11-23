@@ -18,6 +18,7 @@ import {
   type MissionBuckets,
   type ProposalPlacement,
   proposalShape,
+  tallyMissionBuckets,
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import {
@@ -33,6 +34,7 @@ import {
   wordWantsAttention,
 } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable } from 'mobx'
+import { LOADING } from './loading'
 import type { MissionScreen } from './mission-screen'
 import {
   type MissionDeckIssueModel,
@@ -56,8 +58,6 @@ export type FullDeckKind = 'phase' | 'decision' | 'task'
 export type FullDeckSeat = 'coordinator' | 'phase-lead' | 'worker' | 'helper'
 
 export type FullDeckCounts = Readonly<Record<FullDeckFilter | 'done', number>>
-
-const NO_IDS: readonly string[] = Object.freeze([])
 
 /**
  * One issue of the mission as the Full view draws it. A companion of the
@@ -111,16 +111,18 @@ export class FullDeckTask {
   /** Its parent in the drawn tree: the formal parent, or a graft's placement. */
   @lazy get parentId(): string | null {
     if (this.isRoot) return null
-    return requireLoaded(this.deck.source.topology).parent.get(this.id) ?? null
+    return this.deck.source.parentIn(this.id) ?? null
   }
   /** Direct sub-issues in the accepted tree: proposals and their subtrees
    * leave, sort_key order holds, and tasks come before phases (spec 06). */
   @lazy({ equals: compareShallow }) get childIds(): readonly string[] {
-    const shape = requireLoaded(this.deck.source.topology)
+    // POD-7178: this row's own children and each child's parent, never the
+    // whole shape, so a burst re-derives only the rows whose place it moved.
+    const source = this.deck.source
     const tasks: string[] = [],
       phases: string[] = []
-    for (const id of shape.children.get(this.id) ?? NO_IDS) {
-      if (shape.parent.get(id) !== this.id || id === this.deck.rootId) continue
+    for (const id of requireLoaded(source.childrenIn(this.id))) {
+      if (source.parentIn(id) !== this.id || id === this.deck.rootId) continue
       const child = this.deck.task(id)
       if (child.proposed) continue
       ;(child.kind === 'phase' ? phases : tasks).push(id)
@@ -129,10 +131,10 @@ export class FullDeckTask {
   }
   /** Proposed direct sub-issues: they leave the tree for the PROPOSED tail. */
   @lazy({ equals: compareShallow }) get proposalIds(): readonly string[] {
-    const shape = requireLoaded(this.deck.source.topology)
-    return (shape.children.get(this.id) ?? NO_IDS).filter(
+    const source = this.deck.source
+    return requireLoaded(source.childrenIn(this.id)).filter(
       (id) =>
-        shape.parent.get(id) === this.id && id !== this.deck.rootId && this.deck.task(id).proposed,
+        source.parentIn(id) === this.id && id !== this.deck.rootId && this.deck.task(id).proposed,
     )
   }
   /** Levels below the mission root, phases included (0 = a root child). */
@@ -217,10 +219,12 @@ export class FullDeckTask {
    * reason; a dependency that is gone no longer blocks. */
   @lazy({ equals: compareShallow }) get unmetBlockedByIds(): readonly string[] {
     const reader = this.deck.screen.reader
-    const targets = requireLoaded(settledAll(this.blockedByIds, (id) => reader.catalogIssue(id)))
+    // Reference and state are stub fields: a target outside the mission is
+    // read from its stub, never loaded whole (POD-7168).
+    const targets = requireLoaded(settledAll(this.blockedByIds, (id) => reader.reference(id)))
     return this.blockedByIds.filter((_, index) => {
       const target = targets[index]
-      return target !== undefined && !isFinished(target)
+      return target !== undefined && !target.finished
     })
   }
   /** The narrow lock keeps every reference in its tooltip, even when the
@@ -229,7 +233,7 @@ export class FullDeckTask {
     const reader = this.deck.screen.reader
     return this.unmetBlockedByIds
       .map((id) => {
-        const target = requireLoaded(reader.catalogIssue(id))
+        const target = requireLoaded(reader.reference(id))
         return target?.displayRef ?? id
       })
       .join(', ')
@@ -284,7 +288,12 @@ export class FullDeckTask {
   }
   /** Drawn: it matches, or a descendant does and it gives that one context. */
   @lazy get shown(): boolean {
-    return this.matches || this.childIds.some((id) => this.deck.task(id).shown)
+    if (settled(() => this.matches) === true) return true
+    // Every child is read before answering (and this row's own match), so a
+    // pending input never keeps its siblings out of the same load window.
+    const children = settledAll(this.childIds, (id) => this.deck.task(id).shown)
+    const matches = this.matches
+    return matches || requireLoaded(children).some(Boolean)
   }
   /** Something folds away under it: sub-issues or sessions. */
   @lazy get foldable(): boolean {
@@ -306,9 +315,35 @@ export class FullDeckTask {
  * and a seat compares itself with that one ID.
  */
 export class FullDeck {
-  @observable accessor filter: FullDeckFilter = 'all'
+  @observable private accessor fixtureOptions: { filter: FullDeckFilter; showDone: boolean } = {
+    filter: 'all',
+    showDone: true,
+  }
+  @lazy({ equals: compareShallow }) private get options(): {
+    filter: FullDeckFilter
+    showDone: boolean
+  } {
+    if (!this.screen.pool.hasLayout) return this.fixtureOptions
+    const value = this.screen.pool.layoutValue('mission.options') as
+      | { filter?: FullDeckFilter; showDone?: boolean }
+      | undefined
+    const filter = value?.filter
+    return {
+      filter: filter && FULL_DECK_FILTERS.includes(filter) ? filter : 'all',
+      showDone: value?.showDone !== false,
+    }
+  }
+  @lazy get filter(): FullDeckFilter {
+    return this.options.filter
+  }
   /** Done work shows in place by default (POD-6245); the eye button hides it. */
-  @observable accessor showDone = true
+  @lazy get showDone(): boolean {
+    return this.options.showDone
+  }
+  private save(options: { filter: FullDeckFilter; showDone: boolean }): void {
+    if (this.screen.pool.hasLayout) this.screen.pool.setLayoutValue('mission.options', options)
+    else this.fixtureOptions = options
+  }
   private readonly card = companion((issue: IssueModel) => new FullDeckTask(issue, this))
 
   constructor(readonly screen: MissionScreen) {}
@@ -330,13 +365,11 @@ export class FullDeck {
   /** Choosing a filter turns Show done off (handoff note 5); coming back to
    * All returns to the default, done work shown (POD-6245). */
   @action setFilter(filter: FullDeckFilter): void {
-    this.filter = filter
-    this.showDone = filter === 'all'
+    this.save({ filter, showDone: filter === 'all' })
   }
   /** Show done returns to All: done work shows in its place in the tree. */
   @action setShowDone(show: boolean): void {
-    this.showDone = show
-    if (show) this.filter = 'all'
+    this.save({ showDone: show, filter: show ? 'all' : this.filter })
   }
   @action toggleShowDone(): void {
     this.setShowDone(!this.showDone)
@@ -369,9 +402,14 @@ export class FullDeck {
   @lazy({ equals: compareShallow }) get leafIds(): readonly string[] {
     return leafTasks(this.rootId, this.tree)
   }
-  /** The same execution count Tasks and the desktop worklist read. The drawn
-   * tree can retain a vacated origin or graft that is not a progress unit. */
+  /** Execution counts are separate from the attention filters' state words. */
   @lazy({ equals: compareStructural }) get buckets(): MissionBuckets {
+    return tallyMissionBuckets(this.leafIds, (id) => this.task(id).entity.missionBucket)
+  }
+  /** PHONE ONLY (POD-2518): the same execution count Tasks and the desktop
+   * worklist read. The drawn tree can retain a vacated origin or graft that is
+   * not a progress unit. The web deck keeps {@link buckets}. */
+  @lazy({ equals: compareStructural }) get phoneBuckets(): MissionBuckets {
     return requireLoaded(sidebarIssueProgress(this.root.entity))
   }
   /** Shipping counts as working but licenses no motion without a computing session. */
@@ -387,13 +425,20 @@ export class FullDeck {
   }
   /** The tab counts and the Done toggle's count. */
   @lazy({ equals: compareStructural }) get counts(): FullDeckCounts {
+    return this.countsFrom(this.buckets)
+  }
+  /** PHONE ONLY (POD-2518): {@link counts} over {@link phoneBuckets}. */
+  @lazy({ equals: compareStructural }) get phoneCounts(): FullDeckCounts {
+    return this.countsFrom(this.phoneBuckets)
+  }
+  private countsFrom(buckets: MissionBuckets): FullDeckCounts {
     const t = this.tally
     return {
-      all: this.buckets.total,
+      all: buckets.total,
       'needs-you': t.error + t['needs-you'],
       active: t.error + t['needs-you'] + t.working + t.idle,
       'up-next': t.blocked + t['not-started'],
-      done: this.buckets.done,
+      done: buckets.done,
     }
   }
   /** The filters, Show done and search sort the rows under the root. A
@@ -441,9 +486,19 @@ export class FullDeck {
     readonly phases: number
     readonly tasks: number
   } | null {
+    return this.doneLineFrom(this.buckets)
+  }
+  /** PHONE ONLY (POD-2518): {@link doneLine} over {@link phoneBuckets}. */
+  @lazy({ equals: compareStructural }) get phoneDoneLine(): {
+    readonly phases: number
+    readonly tasks: number
+  } | null {
+    return this.doneLineFrom(this.phoneBuckets)
+  }
+  private doneLineFrom(buckets: MissionBuckets) {
     if (this.showDone) return null
     const phases = this.phaseIds.filter((id) => this.task(id).workComplete).length,
-      tasks = this.buckets.done
+      tasks = buckets.done
     return phases || tasks ? { phases, tasks } : null
   }
 
@@ -451,15 +506,27 @@ export class FullDeck {
   /** Rows under the root, in drawing order: shown, under open parents. */
   @lazy({ equals: compareShallow }) get rowIds(): readonly string[] {
     const out: string[] = []
+    // Every row is read before answering LOADING: a walk that stopped at its
+    // first pending row asked for one record per load window, and the deck
+    // settled in one round trip per row (POD-7168, as POD-6134's settledAll).
+    let pending = false
     const walk = (id: string) => {
       for (const child of this.task(id).childIds) {
         const task = this.task(child)
-        if (!task.shown) continue
+        const shown = settled(() => task.shown)
+        if (shown === LOADING) pending = true
+        if (shown !== true) continue
         out.push(child)
-        if (task.open) walk(child)
+        // Only a row with sub-issues has rows under it: a leaf's fold (which
+        // reads its word) never changes this list.
+        if (task.childIds.length === 0) continue
+        const open = settled(() => task.open)
+        if (open === LOADING) pending = true
+        if (open === true) walk(child)
       }
     }
     walk(this.rootId)
+    if (pending) throw LOADING
     return out
   }
   /** The PROPOSED tail: proposals anywhere in the accepted tree, each

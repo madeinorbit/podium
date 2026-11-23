@@ -7,7 +7,7 @@ import { reaction } from 'mobx'
 import { readPageIssue } from './issue-page'
 import { referenceView } from './issue-reference'
 import { omitGone } from './lookup'
-import { MobileInbox, screeningQueue } from './mobile-triage'
+import { screeningQueue } from './mobile-triage'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -20,10 +20,11 @@ export function createMobileInboxViews(pool: MobxPool) {
     return (
       !state ||
       state === LOADING ||
-      (!state.hasCursor && pool.queries.count('session') === 0 && pool.queries.count('issue') === 0)
+      (!state.hasCursor &&
+        pool.queries.heldCount('session') === 0 &&
+        pool.queries.heldCount('issue') === 0)
     )
   }
-  const inbox = new MobileInbox(pool)
   class ScreeningQueue {
     @lazy get queue() {
       const ids = screeningQueue(pool)
@@ -64,7 +65,7 @@ export function createMobileInboxViews(pool: MobxPool) {
     // Stored rows carry ref fields, not the derived displayRef string.
     const id =
       pool.queries.linkedSessionId(trimmed) ?? (!parseSessionRef(trimmed) ? trimmed : undefined)
-    return id ? (omitGone(pool.row('session', id, 'summary')) as Loaded<SessionView>) : undefined
+    return id ? (omitGone(pool.row('session', id)) as Loaded<SessionView>) : undefined
   }
   function route(target: PodiumTarget): Loaded<string | null> {
     if ((target.kind !== 'issue' && target.kind !== 'session') || target.search || target.hash)
@@ -77,7 +78,7 @@ export function createMobileInboxViews(pool: MobxPool) {
           ? `/session/${encodeURIComponent(row.sessionId)}`
           : null
     }
-    const direct = omitGone(pool.row('issue', target.issue.trim(), 'summary')) as Loaded<{
+    const direct = omitGone(pool.row('issue', target.issue.trim())) as Loaded<{
       id: string
     }>
     if (direct && direct !== LOADING) return `/issue/${encodeURIComponent(direct.id)}`
@@ -112,13 +113,12 @@ export function createMobileInboxViews(pool: MobxPool) {
     })
   }
   return {
-    inbox: () => inbox,
-    screening: () => screening,
     issue,
     chip,
     route,
     resolveRoute,
     booting,
+    screening: () => screening,
     session,
     dispose() {
       for (const cancel of [...waits]) cancel()

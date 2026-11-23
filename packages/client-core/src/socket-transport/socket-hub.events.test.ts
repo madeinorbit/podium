@@ -45,10 +45,6 @@ const meta = (sessionId: SessionId): SessionMeta => ({
   title: 't',
   cwd: '/w',
   status: 'live',
-  controllerId: 'c0',
-  geometry: { cols: 80, rows: 24 },
-  epoch: 0,
-  clientCount: 1,
   createdAt: '2026-07-01T00:00:00.000Z',
   lastActiveAt: '2026-07-01T00:00:00.000Z',
   origin: { kind: 'spawn' },
@@ -61,7 +57,6 @@ const meta = (sessionId: SessionId): SessionMeta => ({
 describe('SocketHub dispatch exhaustiveness (type-level)', () => {
   const noop = () => {}
   const total: DispatchHandlers<ServerMessage> = {
-    approvalsChanged: noop,
     // wire v2 (POD-308) — a v1 peer handles these as explicit no-ops; see
     // connection.ts for why the table must still name them.
     feedDelta: noop,
@@ -78,8 +73,6 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     agentExit: noop,
     sessionDraftChanged: noop,
     hostMetricsChanged: noop,
-    machinesChanged: noop,
-    worktreesChanged: noop,
     attentionEvent: noop,
     transcriptDelta: noop,
     turnPreview: noop,
@@ -92,6 +85,10 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     presenceRoomClosed: noop,
     serverRelocation: noop,
     setLogLevel: noop,
+    topicSnapshot: noop,
+    topicUpdate: noop,
+    topicEvent: noop,
+    topicClosed: noop,
   }
 
   it('a mock future ServerMessage member without a handler fails compilation', () => {
@@ -227,27 +224,16 @@ describe('SocketHub subscription seam (on/emit)', () => {
     expect(seam).toEqual([['s1', 'draft…']])
   })
 
-  it('keeps approval-broker flows on typed transport events', () => {
-    const { sock, hub } = setup()
-    const approvals: unknown[] = []
-    hub.on('approvals', (pending) => approvals.push(pending))
-    hub.connect()
-    sock.open()
-    sock.recv({ type: 'approvalsChanged', pending: [] })
-    expect(approvals).toEqual([[]])
-    hub.dispose()
-  })
-
   it('unsubscribing one handler leaves other handlers of the same kind subscribed', () => {
     const { sock, hub } = setup()
     const a: number[] = []
     const b: number[] = []
-    const offA = hub.on('machines', (m) => a.push(m.length))
-    hub.on('machines', (m) => b.push(m.length))
+    const offA = hub.on('sessionDraft', (_id, text) => a.push(text.length))
+    hub.on('sessionDraft', (_id, text) => b.push(text.length))
     hub.connect()
     sock.open()
     offA()
-    sock.recv({ type: 'machinesChanged', machines: [] })
+    sock.recv({ type: 'sessionDraftChanged', sessionId: asSessionId('s1'), text: '' })
     expect(a).toEqual([])
     expect(b).toEqual([0])
   })

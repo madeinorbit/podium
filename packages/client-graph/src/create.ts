@@ -1,6 +1,6 @@
+import { MobxPool, type PoolLazyOptions } from './pool'
 import type { LocalsSource, RowSource } from './shared/source'
 import { worklistView } from './worklist/view-model'
-import { MobxPool, type PoolLazyOptions } from './pool'
 
 export interface WorklistPoolHandle {
   readonly pool: MobxPool
@@ -17,16 +17,7 @@ export function createWorklistPool(
   const row = source.row?.bind(source)
   if (row === undefined) {
     throw new Error(
-      '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot load a cold row',
-    )
-  }
-  // A feed with a cold index withholds history rows from the pool, so only
-  // the feed's own facts index sees every session. The pool's fallback index
-  // counts only the sessions it received: residency-dependent unread and
-  // continuation (POD-6136).
-  if (source.cold !== undefined && source.issueSessionFact === undefined) {
-    throw new Error(
-      '[pool] the feed has a cold index but no session facts reader (RowSource.issueSessionFact): issue activity would count only loaded sessions',
+      '[pool] the feed has no per-row read (RowSource.row): a lazy pool cannot answer an absent row',
     )
   }
   const pool = new MobxPool(locals.get(), undefined, {
@@ -36,22 +27,17 @@ export function createWorklistPool(
     load: row,
     exitKind: source.exitKind?.bind(source),
     issueIdByRef: source.issueIdByRef?.bind(source),
-    cold: source.cold?.bind(source),
+    ...(source.loader === undefined ? {} : { loader: source.loader.bind(source) }),
   })
-  // POD-5407: a source with its own cold index hands over only the rows that
-  // are never cold (lanes); the pool places the index's resident candidates
-  // itself, each read once by id. No history row is visited.
+  // POD-7094: every row the device holds is in the pool.
   pool.apply({
     type: 'replace',
-    rows:
-      source.cold === undefined
-        ? [
-            ...source.snapshot('session'),
-            ...source.snapshot('issue'),
-            ...source.snapshot('worktree'),
-            ...(source.companions?.() ?? []),
-          ]
-        : [...source.snapshot('worktree'), ...(source.companions?.() ?? [])],
+    rows: [
+      ...source.snapshot('session'),
+      ...source.snapshot('issue'),
+      ...source.snapshot('worktree'),
+      ...(source.companions?.() ?? []),
+    ],
   })
   const offRows = source.subscribe((event) => pool.apply(event))
   const offLocals = locals.subscribe((changed) => {

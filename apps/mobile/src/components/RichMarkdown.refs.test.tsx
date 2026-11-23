@@ -9,7 +9,7 @@ const issues = [
   { id: 'issue-13', seq: 13, prefix: 'POD', displayRef: 'POD-13', title: 'Chips', stage: 'review' },
 ] as IssueViewModel[]
 
-vi.mock('../client/use-inbox-data', () => ({
+vi.mock('../client/use-pool-links', () => ({
   usePoolRefChip: (token: string, kind: 'issue' | 'session', prefix: string) => {
     const fixture = poolRouteFixture({ issues, sessions: [] })
     try {

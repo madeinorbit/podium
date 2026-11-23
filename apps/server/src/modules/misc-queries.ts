@@ -19,7 +19,6 @@
  * out `isAllowedRoot(...)` was the shape this replaces.
  */
 
-import { createLogger } from '@podium/logger'
 import {
   AutomationIdField,
   asThreadId,
@@ -27,23 +26,21 @@ import {
   IssueIdField,
   type MachineId,
   MachineIdField,
+  type SessionId,
+  type TaskCostComparisonWire,
   ThreadIdField,
 } from '@podium/model'
 import { loadConfig } from '@podium/runtime/config'
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { getFeatureStates } from '../features'
 import { CostService } from './cost/service'
 import type { FamilyState } from './derived-family'
-import { assertAllowedRoot } from './files/registry'
+import { assertReadableRoot } from './files/registry'
 import { defineQuery } from './query-table'
 import { QUOTA_HISTORY_DEFAULT_DAYS, recordQuotaSamples } from './quota-history/service'
 import { specsInputs } from './specs/service'
-
-const log = createLogger('cost')
-
-/** The usage harvest's window — the daemon's own default, restated because the
- *  cost fold must record which window its per-file totals were taken over. */
-const USAGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+import { readUsageSummary, UsageAttributionUnavailable } from './usage-summary'
 
 const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
@@ -54,6 +51,7 @@ const fileState = (s: FamilyState) => ({
   rpc: s.modules.rpc,
   artifacts: s.modules.issueArtifacts,
   repos: s.repos,
+  access: s.privateAccess,
 })
 
 // ---------------------------------------------------------------------------
@@ -69,7 +67,8 @@ export const SEARCH_QUERIES = {
       text: z.string().min(1).max(256),
       limit: z.number().int().positive().max(100).optional(),
     }),
-    async (s, input) => await s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
+    async (s, input) =>
+      await s.modules.memory.search({ kind: 'user', id: asUserId(s.caller.userId) }, input),
   ),
 } as const
 
@@ -116,7 +115,9 @@ const repoOp = (op: GitPanelOp) => {
       { machineId?: MachineId | undefined; root: string; path?: string; sha?: string }
     >,
     async (s, input) => {
-      await assertAllowedRoot(fileState(s), input.root)
+      // A checkout is private to the people who may run on its machine (POD-6284).
+      const machineId = input.machineId ?? (await s.modules.rpc.answeringMachineId(input.root))
+      await assertReadableRoot(fileState(s), input.root, machineId)
       const args: Record<string, string> = {}
       if (needs.includes('path')) args.path = input.path as string
       if (needs.includes('sha')) args.sha = input.sha as string
@@ -124,7 +125,7 @@ const repoOp = (op: GitPanelOp) => {
         op,
         input.root,
         needs.length > 0 ? args : undefined,
-        input.machineId,
+        machineId,
       )
     },
   )
@@ -148,40 +149,43 @@ export const USAGE_QUERIES = {
    *  transcripts on the dev machine. Window math (5h/weekly/cost) is
    *  client-side.
    *
-   *  ALSO WRITES (POD-1858), on the same terms `quota.summary` below sets out:
-   *  the daemon returns the per-FILE half of the walk it just did, and it is
-   *  folded into the per-task cost rows on the way out. No caller input reaches
-   *  the fold and no second scan happens — attributing the walk that ALREADY
-   *  runs is the whole architecture of the cost read path, because a second walk
-   *  of the same 4GB would land on the daemon loop that carries PTY traffic.
-   *
-   *  `sources` is STRIPPED before the payload is returned: it is an order of
-   *  magnitude larger than the buckets and no client reads it. Best-effort — a
-   *  failed fold never fails the usage read. */
+   *  Also folds per-task cost on the way out; see `usage-summary.ts`. Clients
+   *  with topics get the same answer pushed on `account.quota` (POD-5798). */
   summary: q(noInput, async (s) => {
-    // The daemon's own default window, restated here because the fold has to
-    // record WHICH window its per-file totals cover — see `window_since_ms`.
-    const sinceMs = Date.now() - USAGE_WINDOW_MS
-    const { sources, sourcesSinceMs, ...usage } = await s.modules.rpc.usage(sinceMs, true)
-    if (sources && sources.length > 0) {
-      try {
-        // The MEMO's window, not ours. The daemon may serve a fold it computed
-        // against an older `sinceMs`; stamping it with the newer one re-dates
-        // last window's numbers as current and keeps a transcript that has
-        // since fallen out of the window contributing to "attributed".
-        const foldSinceMs = sourcesSinceMs ?? sinceMs
-        await new CostService(s.store).ingest(await s.modules.rpc.answeringMachineId(), sources, foldSinceMs)
-      } catch (err) {
-        log.warn('cost fold failed — usage buckets unaffected', { err })
+    try {
+      return await readUsageSummary({
+        rpc: s.modules.rpc,
+        store: s.store,
+        privateAccess: s.privateAccess,
+        userId: s.caller.userId,
+      })
+    } catch (err) {
+      if (err instanceof UsageAttributionUnavailable) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: err.message })
       }
+      throw err
     }
-    return usage
   }),
 } as const
 
 // ---------------------------------------------------------------------------
 // cost — what a task cost (POD-1858)
 // ---------------------------------------------------------------------------
+
+/** A task's cost breakdown names each session that spent: the caller is shown
+ *  only its OWN sessions' lines (POD-6284). The task's totals are the task's. */
+async function ownSessionCostsOnly<T extends { sessions: Array<{ sessionId: SessionId | null }> }>(
+  s: FamilyState,
+  task: T,
+): Promise<T> {
+  const own = await Promise.all(
+    task.sessions.map(
+      async (line) =>
+        line.sessionId !== null && (await s.privateAccess.ownsSession(line.sessionId)),
+    ),
+  )
+  return { ...task, sessions: task.sessions.filter((_, index) => own[index] === true) }
+}
 
 export const COST_QUERIES = {
   /** One task's accounting: own cost, rollup over ALL descendants, descendant
@@ -191,15 +195,24 @@ export const COST_QUERIES = {
    *
    *  Tokens are priced through the shared model/cost-pricing table. A pure DB read: it opens no transcript, so a
    *  panel can call it on first paint. */
-  task: q(z.object({ issueId: IssueIdField }), async (s, input) =>
-    await new CostService(s.store).task(input.issueId),
+  task: q(
+    z.object({ issueId: IssueIdField }),
+    async (s, input) =>
+      await ownSessionCostsOnly(s, await new CostService(s.store).task(input.issueId)),
   ),
   /** One task total plus its all-time own-cost comparison, on request. */
-  taskComparison: q(z.object({
-    issueId: IssueIdField,
-    includeSessions: z.boolean().optional(),
-  }), async (s, input) =>
-    await new CostService(s.store).taskComparison(input.issueId, input.includeSessions),
+  taskComparison: q(
+    z.object({
+      issueId: IssueIdField,
+      includeSessions: z.boolean().optional(),
+    }),
+    async (s, input): Promise<TaskCostComparisonWire> => {
+      const comparison = await new CostService(s.store).taskComparison(
+        input.issueId,
+        input.includeSessions,
+      )
+      return { ...comparison, task: await ownSessionCostsOnly(s, comparison.task) }
+    },
   ),
   /** Every task with a stored figure — the sheet's ranked table, and the cohort
    *  the "×median" rate is computed against. OWN cost per task, not rolled up:
@@ -207,6 +220,12 @@ export const COST_QUERIES = {
    *  down one column. */
   tasks: q(noInput, async (s) => await new CostService(s.store).tasks()),
 } as const
+
+/** The machines the caller looks after: their native logins are the caller's. */
+async function custodyMachines(s: FamilyState): Promise<ReadonlySet<MachineId>> {
+  const standing = await s.privateAccess.machineStanding()
+  return new Set([...standing].filter(([, kind]) => kind === 'custody').map(([id]) => id))
+}
 
 export const QUOTA_QUERIES = {
   /** Per-agent plan-quota (5h/weekly % used + reset times), read live on the
@@ -223,8 +242,19 @@ export const QUOTA_QUERIES = {
    *  Best-effort: a failed fold never fails the read. */
   summary: q(noInput, async (s) => {
     const machines = await s.modules.rpc.agentQuotaAll()
-    await recordQuotaSamples(s.store.quotaHistory, machines)
-    return machines
+    await recordQuotaSamples(
+      s.store.quotaHistory,
+      machines,
+      undefined,
+      async (machineId) => await s.store.machines.custodian(machineId),
+    )
+    // A machine's plan quota is the quota of its native logins, and those
+    // belong to the person who looks after the machine (POD-6300; design
+    // §4.6). Every reading is folded into the ledger above, but the caller is
+    // shown only the machines in its own custody: a `use` grant on someone
+    // else's machine does not make that person's plan the caller's.
+    const custody = await custodyMachines(s)
+    return machines.filter((machine) => custody.has(machine.machineId))
   }),
   /** The window ledger: one entry per run of a plan window, oldest first, over
    *  the requested lookback. `peakPercent` is what a window came to before it
@@ -234,34 +264,37 @@ export const QUOTA_QUERIES = {
     async (s, input) => {
       const days = input?.days ?? QUOTA_HISTORY_DEFAULT_DAYS
       const now = Date.now()
-      return await s.store.quotaHistory.list(now - days * 24 * 60 * 60 * 1000, now)
+      // A window ledger row is keyed by the provider account, not by machine
+      // (POD-6284's seam), so it records its owner when it opens: the custodian
+      // of the machine that reported it (POD-6300). It stays theirs after the
+      // login or the machine is gone, and nobody else's.
+      return await s.store.quotaHistory.listFor(
+        asUserId(s.caller.userId),
+        now - days * 24 * 60 * 60 * 1000,
+        now,
+      )
     },
   ),
 } as const
 
 export const FEATURE_QUERIES = {
-  /** Experimental feature flags [spec:SP-f4b9] — same auth as settings.get. */
-  state: q(noInput, async (s) => getFeatureStates(await s.modules.settings.getSettings(), loadConfig())),
+  /** Experimental feature flags [spec:SP-f4b9] — the CLI's read; the apps resolve flags from welcome and the instance record. */
+  state: q(noInput, async (s) =>
+    getFeatureStates(await s.modules.settings.getSettings(), loadConfig()),
+  ),
 } as const
 
 // ---------------------------------------------------------------------------
 // The reads of families whose WRITES another issue already derived
 // ---------------------------------------------------------------------------
 
-/** POD-383 derived the seven superagent writes; these reads stayed
- *  hand-written because a read writes nothing. */
+/** POD-383 derived the seven superagent writes; this read stayed hand-written
+ *  because a read writes nothing. The thread list and the last failure are
+ *  synced records now (`superagentThread`, POD-6675): their reads are gone. */
 export const SUPERAGENT_QUERIES = {
-  /** The global orchestrator thread plus per-session 'btw' threads. */
-  listThreads: q(noInput, async (s) => await s.superagent.listThreads(asUserId(s.caller.userId))),
-  history: q(z.object({ threadId: ThreadIdField.default(asThreadId('global')) }), async (s, input) =>
-    await s.superagent.history(asUserId(s.caller.userId), input.threadId),
-  ),
-  /** The thread's most recent durable turn failure for post-reload restoration
-   *  (POD-4806): a typed `{inputId, userText, error, at}` or null — selected
-   *  server-side by column, so clients never match prose to find it. */
-  latestTurnFailure: q(
+  history: q(
     z.object({ threadId: ThreadIdField.default(asThreadId('global')) }),
-    async (s, input) => await s.superagent.latestTurnFailure(asUserId(s.caller.userId), input.threadId),
+    async (s, input) => await s.superagent.history(asUserId(s.caller.userId), input.threadId),
   ),
 } as const
 
@@ -274,23 +307,6 @@ export const SPEC_QUERIES = {
   search: q(specsInputs.search, (s, input) => s.modules.specs.search(input)),
 } as const
 
-/** POD-420 derived the four settings writes. `get` is a READ, and what it
- *  RETURNS changes shape under POD-419 and POD-421 — which is the other reason
- *  it carries no contract. */
-export const SETTINGS_QUERIES = {
-  /**
-   * THE SETTINGS AS THIS CALLER SEES THEM (POD-1213).
-   *
-   * `getSettingsFor(caller)`, never `getSettings()`. Until this issue the read
-   * served the whole instance blob — so one person's roles, sidebar order,
-   * autoContinue dismissal, ntfy topic and Telegram chat id were served to every
-   * other authenticated client, which is the cross-user leak POD-352's exit audit
-   * names. The caller's identity is already on `FamilyState` for exactly this
-   * class of read.
-   */
-  get: q(noInput, async (s) => await s.modules.settings.getSettingsFor(asUserId(s.caller.userId))),
-} as const
-
 /** POD-735 derived the four automation writes; these two reads stayed
  *  hand-written for the same reason. */
 export const AUTOMATION_QUERIES = {
@@ -301,6 +317,10 @@ export const AUTOMATION_QUERIES = {
       limit: z.number().int().optional(),
     }),
     async (s, input) =>
-      await s.modules.automations.runsForUser(asUserId(s.caller.userId), input.automationId, input.limit),
+      await s.modules.automations.runsForUser(
+        asUserId(s.caller.userId),
+        input.automationId,
+        input.limit,
+      ),
   ),
 } as const

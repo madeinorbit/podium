@@ -28,10 +28,6 @@ const session = (over: Partial<SessionView> = {}): SessionView =>
     sessionId: asSessionId('s1'),
     cwd: '/repo',
     status: 'live',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 1,
-    clientCount: 0,
-    controllerId: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     lastActiveAt: '2026-01-01T00:00:00.000Z',
     origin: 'operator',
@@ -331,9 +327,11 @@ describe('composer, queue, offer and activity', () => {
   // composer stays sendable and the send routes straight through (the bubble
   // then reads queued, not failed). Gating reconnecting as "not running"
   // blocked Enter exactly in the window the server fix keeps open.
+  // A reconnecting session's status stays `live` (ADR 12 D1): only its
+  // machine's link is down.
   it('stays sendable while the session is reconnecting', () => {
     const composer = composerState({
-      session: session({ status: 'reconnecting' }),
+      session: session({ status: 'live' }),
       headless: false,
       turnRunning: false,
       compact: false,
@@ -504,7 +502,7 @@ describe('composer, queue, offer and activity', () => {
       ).toEqual({ label: 'Sending', tone: 'idle', transient: 'just-sent' })
     })
 
-    it('keeps a fresh exited-session send waking, then gives a later exit precedence over its queue', () => {
+    it('on the phone, keeps a fresh exited-session send waking, then gives a later exit precedence over its queue', () => {
       const wakeRequestedAt = Date.parse('2026-11-13T06:00:10.000Z')
       const before = session({
         status: 'exited',
@@ -518,7 +516,7 @@ describe('composer, queue, offer and activity', () => {
         turnRunning: false,
         justSent: true,
         compact: false,
-        wakeRequestedAt,
+        phoneWakeRequestedAt: wakeRequestedAt,
       }
       expect(chatActivityState(input)?.label).toBe('Waking the agent…')
       expect(composerState(input).placeholder).toContain('Waking the agent')
@@ -527,22 +525,25 @@ describe('composer, queue, offer and activity', () => {
       expect(composerState({ ...input, session: after }).placeholder).toBe(
         'Message the agent to resume it…',
       )
-      expect(chatActivityState({ ...input, session: after, wakeRequestedAt: undefined })).toBeNull()
+      expect(
+        chatActivityState({ ...input, session: after, phoneWakeRequestedAt: undefined }),
+      ).toBeNull()
     })
 
-    it('fails safe to exited recovery without authoritative message or stop timing', () => {
+    it('on the phone, fails safe to exited recovery without authoritative message or stop timing', () => {
       const input = {
         session: session({ status: 'exited', resumable: true, queuedMessageCount: 2 }),
         headless: false,
         turnRunning: false,
         justSent: true,
         compact: false,
+        phoneWakeRequestedAt: undefined,
       }
       expect(chatActivityState(input)).toBeNull()
       expect(composerState(input).placeholder).toBe('Message the agent to resume it…')
     })
 
-    it('lets a terminal provider failure end waking while its queue remains', () => {
+    it('on the phone, lets a terminal provider failure end waking while its queue remains', () => {
       const failed = session({
         status: 'hibernated',
         queuedMessageCount: 1,
@@ -557,12 +558,18 @@ describe('composer, queue, offer and activity', () => {
         headless: false,
         turnRunning: false,
         justSent: false,
+        phoneWakeRequestedAt: undefined,
       })
       expect(activity?.tone).toBe('error')
       expect(activity?.label).not.toContain('Waking')
       expect(
-        composerState({ session: failed, headless: false, turnRunning: false, compact: false })
-          .placeholder,
+        composerState({
+          session: failed,
+          headless: false,
+          turnRunning: false,
+          compact: false,
+          phoneWakeRequestedAt: undefined,
+        }).placeholder,
       ).toContain('token expired')
     })
   })

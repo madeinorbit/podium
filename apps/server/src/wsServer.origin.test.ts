@@ -1,4 +1,5 @@
 import { firstAdminMemberId } from '@podium/model'
+import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WebSocket } from 'ws'
 import {
@@ -157,7 +158,13 @@ describe('the CSWSH guard on the real upgrade path', () => {
   /** Resolve 'open' or 'rejected', with `Host` forged to a real network name. */
   function attempt(url: string, origin?: string): Promise<'open' | 'rejected'> {
     return new Promise((resolve) => {
-      const ws = new WebSocket(url, {
+      const endpoint = new URL(url)
+      if (endpoint.pathname === '/client') {
+        // Satisfy the current wire preflight so the Origin guard decides admission.
+        endpoint.searchParams.set('v', String(CLIENT_WIRE_VERSION))
+        endpoint.searchParams.set('cap', CAP_SYNC_HTTP_V1)
+      }
+      const ws = new WebSocket(endpoint, {
         headers: { host: 'podium.example.com', ...(origin ? { origin } : {}) },
       })
       ws.on('open', () => {

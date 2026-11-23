@@ -38,6 +38,7 @@ import type {
   AutomationId,
   AutomationRunId,
   ConversationId,
+  CredentialId,
   IssueDepId,
   IssueId,
   MachineId,
@@ -141,6 +142,7 @@ export const ENTITY_KINDS = [
   'account',
   'thread',
   'machine',
+  'credential',
 ] as const
 export type EntityKind = (typeof ENTITY_KINDS)[number]
 
@@ -167,6 +169,8 @@ export type EntityRef =
    * refuses them, so a machine grant edge names one machine, everywhere.
    */
   | { kind: 'machine'; id: MachineId }
+  /** A credential (credential management spec §4): the subject of a notice. */
+  | { kind: 'credential'; id: CredentialId }
 
 /** The type-level half of the {@link ENTITY_KINDS} / {@link EntityRef} pairing:
  *  either list gaining a member the other lacks fails to compile HERE, so the
@@ -180,7 +184,34 @@ export const ENTITY_KINDS_MATCH_ENTITY_REF: Equals<EntityKind, EntityRef['kind']
  *  discriminated union of one rather than a bare `UserId` — adding `{ kind:
  *  'group' }` then fails to compile at every match instead of silently widening,
  *  the same closed-set discipline `authz/issue-authz.ts`'s `IssueScope` uses. */
-export type GrantSubject = { kind: 'user'; id: UserId }
+export type GrantSubject = { kind: 'user'; id: UserId } | { kind: 'group'; id: GrantGroupId }
+
+/**
+ * The groups a grant can name. Closed: "all members" is the one the credential
+ * work needs (credential management spec §12); a real group is another id here,
+ * not another subject kind.
+ */
+export const GRANT_GROUP_IDS = ['all-members'] as const
+export type GrantGroupId = (typeof GRANT_GROUP_IDS)[number]
+const isGrantGroupId = (value: string): value is GrantGroupId =>
+  (GRANT_GROUP_IDS as readonly string[]).includes(value)
+
+/** Every member of the instance, as a grant subject. */
+export const ALL_MEMBERS_SUBJECT = {
+  kind: 'group',
+  id: 'all-members',
+} as const satisfies GrantSubject
+
+/**
+ * How a grant subject is stored in `grants.grantee`: a person by their `UserId`
+ * (`user:…`), a group as `group:<id>`. The two cannot collide, because a user id
+ * never starts with `group:`.
+ */
+export const granteeColumnOf = (subject: GrantSubject): string =>
+  subject.kind === 'user' ? subject.id : `group:${subject.id}`
+
+/** `grants.grantee` for {@link ALL_MEMBERS_SUBJECT}. */
+export const ALL_MEMBERS_GRANTEE = granteeColumnOf(ALL_MEMBERS_SUBJECT)
 
 // ---------------------------------------------------------------------------
 // (userId, entityId) — the per-user state key (POD-1076)
@@ -270,8 +301,12 @@ export const parseSubjectResourceKey = (
     key,
     4,
   ) as [string, string, string, string]
-  if (subjectKind !== 'user') {
+  if (subjectKind !== 'user' && subjectKind !== 'group') {
     throw new Error(`unknown grant subject kind ${JSON.stringify(subjectKind)}`)
+  }
+  // Fails closed on a group this build does not know.
+  if (subjectKind === 'group' && !isGrantGroupId(subjectId)) {
+    throw new Error(`unknown grant group ${JSON.stringify(subjectId)}`)
   }
   if (subjectId === '') {
     throw new Error(`malformed grant key (empty subject): ${JSON.stringify(key)}`)

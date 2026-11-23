@@ -1,6 +1,6 @@
-import { clientSessionViews } from '../../test-support/session-views'
-import { resolvePrincipal } from '../../command-principal'
+import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import { attachTestClient } from '../../test-support/client-transport'
+import { clientSessionViews } from '../../test-support/session-views'
 /**
  * SessionService ORACLE support (POD-392, the decomposition oracle for
  * POD-393/POD-394/POD-395; originally established by POD-379).
@@ -47,9 +47,10 @@ import {
   type MachineId,
   type SessionId,
 } from '@podium/model'
-import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { CAP_SESSION_ACCESS, CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 
+import { IN_PROCESS_DAEMON_LINK } from '../../gateway/daemon-link-kind'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
@@ -137,12 +138,12 @@ export interface Oracle {
   client: ServerMessage[]
   /** Every ControlMessage the server sent to the attached daemon. */
   daemon: ControlMessage[]
+  /** The authenticated principal captured by the tRPC caller. */
+  principal: CommandPrincipal
   /** tRPC caller with the OPERATOR capability — the human seam. */
   call: ReturnType<typeof appRouter.createCaller>
   /** Session facts joined with the actual feed homes, as the client sees them. */
-  meta(
-    sessionId: SessionId,
-  ): Promise<Awaited<ReturnType<typeof clientSessionViews>>[number]>
+  meta(sessionId: SessionId): Promise<Awaited<ReturnType<typeof clientSessionViews>>[number]>
   /**
    * Invoke a write the way a RELAYED AGENT does — through the capability seam,
    * with the capability minted from the calling session's cwd. This is the ONLY
@@ -256,7 +257,12 @@ export async function makeOracle(
   const client: ServerMessage[] = []
   /** Extra sinks the relay helper installs; the daemon send fn is single-slot. */
   const relayWaiters: ((msg: ControlMessage) => void)[] = []
-  await reg.gateway.attachDaemon(machineId, confirmingRetirement(reg, machineId, (msg) => {
+  // A daemon of this build on a link that never leaves the computer, as
+  // `attachHostDaemon` attaches one: the socket accept path records the link
+  // before the attach, and the daemon takes a session's credential
+  // (`CAP_SESSION_ACCESS`). Without both, a launch on a member's own
+  // credential is refused as if the machine were offline.
+  const peer = confirmingRetirement(reg, machineId, (msg) => {
     daemon.push(msg)
     for (const waiter of relayWaiters) waiter(msg)
     // Answer the one RPC a session write makes of its daemon: `stop` inspects the
@@ -271,7 +277,9 @@ export async function makeOracle(
         output: '',
       })
     }
-  }))
+  })
+  reg.daemonLinks.connected(machineId, IN_PROCESS_DAEMON_LINK, peer)
+  await reg.gateway.attachDaemon(machineId, peer, [CAP_SESSION_ACCESS])
   // A real daemon reports its current inventory immediately after attaching.
   // Without this frame the fixture describes a connection that is permanently
   // mid-probe, and every harness-gated command exercises reconnect timing
@@ -304,21 +312,23 @@ export async function makeOracle(
   // The oracle's own teardown is `reg.dispose()`; adoption is what makes that
   // stop the turn reaper too (POD-2772).
   reg.adoptSuperagent(superagent)
+  const principal = resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined })
   const call = appRouter.createCaller({
     registry: reg,
     repos,
     superagent,
     capability: OPERATOR,
-    principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    principal,
   })
   return {
     reg,
     store,
     client,
     daemon,
+    principal,
     call,
     meta: async (sessionId) => {
-      const found = (await clientSessionViews(reg)).find(row => row.sessionId === sessionId)
+      const found = (await clientSessionViews(reg)).find((row) => row.sessionId === sessionId)
       if (!found) throw new Error(`no session meta for ${sessionId}`)
       return found
     },

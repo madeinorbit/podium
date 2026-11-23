@@ -37,7 +37,11 @@
 // interop is verified by a live run, recorded in VERIFY.
 
 import { randomUUID } from 'node:crypto'
-import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { HeadlessTurnEvent, SessionPosture } from '@podium/protocol'
+import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
+import { type AgentTermsInput, agentLaunchTerms } from '../../../launch-terms.js'
+import type { LaunchMode } from '../../../posture-types.js'
 import type { BoundaryContextOperation } from '../../boundary-context.js'
 import { markNeverSent } from '../../errors.js'
 import { BOUNDARY_HOOK_EVENTS, boundaryHookAnswer } from '../boundary-hook.js'
@@ -54,14 +58,16 @@ export { HeadlessTurnFailure }
 export const CLAUDE_STREAM_INTERRUPT_ACK_MS = 5_000
 
 const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
-const PERMISSION_MODES = new Set([
-  'default',
-  'acceptEdits',
-  'auto',
-  'bypassPermissions',
-  'plan',
-  'dontAsk',
-])
+
+/**
+ * The person picked Claude's own `bypassPermissions` mode. The posture section
+ * asks for the mode (`--permission-mode`); the CLI also needs
+ * `--allow-dangerously-skip-permissions` to make it selectable, and as root
+ * `IS_SANDBOX=1` ({@link claudeStreamEnvOverlay}).
+ */
+export function asksBypassPermissions(posture: SessionPosture): boolean {
+  return typeof posture.mode === 'object' && posture.mode.native === 'bypassPermissions'
+}
 
 /**
  * THE TURN, as this family reads it: prompt facts plus supervisor facts. The
@@ -76,9 +82,6 @@ export interface ClaudeStreamTurnSpec {
   contextPrompt?: string
   /** The raw MCP config JSON ({ mcpServers: { name: { url, headers } } }). */
   mcpConfig?: string
-  /** Tools pre-approved so they run headlessly without a permission prompt. */
-  allowedTools?: string[]
-  permissionMode?: string
   /** Fail-closed capability request. `none` means the adapter must remove every tool. */
   toolPolicy?: 'none'
   /** Harness session id to resume; absent = first turn. */
@@ -100,20 +103,26 @@ export interface ClaudeStreamTurnSpec {
  *
  * Mirrors what the SDK itself passes when it spawns the CLI (bundle-read):
  * `--output-format stream-json --verbose --input-format stream-json`, then
- * model/effort/permission/tool flags. The system prompt is NOT argv — the SDK
+ * model/effort flags. The permission mode and the allow rules are the posture
+ * section's (POD-6858): this builder adds neither. It keeps
+ * `--permission-prompt-tool stdio`, because routing asks through the protocol
+ * is what an engine is, and the bypass companion flag for a native
+ * `bypassPermissions` pick. The system prompt is NOT argv — the SDK
  * carries it in the `initialize` control payload (see `initializePayload`),
  * and so do we. MCP servers ride `--mcp-config` as INLINE JSON (the SDK's
  * shape, not the `-p` path's staged file). `toolPolicy: 'none'` removes tools
- * and setting sources rather than merely declining to mount them.
+ * and setting sources rather than merely declining to mount them, and runs on
+ * no-agent terms: a tool-less turn must not gain a tool flag from the
+ * harness's posture section. Otherwise the invocation runs on the section's
+ * terms for `terms.mode`: the long-lived engine (`engine`) or one structured
+ * headless turn (`turn`).
  */
 export function buildClaudeStreamInvocation(
   spec: ClaudeStreamTurnSpec,
-  executable: string,
-): { cmd: string; args: string[] } {
-  const mode: string =
-    spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode)
-      ? spec.permissionMode
-      : 'auto'
+  context: Pick<HarnessContext, 'installation'>,
+  terms: AgentTermsInput & { readonly mode: LaunchMode },
+): BoundCommand {
+  const toolless = spec.toolPolicy === 'none'
   const args = [
     '--output-format',
     'stream-json',
@@ -125,16 +134,13 @@ export function buildClaudeStreamInvocation(
     // the only sign that the session already held a line and skipped it
     // (POD-4836); see `ClaudeStreamTurnAcceptance`.
     '--replay-user-messages',
-    '--permission-mode',
-    mode,
-    ...(mode === 'bypassPermissions' ? ['--allow-dangerously-skip-permissions'] : []),
+    ...(!toolless && asksBypassPermissions(terms.posture.posture)
+      ? ['--allow-dangerously-skip-permissions']
+      : []),
     ...(spec.model && spec.model !== 'auto' ? ['--model', spec.model] : []),
     ...(spec.effort && EFFORT_LEVELS.has(spec.effort) ? ['--effort', spec.effort] : []),
     ...(spec.structuredPermissions ? ['--permission-prompt-tool', 'stdio'] : []),
-    ...(spec.allowedTools && spec.allowedTools.length > 0 && spec.toolPolicy !== 'none'
-      ? ['--allowedTools', spec.allowedTools.join(',')]
-      : []),
-    ...(spec.toolPolicy === 'none' ? ['--tools', ''] : []),
+    ...(toolless ? ['--tools', ''] : []),
     ...(spec.mcpConfig && spec.toolPolicy !== 'none'
       ? ['--mcp-config', mcpConfigInline(spec.mcpConfig)]
       : []),
@@ -147,7 +153,11 @@ export function buildClaudeStreamInvocation(
         ? ['--session-id', spec.sessionUuid]
         : []),
   ]
-  return { cmd: executable, args }
+  return harnessCommand(
+    context,
+    { args },
+    agentLaunchTerms(terms.manifest, terms.mode, terms.posture, spec.toolPolicy),
+  )
 }
 
 /**
@@ -366,6 +376,13 @@ export interface ClaudeStreamTurnOutcome {
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   harnessSessionId: string
   output: string
+  /**
+   * The uuid of the turn's last assistant text record (POD-6280). The stream's
+   * `assistant` line carries the uuid the CLI records the message under in its
+   * session file (measured on 2.1.317), so this names the file record that
+   * ends the turn: the driver waits for it before closing the turn.
+   */
+  textRecordUuid?: string
   observedModel?: string
   observedEffort?: string
 }
@@ -386,9 +403,13 @@ export type ClaudeStreamInterruptAck =
 export interface ClaudeStreamTurnCallbacks {
   onPartialText(text: string, itemHint?: string): void
   onPermission(request: ClaudeStreamPermissionRequest): void
-  onToolCall(call: ClaudeStreamToolCall): void
-  onToolResult(result: ClaudeStreamToolResult): void
+  onToolCall?(call: ClaudeStreamToolCall): void
+  onToolResult?(result: ClaudeStreamToolResult): void
   onToolSummary?(summary: ClaudeStreamToolSummary): void
+  /** The permission mode the CLI says it is in: `system/init`'s
+   *  `permissionMode` (POD-6858 §4.8), `default` when auto mode was asked for
+   *  and is not available. */
+  onMode?(mode: string): void
   emit(event: HeadlessTurnEvent): void
 }
 
@@ -529,7 +550,9 @@ export function createClaudeStreamClient(
         lineWritten: boolean
         output: string
         partial: string
-        partialUuid: string
+        partialMessageId: string
+        /** See {@link ClaudeStreamTurnOutcome.textRecordUuid}. */
+        textRecordUuid: string
         observedModel?: string
         observedEffort?: string
         timedOut: boolean
@@ -591,6 +614,7 @@ export function createClaudeStreamClient(
     turn.resolve({
       harnessSessionId,
       output: turn.output,
+      ...(turn.textRecordUuid ? { textRecordUuid: turn.textRecordUuid } : {}),
       ...(turn.observedModel ? { observedModel: turn.observedModel } : {}),
       ...(turn.observedEffort ? { observedEffort: turn.observedEffort } : {}),
     })
@@ -628,11 +652,13 @@ export function createClaudeStreamClient(
     }
   }
 
-  function writeControlResponse(
-    requestId: string,
-    response: Record<string, unknown>,
-  ): void {
-    writeLine(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } }))
+  function writeControlResponse(requestId: string, response: Record<string, unknown>): void {
+    writeLine(
+      JSON.stringify({
+        type: 'control_response',
+        response: { subtype: 'success', request_id: requestId, response },
+      }),
+    )
   }
 
   /**
@@ -669,10 +695,7 @@ export function createClaudeStreamClient(
    *  the ack deadline — so a CLI that answers twice cannot produce two
    *  receipts for one stop. */
   const pendingAcks = new Map<string, (ack: ClaudeStreamInterruptAck) => void>()
-  function pendingAcksReceive(
-    requestId: string | undefined,
-    ack: ClaudeStreamInterruptAck,
-  ): void {
+  function pendingAcksReceive(requestId: string | undefined, ack: ClaudeStreamInterruptAck): void {
     const key = requestId ?? ''
     const resolve = pendingAcks.get(key)
     if (!resolve) return
@@ -710,12 +733,20 @@ export function createClaudeStreamClient(
     }
     const type = msg.type
     if (type === 'control_response') {
-      const response = msg.response as { request_id?: string; subtype?: string; response?: Record<string, unknown>; error?: string } | undefined
+      const response = msg.response as
+        | {
+            request_id?: string
+            subtype?: string
+            response?: Record<string, unknown>
+            error?: string
+          }
+        | undefined
       const id = response?.request_id ?? ''
       const pending = pendingControls.get(id)
       if (pending) {
         pendingControls.delete(id)
-        if (response?.subtype === 'error') pending.reject(new Error(response.error || 'control request failed'))
+        if (response?.subtype === 'error')
+          pending.reject(new Error(response.error || 'control request failed'))
         else pending.resolve(response?.response ?? {})
         return
       }
@@ -757,7 +788,11 @@ export function createClaudeStreamClient(
       if (subtype === 'hook_callback') {
         const callback = request as { callback_id?: string; input?: unknown }
         const boundary = spec.boundaryContext
-        if (!boundary || !callback.callback_id || !BOUNDARY_HOOK_CALLBACK_IDS.has(callback.callback_id)) {
+        if (
+          !boundary ||
+          !callback.callback_id ||
+          !BOUNDARY_HOOK_CALLBACK_IDS.has(callback.callback_id)
+        ) {
           // Only the boundary hooks are ever registered — answer anything else
           // as an error rather than parking the turn on a callback that does
           // not exist.
@@ -781,14 +816,20 @@ export function createClaudeStreamClient(
       }
       if (subtype === 'mcp_message' || subtype === 'mcp_connect') {
         // In-process SDK MCP servers do not exist on this client.
-        if (requestId) writeControlError(requestId, new Error('no in-process MCP server is registered'))
+        if (requestId)
+          writeControlError(requestId, new Error('no in-process MCP server is registered'))
         return
       }
       if (subtype === 'oauth_token_refresh' || subtype === 'host_auth_token_refresh') {
-        if (requestId) writeControlError(requestId, new Error('no token refresh handler is registered'))
+        if (requestId)
+          writeControlError(requestId, new Error('no token refresh handler is registered'))
         return
       }
-      if (requestId) writeControlError(requestId, new Error(`unsupported control request: ${subtype ?? 'unknown'}`))
+      if (requestId)
+        writeControlError(
+          requestId,
+          new Error(`unsupported control request: ${subtype ?? 'unknown'}`),
+        )
       return
     }
     if (type === 'control_cancel_request') {
@@ -811,44 +852,66 @@ export function createClaudeStreamClient(
     const turn = openTurn
     switch (type) {
       case 'system': {
-        const init = msg as { subtype?: string; session_id?: string }
+        const init = msg as { subtype?: string; session_id?: string; permissionMode?: unknown }
         if (init.subtype === 'init' && typeof init.session_id === 'string') {
           sessionId = init.session_id
           if (handshaken) resolveReady(sessionId)
           turn?.callbacks.emit({ kind: 'status', status: 'running' })
+          const mode = typeof init.permissionMode === 'string' ? init.permissionMode.trim() : ''
+          if (mode) turn?.callbacks.onMode?.(mode)
         }
         return
       }
       case 'stream_event': {
-        const ev = (msg as { event?: { type?: string; delta?: { type?: string; text?: string } } }).event
+        const ev = (msg as { event?: { type?: string; delta?: { type?: string; text?: string } } })
+          .event
         if (ev?.type === 'message_start') {
           if (turn) {
             turn.partial = ''
-            turn.partialUuid = (msg as { uuid?: string }).uuid ?? ''
+            // The API message id, not this stream line's own uuid: the file
+            // record of the message carries it too (measured on 2.1.317), so
+            // the preview built from these deltas joins the record (POD-6280).
+            const messageId = (ev as { message?: { id?: unknown } }).message?.id
+            turn.partialMessageId = typeof messageId === 'string' ? messageId : ''
           }
         } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
           if (turn) {
             turn.partial += ev.delta.text ?? ''
-            turn.callbacks.onPartialText(turn.partial, turn.partialUuid || undefined)
+            turn.callbacks.onPartialText(turn.partial, turn.partialMessageId || undefined)
             turn.callbacks.emit({
               kind: 'partial-text',
               text: turn.partial,
-              ...(turn.partialUuid ? { itemHint: turn.partialUuid } : {}),
+              ...(turn.partialMessageId ? { itemHint: turn.partialMessageId } : {}),
             })
           }
         }
         return
       }
       case 'assistant': {
-        const message = (msg as { message?: { content?: unknown[]; model?: unknown; effort?: unknown } }).message
+        const message = (
+          msg as { message?: { content?: unknown[]; model?: unknown; effort?: unknown } }
+        ).message
         if (typeof message?.model === 'string' && turn) turn.observedModel = message.model
         if (typeof message?.effort === 'string' && turn) turn.observedEffort = message.effort
+        const recordUuid = (msg as { uuid?: unknown }).uuid
+        if (
+          turn &&
+          typeof recordUuid === 'string' &&
+          (message?.content ?? []).some(
+            (block) =>
+              (block as { type?: string; text?: unknown }).type === 'text' &&
+              typeof (block as { text?: unknown }).text === 'string' &&
+              (block as { text: string }).text.trim() !== '',
+          )
+        ) {
+          turn.textRecordUuid = recordUuid
+        }
         for (const block of message?.content ?? []) {
           const use = block as { type?: string; id?: unknown; name?: string; input?: unknown }
           if (use.type !== 'tool_use') continue
           turn?.callbacks.emit({ kind: 'status', status: 'tool', label: use.name ?? 'tool' })
           if (typeof use.id === 'string' && use.id && turn) {
-            turn.callbacks.onToolCall({
+            turn.callbacks.onToolCall?.({
               toolUseId: use.id,
               toolName: use.name ?? 'unknown',
               ...(use.input !== undefined ? { input: use.input } : {}),
@@ -878,7 +941,7 @@ export function createClaudeStreamClient(
           if (block.type !== 'tool_result') continue
           const toolUseId = block.tool_use_id
           if (typeof toolUseId !== 'string' || !toolUseId || !turn) continue
-          turn.callbacks.onToolResult({
+          turn.callbacks.onToolResult?.({
             toolUseId,
             output: toolResultText(block.content),
             ...(block.is_error === true ? { isError: true } : {}),
@@ -887,12 +950,27 @@ export function createClaudeStreamClient(
         return
       }
       case 'tool_use_summary': {
-        const summary = msg as { uuid?: unknown; summary?: unknown; preceding_tool_use_ids?: unknown }
+        const summary = msg as {
+          uuid?: unknown
+          summary?: unknown
+          preceding_tool_use_ids?: unknown
+        }
         const ids = Array.isArray(summary.preceding_tool_use_ids)
-          ? summary.preceding_tool_use_ids.filter((id): id is string => typeof id === 'string' && id !== '')
+          ? summary.preceding_tool_use_ids.filter(
+              (id): id is string => typeof id === 'string' && id !== '',
+            )
           : []
-        if (turn && typeof summary.uuid === 'string' && typeof summary.summary === 'string' && ids.length) {
-          turn.callbacks.onToolSummary?.({ id: summary.uuid, summary: summary.summary, toolUseIds: ids })
+        if (
+          turn &&
+          typeof summary.uuid === 'string' &&
+          typeof summary.summary === 'string' &&
+          ids.length
+        ) {
+          turn.callbacks.onToolSummary?.({
+            id: summary.uuid,
+            summary: summary.summary,
+            toolUseIds: ids,
+          })
         }
         return
       }
@@ -1030,8 +1108,9 @@ export function createClaudeStreamClient(
         error instanceof HeadlessTurnFailure
           ? error
           : new HeadlessTurnFailure(
-              redactClaudeSdkFailureDetail(error instanceof Error ? error.message : String(error)) ||
-                'claude turn failed',
+              redactClaudeSdkFailureDetail(
+                error instanceof Error ? error.message : String(error),
+              ) || 'claude turn failed',
               undefined,
             )
       rejectReady(failure)
@@ -1084,7 +1163,8 @@ export function createClaudeStreamClient(
         lineWritten: false,
         output: '',
         partial: '',
-        partialUuid: '',
+        partialMessageId: '',
+        textRecordUuid: '',
         timedOut: false,
         settled: false,
         resolve,

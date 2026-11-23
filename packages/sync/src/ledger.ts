@@ -6,7 +6,13 @@ import type {
   StagedChangeSpec as KernelChangeSpec,
   ScopedChange,
 } from './authority/change-lifecycle'
-import type { AuthorityCommit, BaselineFoldPort, PostCommitFollowUpPort } from './authority/ports'
+import type {
+  AuthorityCommit,
+  BaselineFoldPort,
+  PostCommitFollowUpPort,
+  ProvenancePort,
+  RecordSourcePort,
+} from './authority/ports'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -15,10 +21,11 @@ import {
 } from './change-log'
 import type { FeedVisibilityPolicy, VisibilityAnchorPort } from './feed/visibility'
 import {
-  DEVICE_GRADE_PRINCIPAL,
+  CHANGE_LOG_OBSERVER,
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
 } from './feed/visibility'
+import { type WriteScope, WriteScopeIssuer, type WriteScopeMint } from './write-scope'
 
 /** This package runs on BOTH hosts (server and client), so the namespace names
  *  the module and the `role` field on every record names the host — no
@@ -58,42 +65,15 @@ const log = createLogger('sync:ledger')
  * change append inside ONE injected `transact()` span, so "the entity row
  * changed" and "the change log says so" commit or roll back together.
  *
- * Mapping from the oplog.s `partial` flag (issue #22):
- * - `capture()` explicitly appends non-row mutations owned by a service seam.
- *   Like commit it never diffs a list; unlike commit it has no entity-row write
- *   to share a transaction with.
- * - `commit()` NEVER diffs lists. The `changes()` callback declares exactly
- *   what the write touched; a declared `remove` is explicit. There is no
- *   subset/full-list ambiguity, so `partial` does not exist here.
- * - The full-list remove-diff survives ONLY in {@link reconcile}: a boot-only
- *   pass fed the full truth for one entity kind, which diffs against the
- *   baseline INCLUDING removes — covering anything that changed or vanished
- *   while the server was down (the oplog's full-truth `record()` mode).
- *
- * Dedup (./change-log.ts): byte-equality on the
- * serialized wire JSON, except conversations, which compare on the
- * stable-field projection (updatedAt/messageCount/statusHint excluded from
- * DETECTION while the durable payload stays the full wire value — the
- * 81MB/day churn fix). No-op upserts and removes of ids the log never
- * recorded are dropped; a fully-deduped commit appends nothing.
- *
- * The in-memory baseline is mutated only after the write is DURABLE — a throw
- * anywhere inside (write, changes(), append) rolls the durable state back and
- * leaves the baseline untouched, and when this commit is a savepoint inside a
- * caller's wider span the fold waits for that span's commit (POD-3328).
+ * A commit names no records: the database captures which model rows its
+ * write changed, and the Authority appends the whole records those rows reach
+ * (POD-6920). Source writes and appends share the transaction, and the
+ * outermost commit owns subscriber delivery.
  */
 
 /**
- * One declared entity change, as the PRE-CUTOVER facade spells it.
- *
- * Composed from {@link KernelChangeSpec} (`StagedChangeSpec`) rather than
- * restated (POD-1251): the only intentional difference is the target-id key
- * name — this facade still says `id`, the kernel says `entityId`. Provenance
- * remains optional on the kernel shape and is simply unused by current call
- * sites; it is not stripped, so a future writer can pass it without a second
- * type.
- *
- * `toKernelSpec` is the ONE place the two spellings meet.
+ * One appended entity change in this facade's `id` spelling. Composed from
+ * the kernel change shape; provenance passes through unchanged.
  */
 export type EntityChangeSpec = Omit<KernelChangeSpec, 'entityId'> & { id: string }
 
@@ -129,11 +109,18 @@ export interface LedgerDeps {
   applyCommit?: BaselineFoldPort
   /** Monotonic clock seam for deterministic maintenance scheduling tests. */
   monotonicNow?: () => number
-  /** Records each retention job's total duration and max uninterrupted slice. */
-  onPruneMetrics?: Parameters<typeof pruneChangeLog>[1]['onMetrics']
   visibility?: FeedVisibilityPolicy
   anchors?: VisibilityAnchorPort
+  /** D14.4's terminal-path bound, passed to the Authority (its default when absent). */
+  rescopeThreshold?: number
   listenerPrincipal?: Principal
+  /** The command now appending, passed straight to the Authority — see
+   *  `AuthorityDeps.provenance` (POD-6272). Unset stamps nothing. */
+  provenance?: ProvenancePort
+  /** The records built from the model tables and the drained change capture,
+   *  passed straight to the Authority: see `AuthorityDeps.records` (POD-6920).
+   */
+  records: RecordSourcePort
 }
 
 export interface LedgerBootOptions {
@@ -146,7 +133,7 @@ export interface LedgerBootOptions {
 
 /**
  * Real-server readiness gate [spec:SP-c29e]: finish the sliced boot prune before
- * any Ledger construction can fold or reconcile the retained change log.
+ * the server starts serving catch-up reads.
  */
 export async function prepareLedgerBoot(options: LedgerBootOptions) {
   return await pruneChangeLog(options.repo, {
@@ -187,8 +174,13 @@ export class AuthorityArbitrationRejected extends Error {
  * decision in the type instead of an omission nobody notices.
  */
 export interface LedgerCommitOp<T> {
-  write: () => Promise<T>
-  changes: (result: T) => EntityChangeSpec[] | Promise<EntityChangeSpec[]>
+  /**
+   * The durable write. It receives the commit's {@link WriteScope}, which the
+   * mutating methods of a synced table's repository require (ADR 12 D9,
+   * POD-6594): a synced table is written only here, inside the commit that
+   * appends its change entry, never beside it.
+   */
+  write: (scope: WriteScope) => Promise<T>
   /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
   apply?: (result: T, changes: MetadataChange[]) => void
   arbitrate?: AuthorityCommit<T>['arbitrate']
@@ -198,6 +190,11 @@ export interface LedgerCommitOp<T> {
 export interface LedgerCommitResult<T> {
   result: T
   changes: MetadataChange[]
+}
+
+/** The commit bound to one write scope. The scope is exposed only in `write`. */
+export interface LedgerWriter {
+  commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
 }
 
 export class Ledger {
@@ -213,9 +210,9 @@ export class Ledger {
    */
   readonly authority: Authority
   private readonly listeners = new Set<(changes: MetadataChange[]) => void>()
-  private readonly shutdown = new AbortController()
-  private pruneFlight: Promise<void> | undefined
-  private pruneRerunRequested = false
+  /** Who may write (ADR 12 D9): every commit names a scope this
+   *  issuer handed out. */
+  private readonly scopes = new WriteScopeIssuer()
 
   constructor(private readonly deps: LedgerDeps) {
     this.authority = new Authority({
@@ -223,6 +220,8 @@ export class Ledger {
       now: deps.now,
       transact: deps.transact,
       ...(deps.postCommit === undefined ? {} : { postCommit: deps.postCommit }),
+      ...(deps.provenance === undefined ? {} : { provenance: deps.provenance }),
+      records: deps.records,
       // THE DEVICE-GRADE HALF, DECLARED RATHER THAN DEFAULTED (POD-1077).
       //
       // POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grant
@@ -241,13 +240,14 @@ export class Ledger {
       // every site to name a real policy.
       visibility: deps.visibility ?? new DeviceGradeUnscopedPolicy(),
       anchors: deps.anchors ?? new DeviceGradeNoAnchors(),
+      ...(deps.rescopeThreshold === undefined ? {} : { rescopeThreshold: deps.rescopeThreshold }),
     })
     // One subscription, translating the kernel's vocabulary into this facade's.
     // Registered in the CONSTRUCTOR rather than lazily on first listener: the
     // Authority delivers batches in append order through one queue, and joining
     // that queue late would put this facade's listeners behind changes they were
     // registered before.
-    this.authority.subscribe(deps.listenerPrincipal ?? DEVICE_GRADE_PRINCIPAL, (delivery) => {
+    this.authority.subscribe(deps.listenerPrincipal ?? CHANGE_LOG_OBSERVER, (delivery) => {
       // D14.4's terminal arm is unreachable from here — `DeviceGradeNoAnchors`
       // reports no visibility edges, so no anchored row is ever derived and the
       // threshold cannot be crossed. Handled rather than cast, because "cannot
@@ -323,11 +323,11 @@ export class Ledger {
    * feature writers that still consume this facade. The decision is delegated to
    * the SAME Authority instance; this class does not compare revisions itself.
    */
-  async commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
+  async commit<T>(scope: WriteScope, op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
+    this.scopes.check(scope)
     const outcome = await this.authority.commit({
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
-      write: op.write,
-      changes: async (result: T) => (await op.changes(result)).map(toKernelSpec),
+      write: async () => await op.write(scope),
     })
     if (outcome.outcome !== 'committed') {
       throw new AuthorityArbitrationRejected(outcome.reason, outcome.detail)
@@ -348,28 +348,29 @@ export class Ledger {
   }
 
   /**
-   * Capture an explicitly owned mutation with no durable entity-row write to bind
-   * to (volatile session view state, an upstream mirror). The caller supplies the
-   * exact upserts/removes; this never diffs a full list.
+   * THE MINT (ADR 12 D9, POD-6592), handed out once, to the composition root:
+   * the sync write entry point gets its `sync` half, the server's declared
+   * write origins their `system` scopes. Nothing else can make a scope.
    */
-  async capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]> {
-    return (await this.authority.capture(specs.map(toKernelSpec))).map(toWireChange)
+  takeScopeMint(): WriteScopeMint {
+    return this.scopes.takeMint()
   }
 
   /**
-   * Boot-only reconciliation: `rows` is the FULL truth for one entity kind.
-   * Diffs against the baseline INCLUDING removes — the only surviving full-list
-   * diff path — so changes made while the server was down land in the log before
-   * the first client reads it.
+   * The commit bound to one scope: what a write context hands a handler
+   * or a service, so the scope is chosen once, where the context is made, and
+   * not at every call. Checked here, so a foreign scope fails at binding.
    */
-  async reconcile(entity: MetadataEntityKind, rows: { id: string; value: unknown }[]): Promise<MetadataChange[]> {
-    return (await this.authority.reconcile(entity, rows)).map(toWireChange)
+  writer(scope: WriteScope): LedgerWriter {
+    this.scopes.check(scope)
+    return {
+      commit: async (op) => await this.commit(scope, op),
+    }
   }
 
-  /** Catch-up read for `sync.changesSince` — null means "fall back to a
-   *  snapshot" (bootstrap / compacted-past-cursor / future cursor / corrupt row). */
+  /** In-process observer catch-up; null means the cursor cannot be served. */
   async changesSince(cursor: number | null): Promise<MetadataChange[] | null> {
-    const delivery = await this.authority.changesSince(cursor, DEVICE_GRADE_PRINCIPAL)
+    const delivery = await this.authority.changesSince(cursor, CHANGE_LOG_OBSERVER)
     if (delivery === null) return null
     if (delivery.kind !== 'batch') return null
     return delivery.changes.map(toWireChange)
@@ -380,13 +381,7 @@ export class Ledger {
     return await this.authority.cursor()
   }
 
-  /** Cancel maintenance between bounded units during server shutdown. */
-  dispose(): void {
-    this.pruneRerunRequested = false
-    this.shutdown.abort()
-  }
-
-  /** Fires after commit/capture/reconcile with the appended changes (never with
+  /** Fires after commit with the appended changes (never with
    *  an empty batch). Per-listener try/catch so a listener throw can't break the
    *  committer. Returns an unsubscribe. */
   onAppended(listener: (changes: MetadataChange[]) => void): () => void {
@@ -395,61 +390,6 @@ export class Ledger {
       this.listeners.delete(listener)
     }
   }
-
-  /**
-   * [spec:SP-c29e] Coalesce overlapping cadence triggers into the current
-   * retention flight plus at most one rerun.
-   */
-  private async schedulePrune(): Promise<void> {
-    if (this.shutdown.signal.aborted) return
-    if (this.pruneFlight) {
-      this.pruneRerunRequested = true
-      return
-    }
-    const flight = this.drainPruneRequests()
-    this.pruneFlight = flight
-    const clear = () => {
-      if (this.pruneFlight === flight) this.pruneFlight = undefined
-    }
-    void flight.then(clear, (err) => {
-      clear()
-      log.error('retention prune failed (writes remain durable)', { err })
-    })
-  }
-
-  private async drainPruneRequests(): Promise<void> {
-    let failed = false
-    let failure: unknown
-    do {
-      this.pruneRerunRequested = false
-      try {
-        const { metrics } = await pruneChangeLog(this.deps.repo, {
-          keepRows: CHANGE_KEEP_ROWS,
-          maxAgeMs: CHANGE_MAX_AGE_MS,
-          now: this.deps.now(),
-          signal: this.shutdown.signal,
-          monotonicNow: this.deps.monotonicNow,
-          onMetrics: this.deps.onPruneMetrics,
-        })
-        if (metrics.exceededPlacementThreshold) {
-          log.warn('retention job is a candidate for janitor placement', {
-            durationMs: Number(metrics.totalDurationMs.toFixed(1)),
-          })
-        }
-      } catch (err) {
-        if (!failed) failure = err
-        failed = true
-      }
-    } while (this.pruneRerunRequested && !this.shutdown.signal.aborted)
-    if (failed) throw failure
-  }
-}
-
-/** This facade's `id` spelling → the kernel's `entityId`. The ONE place the two
- *  vocabularies meet, so the rename POD-306/POD-308 finish is one deletion. */
-function toKernelSpec(spec: EntityChangeSpec): KernelChangeSpec {
-  const base = { entity: spec.entity, entityId: spec.id, op: spec.op }
-  return spec.op === 'upsert' ? { ...base, value: spec.value } : base
 }
 
 /** The kernel's sequenced change → the pre-cutover wire row. */

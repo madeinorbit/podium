@@ -1,6 +1,5 @@
 import { createLogger } from '@podium/logger'
 import { machinePathBasename } from '@podium/model'
-import { readIssue } from '../issues/issue-reader'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
  *
@@ -36,26 +35,22 @@ import { readIssue } from '../issues/issue-reader'
  * WHAT THIS MODULE DOES NOT DECIDE
  * ---------------------------------------------------------------------------
  *
- * WHOSE preferences a spawning read uses. `settingsViewer` arrives as a port and
- * stays owned by `SessionLifecycle`, which has five callers for it. It resolves
- * to `firstAdminMemberId()` today and POD-315 replaces that with the requesting
- * principal; this module needs no change when it does.
+ * WHOSE preferences a spawning read uses: always the session's owner, the
+ * person it runs for (POD-6285). There is no "settings viewer" any more.
  *
- * The two `?? firstAdminMemberId()` fallbacks below ARE ambient-principal sites,
- * and they moved here from `lifecycle.ts` rather than being created. The census
- * (`bun run audit:ambient-principals`) counts USAGE and reads the delta, so a
- * move like this is 0 and only a genuinely NEW default is +1.
+ * The two owner fallbacks below (`soleMemberFor`) serve only legacy in-process
+ * callers that name no owner: on a one-person instance they answer that
+ * person, and once a second member exists they refuse.
  */
 
 import { randomUUID } from 'node:crypto'
 import type { Attribution, ResumeRef } from '@podium/model'
 import {
-  type AccountId,
   AgentKind,
   type AgentSetupFields,
   asMachineId,
   asSessionId,
-  firstAdminMemberId,
+  type CredentialId,
   type IssueId,
   type MachineId,
   type SessionId,
@@ -72,16 +67,18 @@ import type {
 import type { ControlMessage, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import { harnessSupportsEffort, harnessSupportsInitialPrompt } from '../../harness-manifest'
-import { resolveLaunchSelection, type ResolvedLaunchSelection } from '../../model-validation'
+import { type ResolvedLaunchSelection, resolveLaunchSelection } from '../../model-validation'
+import { soleMemberFor } from '../../sole-member'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
+import type { MessageWriter } from '../messages/writer'
 import { authorSpawnBinding } from './binding-mint'
 import { createdByForBinding } from './command-plane'
-import { selectHarnessAccountId } from './harness-account'
-import type { SessionLaunchConfig } from './launch-config'
+import { CredentialRefusal, type SessionLaunchConfig } from './launch-config'
 import { normalizeAgentName } from './naming'
 import type { SessionRepository } from './repository'
 import { Session } from './session'
+import type { SessionWriter } from './session-lifecycle-types'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionStateService } from './session-state/service'
 import type { SessionTerminalProof } from './terminal-proof'
@@ -110,7 +107,8 @@ export interface SessionSpawnResult {
   effort: string | null
   machine: string
   machineId: MachineId
-  accountId: AccountId | null
+  /** The credential the session runs on; `null`: none, the harness's own login. */
+  credentialId: CredentialId | null
   /** The task prompt as its spawner's message, when a session spawned this one
    *  and the prompt is queued rather than launched with the process (POD-4778):
    *  the id the spawner checks with `podium mail status`. */
@@ -118,14 +116,15 @@ export interface SessionSpawnResult {
 }
 
 export interface SessionStartPorts {
+  readonly now: () => number
   store: SessionStore
   view: SessionView
   repository: SessionRepository
+  /** Its writes are the server's, after a commit (`sessions.lifecycle`, POD-6601). */
+  writer: SessionWriter
   state: SessionStateService
   launchConfig: SessionLaunchConfig
   terminalProof: SessionTerminalProof
-  /** Whose preferences a spawning read uses. NOT this module's decision. */
-  settingsViewer(): UserId | Promise<UserId>
   durableLabelFor(sessionId: SessionId): string | Promise<string>
   /** Narrow session-registry access. Deliberately not the raw Map: this module
    *  needs exactly these three operations, and widening the shared map's reach
@@ -136,11 +135,6 @@ export interface SessionStartPorts {
   sessionMachineId(sessionId: SessionId): string | undefined
   defaultMachine(): Promise<MachineId>
   machineName(machineId: MachineId): Promise<string>
-  nativeAccountIdForMachine(
-    machineId: MachineId,
-    agentKind: AgentKind,
-    accountId: AccountId,
-  ): Promise<AccountId>
   resolveMachineForAgent(
     requested: string | undefined,
     cwd: string,
@@ -157,19 +151,31 @@ export interface SessionStartPorts {
   broadcastSessions(): void
   /** The issue that owns this cwd's worktree on `machineId`, if exactly one does. */
   soleOwnerForCwd(cwd: string, machineId: MachineId): Promise<IssueId | undefined>
-  /** Whether `userId` may put work into the issue: its owner, a write grantee or an admin. */
+  /** Whether `userId` may put work into the issue: every active member may
+   *  (tasks are shared, design §2.2). */
   mayJoinIssue(issueId: IssueId, userId: UserId): Promise<boolean>
   /** A new draft task for an agent started outside every task, in the repo
    *  the cwd belongs to on the machine the session runs on; undefined when the
    *  cwd is in no known repo there. Absent = such starts stay task-less. */
-  draftForStart?(input: {
-    cwd: string
-    agentKind: AgentKind
-    ownerUserId: UserId
-    machineId: MachineId
-  }): Promise<IssueId | undefined>
-  /** Drop a draft made for a start that failed before its session existed. */
-  discardUnlaunchedDraft?(issueId: IssueId): Promise<void>
+  draftForStart?(
+    writer: SessionWriter,
+    input: {
+      cwd: string
+      agentKind: AgentKind
+      ownerUserId: UserId
+      machineId: MachineId
+    },
+  ): Promise<IssueId | undefined>
+  /** Drop a draft with the writer of the start that created it. */
+  discardUnlaunchedDraft?(writer: SessionWriter, issueId: IssueId): Promise<void>
+  /** Record that `userId` started work on the issue (POD-6290): their own start,
+   *  or their agent's. Absent = no personal records (unit fixtures). */
+  recordIssueParticipation?(
+    writer: SessionWriter,
+    issueId: IssueId,
+    userId: UserId,
+    via: 'start' | 'agent',
+  ): Promise<void>
   instructionsForStart(input: {
     sessionId: SessionId
     cwd: string
@@ -179,19 +185,17 @@ export interface SessionStartPorts {
     agentProfileId?: string
   }): Promise<{ instructions: AgentInstruction[]; commit(): Promise<void> }>
   /** The agent-profile launch resolver (POD-6107). Absent = profiles ignored. */
-  agentLaunch?(input: {
-    profileId: string
-    fields: AgentSetupFields
-    cwd: string
-  }): Promise<{
+  agentLaunch?(input: { profileId: string; fields: AgentSetupFields; cwd: string }): Promise<{
     profile: { id: string; name: string } | null
     agentKind: string
     model: string
     effort: string
     machineId: MachineId | null
   }>
-  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
+  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId } | undefined>
   queueInitialPrompt(input: {
+    /** The start's own writer: the queued prompt's session write is its. */
+    writer: SessionWriter
     sessionId: SessionId
     text: string
     sourceMessageId?: string
@@ -205,21 +209,27 @@ export interface SessionStartPorts {
   /** Store the task prompt a session spawned another with as the spawner's
    *  message to it, already handed to it (POD-4778). Answers its id. Absent =
    *  no message ledger: the prompt is queued as plain input. */
-  recordSpawnPrompt?(input: {
-    parentSessionId: SessionId
-    sessionId: SessionId
-    text: string
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordSpawnPrompt?(
+    writer: MessageWriter,
+    input: {
+      parentSessionId: SessionId
+      sessionId: SessionId
+      text: string
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   /** Store the task a person (or a job) started a session with as the owner's
    *  message, attributed to its creator, already handed to it (POD-4846).
    *  Answers its id. Absent = no message ledger. */
-  recordOwnerPrompt?(input: {
-    sessionId: SessionId
-    text: string
-    attribution: Attribution
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordOwnerPrompt?(
+    writer: MessageWriter,
+    input: {
+      sessionId: SessionId
+      text: string
+      attribution: Attribution
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   emitSessionCreated(payload: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -241,7 +251,9 @@ export interface SessionStartInput {
   initialAttachments?: readonly RuntimeAttachmentRef[]
   model?: string
   effort?: string
-  accountId?: AccountId
+  /** The credential the launch names; `null`: explicitly none. Absent: the
+   *  owner's default for the harness, then none (credential management §9). */
+  credentialId?: CredentialId | null
   forceUnknownModel?: boolean
   /** Server-internal issue launch answer, already vetted before workflow mutations. */
   launchSelection?: Pick<ResolvedLaunchSelection, 'model' | 'effort' | 'forced'>
@@ -261,6 +273,10 @@ export interface SessionStartInput {
   use?: MachineUseResolver
   binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
   loginHarness?: Exclude<AgentKind, 'shell'>
+  /** A sign-in pane's home (credential management §6 way 2; Task 9): the
+   *  vendor's sign-in runs with the harness's directory variable on it. Only
+   *  with `loginHarness`. */
+  loginHome?: LoginHome
   /** Explicit driver request from a picker or API caller: a concrete driver
    * id selects that driver; absent is the manifest's headed terminal
    * default. Non-picker producers use requestTerminalDriver to resolve an
@@ -268,6 +284,12 @@ export interface SessionStartInput {
   requestedDriverId?: string
   /** Non-picker producers request the advertised headed driver after placement. */
   requestTerminalDriver?: boolean
+}
+
+/** The home a sign-in pane runs in: the credential it is for and the daemon's home id. */
+export interface LoginHome {
+  credentialId: CredentialId
+  homeId: string
 }
 
 export class SessionStart {
@@ -280,7 +302,7 @@ export class SessionStart {
         draftId = id
       })
     } catch (error) {
-      if (draftId) await this.discardDraft(draftId)
+      if (draftId) await this.discardDraft(this.ports.writer, draftId)
       throw error
     }
   }
@@ -293,31 +315,65 @@ export class SessionStart {
    * machine, so every agent has a row in the task list. Shells, and a cwd
    * outside every known repo, stay task-less.
    */
-  async startTask(input: {
-    cwd: string
-    agentKind: AgentKind
-    ownerUserId: UserId | undefined
-    machineId: MachineId
-  }): Promise<{ issueId: IssueId; draft: boolean } | undefined> {
+  async startTask(
+    writer: SessionWriter,
+    input: {
+      cwd: string
+      agentKind: AgentKind
+      ownerUserId: UserId | undefined
+      machineId: MachineId
+    },
+  ): Promise<{ issueId: IssueId; draft: boolean } | undefined> {
     if (!input.ownerUserId) return undefined
     const owner = await this.ports.soleOwnerForCwd(input.cwd, input.machineId)
     if (owner && (await this.ports.mayJoinIssue(owner, input.ownerUserId)))
       return { issueId: owner, draft: false }
     if (input.agentKind === 'shell') return undefined
-    const draft = await this.ports.draftForStart?.({ ...input, ownerUserId: input.ownerUserId })
+    const draft = await this.ports.draftForStart?.(writer, {
+      ...input,
+      ownerUserId: input.ownerUserId,
+    })
     return draft ? { issueId: draft, draft: true } : undefined
   }
 
   /** Drop a draft minted for a start that failed before its session existed. */
-  async discardDraft(issueId: IssueId): Promise<void> {
-    await this.ports.discardUnlaunchedDraft?.(issueId)
+  async discardDraft(writer: SessionWriter, issueId: IssueId): Promise<void> {
+    await this.ports.discardUnlaunchedDraft?.(writer, issueId)
   }
 
   private async start(
     input: SessionStartInput,
     onDraft: (issueId: IssueId) => void,
   ): Promise<SessionSpawnResult> {
-    if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
+    if (process.env.PODIUM_REHEARSAL === '1')
+      throw new Error('Session spawn disabled during upgrade rehearsal')
+    // A SESSION BELONGS TO WHOEVER STARTED IT (design §2.3, POD-6283): the
+    // binding's on-behalf-of human, else the authenticated starter. The task it
+    // sits on does not change that: Bob's agent on Alice's task is Bob's. The
+    // final fallback exists only for legacy in-process callers with neither:
+    // the sole member, refused once there are two (POD-6285).
+    //
+    // Resolved FIRST, because every preference this start reads below (default
+    // harness, model and effort) is the owner's: Bob's spawn uses Bob's
+    // preferences, never the first admin's (POD-6285).
+    const bindingOwner =
+      input.binding?.principal.kind === 'user'
+        ? input.binding.principal.userId
+        : input.binding?.principal.kind === 'agent'
+          ? (await this.ports.store.sessions.getSession(input.binding.principal.parentBindingId))
+              ?.delegation?.onBehalfOf
+          : undefined
+    const ownerUserId =
+      bindingOwner ??
+      input.ownerUserId ??
+      (await soleMemberFor(this.ports.store.users, 'a session start'))
+    if (!(await this.ports.store.users.get(ownerUserId))) {
+      throw new Error('a session start requires an active member as owner')
+    }
+    // Read only when a default is needed, as the old per-site reads were.
+    let ownerSettingsRead: ReturnType<SessionStore['settings']['getSettingsFor']> | undefined
+    const ownerSettings = () =>
+      (ownerSettingsRead ??= this.ports.store.settings.getSettingsFor(ownerUserId))
     // THE PROFILE, RESOLVED ONCE (POD-6107): profile candidates with the
     // caller's fields on top, first usable one wins. A caller that already
     // vetted a launchSelection (issue start / add-session) resolved it itself;
@@ -339,10 +395,15 @@ export class SessionStart {
       })
       if (!launch.profile) agentProfileId = undefined
       requestedAgentKind = launch.agentKind
-      inheritedSelection = { agentKind: launch.agentKind, model: launch.model, effort: launch.effort }
+      inheritedSelection = {
+        agentKind: launch.agentKind,
+        model: launch.model,
+        effort: launch.effort,
+      }
       // A profile machine places only a session that is not bound to an issue:
       // an issue session runs where the issue's worktree is (its start homed it).
-      if (launch.machineId && !input.machineId && !input.issueId) profileMachineId = launch.machineId
+      if (launch.machineId && !input.machineId && !input.issueId)
+        profileMachineId = launch.machineId
     }
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
@@ -350,14 +411,14 @@ export class SessionStart {
     const requested = AgentKind.safeParse(requestedAgentKind)
     const agentKind = requested.success
       ? requested.data
-      : resolveRole(
-          await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-          'coding',
-        ).harness
+      : resolveRole(await ownerSettings(), 'coding').harness
     // Resolve the target machine before model validation — the catalog is
     // machine-keyed (POD-1123), so we validate against THIS spawn's host.
     if (input.loginHarness && agentKind !== 'shell') {
       throw new Error('loginHarness is only valid for shell sessions')
+    }
+    if (input.loginHome && !input.loginHarness) {
+      throw new Error('loginHome is only valid for a sign-in pane')
     }
     const machineId = await this.ports.resolveMachineForAgent(
       input.machineId ?? profileMachineId,
@@ -370,21 +431,25 @@ export class SessionStart {
       const machine = await this.ports.store.machines.getMachine(machineId)
       requestedDriverId = terminalRuntimeDriver(machine, agentKind)?.id
       if (!requestedDriverId) {
-        throw new Error(`machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`)
+        throw new Error(
+          `machine ${machineId} has no advertised terminal runtime driver for ${agentKind}`,
+        )
       }
     }
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
     // spawn side effect [spec:SP-cc60].
-    const selection = input.launchSelection ?? resolveLaunchSelection({
-      agentKind,
-      explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
-      // The profile's values are INHERITED, like an issue's stored picks: one the
-      // catalog does not know falls back to `auto` instead of refusing the start.
-      ...(inheritedSelection ? { issueProfile: inheritedSelection } : {}),
-      settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-      catalog: await this.ports.store.settings.getModelCatalog(machineId),
-      force: input.forceUnknownModel,
-    })
+    const selection =
+      input.launchSelection ??
+      resolveLaunchSelection({
+        agentKind,
+        explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
+        // The profile's values are INHERITED, like an issue's stored picks: one the
+        // catalog does not know falls back to `auto` instead of refusing the start.
+        ...(inheritedSelection ? { issueProfile: inheritedSelection } : {}),
+        settings: await ownerSettings(),
+        catalog: await this.ports.store.settings.getModelCatalog(machineId),
+        force: input.forceUnknownModel,
+      })
     const { forced } = selection
     // Spawner name is validated before any side effect so a bad title never
     // leaves a half-spawned session.
@@ -396,7 +461,12 @@ export class SessionStart {
     }
     const task = input.issueId
       ? undefined
-      : await this.startTask({ cwd: input.cwd, agentKind, ownerUserId: input.ownerUserId, machineId })
+      : await this.startTask(this.ports.writer, {
+          cwd: input.cwd,
+          agentKind,
+          ownerUserId: input.ownerUserId,
+          machineId,
+        })
     if (task?.draft) onDraft(task.issueId)
     const issueId = input.issueId ?? task?.issueId
     const sessionId = input.sessionId ?? asSessionId(randomUUID())
@@ -416,24 +486,6 @@ export class SessionStart {
     // stages them on the agent's machine at delivery (POD-2148).
     const useArgv =
       taskPrompt !== undefined && !initialAttachments && harnessSupportsInitialPrompt(agentKind)
-    // Session ownership is declared per class: an issue-owned child inherits the
-    // issue owner; otherwise a binding resolves to its on-behalf-of human. The
-    // final fallback exists only for legacy in-process callers with no binding.
-    const parentOwner = issueId
-      ? (await readIssue(this.ports.store.issues, issueId))?.ownerUserId
-      : undefined
-    const bindingOwner =
-      input.binding?.principal.kind === 'user'
-        ? input.binding.principal.userId
-        : input.binding?.principal.kind === 'agent'
-          ? (await this.ports.store.sessions.getSession(input.binding.principal.parentBindingId))
-              ?.delegation?.onBehalfOf
-          : undefined
-    const ownerUserId =
-      parentOwner ??
-      input.ownerUserId ??
-      bindingOwner ??
-      (await firstAdminMemberId(this.ports.store))
     // THE BINDING PRINCIPAL, RESOLVED ONCE (POD-1516). It was previously built
     // inline at the `binding:` key below; hoisting it is what lets the durable
     // attribution pair and the daemon binding come from THE SAME identity rather
@@ -446,10 +498,8 @@ export class SessionStart {
     // WHO CREATED THIS SESSION, AND FOR WHOM — stamped here, UNCONDITIONALLY, so
     // that an absent pair downstream can only ever mean "recorded before the
     // field existed" (ADR 9 D5 A3; see `SessionMeta.createdBy`). The human half
-    // is the DELEGATING human off the principal, NOT `ownerUserId`: those differ
-    // exactly when a session is spawned under a shared issue, and conflating
-    // them would attribute the spawn to the issue's owner.
-    const createdBy = createdByForBinding(binding.principal, bindingOwner ?? ownerUserId)
+    // is the DELEGATING human off the principal, which is also the owner.
+    const createdBy = createdByForBinding(binding.principal, ownerUserId)
     const spawned = await this.spawn({
       agentKind,
       ownerUserId,
@@ -464,8 +514,9 @@ export class SessionStart {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       launchSelection: selection,
-      ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
+      ...(input.credentialId !== undefined ? { credentialId: input.credentialId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
+      ...(input.loginHome ? { loginHome: input.loginHome } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
@@ -486,19 +537,20 @@ export class SessionStart {
     let promptMessageId: string | undefined
     if (taskPrompt !== undefined && !useArgv) {
       promptMessageId = parentSessionId
-        ? await this.ports.recordSpawnPrompt?.({
+        ? await this.ports.recordSpawnPrompt?.(this.ports.writer, {
             parentSessionId,
             sessionId: spawned.sessionId,
             text: taskPrompt,
             ...(initialAttachments ? { attachments: initialAttachments } : {}),
           })
-        : await this.ports.recordOwnerPrompt?.({
+        : await this.ports.recordOwnerPrompt?.(this.ports.writer, {
             sessionId: spawned.sessionId,
             text: taskPrompt,
             attribution: createdBy,
             ...(initialAttachments ? { attachments: initialAttachments } : {}),
           })
       const queued = await this.ports.queueInitialPrompt({
+        writer: this.ports.writer,
         sessionId: spawned.sessionId,
         text: taskPrompt,
         ...(promptMessageId ? { sourceMessageId: promptMessageId } : {}),
@@ -524,7 +576,7 @@ export class SessionStart {
     // observable across every spawn path [spec:SP-cc60].
     if (forced) {
       await this.ports.store.events.appendEvent({
-        ts: new Date().toISOString(),
+        ts: new Date(this.ports.now()).toISOString(),
         kind: 'agent.model_forced',
         subject: spawned.sessionId,
         payload: {
@@ -555,7 +607,7 @@ export class SessionStart {
     model?: string
     effort?: string
     launchSelection?: Pick<ResolvedLaunchSelection, 'model' | 'effort' | 'forced'>
-    accountId?: AccountId
+    credentialId?: CredentialId | null
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string
@@ -565,6 +617,7 @@ export class SessionStart {
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
     bindingMachineAccess?: SessionBindingSpawnInstruction['machineAccess']
     loginHarness?: Exclude<AgentKind, 'shell'>
+    loginHome?: LoginHome
     /** The attribution pair, already derived from the binding principal by the
      *  caller. Optional only for the in-process spawn paths that predate it. */
     createdBy?: Attribution
@@ -572,7 +625,8 @@ export class SessionStart {
      *  same name. Carried straight onto the spawn frame; absent changes nothing. */
     requestedDriverId?: string
   }): Promise<SessionSpawnResult> {
-    if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
+    if (process.env.PODIUM_REHEARSAL === '1')
+      throw new Error('Session spawn disabled during upgrade rehearsal')
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
     // Session (orphaning its PTY/daemon binding) or re-fire a spawn.
@@ -583,49 +637,64 @@ export class SessionStart {
     const machineId = input.machineId
       ? asMachineId(input.machineId)
       : await this.ports.defaultMachine()
-    const ownerUserId = input.ownerUserId ?? (await firstAdminMemberId(this.ports.store))
+    const ownerUserId =
+      input.ownerUserId ?? (await soleMemberFor(this.ports.store.users, 'a session spawn'))
+    if (!(await this.ports.store.users.get(ownerUserId))) {
+      throw new Error('a session spawn requires an active member as owner')
+    }
+    // The owner's preferences, never the first admin's (POD-6285); read only
+    // when a default is needed, as the old per-site reads were.
+    let ownerSettingsRead: ReturnType<SessionStore['settings']['getSettingsFor']> | undefined
+    const ownerSettings = () =>
+      (ownerSettingsRead ??= this.ports.store.settings.getSettingsFor(ownerUserId))
     this.ports.onSpawnTargetLogin?.({
       machineId,
       agentKind: input.agentKind,
       ownerUserId,
     })
-    const selection = input.launchSelection ?? resolveLaunchSelection({
-      agentKind: input.agentKind,
-      explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
-      settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-      catalog: await this.ports.store.settings.getModelCatalog(machineId),
-    })
+    const selection =
+      input.launchSelection ??
+      resolveLaunchSelection({
+        agentKind: input.agentKind,
+        explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
+        settings: await ownerSettings(),
+        catalog: await this.ports.store.settings.getModelCatalog(machineId),
+      })
     const launch = {
-      ...await this.ports.launchConfig.modelDefaults(input.agentKind),
-      ...(selection.model !== 'auto' && input.agentKind !== 'shell' ? { model: selection.model } : {}),
+      ...(await this.ports.launchConfig.modelDefaults(input.agentKind, ownerUserId)),
+      ...(selection.model !== 'auto' && input.agentKind !== 'shell'
+        ? { model: selection.model }
+        : {}),
       ...(selection.effort !== 'auto' && harnessSupportsEffort(input.agentKind)
         ? { effort: selection.effort }
         : {}),
     }
-    const inheritedAccountId =
-      input.agentKind === 'shell'
-        ? undefined
-        : resolveRole(
-            await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
-            'coding',
-          ).accountId
-    // The harness-login rule lives in ONE place (POD-4827 review 2):
-    // `selectHarnessAccountId` — the superagent's headless establishment
-    // calls the same function with its superagent-or-coding preference, so
-    // the composer path and the superagent path resolve the same account
-    // for the same settings. An explicit account is user intent and remains
-    // byte-for-byte unchanged for the existing downstream
-    // compatibility/refusal behavior.
-    const selectedAccountId =
-      input.accountId !== undefined
-        ? input.accountId
-        : input.agentKind === 'shell' || inheritedAccountId === undefined
-          ? inheritedAccountId
-          : selectHarnessAccountId(input.agentKind, inheritedAccountId)
-    const accountId =
-      input.agentKind === 'shell' || selectedAccountId === undefined
-        ? undefined
-        : await this.ports.nativeAccountIdForMachine(machineId, input.agentKind, selectedAccountId)
+    // THE OWNER'S OWN CHOICE (credential management §9): what the launch
+    // named, then the owner's default for this harness, then none. Resolved
+    // before anything is registered or persisted, so a refused launch leaves
+    // nothing behind and sends nothing: it never falls back to another login.
+    const choice = await this.ports.launchConfig.selectCredential({
+      harness: input.agentKind,
+      ...(input.credentialId !== undefined ? { named: input.credentialId } : {}),
+      owner: ownerUserId,
+      machineId,
+    })
+    if (!choice.ok) throw new CredentialRefusal(choice.refusal, choice.message)
+    // A credential only one driver accepts (the ChatGPT plan: Codex's server
+    // driver) picks that driver when the launch named none; it is recorded as
+    // the session's request, so a revival keeps it (epic Task 15).
+    const requestedDriverId =
+      input.requestedDriverId ??
+      (await this.ports.launchConfig.requiredDriver(input.agentKind, choice.credentialId))
+    const access = await this.ports.launchConfig.access({
+      harness: input.agentKind,
+      ...(requestedDriverId !== undefined ? { driverId: requestedDriverId } : {}),
+      credentialId: choice.credentialId,
+      owner: ownerUserId,
+      machineId,
+      sessionId,
+    })
+    if (!access.ok) throw new CredentialRefusal(access.refusal, access.message)
     const principal = input.binding?.principal ?? { kind: 'user' as const, userId: ownerUserId }
     const parent =
       principal.kind === 'agent'
@@ -656,10 +725,10 @@ export class SessionStart {
       title: input.title || machinePathBasename(input.cwd) || input.cwd,
       ...(launch.model ? { model: launch.model } : {}),
       ...(launch.effort ? { effort: launch.effort } : {}),
-      ...(accountId ? { accountId } : {}),
+      ...(access.credentialId ? { credentialId: access.credentialId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       origin: input.origin,
-      createdAt: new Date().toISOString(),
+      createdAt: new Date(this.ports.now()).toISOString(),
       geometry: { ...DEFAULT_GEOMETRY },
       machineId,
       // Bind the route to the LIVE machineId (tracks the local-adoption
@@ -699,7 +768,7 @@ export class SessionStart {
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.name ? { name: input.name } : {}),
       ...(input.nameSource ? { nameSource: input.nameSource } : {}),
-      ...(input.requestedDriverId ? { requestedDriverId: input.requestedDriverId } : {}),
+      ...(requestedDriverId ? { requestedDriverId } : {}),
     })
     this.ports.registerSession(session)
     // Naming point (#474): input.issueId is the resolved birth issue (or absent
@@ -712,7 +781,7 @@ export class SessionStart {
     // is built from rather than onto the live object beside it.
     const draft = this.ports.repository.draft(session)
     const additionalWrite = await this.ports.view.prepareRefAllocation(draft)
-    await this.ports.repository.persistDraft(session, draft, additionalWrite)
+    await this.ports.repository.persistDraft(this.ports.writer, session, draft, additionalWrite)
     // FENCE BEFORE SEND. The frame below carries the generation this allocates;
     // sending first would tell the daemon to observe under one that does not
     // exist yet.
@@ -740,12 +809,37 @@ export class SessionStart {
       ...(input.instructions?.length ? { instructions: input.instructions } : {}),
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
-      // The suffix is durable session attribution only; launch with the selected account unchanged.
-      ...(await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId)),
+      // THE CREDENTIAL, in its own field and nowhere else (credential
+      // management §8): read from the vault above, before the row was
+      // written, and held in memory until this frame goes out.
+      ...(access.access ? { access: access.access } : {}),
+      // A sign-in pane names the home its login goes into; nothing secret.
+      ...(input.loginHome
+        ? {
+            access: {
+              credentialId: input.loginHome.credentialId,
+              delivery: { kind: 'home' as const, homeId: input.loginHome.homeId },
+            },
+          }
+        : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
-      ...(input.requestedDriverId !== undefined ? { requestedDriverId: input.requestedDriverId } : {}),
+      ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
     })
     this.ports.broadcastSessions()
+    // THE STARTER'S PERSONAL RECORD (POD-6290): a session landing on a task
+    // puts that task in its owner's set, as their own start, or as their
+    // agent's when an agent spawned it. After the spawn is sent: a record that
+    // fails to write must not strand a session the daemon never heard of.
+    if (input.issueId && ownerUserId) {
+      await this.ports
+        .recordIssueParticipation?.(
+          this.ports.writer,
+          input.issueId,
+          ownerUserId,
+          principal.kind === 'agent' ? 'agent' : 'start',
+        )
+        .catch((error) => log.warn('failed to record the start on the task', { error, sessionId }))
+    }
     return {
       sessionId,
       agentId: sessionId,
@@ -754,7 +848,7 @@ export class SessionStart {
       effort: launch.effort ?? null,
       machine: await this.ports.machineName(machineId),
       machineId,
-      accountId: accountId ?? null,
+      credentialId: access.credentialId,
     }
   }
 }

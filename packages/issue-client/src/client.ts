@@ -1,5 +1,14 @@
-import { type IssueContractName, type LockCommandName } from '@podium/commands'
-import { SESSION_COOKIE } from '@podium/protocol'
+import {
+  clientSendsThroughSubmit,
+  type IssueContractName,
+  type LockCommandName,
+} from '@podium/commands'
+import {
+  deviceSignInCookieName,
+  readHttpsRequiredRefusal,
+  type SyncSubmitTransport,
+  writesThroughSubmit,
+} from '@podium/protocol'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 
 /** One issue procedure endpoint. Query and mutate are the same call over both
@@ -46,7 +55,6 @@ type WorkflowProcName =
   | 'fork'
   | 'publish'
   | 'bindings'
-  | 'assign'
   | 'runs'
   | 'prime'
   | 'status'
@@ -115,6 +123,12 @@ function isTrpcEnvelope(text: string): boolean {
  *  misleading when a session was already sent — it tells the operator to do the thing they
  *  just did, and never says the credential was rejected. `carriedCredential` splits them. */
 function describeNonEnvelope(status: number, text: string, carriedCredential: boolean): string {
+  try {
+    const guidance = readHttpsRequiredRefusal(JSON.parse(text))
+    if (guidance) return `${guidance.message}\nHTTPS setup: ${guidance.docsUrl}`
+  } catch {
+    // An ordinary non-JSON transport failure keeps its existing description.
+  }
   const detail = text.trim() ? `: ${text.trim().slice(0, 500)}` : ''
   if (status === 401 && carriedCredential)
     return (
@@ -132,10 +146,14 @@ function describeNonEnvelope(status: number, text: string, carriedCredential: bo
 }
 
 export interface IssueClientOptions {
-  /** A `podium_session` token (the same credential the browser login issues) sent as a
+  /** A signed device sign-in token (the same value a browser receives) sent as a
    *  cookie on every call. Absent = no cookie, which is correct on an instance with no
-   *  password configured: `clientAuthGuard` passes those through. */
-  sessionToken?: string
+   *  password configured: `clientAuthGuard` passes those through.
+   *
+   *  A function is asked once, when the first call is made, and its answer is
+   *  used for every call of this client. A rejection fails that call with the
+   *  function's own message. */
+  sessionToken?: string | (() => Promise<string | undefined>)
   /** Stable hosted workspace selector sent before authentication. */
   workspaceId?: string
   /** Injected in tests. */
@@ -155,6 +173,16 @@ export interface IssueClientOptions {
  *  against it (see IssueTrpc) — procedure names route by path exactly as before. */
 export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}): IssueTrpc {
   const doFetch = opts.fetchImpl ?? fetch
+  const origin = new URL(baseUrl)
+  const sendCookie =
+    origin.protocol === 'https:' || ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)
+  let lazyToken: Promise<string | undefined> | undefined
+  const resolvedSessionToken = (): Promise<string | undefined> => {
+    const { sessionToken } = opts
+    if (typeof sessionToken !== 'function') return Promise.resolve(sessionToken)
+    lazyToken ??= sessionToken()
+    return lazyToken
+  }
   // The CALL SIGNATURE, not `typeof fetch`: under Bun's lib types the global also
   // carries a `preconnect` method, and a wrapper is not obliged to reimplement it —
   // `httpBatchLink` only ever calls this.
@@ -163,8 +191,12 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
     init?: Parameters<typeof fetch>[1],
   ): Promise<Response> => {
     const headers = new Headers(init?.headers)
-    if (opts.sessionToken)
-      headers.set('cookie', `${SESSION_COOKIE}=${encodeURIComponent(opts.sessionToken)}`)
+    const sessionToken = await resolvedSessionToken()
+    if (sessionToken && sendCookie)
+      headers.set(
+        'cookie',
+        `${deviceSignInCookieName(origin.protocol)}=${encodeURIComponent(sessionToken)}`,
+      )
     if (opts.workspaceId) headers.set('Podium-Workspace-Id', opts.workspaceId)
     const res = await doFetch(input as never, { ...init, headers })
     if (res.ok) return res
@@ -172,16 +204,18 @@ export function makeIssueClient(baseUrl: string, opts: IssueClientOptions = {}):
     // Response built from the same text rather than the drained original.
     const text = await res.text().catch(() => '')
     if (!isTrpcEnvelope(text))
-      throw new Error(describeNonEnvelope(res.status, text, Boolean(opts.sessionToken)))
+      throw new Error(describeNonEnvelope(res.status, text, Boolean(sessionToken)))
     return new Response(text, {
       status: res.status,
       statusText: res.statusText,
       headers: res.headers,
     })
   }
-  return createTRPCClient({
-    links: [httpBatchLink({ url: `${baseUrl}/trpc`, fetch: guardedFetch })],
-  }) as unknown as IssueTrpc
+  return sendWritesThroughSubmit(
+    createTRPCClient({
+      links: [httpBatchLink({ url: `${baseUrl}/trpc`, fetch: guardedFetch })],
+    }) as unknown as IssueTrpc,
+  )
 }
 
 /** IssueTrpc client that relays each call to the local daemon's issue endpoint (agent path).
@@ -227,8 +261,39 @@ export function makeRelayIssueClient(
         },
       },
     )
-  return new Proxy(
-    {},
-    { get: (_t, router) => (typeof router === 'string' ? procProxy(router) : undefined) },
-  ) as unknown as IssueTrpc
+  return sendWritesThroughSubmit(
+    new Proxy(
+      {},
+      { get: (_t, router) => (typeof router === 'string' ? procProxy(router) : undefined) },
+    ) as unknown as IssueTrpc,
+  )
+}
+
+/**
+ * The listed issue writes (`SYNCED_ISSUE_COMMANDS`) of `client`, sent on the sync
+ * write entry point (ADR 12 D2, POD-6413), whichever transport the client rides:
+ * the operator's tRPC, or an agent's relay, which serves `sync.submit` too.
+ * LEGACY(remove-after: 2027-03): a server without `sync.submit`, or without the
+ * command on it yet, takes the command's own route.
+ *
+ * A refusal that asks for the caller's confirmation keeps the hint the route has
+ * always given an agent: re-run with `--outside-scope`.
+ */
+export function sendWritesThroughSubmit(client: IssueTrpc): IssueTrpc {
+  const issues = writesThroughSubmit(
+    client as unknown as SyncSubmitTransport,
+    client.issues,
+    'issues',
+    clientSendsThroughSubmit,
+    {
+      refused: (command, error) =>
+        error.refusal.kind === 'confirmation-required' && error.refusal.message === undefined
+          ? new Error(`${command} is outside your scope; re-run with --outside-scope to confirm`)
+          : error,
+    },
+  )
+  return new Proxy(client, {
+    get: (target, name, receiver) =>
+      name === 'issues' ? issues : Reflect.get(target, name, receiver),
+  })
 }

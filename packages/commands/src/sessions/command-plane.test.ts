@@ -3,7 +3,7 @@
  * derivable, enforced here rather than in review.
  */
 
-import { AgentKind, ResumeRef, asSessionId } from '@podium/model'
+import { AgentKind, asSessionId, ResumeRef } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { commandExposure, isExposedOn } from '../framework'
 import {
@@ -23,7 +23,7 @@ const defs = Object.entries(sessionCommandPlane.defs)
 const OFFLINE_ELIGIBLE_EXCEPTIONS = ['resumeAndSend', 'sendText']
 
 describe('the command-plane table', () => {
-  it('covers exactly the thirteen command-plane procs, and neither handoff nor ask', () => {
+  it('covers exactly the fourteen command-plane procs, and neither handoff nor ask', () => {
     // NINE were POD-381's. `stop` and `uploadImage` were added by POD-382, which had
     // to delete the last hand-written session mutations from router.ts and could only
     // do that by giving them contracts. `configure` is POD-3081's, the first command
@@ -32,7 +32,8 @@ describe('the command-plane table', () => {
     // the integration merge: POD-729 cut it over to the mail table, and two contracts
     // for one command is a fork. The list is exact rather than a `toContain` so a
     // fourteenth arrival has to edit this line — and so a command silently REMOVED
-    // from the table cannot pass either.
+    // from the table cannot pass either. `switchCredential` is the fourteenth
+    // (credential management §9, epic Task 11).
     expect(commandPlaneNames().sort()).toEqual([
       'sessions.answerAskUserQuestion',
       'sessions.configure',
@@ -46,6 +47,7 @@ describe('the command-plane table', () => {
       'sessions.resurrect',
       'sessions.sendText',
       'sessions.stop',
+      'sessions.switchCredential',
       'sessions.uploadImage',
     ])
     // POD-642's and POD-729's respectively; neither may drift into this table.
@@ -66,6 +68,19 @@ describe('the command-plane table', () => {
 
   it.each(defs)('%s requires the machine `use` verb — it commands a process', (_key, def) => {
     expect(def.policy?.machineVerb).toBe('use')
+  })
+
+  it('switchCredential keeps owner-or-grant, narrowed by the private-class gate to the owner', () => {
+    // The policy vocabulary has no `owner` scope. Sessions are the private class
+    // (POD-6284): the session's own owner only, so a grant never reaches a switch.
+    // Pin the declaration where a future policy consumer reads it, and name the
+    // override that makes it narrower than its spelling.
+    expect(sessionCommandPlane.defs.switchCredential.policy).toEqual({
+      resource: 'session',
+      scope: 'owner-or-grant',
+      action: 'write',
+      machineVerb: 'use',
+    })
   })
 
   it('queues exactly the chat sends offline, and nothing else in this class', () => {

@@ -2,7 +2,6 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { firstAdminMemberId } from '@podium/model'
-import { hashPassword } from '@podium/runtime/auth-store'
 import { afterAll, beforeAll, expect, test } from 'vitest'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
@@ -31,12 +30,9 @@ beforeAll(async () => {
   // Bootstrap only the existing admin's credentials. Every invite and session is
   // created over HTTP through the production server's own identity resolver.
   const users = handle.registry.sessionStore.users
-  await users.setEmail(firstAdminMemberId(), adminEmail)
-  await users.setPasswordHash(
-    firstAdminMemberId(),
-    await hashPassword(adminPassword),
-    new Date().toISOString(),
-  )
+  const accountId = (await users.get(firstAdminMemberId()))!.accountId!
+  await handle.identity.core.accounts.setEmail(accountId, adminEmail)
+  await handle.identity.core.accounts.setPassword(accountId, adminPassword)
 })
 
 afterAll(async () => {
@@ -53,7 +49,7 @@ async function login(email: string, password: string, userId: string) {
   // memberId/syncBoundaryId; the login contract this guards is ok + userId.
   expect(await response.json()).toMatchObject({ ok: true, userId })
   const cookie = response.headers.get('set-cookie')?.split(';')[0]
-  expect(cookie).toMatch(/^podium_session=.+/)
+  expect(cookie).toMatch(/^podium\.session_token=.+/)
   return cookie!
 }
 

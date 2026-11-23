@@ -1,7 +1,8 @@
 import type { SessionView } from '../session-values'
 import type { ConversationSummaryWire, GitRepositoryWire, RepoId, MachineId } from '@podium/model'
 
-export type PinKind = 'panel' | 'worktree' | 'repo'
+/** What a pin can point at; the model's one list (an issue since POD-6692). */
+export type { PinKind } from '@podium/model'
 
 export interface PinState {
   panels: string[]

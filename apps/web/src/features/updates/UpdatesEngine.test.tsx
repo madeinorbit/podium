@@ -4,6 +4,7 @@
  */
 import type { ReleaseProposal } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UpdatePanelView } from './operation-view'
@@ -18,14 +19,26 @@ const mocks = vi.hoisted(() => ({
   checkNow: vi.fn(async () => {}),
   acknowledge: vi.fn(),
   approveProposal: vi.fn(async () => {}),
+  checkSpace: vi.fn(async () => ({ machines: [] })),
+  navigateReload: vi.fn(),
 }))
 
 vi.mock('@/app/pwa-register', () => ({ useRegisterSW: mocks.useRegisterSW }))
+// The navigation itself: jsdom cannot reload, and a lost navigation looks the
+// same from the page as one that was never made (POD-7154).
+vi.mock('@/lib/navigate', async (load) => ({
+  ...(await load<typeof import('@/lib/navigate')>()),
+  navigateReload: mocks.navigateReload,
+}))
 vi.mock('./use-update-state', () => ({ useUpdateState: mocks.useUpdateState }))
+// The panel's own reader is mocked with the hook; an open panel only watches it.
+vi.mock('@/lib/update-status', () => ({ updateStatus: () => ({ watch: () => () => {} }) }))
 vi.mock('@/app/trpc', () => ({
   serverConfig: () => ({ httpOrigin: 'http://podium.test' }),
+  makeTrpc: () => ({ updates: { checkSpace: { query: mocks.checkSpace } } }),
 }))
 
+import { RELOAD_COMMIT_GRACE_MS } from '@/lib/reload-preparation'
 import { openUpdatePanel } from './open-panel'
 import { UpdatesEngine } from './UpdatesEngine'
 import { resetUpdates, useUpdates } from './updates-panel-context'
@@ -65,8 +78,16 @@ function Strip(): JSX.Element {
 }
 
 function mount(view: UpdatePanelView = OFFER) {
-  mocks.useUpdateState.mockReturnValue({
-    view,
+  answerWith({
+    view: {
+      ...view,
+      dismiss:
+        view.state === 'done'
+          ? { label: 'Got it', primary: true }
+          : {
+              label: view.state === 'offer' ? 'Later' : view.state === 'failed' ? 'Close' : 'Hide',
+            },
+    },
     operation: null,
     server: {},
     fleet: { total: 0, behind: 0, converging: 0, failed: 0 },
@@ -87,7 +108,19 @@ function mount(view: UpdatePanelView = OFFER) {
   )
 }
 
+/**
+ * THE HOOK'S ANSWER, AS OBSERVABLE STATE. The engine is an `observer` (POD-6683),
+ * so a re-render with the same props draws nothing new; the real hook's answers
+ * change through the update-status reader's observable state, and so does this
+ * stand-in's.
+ */
+const answer = observable.box<unknown>(undefined, { deep: false })
+function answerWith(value: unknown): void {
+  runInAction(() => answer.set(value))
+}
+
 beforeEach(() => {
+  mocks.useUpdateState.mockImplementation(() => answer.get())
   mocks.useRegisterSW.mockReturnValue({
     needRefresh: [false, mocks.setNeedRefresh],
     updateServiceWorker: vi.fn(),
@@ -104,7 +137,7 @@ afterEach(() => {
 
 describe('UpdatesEngine', () => {
   it('surfaces a new proposal in the indicator until explicitly opened', () => {
-    mocks.useUpdateState.mockReturnValue({
+    answerWith({
       view: {
         state: 'none',
         title: '',
@@ -142,7 +175,7 @@ describe('UpdatesEngine', () => {
     const build = screen.getByRole('button', { name: 'Build and publish' })
     fireEvent.click(build)
     expect(mocks.approveProposal).toHaveBeenCalledOnce()
-    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     expect(screen.queryByTestId('release-proposal-card')).toBeNull()
     expect(screen.getByTestId('update-indicator')).toBeTruthy()
   })
@@ -178,8 +211,8 @@ describe('UpdatesEngine', () => {
     const initialOptions = mocks.useRegisterSW.mock.calls[0]?.[0]
     const refreshState = vi.fn()
     mocks.useRegisterSW.mockReturnValue({ needRefresh: [true, mocks.setNeedRefresh] })
-    mocks.useUpdateState.mockReturnValue({
-      ...mocks.useUpdateState.mock.results.at(-1)?.value,
+    answerWith({
+      ...(answer.get() as object),
       refreshState,
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
@@ -198,9 +231,9 @@ describe('UpdatesEngine', () => {
     'none',
   ] as const)('keeps Hide closed when the same operation becomes %s', (state) => {
     const { rerender } = mount({ ...OFFER, state: 'waiting-you', operationId: 'op_same' })
-    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
-    mocks.useUpdateState.mockReturnValue({
-      ...mocks.useUpdateState.mock.results.at(-1)?.value,
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    answerWith({
+      ...(answer.get() as object),
       view: { ...OFFER, state, operationId: 'op_same' },
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
@@ -209,9 +242,9 @@ describe('UpdatesEngine', () => {
 
   it('reopens a hidden running operation when it fails', () => {
     const { rerender } = mount({ ...OFFER, state: 'running', operationId: 'op_same' })
-    fireEvent.click(screen.getByRole('button', { name: 'Later' }))
-    mocks.useUpdateState.mockReturnValue({
-      ...mocks.useUpdateState.mock.results.at(-1)?.value,
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }))
+    answerWith({
+      ...(answer.get() as object),
       view: { ...OFFER, state: 'failed', operationId: 'op_same' },
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
@@ -220,18 +253,19 @@ describe('UpdatesEngine', () => {
 
   it('collapses a newly discovered proposal and reopens its state change', () => {
     const { rerender } = mount()
-    const result = mocks.useUpdateState.mock.results.at(-1)?.value
+    const result = answer.get() as object
     const view = { ...OFFER, state: 'none' }
-    mocks.useUpdateState.mockReturnValue({ ...result, view, proposal: PROPOSAL })
+    answerWith({ ...result, view, proposal: PROPOSAL })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
     expect(screen.queryByTestId('release-proposal-card')).toBeNull()
-    mocks.useUpdateState.mockReturnValue({
+    answerWith({
       ...result,
       view,
       proposal: { ...PROPOSAL, state: 'building' },
     })
     rerender(<UpdatesEngine httpOrigin="http://podium.test" />)
     expect(screen.getByTestId('release-proposal-card')).toBeTruthy()
+    expect(screen.getByTestId('approve-release-proposal')).toHaveProperty('disabled', true)
   })
 
   it('acknowledges a failure when the user hides it, keeping the warning indicator', () => {
@@ -254,7 +288,7 @@ describe('UpdatesEngine', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Later' }))
     expect(screen.queryByTestId('update-panel')).toBeNull()
 
-    mocks.useUpdateState.mockReturnValue({
+    answerWith({
       view: { ...OFFER, state: 'waiting-you', title: 'Podium 0.4.3 is ready here' },
       operation: null,
       server: {},
@@ -274,6 +308,50 @@ describe('UpdatesEngine', () => {
     expect(screen.getByTestId('update-panel')).toBeTruthy()
   })
 
+  /**
+   * POD-7154: on 2026-11-18 Reload started a navigation that did not replace the
+   * page. The panel said "Reloading…" for good, and a second press did nothing.
+   */
+  it('says when a started reload has not replaced the page, and lets Reload act again', async () => {
+    vi.useFakeTimers()
+    try {
+      mount({
+        ...OFFER,
+        state: 'waiting-you',
+        title: 'Reload to finish',
+        primary: { kind: 'reload', label: 'Reload', pendingLabel: 'Reloading…' },
+      })
+      const options = mocks.useUpdateState.mock.calls.at(-1)?.[0] as {
+        reload: () => Promise<void>
+      }
+      await act(async () => {
+        await options.reload()
+      })
+      expect(mocks.navigateReload).toHaveBeenCalledOnce()
+      expect(screen.getByTestId('service-worker-status').textContent).toContain('Reloading')
+      expect(screen.queryByTestId('reset-cached-interface')).toBeNull()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RELOAD_COMMIT_GRACE_MS)
+      })
+      expect(screen.getByTestId('service-worker-status').textContent).toContain(
+        'The page has not reloaded',
+      )
+      expect(screen.getByTestId('reset-cached-interface')).toBeTruthy()
+
+      await act(async () => {
+        await options.reload()
+      })
+      expect(mocks.navigateReload).toHaveBeenCalledTimes(2)
+      // Release the module-level latch so later tests start without it.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RELOAD_COMMIT_GRACE_MS)
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('collapses a done panel on its own after a few seconds, and clears the indicator', () => {
     vi.useFakeTimers()
     try {
@@ -285,6 +363,77 @@ describe('UpdatesEngine', () => {
       expect(screen.queryByTestId('update-panel')).toBeNull()
       // §6.2.4: a finished update is not a standing fact about the toolbar.
       expect(mocks.acknowledge).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('preserves reading when a hovered running panel finishes', () => {
+    vi.useFakeTimers()
+    try {
+      const { rerender } = mount({ ...OFFER, state: 'running', operationId: 'op_same' })
+      fireEvent.mouseEnter(screen.getByTestId('update-panel'))
+      answerWith({
+        ...(answer.get() as object),
+        view: {
+          ...OFFER,
+          state: 'done',
+          operationId: 'op_same',
+          primary: undefined,
+          dismiss: { label: 'Got it', primary: true },
+        },
+      })
+      rerender(
+        <>
+          <UpdatesEngine httpOrigin="http://podium.test" />
+          <Strip />
+        </>,
+      )
+      act(() => vi.advanceTimersByTime(10_000))
+      expect(screen.getByTestId('update-panel')).toBeTruthy()
+      expect(mocks.acknowledge).not.toHaveBeenCalled()
+      fireEvent.mouseLeave(screen.getByTestId('update-panel'))
+      act(() => vi.advanceTimersByTime(6_001))
+      expect(screen.queryByTestId('update-panel')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([
+    'hover',
+    'focus',
+    'scroll',
+  ] as const)('keeps completed notes open while reading by %s', (mode) => {
+    vi.useFakeTimers()
+    try {
+      mount({
+        ...OFFER,
+        state: 'done',
+        primary: undefined,
+        notes: { summary: '**Ready.**\n\n- **Changes.** Read the release.' },
+        dismiss: { label: 'Got it', primary: true },
+      })
+      const panel = screen.getByTestId('update-panel')
+      if (mode === 'hover') fireEvent.mouseEnter(panel)
+      if (mode === 'focus') fireEvent.focus(screen.getByRole('button', { name: 'Got it' }))
+      if (mode === 'scroll') {
+        const box = panel.querySelector('.update-card-scroll') as HTMLElement
+        fireEvent.scroll(box, { target: { scrollTop: 20 } })
+        fireEvent.mouseLeave(panel)
+      }
+      act(() => vi.advanceTimersByTime(10_000))
+      expect(screen.getByTestId('update-panel')).toBeTruthy()
+      expect(mocks.acknowledge).not.toHaveBeenCalled()
+      if (mode !== 'scroll') {
+        if (mode === 'hover') fireEvent.mouseLeave(panel)
+        else fireEvent.blur(screen.getByRole('button', { name: 'Got it' }), { relatedTarget: null })
+        act(() => vi.advanceTimersByTime(6_001))
+        expect(screen.queryByTestId('update-panel')).toBeNull()
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+        expect(screen.queryByTestId('update-panel')).toBeNull()
+      }
     } finally {
       vi.useRealTimers()
     }

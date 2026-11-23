@@ -292,7 +292,13 @@ export class FeedPublisher {
         rescopeTo(state, this.identity(), delivery.reason)
         continue
       }
-      await this.emitTo(state, delivery.changes, delivery.throughSeq, minAvailableSeq)
+      await this.emitTo(
+        state,
+        delivery.changes,
+        delivery.throughSeq,
+        minAvailableSeq,
+        delivery.access === true,
+      )
     }
   }
 
@@ -301,6 +307,7 @@ export class FeedPublisher {
     changes: readonly ScopedChange[],
     throughSeq: number,
     minAvailableSeq: number,
+    access: boolean,
   ): Promise<void> {
     // Nothing to certify: this connection is already at or past the range. Not an
     // error — a connection that attached at the head legitimately sees this.
@@ -313,7 +320,10 @@ export class FeedPublisher {
     // that attached mid-batch must not be certified a range it already had.
     const rows = changes.filter((c) => c.seq > state.fromSeq).map(toEnvelope)
 
-    if (rows.length === 0) {
+    // An access move is a fact the replica's holder must hear when it happens,
+    // so a range that carries one is framed even with no rows: never folded
+    // into a watermark that could wait for the next visible row.
+    if (rows.length === 0 && !access) {
       // A WATERMARK. It does not enter the bounded queue (D13.4) and it does not
       // advance `fromSeq` yet: holding the lower bound is what lets the next frame
       // with real changes absorb this range by extending downward, so a watermark
@@ -323,7 +333,7 @@ export class FeedPublisher {
       return
     }
 
-    const frame = this.frame(state.fromSeq, throughSeq, rows, minAvailableSeq)
+    const frame = this.frame(state.fromSeq, throughSeq, rows, minAvailableSeq, access)
     const admission = state.queue.offer(frame)
     if (admission.kind === 'demoted') {
       // The connection's position is now MEANINGLESS, and leaving it advanced
@@ -362,6 +372,7 @@ export class FeedPublisher {
     seq: number,
     changes: readonly ChangeEnvelope[],
     minAvailableSeq: number,
+    access = false,
   ): DeltaFrame {
     const identity = this.identity()
     return {
@@ -372,6 +383,7 @@ export class FeedPublisher {
       seq,
       minAvailableSeq,
       changes,
+      ...(access ? { access: true } : {}),
     }
   }
 

@@ -1,11 +1,9 @@
 import { asMachineId, type ConversationId } from '@podium/model'
-import { mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
-import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { storeSql, updateCounter } from './test-support/store-sql'
 
 // The conversation registry (docs/spec/conversation-registry.md §3.1): Podium ids
 // are minted once, native ids map to them forever, and a live-roll attaches a new
@@ -178,45 +176,8 @@ describe('conversation registry store', () => {
     expect(batch.size).toBe(3)
   })
 
-  it('boot repair nulls subagent paths poisoned onto other identities, keeps legitimate ones', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'podium-conv-registry-'))
-    const file = join(dir, 'store.db')
-    const first = await openTestStore(file)
-    // Poisoned by the pre-#94 discovery bug: a subagent transcript summarized
-    // under the PARENT's native id clobbered the parent's segment path.
-    await first.conversations.registry.ensure({
-      machineId: asMachineId('m1'),
-      nativeId: 'parent-1',
-      providerId: 'claude-code-jsonl',
-      path: '/home/u/.claude/projects/-repo/parent-1/subagents/agent-x.jsonl',
-    })
-    // A subagent conversation's OWN row (post-fix): basename matches native id.
-    await first.conversations.registry.ensure({
-      machineId: asMachineId('m1'),
-      nativeId: 'agent-x',
-      providerId: 'claude-code-jsonl',
-      path: '/home/u/.claude/projects/-repo/parent-1/subagents/agent-x.jsonl',
-    })
-    // A normal main-transcript row: untouched.
-    await first.conversations.registry.ensure({
-      machineId: asMachineId('m1'),
-      nativeId: 'parent-2',
-      providerId: 'claude-code-jsonl',
-      path: '/home/u/.claude/projects/-repo/parent-2.jsonl',
-    })
-    await first.close()
-    const second = await openTestStore(file)
-    const registry = await SessionRegistry.create(second, undefined, { instanceId: 'default' })
-    expect(await second.conversations.registry.segmentPath(asMachineId('m1'), 'parent-1')).toBeUndefined()
-    expect(await second.conversations.registry.segmentPath(asMachineId('m1'), 'agent-x')).toBe(
-      '/home/u/.claude/projects/-repo/parent-1/subagents/agent-x.jsonl',
-    )
-    expect(await second.conversations.registry.segmentPath(asMachineId('m1'), 'parent-2')).toBe(
-      '/home/u/.claude/projects/-repo/parent-2.jsonl',
-    )
-    await registry.dispose()
-    await second.close()
-  })
+  // The repair of subagent paths poisoned onto other identities is a one-shot
+  // migration since sync-without-boot-reconcile (POD-6253); its test covers it.
 
   // ensureMany is the batch form a discovery uses [POD-6227]: whatever it is
   // given, the rows it leaves are the ones one ensure per entry, in order, leaves.
@@ -224,15 +185,13 @@ describe('conversation registry store', () => {
     const M = asMachineId('m1')
     type Offer = { nativeId: string; parent?: string; path?: string; sizeBytes?: number }
     /** Every segment with its file evidence and its identity's parent, by native ids. */
-    const rows = (store: SessionStore) =>
-      (store as unknown as { db: { prepare(sql: string): { all(): unknown[] } } }).db
-        .prepare(
-          `SELECT s.native_id, s.provider_id, s.path, s.reported_bytes, s.seq_in_conv, s.linked_by,
+    const rows = async (store: SessionStore) =>
+      await storeSql(store).all(
+        sql`SELECT s.native_id, s.provider_id, s.path, s.reported_bytes, s.seq_in_conv, s.linked_by,
              (SELECT p.native_id FROM conversation_segments p WHERE p.podium_id = i.parent_podium_id AND p.seq_in_conv = 1) AS parent
            FROM conversation_segments s JOIN conversation_identities i ON i.podium_id = s.podium_id
            ORDER BY s.native_id`,
-        )
-        .all()
+      )
     const seeded = async () => {
       const store = await openTestStore(':memory:')
       const r = store.conversations.registry
@@ -267,7 +226,7 @@ describe('conversation registry store', () => {
       for (const offer of offers) await one.conversations.registry.ensure({ machineId: M, ...(await resolve(one, offer)) })
       const entries = await Promise.all(offers.map((offer) => resolve(many, offer)))
       const ids = await many.conversations.registry.ensureMany(M, entries)
-      expect(rows(many)).toEqual(rows(one))
+      expect(await rows(many)).toEqual(await rows(one))
       expect(ids).toEqual(await many.conversations.registry.podiumIds(M, offers.map((offer) => offer.nativeId)))
       expect(ids.size).toBe(new Set(offers.map((offer) => offer.nativeId)).size)
     })
@@ -276,14 +235,11 @@ describe('conversation registry store', () => {
       const store = await seeded()
       const entries = await Promise.all(offers.map((offer) => resolve(store, offer)))
       await store.conversations.registry.ensureMany(M, entries)
-      const before = rows(store)
-      const db = (store as unknown as { db: { exec(sql: string): void; prepare(sql: string): { get(): unknown } } }).db
-      db.exec(`CREATE TABLE _writes (t TEXT);
-        CREATE TRIGGER count_segment_writes AFTER UPDATE ON conversation_segments BEGIN INSERT INTO _writes VALUES ('s'); END;
-        CREATE TRIGGER count_identity_writes AFTER UPDATE ON conversation_identities BEGIN INSERT INTO _writes VALUES ('i'); END;`)
+      const before = await rows(store)
+      const writes = await updateCounter(store, ['conversation_segments', 'conversation_identities'])
       await store.conversations.registry.ensureMany(M, entries)
-      expect((db.prepare('SELECT COUNT(*) AS n FROM _writes').get() as { n: number }).n).toBe(0)
-      expect(rows(store)).toEqual(before)
+      expect(await writes()).toBe(0)
+      expect(await rows(store)).toEqual(before)
     })
   })
 })

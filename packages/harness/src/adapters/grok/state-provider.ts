@@ -16,46 +16,46 @@ import { open, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentObservationAckMessage, ProviderCursor } from '@podium/protocol'
-import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 import { fileMtimeIso } from '../../agent-state/boot-time.js'
-import { chooseGrokSessionDir } from './state-binding.js'
-import { GrokCausalObserver, type GrokObservationLease } from './state-causal.js'
-import { locateGrokSessionPaths } from './state-locate.js'
-import { withEventTime } from '../../observer.js'
-import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
 import {
-  type GrokSessionPaths,
-  PODIUM_GROK_HOOK_URL_ENV,
+  type AgentStateEvent,
+  type AgentStateProvider,
+  withStateChannel,
+} from '../../agent-state/types.js'
+import type { HarnessAccountScope } from '../../manifest.js'
+import { withEventTime } from '../../observer.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
+import {
   classifyGrokProviderFailure,
   classifyStopPayload,
+  type GrokSessionPaths,
   grokHookEventName,
   grokInstrumentation,
   grokRoot,
   grokSessionPaths,
-  readGrokChatHistoryTail,
   normalizeGrokProviderTimestamp,
+  PODIUM_GROK_HOOK_URL_ENV,
+  readGrokChatHistoryTail,
   translateGrokUpdatePayload,
 } from './instrumentation.js'
-import {
-  type GrokPlanState,
-  classifyGrokIdleTranscript,
-  withGrokOpenTodos,
-} from './state.js'
+import { classifyGrokIdleTranscript, type GrokPlanState, withGrokOpenTodos } from './state.js'
+import { chooseGrokSessionDir } from './state-binding.js'
+import { GrokCausalObserver, type GrokObservationLease } from './state-causal.js'
+import { locateGrokSessionPaths } from './state-locate.js'
 
+export type { GrokPlanState }
 export {
-  type GrokSessionPaths,
-  PODIUM_GROK_HOOK_URL_ENV,
   classifyGrokIdleTranscript,
   classifyGrokProviderFailure,
+  type GrokSessionPaths,
   grokSessionPaths,
   normalizeGrokProviderTimestamp,
+  PODIUM_GROK_HOOK_URL_ENV,
   translateGrokUpdatePayload,
   withGrokOpenTodos,
 }
-export type { GrokPlanState }
 
 const POLL_MS = 700
-
 
 export interface GrokStateObserver {
   readonly path: string | undefined
@@ -78,15 +78,11 @@ export const grokStateProvider: AgentStateProvider = {
   instrumentation({ endpointUrl }) {
     return { args: [], env: { [PODIUM_GROK_HOOK_URL_ENV]: endpointUrl } }
   },
-  translate: (payload) => grokInstrumentation.payloadCodec.decode(payload),
+  translate: (payload, account) => grokInstrumentation.payloadCodec.decode(payload, account),
   bootEvents: async (opts) => withStateChannel(await grokBootEvents(opts), 'poll'),
 }
 
-
 type GrokIdleVerdict = NonNullable<Extract<AgentStateEvent, { kind: 'turn_completed' }>['verdict']>
-
-
-
 
 function emptyGrokPlanState(): GrokPlanState {
   return { requiredUserAction: false, cleanEndTurn: false }
@@ -175,10 +171,9 @@ function normalizeGrokPlanStatus(value: string | undefined): string | undefined 
   return value ? normalizeName(value.replace(/\s+/g, '_')) : undefined
 }
 
-
 export async function findLatestGrokSessionPaths(opts: {
   cwd: string
-  homeDir?: string
+  homeDir: string
   watermarkMs: number
   boundId?: string
 }): Promise<GrokSessionPaths | undefined> {
@@ -224,7 +219,7 @@ export function observeGrokState(opts: {
   /** Recorded segment evidence: absolute path of summary/updates/chat_history.
    *  Tried before cwd derivation (conversation registry §3.3). */
   pathHint?: string
-  homeDir?: string
+  homeDir: string
   startedAtMs?: number
   pollMs?: number
   statTick?: StatTick
@@ -273,7 +268,7 @@ export function observeGrokState(opts: {
     if (stopped || attached) return
     const paths = await findLatestGrokSessionPaths({
       cwd: opts.cwd,
-      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      homeDir: opts.homeDir,
       watermarkMs,
       boundId,
     })
@@ -292,7 +287,7 @@ export function observeGrokState(opts: {
       cwd: opts.cwd,
       sessionId: opts.resumeValue,
       ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
-      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      homeDir: opts.homeDir,
     }).then((located) => {
       if (stopped || !located || located.chatHistoryPath === derived.chatHistoryPath) return
       attach(located)
@@ -330,7 +325,7 @@ async function grokBootEvents(opts: {
   cwd: string
   resumeValue?: string
   pathHint?: string
-  homeDir?: string
+  account: HarnessAccountScope
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
     const paths =
@@ -338,12 +333,12 @@ async function grokBootEvents(opts: {
         cwd: opts.cwd,
         sessionId: opts.resumeValue,
         ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
-        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        homeDir: opts.account.home,
       })) ??
       grokSessionPaths({
         cwd: opts.cwd,
         sessionId: opts.resumeValue,
-        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        homeDir: opts.account.home,
       })
     let planState: GrokPlanState | undefined
     try {
@@ -387,7 +382,6 @@ async function readGrokPlanState(path: string): Promise<GrokPlanState> {
     await handle.close()
   }
 }
-
 
 function tailGrokUpdates(
   paths: GrokSessionPaths,
@@ -470,7 +464,7 @@ function tailGrokUpdates(
         })
         if (isAvailableCommandsUpdate(payload) && (causal || observedWork)) {
           const classified = emit
-            ? await classifyStopPayload(payload, opts.onVerdictRead)
+            ? await classifyStopPayload(payload, undefined, opts.onVerdictRead)
             : undefined
           const verdict = withGrokOpenTodos(classified, planState, true)
           next.push({ kind: 'turn_completed', ...(verdict ? { verdict } : {}) })
@@ -974,8 +968,6 @@ function updateObservedWork(current: boolean, event: AgentStateEvent): boolean {
       return current
   }
 }
-
-
 
 function normalizeName(value: string | undefined): string | undefined {
   return value

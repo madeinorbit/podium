@@ -20,9 +20,7 @@ vi.mock('sonner', () => ({
   toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), info: vi.fn() }),
 }))
 const liveCatalog = {
-  'claude-code': [
-    { value: 'reported-sonnet', label: 'Reported Sonnet', efforts: ['low', 'high'] },
-  ],
+  'claude-code': [{ value: 'reported-sonnet', label: 'Reported Sonnet', efforts: ['low', 'high'] }],
 }
 
 const start = vi.fn(async () => ({}))
@@ -32,14 +30,13 @@ vi.mock('@/app/store', () => {
   const makeSnapshot = () => ({
     trpc: {
       settings: {
-        get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) },
+        get: { query: vi.fn(async () => ({ gitWorkflow: { } })) },
       },
       issues: {
         // Activity feed loads transition events on mount; no events in this fixture.
         events: { query: vi.fn(async () => []) },
         comments: { query: vi.fn(async () => []) },
         mailInbox: { mutate: vi.fn(async () => []) },
-        start: { mutate: start },
         update: { mutate: update },
       },
     },
@@ -70,14 +67,19 @@ vi.mock('@/app/store', () => {
     // the real action (actions.ts enqueues an overlayed `issueUpdate`) at the
     // point where it reaches the wire.
     updateIssue: async (id: string, patch: unknown) => update({ id, patch }),
+    // Starting is an `issue.begin` effect record (POD-6526): the store action,
+    // settled once durably queued. A write that cannot be queued rejects here.
+    startIssueSession: (args: unknown) => ({
+      settled: (start as (a: unknown) => Promise<unknown>)(args).then(() => true),
+    }),
   })
   // Keep ports stable without reading suite spies while vi.mock is hoisted.
   let snapshot: ReturnType<typeof makeSnapshot> | undefined
   const state = () => (snapshot ??= makeSnapshot()) as never
   return {
     useStore: () => state(),
-    // Selector hooks (useRuntimeSelector) reach the same mocked state.
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state()),
+    // Selector hooks (readFixture) reach the same mocked state.
+    readFixture: (sel: (s: unknown) => unknown) => sel(state()),
   }
 })
 
@@ -133,7 +135,7 @@ describe('IssuePage agent start controls', () => {
     if (!startButton) throw new Error('missing start-work button')
     await waitFor(() => expect(startButton.hasAttribute('disabled')).toBe(false))
     fireEvent.click(startButton)
-    await waitFor(() => expect(start).toHaveBeenCalledWith({ id: 'i-1' }))
+    await waitFor(() => expect(start).toHaveBeenCalledWith({ issueId: 'i-1', mode: 'begin' }))
   })
 
   /**

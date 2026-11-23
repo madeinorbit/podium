@@ -102,6 +102,7 @@ describe('binding receipt crash durability', () => {
       // Exercise POD-1079's real, live grant resolver. This capability exists
       // only for an apply; it is intentionally never handed to BindingStore.
       let grants = [
+        { grantee: machineOwner, verb: 'manage', custody: true },
         { grantee: owner, verb: 'see' },
         { grantee: owner, verb: 'use' },
       ]
@@ -176,7 +177,7 @@ describe('binding receipt crash durability', () => {
       // The human loses the use grant while the daemon is down. Recovery still
       // restores the delegation reference; the first apply resolves this table
       // again and refuses it.
-      grants = []
+      grants = grants.filter((grant) => !(grant.grantee === owner && grant.verb === 'use'))
 
       const restarted = await BindingStore.open({ dir })
       const sent: DaemonMessage[] = []
@@ -188,8 +189,20 @@ describe('binding receipt crash durability', () => {
           resume: { kind: 'codex-thread', value: 'crash-thread' },
           confidence: 'exact',
           ackRequested: true,
+          receipt: {
+            id: expect.any(String),
+            attemptId: 'attempt-crash-pane',
+            machineId,
+            observerGeneration: 0,
+            ownerId: owner,
+          },
         },
       ])
+      const repeated: DaemonMessage[] = []
+      expect(
+        await restarted.replayPendingReceiptsForOwner(owner, (msg) => repeated.push(msg)),
+      ).toBe(1)
+      expect(repeated).toEqual(sent)
       expect((await restarted.read(asSessionId('crash-pane')))?.observations[0]).toMatchObject({
         channel: 'process-ownership',
         source: 'process',
@@ -253,11 +266,35 @@ describe('binding receipt crash durability', () => {
         ),
       ).toBe('denied')
 
+      const refreshed: DaemonMessage[] = []
       expect(
-        await restarted.acknowledgePendingReceipt(owner, asSessionId('crash-pane'), {
-          kind: 'codex-thread',
-          value: 'crash-thread',
-        }),
+        await restarted.replayPendingReceiptsForOwner(owner, (msg) => refreshed.push(msg)),
+      ).toBe(1)
+      const current = refreshed[0]
+      const stale = sent[0]
+      if (current?.type !== 'sessionResumeRef' || stale?.type !== 'sessionResumeRef')
+        throw new Error('missing recovered resume receipt')
+      expect(current.receipt).toMatchObject({
+        observerGeneration: 2,
+        attemptId: 'attempt-crash-pane',
+      })
+      // Reattaching fences the old observer. Only the replay's current receipt
+      // can retire the durable pending observation.
+      expect(
+        await restarted.acknowledgePendingReceipt(
+          owner,
+          current.sessionId,
+          current.resume,
+          stale.receipt,
+        ),
+      ).toBe(false)
+      expect(
+        await restarted.acknowledgePendingReceipt(
+          owner,
+          current.sessionId,
+          current.resume,
+          current.receipt,
+        ),
       ).toBe(true)
       expect(await (await BindingStore.open({ dir })).pendingReceiptsForOwner(owner)).toEqual([])
     },

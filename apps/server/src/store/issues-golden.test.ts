@@ -20,20 +20,26 @@
  */
 
 import { asIssueId, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
-import type { IssueRow, SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import type { IssueRow } from '../store'
+import { type IssueEngineStore, openIssueEngineStore } from '../test-support/issue-store-engine'
 import { StaleIssueRevisionError } from './issue-revision'
 
 /**
  * A store whose host machine reports the fixture repo `/r`: an issue row resolves
- * its repo only through a machine that REPORTED the path (2b803efb5).
+ * its repo only through a machine that REPORTED the path (2b803efb5). On the test
+ * run's engine: a full test store on SQLite, the issue repositories over a Postgres
+ * clone on the `server-store-pg` lane (`test-support/issue-store-engine.ts`).
  */
-async function openIssueStore(...repos: string[]): Promise<SessionStore> {
-  const store = await openTestStore(':memory:')
+async function openIssueStore(...repos: string[]): Promise<IssueEngineStore> {
+  const store = await openIssueEngineStore()
   for (const repo of ['/r', ...repos]) await store.repos.addRepo(repo, store.hostMachineId)
   return store
 }
+
+/** A timestamp in `toISOString()` form: the Postgres leg refuses any other (design 2.3). */
+const AT = '2026-01-01T00:00:00.000Z'
 
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   return {
@@ -63,8 +69,8 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     blockedBy: [],
     dependencyNote: null,
     prUrl: null,
-    createdAt: 't',
-    updatedAt: 't',
+    createdAt: AT,
+    updatedAt: AT,
     archived: false,
     priority: 2,
     type: 'task',
@@ -84,9 +90,9 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
   }
 }
 
-async function seed(store: SessionStore, over: Partial<IssueRow> = {}): Promise<IssueRow> {
+async function seed(store: IssueEngineStore, over: Partial<IssueRow> = {}): Promise<IssueRow> {
   const row = issueRow(over)
-  await store.issues.upsertIssue(row)
+  await store.issues.upsertIssue(fixtureWriteScope(), row)
   return row
 }
 
@@ -96,20 +102,26 @@ async function seed(store: SessionStore, over: Partial<IssueRow> = {}): Promise<
  * foreign key onto `issues`, so a test writing children without them is
  * refused by the schema rather than testing anything.
  */
-async function seedIssues(store: SessionStore, ids: readonly string[]): Promise<void> {
+async function seedIssues(store: IssueEngineStore, ids: readonly string[]): Promise<void> {
   for (const [i, id] of ids.entries()) {
     await seed(store, { id: asIssueId(id), seq: i + 1 })
   }
 }
 
 describe('IssuesRepository: the revision precondition (POD-3373)', () => {
-  it('bumps the revision on every accepted write, starting at 1', async () => {
+  it('bumps the revision on every write that changes the row, starting at 1', async () => {
     const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
     // The bump is structural — it happens in the writer, with no cooperation
     // from the caller — and it stamps the caller's row in place.
     expect(row.revision).toBe(1)
-    await store.issues.upsertIssue(row)
+    row.title = 'changed'
+    await store.issues.upsertIssue(fixtureWriteScope(), row)
+    expect(row.revision).toBe(2)
+    expect((await store.issues.getIssue('iss_1'))?.revision).toBe(2)
+    // A write that changes nothing is skipped and keeps the stored revision
+    // (POD-6768), so it can never be a change row of only a new revision.
+    await store.issues.upsertIssue(fixtureWriteScope(), row)
     expect(row.revision).toBe(2)
     expect((await store.issues.getIssue('iss_1'))?.revision).toBe(2)
     await store.close()
@@ -118,7 +130,11 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   it('accepts a write whose expectedRevision matches the stored one', async () => {
     const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
-    await store.issues.upsertIssue({ ...row, title: 'second' }, { expectedRevision: 1 })
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      { ...row, title: 'second' },
+      { expectedRevision: 1 },
+    )
     expect((await store.issues.getIssue('iss_1'))?.title).toBe('second')
     await store.close()
   })
@@ -129,11 +145,15 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     // Somebody else committed in the gap: the row is now at revision 2 while
     // this caller's draft was cut from 1. Persisting it would write the draft's
     // whole field set back over the winner's columns.
-    await store.issues.upsertIssue({ ...row, title: 'winner' })
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...row, title: 'winner' })
 
     await expect(
       (async () =>
-        await store.issues.upsertIssue({ ...row, title: 'loser' }, { expectedRevision: 1 }))(),
+        await store.issues.upsertIssue(
+          fixtureWriteScope(),
+          { ...row, title: 'loser' },
+          { expectedRevision: 1 },
+        ))(),
     ).rejects.toThrow(StaleIssueRevisionError)
 
     expect((await store.issues.getIssue('iss_1'))?.title).toBe('winner')
@@ -145,14 +165,18 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     // The spelling matters: null is not "no precondition", it is the
     // precondition for a first write. A conversion that folded null into
     // "unchecked" would let a create silently overwrite a live row.
-    await store.issues.upsertIssue(issueRow({ id: asIssueId('iss_1') }), {
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_1') }), {
       expectedRevision: null,
     })
     await expect(
       (async () =>
-        await store.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), title: 'again' }), {
-          expectedRevision: null,
-        }))(),
+        await store.issues.upsertIssue(
+          fixtureWriteScope(),
+          issueRow({ id: asIssueId('iss_1'), title: 'again' }),
+          {
+            expectedRevision: null,
+          },
+        ))(),
     ).rejects.toThrow(StaleIssueRevisionError)
     expect((await store.issues.getIssue('iss_1'))?.title).toBe('X')
     await store.close()
@@ -161,7 +185,11 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   it('omitting the option checks nothing — the precondition is opt-in', async () => {
     const store = await openIssueStore()
     const row = await seed(store, { id: asIssueId('iss_1') })
-    await store.issues.upsertIssue({ ...row, revision: 99, title: 'stale-copy' })
+    await store.issues.upsertIssue(fixtureWriteScope(), {
+      ...row,
+      revision: 99,
+      title: 'stale-copy',
+    })
     // The stored revision, not the caller's copy, is what the bump is computed
     // from — so a hand-built or stale `revision` field cannot jump the counter.
     expect((await store.issues.getIssue('iss_1'))?.revision).toBe(2)
@@ -173,7 +201,11 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
     const row = await seed(store, { id: asIssueId('iss_1') })
     await expect(
       (async () =>
-        await store.issues.upsertIssue({ ...row, revision: 5 }, { expectedRevision: 5 }))(),
+        await store.issues.upsertIssue(
+          fixtureWriteScope(),
+          { ...row, revision: 5 },
+          { expectedRevision: 5 },
+        ))(),
     ).rejects.toThrow(StaleIssueRevisionError)
     await store.close()
   })
@@ -233,7 +265,7 @@ describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
     })
     const read = await store.issues.getIssue('iss_1')
     if (!read) throw new Error('seeded row missing')
-    await store.issues.upsertIssue({ ...read, title: 'second' })
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...read, title: 'second' })
     const again = await store.issues.getIssue('iss_1')
     expect({
       archived: again?.archived,
@@ -249,9 +281,21 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
   it('drops the rows of every user for one issue and leaves other issues alone', async () => {
     const store = await openIssueStore()
     const other = asUserId('usr_other')
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
-    await store.issues.setIssueUserState(other, asIssueId('iss_1'), { pinnedAt: 't' })
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_2'), { readAt: 't' })
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asIssueId('iss_1'),
+      { readAt: AT },
+    )
+    await store.issues.setIssueUserState(fixtureWriteScope(), other, asIssueId('iss_1'), {
+      tuckedAt: AT,
+    })
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asIssueId('iss_2'),
+      { readAt: AT },
+    )
 
     await store.issues.purgeIssueUserState(asIssueId('iss_1'))
 
@@ -261,20 +305,30 @@ describe('IssuesRepository: purgeIssueUserState (no test executes this today)', 
       await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_1')),
     ).toBeUndefined()
     expect(await store.issues.getIssueUserState(other, asIssueId('iss_1'))).toBeUndefined()
+    // The row also carries the member's personal records (POD-6290, design
+    // §4.4), empty here.
     expect(await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_2'))).toEqual({
-      readAt: 't',
+      readAt: AT,
       tuckedAt: null,
-      pinnedAt: null,
+      joinedAt: null,
+      joinedVia: null,
+      assignedAt: null,
+      assignedBy: null,
     })
     await store.close()
   })
 
   it('is a no-op for an issue nobody has touched', async () => {
     const store = await openIssueStore()
-    await store.issues.setIssueUserState(firstAdminMemberId(), asIssueId('iss_1'), { readAt: 't' })
+    await store.issues.setIssueUserState(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asIssueId('iss_1'),
+      { readAt: AT },
+    )
     await store.issues.purgeIssueUserState(asIssueId('iss_untouched'))
     expect(await store.issues.getIssueUserState(firstAdminMemberId(), asIssueId('iss_1'))).toEqual(
-      expect.objectContaining({ readAt: 't' }),
+      expect.objectContaining({ readAt: AT }),
     )
     await store.close()
   })
@@ -285,15 +339,47 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
     const store = await openIssueStore('/a', '/b')
     await seed(store, { id: asIssueId('iss_b2'), repoPath: '/b', seq: 2, worktreePath: '/wt/b' })
     await seed(store, { id: asIssueId('iss_a1'), repoPath: '/a', seq: 1, worktreePath: '/wt' })
-    await seed(store, { id: asIssueId('iss_b1'), repoPath: '/b', seq: 1, worktreePath: '/wt/b', archived: true })
-    await seed(store, { id: asIssueId('iss_b3'), repoPath: '/b', seq: 3, worktreePath: '/elsewhere' })
+    await seed(store, {
+      id: asIssueId('iss_b1'),
+      repoPath: '/b',
+      seq: 1,
+      worktreePath: '/wt/b',
+      archived: true,
+    })
+    await seed(store, {
+      id: asIssueId('iss_b3'),
+      repoPath: '/b',
+      seq: 3,
+      worktreePath: '/elsewhere',
+    })
 
     const rows = await store.issues.worktreeOwnerCandidates(['/wt/b/src'])
 
     expect(rows).toEqual([
-      { id: 'iss_a1', repoPath: '/a', seq: 1, worktreePath: '/wt', archived: false, machineId: null },
-      { id: 'iss_b1', repoPath: '/b', seq: 1, worktreePath: '/wt/b', archived: true, machineId: null },
-      { id: 'iss_b2', repoPath: '/b', seq: 2, worktreePath: '/wt/b', archived: false, machineId: null },
+      {
+        id: 'iss_a1',
+        repoPath: '/a',
+        seq: 1,
+        worktreePath: '/wt',
+        archived: false,
+        machineId: null,
+      },
+      {
+        id: 'iss_b1',
+        repoPath: '/b',
+        seq: 1,
+        worktreePath: '/wt/b',
+        archived: true,
+        machineId: null,
+      },
+      {
+        id: 'iss_b2',
+        repoPath: '/b',
+        seq: 2,
+        worktreePath: '/wt/b',
+        archived: false,
+        machineId: null,
+      },
     ])
     await store.close()
   })
@@ -303,7 +389,7 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
     await seed(store, {
       id: asIssueId('iss_1'),
       worktreePath: '/wt/1',
-      deletedAt: '2026-01-01T00:00:00Z',
+      deletedAt: '2026-01-01T00:00:00.000Z',
     })
     expect(await store.issues.worktreeOwnerCandidates(['/wt/1'])).toEqual([])
     await store.close()
@@ -317,7 +403,7 @@ describe('IssuesRepository: the projections (executed, never named)', () => {
       id: asIssueId('iss_gone'),
       seq: 3,
       parentId: asIssueId('iss_parent'),
-      deletedAt: '2026-01-01T00:00:00Z',
+      deletedAt: '2026-01-01T00:00:00.000Z',
     })
 
     const edges = await store.issues.listIssueParentEdges()
@@ -375,14 +461,14 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
       repoPath: '/root',
       seq: 1,
       repoId,
-      createdAt: '2026-01-01T00:00:00Z',
+      createdAt: '2026-01-01T00:00:00.000Z',
     })
     await seed(store, {
       id: asIssueId('iss_new'),
       repoPath: '/root/clone',
       seq: 1,
       repoId: cloneId,
-      createdAt: '2026-01-02T00:00:00Z',
+      createdAt: '2026-01-02T00:00:00.000Z',
     })
 
     await store.issues.assignRepoIdToIssuesUnder(repoId, '/root')
@@ -410,21 +496,21 @@ describe('IssuesRepository: assignRepoIdToIssuesUnder (executed, never named)', 
       repoPath: '/root',
       seq: 1,
       repoId,
-      createdAt: '2026-01-01T00:00:00Z',
+      createdAt: '2026-01-01T00:00:00.000Z',
     })
     await seed(store, {
       id: asIssueId('iss_older'),
       repoPath: '/root/older',
       seq: 1,
       repoId: await store.repos.resolveRepoIdForPath('/root/older'),
-      createdAt: '2026-01-02T00:00:00Z',
+      createdAt: '2026-01-02T00:00:00.000Z',
     })
     await seed(store, {
       id: asIssueId('iss_newer'),
       repoPath: '/root/newer',
       seq: 1,
       repoId: await store.repos.resolveRepoIdForPath('/root/newer'),
-      createdAt: '2026-01-03T00:00:00Z',
+      createdAt: '2026-01-03T00:00:00.000Z',
     })
 
     await store.issues.assignRepoIdToIssuesUnder(repoId, '/root')
@@ -477,7 +563,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
         issueId: asIssueId(issueId),
         author: 'a',
         body: 'b',
-        createdAt: 't',
+        createdAt: AT,
         actor: null,
         onBehalfOf: null,
       })
@@ -503,7 +589,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
         issueId: asIssueId(issueId),
         fromAuthor: 'a',
         body: 'b',
-        createdAt: 't',
+        createdAt: AT,
         status: 'unread',
         claimedBy: null,
         claimedAt: null,
@@ -519,7 +605,7 @@ describe('IssuesRepository: the batched child reads (executed, never named)', ()
 })
 
 describe('IssuesRepository: searchIssueComments (executed, never named)', () => {
-  async function withComments(store: SessionStore, bodies: readonly string[]): Promise<void> {
+  async function withComments(store: IssueEngineStore, bodies: readonly string[]): Promise<void> {
     await seedIssues(store, ['iss_1'])
     for (const [i, body] of bodies.entries()) {
       await store.issues.addIssueComment({
@@ -527,7 +613,7 @@ describe('IssuesRepository: searchIssueComments (executed, never named)', () => 
         issueId: asIssueId('iss_1'),
         author: 'a',
         body,
-        createdAt: `t${i}`,
+        createdAt: `2026-01-01T00:00:0${i}.000Z`,
         actor: null,
         onBehalfOf: null,
       })

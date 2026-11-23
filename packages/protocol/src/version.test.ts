@@ -23,6 +23,11 @@ describe('wire protocol version', () => {
 })
 
 describe('version support classification', () => {
+  it('requires clients to update with the shape-token wire', () => {
+    expect([MIN_CLIENT_WIRE_VERSION, CLIENT_WIRE_VERSION]).toEqual([5, 5])
+    expect(versionSupport(4)).toBe('too-old')
+    expect(versionSupport(5)).toBe('ok')
+  })
   it('MIN_CLIENT_WIRE_VERSION is a positive int ≤ CLIENT_WIRE_VERSION', () => {
     expect(Number.isInteger(MIN_CLIENT_WIRE_VERSION)).toBe(true)
     expect(MIN_CLIENT_WIRE_VERSION).toBeGreaterThan(0)

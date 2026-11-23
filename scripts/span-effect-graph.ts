@@ -234,6 +234,24 @@ export interface OpenerSpec {
  */
 export const SPAN_OPENERS: readonly OpenerSpec[] = [
   {
+    file: 'apps/server/src/store/machine-record-writes.ts',
+    symbol: 'CompareMachineRecords',
+    body: 'arg1',
+    label: 'MachineRecordWrites.compare',
+  },
+  {
+    file: 'apps/server/src/store/machine-record-context.ts',
+    symbol: 'writeFleetChannel',
+    body: 'arg1',
+    label: 'MachineRecordContextRepository.writeFleetChannel',
+  },
+  {
+    file: 'apps/server/src/modules/updates/recovery-store.ts',
+    symbol: 'write',
+    body: 'arg0',
+    label: 'UpdateRecoveryStore.write',
+  },
+  {
     file: 'packages/runtime/src/update-signing-key.ts',
     symbol: 'transaction',
     body: 'arg1',
@@ -252,6 +270,14 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'SessionStore.transact',
   },
   {
+    // The sign-in carry-over's one transaction (POD-6751): consume the old
+    // sign-in, issue the device sign-in, record and audit.
+    file: 'apps/server/src/store/sign-in-carry-over.ts',
+    symbol: 'transaction',
+    body: 'arg0',
+    label: 'SignInCarryOverRepository.transaction',
+  },
+  {
     file: 'apps/server/src/modules/lock/service.ts',
     symbol: 'transact',
     body: 'arg0',
@@ -262,12 +288,6 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     symbol: 'transact',
     body: 'arg0',
     label: 'IssueAttachPorts.transact',
-  },
-  {
-    file: 'apps/server/src/modules/messages/service.ts',
-    symbol: 'transact',
-    body: 'arg0',
-    label: 'MessagesDeps.transact',
   },
   {
     // The sync adapter's port over the store's transaction [POD-3338 for the
@@ -312,15 +332,27 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'Authority transact port',
   },
   {
+    file: 'apps/server/src/store/sessions.ts',
+    symbol: 'writeSessionRows',
+    body: 'arg1',
+    label: 'session write and message window',
+  },
+  {
+    file: 'apps/server/src/store/sessions.ts',
+    symbol: 'SessionMessageWindowWrite',
+    body: 'arg1',
+    label: 'message window write port',
+  },
+  {
     file: 'packages/sync/src/ledger.ts',
     symbol: 'commit',
-    body: { props: ['write', 'changes'] },
+    body: { props: ['write'] },
     label: 'Ledger.commit',
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
     symbol: 'commit',
-    body: { props: ['write', 'changes'] },
+    body: { props: ['write'] },
     label: 'Authority.commit',
   },
   {
@@ -330,8 +362,18 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     // transaction — has no root of its own to report against.
     file: 'apps/server/src/modules/issues/service/types.ts',
     symbol: 'commit',
-    body: { props: ['write', 'changes'] },
+    body: { props: ['write'] },
     label: 'IssueLedger.commit',
+  },
+  {
+    // The sessions service's narrow face on the same writer, for the reason the
+    // entry above gives. Before POD-6592 its calls resolved through to
+    // `Ledger.commit`; the port now holds a scoped `LedgerWriter`, so it is named
+    // here in its own right.
+    file: 'apps/server/src/modules/sessions/session-lifecycle-types.ts',
+    symbol: 'commit',
+    body: { props: ['write'] },
+    label: 'SessionLedger.commit',
   },
   {
     file: 'apps/server/src/modules/funnel.ts',
@@ -344,15 +386,6 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     symbol: 'transact',
     body: 'arg0',
     label: 'SyncUnitOfWork.transact',
-  },
-  {
-    // The chat message feed's boot reconcile [POD-4764]: composition binds it to
-    // `SessionStore.transact`, and the body reads the open set, reconciles the
-    // feed kind and turns the capture on in one unit of work.
-    file: 'apps/server/src/modules/message-feed/feed.ts',
-    symbol: 'transact',
-    body: 'arg0',
-    label: 'MessageFeedDeps.transact',
   },
 ]
 
@@ -369,23 +402,23 @@ export type OpenerExemption = SourceSite & { readonly why: string }
 export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 212,
-    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70, then 81; POD-3498's SpanScopeDrizzle comment moved it once and POD-3802's async-store fallout — `afterCommit`, the refusal reporting and the scheduler types now above it — moved it again. The lint REPORTED each move rather than following it silently, which is what pinning by line is for. Then 212: POD-6189's `openSpanFrame` above it.)",
+    line: 220,
+    why: "the ASYNC executor's own transact, declared on StoreExecutor. It is the MACHINERY under a span, not the span's mouth: after the flip every repository opens its unit of work through `createOrJoinTransaction`, whose implementation in sync-drizzle.ts calls this. Naming it as well would attribute each repository span twice, once at the call site and once at a body argument that arrives here as a parameter and is therefore opaque. (Was 70, then 81; POD-3498's SpanScopeDrizzle comment moved it once and POD-3802's async-store fallout — `afterCommit`, the refusal reporting and the scheduler types now above it — moved it again. The lint REPORTED each move rather than following it silently, which is what pinning by line is for. Then 212: POD-6189's `openSpanFrame` above it. Then 245: POD-7009's StoreContext and its constructors above it. Then 220: extracting that context into its shared leaf removes the same declarations above this unchanged transaction interface.)",
   },
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 1036,
-    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time. Then 1026: POD-6189's `openSpanFrame`. Then 1036: POD-6226's root `effect` on RootStoreExecutor.)",
+    line: 1067,
+    why: "the same declaration's implementation. (Was 676, then 680, then 678; POD-3345's idle-gap clock, the flip's own edits and POD-3802's async-store fallout moved it. Reported each time. Then 1026: POD-6189's `openSpanFrame`. Then 1036: POD-6226's root `effect` on RootStoreExecutor. Then 1078: POD-7009's workspace contexts. Then 1092: POD-6979's query-layer check. Then 1067: extracting StoreContext into its shared leaf moves this unchanged transaction machinery.)",
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
-    line: 130,
+    line: 131,
     why: 'the property that HOLDS the transact port; the port itself is named by its own entry in packages/sync/src/authority/ports.ts.',
   },
   {
     file: 'packages/sync/src/ledger.ts',
-    line: 115,
-    why: 'the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above.',
+    line: 95,
+    why: 'the Ledger deps property; it is handed straight to the Authority, so every call goes through the port entry above. (Was 117; POD-6920 removed the record-naming types above it.)',
   },
   {
     file: 'packages/sync/src/adapters/indexeddb/idb.ts',
@@ -398,9 +431,44 @@ export const NOT_A_SPAN_OPENER: readonly OpenerExemption[] = [
     why: "IndexedDB's own transaction helper: a browser adapter, no server span.",
   },
   {
+    file: 'packages/sync/src/adapters/indexeddb/schema.ts',
+    line: 127,
+    why: 'The native IndexedDB versionchange transaction supplied by onupgradeneeded. This property holds a transaction handle; it cannot open a server span.',
+  },
+  {
     file: 'packages/sync/src/adapters/indexeddb/store.ts',
-    line: 581,
+    line: 793,
     why: 'Native IndexedDB transaction acquisition and connection recovery, taking store names and a mode without a body callback. Logical span bodies enter through the already-declared SyncUnitOfWork.transact port.',
+  },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 113,
+    why: "the identity package's database port, SQLite arm (POD-6744): the property that HOLDS the transaction runner an edition hands in. On the server that runner is `createOrJoinTransaction`, which is named as an opener where the server binds it.",
+  },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 114,
+    why: "the identity package's database port, Postgres arm: the same property for the cloud's database. No server span exists there.",
+  },
+  {
+    file: 'packages/identity/src/runtime.ts',
+    line: 90,
+    why: "Runtime.transaction joins or delegates to the edition's database port. The server's createOrJoinTransaction binding is already a named opener; classifying this forwarding method as well would count the same span twice.",
+  },
+  {
+    file: 'packages/identity/src/runtime.ts',
+    line: 201,
+    why: "The implementation of Runtime.transaction joins the current async-local transaction or delegates to the edition's database port, binding the library adapter to that handle. It does not introduce an independent span.",
+  },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 149,
+    why: "the identity core's `transaction` (PDM-495): forwards to the edition's port above. The server's self-hosted issue and revoke ceremonies run identity and audit statements on that same store connection, then close sockets after commit.",
+  },
+  {
+    file: 'packages/identity/src/types.ts',
+    line: 431,
+    why: 'AppliedCursor.transaction is the hosted applied-cursor port (PDM-509), bound by the server to SessionStore.transact, already classified above. The forwarding port does not introduce an independent span.',
   },
 ]
 
@@ -471,6 +539,8 @@ const NODE_MODULE_KIND: Readonly<Record<string, CapabilityKind>> = {
   util: 'contained',
   crypto: 'contained',
   buffer: 'contained',
+  // `Buffer.from`/`concat`/`subarray` are declared in @types/node's `buffer.buffer.d.ts`.
+  'buffer.buffer': 'contained',
   string_decoder: 'contained',
   querystring: 'contained',
   assert: 'contained',
@@ -519,6 +589,9 @@ const PACKAGE_KIND: Readonly<Record<string, CapabilityKind>> = {
   // and deferring it past a rollback would lose the very diagnostic a corrupt
   // row is being reported for. The store's quarantine warnings live here.
   '@podium/logger': 'exempt',
+  // The AWS SDK's request sender, behind the S3 blob store adapter: every call is a
+  // request to the bucket, which a rollback cannot take back (POD-7054).
+  '@smithy/core': 'observable',
 }
 
 /** A port member's classification, and the sentence that justifies it. */
@@ -541,6 +614,70 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'packages/blob-store/src/local.ts#LocalBlobStore.writer': {
+    kind: 'opaque',
+    why: "The write callback the local blob store hands its transfer fence. Its body is the adapter's own put, delete or copy, declared in the same file and walked there.",
+  },
+  'packages/blob-store/src/internal.ts#KeyedMutex.task': {
+    kind: 'opaque',
+    why: "The work the local blob store's per-key mutex runs; the body is the adapter's own file operation, declared at the call site in local.ts and walked there.",
+  },
+  'packages/blob-store/src/internal.ts#KeyedMutex.release': {
+    kind: 'contained',
+    why: 'Resolves an in-process promise that hands the key to the next waiter; nothing outside the process can see it.',
+  },
+  'packages/sync/src/adapters/indexeddb/idb.ts#IdbKeyRangeLike.bound': {
+    kind: 'contained',
+    why: 'Builds an IndexedDB key range value (the marker rows of one principal, POD-7086) for a delete staged in the same native transaction; constructing it reads and writes nothing.',
+  },
+  'apps/server/src/store/events.ts#EventFeedCapture.EventFeedCapture': {
+    kind: 'contained',
+    why: 'The event append capture names window changes through Ledger.commit in the event insert transaction; rollback discards the row and log entries together, and subscriber delivery follows the outermost commit.',
+  },
+  'apps/server/src/store/interactions.ts#InteractionFeedCapture.InteractionFeedCapture': {
+    kind: 'contained',
+    why: 'The interaction capture names successful guarded row changes through Ledger.commit in the source transaction; subscriber delivery follows its outermost commit and rollback discards both row and log writes.',
+  },
+  'apps/server/src/store/interactions.ts#InteractionsRepository.query': {
+    kind: 'opaque',
+    why: 'The interaction repository supplies its own prepared SQL write callbacks in this file, as MessagesRepository.query does; those callback bodies are checked where they are declared.',
+  },
+  'apps/server/src/store/users.ts#UsersRepository.memberCreated': {
+    kind: 'contained',
+    why: 'Creates the member default thread through the repository write funnel in the account transaction; its log capture joins the transaction and delivers to subscribers only after commit.',
+  },
+  'apps/server/src/store/machine-record-writes.ts#CompareMachineRecords.CompareMachineRecords': {
+    kind: 'contained',
+    why: 'Builds records around the source write and appends their changes with checkout reach in the same store transaction. Its write callback is a declared span root and delivery follows the outermost commit.',
+  },
+  'apps/server/src/store/machine-record-writes.ts#MachineIds.MachineIds': {
+    kind: 'contained',
+    why: 'Selects affected machine identifiers through prepared store reads in the current transaction. The providers read machine IDs or grant resource IDs.',
+  },
+  'apps/server/src/store/machine-record-context.ts#MachineRecordContextRepository.write': {
+    kind: 'opaque',
+    why: 'The settings source write supplied to writeFleetChannel. Its body is checked at that declared span opener and commits with the resolved fleet channel.',
+  },
+  'apps/server/src/modules/updates/recovery-store.ts#UpdateRecoveryStore.snapshot': {
+    kind: 'opaque',
+    why: 'Builds the checkpoint after acquiring the write lane. The caller supplies its body at the declared UpdateRecoveryStore.write span opener.',
+  },
+  'apps/server/src/modules/updates/recovery-store.ts#UpdateRecoveryPersistence.write': {
+    kind: 'contained',
+    why: 'Persists the checkpoint and compares any affected machine records in the same store transaction. The snapshot callback is checked at the declared write opener.',
+  },
+  'apps/server/src/modules/updates/service.ts#UpdatesDeps.now': {
+    kind: 'contained',
+    why: 'The injected updater clock supplies checkpoint timestamps through a read of time with no external publication.',
+  },
+  'apps/server/src/store/user-preferences.ts#UserPreferencesRepository.written': {
+    kind: 'contained',
+    why: "The settings repository's per-operation memo invalidation after a preference row write [POD-6218]: it forgets an in-process resolution, performs no I/O and publishes nothing, so a rollback leaves nothing outside the process changed.",
+  },
+  'apps/server/src/modules/user-records/records.ts#UserRecordDeps.sessions': {
+    kind: 'contained',
+    why: "The sessions repository's pin and tab-order reads and writes [POD-6673]: composition binds it to SessionsRepository, whose statements join the entry point's transaction; the change entries go through Ledger.commit in the same unit, so a rollback takes them with it and nothing outside the process saw them.",
+  },
   'packages/runtime/src/settings.ts#<module>.<anonymous>': {
     kind: 'contained',
     why: 'The legacy harness-backend migration callback only maps one settings value to another; it performs no I/O or publication, so rollback leaves nothing outside the process changed.',
@@ -553,6 +690,59 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'Reads the existing committed IssueStore map without I/O or publication; rollback leaves nothing observable outside this process.',
   },
+  'apps/server/src/identity/member-credentials.ts#MemberCredentials.hasPassword': {
+    kind: 'contained',
+    why: "Reads whether the member's account has a password login method (POD-6746): the member row through UsersRepository and one read of the identity package, both on the store's one drizzle handle inside the open transaction. No I/O outside the database and nothing is published.",
+  },
+  'apps/server/src/identity/member-credentials.ts#MemberCredentials.setPasswordHash': {
+    kind: 'contained',
+    why: "Writes the password login method of the member's account from a hash made before the transaction opened (POD-6746). The identity package's transaction is the store's `createOrJoinTransaction`, so the write joins the setup transaction and rolls back with it; a password write steps no membership version, writes no member row and publishes nothing.",
+  },
+  'packages/identity/src/types.ts#MembershipOperations.list': {
+    kind: 'contained',
+    why: "Reads the workspace's memberships with the identity package's own statements on the store's drizzle handle (POD-6746, `ensureLocalIdentity`); it joins the open transaction and has no effect outside the database.",
+  },
+  // THE SIGN-IN CARRY-OVER'S ONE TRANSACTION (POD-6751; docs/design/sign-in-carry-over.md, section 4.2).
+  'apps/server/src/sign-in-carry-over.ts#SignInCarryOverDeps.now': {
+    kind: 'contained',
+    why: 'Reads the clock, so that the consuming statement, the carry record and the repeat use one instant. No I/O and nothing is published.',
+  },
+  'apps/server/src/sign-in-carry-over.ts#SignInCarryOverDeps.audit': {
+    kind: 'contained',
+    why: "Inserts the one audit row of a carry through UsersRepository.audit on the store's drizzle handle; it joins the carry's transaction and rolls back with it. Nothing leaves the database.",
+  },
+  'packages/identity/src/types.ts#MembershipOperations.accountOfActiveMember': {
+    kind: 'contained',
+    why: "One read of a membership by primary key with the identity package's own statement on the store's drizzle handle; it joins the carry's transaction and has no effect outside the database.",
+  },
+  'packages/identity/src/types.ts#DeviceSignInOperations.create': {
+    kind: 'contained',
+    why: "Creates the device sign-in an old sign-in is exchanged for. The identity package writes the row through the sign-in library's adapter on the store's drizzle handle, so it joins the carry's transaction and rolls back with it (pinned by the injected-fault test of sign-in-carry-over.carry.test.ts). It sends nothing: the cookie it returns is added to the response after the commit, and no socket, agent or daemon learns of a sign-in that did not commit.",
+  },
+  'apps/server/src/identity/member-of-request.ts#MemberOfRequest.<anonymous>': {
+    kind: 'contained',
+    why: "Resolves the cookie of a carry record inside the carry's transaction (the repeat, section 4.3): one read of the identity package on the store's drizzle handle and one read of the member row, plus the package's hourly last-seen touch, which joins the transaction. No effect outside the database.",
+  },
+  'packages/identity/src/types.ts#MembershipOperations.adopt': {
+    kind: 'contained',
+    why: "Gives a member row its membership and account at boot (POD-6746, `ensureLocalIdentity`): membership, account and workspace revision rows written by the identity package through the store's `createOrJoinTransaction`, and the member row through `UsersRepository.writeMemberRow`, whose own effects are analysed where it is declared. Everything joins the one boot transaction and rolls back with it; nothing is sent outside the process.",
+  },
+  'packages/identity/src/types.ts#AccountOperations.create': {
+    kind: 'contained',
+    why: 'The local upgrade creates the account and copies an existing hash through the identity port. Those writes use the same store transaction as the member and membership rows.',
+  },
+  'packages/identity/src/types.ts#AccountOperations.updateProfile': {
+    kind: 'contained',
+    why: 'The local upgrade copies the avatar before adopting the member. The account write joins the store transaction, and there is no membership for that account to notify yet.',
+  },
+  'packages/identity/src/membership/legacy-link.ts#LegacyLinkImporter.<anonymous>': {
+    kind: 'contained',
+    why: 'The internal legacy link import writes the stored hash and expiry through the workspace transaction. It does not issue or send a link.',
+  },
+  'packages/identity/src/types.ts#TransactionPort.fn': {
+    kind: 'opaque',
+    why: "the body the identity package runs in a transaction of the server's store (POD-6746): `SessionStore.identityDatabase()` hands the package `createOrJoinTransaction`, and this is the package's callback inside it. Its statements go through the store's one drizzle handle and join that transaction; what the package does there is its own membership, account and device sign-in writes, and the member row write, which is `UsersRepository.writeMemberRow` and is analysed where it is declared.",
+  },
   'apps/server/src/store/committed-rows.ts#CommittedRows.query': {
     kind: 'opaque',
     why: 'The repository-supplied write callback; every CommittedRows.write argument is a span root, so its effects are checked where the query is declared.',
@@ -561,13 +751,62 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'Resolves the active administrator through the owning store’s earliestAdmin query; it only reads database state, so rollback leaves no externally observed effect.',
   },
-  'apps/server/src/modules/message-feed/feed.ts#MessageFeedDeps.listOpen': {
+  'apps/server/src/store/change-log-commit.ts#ChangeLogCommit.ChangeLogCommit': {
     kind: 'contained',
-    why: "The feed's boot read of the open chat messages [POD-4764]: composition binds it to MessagesRepository.listOpenChat, a SELECT with no write and no publication.",
+    why: "a repository's change-log hook (POD-6920): inside an open change-log commit it runs the write as is; otherwise it runs it as a Ledger commit, a savepoint of the enclosing transaction whose delivery waits for the outermost commit (`postCommit`), so nothing outside the process sees it before then",
+  },
+  'apps/server/src/store/change-log-commit.ts#ChangeLogCommit.write': {
+    kind: 'contained',
+    why: "the repository write a change-log hook runs (POD-6920): the repository's own statements on the store connection, inside the span",
+  },
+  'apps/server/src/store/change-log-commit.ts#<module>.write': {
+    kind: 'contained',
+    why: "the repository write `throughChangeLog` and `inChangeLogTransaction` run (POD-6920): the repository's own statements on the store connection, inside the span",
+  },
+  'apps/server/src/store/change-log-commit.ts#<module>.transaction': {
+    kind: 'contained',
+    why: "the repository's own transaction runner, used by `inChangeLogTransaction` when no hook is installed (a store-level test): `createOrJoinTransaction` over the same connection",
+  },
+  'apps/server/src/store/settings.ts#SettingsRepository.write': {
+    kind: 'contained',
+    why: "the preference write `inSettingsCommit` runs inside the instance capture's change-log commit (POD-6920): the settings repository's own statements on the store connection",
   },
   'apps/server/src/store/messages.ts#MessagesRepository.query': {
     kind: 'opaque',
     why: "The messages repository's own write callback, handed to its write funnel [POD-4764]; every caller's query is declared in the same file and is checked there, exactly as CommittedRows.query is.",
+  },
+  'apps/server/src/store/effects.ts#EffectsRepository.query': {
+    kind: 'opaque',
+    why: "The effects repository's own write callback, handed to its write funnel [POD-6357]; every caller's query is declared in the same file and is checked there, exactly as MessagesRepository.query is.",
+  },
+  'apps/server/src/store/effects.ts#EffectFeedCapture.EffectFeedCapture': {
+    kind: 'contained',
+    why: "The effect record feed's capture [POD-6357]: it appends the rows' feed changes to the change log through Ledger.commit, which joins this same transaction and defers subscriber delivery past the outermost commit. The trigger is registered separately with afterCommit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
+  'apps/server/src/store/notices.ts#NoticesRepository.query': {
+    kind: 'opaque',
+    why: "The notices repository's own write callback, handed to its write funnel (write) [POD-6881]; every caller's query is declared in the same file and is checked there, exactly as SuperagentRepository.query is.",
+  },
+  'apps/server/src/store/notices.ts#NoticeFeedCapture.NoticeFeedCapture': {
+    kind: 'contained',
+    why: "The inboxNotice record feed's capture [POD-6881]: it appends the written rows' inboxNotice changes to the change log through Ledger.capture, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
+  'apps/server/src/store/superagent.ts#SuperagentRepository.query': {
+    kind: 'opaque',
+    why: "The superagent repository's own thread write callback, handed to its write funnel (writeThreads) [POD-6675]; every caller's query is declared in the same file and is checked there, exactly as EffectsRepository.query is.",
+  },
+  'apps/server/src/store/superagent.ts#SuperagentThreadFeedCapture.SuperagentThreadFeedCapture': {
+    kind: 'contained',
+    why: "The superagent thread record feed's capture [POD-6675]: it appends the written rows' superagentThread changes to the change log through Ledger.commit, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+  },
+  'apps/server/src/store/settings.ts#InstancePreferencesFeedCapture.InstancePreferencesFeedCapture':
+    {
+      kind: 'contained',
+      why: "The instance settings record feed's capture [POD-6677]: it appends the written blob's instancePreferences change to the change log through Ledger.commit, which joins this same transaction and defers subscriber delivery past the outermost commit. A rollback takes the appended change with it and nothing outside the process saw it.",
+    },
+  'apps/server/src/modules/superagent/thread-records.ts#ThreadRecordDeps.threads': {
+    kind: 'contained',
+    why: "The superagent repository's thread read and spec write for an owner's generic edit [POD-6675]: composition binds it to SuperagentRepository, whose statements join the entry point's transaction and whose feed capture appends the record's change in the same unit, so a rollback takes both with it and nothing outside the process saw them.",
   },
   'apps/server/src/store/messages.ts#MessagesRepository.fail': {
     kind: 'opaque',
@@ -585,17 +824,69 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: "The owning repository's one-row status SELECT, read only when a guarded move did not apply [POD-4765]; declared beside the write in its repository and checked there.",
   },
+  'packages/model/src/records/index.ts#<module>.recordOf': {
+    kind: 'contained',
+    why: 'A lookup in the declared record table by kind: the marker map sorts a marker it sets by the links its collection declares (POD-7119). Pure data; no I/O, nothing observable outside the process.',
+  },
   'packages/model/src/state-machine.ts#StateMachine.allowedFrom': {
     kind: 'contained',
     why: 'A lookup in the declared transition table: the states a row may be in for a move into one state. Pure data; no I/O, nothing observable outside the process.',
   },
   'apps/server/src/store/messages.ts#MessageFeedCapture.MessageFeedCapture': {
     kind: 'contained',
-    why: "The chat message feed's capture [POD-4764]: it appends the rows' feed changes to the change log through Ledger.capture, which joins this same transaction, and defers both the subscriber delivery (the Authority's postCommit) and its own memory (applyAfterCommit) past the outermost commit. A rollback takes the appended changes with it and nothing outside the process saw them.",
+    why: 'The chat message feed capture names the changed records through Ledger.commit in the source transaction. Subscriber delivery follows the outermost commit, and a rollback discards the row writes and their log appends together.',
   },
-  'packages/sync/src/ledger.ts#LedgerCommitOp.changes': {
+  'apps/server/src/store/events.ts#EventPruneFeedCapture.EventPruneFeedCapture': {
     kind: 'contained',
-    why: "a pure derivation: it maps the write's result to the change specs that describe it. It reads the value the write returned and computes; it performs no database call and no effect of any kind, so a rollback leaves nothing for anything outside the process to have seen.",
+    why: 'The retention capture reads the event window and names its changed records through Ledger.commit inside the deletion transaction. Subscriber delivery follows the outermost commit.',
+  },
+  'apps/server/src/store/sessions.ts#SessionsRepository.purgeObservationCheckpoint': {
+    kind: 'contained',
+    why: 'The awaited observation-checkpoint repository delete joins the session purge transaction and writes only database rows.',
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.facts': {
+    kind: 'contained',
+    why: "The machine records' read of the machines' record facts [POD-6644]: composition binds it to the machines service's store reads, which join the records write's transaction; it writes and publishes nothing.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.grants': {
+    kind: 'contained',
+    why: "The machine records' one grouped read of the machines' grant edges [POD-6644], on the store inside the same transaction; it writes and publishes nothing.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.members': {
+    kind: 'contained',
+    why: "The machine records' read of the enabled members and their roles [POD-6644], on the store inside the same transaction; it writes and publishes nothing.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.of': {
+    kind: 'contained',
+    why: 'The recorded checkout reach of the machines whose access rows this write appended [POD-6644]: one grouped read of checkout_reach inside the same transaction; it writes and publishes nothing.',
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.lost': {
+    kind: 'contained',
+    why: 'The lost checkouts of the machines whose access rows this write appended [POD-6644]: one grouped read of checkout_lost inside the same transaction; it writes and publishes nothing.',
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.paths': {
+    kind: 'contained',
+    why: "The live checkouts of the machines where a member's reach shrank [POD-6644]: one grouped read of checkouts inside the same transaction, only on a shrink; it writes and publishes nothing.",
+  },
+  'apps/server/src/modules/machines/records.ts#MachineRecordsDeps.apply': {
+    kind: 'contained',
+    why: "The appended members' new checkout reach and the checkouts a shrink took from them or a re-grant gave back, written to the server-only checkout_reach and checkout_lost tables [POD-6644] in the same transaction as the access rows' capture. Nothing outside the process reads them until commit, and a rollback takes them with the rows.",
+  },
+  'apps/server/src/machine-access.ts#MachineOwnershipIndex.rowFor': {
+    kind: 'contained',
+    why: 'A lookup in the ownership index the machine records built from rows they already read [POD-6644]; pure over that map.',
+  },
+  'apps/server/src/machine-access.ts#MachineOwnershipIndex.delegatedMachines': {
+    kind: 'contained',
+    why: 'A lookup in the same in-memory ownership index [POD-6644]; pure over rows already read, no I/O.',
+  },
+  'apps/server/src/modules/checkouts/service.ts#CheckoutsDeps.writer': {
+    kind: 'contained',
+    why: "The checkout record feed's writer [POD-6644]: composition binds it to the server's system-scoped writer, whose commit compares the scan's checkout records around the row write and appends changes in the same transaction, and subscriber delivery waits for the outermost commit. A rollback takes the appended changes with the checkout rows and nothing outside the process saw them.",
+  },
+  'apps/server/src/modules/issues/service/types.ts#IssueDeps.arbitrate': {
+    kind: 'contained',
+    why: 'Wraps a writer in the issue revision arbitration (IssueAuthorityArbitration.wrap, POD-6594): it returns a writer and does no I/O itself; the commit it later makes is analysed at its own call.',
   },
   /* --- captured projection inputs (POD-3855) ------------------------------ */
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.sessionFacts': {
@@ -687,6 +978,86 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'the memoising wrapper around a caller-supplied prepared-query builder; it adds no I/O of its own, and the builder is judged at its declaration',
   },
+  // POD-6959 (workspace store context, POD-7009): a workspace definition's
+  // accessor, and the bound view's `execute` that executeRaw calls.
+  'packages/sync/src/adapters/sqlite/prepared.ts#PreparedAccessor.<anonymous>': {
+    kind: 'opaque',
+    why: "a workspace definition's accessor: it returns the definition's statement prepared once per drizzle instance, or that statement's bound view for a workspace handle, which fills workspaceId and checks the open transaction's workspace; no I/O of its own, and the builder is judged at its declaration",
+  },
+  'packages/sync/src/adapters/sqlite/prepared.ts#PreparedFamilyAccessor.<anonymous>': {
+    kind: 'opaque',
+    why: "a workspace family's accessor: the same as PreparedAccessor, per shape; no I/O of its own, and the builder is judged at its declaration",
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.execute': {
+    kind: 'contained',
+    why: "executeRaw's call of a prepared raw statement (or its bound view, which adds the workspace): one statement on the store's drizzle instance, routed to the open transaction's connection; no effect outside the database",
+  },
+  // POD-7013: the first repositories that run workspace statements through a handle.
+  'packages/sync/src/adapters/sqlite/prepared.ts#Bound.<anonymous>': {
+    kind: 'contained',
+    why: "a bound view's get, all, run, values or execute: the definition's prepared statement with workspaceId filled from the handle, after checking the open transaction is the same workspace's; one statement on the store's drizzle instance, routed to the open transaction's connection, so no effect outside the database",
+  },
+  // POD-6977 (tables from the binding): the store's and the sync adapter's
+  // typed names for the same two helpers of prepared.ts.
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.prepared': {
+    kind: 'opaque',
+    why: "prepared.ts's prepared under the store's types (the same function): it memoises a caller-supplied builder per drizzle instance and adds no I/O of its own; the builder is judged at its declaration",
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.preparedFamily': {
+    kind: 'opaque',
+    why: "prepared.ts's preparedFamily under the store's types (the same function): it memoises a caller-supplied builder per drizzle instance and shape and adds no I/O of its own; the builder is judged at its declaration",
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#<module>.<anonymous>': {
+    kind: 'opaque',
+    why: 'the memoising wrapper a store definition is (prepared.ts, typed for the store); it adds no I/O of its own, and the builder is judged at its declaration',
+  },
+  // POD-6995 (two-engine slice): a two-form definition's statement, typed with its
+  // declared values.
+  'apps/server/src/store/executor/dialect-prepared.ts#DialectStatement.<anonymous>': {
+    kind: 'contained',
+    why: "a two-form definition's run method (get, all, run, values, execute): the statement of the form the store's engine built, one statement on the store's drizzle instance, routed to the open transaction's connection; no effect outside the database",
+  },
+  // POD-6985: change capture's Postgres form (sync/capture-pg.ts), reached from a span
+  // through the message status move, which the repository prepares on its first call.
+  // Each renders SQL with drizzle's Postgres dialect; none runs a statement.
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildUpdateSet': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders an update's SET list as SQL text; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildInsertQuery': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders an insert as SQL text for the capture form; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildDeleteQuery': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders a delete as SQL text for the capture form; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.buildSelection': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect renders a RETURNING selection as SQL text; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#PgWriteBuilder.sqlToQuery': {
+    kind: 'contained',
+    why: "drizzle's Postgres dialect turns a SQL fragment into query text and parameters; a pure computation, no statement runs",
+  },
+  'apps/server/src/sync/capture-pg.ts#RowRef.RowRef': {
+    kind: 'contained',
+    why: 'the capture form names one column of the old or new row as an SQL expression string; a pure computation, no statement runs',
+  },
+  // POD-6986: the shipping guards (store/append-only.ts), which captureWrite applies when it
+  // renders a write's Postgres form. Each builds SQL; none runs a statement.
+  'apps/server/src/store/append-only.ts#WriteGuardForm.where': {
+    kind: 'contained',
+    why: "the guard's in-statement refusal ANDed into a write's WHERE, built as SQL from the write's own WHERE; a pure computation, no statement runs",
+  },
+  'apps/server/src/store/append-only.ts#RowRef.RowRef': {
+    kind: 'contained',
+    why: 'a guard rule names one column of the written row as an SQL expression string; a pure computation, no statement runs',
+  },
+  'packages/sync/src/adapters/sqlite/sync-repository.ts#<module>.<anonymous>': {
+    kind: 'opaque',
+    why: 'the memoising wrapper a sync-repository definition is (prepared.ts, typed for the adapter); it adds no I/O of its own, and the builder is judged at its declaration',
+  },
   'apps/server/src/store/executor/operation-loader.ts#OperationLoader.loadMany': {
     kind: 'contained',
     why: "POD-6189: reads rows through the loader's batch on the store's own database (inside a span, on the span's connection) and memoises them for the operation in this process; no publication, and a rollback leaves no memo behind (a span that wrote the rows reads into a frame memo)",
@@ -767,9 +1138,46 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: 'a pure repo-id resolver injected at construction',
   },
-  'apps/server/src/store/issues.ts#IssuesRepository.sessionRefPublisher': {
-    kind: 'contained',
-    why: 'The composition hook declares birth-session reference rows through ledger.capture in the repair span; authority publication waits for commit, so a rollback exposes nothing outside the process.',
+  'apps/server/src/store/issues.ts#IssuesRepository.sessionRefWrite': {
+    kind: 'opaque',
+    why: 'The composition hook compares dependent session records around an issue source write; its callback body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/events.ts#EventsRepository.sessionPruneWrite': {
+    kind: 'opaque',
+    why: 'The injected retention wrapper compares dependent session records around the source delete; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/events.ts#EventsRepository.write': {
+    kind: 'opaque',
+    why: 'The retention source write handed to its comparison wrapper; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/repos.ts#ReposRepository.sessionRecordWrite': {
+    kind: 'opaque',
+    why: 'The injected repository-root wrapper compares dependent session records around the source write; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/repos.ts#ReposRepository.write': {
+    kind: 'opaque',
+    why: 'The repository-root source write handed to its comparison wrapper; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/conversations/registry.ts#ConversationRegistryRepository.sessionRecordWrite':
+    {
+      kind: 'opaque',
+      why: 'The injected native-conversation mapping wrapper compares dependent session records around the source write; its body is supplied and analysed at the call site.',
+    },
+  'apps/server/src/store/conversations/registry.ts#ConversationRegistryRepository.write': {
+    kind: 'opaque',
+    why: 'The native-conversation mapping source write handed to its comparison wrapper; its body is supplied and analysed at the call site.',
+  },
+  'apps/server/src/store/issues.ts#IssuesRepository.write': {
+    kind: 'opaque',
+    why: 'The issue source write handed to its dependent-session comparison wrapper; its body is supplied and analysed at the call site.',
+  },
+  'packages/sync/src/adapters/sqlite/sync-repository.ts#SyncRepository.sessionRecordWrite': {
+    kind: 'opaque',
+    why: 'The injected queue-write wrapper compares its dependent session records in the source commit; its callback body is supplied and analysed at the call site.',
+  },
+  'packages/sync/src/adapters/sqlite/sync-repository.ts#SyncRepository.write': {
+    kind: 'opaque',
+    why: 'The source queue write passed through writeQueue and sessionRecordWrite; its body is supplied and analysed at the call site.',
   },
   'apps/server/src/store/repos.ts#ReposRepository.repoIdResolver()': {
     kind: 'contained',
@@ -811,6 +1219,14 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
 
   /* --- reads, clocks and same-unit writes --------------------------------- */
+  'apps/server/src/modules/settings/service.ts#SettingsService.now': {
+    kind: 'contained',
+    why: 'a clock read for the preference timestamp; a rollback publishes no observation outside this process',
+  },
+  'apps/server/src/modules/settings/service.ts#SettingsService.writeBinding': {
+    kind: 'contained',
+    why: 'Both writeTelegramRoute callers supply only a TelegramBindingsRepository upsert or removeForUser statement on the same store transaction, so rollback undoes the binding with its routing preference and no provider I/O or publication occurs inside the span.',
+  },
   'apps/server/src/modules/lock/service.ts#LockServiceDeps.now': {
     kind: 'contained',
     why: 'a clock read',
@@ -903,7 +1319,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   /* --- OBSERVABLE: rule 19 moves these ------------------------------------ */
   'apps/server/src/store/events.ts#EventAppendListener.EventAppendListener': {
     kind: 'observable',
-    why: 'the feed announcement itself; A row 1 is exactly this call deferred',
+    why: 'The post-commit event observer can notify external consumers; it is separate from the transactional EventFeedCapture and must remain deferred.',
   },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueCreated': {
     kind: 'observable',
@@ -912,6 +1328,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueClosed': {
     kind: 'observable',
     why: 'starts session teardown, which tears down processes outside this one',
+  },
+  'apps/server/src/modules/issues/service/types.ts#IssueDeps.onIssueReassigned': {
+    kind: 'contained',
+    why: 'the composition root only registers an afterCommit step; the two inbox notices are sent after the commit (POD-6287)',
   },
   'apps/server/src/modules/issues/service/types.ts#IssueDeps.onMailSent': {
     kind: 'observable',
@@ -1063,25 +1483,45 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'a persist-options callback, supplied at the call site inside the span',
   },
-  'apps/server/src/modules/issues/service/core.ts#IssueStore.extraChanges': {
+  'apps/server/src/modules/issues/service/core.ts#IssueStore.decide': {
+    kind: 'contained',
+    why: 'a personal-record decision (POD-6290): maps the stored user-state row to a patch, computation only',
+  },
+  'apps/server/src/modules/issues/service/core.ts#IssueStore.afterWrite': {
     kind: 'opaque',
-    why: 'a persist-options callback, supplied at the call site inside the span',
+    why: 'a persist-options callback, supplied at the call site inside the span (POD-6289: the description and brief history rows)',
   },
   'packages/sync/src/authority/ports.ts#AuthorityCommit.write': {
     kind: 'opaque',
     why: "the commit's own write body; it is a SPAN ROOT in its own right",
   },
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.drainCapture': {
+    kind: 'contained',
+    why: "derived change capture (POD-6920): deletes and returns the capture rows this transaction's triggers wrote, through the commit's own connection, and maps them to record ids with batched reads of the model tables; it runs inside the span and rolls back with it",
+  },
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.inCommit': {
+    kind: 'contained',
+    why: 'runs the commit body inside an AsyncLocalStorage marker so a repository change-log hook joins the open commit instead of opening its own (POD-6920); it calls the body and does no I/O of its own',
+  },
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.build': {
+    kind: 'contained',
+    why: "the record builders' reads of the model tables (POD-6769): composition binds it to the server's builder registry over the same store, so the reads join the commit's transaction and see its writes; it writes nothing",
+  },
+  'packages/sync/src/authority/ports.ts#RecordSourcePort.buildMany': {
+    kind: 'contained',
+    why: "The grouped builders read the model tables through the commit's store connection and map those rows within the same transaction (POD-6791).",
+  },
+  'apps/server/src/store/settings.ts#InstancePreferencesFeedCapture.write': {
+    kind: 'opaque',
+    why: "the settings repository's own blob write, handed to the feed capture so it runs inside the capture's commit between the two builds of the instance preferences record (POD-6769); it is declared in the same file and is checked there",
+  },
   'packages/sync/src/authority/ports.ts#AuthorityCommit.current': {
     kind: 'opaque',
     why: 'an arbitration read supplied by the caller',
   },
-  'packages/sync/src/authority/ports.ts#AuthorityCommit.changes': {
+  'packages/sync/src/ledger.ts#LedgerCommitOp.write': {
     kind: 'opaque',
-    why: "the commit's own changes body — the twin of `AuthorityCommit.write` above and of `Ledger.changes` below. It is a SPAN ROOT in its own right: `Authority.commit` is declared with `{ props: ['write', 'changes'] }`, so wherever the object literal is written down both bodies are analysed as roots of their own.",
-  },
-  'packages/sync/src/ledger.ts#Ledger.changes': {
-    kind: 'opaque',
-    why: "the commit's own changes body; it is a SPAN ROOT in its own right",
+    why: "the commit's own write body, now called by `Ledger.commit` with its write scope (`write: () => op.write(scope)`, POD-6594) rather than handed on as is. It is a SPAN ROOT in its own right: `Ledger.commit` is declared with `{ props: ['write'] }`, so wherever the object literal is written down its body is analysed there, the twin of `AuthorityCommit.write`.",
   },
   'packages/sync/src/replica/replica.ts#Replica.write': {
     kind: 'opaque',
@@ -1115,9 +1555,27 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'the extra write a persist lands inside the same transaction — the shape `persist` already had. Supplied at the call site, analysed there.',
   },
-  'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalChanges': {
+  'apps/server/src/modules/sessions/repository.ts#SessionAdditionalWrite.SessionAdditionalWrite': {
     kind: 'opaque',
-    why: 'The satellite-row declaration callback returns change specs inside the session commit, alongside additionalWrite; its body is supplied and analysed at the call site, and this port publishes nothing itself.',
+    why: "the named type of `additionalWrite` above (POD-6601: it takes the commit's write scope). The same callback, supplied at the call site and analysed there.",
+  },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.write': {
+    kind: 'opaque',
+    why: "a prepared stored-session install's write (`prepareStoredSessionInstall`): the one stale-offer clear it holds, which the boot runs inside its own commit (POD-6601). Its body is written down in that method and analysed there.",
+  },
+  'apps/server/src/modules/sessions/session-teardown.ts#SessionTeardownPorts.failMessagesToRemovedSessions':
+    {
+      kind: 'contained',
+      why: "fails every message still waiting for an unresumable parked session, with each sender's notice, inside the park's own commit (POD-5284, POD-6602): database rows only; the notices' delivery waits for that commit.",
+    },
+  'apps/server/src/modules/sessions/session-kill.ts#SessionKillPorts.failMessagesToRemovedSessions':
+    {
+      kind: 'contained',
+      why: "fails every message still waiting for the removed session, and writes each sender's notice, inside the removal's own transaction (POD-4816): database rows only, and a removal that cannot end its messages does not commit.",
+    },
+  'apps/server/src/modules/sessions/repository.ts#SessionRepository.additionalAffects': {
+    kind: 'opaque',
+    why: 'The satellite callback names affected records before the session write; its body is supplied and analysed at the call site, and this port publishes nothing itself.',
   },
   'apps/server/src/modules/sessions/repository.ts#SessionRepository.<anonymous>': {
     kind: 'opaque',
@@ -1129,9 +1587,9 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionDeletePlan.write': {
     kind: 'opaque',
-    why: "the plan callback; its body is supplied by whoever built the plan. The session twin of `IssueLifecyclePlan.write` — `prepareIssueSessionDelete` writes the object literal down, and because `Ledger.commit` is declared with `{ props: ['write', 'changes'] }` that literal is a SPAN ROOT in its own right there.",
+    why: "the plan callback; its body is supplied by whoever built the plan. The session twin of `IssueLifecyclePlan.write` — `prepareIssueSessionDelete` writes the object literal down, and because `Ledger.commit` is declared with `{ props: ['write'] }` that literal is a SPAN ROOT in its own right there.",
   },
-  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionDeletePlan.changes': {
+  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionDeletePlan.affects': {
     kind: 'opaque',
     why: 'the plan callback; its body is supplied by whoever built the plan. The twin of `SessionDeletePlan.write` above, and a span root at the same site.',
   },
@@ -1139,7 +1597,7 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'opaque',
     why: 'the plan callback; its body is supplied by whoever built the plan. `prepareIssueSessionRestore` writes it down, and it is a span root there.',
   },
-  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionRestorePlan.changes': {
+  'apps/server/src/modules/sessions/session-lifecycle-types.ts#SessionRestorePlan.affects': {
     kind: 'opaque',
     why: 'the plan callback; its body is supplied by whoever built the plan. The twin of `SessionRestorePlan.write` above, and a span root at the same site.',
   },

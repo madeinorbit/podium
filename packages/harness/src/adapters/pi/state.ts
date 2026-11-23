@@ -9,11 +9,16 @@
  */
 import { open, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
+import {
+  type AgentStateEvent,
+  type AgentStateProvider,
+  withStateChannel,
+} from '../../agent-state/types.js'
 import { LineDecoder } from '../../jsonl-stream.js'
-import { locatePiSessionFile, piSessionDir, piSessionIdFromPath } from '../../pi/paths.js'
+import type { HarnessAccountScope } from '../../manifest.js'
 import { withEventTime } from '../../observer.js'
-import { type AgentStateEvent, type AgentStateProvider, withStateChannel } from '../../agent-state/types.js'
+import { locatePiSessionFile, piSessionDir, piSessionIdFromPath } from '../../pi/paths.js'
+import { type StatTick, scheduleStatPoll } from '../../transcript-types.js'
 
 const POLL_MS = 700
 const TAIL_BYTES = 128 * 1024
@@ -144,7 +149,7 @@ export function classifyPiIdleTranscript(
 async function piBootEvents(opts: {
   cwd: string
   resumeValue?: string
-  homeDir?: string
+  account: HarnessAccountScope
   pathHint?: string
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
@@ -152,7 +157,7 @@ async function piBootEvents(opts: {
       const path = await locatePiSessionFile({
         cwd: opts.cwd,
         sessionId: opts.resumeValue,
-        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        homeDir: opts.account.home,
         ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
       })
       if (path) {
@@ -172,7 +177,7 @@ async function piBootEvents(opts: {
 /** The newest session file in a cwd's bucket, optionally not older than `sinceMs`. */
 export async function findLatestPiSessionFile(opts: {
   cwd: string
-  homeDir?: string
+  homeDir: string
   sinceMs?: number
 }): Promise<string | undefined> {
   const dir = piSessionDir(opts.cwd, opts.homeDir)
@@ -209,7 +214,7 @@ export async function findLatestPiSessionFile(opts: {
 export function observePiState(opts: {
   cwd: string
   resumeValue?: string
-  homeDir?: string
+  homeDir: string
   pathHint?: string
   startedAtMs?: number
   pollMs?: number
@@ -240,7 +245,7 @@ export function observePiState(opts: {
         const path = await locatePiSessionFile({
           cwd: opts.cwd,
           sessionId: opts.resumeValue,
-          ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+          homeDir: opts.homeDir,
           ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
         })
         if (path) attach(opts.resumeValue, path)
@@ -248,7 +253,7 @@ export function observePiState(opts: {
       }
       const path = await findLatestPiSessionFile({
         cwd: opts.cwd,
-        ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        homeDir: opts.homeDir,
         sinceMs: startedAtMs,
       })
       const sessionId = path ? piSessionIdFromPath(path) : undefined

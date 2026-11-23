@@ -1,4 +1,4 @@
-import type { MachineWire } from '@podium/model/browser'
+import type { MachineFacts } from '@podium/model/browser'
 import { formatDevVersionShort } from '@podium/protocol/update-dev-version'
 import { machineNeedsUpdate } from './version-skew'
 
@@ -52,7 +52,7 @@ const IN_FLIGHT: ReadonlySet<MachineConvergenceState> = new Set([
   'restarting',
 ] as const)
 
-type VersionState = NonNullable<MachineWire['versionState']>
+type VersionState = NonNullable<MachineFacts['versionState']>
 
 /**
  * What this machine's version state IS, preferring the server's own verdict and
@@ -61,7 +61,7 @@ type VersionState = NonNullable<MachineWire['versionState']>
  * `current`, which would be an answer about something nobody looked at.
  */
 function versionStateOf(
-  machine: Pick<MachineWire, 'inventory' | 'targetVersion' | 'versionState'>,
+  machine: Pick<MachineFacts, 'inventory' | 'targetVersion' | 'versionState'>,
   serverAppVersion: string | null,
 ): VersionState {
   if (machine.versionState !== undefined) return machine.versionState
@@ -71,7 +71,7 @@ function versionStateOf(
 
 export function machineVersionSkew(
   machine: Pick<
-    MachineWire,
+    MachineFacts,
     'inventory' | 'targetVersion' | 'versionState' | 'appVersion' | 'installKind'
   >,
   serverAppVersion: string | null = null,

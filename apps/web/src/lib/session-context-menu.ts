@@ -5,7 +5,7 @@ import {
   type AgentKind,
   type HandoffBlocker,
   type HandoffRejection,
-  type MachineWire} from '@podium/model/browser'
+  type MachineFacts} from '@podium/model/browser'
 
 /**
  * The session-menu VOCABULARY — eligibility rules and blocker/rejection copy —
@@ -49,7 +49,7 @@ export function sessionMenuEligibility(session: SessionView): {
   const phase = session.agentState?.phase
   const working = phase === 'working' || phase === 'compacting'
   const status = session.status
-  const running = status === 'live' || status === 'starting' || status === 'reconnecting'
+  const running = status === 'live' || status === 'starting'
   return {
     canHibernate: status === 'live' && session.resumable === true && !working,
     canResume: status === 'hibernated' || (status === 'exited' && session.resumable === true),
@@ -93,7 +93,7 @@ export function issueHandoffBlockerText(blocker: 'no-agent-session' | 'multiple-
 export function handoffRejectionText(
   rejection: HandoffRejection,
   agentKind: AgentKind,
-  machine?: Pick<MachineWire, 'inventory'>,
+  machine?: Pick<MachineFacts, 'inventory'>,
 ): string {
   switch (rejection) {
     // Distinct from 'offline' on purpose (readiness §3.1.4 M5): handing off to a

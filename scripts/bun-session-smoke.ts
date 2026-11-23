@@ -11,6 +11,7 @@
  * Run: bun --conditions=@podium/source scripts/bun-session-smoke.ts
  */
 import { fileURLToPath } from 'node:url'
+import { shellCommand } from '@podium/harness'
 import { startDaemon } from '../apps/daemon/src/daemon'
 import { startServer } from '../apps/server/src/server'
 import { encode, parseServerMessage } from '../packages/protocol/src/index.js'
@@ -61,13 +62,15 @@ async function waitFor(
   }
 }
 
-const runtime = process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`
+const runtime = process.versions.bun
+  ? `bun ${process.versions.bun}`
+  : `node ${process.versions.node}`
 console.log(`[smoke] runtime: ${runtime}`)
 
 const srv = await startServer()
 const daemon = await startDaemon({
   serverUrl: `ws://localhost:${srv.port}`,
-  launch: () => ({ cmd: 'node', args: [FIXTURE], cwd: '/tmp' }),
+  launch: () => shellCommand({ cmd: 'node', args: [FIXTURE], cwd: '/tmp' }),
 })
 const { sessionId } = await srv.registry.modules.sessions.createSession({
   agentKind: 'claude-code',
@@ -87,16 +90,19 @@ try {
   console.log('[smoke] ✓ output streamed: cols=80 rows=24')
 
   // 2) input typed at the client round-trips to the agent and back
-  client.send(encode({ type: 'input', sessionId, data: Buffer.from('a', 'utf8').toString('base64') }))
+  client.send(
+    encode({ type: 'input', sessionId, data: Buffer.from('a', 'utf8').toString('base64') }),
+  )
   await waitFor(async () => c.text.includes('last-input=61'), 'input echo')
   console.log('[smoke] ✓ input round-trip: last-input=61')
 
   // 3) take control + resize repaints the agent at the new geometry
   client.send(encode({ type: 'resize', sessionId, cols: 100, rows: 30 }))
   client.send(encode({ type: 'requestControl', sessionId }))
-  // Epoch is not a SessionFacts field; project only the session under test.
-  const sess = () => srv.registry.modules.sessions.sessionById(sessionId)
-  await waitFor(async () => ((await sess())?.epoch ?? 0) >= 1, 'epoch bump')
+  // The terminal's epoch is a live reading, not a record field (POD-6764):
+  // read it off the running session.
+  const epoch = () => srv.registry.modules.sessions.sessions.get(sessionId)?.terminal.epoch ?? 0
+  await waitFor(async () => epoch() >= 1, 'epoch bump')
   await waitFor(async () => c.text.includes('cols=100 rows=30'), 'resize repaint')
   console.log('[smoke] ✓ resize + takeover: epoch bumped, repainted at cols=100 rows=30')
 
@@ -104,12 +110,18 @@ try {
 } finally {
   const bound = async (p: Promise<unknown>, label: string) => {
     let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<'timeout'>((r) => { timer = setTimeout(() => r('timeout'), 3000) })
+    const timeout = new Promise<'timeout'>((r) => {
+      timer = setTimeout(() => r('timeout'), 3000)
+    })
     const result = await Promise.race([p.then(() => 'closed' as const), timeout])
     if (timer) clearTimeout(timer)
-    console.log(`[smoke] ${label} ${result === 'timeout' ? 'close did not drain in 3s (known: Bun node:http close waits on sockets)' : 'closed'}`)
+    console.log(
+      `[smoke] ${label} ${result === 'timeout' ? 'close did not drain in 3s (known: Bun node:http close waits on sockets)' : 'closed'}`,
+    )
   }
-  try { client.close() } catch {}
+  try {
+    client.close()
+  } catch {}
   await bound(daemon.close(), 'daemon')
   await bound(srv.close(), 'server')
   reapHarnessSessions(PORT)

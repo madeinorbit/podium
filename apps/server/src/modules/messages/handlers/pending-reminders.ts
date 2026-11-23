@@ -9,12 +9,15 @@
  * answer a session with nothing pending gets, so the two stay indistinguishable.
  */
 
-import type { MailHandlerContext } from './context'
+import { type MailHandlerContext, mailWriter } from './context'
 
 export async function pendingRemindersHandler(
   ctx: MailHandlerContext,
 ): Promise<{ id: string; from: string; body: string }[]> {
   const sessionId = ctx.caller.capability.actorSessionId
   if (!sessionId) return []
-  return await ctx.deps.messages.pendingReminders(sessionId)
+  return await ctx.deps.messages.pendingReminders(
+    mailWriter(ctx, 'mail.pendingReminders'),
+    sessionId,
+  )
 }

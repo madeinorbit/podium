@@ -8,10 +8,16 @@ import type {
   ReleaseBuildTimingDeps,
   ReleaseBuildTimingRecord,
 } from '@podium/runtime/release-build-timing'
+import {
+  MIRROR_RELEASE_ORIGIN,
+  releaseChannelPath,
+  releaseUrl,
+} from '@podium/runtime/release-origins'
 import { fetchArtifact } from '@podium/runtime/update-delivery'
 import { Hono } from 'hono'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { registerDevFeedRoutes } from './artifact-route'
+import { BuildTimeoutError, withBuildAttempt } from './build-attempt'
 import {
   type BuildRecord,
   buildBundlesDir,
@@ -29,13 +35,13 @@ import {
   type BuiltDevBundle,
   buildDevBundle,
   classifyIgnoredSourceInputs,
-  defaultReadIgnoredSourceInputs,
   classifySourceIdentity,
   createDevBundlePublisher,
   DEV_BUNDLE_RETAINED,
   type DevBundleFs,
   type DevBundleLock,
   decideDevBuild,
+  defaultReadIgnoredSourceInputs,
   devBuildPlatforms,
   devBundleFileName,
   devBundleKeyFingerprint,
@@ -44,9 +50,10 @@ import {
   devIdentityTarget,
   devReleaseBuildArgs,
   devTarget,
+  fetchStandingDesktopManifest,
+  finalizeTimingIntoRecord,
   fleetHeadlessPlatforms,
   listDevBundles,
-  finalizeTimingIntoRecord,
   nodeDevBundleFs,
   parseDevBundleName,
   requireDefinedMigrations,
@@ -57,6 +64,52 @@ import { classifyMachineFailure, describeUpdateOperationFailure } from './operat
 import { type DesktopFeedChannel, desktopManifestFeedChannel } from './release-target'
 
 const CHECKOUT_BASE = '0.1.0-edge.20'
+
+describe('standing desktop release origins', () => {
+  it('binds a fallback shell to the mirror that served its manifest', async () => {
+    const mirrorManifest = releaseUrl(
+      releaseChannelPath('dev') + 'latest.json',
+      MIRROR_RELEASE_ORIGIN,
+    )
+    const spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) =>
+      String(url) === mirrorManifest
+        ? Response.json({
+            version: '1.0.0',
+            platforms: { linux: { url: 'download/dev/shell.tgz', signature: 'signed' } },
+          })
+        : new Response(null, { status: 504 }),
+    )
+    try {
+      const result = await fetchStandingDesktopManifest('dev')
+      expect(result).toMatchObject({
+        raw: {
+          platforms: {
+            linux: { url: releaseUrl('download/dev/shell.tgz', MIRROR_RELEASE_ORIGIN) },
+          },
+        },
+      })
+      expect(spy).toHaveBeenCalledTimes(2)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('refuses a served shell from a foreign origin instead of treating it as absent', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        version: '1.0.0',
+        platforms: { linux: { url: 'https://foreign.example/shell.tgz', signature: 'signed' } },
+      }),
+    )
+    try {
+      await expect(fetchStandingDesktopManifest('dev')).rejects.toThrow('outside')
+      expect(spy).toHaveBeenCalledTimes(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
+
 const publisherDirs: string[] = []
 
 function publisherDir(): string {
@@ -475,6 +528,28 @@ describe('the node filesystem seam', () => {
 })
 
 describe('createServerDevBundleLock', () => {
+  it('cancels a queued lock request when the overall build budget expires', async () => {
+    vi.useFakeTimers()
+    try {
+      const cancel = vi.fn()
+      const lock = createServerDevBundleLock('/repo/podium', {
+        acquire: () => ({ granted: false }) as never,
+        cancel,
+        renew: () => {},
+        release: () => {},
+      })
+      const result = withBuildAttempt(() => lock.acquire(), 100).catch((error) => error)
+      await vi.advanceTimersByTimeAsync(100)
+      expect(await result).toBeInstanceOf(BuildTimeoutError)
+      expect(cancel).toHaveBeenCalledWith(expect.anything(), {
+        repoPath: '/repo/podium',
+        name: 'podium:dev-bundle',
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('uses one in-process system identity scoped to the bundle lock', async () => {
     const calls: Array<{
       operation: string
@@ -2258,6 +2333,56 @@ describe('the dev feed manifest the publisher writes', () => {
     })
   }
 
+  it('publishes dev commits from the running baseline at the built commit even after HEAD moves', async () => {
+    const store = memoryFs()
+    let head = 'aaaaaaa'
+    const inputs: { headSha: string; runningSha?: string }[] = []
+    const publisher = publisherFor(
+      store,
+      () => head,
+      async (input) => {
+        inputs.push(input)
+        return {
+          branch: 'dev/mw',
+          commits: [{ sha: input.headSha, summary: 'Built change' }],
+          commitCount: 205,
+          addedMigrations: ['20261104000000_update'],
+        }
+      },
+    )
+    await publisher.requestBuild(true)
+    const target = await publisher.feedManifest()
+    expect(target).toMatchObject({
+      branch: 'dev/mw',
+      commitCount: 205,
+      commits: [{ sha: 'aaaaaaa', summary: 'Built change' }],
+      addedMigrations: ['20261104000000_update'],
+    })
+    head = 'bbbbbbb'
+    expect(await publisher.publishFeed()).toBe(true)
+    const published = JSON.parse(store.text.get(publisher.feedManifestPath()) ?? '{}')
+    expect(published.commits).toEqual(target?.commits)
+    expect(published.commitCount).toBe(205)
+    expect(
+      inputs.every((input) => input.headSha === 'aaaaaaa' && input.runningSha === '1111111'),
+    ).toBe(true)
+    expect(await publisher.feedManifest()).toBeUndefined()
+  })
+
+  it('keeps a valid dev build publishable when its commit history is unavailable', async () => {
+    const store = memoryFs()
+    const publisher = publisherFor(
+      store,
+      () => 'aaaaaaa',
+      async () => {
+        throw new Error('history missing')
+      },
+    )
+    await publisher.requestBuild(true)
+    expect((await publisher.feedManifest())?.commits).toBeUndefined()
+    expect(await publisher.publishFeed()).toBe(true)
+  })
+
   it('records artifact publication, desktop work, and feed activation at distinct boundaries', async () => {
     const store = memoryFs()
     const records: ReleaseBuildTimingRecord[] = []
@@ -2380,7 +2505,17 @@ describe('the dev feed manifest the publisher writes', () => {
 
   it('refuses an incompatible daemon range before writing the release manifest', async () => {
     const store = memoryFs()
-    const publisher = publisherFor(store, () => 'aaaaaaa', undefined, undefined, undefined, undefined, undefined, undefined, { min: 99, max: 100 })
+    const publisher = publisherFor(
+      store,
+      () => 'aaaaaaa',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { min: 99, max: 100 },
+    )
     await publisher.requestBuild(true)
     expect((await publisher.feedManifest())?.daemonWire).toEqual({ min: 99, max: 100 })
     expect(await publisher.publishFeed()).toBe(false)
@@ -2442,7 +2577,10 @@ describe('the dev feed manifest the publisher writes', () => {
         addedMigrations: [],
       }),
       snapshotBuild: async (approvedSha, build) =>
-        await withDevBuildSnapshot({ sourceRoot: root, approvedSha, install: async () => {} }, build),
+        await withDevBuildSnapshot(
+          { sourceRoot: root, approvedSha, install: async () => {} },
+          build,
+        ),
       signingKey,
       fs: store.fs,
       lock: lockFixture([]),
@@ -2626,7 +2764,8 @@ describe('the dev feed manifest the publisher writes', () => {
     )
     const app = new Hono()
     registerDevFeedRoutes(app, {
-      publishedArtifact: async (version, platform) => await restarted.publishedArtifact(version, platform),
+      publishedArtifact: async (version, platform) =>
+        await restarted.publishedArtifact(version, platform),
       manifestPath: () => restarted.feedManifestPath(),
       authenticate: () => true,
     })

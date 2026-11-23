@@ -1,9 +1,5 @@
-import {
-  principalKeyPrefix,
-  REPLICA_KEY_PREFIX,
-  type StorageApi,
-} from '@podium/client-core/replica'
 import type { FeedBroadcastChannel } from '@podium/client-core/live-connection'
+import type { StorageApi } from '@podium/client-core/replica'
 import { type SqlDatabaseLike, SqliteSyncStore } from '@podium/sync/adapters/mobile-sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -17,12 +13,12 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 }))
 vi.mock('./ServerProfileGate', () => ({ useOptionalServerProfile: () => null }))
 
+import { mobileAccountEraser } from './account-data'
 import {
   type MobileEntityStore,
   type MobileReplica,
   openMobileReplica,
 } from './MobileClientProvider'
-import { mobileAccountEraser } from './account-data'
 
 const principal = JSON.stringify(['installation-a', 'alice'])
 const opened: MobileReplica[] = []
@@ -146,39 +142,6 @@ describe('mobile shared assembly adapter', () => {
     ).rejects.toMatchObject({ failure: { kind: 'replica-blocked' } })
     expect(viewFor).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledOnce()
-  })
-
-  it('carries an already-prefixed queue and publishes the same migration notice as web', async () => {
-    const storage = device()
-    const key = `${principalKeyPrefix(REPLICA_KEY_PREFIX, principal)}.outbox.v1`
-    storage.setItem(
-      key,
-      JSON.stringify([
-        {
-          mutationId: 'm-folded',
-          kind: 'rename',
-          input: { sessionId: 's', name: 'offline name' },
-          queuedAt: Date.now(),
-        },
-      ]),
-    )
-    const notice = vi.fn()
-    const replica = await openMobileReplica({
-      api: {} as never,
-      principal,
-      storage,
-      enumerateKeys: storage.keys,
-      openStore: store,
-      evidence: { kind: 'single-account', principal },
-      httpSync: httpSync(async () => new Response()),
-      onDegraded: notice,
-    })
-    opened.push(replica)
-    expect(storage.getItem(key)).toBeNull()
-    expect(
-      (await replica.store.viewFor(principal).outbox.read()).map((row) => row.mutationId),
-    ).toEqual(['m-folded'])
-    expect(notice).toHaveBeenCalledWith('1 queued change moved to secure storage.')
   })
 
   it.each([

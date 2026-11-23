@@ -17,6 +17,12 @@ point-in-time restore. drizzle stays the query layer, with two drivers
 Postgres is not pursued. If a second dialect is ever needed, the Kysely path in the history
 document is the recorded fallback.
 
+> **Superseded, 2026-11-17:** "Postgres is not pursued" and decision 5 of section 7 are
+> superseded by [ADR 14](../adr/0014-postgres-store.md): hosted Podium runs on Postgres beside
+> self-hosted SQLite, with drizzle on each engine's own dialect (POD-6958). The hosted-Turso path
+> through libsql is closed (operator decision OD1). The rest of this specification (the async
+> executor, the scheduler, post-commit work) stands and is what both engines run on.
+
 **Two requirements govern every step.**
 
 1. Podium as it exists keeps running exactly as it does today on SQLite.
@@ -159,7 +165,7 @@ Client replicas (IndexedDB, expo-sqlite, Tauri SQL) share no server queries and 
 | Who | Access | Under Turso |
 |---|---|---|
 | Janitor (worker thread in the server process since POD-2505, `janitor-host.ts`, `janitor.ts:1250`) | second connection, read-only | a second remote connection with its own read-only token |
-| `podium auth mint-session` (`packages/runtime/src/session-mint.ts:116`) | second process, writer | goes through the server |
+| `podium auth mint-session` (`packages/runtime/src/session-token.ts:116`) | second process, writer | goes through the server |
 | Daemon transfer validation (`apps/daemon/src/server-transfer.ts:320-379`) | opens a candidate file; checks integrity, feed identity, epoch, migration head | through the durability port |
 | Migration ledger guard (`packages/runtime/src/migration-ledger.ts:58`) | reads `__drizzle_migrations` | through the driver |
 | Backup, restore, snapshot verifier, `wal_checkpoint`, transfer fence (`migrations/backup.ts`, `restore.ts`, `snapshot-verifier.ts`, `store.ts:400-540`) | file-level | behind the durability port, platform-managed |
@@ -172,7 +178,7 @@ Both drivers accept rowid ordering, `INSERT OR REPLACE`, `INSERT OR IGNORE`, `ON
 portability. What leaves the repositories is what a remote connection cannot rely on or what
 belongs to the driver and migrations: `PRAGMA` (10 runtime sites, including `table_info`
 introspection at `store.ts:585` and `store/sessions.ts:887`), `sqlite_master` reads,
-`ATTACH`. `INSERT OR REPLACE` (13 statements plus `session-mint.ts:186`) deletes and re-inserts:
+`ATTACH`. `INSERT OR REPLACE` (13 statements plus the former filesystem sign-in writer) deletes and re-inserts:
 none of its targets is a foreign-key parent, so no cascade is involved, but every column not
 named resets to its default; a conversion to an upsert must name every column. FTS5 stays behind
 the search port. The boot upgrades in `store.ts` (machine identity, repo identity, worktree
@@ -1383,43 +1389,10 @@ check for inbound foreign keys, exactly as POD-3392 performed it with `pragma_in
 migrated database.
 
 
-### Rule 31b — `client_sessions` keeps its atomic `INSERT OR REPLACE`, pinned to that one site
+### Rule 31b — retired
 
-[Ruling on POD-3403, 2026-09-04, closing the question rule 31a opened. The audit is POD-3403's; the
-exemption mechanism and its path pin are mine, and the reason they are mine is in the last paragraph.]
-
-The site is `AuthRepository.recordSession` (`apps/server/src/store/auth.ts`). `client_sessions` carries
-a PRIMARY KEY on `token_hash` AND a separate unique index `idx_client_sessions_session_id`. That is
-exactly rule 31a's DO UPDATE row: a mobile re-pair reusing a `session_id` under a new `token_hash`
-conflicts on the UNTARGETED constraint, which `INSERT OR REPLACE` applies today and
-`onConflictDoUpdate` would throw on. Converting it starts refusing a write that currently succeeds, on
-the auth path, so the statement STAYS.
-
-THE EXEMPTION IS THREE CONDITIONS, NOT A TOKEN. Like rule 31a's UPDATE-conflict exemption, the token
-alone grants nothing. `check-boundaries.ts` requires ALL of:
-
-    the file is exactly apps/server/src/store/auth.ts
-    the statement's span carries `// REPLACE-STATEMENT POD-3403`
-    the statement body opens `INSERT OR REPLACE`
-
-IT IS PATH-PINNED AND POD-3406's IS NOT, DELIBERATELY. An `UPDATE OR IGNORE` that loses a race leaves
-the row alone. `INSERT OR REPLACE` DELETES the conflicting row and reinserts it, so it fires
-`ON DELETE CASCADE` on every inbound foreign key — rule 31a's own closing sentence. A token-plus-shape
-exemption would let any future site adopt that behaviour by typing the token. Pinning the path forces
-the next `INSERT OR REPLACE` back here for its own ruling with its own foreign-key audit, which is the
-answer we want it to have to produce.
-
-NOT A `DECISION` MARKER. The policy is answered, and Stage A's exit gate counts UNANSWERED markers to
-zero (rule 33). A `DECISION` token here would block the gate forever.
-
-WHAT I GOT WRONG. POD-3403 wrote all three halves — spec rule, lint exemption, site comment. I told it
-to revert every shared-file edit after it collided with POD-3406 in the same two files, and kept only
-its site work. The site work DEPENDS on the other two halves, so what came back cited a rule that did
-not exist and used a token nothing recognised, and `lint:boundaries` reddened on `auth.ts:91` at the
-trial merge. The redirect was mine and so was the gap. When a worker's change spans a site and the
-rule that permits it, splitting them leaves the site indefensible; either take both halves or take
-neither.
-
+The sole raw replacement-statement exemption was removed with shared identity.
+Raw inserts now follow the same store boundary as every other repository.
 
 ### Rule 34 — the capability object is a CONSTRUCTOR detail; call sites read `this.db` and `this.transact`
 

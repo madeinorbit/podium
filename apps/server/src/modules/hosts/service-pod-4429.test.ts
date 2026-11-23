@@ -78,8 +78,8 @@ function harness(sessions: HostSessionView[]) {
       shellParked.push(sessionId)
       return { ok: true }
     },
-    hasValidTerminalProof: async () => true,
-    terminalProofMissing: async () => false,
+    terminalProofs: async (sessionIds) =>
+      new Map(sessionIds.map((sessionId) => [sessionId, { ok: true, missing: false }])),
     daemonRequest: {
       request: vi.fn(),
       settle: vi.fn(),

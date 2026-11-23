@@ -5,17 +5,16 @@ import type { IssueNavigationModel } from '@podium/client-core/values'
 import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fixtureRuntimeRender } from '@/test-support/fixture-runtime-render'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 
 const state = vi.hoisted(() => ({ pool: null as unknown }))
 
-vi.mock('./store', () => ({
-  useRuntimeSelector: (select: (store: Record<string, unknown>) => unknown) =>
-    select({ sessions: [], selectedIssueId: 'root' }),
-}))
+// The bar reads the selected mission from the runtime root's UiStore.
+const render = fixtureRuntimeRender({ ui: { selectedIssueId: 'root' } })
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => state.pool as MobxPool,
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown) => {

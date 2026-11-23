@@ -38,6 +38,7 @@
  * Env: BENCH_SESSIONS (588), BENCH_ISSUES (800), BENCH_CYCLES (250).
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import type { SessionId } from '@podium/model'
 import { asIssueId, firstAdminMemberId } from '@podium/model'
 import type { PerfPrincipalSlice, PerfSnapshot } from '@podium/protocol'
@@ -185,7 +186,8 @@ async function runArm(label: string): Promise<ArmReport> {
   const { SessionStore } = await import('../apps/server/src/store')
   const store = await SessionStore.open(':memory:')
   await store.transact(async () => {
-    for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) await store.issues.upsertIssue(issueRow(seq))
+    for (let seq = 1; seq <= ISSUE_COUNT; seq += 1)
+      await store.issues.upsertIssue(fixtureWriteScope(), issueRow(seq))
   })
   const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const sessionIds: SessionId[] = []

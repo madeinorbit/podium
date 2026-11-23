@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { failureNoticeId } from './message-ids'
 import { mailHarness } from './modules/messages/characterization-support'
 import { noticeMessageId, stewardNoticeSender } from './steward'
+import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 
 /**
  * A STEWARD NOTICE IS A MESSAGE (POD-4846).
@@ -26,7 +27,7 @@ describe('steward notices travel as messages', () => {
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const id = noticeMessageId(`unblock:${iss.id}:3`, asSessionId('s1'), 7)
 
-    await stewardNoticeSender(h.svc)(asSessionId('s1'), body, id, 'wait')
+    await stewardNoticeSender(h.svc, messageTestWriter())(asSessionId('s1'), body, id, 'wait')
 
     expect(await h.svc.message(id)).toMatchObject({
       id,
@@ -46,7 +47,9 @@ describe('steward notices travel as messages', () => {
     expect(push).toMatchObject({ fn: 'queueText', sessionId: 's1', inputOrigin: 'mail' })
     // The words are the steward's, unchanged; only the frame is added.
     const text = push?.text ?? ''
-    expect(text.startsWith(`[podium message ${id} · from system:steward · to your session`)).toBe(true)
+    expect(text.startsWith(`[podium message ${id} · from system:steward · to your session`)).toBe(
+      true,
+    )
     expect(text).toContain(`\n${body}\n`)
     expect(text.endsWith(`[end podium message ${id}]`)).toBe(true)
   })
@@ -56,7 +59,7 @@ describe('steward notices travel as messages', () => {
     const iss = await h.createIssue({ title: 'dependent' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const id = noticeMessageId(`unblock:${iss.id}:3`, asSessionId('s1'), 7)
-    const send = stewardNoticeSender(h.svc)
+    const send = stewardNoticeSender(h.svc, messageTestWriter())
 
     await send(asSessionId('s1'), body, id, 'wait')
     await send(asSessionId('s1'), body, id, 'wait')
@@ -69,7 +72,7 @@ describe('steward notices travel as messages', () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'parent' })
     h.put({ sessionId: asSessionId('parent'), issueId: iss.id, status: 'hibernated' })
-    const send = stewardNoticeSender(h.svc)
+    const send = stewardNoticeSender(h.svc, messageTestWriter())
     const first = noticeMessageId('sessionparentnudge:phase-reported:c1', asSessionId('parent'), 7)
     const second = noticeMessageId('sessionparentnudge:phase-reported:c2', asSessionId('parent'), 9)
 
@@ -97,7 +100,7 @@ describe('steward notices travel as messages', () => {
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
     const id = noticeMessageId(`unblock:${iss.id}:3`, asSessionId('s1'), 7)
 
-    await stewardNoticeSender(h.svc)(asSessionId('s1'), body, id, 'wait')
+    await stewardNoticeSender(h.svc, messageTestWriter())(asSessionId('s1'), body, id, 'wait')
 
     expect((await h.svc.message(id))?.deliveryStatus).toBe('stored')
     expect(h.pushes).toHaveLength(0)
@@ -109,7 +112,7 @@ describe('steward notices travel as messages', () => {
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
     const id = noticeMessageId(`unblock:${iss.id}:3`, asSessionId('s1'), 7)
     // Held for the parked session's next run; stored is the steward's answer.
-    await stewardNoticeSender(h.svc)(asSessionId('s1'), body, id, 'wait')
+    await stewardNoticeSender(h.svc, messageTestWriter())(asSessionId('s1'), body, id, 'wait')
     expect((await h.svc.message(id))?.deliveryStatus).toBe('stored')
 
     // The session is removed before it runs again. The sweep finds the notice

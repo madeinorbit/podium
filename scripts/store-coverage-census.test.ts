@@ -1,95 +1,66 @@
-/**
- * THE CENSUS GATE, RUN WHERE CI WILL SEE IT — POD-3360.
- *
- * `docs/internal/pod-3244-store-coverage-census.md` is the inventory Stage A of
- * the POD-3221 conversion is planned from, and it was hand-maintained: seven
- * members added after it was measured had no row, so a brief generated from it
- * would have skipped them silently. The fix is not the seven rows — it is that
- * the inventory is derived and the derivation is checked, here, in the lane CI
- * already runs.
- *
- * The probe cases below are what the repo check cannot express on its own: they
- * put the defect back (a member with no row) and assert the gate reports it,
- * rather than trusting a green run over a document nobody has changed.
- */
+/** The Stage A measurement document is historical evidence, not today's
+ * coverage claim. Exercise enumeration and drift against explicit fixtures. */
 
-import { readFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import {
-  blockingDrift,
-  censusDrift,
-  enumerateMembers,
-  memberKey,
-  membersOfSource,
-  parseCommittedRows,
-} from './store-coverage-census'
+import { blockingDrift, censusDrift, memberKey, membersOfSource } from './store-coverage-census'
 
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const censusMarkdown = () =>
-  readFileSync(join(repoRoot, 'docs/internal/pod-3244-store-coverage-census.md'), 'utf8')
+const members = membersOfSource(
+  'fixture.ts',
+  `export class Repo {
+  first() {}
+  second() {}
+}`,
+)
+const markdown =
+  '\n## Full table\n' +
+  members
+    .map(
+      (member) =>
+        `| \`${member.file}\` | ${member.className} | \`${member.member}\` | ${member.line} | yes | fixture-lane | — |`,
+    )
+    .join('\n')
+const population = { members, named: new Map<string, string[]>() }
 
-describe('the committed census describes the tree', () => {
-  it('has a row for every public repository member, and none for a member that is gone', () => {
-    const drift = censusDrift(censusMarkdown())
-    expect(drift.added.map((m) => `${m.file} ${m.className}.${m.member}`)).toEqual([])
-    expect(drift.removed.map((r) => `${r.file} ${r.className}.${r.member}`)).toEqual([])
-    expect(drift.newFiles).toEqual([])
-    expect(drift.goneFiles).toEqual([])
+describe('census drift over an explicit measured population', () => {
+  it('accepts a matching measurement', () => {
+    expect(blockingDrift(censusDrift(markdown, population))).toBe(0)
   })
-
-  it('names no test that has stopped naming the member', () => {
-    // The asymmetric half: gaining a naming test only makes the census
-    // pessimistic, but LOSING the last one makes it claim visible evidence a
-    // reviewer will not find.
-    expect(
-      censusDrift(censusMarkdown()).namingLost.map((r) => `${r.className}.${r.member}`),
-    ).toEqual([])
-  })
-
-  it('records a measured verdict for every member', () => {
-    const rows = parseCommittedRows(censusMarkdown())
-    const derived = new Set(enumerateMembers().map(memberKey))
-    expect(rows.length).toBe(derived.size)
-    for (const row of rows)
-      expect(derived.has(memberKey(row)), `${row.className}.${row.member}`).toBe(true)
-  })
-})
-
-describe('the gate reports the drift POD-3360 found, when it is put back', () => {
   it('names a member whose row was never written', () => {
-    const withoutRow = censusMarkdown()
-      .split('\n')
-      .filter((line) => !line.includes('| `existingMessageIds` |'))
-      .join('\n')
-    const drift = censusDrift(withoutRow)
-    expect(drift.added.map((m) => `${m.className}.${m.member}`)).toEqual([
-      'MessagesRepository.existingMessageIds',
-    ])
+    const drift = censusDrift(
+      markdown
+        .split('\n')
+        .filter((line) => !line.includes('`first`'))
+        .join('\n'),
+      population,
+    )
+    expect(drift.added.map((member) => member.member)).toEqual(['first'])
     expect(blockingDrift(drift)).toBeGreaterThan(0)
   })
-
-  it('names a row whose member is gone', () => {
-    const withGhost = censusMarkdown().replace(
-      '<!-- /census:full-table -->',
-      '| `apps/server/src/store/messages.ts` | MessagesRepository | `methodThatWasDeleted` | 1 | yes | server:store | — |\n<!-- /census:full-table -->',
-    )
-    const drift = censusDrift(withGhost)
-    expect(drift.removed.map((r) => `${r.className}.${r.member}`)).toEqual([
-      'MessagesRepository.methodThatWasDeleted',
-    ])
+  it('names a measured row whose member is gone', () => {
+    const drift = censusDrift(markdown, { ...population, members: members.slice(1) })
+    expect(drift.removed.map((member) => member.member)).toEqual(['first'])
     expect(blockingDrift(drift)).toBeGreaterThan(0)
   })
-
-  it('does not block on a line number that moved', () => {
-    const shifted = censusMarkdown().replace(
-      /^(\| `apps\/server\/src\/store\/table-writes\.ts` \| TableWrites \| `subscribe` \| )\d+/m,
-      '$19999',
-    )
-    const drift = censusDrift(shifted)
-    expect(drift.moved.some((m) => m.member.member === 'subscribe')).toBe(true)
+  it('does not block on a declaration moving to another line', () => {
+    const drift = censusDrift(markdown, {
+      ...population,
+      members: members.map((member) => ({ ...member, line: member.line + 1 })),
+    })
+    expect(drift.moved).toHaveLength(members.length)
     expect(blockingDrift(drift)).toBe(0)
+  })
+  it('reports lost naming evidence without inventing coverage measurements', () => {
+    const named = markdown.replaceAll('| — |', '| fixture.test.ts |')
+    expect(censusDrift(named, population).namingLost.map((member) => member.member)).toEqual([
+      'first',
+      'second',
+    ])
+    expect(
+      censusDrift(named, {
+        ...population,
+        named: new Map(members.map((member) => [memberKey(member), ['fixture.test.ts']])),
+      }).namingLost,
+    ).toEqual([])
   })
 })
 

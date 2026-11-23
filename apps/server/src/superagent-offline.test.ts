@@ -1,21 +1,16 @@
-import { attachTestClient } from './test-support/client-transport'
 // Superagent offline-machine refusal (POD-4806): a turn on a thread whose
 // headless session lives on a machine with no daemon must refuse fast with
 // "<machine> is offline", keep the user's message plus a visible failure, and
 // never leak the internal SessionBinding spawn error. The headless spawn must
 // also carry the server-minted binding, or every new headless session fails
 // on a real daemon.
-import {
-  asSessionId,
-  asThreadId,
-  BUILTIN_HARNESS_KINDS,
-  firstAdminMemberId,
-} from '@podium/model'
+import { asSessionId, asThreadId, BUILTIN_HARNESS_KINDS, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SuperagentService, TURN_FAILED_MARKER } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
+import { attachTestClient } from './test-support/client-transport'
 import { assignHostMachine } from './test-support/host-daemon'
 
 const registries: SessionRegistry[] = []
@@ -28,7 +23,11 @@ async function offlineHarness() {
   registries.push(registry)
   const host = registry.sessionStore.hostMachineId
   await assignHostMachine(registry.sessionStore)
-  await (registry.sessionStore as unknown as { machines: { setServiceAssignment(id: unknown, a: unknown): Promise<void> } }).machines.setServiceAssignment(host, { server: true, agentExecution: true })
+  await (
+    registry.sessionStore as unknown as {
+      machines: { setServiceAssignment(id: unknown, a: unknown): Promise<void> }
+    }
+  ).machines.setServiceAssignment(host, { server: true, agentExecution: true })
   const spawns: Extract<ControlMessage, { type: 'spawn' }>[] = []
   const turnReqs: { requestId: string; turnId: string; sessionId: string }[] = []
   const epochs = new Map<string, number>()
@@ -37,7 +36,11 @@ async function offlineHarness() {
     if (m.type === 'runtimeSendRequest' || m.type === 'runtimeDurableSendRequest') {
       const epoch = (epochs.get(m.sessionId) ?? 0) + 1
       epochs.set(m.sessionId, epoch)
-      turnReqs.push({ requestId: (m as { requestId: string }).requestId, turnId: (m as { turnId: string }).turnId, sessionId: m.sessionId })
+      turnReqs.push({
+        requestId: (m as { requestId: string }).requestId,
+        turnId: (m as { turnId: string }).turnId,
+        sessionId: m.sessionId,
+      })
     }
     if (m.type === 'runtimeSnapshotRequest') {
       const req = m as { requestId: string; sessionId: string }
@@ -83,7 +86,9 @@ async function offlineHarness() {
     }
   }
   await registry.gateway.attachDaemon(host, peer)
-  registry.gateway.routeDaemonFrame(host, {
+  // Awaited: the report seeds the superagent's default harness (POD-1313), and
+  // a real daemon's report lands long before anyone's first turn.
+  await registry.gateway.routeDaemonFrame(host, {
     type: 'inventoryReport',
     machineId: host,
     inventory: {
@@ -98,7 +103,7 @@ async function offlineHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r', host)
+  await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   attachTestClient(registry.clientGateway, () => {})
   const settle = () => new Promise((r) => setTimeout(r))
@@ -107,7 +112,8 @@ async function offlineHarness() {
     for (;;) {
       const pending = await registry.sessionStore.superagent.listPendingTurns()
       if (pending.length === 0) return
-      if (Date.now() - start > timeoutMs) throw new Error('timed out waiting for pending turns to drain')
+      if (Date.now() - start > timeoutMs)
+        throw new Error('timed out waiting for pending turns to drain')
       await new Promise((r) => setTimeout(r, 10))
     }
   }
@@ -117,17 +123,39 @@ async function offlineHarness() {
       type: 'runtimeSendResult',
       requestId: req.requestId,
       sessionId: req.sessionId as never,
-      receipt: { outcome: 'accepted', turnEpoch: epoch, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() },
+      receipt: {
+        outcome: 'accepted',
+        turnEpoch: epoch,
+        deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack',
+        at: new Date().toISOString(),
+      },
     })
     const at = new Date().toISOString()
     const gateway = registry.modules.sessions.runtimeGateway
     await gateway.record(host, {
       sessionId: req.sessionId as never,
-      event: { t: 'turn', ev: { ev: 'started', turnEpoch: epoch, origin: 'system' }, cursor: { segmentId: 's', components: { seq: epoch * 2 - 1 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
+      event: {
+        t: 'turn',
+        ev: { ev: 'started', turnEpoch: epoch, origin: 'system' },
+        cursor: { segmentId: 's', components: { seq: epoch * 2 - 1 } },
+        observerGeneration: 1,
+        turnEpoch: epoch,
+        provenance: 'live',
+        at,
+      } as never,
     })
     await gateway.record(host, {
       sessionId: req.sessionId as never,
-      event: { t: 'turn', ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' }, cursor: { segmentId: 's', components: { seq: epoch * 2 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
+      event: {
+        t: 'turn',
+        ev: { ev: 'completed', turnEpoch: epoch, verdict: 'done' },
+        cursor: { segmentId: 's', components: { seq: epoch * 2 } },
+        observerGeneration: 1,
+        turnEpoch: epoch,
+        provenance: 'live',
+        at,
+      } as never,
     })
   }
   return { registry, repos, sa, spawns, turnReqs, peer, host, settle, waitForIdle, resolveTurn }
@@ -136,7 +164,7 @@ async function offlineHarness() {
 describe('superagent offline machine (POD-4806)', () => {
   it('mints the server-minted binding on the headless spawn', async () => {
     const h = await offlineHarness()
-    await h.sa.sendTurn({
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'hello',
@@ -156,13 +184,14 @@ describe('superagent offline machine (POD-4806)', () => {
   it('refuses fast with "<machine> is offline" and keeps the message plus a visible failure', async () => {
     const h = await offlineHarness()
     // First turn online so the thread binds its headless session to the host.
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'first',
     })
     // Complete the first turn so the thread is idle but still bound.
-    expect(h.turnReqs).toHaveLength(1)
+    // The durable message is admitted before its asynchronous dispatch.
+    await vi.waitFor(() => expect(h.turnReqs).toHaveLength(1))
     await h.resolveTurn(h.turnReqs[0]!)
     await h.waitForIdle()
     // Take the machine offline: the bound session's host has no daemon now.
@@ -170,7 +199,7 @@ describe('superagent offline machine (POD-4806)', () => {
     expect(h.registry.modules.machines.hasDaemon(h.host)).toBe(false)
 
     const err = await h.sa
-      .sendTurn({
+      .sendTurn(h.registry.modules.superagentBridgeWriter, {
         ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'Reply with exactly the word PONG-SUPER.',
@@ -182,24 +211,25 @@ describe('superagent offline machine (POD-4806)', () => {
     expect(err).toContain('is offline')
     expect(err).not.toContain('SessionBinding')
     // The user's message and a visible failure survive a reload: the typed
-    // read finds them by column, and the history holds both rows.
-    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
+    // thread's record carries the failure (POD-6675), and the history holds both rows.
+    const failure = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
+      ?.lastTurnFailure
     expect(failure?.userText).toBe('Reply with exactly the word PONG-SUPER.')
-    expect(failure?.error).toContain('is offline')
-    expect(failure?.error).not.toContain('SessionBinding')
+    expect(failure?.message).toContain('is offline')
+    expect(failure?.message).not.toContain('SessionBinding')
     const history = await h.sa.history(firstAdminMemberId(), asThreadId('global'))
     const contents = history.map((m) => m.content)
     expect(contents).toContain('Reply with exactly the word PONG-SUPER.')
     expect(contents.some((c) => c.includes(TURN_FAILED_MARKER))).toBe(true)
     // The first turn's session is untouched; the failed turn never dispatched.
-    expect((await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.podiumSessionId).toBe(
-      ack.podiumSessionId,
-    )
+    expect(
+      (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.podiumSessionId,
+    ).toBe(ack.podiumSessionId)
   })
 
   it('a turn that fails after dispatch keeps a visible failure but no duplicate user row', async () => {
     const h = await offlineHarness()
-    await h.sa.sendTurn({
+    await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'run it',
@@ -207,23 +237,52 @@ describe('superagent offline machine (POD-4806)', () => {
     // Fail the dispatched turn at the harness (provider error while online).
     // The prompt reached the harness, so the transcript carries it: persisting
     // the user row again would show it twice after a reload (POD-4806 review).
+    await vi.waitFor(() => expect(h.turnReqs).toHaveLength(1))
     const req = h.turnReqs[0]!
     const epoch = 1
     await h.registry.gateway.routeDaemonFrame(h.host, {
       type: 'runtimeSendResult',
       requestId: req.requestId,
       sessionId: req.sessionId as never,
-      receipt: { outcome: 'accepted', turnEpoch: epoch, deliveredAs: 'when-ready', provenBy: 'protocol-ack', at: new Date().toISOString() },
+      receipt: {
+        outcome: 'accepted',
+        turnEpoch: epoch,
+        deliveredAs: 'when-ready',
+        provenBy: 'protocol-ack',
+        at: new Date().toISOString(),
+      },
     })
     const at = new Date().toISOString()
     const gateway = h.registry.modules.sessions.runtimeGateway
     await gateway.record(h.host, {
       sessionId: req.sessionId as never,
-      event: { t: 'turn', ev: { ev: 'started', turnEpoch: epoch, origin: 'system' }, cursor: { segmentId: 's', components: { seq: 1 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
+      event: {
+        t: 'turn',
+        ev: { ev: 'started', turnEpoch: epoch, origin: 'system' },
+        cursor: { segmentId: 's', components: { seq: 1 } },
+        observerGeneration: 1,
+        turnEpoch: epoch,
+        provenance: 'live',
+        at,
+      } as never,
     })
     await gateway.record(h.host, {
       sessionId: req.sessionId as never,
-      event: { t: 'turn', ev: { ev: 'failed', turnEpoch: epoch, reason: 'provider-error', disposition: 'fatal', detail: 'boom' }, cursor: { segmentId: 's', components: { seq: 2 } }, observerGeneration: 1, turnEpoch: epoch, provenance: 'live', at } as never,
+      event: {
+        t: 'turn',
+        ev: {
+          ev: 'failed',
+          turnEpoch: epoch,
+          reason: 'provider-error',
+          disposition: 'fatal',
+          detail: 'boom',
+        },
+        cursor: { segmentId: 's', components: { seq: 2 } },
+        observerGeneration: 1,
+        turnEpoch: epoch,
+        provenance: 'live',
+        at,
+      } as never,
     })
     await h.waitForIdle()
     const history = await h.sa.history(firstAdminMemberId(), asThreadId('global'))
@@ -232,9 +291,10 @@ describe('superagent offline machine (POD-4806)', () => {
     }
     expect(history.some((m) => m.content.includes(TURN_FAILED_MARKER))).toBe(true)
     expect(history.some((m) => m.role === 'user' && m.content === 'run it')).toBe(false)
-    // The typed read still names the failure, with no user words to duplicate.
-    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
-    expect(failure?.error).toContain(TURN_FAILED_MARKER)
+    // The thread's record still names the failure, with no user words to duplicate.
+    const failure = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
+      ?.lastTurnFailure
+    expect(failure?.message).toContain(TURN_FAILED_MARKER)
     expect(failure?.userText).toBeNull()
   })
 })

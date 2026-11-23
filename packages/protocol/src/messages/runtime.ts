@@ -1,5 +1,8 @@
 import { NativeBindingReceipt } from './native-binding'
+import { SessionPostureSchema } from './posture'
+
 export { NativeBindingReceipt } from './native-binding'
+
 import {
   DriverFamilyWire,
   HarnessRef,
@@ -11,12 +14,13 @@ import {
   TranscriptItemRef,
 } from '@podium/model'
 import { z } from 'zod'
-import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
 import {
   InteractionAnswerOutcome,
   InteractionEvent,
   PendingInteraction,
 } from './runtime-interactions'
+import { ObservationInputOrigin, ObservationProvenance, ProviderCursor } from './runtime-state'
+import { AccessField } from './session-access'
 
 // The interaction contract is one vocabulary with this file; it lives in its own
 // module only so the browser can take that half without the daemon plane
@@ -129,6 +133,10 @@ export const RefusalReason = z.enum([
   // byte-identical. `configure()` with a value the harness cannot take
   // (POD-3081) — the field is real, the value is not.
   'invalid_value',
+  // APPENDED, last for the same arithmetic. An interrupt named a turn
+  // (POD-6397) and that turn had already ended: nothing was stopped, and the
+  // turn running now, if any, was not touched.
+  'turn_ended',
 ])
 export type RefusalReason = z.infer<typeof RefusalReason>
 
@@ -230,7 +238,6 @@ export const TurnReceipt = z.discriminatedUnion('outcome', [
   }),
 ])
 export type TurnReceipt = z.infer<typeof TurnReceipt>
-
 
 // ---------------------------------------------------------------------------
 // Failure vocabulary
@@ -359,14 +366,23 @@ export const GitActivity = z.object({
  */
 export const SessionMetadataChange = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('title'), source: z.enum(['osc', 'native']), title: z.string() }),
-  z.object({ kind: z.literal('model'), source: z.enum(['transcript', 'native']), model: z.string(), effort: z.string().optional() }),
+  z.object({
+    kind: z.literal('model'),
+    source: z.enum(['transcript', 'native']),
+    model: z.string(),
+    effort: z.string().optional(),
+  }),
   z.object({ kind: z.literal('color'), source: z.literal('transcript'), color: z.string() }),
   z.object({ kind: z.literal('context'), source: z.literal('transcript'), percent: z.number() }),
 ])
 export type SessionMetadataChange = z.infer<typeof SessionMetadataChange>
-export const SessionMetadataObservation = z.intersection(CausalEnvelope, z.object({
-  t: z.literal('metadata'), change: SessionMetadataChange,
-}))
+export const SessionMetadataObservation = z.intersection(
+  CausalEnvelope,
+  z.object({
+    t: z.literal('metadata'),
+    change: SessionMetadataChange,
+  }),
+)
 export type SessionMetadataObservation = z.infer<typeof SessionMetadataObservation>
 
 /**
@@ -460,7 +476,11 @@ export const RuntimeEventBody = z.discriminatedUnion('t', [
   }),
   z.object({ t: z.literal('state'), change: z.record(z.string(), z.unknown()) }),
   z.object({ t: z.literal('item'), item: TranscriptItemDelta }),
-  z.object({ t: z.literal('transcript-reset'), items: z.array(TranscriptItem).readonly(), tail: z.string().optional() }),
+  z.object({
+    t: z.literal('transcript-reset'),
+    items: z.array(TranscriptItem).readonly(),
+    tail: z.string().optional(),
+  }),
   z.object({ t: z.literal('interaction'), ev: InteractionEvent }),
   z.object({ t: z.literal('turn'), ev: TurnEvent }),
   z.object({ t: z.literal('process'), ev: ProcessEvent }),
@@ -661,14 +681,25 @@ export const RuntimeSendRequestMessage = z.object({
   // Carried so superagent/shipwright turns can migrate off the legacy headless
   // port onto the driver-contract WS relay without losing per-turn tool, MCP,
   // permission, conversation or durable-identity semantics.
+  //
+  // `allowedTools`, `permissionMode` and `structuredPermissions` are one
+  // vendor's words for the launch terms that `posture` now states (POD-6858).
+  // A server still sends them beside `posture`, and the headless digest is
+  // still minted over them, because a daemon that predates posture reads them.
+  // LEGACY(remove-after: 2027-02): pre-posture servers and daemons speak this; removing it drops them
   allowedTools: z.array(z.string()).optional(),
+  // LEGACY(remove-after: 2027-02): pre-posture servers and daemons speak this; removing it drops them
   permissionMode: z.string().optional(),
   toolPolicy: z.literal('none').optional(),
   mcpConfig: z.string().optional(),
   resumeValue: z.string().optional(),
   sessionUuid: z.string().optional(),
   accountId: z.string().optional(),
-  requestDigest: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  requestDigest: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  // LEGACY(remove-after: 2027-02): pre-posture servers and daemons speak this; removing it drops them
   structuredPermissions: z.literal(true).optional(),
   // HEADLESS PER-TURN PROMPT CHANNELS + BUDGET (this issue). All optional;
   // absent means absent. Appended at the END so existing golden samples stay
@@ -688,6 +719,26 @@ export const RuntimeSendRequestMessage = z.object({
    * the recovery as unconfirmed, as it always did.
    */
   held: z.literal('durable').optional(),
+  /**
+   * THE TURN'S CREDENTIAL (POD-6733; credential management §8): the access the
+   * server resolved for the session's owner when the turn was sent. A
+   * per-turn driver starts a process for every turn, and a session the daemon
+   * re-adopted after a restart never gets its establish frame again, so a
+   * headless turn carries it each time. A secret, so never part of
+   * `requestDigest` (`accountId` names the login) and never logged. Absent:
+   * the daemon applies the access it holds for the session, if any.
+   */
+  access: AccessField.optional(),
+  /**
+   * THE TURN'S LAUNCH TERMS, in Podium's words (POD-6858,
+   * harness-session-posture.md §4.3): how far the agent goes without asking.
+   * A turn's posture wins over its session's. Never part of `requestDigest`:
+   * an older daemon strips it before it recomputes the digest, so the digest
+   * stays over the legacy fields above. Appended at the END; an older daemon
+   * strips it and reads `permissionMode` as before, and an older server sends
+   * none, which the daemon derives from `permissionMode`.
+   */
+  posture: SessionPostureSchema.optional(),
 })
 export type RuntimeSendRequestMessage = z.infer<typeof RuntimeSendRequestMessage>
 
@@ -700,7 +751,6 @@ export const RuntimeDurableSendRequestMessage = RuntimeSendRequestMessage.extend
   initialPrompt: z.boolean(),
 })
 export type RuntimeDurableSendRequestMessage = z.infer<typeof RuntimeDurableSendRequestMessage>
-
 
 export const RuntimeStageAttachmentRequestMessage = z.object({
   type: z.literal('runtimeStageAttachmentRequest'),
@@ -719,6 +769,13 @@ export const RuntimeInterruptRequestMessage = z.object({
   cancelRowId: z.string().min(1).optional(),
   requestId: z.string(),
   sessionId: z.string().min(1).pipe(SessionIdField),
+  /**
+   * THE TURN THIS STOP IS FOR (POD-6397): the `turnStartedAt` of the agent
+   * state the person saw. The daemon, which owns the marker, stops only that
+   * turn and answers `turn_ended` when it is over. Absent (and on a daemon from
+   * before it, which drops the key) the stop is for whatever turn runs.
+   */
+  turn: z.string().min(1).max(64).optional(),
 })
 export type RuntimeInterruptRequestMessage = z.infer<typeof RuntimeInterruptRequestMessage>
 

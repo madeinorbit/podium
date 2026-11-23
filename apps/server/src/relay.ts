@@ -1,20 +1,25 @@
 import { Buffer } from 'node:buffer'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { HumanCeiling } from '@podium/commands'
+import type { BlobStore } from '@podium/blob-store'
+import { LocalBlobStorage } from '@podium/blob-store/local'
+import { type HumanCeiling, workflowAssignInput } from '@podium/commands'
 import { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from '@podium/harness/metadata'
+import type { OneTimeCodeOperations } from '@podium/identity'
 import type {
   AgentKind,
   Attribution,
-  IssueEventWire,
+  EffectTarget,
   IssueId,
+  IssuePanelArtifactWire,
   MachineId,
   MessageHeld,
   NotInConversationCause,
   SessionId,
   SessionMeta,
   UpdateChannel,
+  UserId,
 } from '@podium/model'
 import {
   actorAgent,
@@ -27,19 +32,28 @@ import {
   asSessionId,
   asUserId,
   firstAdminMemberId,
+  formatAgentError,
   machinePathsEqual,
+  mintDeviceId,
   spawnedByParentSessionId,
 } from '@podium/model'
 import type {
-  LiveServerMessage,
   LocalPortableStateControl,
+  ServerMessage,
   UpdateKeyRotation,
   VisibilityResolver,
+  WriteReceipt,
 } from '@podium/protocol'
 import {
+  CAP_CHECKOUT_CHANGED_V1,
+  CAP_MACHINE_PROCESSES_V1,
+  CAP_TOPICS_V1,
   formatIssueRef,
+  type HostMemoryBreakdown,
+  parseCheckoutTopicId,
   platformTargetFor,
   SERVER_MOVE_CAPABILITY,
+  SERVER_MOVE_VAULT_KEY_CAPABILITY,
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
@@ -49,72 +63,138 @@ import type {
   RuntimeAttachmentRef,
 } from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
-import { resolveLaunchSelection } from './model-validation'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import { prepareSourceDaemonCutover } from '@podium/runtime/transfer-lifecycle'
 import {
-  DEVICE_GRADE_PRINCIPAL,
+  CHANGE_LOG_OBSERVER,
   FeedIdentityRegistry,
   GrantEdgeVisibilityPolicy,
   kernelVisibilityResolver,
   Ledger,
+  type LedgerWriter,
   MutationLedger,
   NoDelegationsGranted,
+  type WriteScope,
 } from '@podium/sync'
+import { FEED_RESCOPE_THRESHOLD } from '@podium/sync/bootstrap-worker'
 import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator'
-import { hashToken } from './auth-route'
 import { bootStage } from './boot-timing'
+import { serverBuildVersion } from './build-version'
 import { capabilityPrincipalResolver } from './capability-principal'
-import { codexAuthorizerFor, createCodexTransport } from './codex-machine'
+import { clientRelocations } from './client-relocation'
+import { codexAuthorizerFor } from './codex-machine'
 import {
+  attributionOf,
   type CommandPrincipal,
   onBehalfOfUser,
   resolvePrincipalAsync,
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
+import { LifecyclePort } from './composition/lifecycle-port'
 import { composeReactions, REACTIONS, type ReactionDefinition } from './composition/reactions'
-import { getFeatureStates, isFeatureEnabled } from './features'
+import { getFeatureStates, isFeatureEnabled, serverFeatureFacts } from './features'
 import { makeFeedVisibility } from './feed-visibility'
 import { ClientMux } from './gateway/client-mux'
 import { ClientRegistry } from './gateway/client-registry'
+import { DaemonLinks } from './gateway/daemon-link-kind'
 import { DaemonMux } from './gateway/daemon-mux'
 import { FeedServing } from './gateway/feed-serving'
 import { MobileClientVersions } from './gateway/mobile-client-versions'
 import { PresenceRouting } from './gateway/presence-routing'
+import { createDaemonTopicIngress } from './gateway/topic-ingress'
+import { daemonTopicProducer, type TopicProducers, TopicRouting } from './gateway/topic-routing'
 import { driverFamilyForId } from './harness-manifest'
-import { checkIssueAccess } from './issue-authz'
-import { type CodexTransport, llmClient } from './llm'
-import { checkMachineUse, ownershipSnapshotFromMachines } from './machine-access'
+import type { MemberCredentials } from './identity/member-credentials'
+import { checkIssueAccess, mayReachPrivate } from './issue-authz'
+import {
+  checkMachineUse,
+  checkMachineVerb,
+  machineCustodian,
+  ownershipSnapshotFromMachines,
+} from './machine-access'
 import type { ModelProbe } from './model-catalog'
-import { NativeLoginService } from './modules/accounts/native-login'
-import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
+import { resolveLaunchSelection } from './model-validation'
+import { AgentProfileService } from './modules/agent-profiles/service'
+import { ApprovalService } from './modules/approvals/service'
 import { automationPromptSender } from './modules/automations/prompt'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
 import { EventBus, type EventMap } from './modules/bus'
+import { CheckoutsService } from './modules/checkouts/service'
+import type { AttachAccessDeps } from './modules/credentials/attach-access'
+import {
+  type ChatgptPlanService,
+  composeChatgptPlan,
+} from './modules/credentials/chatgpt-plan/service'
+import {
+  PlanSessionRenewal,
+  realTimer,
+  SESSION_TOKEN_MIN_LEFT_MS,
+} from './modules/credentials/chatgpt-plan/session-renewal'
+import { recordFoundLogins } from './modules/credentials/found-logins'
+import {
+  CREDENTIAL_EXPIRY_SWEEP_MS,
+  CREDENTIAL_TURN_BOUNDARY,
+  type FetchLike as CredentialFetch,
+  CredentialHealth,
+  classifyCredentialFailure,
+} from './modules/credentials/health'
+import { placementRemovers } from './modules/credentials/home-removers'
+import { NativeLoginService } from './modules/credentials/native-login'
+import { Placements } from './modules/credentials/placements'
+import { HomeSignInService } from './modules/credentials/sign-in'
 import { DaemonRequestBroker } from './modules/daemon-request'
+import { awaitEffectSettled } from './modules/effects/await'
+import { makeEffectFeedCapture } from './modules/effects/feed'
+import { EffectExecutorRegistry } from './modules/effects/registry'
+import { EffectsRunner } from './modules/effects/runner'
+import { registerEffectCommands } from './modules/effects/sync-write'
 import { EventLogRetention } from './modules/events/retention'
+import { type FileStorageJobName, fileStorageJobs } from './modules/files/file-jobs'
+import { ORPHAN_AUDIT_EVERY_MS, OrphanAudit } from './modules/files/orphan-audit'
+import { registerFileWriteEffect } from './modules/files/write-effect'
+import { registerDiscoveryEffects } from './modules/fleet/discovery-effects'
+import { registerFolderEffects } from './modules/fleet/folder-effects'
+import { registerServerMoveEffect } from './modules/fleet/server-move-effect'
+import { registerMachineUpdateEffect } from './modules/fleet/update-effect'
 import { WriteFunnel } from './modules/funnel'
+import { HIBERNATION_HOLDER, HibernationMetricsDemand } from './modules/hosts/metrics-demand'
+import { MachineProcessesTopic } from './modules/hosts/processes-topic'
+import { HOST_COMMANDS_TRPC, type HostState, memoryBreakdownRoots } from './modules/hosts/registry'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { complete, type OnMachineTransport } from './modules/inference/complete'
+import { registerSessionAnswerEffect } from './modules/interactions/answer-effect'
 import { InteractionFeedPublisher } from './modules/interactions/feed'
 import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
 import { InteractionService } from './modules/interactions/service'
-import { IssueEventFeedPublisher } from './modules/issue-events/feed'
+import { interactionFingerprint } from './modules/interactions/synthesis'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
+import {
+  issueArtifactEffectPort,
+  registerIssueArtifactEffects,
+} from './modules/issues/artifact-effects'
 import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { IssueAuthorityArbitration } from './modules/issues/authority-arbitration'
 import { IssueAutoArchive } from './modules/issues/auto-archive'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
+import { issueGitEffectPort, registerIssueGitEffects } from './modules/issues/git-effects'
 import { IssueGitWatch } from './modules/issues/git-watch'
+import { readIssue, readIssues } from './modules/issues/issue-reader'
 import { PENDING_UPLOAD_SWEEP_MS, PendingUploadStore } from './modules/issues/pending-uploads'
-import { repoProjectionRows } from './modules/issues/projection'
+import { type ReassignmentFacts, reassignmentNotices } from './modules/issues/reassign-notice'
 import { makeAgentRelayDispatch } from './modules/issues/relay-dispatch'
 import { AgentRelayGate } from './modules/issues/relay-gate'
 import { IssueService } from './modules/issues/service'
 import { seatText } from './modules/issues/service/seat'
+import { registerIssueStartEffect } from './modules/issues/start-effect'
+import {
+  finishSelfStop,
+  issueWorkEffectPort,
+  registerIssueWorkEffects,
+} from './modules/issues/work-effects'
 import { LayoutService } from './modules/layout/service'
 import { LockCommandDispatcher } from './modules/lock/registry'
 import { LockService } from './modules/lock/service'
@@ -122,10 +202,13 @@ import { FleetLogLevelDirector } from './modules/logs/fleet-director'
 import { FleetLogStore } from './modules/logs/fleet-store'
 import { ClientLogLevelDirector } from './modules/logs/level-director'
 import { LogIngestService } from './modules/logs/service'
+import { MachineConditionTopic } from './modules/machines/condition-topic'
 import { routeMachineDiagnostic } from './modules/machines/diagnostics'
 import { LoginPropagationService } from './modules/machines/login-propagation'
+import { type MachineRecordsDeps, makeMachineRecordCompare } from './modules/machines/records'
 import { DaemonRpcService } from './modules/machines/rpc'
 import { MachinesService, type PairingCodes } from './modules/machines/service'
+import type { TranscriptLakeStorage } from './modules/memory/lake'
 import { MemoryService } from './modules/memory/service'
 import { MessageFeedPublisher } from './modules/message-feed/feed'
 import { readMessageRecords } from './modules/message-feed/records'
@@ -135,6 +218,10 @@ import { QueuedMessageApply } from './modules/messages/queued-apply'
 import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
 import { MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
+import type { MessageWriter } from './modules/messages/writer'
+import { bindNoticeService, NoticeService } from './modules/notices/emit'
+import { CommentMentions } from './modules/notices/mentions'
+import { makeNoticeFeedCapture } from './modules/notices/records'
 import {
   DEFAULT_NOTIFICATION_PUSHERS,
   type NotificationPushers,
@@ -145,8 +232,10 @@ import { createOperations, type OperationsModule } from './modules/operations'
 import { LIFECYCLE_EXCLUSION_GROUP } from './modules/operations/lifecycle'
 import { DEPLOYMENT, type PerfRegistry, perf } from './modules/perf/registry'
 import { QuotaBackfill } from './modules/quota-history/backfill'
+import { AccountQuotaTopic, AccountUsageTopic } from './modules/quota-history/quota-topic'
 import { QuotaSampler } from './modules/quota-history/service'
 import { ReadPositionService } from './modules/read-position/service'
+import { registerRecordCommands } from './modules/records/register'
 import {
   restartSourceAfterRecovery,
   retireSourceAfterTransfer,
@@ -156,16 +245,31 @@ import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import type { ServerTransferTargetState } from './modules/server-transfer/service'
 import { ServerTransferService } from './modules/server-transfer/service'
+import { sourceTransferFence } from './modules/server-transfer/source-fence'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
-import { machinesForPrincipal } from './modules/sessions/command-ctx'
 import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
-import { AgentProfileService } from './modules/agent-profiles/service'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
+import { SessionLifecycleController } from './modules/sessions/lifecycle-controller'
+import type { SessionLiveKind, SessionLiveTopics } from './modules/sessions/live-topics'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
 import { readSessionRefs } from './modules/sessions/refs'
 import type { Session } from './modules/sessions/session'
-import type { SnapshotTail } from './modules/sessions/session-lifecycle-types'
+import { registerSessionConfigureEffect } from './modules/sessions/session-configure-effect'
+import { registerSessionHandoffEffect } from './modules/sessions/session-handoff-effect'
+import {
+  registerSessionInterruptEffect,
+  type SessionInterruptsHandle,
+} from './modules/sessions/session-interrupt-effect'
+import {
+  createSpawnLaunchInUnit,
+  refuseUnplaceable,
+  registerSessionLaunchEffect,
+  SESSION_LAUNCH_KIND,
+  settledSpawnLaunch,
+} from './modules/sessions/session-launch-effect'
+import { CredentialSwitcher, type SwitchSession } from './modules/sessions/switch-credential'
+import { makeInstancePreferencesFeedCapture } from './modules/settings/instance-record'
 import {
   bridgeConfigChanged,
   SettingsService,
@@ -178,7 +282,6 @@ import {
   ShippingService,
   shippingResourceHolderId,
 } from './modules/shipping'
-import { scheduledShippingProjection } from './modules/shipping/projection'
 import {
   ShippingEvidenceRegistry,
   ShipwrightService,
@@ -187,6 +290,13 @@ import {
 import { SpecsService } from './modules/specs/service'
 import { deliverAnswerToSession } from './modules/superagent/answer-delivery'
 import type { HeadlessService } from './modules/superagent/headless'
+import type { SuperagentService } from './modules/superagent/service'
+import { makeThreadFeedCapture } from './modules/superagent/thread-records'
+import { SyncWriteEntry } from './modules/sync-write/entry'
+import { registerFamilyCommands } from './modules/sync-write/family-commands'
+import { legacyMutationFallback } from './modules/sync-write/legacy-receipt'
+import { registerOutboxCommands } from './modules/sync-write/outbox-commands'
+import { SyncWriteRegistry } from './modules/sync-write/registry'
 import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
 import {
   createUpdateFleetBridge,
@@ -198,15 +308,26 @@ import { UpdateReconciler } from './modules/updates/reconciler'
 import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/release-target'
 import type { ServerPlacement } from './modules/updates/service'
 import { UpdatesService } from './modules/updates/service'
+import { registerUpdateEffect, type UpdateEffects } from './modules/updates/update-effect'
+import { readUsageSummary } from './modules/usage-summary'
 import { WorkflowService } from './modules/workflows/service'
-import { readIssue } from './modules/issues/issue-reader'
-import { inferRepoFromRoots } from './repo-registry'
+import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
+import { privateResourceAccess } from './private-resources'
+import { MachineRepoDiscovery } from './repo-discovery'
+import { inferRepoFromRoots, RepoRegistry } from './repo-registry'
+import { soleMemberFor } from './sole-member'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
-import { applyAfterCommit, spanOpen } from './store/executor/executor'
+import { changeLogCommit } from './store/change-log-commit'
+import type { EffectRow, EffectsRepository } from './store/effects'
+import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/executor'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
+import { readKindTokens } from './sync/kind-tokens'
+import { databaseRecords } from './sync/record-source'
 import type { SyncDeltaPorts } from './sync/route-support'
+import { installSessionSourceWrites } from './sync/session-source-writes'
 import { autoContinueSender, systemIssueNotice } from './system-notices'
+import { WriteContexts } from './write-contexts'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
 // result shapes from './relay'.
@@ -219,6 +340,7 @@ export type {
 import { createLogger } from '@podium/logger'
 
 const log = createLogger('server:relay')
+const repoDiscoveryLog = createLogger('server:repo-discovery')
 
 export type { MemoryBreakdown }
 
@@ -231,7 +353,10 @@ export type { MemoryBreakdown }
  * when the closure is made.
  */
 interface SessionRegistryBoot {
+  readonly legacyReceiptCutoff: number
+  readonly legacyReceiptOwner: UserId | null
   readonly settings: Awaited<ReturnType<SessionStore['settings']['getSettings']>>
+  readonly updateRecovery: Awaited<ReturnType<SessionStore['updateRecovery']['read']>>
 }
 
 interface SessionRegistryOptions {
@@ -273,9 +398,19 @@ interface SessionRegistryOptions {
    * and the shipped poll interval. A send never waits on it [POD-4661].
    */
   mailAwait?: { pollMs?: number; sleep?(ms: number): Promise<void> }
-  /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
-   *  (the default — every existing test), NO mirror traffic is produced. */
-  mirrorLakeDir?: string
+  /** Where the transcript lake keeps its parts (POD-6963 design 2.3): the workspace's
+   *  `files` handle and its id. Opt-in: when unset (the default — every existing
+   *  test), NO mirror traffic is produced. */
+  transcriptLake?: TranscriptLakeStorage
+  /**
+   * This workspace's user files (POD-6963 design 2.1): the handle the
+   * composition root built with `forWorkspace`, on the state directory or on a
+   * bucket: the artifact, composer-upload and lake owners' files (POD-7052,
+   * POD-7054, POD-7055). Absent in tests: the artifact and composer-upload
+   * stores then keep their files under the state directory, as a self-hosted
+   * server does.
+   */
+  files?: BlobStore
   portableStateFence?: PortableStateFence
   /** Live model-list probe (grok/cursor/opencode `models`). Injected in tests so the
    *  catalog never shells out; defaults to the real CLI probe. */
@@ -285,6 +420,18 @@ interface SessionRegistryOptions {
    *  disabled: mint throws, `pair` handshakes are rejected, `hello` unaffected. */
   installationId?: string
   pairing?: PairingCodes
+  /**
+   * A member's password and address, through their account of the identity
+   * package (POD-6746). Absent, which is a registry assembled without an
+   * identity core (most tests): every password write refuses.
+   */
+  memberCredentials?: MemberCredentials
+  /**
+   * Device claims are included in the last portable snapshot of a server move.
+   * Read when a move uses them: the server opens its identity after the
+   * registry (POD-6939).
+   */
+  clientRelocationCodes?: () => OneTimeCodeOperations
   /** Reaction contracts to publish on the module seam. Defaults to the registry;
    *  injected only so the runtime refusal of an invalid principal is observable
    *  (POD-1470). Whatever is passed goes through the same totality check the
@@ -296,16 +443,70 @@ interface SessionRegistryOptions {
   rehearseBoot?: boolean
   /** Which parked sessions stay in memory (POD-6160 D2f); absent keeps them all. */
   sessionResidency?: { evictParked?: boolean; sweepIntervalMs?: number }
+  /** Whether this server runs the hub role (`roles.ts`). Absent = hub, as a tRPC
+   *  context with no role is: the fleet's hub-only writes on `sync.submit` are
+   *  refused when it is false, as their routes 404 (POD-6417). */
+  servesHub?: boolean
+  /** The provider calls that verify a pasted credential (credential management
+   *  §7). Tests pass a fake provider; absent, the global `fetch`. */
+  credentialProviderFetch?: CredentialFetch
 }
 
 /** The composed module set (issue #13 Phase 2): the typed seam every caller —
  *  router procs (ctx.modules), server assembly, superagent, tests — reaches
  *  services through. */
+/** One-shot effects as data (ADR 12 D5 E2, POD-6357): where a kind registers
+ *  its executor, and how an old route waits for a record to settle. */
+export interface EffectsModule {
+  readonly executors: EffectExecutorRegistry
+  readonly runner: EffectsRunner
+  /** One record as the Authority holds it now, tombstones included. */
+  get(id: string): Promise<EffectRow | undefined>
+  awaitSettled(id: string, timeoutMs: number): ReturnType<typeof awaitEffectSettled>
+  /** One kind's newest record on a target that is still running, or that succeeded. */
+  newestOnTarget: EffectsRepository['newestOnTarget']
+  /**
+   * A record the server itself asks for (the janitor's connect scan, POD-6396):
+   * no caller, so no `sync.submit`; the kind's schema and deadline still apply,
+   * and the trigger runs it after the commit like any other.
+   */
+  createAsSystem(effect: {
+    readonly id: string
+    readonly kind: string
+    readonly target: EffectTarget
+    readonly input: unknown
+    readonly job: string
+  }): Promise<EffectRow>
+  /**
+   * A record a write creates in its OWN unit of work, attributed to whoever the
+   * write names (an approval's `approval.execute`, POD-6415). Only inside a
+   * unit: the record commits or rolls back with the write.
+   */
+  createInUnit(writer: Pick<LedgerWriter, 'commit'>, effect: NewEffectInUnit): Promise<EffectRow>
+}
+
+interface NewEffectInUnit {
+  readonly id: string
+  readonly kind: string
+  readonly target: EffectTarget
+  readonly input: unknown
+  readonly createdBy: UserId | null
+  readonly actor: string
+}
+
 export interface RegistryModules {
+  /** The superagent's own session writes (`superagent.tools`, POD-6601). */
+  superagentToolsWriter: Pick<LedgerWriter, 'commit'>
+  /** The superagent's turn runner, after a send commits (`superagent.turns`, POD-6606). */
+  superagentTurnsWriter: Pick<LedgerWriter, 'commit'>
+  /** The messaging bridge's superagent sends, with no command (`superagent.bridge`, POD-6606). */
+  superagentBridgeWriter: Pick<LedgerWriter, 'commit'>
   bus: EventBus
   funnel: WriteFunnel
   sessions: SessionLifecycle
   machines: MachinesService
+  /** Each machine's checkouts as synced records (POD-6644). */
+  checkouts: CheckoutsService
   updates: UpdatesService
   /**
    * Durable long-running operations (POD-2097) — the generic engine plus its
@@ -313,6 +514,11 @@ export interface RegistryModules {
    * that a feature registering a new kind does it in a diff a reviewer sees.
    */
   operations: OperationsModule
+  /**
+   * One-shot effects (POD-6357). OPTIONAL for the reason `updatesReconciler`
+   * gives: a module set assembled by hand without it serves no effect kinds.
+   */
+  effects?: EffectsModule
   /**
    * Background convergence for machines that were asleep when an update ran
    * (POD-2105, spec §3.6). OPTIONAL because it is pure choreography: a registry
@@ -338,21 +544,52 @@ export interface RegistryModules {
    */
   updateFleetBridge?: { onFleetChanged(): Promise<void> }
   rpc: DaemonRpcService
+  /** Credential verification, attention, expiry, renewal and removal (§7, §8; Task 13). */
+  credentialHealth: CredentialHealth
+  /** `sessions.switchCredential` (§9; Task 11). */
+  credentialSwitch: CredentialSwitcher
+  /** Sign in with ChatGPT, and the keeper of those sign-ins (§11; Task 14). */
+  chatgptPlan: ChatgptPlanService
   serverTransfer: ServerTransferService
   loginPropagation: LoginPropagationService
   nativeLogin: NativeLoginService
+  /** Signing in to a subscription in a home on a machine (§6 way 2; Task 9). */
+  homeSignIn: HomeSignInService
   memory: MemoryService
   hosts: HostsService
   settings: SettingsService
   /** Per-user sidebar/tab layout (POD-1350) — store + feed publish behind one service. */
   layout: LayoutService
+  /**
+   * THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273): every write to synced data
+   * from a transport goes through `syncWrite.submit`. Families register their
+   * commands on `syncWrite.registry`.
+   */
+  syncWrite: SyncWriteEntry
   /** Server-owned dock-shell mapping (POD-4436) — per user, per worktree → shell session. */
   dockShells: DockShellService
   /** Per-user event-stream read positions (POD-1380) — same shape, monotonic merge. */
   readPosition: ReadPositionService
   issueSessionLifecycle: IssueSessionLifecycle
+  /** Makes each session's desired state true (ADR 12 D5 E1, POD-6356). */
+  sessionLifecycleController: SessionLifecycleController
+  /** The `session.launch` effect kind's handle (POD-6398); absent in hand-built sets. */
+  sessionLaunches?: { errorOf(effectId: string): unknown }
+  /** The `session.interrupt` effect kind's handle (POD-6397); absent in hand-built sets. */
+  sessionInterrupts?: SessionInterruptsHandle
+  /** Software update as an effect record, and the ports it runs with (POD-6358). */
+  updateEffects?: UpdateEffects
   headless: HeadlessService
+  /**
+   * The superagent, LATE-BOUND (POD-6419): it is built after this registry
+   * (`server.ts`) over these modules, and {@link SuperagentService.create} sets
+   * it. Its writes on the sync write entry point read it per call; absent until
+   * then.
+   */
+  superagent?: SuperagentService
   notify: NotifyService
+  /** Each person's notice inbox (POD-6881, credential management spec §13). */
+  notices: NoticeService
   issues: IssueService
   /** Named agent setups (POD-6107): the library and the launch resolver. */
   agentProfiles: AgentProfileService
@@ -430,12 +667,24 @@ function noticeInfo(
  */
 export class SessionRegistry {
   private mobileVersions?: MobileClientVersions
+  /** Topics on the stream plane (ADR 7 Amendment 2), over the gateway's one registry. */
+  topics!: TopicRouting
+  /** Each connected daemon's link and its kind (credential management §8). */
+  readonly daemonLinks: DaemonLinks
 
   readonly recoveryOnly: boolean
+  /** See {@link SessionRegistryOptions.memberCredentials}. */
+  readonly memberCredentials: MemberCredentials | undefined
   /** Typed in-process event bus — modules subscribe here (issue #13 Phase 2). */
   readonly bus = new EventBus()
   /** Typed accessor to the composed services — the one seam callers use. */
   readonly modules: RegistryModules
+  /**
+   * Tiered per-machine repo discovery (POD-787) [spec:SP-3701]. Built here, not
+   * at the server's composition, because the `machine.scan` effect runs it and
+   * the effect kinds must be registered before the boot sweep (POD-6396).
+   */
+  readonly repoDiscovery: MachineRepoDiscovery
   /**
    * THE GATEWAY's daemon socket mux (POD-389). `attachDaemon`, `detachDaemon` and
    * `routeDaemonFrame` live here, not on the sessions service: a daemon
@@ -473,34 +722,44 @@ export class SessionRegistry {
    * history cannot be recomputed later from anything on disk.
    */
   private readonly quotaSampler: QuotaSampler
+  /** The `account.quota` and `account.usage` producers (POD-5798). */
+  private readonly accountQuota: AccountQuotaTopic
+  private readonly accountUsage: AccountUsageTopic
   /** One-shot boot import of the quota history the harnesses wrote themselves
    *  (POD-1571) — Codex rollouts and Grok's billing log. Claude keeps none. */
   private readonly quotaBackfill: QuotaBackfill
   /** Durable change-log owner, retained so shutdown cancels maintenance slices. */
   readonly syncDelta: SyncDeltaPorts
   private readonly ledger: Ledger
+  /** The write contexts over {@link ledger} (ADR 12 D9): the only source of a
+   *  write scope in the process. */
+  private readonly writes: WriteContexts
+  /** What the machine records are written from (POD-6644). */
+  private machineRecordsDeps!: () => MachineRecordsDeps & {
+    reach: NonNullable<MachineRecordsDeps['reach']>
+  }
+  /** Each machine's checkouts as synced records (POD-6644). */
+  private checkouts!: CheckoutsService
   /** Curated issue-event window, resolved during async registry hydration. */
-  private readonly issueEventFeed: IssueEventFeedPublisher
   /** Open interaction set, resolved during async registry hydration. */
-  private readonly interactionFeed: InteractionFeedPublisher
   /** People's chat messages on the feed, resolved during async registry hydration. */
-  private readonly messageFeed: MessageFeedPublisher
   /** Boot and inventory-triggered personal backend seeding. */
   private readonly superagentDefaults: SuperagentDefaultSeeder
   /** Message delivery slow sweep (#237) [spec:SP-34d7]. */
   private readonly messageSweep: ReturnType<typeof setInterval>
+  /** The credential expiry sweep (credential management §7). */
+  private readonly credentialExpirySweep: ReturnType<typeof setInterval>
   /** Queued-INPUT sweep (POD-1703) — the PTY queue's own backstop. The sweep
    *  above walks the message LEDGER; this one re-arms the drains that actually
    *  move bytes, which had no timer at all. */
   private readonly queuedInputSweep: ReturnType<typeof setInterval>
   /** Unclaimed composer uploads past their day (POD-2148). */
   private readonly pendingUploadSweep: ReturnType<typeof setInterval>
-  /** Stalled-approval deadline (POD-2223) — modules/approvals. */
-  private readonly approvalStallSweep: ReturnType<typeof setInterval>
   /** Read-gated auto-archive timers (issue #127) — modules/issues. */
   private readonly issueAutoArchive: IssueAutoArchive
   /** Parent-branch movement watch (POD-384) — modules/issues. */
   private readonly issueGitWatch: IssueGitWatch
+  private readonly effectsRunner: EffectsRunner
   /** Cron tick for scheduled automations (#470) [spec:SP-17db] — modules/automations. */
   private readonly automationScheduler: AutomationScheduler
   private readonly store: SessionStore
@@ -508,9 +767,25 @@ export class SessionRegistry {
   private localDaemonPortableState: LocalPortableStateControl | undefined
   /** The superagent service, once assembly has built it — see
    *  {@link adoptSuperagent}. */
-  private adoptedSuperagent: { dispose(): void } | undefined
+  private adoptedSuperagent: SuperagentService | undefined
+  private unsubscribeAccessChanges: (() => void) | undefined
   /** Disposer for the runtime's config-write seam bridged onto the bus (POD-3840). */
   private readonly configChangedBridge: () => void
+
+  private stopping = false
+  private readonly backgroundTasks = new Set<Promise<void>>()
+
+  /** Owned work starts after hydration and drains before its services close. */
+  private startBackground(failure: string, work: () => Promise<unknown>): void {
+    if (this.stopping) return
+    const task = Promise.resolve()
+      .then(async () => {
+        if (!this.stopping) await work()
+      })
+      .catch((err: unknown) => log.warn(failure, { err }))
+      .finally(() => this.backgroundTasks.delete(task))
+    this.backgroundTasks.add(task)
+  }
 
   /**
    * THE BOOT STEPS, in the order the constructor ran them.
@@ -521,45 +796,31 @@ export class SessionRegistry {
    * listens, which is where they always effectively ran: the durable seeds
    * below only have to beat the first client asking for a cursor.
    *
-   * The body is synchronous today. At the flip every line takes an await, and
-   * this method is where the awaits go — which is the whole reason the steps are
-   * a list in one place rather than three lines in three constructors.
+   * Correctness seeds are awaited here. Recoverable history passes start as
+   * owned background work after hydration and drain before disposal.
    */
   private async hydrate(rehearseBoot = false): Promise<void> {
     let stageStarted = performance.now()
-    // Session rows must be restored before any issue or message reconciliation
+    // Session rows must be restored before issue and message recovery
     // can inspect their targets. Recovery-only serves operations, history, action
     // and health, so it neither needs nor may run session restoration's writers.
     if (!this.recoveryOnly || rehearseBoot) await this.modules.sessions.loadFromStore()
     bootStage('sessions recovery', stageStarted)
     stageStarted = performance.now()
-    // Migration-seeded account state must be in the feed before the first bootstrap.
-    await this.modules.layout.reconcileAllToLedger()
-    await this.ledger.reconcile('machine', await this.modules.machines.projectionRows())
-    await this.issueEventFeed.resolve()
-    await this.interactionFeed.resolve()
-    await this.messageFeed.resolve()
+    // Bootstrap streams model tables. Migrations invalidate the kinds they
+    // rewrite with sync_kind generations. Only the session passes still rebuild
+    // log records; their source-write replacement belongs to POD-6789.
+    await this.modules.machines.storeRecordChannel()
     await this.superagentDefaults.seed()
-    // Full boot truth for the order plane, closing changes made while the server
-    // was down.
-    const orderPlane = scheduledShippingProjection(
-      await this.store.shipping.listOrders(),
-      await this.store.shipping.listHolds(),
-      await this.store.shipping.listReceipts(),
-      await this.store.shipping.listNativeStackEdges(),
-    )
-    await this.ledger.reconcile('shipOrder', orderPlane.orders)
-    await this.ledger.reconcile('shipLane', orderPlane.lanes)
-    // The one boot WRITE, owned by the memory service rather than by the store.
-    await this.modules.memory.repairSubagentEvidence()
-    // Full boot truth for both automation kinds.
-    await this.modules.automations.reconcileFromStore()
+    // Only interrupted preparations need recovery; this uses the running
+    // index and captures changed thread rows in their own transaction.
+    await this.store.superagent.syncTurnRunningWithPendingTurns()
+    // Historical evidence and copied approvals are repaired by the
+    // sync-without-boot-reconcile migration, which bumps their kind generations.
     bootStage('feeds memory automations', stageStarted)
     stageStarted = performance.now()
     if (!this.recoveryOnly || rehearseBoot) {
-      await this.modules.issues.boot(systemPrincipal('boot-reconcile'))
-      // AFTER boot, never before: this lists issues, and the store refuses a
-      // read until the issue service has hydrated through its factory.
+      await this.modules.issues.recoverLegacyMembership()
       if (!this.recoveryOnly && !rehearseBoot)
         this.modules.issueSessionLifecycle.startClosedIssueSweep()
     }
@@ -577,20 +838,32 @@ export class SessionRegistry {
       }
     }
     bootStage('queued messages recovery', stageStarted)
+    // A fresh install can hold model rows before its first append; a load at
+    // head 0 cannot carry them (seq 0 is the cold-start cursor, ADR 2 D12).
+    if (!this.recoveryOnly && !rehearseBoot) await this.store.sync.raiseEmptyHead()
+    // The effect trigger and its recovery sweep (POD-6357): the boot sweep
+    // expires, re-dispatches and recovers what a stop left behind.
+    if (!this.recoveryOnly && !rehearseBoot) {
+      this.effectsRunner.start()
+      // These recoverable passes have periodic/durable retry sources. They
+      // must neither race construction nor hold first boot behind history.
+      this.startBackground('runtime board startup replay paused before cursor advance', () =>
+        this.modules.sessions.runtimeGateway.replayBoardProjection(),
+      )
+      this.startBackground('shipping startup recovery deferred', () => this.shipping.reconcile())
+      this.startBackground('credential expiry sweep failed', () =>
+        this.modules.credentialHealth.checkExpiry(),
+      )
+    }
   }
 
   /**
    * BUILD THE SERVER — the entry point, because composing the graph is not the
    * whole of booting it (POD-3256).
    *
-   * The composition root reads the store in two places: the settings snapshot
-   * the feature gate closes over, which has to exist BEFORE the graph is built,
-   * and the ledger reconciles and the evidence repair, which need the built
-   * objects. So the read that must come first is done here and handed to the
-   * constructor, and the rest is {@link hydrate}, run after it. Both bodies are
-   * synchronous today and gain awaits at the flip; the order is the order the
-   * constructor established, and the store's own constructor establishes the
-   * order above that (POD-318: machine identity before any reader).
+   * The settings snapshot must exist before the graph is built. Recovery uses
+   * the constructed services, so {@link hydrate} runs afterward. The store
+   * establishes machine identity before either set of readers (POD-318).
    */
   static async create(
     store: SessionStore | undefined,
@@ -598,8 +871,15 @@ export class SessionRegistry {
     options: SessionRegistryOptions,
   ): Promise<SessionRegistry> {
     const resolvedStore = store ?? (await SessionStore.open(':memory:'))
+    // The registry's Ledger reads the store's change capture (POD-6920).
+    await resolvedStore.attachChangeLog()
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
       settings: await resolvedStore.settings.getSettings(),
+      updateRecovery: await resolvedStore.updateRecovery.read(),
+      legacyReceiptOwner: await resolvedStore.settings.retiredSoloMemberId(),
+      legacyReceiptCutoff: await resolvedStore.settings.legacyMutationReceiptCutoff(
+        (options.now ?? Date.now)(),
+      ),
     })
     await registry.hydrate(options.rehearseBoot)
     return registry
@@ -625,6 +905,7 @@ export class SessionRegistry {
     const recoveryOnly = options.recoveryOnly === true
     const backgroundDisabled = recoveryOnly || options.rehearseBoot === true
     this.recoveryOnly = recoveryOnly
+    this.memberCredentials = options.memberCredentials
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
     // Resolve feature state once, then keep it atomic with settings changes. This also
@@ -632,8 +913,23 @@ export class SessionRegistry {
     // The read itself is the factory's (POD-3256): the gate below closes over the
     // value, and closing over a promise is not the same object.
     let currentSettings = boot.settings
-    this.bus.on('settings.changed', ({ next }) => {
+    // THE PROCESS'S SNAPSHOT IS THE INSTANCE TIER (POD-6291). A member's
+    // change carries that member's resolved view, personal leaves included.
+    // Its instance leaves are the instance's, so it is taken at once (the
+    // feature gate reads only those), then replaced by the instance blob so
+    // no member's personal values stay in a process-wide value. A generation
+    // keeps a late blob read from overwriting a newer change.
+    let settingsGeneration = 0
+    this.bus.on('settings.changed', ({ next, member }) => {
+      const generation = ++settingsGeneration
       currentSettings = next
+      if (member === undefined) return
+      void this.store.settings
+        .getSettings()
+        .then((instance) => {
+          if (generation === settingsGeneration) currentSettings = instance
+        })
+        .catch(() => undefined)
     })
     const featureEnabled = (id: Parameters<typeof isFeatureEnabled>[0]) =>
       isFeatureEnabled(id, currentSettings)
@@ -685,7 +981,13 @@ export class SessionRegistry {
     const clientRegistry = new ClientRegistry()
     // Plaintext claims live only until this source tells its already-authenticated
     // browser sockets to leave. Their hashes enter the final portable snapshot.
-    const clientRelocationClaims = new Map<string, Map<string, string>>()
+    const relocations = clientRelocations({
+      codes: options.clientRelocationCodes,
+      clients: () => clientRegistry.values(),
+      // The socket was admitted by memberOfRequest; the current row could
+      // have been disabled since then.
+      accountFor: async (memberId) => (await this.store.users.get(memberId))?.accountId,
+    })
     // The operator's log-level valve over that same connection set (POD-1920).
     // Stateless: it selects connections and delivers a frame, so a client that
     // reconnects is back at its own default with nothing to clean up.
@@ -713,15 +1015,27 @@ export class SessionRegistry {
      */
     let targetChanged: ((channel: UpdateChannel) => Promise<void>) | undefined
     let seedSuperagentDefaults: (() => Promise<void>) | undefined
+    // The condition topic is composed below the machines service (POD-6644).
+    let machineConditionChanged: ((machineId: MachineId) => void) | undefined
+    // WHAT KIND OF CONNECTION EACH DAEMON IS ON (credential management §8).
+    // Judged from the facts recorded at accept and the trusted networks the
+    // instance holds NOW, so an admin's change applies without a reconnect.
+    this.daemonLinks = new DaemonLinks({
+      trustedNetworks: () => currentSettings.daemonLink.trustedNetworks,
+      kindChanged: (machineId) => machineConditionChanged?.(machineId),
+    })
+    // Registered after the snapshot's own listener above, so it reads the new value.
+    this.bus.on('settings.changed', () => this.daemonLinks.settingsChanged())
     // Forward-declared for the same reason `updates` is: the update SERVICE has
     // to be able to ask whether a durable operation holds the lifecycle group
     // (single-flight's other half, P6), and the operations module is composed
     // further down, after everything it announces changes to.
     let operations: OperationsModule | undefined
     const machines = new MachinesService({
-      publishMachineProjection: async (id, value) => {
-        await this.ledger.capture([{ entity: 'machine', id, op: 'upsert', value }])
-      },
+      compareMachineRecords: async (write, writer) =>
+        await this.store.grants.machineRecordWrites.compare(write, writer),
+      daemonLinkKind: (machineId) => this.daemonLinks.daemonLinkKind(machineId),
+      conditionChanged: (machineId) => machineConditionChanged?.(machineId),
       instanceId,
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       ...(options.updateKeyRotations ? { updateKeyRotations: options.updateKeyRotations } : {}),
@@ -753,15 +1067,37 @@ export class SessionRegistry {
       bus: this.bus,
       ...(options.pairing ? { pairing: options.pairing } : {}),
       ...(options.installationId ? { installationId: options.installationId } : {}),
+      ...(options.memberCredentials ? { memberCredentials: options.memberCredentials } : {}),
       // Custody transitions require an existing recipient in the member directory.
       userExists: async (userId) => (await this.store.users.get(userId)) !== undefined,
+      // A daemon coming back gets nothing queued on behalf of an owner who can
+      // no longer act, or whose authority changed after it was queued (POD-6293).
+      fenceQueuedDelivery: async (sessionId, queuedAtMs) => {
+        const owner = (await this.store.sessions.getSession(sessionId))?.ownerUserId
+        if (!owner) return false
+        return (
+          !(await this.store.users.get(owner)) ||
+          (await this.store.users.queuedBeforeAuthorityChange(owner, queuedAtMs))
+        )
+      },
       onInventoryRecorded: async () => await seedSuperagentDefaults?.(),
-      clients: () => clientRegistry.values(),
-      machinesForPrincipal: async (principal, machineService) =>
-        await machinesForPrincipal(
-          { machines: machineService },
-          userCommandPrincipal(asUserId(principal.user), principal.role),
-        ),
+    })
+    this.machineRecordsDeps = (): MachineRecordsDeps & {
+      reach: NonNullable<MachineRecordsDeps['reach']>
+    } => ({
+      facts: async (ids) => await machines.recordFacts(ids),
+      // The grant edges themselves, in one read through the operation's loader.
+      grants: async (ids) => await this.store.grants.loadForResources('machine', ids),
+      members: async () => await this.store.users.recordMembers(),
+      // Each member's checkout reach, recorded with their access row in one
+      // transaction: the feed evicts exactly what a member lost (POD-6644).
+      reach: {
+        of: async (ids) => await this.store.checkouts.reachOfMachines(ids),
+        lost: async (ids) => await this.store.checkouts.lostOfMachines(ids),
+        paths: async (ids) => await this.store.checkouts.pathsOfMachines(ids),
+        apply: async (change, at) => await this.store.checkouts.applyReach(change, at),
+        now: () => new Date(this.now()).toISOString(),
+      },
     })
     // AGENT PROFILES (POD-6107). Composed right after machines because the launch
     // resolver asks the machine service which candidate harness can run where.
@@ -799,7 +1135,10 @@ export class SessionRegistry {
       fleetLogs,
     )
     const updatesService = new UpdatesService({
-      recovery: this.store.updateRecovery,
+      recovery: {
+        read: () => boot.updateRecovery,
+        write: async (snapshot) => await this.store.updateRecovery.write(snapshot),
+      },
       recoveryOnly,
       machines: async () =>
         (await machines.listMachines())
@@ -857,8 +1196,10 @@ export class SessionRegistry {
       // installation's own feed descriptor, which only the composition root can
       // state; without one the resolver refuses `dev` by name rather than
       // resolving something else.
-      resolveTarget: async (channel) =>
+      feedPollingEnabled: () => this.store.settings.resolve('updateFeedPolling').value,
+      resolveTarget: async (channel, previous) =>
         await resolveReleaseTarget(channel, {
+          ...(previous ? { previous } : {}),
           ...(channel === 'dev' ? { feed: options.devChannelFeed?.() } : {}),
         }),
       // `dev` on a source host is the one channel this server both PUBLISHES
@@ -914,8 +1255,77 @@ export class SessionRegistry {
     // @podium/runtime, so a relay that came and went without unsubscribing would
     // leave a listener holding a dead bus — visible in tests, which build several.
     this.configChangedBridge = bridgeConfigChanged(this.bus)
+    // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
+    // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
+    // and broadcasts triggered during load must find the publisher in place.
+    // The write-seam change log ([spec:SP-3fe2] #255/#256/#257): issue, session
+    // AND conversation writes append their change rows ATOMICALLY with the
+    // entity write (one transact span on the shared connection). One changes
+    // table + one seq sequence — changesSince consumers see one unified feed.
+    // The effect kinds this server serves. Made here because the effect
+    // record's builder reads it; the kinds register on it further down.
+    const effectExecutors = new EffectExecutorRegistry()
+    // EVERY RECORD, BUILT FROM THE MODEL TABLES (design POD-6253 §1). The
+    // Authority drains the database's change capture through it and builds
+    // the records a write reached (POD-6920), and the start-up load and the
+    // sharing rules read current values from it (POD-6770).
+    const records = databaseRecords({ store: this.store, effectExecutors, now: this.now })
+    const feedVisibility = makeFeedVisibility({
+      store: this.store,
+      audiencesFor: (kind, ids) => this.store.grants.visibilityAudiencesFor(kind, ids),
+      authorizationRevision: () => this.store.grants.visibilityRevision(),
+      currentRecords: records.build,
+    })
+    const visibility = new GrantEdgeVisibilityPolicy(
+      feedVisibility.state,
+      new NoDelegationsGranted(),
+    )
+    const ledger = new Ledger({
+      visibility,
+      anchors: feedVisibility.anchors,
+      rescopeThreshold: FEED_RESCOPE_THRESHOLD,
+      listenerPrincipal: CHANGE_LOG_OBSERVER,
+      repo: this.store.sync,
+      now: () => this.now(),
+      transact: async (fn) => await this.store.transact(fn),
+      // Subscriber delivery waits for the OUTERMOST commit, not for the nested
+      // savepoint this commit may be [POD-3260, spec §3.3 mechanism 3]. With no
+      // span open — the common case, a top-level ledger.commit — it runs at
+      // once, as a tracked effect rather than a floating promise: its
+      // visibility pass reads sessions, and a delivery still reading when the
+      // store began to close had that read refused, unhandled [POD-6226].
+      postCommit: (step, label) => this.store.effect(step, label),
+      // The BASELINE FOLD is mechanism 1 on the same commit, and it is a
+      // separate port because it is a separate contract: an outer rollback must
+      // take the fold with it, or process memory keeps claiming rows the
+      // database never kept [POD-3328, spec §3.3 mechanism 1].
+      applyCommit: { spanOpen, onCommit: applyAfterCommit },
+      // WHICH COMMAND IS APPENDING (ADR 2 D8, POD-6273): the sync write entry
+      // point opens a provenance scope around each command's unit of work, and
+      // the Authority stamps every row it appends there with the command's
+      // mutationId and causationId. Outside a scope it stamps nothing. Inside a
+      // plain command (ADR 12 D8, POD-6360) it refuses: a plain handler has no
+      // access to the Authority, so it cannot write synced data by accident.
+      provenance: syncedWriteProvenance,
+      // DERIVED CHANGE CAPTURE (POD-6920, design POD-6253 §3): a commit
+      // names nothing; the Authority drains what the write changed.
+      records,
+    })
+    this.ledger = ledger
+    // WHO MAY WRITE (ADR 12 D9, POD-6592): the Ledger's scope mint, taken once,
+    // here. The sync write entry point mints each command's scope from it; every
+    // other writer is a declared origin (`write-contexts.ts`).
+    const writes = new WriteContexts(ledger, ledger.takeScopeMint())
+    this.writes = writes
     const settings = new SettingsService(this.store.settings, this.store.secrets, this.bus, {
       telegramBindings: this.store.telegramBindings,
+      // The chat routing value is observed from Telegram, not supplied by the
+      // caller. Its server-owned projection also follows an online disconnect.
+      // Read per call: the write contexts are built after this service.
+      preferenceWriter: {
+        commit: async (op) =>
+          await asSystemWrite(async () => await writes.system('settings.preferences').commit(op)),
+      },
       // The append-only settings trail (POD-421). Injected here so the transport
       // never reaches into the store for it.
       audit: {
@@ -960,76 +1370,65 @@ export class SessionRegistry {
     // every observer sees the seeded state and rename-only changes never re-run it.
     seedSuperagentDefaults = async () => await superagentDefaults.seed()
     this.superagentDefaults = superagentDefaults
-    // Issue wire plumbing (modules/issues). Constructed BEFORE loadFromStore: the
-    // deps are lazy closures (allWire guards the not-yet-assigned IssueService),
-    // and broadcasts triggered during load must find the publisher in place.
-    // The write-seam change log ([spec:SP-3fe2] #255/#256/#257): issue, session
-    // AND conversation writes append their change rows ATOMICALLY with the
-    // entity write (one transact span on the shared connection). One changes
-    // table + one seq sequence — changesSince consumers see one unified feed.
-    // The issue-event feed publisher is constructed AFTER the ledger it captures
-    // through, and the visibility policy is constructed BEFORE it — the anchor
-    // reads the publisher's window through this box rather than the two being
-    // ordered, which they cannot be (POD-1772).
-    let issueEventFeed: IssueEventFeedPublisher | undefined
-    const feedVisibility = makeFeedVisibility({
-      store: this.store,
-      audiencesFor: (kind, ids) => this.store.grants.visibilityAudiencesFor(kind, ids),
-      authorizationRevision: () => this.store.grants.visibilityRevision(),
-      issueEventSubjects: (issueId) => issueEventFeed?.subjectsFor(issueId) ?? [],
-    })
-    const visibility = new GrantEdgeVisibilityPolicy(
-      feedVisibility.state,
-      new NoDelegationsGranted(),
+    const compareMachineRecords = makeMachineRecordCompare(
+      this.store,
+      writes.system('machines.records'),
+      this.machineRecordsDeps().reach,
     )
-    const ledger = new Ledger({
-      visibility,
-      anchors: feedVisibility.anchors,
-      listenerPrincipal: DEVICE_GRADE_PRINCIPAL,
-      repo: this.store.sync,
-      now: () => this.now(),
-      transact: async (fn) => await this.store.transact(fn),
-      // Subscriber delivery waits for the OUTERMOST commit, not for the nested
-      // savepoint this commit may be [POD-3260, spec §3.3 mechanism 3]. With no
-      // span open — the common case, a top-level ledger.commit — it runs at
-      // once, as a tracked effect rather than a floating promise: its
-      // visibility pass reads sessions, and a delivery still reading when the
-      // store began to close had that read refused, unhandled [POD-6226].
-      postCommit: (step, label) => this.store.effect(step, label),
-      // The BASELINE FOLD is mechanism 1 on the same commit, and it is a
-      // separate port because it is a separate contract: an outer rollback must
-      // take the fold with it, or process memory keeps claiming rows the
-      // database never kept [POD-3328, spec §3.3 mechanism 1].
-      applyCommit: { spanOpen, onCommit: applyAfterCommit },
-      onPruneMetrics: (metrics) => {
-        perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
-        perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
-      },
-    })
-    this.ledger = ledger
+    this.store.grants.machineRecordWrites.compare = async (write, writer) =>
+      await asSystemWrite(async () => await compareMachineRecords(write, writer))
+    installSessionSourceWrites(this.store, writes.system('sessions.live'))
+    this.store.sessions.setSnoozeLapseCommit(changeLogCommit(writes.system('sessions.snoozeLapse')))
     // ONE HOOK ON THE ONE APPEND (POD-1772): every orchestrator event write in
-    // the server goes through `store.events.appendEvent`, so the curated
-    // feed-kind subset reaches the metadata feed from the write path rather than
-    // from a list of call sites somebody has to keep complete.
-    this.issueEventFeed = issueEventFeed = new IssueEventFeedPublisher({
-      ledger,
-      seed: async () => (await ledger.authority.snapshot('issueEvent')) as IssueEventWire[],
-    })
-    this.store.events.onAppend(async (id, event) => await issueEventFeed?.publish(id, event))
+    // the server goes through `store.events.appendEvent`, and every retention
+    // batch through `pruneEventBatch`. Each runs this commit in its own
+    // transaction, which drains the change capture, so the issue-event window
+    // and a session's transcript flag reach the feed from the write path
+    // (POD-6920).
+    const eventLog = writes.system('feed.issueEvents')
+    this.store.events.setLogCommit(changeLogCommit(eventLog))
     // ONE HOOK ON THE ONE WRITE FUNNEL (POD-4764): every write to the messages
     // table hands its rows to the chat message feed inside its own
     // transaction, so a person's messages and their delivery status reach every
     // device from the write path, whichever module moved them.
-    const messageFeed = new MessageFeedPublisher({
-      ledger,
-      sessions: this.store.sessions,
-      snapshot: async () => await ledger.authority.snapshot('message'),
-      listOpen: async () => await this.store.messages.listOpenChat(),
-      transact: async (fn) => await this.store.transact(fn),
-    })
-    this.messageFeed = messageFeed
+    const messageFeed = new MessageFeedPublisher({ ledger: writes.system('feed.messages') })
     this.store.messages.setFeedCapture(messageFeed.capture)
-    const issueArbitration = new IssueAuthorityArbitration(ledger)
+    this.store.sessions.setMessageWindowWrite(messageFeed.writeSessions)
+    // ONE HOOK ON THE THREAD WRITE FUNNEL (POD-6675): every write to
+    // `superagent_threads` publishes the thread's record to its owner's devices
+    // inside its own transaction, whoever made it.
+    this.store.superagent.setThreadFeedCapture(
+      makeThreadFeedCapture(writes.system('feed.superagentThreads')),
+    )
+    this.store.users.setMemberCreated(
+      async (userId) =>
+        await asSystemWrite(async () => await this.store.superagent.seedMemberGlobalThread(userId)),
+    )
+    // ONE HOOK ON THE NOTICE WRITE FUNNEL (POD-6881): every write to `notices`
+    // publishes the open notice (or its removal) to its recipient's devices
+    // inside its own transaction.
+    this.store.notices.setFeedCapture(makeNoticeFeedCapture(writes.system('feed.notices')))
+    // ONE HOOK ON THE SETTINGS BLOB WRITE (POD-6677): every write of
+    // `meta['settings']` publishes the instance settings record to every member
+    // inside its own transaction, whoever made it.
+    const captureInstancePreferences = makeInstancePreferencesFeedCapture(
+      writes.system('feed.instancePreferences'),
+    )
+    // Configuration above the database is resolved at boot. A settings write
+    // supplies its own stored channel inside the transaction.
+    const channelAboveSettings = this.store.settings.resolve('updateChannel', undefined, {})
+    const fixedFleetChannel =
+      channelAboveSettings.source === 'default' ? undefined : channelAboveSettings.value
+    this.store.settings.setInstanceFeedCapture(async (write, next) => {
+      // A preference write with no blob of its own (personal rows): its blob
+      // write, if any, comes back through here with `next`.
+      if (next === undefined) return await captureInstancePreferences(write)
+      await this.store.machines.recordContext.writeFleetChannel(
+        fixedFleetChannel ?? next.deployment.updateChannel ?? 'stable',
+        async () => await captureInstancePreferences(write, next),
+      )
+    })
+    const issueArbitration = new IssueAuthorityArbitration(writes.system('issues.server'))
     // THE write funnel (modules/funnel): authorize → repo write → change append →
     // broadcast. Bridges ledger appends onto the bus and runs THE ordered
     // metadataDelta pipe (#256) — sendDelta is the one seam deltas reach
@@ -1074,8 +1473,131 @@ export class SessionRegistry {
       prepareVisibility: prepareRoomVisibility,
       now: this.now,
     })
+    // TOPICS (ADR 7 Amendment 2, POD-5800): the SAME registry, a second router.
+    // The metrics producer's snapshot reads the hosts service, which is built
+    // further down; the box is filled before any socket can subscribe.
+    const topicLate: {
+      hosts?: HostsService
+      quota?: AccountQuotaTopic
+      usage?: AccountUsageTopic
+      sessionLive?: SessionLiveTopics
+    } = {}
+    // POD-6764: a session's live readings. The producers live in the sessions
+    // module, which is built further down.
+    const sessionLiveProducer = (kind: SessionLiveKind) => ({
+      start: (id: string) => topicLate.sessionLive?.start(kind, asSessionId(id)),
+      stop: (id: string) => topicLate.sessionLive?.stop(kind, asSessionId(id)),
+      snapshot: (id: string) => topicLate.sessionLive?.snapshot(kind, asSessionId(id)),
+    })
+    const machineConditions = new MachineConditionTopic({
+      condition: (machineId) => {
+        const linkKind = this.daemonLinks.daemonLinkKind(machineId)
+        return { ...machines.condition(machineId), ...(linkKind ? { linkKind } : {}) }
+      },
+      now: () => this.now(),
+      publish: (machineId, value) =>
+        this.bus.emit('machine.conditionChanged', { machineId, value }),
+    })
+    machineConditionChanged = (machineId) => machineConditions.changed(machineId)
+    const processTopic = new MachineProcessesTopic({
+      supports: (id) => machines.daemonSupports(id, CAP_MACHINE_PROCESSES_V1),
+      send: (id, frame) => machines.toMachine(id, frame),
+      publish: (id, value) => this.bus.emit('machine.processesChanged', { id, value }),
+      onError: (err) => log.warn('process topic failed', { err }),
+    })
+    const topicProducers: TopicProducers = {
+      'machine.condition': { snapshot: (id) => machineConditions.snapshot(asMachineId(id)) },
+      'machine.metrics': daemonTopicProducer({
+        kind: 'machine.metrics',
+        machineOf: (id) => asMachineId(id),
+        supportsTopics: (machineId) => machines.daemonSupports(machineId, CAP_TOPICS_V1),
+        send: (machineId, frame) => machines.toMachine(machineId, frame),
+        snapshot: (id) => topicLate.hosts?.latestFor(asMachineId(id)),
+      }),
+      'checkout.changed': daemonTopicProducer({
+        kind: 'checkout.changed',
+        machineOf: (id) => parseCheckoutTopicId(id)?.machineId,
+        supportsTopics: (id) => machines.daemonSupports(id, CAP_CHECKOUT_CHANGED_V1),
+        send: (id, frame) => machines.toMachine(id, frame),
+        snapshot: () => null,
+      }),
+      'machine.processes': processTopic,
+      // POD-5798: the sampler is built further down; its holders start the live passes.
+      'account.quota': {
+        start: (id) => topicLate.quota?.start(asUserId(id)),
+        stop: (id) => topicLate.quota?.stop(asUserId(id)),
+        snapshot: (id) => topicLate.quota?.snapshot(asUserId(id)),
+      },
+      'account.usage': {
+        start: (id) => topicLate.usage?.start(asUserId(id)),
+        stop: (id) => topicLate.usage?.stop(asUserId(id)),
+        snapshot: (id) => topicLate.usage?.snapshot(asUserId(id)),
+      },
+      'session.terminalState': sessionLiveProducer('session.terminalState'),
+      'session.condition': sessionLiveProducer('session.condition'),
+      'account.events': {},
+    }
+    const topics: TopicRouting = new TopicRouting({
+      subscriptions,
+      clients: clientRegistry,
+      prepareVisibility: async (entities) =>
+        kernelVisibilityResolver(
+          await visibility.forBatch(
+            entities.map((entity) => ({
+              entity: entity.kind as 'machine' | 'session',
+              entityId: entity.id,
+            })),
+          ),
+        ),
+      prepareMachineUse: async () => {
+        const ownership = await ownershipSnapshotFromMachines(machines)
+        return {
+          canSee: (principal, ref) =>
+            principal.kind === 'user' &&
+            'role' in principal &&
+            checkMachineUse(
+              userCommandPrincipal(
+                asUserId(principal.user),
+                principal.role as import('@podium/model').UserRole,
+              ),
+              asMachineId(ref.id),
+              ownership,
+            ) === undefined,
+        }
+      },
+      producers: topicProducers,
+      now: this.now,
+    })
+    this.bus.on('machine.conditionChanged', ({ machineId, value }) =>
+      topics.publish('machine.condition', machineId, value),
+    )
+    this.bus.on('machine.processesChanged', ({ id, value }) =>
+      topics.publish('machine.processes', id, value),
+    )
+    this.topics = topics
+    // Every account notice a connection holds the topic for goes on it (D26).
+    clientRegistry.routeAccountEvents((conn, msg) => {
+      const reached = topics.emit(
+        'account.events',
+        conn.principal.user,
+        msg,
+        (subscriberId) => String(subscriberId) === conn.id,
+      )
+      return reached.size > 0
+    })
+    this.bus.on('machine.connected', ({ machineId }) => {
+      machineConditions.changed(machineId)
+      // The generic resetWatchLevel: the new daemon process gets every key of
+      // its machine that is still held (D21).
+      topics.machineAttached(machineId)
+    })
+    this.bus.on('machine.disconnected', ({ machineId }) => {
+      machineConditions.changed(machineId)
+      processTopic.unavailable(machineId)
+    })
     const feedServing = new FeedServing({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
+      workspaceId: this.store.workspaceId,
       authority: ledger.authority,
       identity: new FeedIdentityRegistry(
         {
@@ -1091,13 +1613,18 @@ export class SessionRegistry {
       ),
       retention: { minAvailableSeq: async () => await this.store.sync.minChangeSeq() },
       subscriptions,
-      onVisibilityChanged: (subscriberIds) => presence.revalidateSubscribers(subscriberIds),
+      // Rooms and topics are re-checked on the same trigger as the feed (D24).
+      onVisibilityChanged: async (subscriberIds) => {
+        await presence.revalidateSubscribers(subscriberIds)
+        await topics.revalidateSubscribers(subscriberIds)
+      },
       diagnostics: () => [...conversationDiagnostics.current],
     })
     this.syncDelta = { authority: ledger.authority, serving: feedServing }
 
     const funnel = new WriteFunnel({
       onPublicationIdle: (listener) => this.store.onPublicationIdle(listener),
+      workspaceId: this.store.workspaceId,
       bus: this.bus,
       // THE SAME Authority the Ledger facade wraps, not a second one (POD-305):
       // two over one store would each keep their own ordered broadcast queue.
@@ -1105,50 +1632,37 @@ export class SessionRegistry {
       serving: feedServing,
       onPublished: (seq) => this.bus.emit('feed.published', { seq }),
     })
-    // What a device-grade snapshot adds, and what auto-archive checks: each read
-    // for itself (POD-6156), where both used to come from one read of every
-    // issue, dependency, order, conversation and automation.
-    const snapshotDiagnostics = async (): Promise<SnapshotTail['diagnostics']> => [
-      ...conversationDiagnostics.current,
-    ]
     const installedIssueProjection = async (issueId: string) =>
       (await ledger.authority.installedValues('issueProjection', [issueId])).get(issueId) as
         | { id: string; parentId?: string | null }
         | undefined
-    // Spec factory only (POD-1576). The `publishIssueList` reconcile tail that
-    // used to be wired here — issue + issueProjection + issueDep full-truth
-    // reconciles for write-less republishes — had no trigger left once POD-1574
-    // deleted the never-bumped dirty gate that called it. Issue WRITES still
-    // reconcile those same kinds; they do it from IssueService's own tail.
+    // Specs only read repository paths. Issue writes capture their affected
+    // records in the source transaction.
     const specs = new SpecsService({
       repoRoots: async () => await this.store.repos.listRepoPaths(),
     })
     // Advisory named lease locks [spec:SP-85d1]. Worktree invalidation is an
     // event callback into the already-constructed gateway registry, not a
     // deferred service dependency.
-    // POD-665: fan out the invalidation raw (imitating MachinesService.
-    // broadcastMachines) — no repo payload, just "go re-fetch" (see
-    // WorktreesChangedMessage doc comment for why NOT scanReposAll's result).
-    // Shared by every path that creates or destroys a worktree behind the
-    // clients' backs: issue start, and handoff import (POD-821).
-    const broadcastWorktreesChanged = (repoPath: string, machineId?: MachineId): void => {
-      const msg: LiveServerMessage = {
-        type: 'worktreesChanged',
-        repoPath,
-        // Server-side callers pass a machine id they already hold (issue start,
-        // handoff import); the brand is asserted rather than re-parsed.
-        ...(machineId ? { machineId: asMachineId(machineId) } : {}),
-      }
-      for (const c of clientRegistry.values()) c.send(msg)
+    // A worktree the server created or removed (an issue start, a handoff
+    // import, POD-821) is a change of that machine's checkouts: it is scanned,
+    // and what moved reaches every device as `checkout` records (POD-6644).
+    // The service is composed below the daemon RPC it scans through.
+    let checkouts: CheckoutsService | undefined
+    const broadcastWorktreesChanged = (_repoPath: string, machineId?: MachineId): void => {
+      void (async () => {
+        const id = machineId ? asMachineId(machineId) : await machines.defaultMachine()
+        checkouts?.rescanSoon(id)
+      })().catch((err: unknown) => log.warn('checkout rescan failed', { err }))
     }
     const memory = new MemoryService(
       {
         store: this.store,
         now: () => this.now(),
         // Conversation writes commit through the write-seam ledger (#257):
-        // discovery/meta commits + list reconciles append durably at
-        // the write; the feed serves them (POD-1203 deleted the snapshot tail).
-        ledger,
+        // discovery/meta commits name their records at the write; the feed
+        // serves them (POD-1203 deleted the snapshot tail).
+        ledger: writes.system('conversations.discovery'),
         // Scan diagnostics are not feed content and the v1 wire carried them
         // inside `conversationsChanged`; the edge re-serves them to the wire
         // versions that still need them (POD-1203).
@@ -1159,16 +1673,46 @@ export class SessionRegistry {
         // above precisely so every consumer can take it directly instead of
         // wrapping a not-yet-built service in a closure.
         daemonRequest: requestBroker,
-        // The conversation list is process-owned memory installed behind a
-        // `ledger.commit` that may be a savepoint inside a wider span, so it
-        // waits for the OUTERMOST commit through the same port the baseline
-        // fold does [POD-3366, spec §3.3 mechanism 1].
-        applyCommit: { spanOpen, onCommit: applyAfterCommit },
       },
       {
-        ...(options.mirrorLakeDir ? { mirrorLakeDir: options.mirrorLakeDir } : {}),
-        repairSubagentSegmentPaths: !backgroundDisabled,
+        ...(options.transcriptLake ? { transcriptLake: options.transcriptLake } : {}),
       },
+    )
+    const rpcLate: { rpc?: DaemonRpcService } = {}
+    const checkoutWrites = new LifecyclePort<
+      Pick<IssueService['reports']['store'], 'commitRepoWrite'>
+    >('checkout repo writes')
+    checkouts = new CheckoutsService({
+      store: this.store,
+      scan: async (machineId, roots) => {
+        if (!rpcLate.rpc) return { repositories: [], diagnostics: [] }
+        return await rpcLate.rpc.scanRepos(roots, { includeHome: false, maxDepth: 0 }, machineId)
+      },
+      online: (machineId) => machines.hasDaemon(machineId),
+      writer: () => ({
+        commit: async (op) =>
+          await asSystemWrite(async () => await this.writes.system('checkouts.scan').commit(op)),
+      }),
+      // Scan-reported origins are the server's own write (POD-6417).
+      commitRepoWrite: async (write) => {
+        try {
+          await asSystemWrite(
+            async () =>
+              await checkoutWrites
+                .read()
+                .commitRepoWrite(this.writes.system('checkouts.scan'), write),
+          )
+        } catch (err) {
+          log.warn('scanned repo origins were not recorded', { err })
+        }
+      },
+      now: () => new Date(this.now()).toISOString(),
+    })
+    this.checkouts = checkouts
+    // A daemon that connects may have created or removed worktrees while away.
+    this.bus.on('machine.connected', ({ machineId }) => checkouts?.rescanSoon(machineId))
+    const rpcSessions = new LifecyclePort<Pick<SessionLifecycle, 'residency' | 'repository'>>(
+      'RPC session readers',
     )
     const rpc = new DaemonRpcService({
       broker: requestBroker,
@@ -1185,10 +1729,12 @@ export class SessionRegistry {
       // A parked session is restored from its row for the read (POD-6160 D2f);
       // the view closes over the object, which stays readable if it is evicted.
       getSession: async (sessionId) => {
-        const session = liveSessions.get(sessionId) ?? (await sessionsSvc.residency.ensure(sessionId, 'rpc'))
+        const session =
+          liveSessions.get(sessionId) ??
+          (await rpcSessions.read().residency.ensure(sessionId, 'rpc'))
         session?.freshenDurable()
         // A restored parked session's transcript is replayed for its reader (POD-6160).
-        if (session) await sessionsSvc.repository.ensureTranscript(session)
+        if (session) await rpcSessions.read().repository.ensureTranscript(session)
         return session
           ? {
               id: session.sessionId,
@@ -1204,6 +1750,7 @@ export class SessionRegistry {
           : undefined
       },
     })
+    rpcLate.rpc = rpc
     // ONE machines read, then a pure per-machine answer (POD-3257). The
     // single-machine dep below is this one applied to one id, so the eligibility
     // rules cannot drift between the fleet path and the point lookup — and a
@@ -1228,9 +1775,26 @@ export class SessionRegistry {
           hasDaemon:
             machine?.serviceAssignment?.agentExecution === true &&
             machine.availability?.daemon === true,
+          vaultKeyHandover:
+            machine?.deliveryCaps?.includes(SERVER_MOVE_VAULT_KEY_CAPABILITY) === true,
         }
       }
     }
+    // The order the source's writers stop in for a transfer snapshot, and
+    // restart in after it: the mirror pauses before the portable fence goes up
+    // (modules/server-transfer/source-fence.ts).
+    const sourceFence = sourceTransferFence({
+      daemon: () => this.localDaemonPortableState,
+      mirror: {
+        pause: async () => await memory.pauseMirroringForTransfer(),
+        resume: async () => await memory.resumeMirroringAfterTransfer(),
+      },
+      portable: portableStateFence,
+      store: {
+        begin: async () => await this.store.beginTransferFence(),
+        end: async () => await this.store.endTransferFence(),
+      },
+    })
     const serverTransfer = new ServerTransferService({
       stateRoot: stateDir(),
       sourceInstanceId: options.instanceId,
@@ -1253,6 +1817,16 @@ export class SessionRegistry {
         )
       },
       rpc: serverTransferRpcAdapter(rpc),
+      // Credential management design §7: the data key moves in promotion, only to a
+      // target the server itself judged not `plain`.
+      // Read through at each use: the store opens its vault at boot, after which
+      // this always answers; a registry built over a bare store still constructs.
+      vault: {
+        state: () => this.store.vault.state(),
+        status: () => this.store.vault.status(),
+        exportDataKey: () => this.store.vault.exportDataKey(),
+      },
+      targetLinkKind: (machineId) => this.daemonLinks.daemonLinkKind(machineId),
       localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
       // ONE machines read for the whole fleet (POD-3257). The per-machine form
       // delegates to it: asking `targetState` inside a loop is what re-read the
@@ -1310,69 +1884,26 @@ export class SessionRegistry {
             ? { ok: true }
             : { ok: false, error: result.error ?? 'endpoint resume was refused' }
         },
-        prepareClientRelocations: async (operationId) => {
-          const claims = clientRelocationClaims.get(operationId) ?? new Map<string, string>()
-          const expiresAt = new Date(this.now() + 10 * 60_000).toISOString()
-          for (const client of clientRegistry.values()) {
-            if (claims.has(client.id)) continue
-            const token = randomBytes(32).toString('base64url')
-            await this.store.auth.createClientSession(
-              hashToken(token),
-              client.principal.user,
-              expiresAt,
-              'server-transfer-claim',
-            )
-            claims.set(client.id, token)
-          }
-          clientRelocationClaims.set(operationId, claims)
-        },
-        cancelClientRelocations: async (operationId) => {
-          const claims = clientRelocationClaims.get(operationId)
-          if (!claims) return
-          // AWAITED: these rows ARE the claim credentials. Dropping the promise
-          // deletes the local map while the sessions stay valid in the database.
-          for (const token of claims.values())
-            await this.store.auth.deleteClientSession(hashToken(token))
-          clientRelocationClaims.delete(operationId)
-        },
+        prepareClientRelocations: relocations.prepare,
+        cancelClientRelocations: relocations.cancel,
         relocateClients: (input) => {
-          const claims = clientRelocationClaims.get(input.operationId)
+          const claimFor = relocations.take(input.operationId)
           for (const client of clientRegistry.values()) {
-            clientRegistry.deliver(client, {
+            const claimToken = claimFor(client.id)
+            clientRegistry.deliverAccountEvent(client, {
               type: 'serverRelocation',
               transferId: input.transferId,
               publicUrl: input.publicUrl,
-              ...(claims?.get(client.id) ? { claimToken: claims.get(client.id) } : {}),
+              ...(claimToken ? { claimToken } : {}),
             })
           }
-          clientRelocationClaims.delete(input.operationId)
         },
       },
       sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
-      fence: async () => {
-        const daemonPortableState = this.localDaemonPortableState
-        await daemonPortableState?.pauseAndDrain()
-        let portableFenceHeld = false
-        let mirroringPaused = false
-        try {
-          await portableStateFence.acquire()
-          portableFenceHeld = true
-          await memory.pauseMirroringForTransfer()
-          mirroringPaused = true
-          await this.store.beginTransferFence()
-        } catch (error) {
-          if (mirroringPaused) await memory.resumeMirroringAfterTransfer()
-          if (portableFenceHeld) portableStateFence.release()
-          daemonPortableState?.resume()
-          throw error
-        }
-      },
+      fence: async () => await sourceFence.fence(),
       releaseFence: async () => {
-        await this.store.endTransferFence()
-        await memory.resumeMirroringAfterTransfer()
-        portableStateFence.release()
-        this.localDaemonPortableState?.resume()
+        await sourceFence.releaseFence()
         await machines.resumeAfterTransferFence()
         await resumeHostPressureAfterTransferFence()
       },
@@ -1397,17 +1928,14 @@ export class SessionRegistry {
     // A mail sender's capability and a session ref's owner, from who the session
     // acts for (POD-6160: the resident session, else its row, read once per
     // operation). `sessionsSvc` is built below; these run only once it exists.
-    const capabilityForLiveSession = async (sessionId: SessionId) => await sessionsSvc.capabilityForSession(sessionId)
-    const liveSessionOwnership = async (sessionId: SessionId) => {
-      const session = await sessionsSvc.records.ownershipOf(sessionId, 'mailSessionRef')
-      if (!session) return undefined
-      return {
-        owner: session.ownerUserId,
-        grants: (await this.store.grants.loadForResource('session', sessionId))
-          .filter((edge) => edge.verb === 'read' || edge.verb === 'write' || edge.verb === 'manage')
-          .map((edge) => edge.grantee),
-      }
-    }
+    const mailSessions = new LifecyclePort<
+      Pick<SessionLifecycle, 'capabilityForSession' | 'records'>
+    >('mail session authorization')
+    const capabilityForLiveSession = async (sessionId: SessionId) =>
+      await mailSessions.read().capabilityForSession(sessionId)
+    // Sessions are private (POD-6283): the owner, and no grant.
+    const liveSessionOwner = async (sessionId: SessionId) =>
+      (await mailSessions.read().records.ownershipOf(sessionId, 'mailSessionRef'))?.ownerUserId
     // What a mail principal may address. Its own function so a check that
     // needs only this (the apply-time re-authorization of each queued row)
     // does not read the fleet's machine ownership as well (POD-6229).
@@ -1417,11 +1945,12 @@ export class SessionRegistry {
         canSee: async (ref) => {
           if (principal.kind === 'system') return true
           if (userId === null) return false
-          if (ref.kind === 'issue')
-            return feedVisibility.mayReadIssue(userId, asIssueId(ref.id))
+          if (ref.kind === 'issue') return feedVisibility.mayReadIssue(userId, asIssueId(ref.id))
           if (ref.kind === 'session') {
-            const owner = await liveSessionOwnership(asSessionId(ref.id))
-            return owner?.owner === userId || owner?.grants.includes(userId) === true
+            return mayReachPrivate(userId, {
+              id: ref.id,
+              owner: await liveSessionOwner(asSessionId(ref.id)),
+            })
           }
           return false
         },
@@ -1464,23 +1993,36 @@ export class SessionRegistry {
     // are lazy closures — issues/conversations are assigned below, and are only
     // ever invoked after construction completes.
     const queuedApplyHooks: {
-      handingOn?: (messageId: string, sessionId: SessionId) => Promise<boolean>
-      spawnPrompt?: (input: {
-        parentSessionId: SessionId
-        sessionId: SessionId
-        text: string
-        attachments?: readonly RuntimeAttachmentRef[]
-      }) => Promise<string>
-      ownerPrompt?: (input: {
-        sessionId: SessionId
-        text: string
-        attribution: Attribution
-        attachments?: readonly RuntimeAttachmentRef[]
-      }) => Promise<string>
-      continueSession?: (input: {
-        sessionId: SessionId
-        erroredTurn: string
-      }) => Promise<{ ok: boolean; reason?: string }>
+      handingOn?: (
+        writer: MessageWriter,
+        messageId: string,
+        sessionId: SessionId,
+      ) => Promise<boolean>
+      spawnPrompt?: (
+        writer: MessageWriter,
+        input: {
+          parentSessionId: SessionId
+          sessionId: SessionId
+          text: string
+          attachments?: readonly RuntimeAttachmentRef[]
+        },
+      ) => Promise<string>
+      ownerPrompt?: (
+        writer: MessageWriter,
+        input: {
+          sessionId: SessionId
+          text: string
+          attribution: Attribution
+          attachments?: readonly RuntimeAttachmentRef[]
+        },
+      ) => Promise<string>
+      continueSession?: (
+        writer: MessageWriter,
+        input: {
+          sessionId: SessionId
+          erroredTurn: string
+        },
+      ) => Promise<{ ok: boolean; reason?: string }>
       applied?: (messageId: string, sessionId: SessionId) => Promise<void>
       provenLate?: (messageId: string, sessionId: SessionId) => Promise<void>
       idMatched?: (
@@ -1510,12 +2052,14 @@ export class SessionRegistry {
       typing?: (messageId: string, sessionId: SessionId) => Promise<void>
       interruptedPending?: (sessionId: SessionId, messageId?: string) => Promise<void>
       sessionsRemoved?: (
+        scope: WriteScope,
         sessionIds: readonly SessionId[],
         opts?: { endedIssueId?: IssueId },
       ) => Promise<void>
     } = {}
     const queuedMessageApply = new QueuedMessageApply({
       messages: this.store.messages,
+      writer: writes.system('messages.daemon'),
       authorize: mail.authorizeAtApply,
       applied: async (messageId, sessionId) => {
         const completion: Promise<void> | undefined = queuedApplyHooks.applied?.(
@@ -1548,41 +2092,61 @@ export class SessionRegistry {
         await completion
       },
     })
+    // A ChatGPT plan's session token (epic Task 15). Late-bound: the keeper and
+    // credential health are composed further down.
+    let issueSessionToken: AttachAccessDeps['issueToken'] | undefined
+    const issueUploads = new LifecyclePort<
+      Pick<IssueService['crud'], 'chatUploadBytes' | 'chatUploadOwner'>
+    >('session issue uploads')
+    const sessionIssues = new LifecyclePort<
+      Pick<
+        IssueSessionLifecycle,
+        'draftForStart' | 'discardUnlaunchedDraft' | 'recordParticipation'
+      >
+    >('session issue workflows')
     const sessionsSvc = new SessionLifecycle({
+      startActivityFlush: !backgroundDisabled,
+      issueToken: async (credentialId, to) => {
+        if (!issueSessionToken) throw new Error('the ChatGPT plan keeper is not wired yet')
+        return await issueSessionToken(credentialId, to)
+      },
       durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instanceId),
       ...(options.sessionResidency ? { residency: options.sessionResidency } : {}),
       store: this.store,
       now: () => this.now(),
       bus: this.bus,
+      daemonLinkKind: (machineId) => this.daemonLinks.daemonLinkKind(machineId),
       authorizeQueuedMessage: (messageId) => queuedMessageApply.authorize(messageId),
-      handOffQueuedMessage: async (messageId, sessionId) =>
-        (await queuedApplyHooks.handingOn?.(messageId, sessionId)) ?? true,
-      recordSpawnPrompt: async (input) => {
+      handOffQueuedMessage: async (writer, messageId, sessionId) =>
+        (await queuedApplyHooks.handingOn?.(writer, messageId, sessionId)) ?? true,
+      recordSpawnPrompt: async (writer, input) => {
         if (!queuedApplyHooks.spawnPrompt) throw new Error('the message ledger is not wired yet')
-        return await queuedApplyHooks.spawnPrompt(input)
+        return await queuedApplyHooks.spawnPrompt(writer, input)
       },
-      recordOwnerPrompt: async (input) => {
+      recordOwnerPrompt: async (writer, input) => {
         if (!queuedApplyHooks.ownerPrompt) throw new Error('the message ledger is not wired yet')
-        return await queuedApplyHooks.ownerPrompt(input)
+        return await queuedApplyHooks.ownerPrompt(writer, input)
       },
       // Claimed chat uploads, staged at delivery (POD-2148). Lazy: `issues` is
       // composed below and only read once a row is forwarded.
       chatUploads: {
-        bytes: async (issueId, uploadId) => await issues.crud.chatUploadBytes(issueId, uploadId),
-        owner: async (issueId, uploadId) => await issues.crud.chatUploadOwner(issueId, uploadId),
+        bytes: async (issueId, uploadId) =>
+          await issueUploads.read().chatUploadBytes(issueId, uploadId),
+        owner: async (issueId, uploadId) =>
+          await issueUploads.read().chatUploadOwner(issueId, uploadId),
       },
       // Auto-continue is a message (POD-4846).
-      sendContinue: async (input) => {
+      sendContinue: async (writer, input) => {
         if (!queuedApplyHooks.continueSession)
           throw new Error('the message ledger is not wired yet')
-        return await queuedApplyHooks.continueSession(input)
+        return await queuedApplyHooks.continueSession(writer, input)
       },
       // Refuses rather than stranding: a removal that cannot end its messages
       // must not commit (POD-4816).
-      failMessagesToRemovedSessions: async (sessionIds, opts) => {
+      failMessagesToRemovedSessions: async (scope, sessionIds, opts) => {
         if (!queuedApplyHooks.sessionsRemoved)
           throw new Error('the message ledger is not wired yet')
-        await queuedApplyHooks.sessionsRemoved(sessionIds, opts)
+        await queuedApplyHooks.sessionsRemoved(scope, sessionIds, opts)
       },
       rejectQueuedMessage: async (messageId, reason, cause) =>
         await queuedMessageApply.reject(messageId, reason, cause),
@@ -1649,8 +2213,15 @@ export class SessionRegistry {
       funnel,
       clients: clientRegistry,
       subscriptions,
-      // Session writes commit through the write-seam ledger at persist() (#256).
-      ledger,
+      // Session writes commit through the writer of whoever asked (ADR 12 D9,
+      // POD-6601): a command's own, or one of these named origins. The boot
+      // writer also reads the installed snapshot (its prior personal rows).
+      writers: {
+        daemon: writes.system('sessions.daemon'),
+        lifecycle: writes.system('sessions.lifecycle'),
+        live: writes.system('sessions.live'),
+        boot: writes.system('boot.reconcile'),
+      },
       machines,
       rpc,
       onSpawnTargetLogin: async ({ machineId, agentKind, ownerUserId }) =>
@@ -1661,37 +2232,32 @@ export class SessionRegistry {
         }),
       memory,
       issueAccess,
-      snapshotDiagnostics,
       installedIssueProjection,
       onWorktreesChanged: broadcastWorktreesChanged,
+      commitRepoWrite: async (write) => await this.commitServerRepoWrite(write),
       instructionsForStart: (input) => sessionInstructions.prepare(input),
       agentLaunch: async (input) => await agentProfiles.launch(input),
-      // The issue service is composed after sessions; these run only on a start.
-      draftForStart: async ({ cwd, agentKind, ownerUserId, machineId }) =>
-        (await this.store.repos.machineHasRootContaining(cwd, machineId))
-          ? (
-              await this.issues.attention.createDraftFor(
-                cwd,
-                agentKind,
-                undefined,
-                { ownerUserId, createdByActor: ownerUserId, createdByOnBehalfOf: ownerUserId },
-                machineId,
-              )
-            ).id
+      // Installed at the existing issue/session workflow boundary before hydration.
+      draftForStart: async (_writer, input) =>
+        (await this.store.repos.machineHasRootContaining(input.cwd, input.machineId))
+          ? await sessionIssues.read().draftForStart(writes.system('sessions.lifecycle'), input)
           : undefined,
-      discardUnlaunchedDraft: async (issueId) => {
-        await this.issues.attention.discardUnlaunchedDraft(issueId)
-      },
-      // POD-1081: clientCount is a degenerate view of session-room occupancy.
-      // Attach still owns frame delivery; presence rooms own who-is-watching.
-      // PTY attach auto-joins the room so the two stay one mechanism.
-      sessionOccupancyCount: (sessionId) =>
-        presence.occupancy({ kind: 'session', id: sessionId }).length,
+      discardUnlaunchedDraft: async (_writer, issueId) =>
+        await sessionIssues.read().discardUnlaunchedDraft(issueId),
+      recordIssueParticipation: async (writer, issueId, userId, via) =>
+        await sessionIssues.read().recordParticipation(writer, issueId, userId, via),
+      // POD-1081: attach owns frame delivery; presence rooms own who-is-watching
+      // (a client counts the room's members, POD-6764: no client count on the
+      // record). PTY attach auto-joins the room so the two stay one mechanism.
+      publishSessionLive: (kind, sessionId, value) => topics.publish(kind, sessionId, value),
       sessionRoomJoin: (client, sessionId) =>
         presence.ensureJoined(client, { kind: 'session', id: sessionId }),
       sessionRoomLeave: (client, sessionId) =>
         presence.ensureLeft(client, { kind: 'session', id: sessionId }),
     })
+    topicLate.sessionLive = sessionsSvc.liveTopics
+    rpcSessions.install(sessionsSvc)
+    mailSessions.install(sessionsSvc)
     const nativeLogin = new NativeLoginService({
       machines,
       sessions: sessionsSvc,
@@ -1706,19 +2272,68 @@ export class SessionRegistry {
         await codexAuthorizerFor({ users: this.store.users, machines }, ownerUserId, 'start login'),
       cwdForMachine: async (machineId) =>
         (await this.store.repos.listRepoPaths(machineId))[0] ?? '/',
+      custodianOf: async (machineId) => await this.store.machines.custodian(machineId),
     })
-    this.bus.on('superagent.turnEnded', async (event) => {
-      if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
-      const session = await sessionsSvc.sessionById(asSessionId(event.podiumSessionId))
-      if (!session?.machineId) return
-      nativeLogin.markRequired(session.machineId, event.harness)
-      await loginPropagation.trigger({
-        targetMachineId: session.machineId,
-        agentKind: event.harness,
-        force: true,
-        ...(event.ownerUserId ? { principalUserId: event.ownerUserId } : {}),
-      })
+    // ADDING A SUBSCRIPTION ON A MACHINE (credential management §6 way 2;
+    // Task 9): a home on the machine and the vendor's sign-in in a terminal
+    // there. The terminal is the server's own write, as the login pane above.
+    const homeSignIn = new HomeSignInService({
+      store: this.store,
+      daemon: {
+        isOnline: (machineId) => machines.hasDaemon(machineId),
+        supports: (machineId, cap) => machines.daemonSupports(machineId, cap),
+      },
+      rpc: {
+        homeEnsure: async (credentialId, harness, machineId) =>
+          await rpc.homeEnsure(credentialId, harness, machineId),
+        homeRemove: async (homeId, machineId) => await rpc.homeRemove(homeId, machineId),
+      },
+      terminals: {
+        open: async (i) => {
+          const cwd = (await this.store.repos.listRepoPaths(i.machineId))[0] ?? '/'
+          const spawned = await asSystemWrite(
+            async () =>
+              await sessionsSvc.createSession({
+                agentKind: 'shell',
+                loginHarness: i.harness,
+                loginHome: { credentialId: i.credentialId, homeId: i.homeId },
+                cwd,
+                title: `${i.harness} sign-in`,
+                name: `${i.harness} sign-in`,
+                machineId: i.machineId,
+                ownerUserId: i.ownerUserId,
+              }),
+          )
+          return spawned.sessionId
+        },
+        close: async (sessionId) =>
+          await asSystemWrite(
+            async () => await sessionsSvc.killSession(sessionsSvc.serverWriter, { sessionId }),
+          ),
+      },
+      requestInventory: (machineId) => machines.toMachine(machineId, { type: 'inventoryRequest' }),
+      now: () => this.now(),
     })
+    this.bus.on('session.exited', async ({ sessionId, code }) => {
+      await homeSignIn.onExit(sessionId, code)
+    })
+    this.bus.on('machine.metadataChanged', async ({ machineId, inventory }) => {
+      if (!inventory) return
+      const machine = await this.store.machines.getMachine(machineId)
+      await homeSignIn.onInventory(machineId, machine?.inventory)
+      // Logins the person made on the machine become credentials (§6 way 3).
+      await recordFoundLogins(
+        {
+          store: this.store,
+          serial: homeSignIn.serial,
+          now: () => this.now(),
+          isWaitingFor: (homeId) => homeSignIn.isWaitingFor(homeId),
+        },
+        machineId,
+        machine?.inventory,
+      )
+    })
+
     // The closed-issue memo behind the `sessions()` projection below, held for
     // the lifetime of a READ SCOPE [POD-3261]. It used to be invalidated by
     // `queueMicrotask`, which is sound only while nothing in the pass yields —
@@ -1742,7 +2357,9 @@ export class SessionRegistry {
     // many times the sample rebuilds its session list. Which issue owns a
     // folder does not change inside one host sample's scope.
     const folderOwnersSlot = readScopeSlot<Map<string, IssueId | null>>(() => new Map())
-    const folderOwnersInScope = async (cwds: Iterable<string>): Promise<Map<string, IssueId | null>> => {
+    const folderOwnersInScope = async (
+      cwds: Iterable<string>,
+    ): Promise<Map<string, IssueId | null>> => {
       const known = currentReadScope().slot(folderOwnersSlot)
       const missing = [...new Set(cwds)].filter((cwd) => !known.has(cwd))
       if (missing.length > 0) {
@@ -1779,6 +2396,7 @@ export class SessionRegistry {
         getSettings: async () => await this.store.settings.getSettings(),
         transferFenceActive: () => this.store.transferFenceActive,
         clients: () => clientRegistry.values(),
+        publishMetrics: (machineId, sample) => topics.publish('machine.metrics', machineId, sample),
         machineName: async (id) => await machines.machineName(id),
         sessions: async () => {
           // ONE statement per projection, not one per session (POD-568): the
@@ -1826,7 +2444,10 @@ export class SessionRegistry {
           // attempt depends on.
           const closed = await closedIssueIdsInScope(
             samples.flatMap((session) => {
-              const owner = session.agentKind === 'shell' ? ownerIssueIds.get(session.sessionId) : session.issueId
+              const owner =
+                session.agentKind === 'shell'
+                  ? ownerIssueIds.get(session.sessionId)
+                  : session.issueId
               return owner != null ? [owner] : []
             }),
           )
@@ -1891,28 +2512,53 @@ export class SessionRegistry {
         },
         hibernateSession: async (input) => await sessionsSvc.hibernateSession(input),
         parkShellSession: (input) => sessionsSvc.parkShellSession(input),
-        killShellSession: (input) => sessionsSvc.killSession(input),
+        // The host's pressure reaper: the server's own act (`sessions.lifecycle`).
+        killShellSession: (input) => sessionsSvc.killSession(sessionsSvc.serverWriter, input),
         hasScheduledWakeup: async (sessionId, now) => {
-          const { lastSpawned, automations } = await scheduledWakeupsInScope()
-          return automations.some((automation) => {
+          const { lastSpawned, automations: scheduledAutomations } = await scheduledWakeupsInScope()
+          return scheduledAutomations.some((automation) => {
             if (!automation.enabled || automation.nextRunAt === null) return false
             const target = automation.targetSessionId ?? lastSpawned.get(automation.id)
             return target === sessionId && Date.parse(automation.nextRunAt) > now
           })
         },
-        hasValidTerminalProof: async (sessionId) =>
-          await sessionsSvc.hasValidTerminalProof(sessionId),
-        terminalProofMissing: async (sessionId) =>
-          await sessionsSvc.terminalProofMissing(sessionId),
+        terminalProofs: async (sessionIds) =>
+          new Map(
+            [...(await sessionsSvc.terminalProofStatuses(sessionIds))].map(([id, status]) => [
+              id,
+              { ok: status.reason === 'ok', missing: status.missing },
+            ]),
+          ),
         daemonRequest: requestBroker,
         toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       },
       this.bus,
     )
     resumeHostPressureAfterTransferFence = () => hosts.resumeAfterTransferFence()
+    topicLate.hosts = hosts
+    // THE PRESSURE SWEEP IS A VIEWER: it holds machine.metrics:<id> for every
+    // connected machine while hibernation is on, so a topics.v1 daemon keeps
+    // sampling for it and stops when nobody, sweep included, is watching.
+    const metricsDemand = new HibernationMetricsDemand({
+      hold: (machineId) => topics.hold(HIBERNATION_HOLDER, 'machine.metrics', machineId),
+      release: (machineId) => topics.release(HIBERNATION_HOLDER, 'machine.metrics', machineId),
+      enabled: async () => (await this.store.settings.getSettings()).hibernation.enabled,
+      onlineMachineIds: () => machines.onlineMachineIds(),
+    })
+    this.bus.on('machine.connected', ({ machineId }) => {
+      void metricsDemand.connected(machineId).catch((err: unknown) => {
+        log.warn('could not decide host-metrics demand for a machine', { machineId, err })
+      })
+    })
+    this.bus.on('machine.disconnected', ({ machineId }) => metricsDemand.disconnected(machineId))
+    this.bus.on('settings.changed', ({ previous, next }) => {
+      if (previous.hibernation.enabled === next.hibernation.enabled) return
+      void metricsDemand.reevaluate().catch((err: unknown) => {
+        log.warn('could not re-decide host-metrics demand', { err })
+      })
+    })
     const headless = sessionsSvc.headless
     this.bus.on('session.openUrl', (request) => sessionsSvc.onOpenUrl(request))
-    this.store.issues.setSessionRefPublisher((ids) => sessionsSvc.captureReferenceChanges(ids))
     // Session-bound lock auto-release [spec:SP-85d1]: a finished/exited session
     const notify = new NotifyService(
       {
@@ -1949,80 +2595,137 @@ export class SessionRegistry {
           await this.store.events.appendEventGrouped(e)
         },
         now: () => this.now(),
+        // Attention is an account notice: on the account.events topic when the
+        // connection holds it, else the pre-topics frame (ADR 7 Amendment 2 D26).
         clients: (ownerUserId) =>
-          [...clientRegistry.values()].filter(
-            (client) => ownerUserId === undefined || client.principal.user === ownerUserId,
-          ),
+          [...clientRegistry.values()]
+            .filter((client) => ownerUserId === undefined || client.principal.user === ownerUserId)
+            .map((client) => ({
+              send: (msg: ServerMessage) => {
+                if (msg.type === 'attentionEvent') clientRegistry.deliverAccountEvent(client, msg)
+                else clientRegistry.deliver(client, msg)
+              },
+              get visible() {
+                return client.visible
+              },
+            })),
         // A prompt-failed notice can name an exited session (POD-6160): its
         // facts are read from the database when it is not resident.
         sessionInfo: async (sessionId) => {
-          const s = sessionsSvc.sessions.get(sessionId) ?? (await sessionsSvc.readSessionFactsById(sessionId))
+          const s =
+            sessionsSvc.sessions.get(sessionId) ??
+            (await sessionsSvc.readSessionFactsById(sessionId))
           return s ? noticeInfo(s) : undefined
         },
         // The not-exited sessions, running or hibernated (POD-6160): a stopped
         // session's last state is not replayed, as the live path above already
         // suppresses notices for stopped sessions.
         sessionStates: async () =>
-          (await sessionsSvc.readSessionFactsWithStatuses(['starting', 'live', 'reconnecting', 'hibernated'])).map(
+          (await sessionsSvc.readSessionFactsWithStatuses(['starting', 'live', 'hibernated'])).map(
             (s) => ({
               info: noticeInfo(s),
               state: s.agentState,
               ownerUserId: s.ownerUserId,
             }),
           ),
-        notificationsEnabled: () => featureEnabled('notifications'),
       },
       notificationPushers,
       this.bus,
     )
+    // THE NOTICE INBOX (POD-6881, spec §13): the one way into a person's inbox,
+    // pushed through that person's own channels for the kinds they switched on.
+    const notices = new NoticeService({
+      notices: this.store.notices,
+      pushPreferences: async (user) =>
+        (await this.store.settings.getSettingsFor(user)).notifications.notices,
+      push: async (user, message) => await notify.notifyExternal(message, user),
+      now: () => new Date(this.now()).toISOString(),
+    })
+    bindNoticeService(notices)
     // releases its held locks and leaves every wait queue (the queue advances
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is
     // the backstop if this listener ever misses a death.
-    this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
     // Boot session hydration runs in `hydrate`, not here: it is async now and a
     // constructor cannot await it. Its recovery-only guard moved with it.
     // Constructed AFTER loadFromStore (same slot the inline mirror construction held).
     // Permanent artifact snapshots ([spec:SP-0fc9] #441): the server pulls bytes
     // from the owning daemon at artifact-add time into <state-dir>/artifacts and
     // serves them locally via /files/artifact (registered in server.ts).
-    const issueArtifacts = new IssueArtifactStore(
-      join(stateDir(), 'artifacts'),
-      {
+    // On the workspace's blob store since POD-7054: keys under `artifacts/`,
+    // today's paths on a self-hosted disk; CLI upload state in `artifact_uploads`.
+    const workspaceFiles =
+      options.files ??
+      new LocalBlobStorage({ stateDir: stateDir(), fence: portableStateFence }).forWorkspace(
+        store.workspaceId,
+      )
+    const issueArtifacts = new IssueArtifactStore({
+      files: workspaceFiles,
+      uploads: store.artifactUploads,
+      rpc: {
         readAsset: async (i) => await rpc.readAsset(i),
         listDir: async (i) => await rpc.listDir(i),
       },
-      portableStateFence,
-    )
+    })
     // Files picked in a composer, held until a send or create claims them into
-    // an issue (POD-2148). A sibling of the artifact store, so a claim is a rename.
-    const pendingUploads = new PendingUploadStore(
-      join(stateDir(), 'pending-uploads'),
-      portableStateFence,
-    )
+    // an issue (POD-2148). On the same blob store since POD-7055: bytes under
+    // `pending-uploads/`, records in `pending_uploads`; a claim copies the file
+    // into the artifact store.
+    const pendingUploads = new PendingUploadStore({
+      files: workspaceFiles,
+      records: store.pendingUploads,
+    })
     // Late-bound because the lifecycle object below needs services this one
     // composes. `Promise<void>`, not `void` [POD-3820]: the assignment at the
     // bottom is `async`, and under a `void` declaration TypeScript accepted it
     // while the close silently dropped the promise.
-    let stopClosedIssue: ((input: { issueId: IssueId }) => Promise<void>) | undefined
+    let stopClosedIssue:
+      | ((input: { issueId: IssueId; closedBy: UserId }) => Promise<void>)
+      | undefined
+    // Late-bound for the same reason: the messages service is composed below.
+    let noticeReassignment: ((facts: ReassignmentFacts) => Promise<void>) | undefined
 
-    // Server-side LLM over a catalog Codex login (POD-4750): the transport a
-    // `codex`-provider client runs on. It picks the owning machine from the
-    // login catalog — scoped to the user whose settings name the backend (the
-    // first admin, the same identity the digest's settings are read for) —
-    // and that machine's daemon performs the Responses call, so the token
-    // never leaves its machine and never crosses this interface.
-    const codexTransport: CodexTransport = createCodexTransport({
+    // Sign in with ChatGPT and its keeper (§11). DEFERRED READ: health is built below.
+    const planHealth = new LifecyclePort<Pick<CredentialHealth, 'noteFailure' | 'afterRenew'>>(
+      'credential plan health',
+    )
+    const chatgptPlan = composeChatgptPlan({
+      store: this.store,
+      now: () => this.now(),
+      fetch: options.credentialProviderFetch,
+      health: {
+        noteFailure: async (failure) => await planHealth.read().noteFailure(failure),
+        afterRenew: async (record, verdict) => await planHealth.read().afterRenew(record, verdict),
+      },
+      machines,
+      rpc,
+    })
+
+    // Podium's own model calls (credential management §9). A ChatGPT login's
+    // calls run on the machine whose Codex home holds it (POD-4750): that
+    // machine's daemon performs the Responses call, so the login never leaves
+    // it and never crosses this interface.
+    const onMachine: OnMachineTransport = {
       listMachines: async () => await machines.listMachines(),
       isOnline: (id) => machines.hasDaemon(id),
       defaultMachineId: () => machines.defaultMachine().catch(() => undefined),
-      authorizerFor: async (owner) =>
-        await codexAuthorizerFor({ users: this.store.users, machines }, owner),
-      ownerUserId: () => firstAdminMemberId(this.store),
       codexComplete: async (machineId, input) => await rpc.codexComplete(machineId, input),
-    })
+    }
 
     const issues = IssueService.compose({
       store: this.store,
+      // MENTIONS IN COMMENTS (POD-6881): matched against the active members.
+      // Every member reads every task (design §2.2), so each active member
+      // mentioned may read it; a disabled account is no member.
+      commentMentions: new CommentMentions({
+        activeMembers: async () =>
+          (await this.store.users.list()).map((user) => ({
+            id: asUserId(user.id),
+            displayName: user.displayName,
+          })),
+        readersOf: async (_issueId, users) => [...users],
+        emitNotice: async (i) => await notices.emitNotice(i),
+        resolveNotices: async (key) => await notices.resolveNotices(key),
+      }),
       artifacts: issueArtifacts,
       pendingUploads,
       // The issue service's session reads since POD-6160: running sessions from
@@ -2032,15 +2735,28 @@ export class SessionRegistry {
       readSessionFactsById: async (sessionId) => await sessionsSvc.readSessionFactsById(sessionId),
       readSessionFactsByIssue: async (worktreePath, issueId) =>
         await sessionsSvc.readSessionFactsByIssue(worktreePath, issueId),
+      readSessionFactsByIssues: async (issues) =>
+        await sessionsSvc.readSessionFactsByIssues(issues),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       // The narrow read [POD-1639]: an issue mutation asks for ITS sessions, not
       // for all of them. Same set, same fields — see SessionView.listForIssue.
-      listSessionsForIssue: async (worktreePath, issueId) =>
-        await sessionsSvc.listSessionsForIssue(worktreePath, issueId),
+      // A read handed to a person carries only the sessions THEY may read
+      // (POD-6285); a read without one is the issue service's own lookup.
+      listSessionsForIssue: async (worktreePath, issueId, forUser) =>
+        await sessionsSvc.listSessionsForIssue(
+          worktreePath,
+          issueId,
+          forUser ? await sessionsSvc.view.principalForTrustedUser(forUser) : undefined,
+        ),
       // A known set, wired [POD-2322] — the issue tree's members.
-      sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
+      sessionsById: async (sessionIds, forUser) =>
+        await sessionsSvc.sessionsById(
+          sessionIds,
+          forUser ? await sessionsSvc.view.principalForTrustedUser(forUser) : undefined,
+        ),
       machineName: async (machineId) => await machines.machineName(machineId),
+      machineOnline: (machineId) => machines.hasDaemon(machineId),
       // Shell lifetime verbs for the worktree-free trigger (POD-4525): live
       // reads off the registry map, viewer state for held/watched, and the
       // teardown/kill verbs the policy maps onto.
@@ -2049,18 +2765,28 @@ export class SessionRegistry {
         isHeld: (sessionId) => sessionsSvc.state.isHeld(sessionId),
         isWatched: (sessionId) => sessionsSvc.state.isWatched(sessionId),
         park: async (sessionId) => await sessionsSvc.parkShellSession({ sessionId }),
-        kill: async (sessionId) => await sessionsSvc.killSession({ sessionId }),
+        // A freed worktree's dock shell, in the issue's cleanup (`sessions.lifecycle`).
+        kill: async (sessionId) =>
+          await sessionsSvc.killSession(sessionsSvc.serverWriter, { sessionId }),
       },
-      // Resolved for the sole account (POD-1213): the issue service reads
-      // `roles.coding` — a personal preference — beside instance-tier git
-      // workflow policy. See the note on `NotifyService` above.
-      getSettings: async () =>
-        await this.store.settings.getSettingsFor(await firstAdminMemberId(this.store)),
-      // Server-side LLM clients run on this factory so the `codex` provider
-      // resolves to the catalog transport above instead of a server-local
-      // login file (POD-4750). Other providers behave exactly as `llmClient`.
-      llm: ((backend, apiKey) =>
-        llmClient(backend, apiKey, fetch, { codexTransport })) as typeof llmClient,
+      // A spawn names the person it runs for, so `roles.coding` is theirs
+      // (POD-6285). With no user named, the read is for instance-tier policy
+      // (git workflow, worktree GC), the same for every member: SYSTEM, read
+      // through the first admin's row only because a settings read needs one.
+      getSettings: async (forUser) =>
+        await this.store.settings.getSettingsFor(forUser ?? (await firstAdminMemberId(this.store))),
+      complete: async (input) =>
+        await complete(
+          {
+            store: this.store,
+            onMachine,
+            chatgptPlan: chatgptPlan.keeper,
+            // A provider that rejects the credential, or reports a limit (§7).
+            // DEFERRED READ: the health service is built below.
+            onCredentialFailure: async (failure) => await planHealth.read().noteFailure(failure),
+          },
+          input,
+        ),
       spawnSession: async (o) =>
         await sessionsSvc.createSession({
           requestTerminalDriver: true,
@@ -2072,7 +2798,13 @@ export class SessionRegistry {
           ...(o.effort !== undefined ? { effort: o.effort } : {}),
           // Issue workflow already resolved both fields, including deliberate auto.
           ...(o.model !== undefined && o.effort !== undefined
-            ? { launchSelection: { model: o.model, effort: o.effort, forced: o.forceUnknownModel === true } }
+            ? {
+                launchSelection: {
+                  model: o.model,
+                  effort: o.effort,
+                  forced: o.forceUnknownModel === true,
+                },
+              }
             : {}),
           ...(o.forceUnknownModel ? { forceUnknownModel: true } : {}),
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
@@ -2080,6 +2812,7 @@ export class SessionRegistry {
           ...(o.machineId ? { machineId: o.machineId } : {}),
           ...(o.ownerUserId ? { ownerUserId: o.ownerUserId } : {}),
           ...(o.agentProfileId ? { agentProfileId: o.agentProfileId } : {}),
+          ...(o.credentialId !== undefined ? { credentialId: o.credentialId } : {}),
         }),
       agentProfiles,
       repoOp: async (op, cwd, args, machineId) => await rpc.repoOp(op, cwd, args, machineId),
@@ -2113,12 +2846,15 @@ export class SessionRegistry {
       findRepoOnMachine: async (repoPath, machineId) =>
         await sessionsSvc.workspace.findRepoOnMachine(repoPath, machineId),
       readSessionIssueId: async (sessionId) => await sessionsSvc.readSessionIssueId(sessionId),
-      setSessionIssueId: (sessionId, issueId) => sessionsSvc.setSessionIssueId(sessionId, issueId),
-      setSessionCwd: (sessionId, cwd) => sessionsSvc.setSessionCwd(sessionId, cwd),
-      setSessionArchived: (sessionId, archived) => sessionsSvc.setArchived({ sessionId, archived }),
+      // The issue write that asked passes its own writer (ADR 12 D9, POD-6601).
+      setSessionIssueId: (writer, sessionId, issueId) =>
+        sessionsSvc.setSessionIssueId(writer, sessionId, issueId),
+      setSessionCwd: (writer, sessionId, cwd) => sessionsSvc.setSessionCwd(writer, sessionId, cwd),
+      setSessionArchived: (writer, sessionId, archived) =>
+        sessionsSvc.setArchived(writer, { sessionId, archived }),
       // Closing an issue retires standing session offers (POD-290) so finished
       // work cannot keep demanding a decision after the close flip.
-      clearSessionOffer: (sessionId) => sessionsSvc.clearOffer(sessionId),
+      clearSessionOffer: (writer, sessionId) => sessionsSvc.clearOffer(writer, sessionId),
       onWorktreesChanged: broadcastWorktreesChanged,
       // Every issue mutation commits through the write-seam ledger (#255) —
       // change rows land in the same transaction as the row write — and fans
@@ -2128,9 +2864,20 @@ export class SessionRegistry {
       // the appended rows ARE what a client is served.
       funnel,
       ledger: issueArbitration.ledger,
+      // A command's own writer gets the same revision arbitration (POD-6594).
+      arbitrate: (writer) => issueArbitration.wrap(writer),
       onIssueCreated: (event) => this.bus.emit('issue.created', event),
       onIssueWorktreeMoved: (event) => this.bus.emit('issue.worktreeMoved', event),
       onIssueClosed: async (input) => await stopClosedIssue?.(input),
+      // AFTER THE COMMIT: a notice for a reassignment the span rolls back would
+      // tell two people something that did not happen (POD-6287).
+      onIssueReassigned: async (facts) => {
+        afterCommit(() => {
+          void noticeReassignment?.(facts).catch((err) => {
+            log.warn('reassignment notices failed', { err, issueId: facts.issueId })
+          })
+        }, 'issue-reassign-notice')
+      },
     })
     const applySessionDerived = async (event: EventMap['issue.sessionDerived']): Promise<void> => {
       switch (event.kind) {
@@ -2162,9 +2909,14 @@ export class SessionRegistry {
             message.kind !== 'worktree'
           )
             break
-          if (message.repoRoot !== undefined && !machinePathsEqual(message.repoRoot, issue.repoPath)) break
+          if (
+            message.repoRoot !== undefined &&
+            !machinePathsEqual(message.repoRoot, issue.repoPath)
+          )
+            break
           if (await issueAccess.isIssueWorktree(message.cwd)) break
-          await issues.crud.update(issue.id, {
+          // A daemon's worktree report: the server's own issue write.
+          await issues.crud.update(writes.system('issues.server'), issue.id, {
             worktreePath: message.cwd,
             machineId: event.machineId,
             ...(message.branch ? { branch: message.branch } : {}),
@@ -2191,16 +2943,299 @@ export class SessionRegistry {
     }
     this.bus.on('issue.sessionDerived', applySessionDerived)
     this.bus.on('issue.runtimeDerived', applyRuntimeDerived)
-    void sessionsSvc.runtimeGateway.replayBoardProjection().catch((err) => {
-      log.warn('runtime board startup replay paused before cursor advance', { err })
-    })
+    checkoutWrites.install(issues.reports.store)
+    issueUploads.install(issues.crud)
     const issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,
       ledger: issueArbitration.ledger,
+      arbitrate: (writer) => issueArbitration.wrap(writer),
     })
+    sessionIssues.install(issueSessionLifecycle)
     stopClosedIssue = async (input) =>
       await issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
+
+    // CREDENTIAL HEALTH (credential management §7, §8; Task 13). What a
+    // rejected, expiring, renewed or removed credential does to its sessions,
+    // its notices and the machines that hold a copy. The interaction aggregate
+    // that flags a session is built later: a DEFERRED READ, on the terms of the
+    // interaction sinks below.
+    let interactionsRef: InteractionService | undefined
+    const credentialPlacements = new Placements({
+      store: this.store,
+      // Both kinds go by the daemon's home requests (Task 8); a daemon without
+      // harness homes is not asked, and its placements stay `removal-pending`,
+      // visibly. The vendor's sign-out before a home goes is Task 9's.
+      transport: {
+        isOnline: (machineId) => machines.hasDaemon(machineId),
+        removers: placementRemovers({
+          daemonSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
+          rpc,
+        }),
+      },
+    })
+    const credentialRestarts = new LifecyclePort<Pick<CredentialSwitcher, 'restartWithResume'>>(
+      'credential restart workflow',
+    )
+    const credentialHealth = new CredentialHealth({
+      store: this.store,
+      placements: credentialPlacements,
+      // The inbox (POD-6881). A notice is a synced record and renew, remove and
+      // share are plain commands: the notice is the server's own write.
+      notices: {
+        emit: async (notice) => await asSystemWrite(async () => await notices.emitNotice(notice)),
+        resolve: async (key) => await asSystemWrite(async () => await notices.resolveNotices(key)),
+      },
+      now: () => this.now(),
+      ...(options.credentialProviderFetch ? { fetch: options.credentialProviderFetch } : {}),
+      sessions: {
+        liveSessionIds: async (credentialId) =>
+          await this.store.sessions.liveSessionIdsOnCredential(credentialId),
+        standing: async (sessionId) => {
+          const session = await sessionsSvc.sessionById(sessionId)
+          if (!session || session.status === 'hibernated' || session.status === 'exited') {
+            return 'not-running'
+          }
+          if (session.status === 'starting') return 'in-turn'
+          const phase = session.agentState?.phase
+          if (phase === 'ended') return 'not-running'
+          return phase === 'working' || phase === 'compacting' ? 'in-turn' : 'between-turns'
+        },
+        // Stop the harness between turns and start it again under the same
+        // session with its conversation resumed; the revival resolves the
+        // credential afresh and so delivers the renewed secret. These are the
+        // server's own session writes, which a renew or remove (plain commands)
+        // set off: `asSystemWrite` is the sanctioned way out of that scope.
+        // ONE restart path, the switch's (§9, epic Task 11): park, then revive;
+        // for a switch the conversation is placed for its new home first. Each
+        // session write inside is the server's (`asSystemWrite`, below).
+        restartWithResume: async (sessionId) =>
+          await credentialRestarts.read().restartWithResume(sessionId),
+        stop: async (sessionId) => {
+          await asSystemWrite(async () => await issueSessionLifecycle.stopSession({ sessionId }))
+        },
+        flagRemoved: async (sessionId, credential) => {
+          const spec = {
+            kind: 'recovery' as const,
+            payload: {
+              v: 1 as const,
+              reason: 'unknown' as const,
+              prompt: `The credential "${credential.label}" this session runs on was removed, so the session stops at the end of its current turn. Choose another credential to continue.`,
+              offered: ['abandon' as const],
+            },
+          }
+          await asSystemWrite(
+            async () =>
+              await interactionsRef?.ask({
+                interaction: {
+                  ...spec,
+                  sessionId,
+                  source: 'protocol',
+                  answerable: 'keystroke-emulated',
+                  askedAt: new Date(this.now()).toISOString(),
+                  fingerprint: interactionFingerprint(sessionId, spec),
+                },
+              }),
+          )
+        },
+      },
+    })
+    planHealth.install(credentialHealth)
+    this.bus.on('superagent.turnEnded', async (event) => {
+      if (event.ok || event.harnessErrorKind !== 'provider-auth' || !event.harness) return
+      const session = await sessionsSvc.sessionById(asSessionId(event.podiumSessionId))
+      // A superagent turn on a credential the provider rejected (§7).
+      if (session?.credentialId) {
+        await credentialHealth.noteFailure({
+          credentialId: session.credentialId,
+          failure: 'rejected',
+          reason: event.error ?? 'The provider rejected this credential.',
+          ...(event.ownerUserId ? { actorUserId: event.ownerUserId } : {}),
+          sessionId: session.sessionId,
+        })
+      }
+      if (!session?.machineId) return
+      nativeLogin.markRequired(session.machineId, event.harness)
+      await loginPropagation.trigger({
+        targetMachineId: session.machineId,
+        agentKind: event.harness,
+        force: true,
+        refresh: true,
+        ...(event.ownerUserId ? { principalUserId: event.ownerUserId } : {}),
+      })
+    })
+    // SWITCHING A SESSION TO ANOTHER CREDENTIAL (§9, epic Task 11). The
+    // switch's own session writes run inside the `sessions.switchCredential`
+    // plain command, so each is the server's write (`asSystemWrite`), as the
+    // credential health restarts above are.
+    const switchView = (session: Session): SwitchSession => {
+      const driverId = session.lifecycleDriverRequest()
+      return {
+        sessionId: session.sessionId,
+        agentKind: session.agentKind,
+        machineId: session.machineId,
+        ownerUserId: session.ownerUserId,
+        credentialId: session.credentialId ?? null,
+        cwd: session.cwd,
+        status: session.status,
+        ...(session.resume ? { resume: session.resume } : {}),
+        ...(driverId ? { driverId } : {}),
+        ...(session.issueId ? { issueId: session.issueId } : {}),
+        ...(session.title ? { title: session.title } : {}),
+      }
+    }
+    const credentialSwitch = new CredentialSwitcher({
+      store: this.store,
+      restarts: credentialHealth,
+      placement: {
+        daemonSupports: (machineId, cap) => machines.daemonSupports(machineId, cap),
+        conversationPrepare: async (request, machineId) =>
+          await rpc.conversationPrepare(request, machineId),
+      },
+      sessions: {
+        read: async (sessionId) =>
+          await sessionsSvc.residency.withSession(sessionId, 'sessions.switchCredential', (s) =>
+            s ? switchView(s) : undefined,
+          ),
+        standing: async (sessionId) => await credentialHealth.sessions.standing(sessionId),
+        record: async (sessionId, credentialId) =>
+          await asSystemWrite(
+            async () =>
+              await sessionsSvc.residency.withSession(
+                sessionId,
+                'sessions.switchCredential',
+                async (session) => {
+                  if (!session) return
+                  await sessionsSvc.repository.write(
+                    writes.system('sessions.lifecycle'),
+                    session,
+                    (draft) => {
+                      draft.credentialId = credentialId ?? undefined
+                    },
+                  )
+                },
+              ),
+          ),
+        hibernate: async (sessionId) =>
+          await asSystemWrite(async () => await sessionsSvc.hibernateSession({ sessionId })),
+        resurrect: async (sessionId) =>
+          await asSystemWrite(async () => {
+            const revived = await issueSessionLifecycle.resurrectSession({ sessionId })
+            return revived.ok ? { ok: true } : { ok: false, reason: revived.reason }
+          }),
+        interrupt: async (sessionId) =>
+          await asSystemWrite(async () => await sessionsSvc.interruptTurn({ sessionId })),
+        stop: async (sessionId) => {
+          await asSystemWrite(async () => await issueSessionLifecycle.stopSession({ sessionId }))
+        },
+        transcriptTail: async (sessionId, limit) =>
+          (
+            await rpc.readTranscript(
+              { sessionId, direction: 'before', limit },
+              { kind: 'system', id: 'credential-switch' },
+            )
+          ).items.flatMap((item) =>
+            (item.role === 'user' || item.role === 'assistant') && item.text
+              ? [{ role: item.role, text: item.text }]
+              : [],
+          ),
+        startHandoff: async ({ from, credentialId, prompt }) =>
+          await asSystemWrite(
+            async () =>
+              (
+                await sessionsSvc.createSession({
+                  ownerUserId: from.ownerUserId,
+                  agentKind: from.agentKind,
+                  cwd: from.cwd,
+                  machineId: from.machineId,
+                  ...(from.issueId ? { issueId: from.issueId } : {}),
+                  ...(from.title ? { title: from.title } : {}),
+                  initialPrompt: prompt,
+                  credentialId,
+                })
+              ).sessionId,
+          ),
+      },
+    })
+    this.bus.on('machine.connected', ({ machineId }) =>
+      credentialPlacements.retryPendingOn(machineId).catch((err) => {
+        log.warn('credential placement removal on reconnect failed', { machineId, err })
+      }),
+    )
+    // CODEX ON A CHATGPT PLAN (§11 "Codex"; epic Task 15). A session gets a token
+    // with at least SESSION_TOKEN_MIN_LEFT_MS left, and restarts with resume at a
+    // turn boundary before the one its engine holds runs low.
+    credentialRestarts.install(credentialSwitch)
+    const planRenewal = new PlanSessionRenewal({
+      now: () => this.now(),
+      setTimer: realTimer(() => this.now()),
+      restartAtTurnBoundary: async (sessionId) =>
+        await credentialHealth.restartAtTurnBoundary(sessionId),
+      onError: (err, sessionId) =>
+        log.warn('could not restart a ChatGPT plan session for a fresh token', { err, sessionId }),
+    })
+    issueSessionToken = async (credentialId, to) => {
+      const issued = await chatgptPlan.keeper.issue(credentialId, {
+        minLeftMs: SESSION_TOKEN_MIN_LEFT_MS,
+      })
+      if (to.sessionId) {
+        planRenewal.delivered(to.sessionId, issued.expiresAt, to.refresh ? 'refresh' : 'start')
+      }
+      return { secret: issued.token, expiresAt: issued.expiresAt }
+    }
+    // No forget on exit: a restart is a hibernate then a revival, and an exit
+    // event arriving after the revival's delivery would erase the deadline that
+    // delivery set. A deadline for a session that is not running does nothing.
+
+    // THE SESSION LIFECYCLE CONTROLLER (ADR 12 D5 E1, POD-6356): makes a
+    // session's desired state true through the daemon channel, after each edit
+    // commits and again whenever that session's machine reconnects.
+    const sessionLifecycleController = new SessionLifecycleController({
+      read: async (sessionId) => await sessionsSvc.desiredStateOf(sessionId),
+      pending: async (machineId) => await this.store.sessions.lifecyclePending(machineId),
+      connected: (machineId) => machines.hasDaemon(machineId),
+      stop: async (sessionId, force, principal, selfStop) =>
+        await issueSessionLifecycle.stopSession({
+          sessionId,
+          ...(force ? { force: true } : {}),
+          ...(principal ? { principal } : {}),
+          // An agent stopping itself (POD-6422): park and free now; its process
+          // ends after the reply (the hook below, or `finishSelfStop`).
+          ...(selfStop ? { selfStop: true } : {}),
+        }),
+      hibernate: async (sessionId) => await sessionsSvc.hibernateSession({ sessionId }),
+      resurrect: async (sessionId) => await issueSessionLifecycle.resurrectSession({ sessionId }),
+      acknowledge: async (sessionId, revision, failure) =>
+        await sessionsSvc.acknowledgeDesiredState(
+          writes.system('sessions.lifecycle'),
+          sessionId,
+          revision,
+          failure,
+        ),
+      // A start is re-authorized when it is acted on, as a queued mail's apply
+      // is: the writer's human, with today's role and grants, must still hold
+      // `use`, narrowed by the writing agent's delegation when an agent wrote it.
+      mayStart: async ({ machineId, lifecycle }) => {
+        if (lifecycle.byUser === null) return false
+        const writer = await this.store.users.get(lifecycle.byUser)
+        if (!writer || writer.disabledAt) return false
+        const ownership = await ownershipSnapshotFromMachines(machines)
+        if (
+          checkMachineUse(userCommandPrincipal(lifecycle.byUser, writer.role), machineId, ownership)
+        ) {
+          return false
+        }
+        const delegated = lifecycle.byAgent
+          ? ownership.delegatedMachines?.(lifecycle.byAgent)
+          : undefined
+        return delegated === undefined || delegated.has(machineId)
+      },
+    })
+    this.bus.on('machine.connected', ({ machineId }) =>
+      sessionLifecycleController.reconcileMachine(machineId).catch((err) => {
+        log.warn('session lifecycle reconcile on reconnect failed', { machineId, err })
+      }),
+    )
 
     this.bus.on('session.wakeRequested', async ({ sessionId, principal }) => {
       if (process.env.PODIUM_REHEARSAL === '1') return
@@ -2272,43 +3307,6 @@ export class SessionRegistry {
       if (!s || s.status === 'exited' || !s.cwd) return null
       return s.cwd
     }
-    const locks = new LockService({
-      locks: this.store.locks,
-      transact: async (fn) => await this.store.transact(fn),
-      funnel,
-      now: () => this.now(),
-      resolveRepoId: async (repoPath) => await this.store.repos.resolveRepoIdForPath(repoPath),
-      // HOLDER liveness: does the row still exist? A hibernated holder is
-      // parked, not dead, and keeps its lease (session-exit.test.ts).
-      sessionAlive: async (sessionId) => {
-        const s = await lockSessionRow(sessionId)
-        return !!s && s.status !== 'exited'
-      },
-      // WAITER liveness: can it take a grant? A hibernated session polls
-      // nothing, so it is pruned like an exited one (POD-3807) and re-queues
-      // itself when it wakes. Only a running session can, and a running
-      // session is resident, so memory answers.
-      sessionRunning: (sessionId) => {
-        const s = liveSessions.get(asSessionId(sessionId))
-        return !!s && s.status !== 'exited' && s.status !== 'hibernated'
-      },
-      sessionWorkspace,
-      // Grant/steal notices are messages to the holder's issue (POD-4846);
-      // best-effort by contract (the waiter also discovers the grant by polling).
-      sendMail: async (issueId, from, body) => {
-        try {
-          await systemIssueNotice(messagesSvc, from)(issueId, body)
-        } catch {}
-      },
-      appendEvent: async (e) => {
-        await this.store.events.appendEvent(e)
-      },
-    })
-    const lockCommands = new LockCommandDispatcher({
-      locks,
-      issues,
-      sessionWorkspace,
-    })
     // Unified messaging (#237) [spec:SP-34d7]: the one send path. Sender is
     // stamped by each surface from its authenticated caller; issue-addressed
     // sends dual-write the legacy issue_messages mirror so inbox/claim/pending
@@ -2322,7 +3320,12 @@ export class SessionRegistry {
     // than only unit-tested against the handler, so POD-1075's real ceiling
     // arrives at a composition root that already carries it.
     const messagesSvc = new MessageDeliveryService({
-      firstAdminMemberId: () => firstAdminMemberId(this.store),
+      soleActiveMember: async () => {
+        const sole = await this.store.users.soleActiveMember()
+        return sole ? asUserId(sole.id) : undefined
+      },
+      // RECOVERY: rows stored before per-message attribution were the first admin's.
+      legacyRowOwner: () => firstAdminMemberId(this.store),
       authorizeAtApply: mail.authorizeAtApply,
       // POD-1193: wake resumes/spawns on the target session's machine — enforce
       // `use` at delivery. Same principalMailPolicy object as the ceiling port.
@@ -2335,17 +3338,24 @@ export class SessionRegistry {
       isAgentDriven: (sessionId) => sessionsSvc.receiptSender.onContract(sessionId),
       mirrorIssueMail: async (row) =>
         await funnel.run({ write: async () => await this.store.issues.addIssueMessage(row) }),
-      mirrorMarkIssueMailRead: async (issueId, ids) =>
+      // The READING session's owner marks it read (POD-6291), never the first
+      // admin; a delivery to nobody moves only the shared delivery state.
+      mirrorMarkIssueMailRead: async (issueId, ids, reader) =>
         await funnel.run({
           write: async () =>
             await this.store.issues.markIssueMessagesRead(
-              await firstAdminMemberId(this.store),
+              reader ? ((await this.store.sessions.getSession(reader))?.ownerUserId ?? null) : null,
               issueId,
               ids,
               new Date().toISOString(),
             ),
         }),
-      transact: async (fn) => await this.store.transact(fn),
+      // The service's own accounts (POD-6602); every other messages write
+      // takes the writer of whoever asked.
+      writers: {
+        daemon: writes.system('messages.daemon'),
+        delivery: writes.system('messages.delivery'),
+      },
       // Spawn-on-wake (#237) [spec:SP-34d7 decision 4]: an unresumable wake
       // spawns a fresh agent on the target issue through the SAME machinery
       // issue_start rides (createSession); the service then queues the message
@@ -2368,13 +3378,91 @@ export class SessionRegistry {
       },
       now: () => new Date(this.now()).toISOString(),
     })
-    queuedApplyHooks.spawnPrompt = async (input) => await messagesSvc.recordSpawnPrompt(input)
+    const locks = new LockService({
+      locks: this.store.locks,
+      transact: async (fn) => await this.store.transact(fn),
+      // NOT THROUGH THE AUTHORITY (POD-6419). A lease is server-local: a lock
+      // write publishes no change (the funnel was handed ``),
+      // and a lock write from a person or an agent is a plain command, whose
+      // scope gives it no Authority (ADR 12 D8). Its own `transact` is the unit.
+      funnel: {
+        run: async (op) => {
+          await op.authorize?.()
+          return await op.write()
+        },
+      },
+      now: () => this.now(),
+      resolveRepoId: async (repoPath) => await this.store.repos.resolveRepoIdForPath(repoPath),
+      // HOLDER liveness: does the row still exist? A hibernated holder is
+      // parked, not dead, and keeps its lease (session-exit.test.ts).
+      sessionAlive: async (sessionId) => {
+        const s = await lockSessionRow(sessionId)
+        return !!s && s.status !== 'exited'
+      },
+      // WAITER liveness: can it take a grant? A hibernated session polls
+      // nothing, so it is pruned like an exited one (POD-3807) and re-queues
+      // itself when it wakes. Only a running session can, and a running
+      // session is resident, so memory answers.
+      sessionRunning: (sessionId) => {
+        const s = liveSessions.get(asSessionId(sessionId))
+        return !!s && s.status !== 'exited' && s.status !== 'hibernated'
+      },
+      sessionWorkspace,
+      // Grant/steal notices are messages to the holder's issue (POD-4846);
+      // best-effort by contract (the waiter also discovers the grant by polling).
+      // The SERVER's own write (POD-6419): a lock write is a plain command,
+      // whose scope refuses synced writes; the notice it triggers is not one.
+      sendMail: async (issueId, from, body) => {
+        try {
+          await asSystemWrite(
+            async () =>
+              await systemIssueNotice(
+                messagesSvc,
+                writes.system('messages.server'),
+                from,
+              )(issueId, body),
+          )
+        } catch {}
+      },
+      appendEvent: async (e) => {
+        await this.store.events.appendEvent(e)
+      },
+    })
+    const lockCommands = new LockCommandDispatcher({
+      locks,
+      issues,
+      sessionWorkspace,
+    })
+    this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
+    // Both people hear about a reassignment in their own inbox (POD-6287).
+    // Best effort: the reassignment has committed, and a lost notice must not
+    // turn it into an error the caller would retry.
+    noticeReassignment = async (facts) => {
+      const names = new Map<UserId, string>()
+      for (const id of [facts.from, facts.to, facts.by]) {
+        names.set(id, (await this.store.users.get(id))?.displayName ?? id)
+      }
+      for (const notice of reassignmentNotices(facts, (id) => names.get(id) ?? id)) {
+        try {
+          await messagesSvc.send(writes.system('messages.server'), notice.sender, notice.input)
+        } catch (err) {
+          log.warn('reassignment notice not delivered', {
+            err,
+            issueId: facts.issueId,
+            recipient: notice.recipient,
+          })
+        }
+      }
+    }
+    queuedApplyHooks.spawnPrompt = async (writer, input) =>
+      await messagesSvc.recordSpawnPrompt(writer, input)
     queuedApplyHooks.continueSession = autoContinueSender(messagesSvc)
-    queuedApplyHooks.ownerPrompt = async (input) => await messagesSvc.recordOwnerPrompt(input)
-    queuedApplyHooks.sessionsRemoved = async (sessionIds, opts) =>
-      await messagesSvc.failMessagesToRemovedSessions(sessionIds, opts)
-    queuedApplyHooks.handingOn = async (messageId, sessionId) =>
-      await messagesSvc.onQueuedInputHandingOn(messageId, sessionId)
+    queuedApplyHooks.ownerPrompt = async (writer, input) =>
+      await messagesSvc.recordOwnerPrompt(writer, input)
+    queuedApplyHooks.sessionsRemoved = async (scope, sessionIds, opts) =>
+      await messagesSvc.failMessagesToRemovedSessions(scope, sessionIds, opts)
+    queuedApplyHooks.handingOn = async (writer, messageId, sessionId) =>
+      await messagesSvc.onQueuedInputHandingOn(writer, messageId, sessionId)
     queuedApplyHooks.applied = async (messageId, sessionId) =>
       await messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.provenLate = async (messageId, sessionId) =>
@@ -2403,7 +3491,11 @@ export class SessionRegistry {
       await messagesSvc.onQueuedInputTyping(messageId, sessionId)
     queuedApplyHooks.interruptedPending = async (sessionId, messageId) => {
       try {
-        await messagesSvc.cancelPendingOperatorMessage(sessionId, messageId)
+        await messagesSvc.cancelPendingOperatorMessage(
+          writes.system('messages.delivery'),
+          sessionId,
+          messageId,
+        )
       } catch (error) {
         // A concurrent boundary delivery or retraction can win the guarded
         // cancellation. Storage and notification failures must reach the caller.
@@ -2448,7 +3540,10 @@ export class SessionRegistry {
       await messagesSvc.onSessionRoutingChanged(previous)
     })
     this.bus.on('issue.worktreeMoved', async ({ issueId, previousWorktreePath }) => {
-      await messagesSvc.onIssuesEligibilityChanged([issueId], new Map([[issueId, previousWorktreePath]]))
+      await messagesSvc.onIssuesEligibilityChanged(
+        [issueId],
+        new Map([[issueId, previousWorktreePath]]),
+      )
     })
     const workflows = new WorkflowService(
       {
@@ -2488,8 +3583,13 @@ export class SessionRegistry {
         },
         repoIdForPath: async (path) => await this.store.repos.resolveRepoIdForPath(path),
         agentProfile: async (ref) => await agentProfiles.find(ref),
+        // A run a spawn starts commits on the feed's mirror origin, inside
+        // whichever operation spawned the session; a workflow command commits
+        // on the command's own writer (POD-6676).
+        changes: writes.system('feed.workflows'),
         notifyCoordinator: async (sessionId, text) => {
           await messagesSvc.send(
+            writes.system('messages.server'),
             { kind: 'system', name: 'workflow' },
             {
               to: { kind: 'session', id: sessionId },
@@ -2653,12 +3753,16 @@ export class SessionRegistry {
         return content ? { content } : null
       },
     })
+    const workflowModules = new LifecyclePort<RegistryModules>('registry workflow entries')
     const messageGate = new MessageGate(
       {
         messages: messagesSvc,
         issues,
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
-        sessionOwner: async (sessionId) => await sessionsSvc.sessionOwner(sessionId),
+        machineOnline: (machineId) => machines.hasDaemon(machineId),
+        // A session's mail is its own owner's (POD-6284): the row, not its task.
+        sessionOwnerUserId: async (sessionId) =>
+          (await this.store.sessions.getSession(sessionId))?.ownerUserId,
         messageRecords: async (userId, ids, transcriptSessionId) =>
           await readMessageRecords(
             { messages: this.store.messages, sessions: this.store.sessions },
@@ -2671,6 +3775,7 @@ export class SessionRegistry {
         // child is a FULL Podium session through the one spawn path; --new is the
         // deliberate issue-create path (never automatic).
         awaitMachineInventory: async (machineId) => await machines.waitForInventory(machineId),
+        launchCredential: async (ref, owner) => await sessionsSvc.launchCredential(ref, owner),
         spawnSession: async (o) =>
           await sessionsSvc.createSession({
             requestTerminalDriver: true,
@@ -2688,6 +3793,7 @@ export class SessionRegistry {
             ...(o.workflowRunId ? { workflowRunId: o.workflowRunId } : {}),
             ...(o.workflowStepId ? { workflowStepId: o.workflowStepId } : {}),
             ...(o.agentProfileId ? { agentProfileId: o.agentProfileId } : {}),
+            ...(o.credentialId !== undefined ? { credentialId: o.credentialId } : {}),
           }),
         findAgentProfile: async (ref) => await agentProfiles.find(ref),
         resolveWorkflowStepLaunch: async ({ caller, cwd, ...step }) => {
@@ -2717,7 +3823,9 @@ export class SessionRegistry {
             machineId: launch.machineId,
           }
         },
-        createIssue: async (o) => await issues.crud.create({ ...o, startNow: false }),
+        // mail.spawnAgent --new: inside the mail command, with its writer.
+        createIssue: async (writer, o) =>
+          await issues.crud.create(writer, { ...o, startNow: false }),
         appendEvent: async (e) => {
           await this.store.events.appendEvent(e)
         },
@@ -2738,6 +3846,25 @@ export class SessionRegistry {
             new Date(this.now()).toISOString(),
           )
         },
+        // The mail writes go through the sync write entry point (POD-6525);
+        // read per call, because the entry point is composed after the gate.
+        // Before the module set exists (boot), a write dispatches directly.
+        syncWrite: () => workflowModules.read().syncWrite,
+        // An agent's spawn is a `session.launch` record its write creates
+        // (POD-6525); the adapter waits for it.
+        spawnRecord: {
+          refuseUnplaceable: async (principal, input) => {
+            if (principal.kind === 'system') throw new Error('a system principal spawns no agent')
+            await refuseUnplaceable(workflowModules.read(), principal, {
+              cwd: input.cwd,
+              ...(input.machineId !== undefined ? { machineId: input.machineId } : {}),
+              ...(input.agentKind !== undefined ? { agentKind: input.agentKind as AgentKind } : {}),
+            })
+          },
+          create: async (writer, principal, launch) =>
+            await createSpawnLaunchInUnit(workflowModules.read(), writer, principal, launch),
+          settled: async (effectId) => await settledSpawnLaunch(workflowModules.read(), effectId),
+        },
       },
       mail.gateOptions,
     )
@@ -2745,17 +3872,20 @@ export class SessionRegistry {
       // Select on facts, wire only the survivors [POD-3857]; every selection is
       // a narrow read of the sessions it can name (POD-6160).
       readSessionFactsByIds: async (ids) => await sessionsSvc.readSessionFactsByIds(ids),
-      readSessionFactsByIdPrefix: async (prefix) => await sessionsSvc.readSessionFactsByIdPrefix(prefix),
+      readSessionFactsByIdPrefix: async (prefix) =>
+        await sessionsSvc.readSessionFactsByIdPrefix(prefix),
       readSessionFactsByBirthRef: async (ref) => await sessionsSvc.readSessionFactsByBirthRef(ref),
       readSessionFactsByIssue: async (worktreePath, issueId) =>
         await sessionsSvc.readSessionFactsByIssue(worktreePath, issueId),
-      readSessionFactsSpawnedBy: async (parentIds) => await sessionsSvc.readSessionFactsSpawnedBy(parentIds),
+      readSessionFactsSpawnedBy: async (parentIds) =>
+        await sessionsSvc.readSessionFactsSpawnedBy(parentIds),
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       sessionsById: async (sessionIds) => await sessionsSvc.sessionsById(sessionIds),
       issues,
       messages: messagesSvc,
       sessionRefs: async (sessions) => await readSessionRefs(this.store, sessions),
       machineName: async (machineId) => await machines.machineName(machineId),
+      machineOnline: (machineId) => machines.hasDaemon(machineId),
       events: this.store.events,
       // Tier-3 recap watermarks persist per (reader, target) [spec:SP-34d7].
       watermarks: this.store.readWatermarks,
@@ -2779,28 +3909,32 @@ export class SessionRegistry {
     // durable outbox — see AutomationsService.spawn for why not initialPrompt.
     // A session still occupying the machine (anything but exited/hibernated)
     // makes the next occurrence a skipped_overlap rather than a pile-up.
-    const automations = new AutomationsService({
+    const automationService = new AutomationsService({
       store: this.store.automations,
-      ledger,
+      ledger: writes.system('automations.schedule'),
       createSession: async (o) =>
         await sessionsSvc.createSession({ ...o, requestTerminalDriver: true }),
       // A run's prompt is its owner's message (POD-4846): stored, typed without a
       // frame, attributed to the automation, followed by its delivery status.
       deliverPrompt: automationPromptSender({
         messages: messagesSvc,
+        writer: writes.system('automations.schedule'),
         sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       }),
       createIssue: async (o) => {
-        const issue = await issues.crud.create({
+        const issue = await issues.crud.create(writes.system('automations.schedule'), {
           ...o,
           startNow: false,
           origin: 'agent',
           audience: 'human',
         })
-        await issues.crud.update(issue.id, { stage: 'in_progress' })
+        await issues.crud.update(writes.system('automations.schedule'), issue.id, {
+          stage: 'in_progress',
+        })
         return { id: issue.id }
       },
-      liveSessionIds: async () => new Set(sessionsSvc.runningSessionFacts().map((s) => s.sessionId)),
+      liveSessionIds: async () =>
+        new Set(sessionsSvc.runningSessionFacts().map((s) => s.sessionId)),
       principalForOwner: async (ownerUserId) => {
         const role = await this.store.users.roleOf(ownerUserId)
         return role ? userCommandPrincipal(ownerUserId, role) : undefined
@@ -2809,17 +3943,58 @@ export class SessionRegistry {
         const ownership = await ownershipSnapshotFromMachines(machines)
         return checkMachineUse(principal, await machines.defaultMachine(), ownership) === undefined
       },
+      // An automation runs only into its owner's own sessions (POD-6284).
+      sessionOwnerUserId: async (sessionId) =>
+        (await this.store.sessions.getSession(sessionId))?.ownerUserId,
       now: () => new Date(this.now()),
     })
     // Approval broker [spec:SP-edbb] (#410): agent-requested management ops.
+    // An approval is an effect record with a human gate (POD-6674): its executor
+    // registers below with the other effect kinds.
     const approvals = new ApprovalService({
-      store: this.store.approvals,
-      now: () => new Date().toISOString(),
+      effects: this.store.effects,
+      writer: writes.system('approvals.results'),
+      nowMs: this.now,
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       // The stall deadline runs only while a machine's daemon is actually attached:
       // `toMachine` queues for an absent one, so that frame is parked, not lost.
       hasDaemon: (machineId) => machines.hasDaemon(machineId),
-      clients: () => clientRegistry.values(),
+      // An approval is its session owner's (POD-6284): only they decide it.
+      sessionOwnerUserId: async (sessionId) =>
+        (await this.store.sessions.getSession(sessionId))?.ownerUserId,
+      personActive: async (userId) => {
+        const user = await this.store.users.get(userId)
+        return user !== undefined && user !== null && !user.disabledAt
+      },
+      // A decider must also hold the operation's own permission, read live
+      // (POD-6674 review): `modules/approvals/op-permission.ts`.
+      opPermission: {
+        machineVerb: async (principal, machineId, verb) =>
+          checkMachineVerb(
+            principal,
+            machineId,
+            await ownershipSnapshotFromMachines(machines),
+            verb,
+          ) === undefined,
+        workflowWrite: async (principal, revisionId) =>
+          principal.kind !== 'system' &&
+          (await workflows.targetRefusal(
+            await workflowCallerForCapability(principal.capability),
+            'publish',
+            { revisionId },
+          )) === undefined,
+        sessionOwner: async (sessionId) =>
+          (await this.store.sessions.getSession(sessionId))?.ownerUserId,
+      },
+      personPrincipal: async (userId) => {
+        const user = await this.store.users.get(userId)
+        if (!user || user.disabledAt) return undefined
+        return userCommandPrincipal(asUserId(user.id), user.role)
+      },
+      activeAdmins: async () =>
+        [...(await this.store.users.activeAdminIds())].map((id) =>
+          userCommandPrincipal(asUserId(id), 'admin'),
+        ),
       sessionIssueId: async (sessionId) => {
         const s = await sessionsSvc.sessionById(sessionId)
         return s ? (s.issueId ?? (await issues.reports.issueForCwd(s.cwd))) : null
@@ -2842,7 +4017,11 @@ export class SessionRegistry {
       // whatever span the decision was running inside and died orphaned when the
       // span closed. Same shape as the lock bug (POD-3802).
       notifyIssue: async (issueId, body) => {
-        await systemIssueNotice(messagesSvc, 'approval-broker')(issueId, body)
+        await systemIssueNotice(
+          messagesSvc,
+          writes.system('messages.server'),
+          'approval-broker',
+        )(issueId, body)
       },
       executeServerOp: async (op, sessionId) => {
         const caller = await workflowCallerForCapability(
@@ -2853,17 +4032,27 @@ export class SessionRegistry {
           // transport uses (POD-732) — the deleted `publish`/`assign` shims were
           // its only other way in, and a server op that skipped the contract's
           // parse would be the one caller whose input nobody validated.
-          const revision = await workflows.execute(caller, 'publish', {
-            revisionId: op.revisionId,
-          })
+          const revision = await workflows.execute(
+            caller,
+            'publish',
+            { revisionId: op.revisionId },
+            // Its rows and their change entries commit on the approval's origin.
+            { writer: writes.system('approvals.execute') },
+          )
           return `published workflow revision ${revision.id}`
         }
         if (op.kind === 'workflow-set-default') {
-          const binding = await workflows.execute(caller, 'assign', {
-            targetKind: op.targetKind,
-            targetId: op.targetId,
-            revisionId: op.revisionId,
-          })
+          // The binding's generic edit runs the same assign (POD-6676); a server
+          // op parses its input like every caller of it.
+          const binding = await workflows.assign(
+            caller,
+            workflowAssignInput.parse({
+              targetKind: op.targetKind,
+              targetId: op.targetId,
+              revisionId: op.revisionId,
+            }),
+            writes.system('approvals.execute'),
+          )
           return `set ${binding.targetKind} workflow default to revision ${binding.revisionId}`
         }
         if (op.kind === 'automation-schedule') {
@@ -2893,7 +4082,11 @@ export class SessionRegistry {
           // explicit agent ignored the operator's configured default harness
           // while issue-create honoured it. Continuing an existing session still
           // wins outright — that session's harness is already running.
-          const settings = await this.store.settings.getSettingsFor(await firstAdminMemberId(this.store))
+          // The defaults of the person the automation runs for (POD-6285).
+          const settings = await this.store.settings.getSettingsFor(
+            onBehalfOfUser(principal) ??
+              (await soleMemberFor(this.store.users, 'a scheduled automation')),
+          )
           const spawnDefaults = resolveSpawnDefaults(settings, {
             agentKind: existing?.agentKind ?? fresh?.agentKind,
           })
@@ -2904,7 +4097,11 @@ export class SessionRegistry {
             // Scheduling snapshots defaults without probing; spawn vets the selected host's row.
             catalog: null,
           })
-          const scheduled = await automations.create(
+          // An approved server op, run by its approval record after the
+          // decision committed: the server's own write on the requester's
+          // behalf (ADR 12 D2), under its declared origin.
+          const scheduled = await automationService.create(
+            writes.system('approvals.execute'),
             {
               name: op.name,
               scheduleKind: 'once',
@@ -2949,37 +4146,87 @@ export class SessionRegistry {
       return service
     }
     const issueCommands = new IssueCommandDispatcher({
+      // An effect record's run writes as the issue service's own work, after its
+      // record committed (POD-6603); no served command runs without its own.
+      effectRunWriter: writes.system('issues.server'),
+      // Git actions as effect records (POD-6394), read per call: the modules
+      // and the entry point are composed after this dispatcher.
+      gitEffects: issueGitEffectPort({ modules: workflowModules.read }),
+      // Relayed and MCP issue writes through the entry point (POD-6413).
+      syncWrite: () => workflowModules.read().syncWrite,
+      // Start, stop, sessions, cleanup, ship, assistant as effect records (POD-6414).
+      workEffects: issueWorkEffectPort({ modules: workflowModules.read }),
+      // Adding, publishing and removing artifacts as effect records (POD-6420).
+      artifactEffects: issueArtifactEffectPort({
+        modules: workflowModules.read,
+        record: async (id) => await this.store.effects.get(id),
+      }),
       arbitration: issueArbitration,
       attachSession: async (caller, input) => await issueAttach.execute(caller, input),
       issues,
       shipping: {
-        enqueueCurrent: async (input) => await shippingPort().enqueueCurrent(input),
-        resolveHold: async (input) => await shippingPort().resolveHold(input),
-        cancel: async (input) => await shippingPort().cancel(input),
+        enqueueCurrent: async (writer, input) => await shippingPort().enqueueCurrent(writer, input),
+        resolveHold: async (writer, input) => await shippingPort().resolveHold(writer, input),
+        cancel: async (writer, input) => await shippingPort().cancel(writer, input),
         deliveryReceipt: async (input) => await shippingPort().deliveryReceipt(input),
       },
-      deleteIssue: async (id) => await issueSessionLifecycle.deleteIssue(id),
-      restoreIssue: async (id) => await issueSessionLifecycle.restoreIssue(id),
+      deleteIssue: async (writer, id, by) =>
+        await issueSessionLifecycle.deleteIssue(writer, id, by),
+      restoreIssue: async (writer, id) => await issueSessionLifecycle.restoreIssue(writer, id),
       mutations,
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
-      // The narrow issue read [POD-1639] — `issues.get` embeds its members.
-      listSessionsForIssue: async (worktreePath, issueId) =>
-        await sessionsSvc.listSessionsForIssue(worktreePath, issueId),
+      // The narrow issue read [POD-1639] — `issues.get` embeds its members, as
+      // its reader may read them (POD-6285).
+      listSessionsForIssue: async (worktreePath, issueId, forUser) =>
+        await sessionsSvc.listSessionsForIssue(
+          worktreePath,
+          issueId,
+          forUser ? await sessionsSvc.view.principalForTrustedUser(forUser) : undefined,
+        ),
+      // The execution-private task fields' facts (design §4.2, POD-6288).
+      executionFacts: {
+        rows: async (ids) => await readIssues(this.store.issues, ids),
+        store: { grants: this.store.grants, sessions: this.store.sessions },
+      },
+      // A task mailbox read outside the caller's subtree shows only the mail
+      // the caller may read (POD-6284, POD-6288).
+      mailVisibleIds: async (capability, ids) => await messageGate.visibleMailIds(capability, ids),
+      // Starting work in a task's worktree needs `use` there (POD-6296, Q4).
+      machineStanding: async (principal, machineId) => {
+        const ownership = await ownershipSnapshotFromMachines(machines)
+        const row = ownership.rowFor(machineId)
+        return {
+          use: checkMachineUse(principal, machineId, ownership) === undefined,
+          custodian: row ? machineCustodian(row.grants) : null,
+          name: row?.name || machineId,
+        }
+      },
       repoPaths: async () => await this.store.repos.listRepoPaths(),
       inferRepoFromPath: async (path) =>
         inferRepoFromRoots(await this.store.repos.listRepoPaths(), path),
       // mailSend rides the unified substrate (#237) [spec:SP-34d7].
-      sendMessage: async (from, input) => await messagesSvc.send(from, input),
+      sendMessage: async (writer, from, input) => await messagesSvc.send(writer, from, input),
+      // mailSend's old doors answer with the hand-on after its commit (POD-6525).
+      mailHandOnOf: async (messageId) => await messagesSvc.handOnOf(messageId),
       // Tray answer delivery (issue #53): the shared answer_question matching
       // path, with text fallback — no live menu means the answer arrives as the
       // answerer's own message, which wakes a parked session (POD-4846).
-      answerSessionQuestion: async (sessionId, answer, caller) => {
+      answerSessionQuestion: async (writer, sessionId, answer, caller) => {
+        // Answering an agent's question is driving it (design §2.3, POD-6283):
+        // only the session's own human may, even on someone else's task.
+        if (!(await sessionsSvc.mayReachSession(caller.capability, sessionId))) {
+          return {
+            ok: false,
+            message: 'only the person this agent works for can answer its question',
+          }
+        }
         const r = await deliverAnswerToSession(
           {
             getSession: async (id) => await sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             messages: messagesSvc,
+            writer,
             rpc: {
               readTranscript: async (input) =>
                 await rpc.readTranscript(input, {
@@ -3016,9 +4263,14 @@ export class SessionRegistry {
           (await this.store.repos.listRepoPaths(machineId))[0] ??
           (await this.store.repos.listRepoPaths())[0],
         issueExists: async (id) => (await readIssue(this.store.issues, id)) !== null,
-        createIssue: async (input) => await issues.crud.create(input),
+        createIssue: async (input) =>
+          await issues.crud.create(writes.system('issues.server'), input),
         sendMail: async (issueId, body) =>
-          await systemIssueNotice(messagesSvc, 'machine-diagnostic')(issueId, body),
+          await systemIssueNotice(
+            messagesSvc,
+            writes.system('messages.server'),
+            'machine-diagnostic',
+          )(issueId, body),
         notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
         warn: (message) => log.warn(message),
       })
@@ -3059,7 +4311,9 @@ export class SessionRegistry {
       modelCatalog: async (machineId) => await settings.getModelCatalog(machineId),
       quota: async (machineId) => (await rpc.agentQuota(false, machineId)).agents,
       nativeAccountId: async (machineId, agent, requested) =>
-        await machines.nativeAccountIdForMachine(machineId, agent, requested),
+        requested === `native:${agent}`
+          ? await machines.harnessLoginAccountId(machineId, agent)
+          : requested,
       validationProfile: async (issue) => (await shippingPolicy.resolve(issue)).validationProfile,
       evidence: {
         materialize: async (input) => {
@@ -3112,7 +4366,16 @@ export class SessionRegistry {
       },
       applyPatch: shipwrightApplyPatchThroughRelay(rpc),
     })
+    /** SHIPPING'S LIFECYCLE CONTRACT (design §2.2, POD-6288): every member
+     *  edits every task, but only its assignee or an admin ships it. */
+    const mayShipTask = async (
+      humanId: string,
+      role: import('@podium/model').UserRole,
+      issueId: string,
+    ): Promise<boolean> =>
+      role === 'admin' || (await readIssue(this.store.issues, issueId))?.ownerUserId === humanId
     const shipping = new ShippingService({
+      workspaceId: this.store.workspaceId,
       repository: this.store.shipping,
       // The lease projection is process-owned memory installed behind a
       // `ledger.commit` that may be a savepoint inside a wider span, so it waits
@@ -3126,10 +4389,10 @@ export class SessionRegistry {
           return issue
         },
         children: async (id, recursive) => await issues.reports.children(id, recursive),
-        shippingCommit: async (id, mutation, write) =>
-          await issues.crud.shippingCommit(id, mutation, write),
-        shippingCommitMany: async (entries, write) =>
-          await issues.crud.shippingCommitMany(entries, write),
+        shippingCommit: async (writer, id, mutation, write) =>
+          await issues.crud.shippingCommit(writer, id, mutation, write),
+        shippingCommitMany: async (writer, entries, write) =>
+          await issues.crud.shippingCommitMany(writer, entries, write),
         takeBranchCustody: async (issue) => {
           const stopped = await issueSessionLifecycle.stopIssue({
             issueId: issue.id,
@@ -3147,7 +4410,7 @@ export class SessionRegistry {
           }
         },
       },
-      ledger,
+      ledger: writes.system('shipping.lanes'),
       daemon: rpc,
       authorization: {
         attribution: (principal) => {
@@ -3166,6 +4429,16 @@ export class SessionRegistry {
           return { actor: actorSystem(principal.job), onBehalfOf: null }
         },
         authorize: async ({ principal, action, issue, overrideScope }) => {
+          // SHIPPING IS A LIFECYCLE COMMAND (design §2.2, POD-6288): editing a
+          // task is every member's, shipping it is its assignee's or an
+          // admin's. Receipt reads are reads of a shared task.
+          const assertMayShip = async (
+            humanId: string,
+            role: import('@podium/model').UserRole,
+          ): Promise<void> => {
+            if (await mayShipTask(humanId, role, issue.id)) return
+            throw new Error(`only the task's assignee or an admin may ${action} a shipping order`)
+          }
           if (principal.kind === 'system') {
             throw new Error(`system job ${principal.job} cannot ${action} a shipping order`)
           }
@@ -3194,6 +4467,7 @@ export class SessionRegistry {
             action === 'read-receipt' ? 'read' : 'write',
             issue.id,
           )
+          if (action !== 'read-receipt') await assertMayShip(humanId, liveRole)
         },
         reauthorize: async ({ order, issue, machineId, effect }) => {
           const attribution = order.requestedBy
@@ -3232,6 +4506,11 @@ export class SessionRegistry {
               `shipping.${effect}.owner`,
               'write',
               issue.id,
+            )
+          }
+          if (!(await mayShipTask(userId, role, issue.id))) {
+            throw new Error(
+              `shipping requester ${userId} is no longer the task's assignee or an admin`,
             )
           }
           const machineAccess = checkMachineUse(
@@ -3409,21 +4688,114 @@ export class SessionRegistry {
     })
     // Layout service is composed here (not reached from tRPC via sessionStore) so
     // the transport only names familyState(ctx).modules.layout — router-triple-access.
-    const layout = new LayoutService({ layout: this.store.layout, ledger })
+    const layout = new LayoutService({
+      layout: this.store.layout,
+    })
+    // THE SYNC WRITE ENTRY POINT (ADR 12 D2, POD-6273), over the one dedup ledger,
+    // the one write-seam Ledger and the store's unit of work. It starts with no
+    // registrations: the outbox commands move onto it in POD-6350, the rest in
+    // POD-6359, each family registering on `syncWrite.registry`.
+    // ONE-SHOT EFFECTS AS DATA (ADR 12 D5 E2, POD-6357). Every write to the
+    // effects table reaches the feed inside its own transaction; the runner is
+    // the one after-commit trigger and the recovery sweep. Kinds register their
+    // executors on `modules.effects.executors`.
+    this.store.effects.setFeedCapture(makeEffectFeedCapture(writes.system('feed.effects')))
+    this.effectsRunner = new EffectsRunner({
+      repo: this.store.effects,
+      writer: writes.system('effects.runner'),
+      registry: effectExecutors,
+      now: this.now,
+    })
+    /**
+     * Write one effect record, in the caller's unit of work when one is open:
+     * the kind's schema and deadline apply, and the trigger runs it after the
+     * commit (never for a rollback). For the server's own records and for a sync
+     * command whose handler asks for an effect as part of its write (a dock
+     * shell's start, POD-6419), attributed to whoever the caller names. Written
+     * through `writer` (ADR 12 D9): the command's own, or a declared origin's.
+     */
+    const createEffectInUnit = async (
+      writer: Pick<LedgerWriter, 'commit'>,
+      effect: {
+        readonly id: string
+        readonly kind: string
+        readonly target: EffectTarget
+        readonly input: unknown
+        readonly createdBy: UserId | null
+        readonly actor: string
+      },
+    ) => {
+      const executor = effectExecutors.get(effect.kind)
+      if (executor === undefined) throw new Error(`effects: no executor for ${effect.kind}`)
+      const now = this.now()
+      const insert = async (scope: WriteScope) =>
+        await this.store.effects.insert(
+          scope,
+          {
+            id: effect.id,
+            kind: effect.kind,
+            target: effect.target,
+            input: executor.input.parse(effect.input),
+            deadlineAt: now + executor.deadlineMs,
+            createdBy: effect.createdBy,
+            actor: effect.actor,
+          },
+          now,
+        )
+      return (await writer.commit({ write: insert })).result
+    }
+    const syncWrite = new SyncWriteEntry({
+      registry: new SyncWriteRegistry(),
+      mutations,
+      legacyFallback: (id, human) =>
+        legacyMutationFallback(id, human, {
+          owner: boot.legacyReceiptOwner,
+          before: boot.legacyReceiptCutoff,
+        }),
+      unitOfWork: async (fn) => await this.store.transact(fn),
+      afterCommit: (step, label) => this.store.effect(step, label),
+      spanOpen,
+      writer: (mutationId) => writes.sync(mutationId),
+      receipt: async () => await this.writeReceiptNow(),
+    })
     // Same composition seam for the read-cursor family (POD-1380).
     const readPosition = new ReadPositionService({
       cursors: this.store.readPositions,
-      ledger,
     })
     // Server-owned dock-shell mapping (POD-4436): per user, per worktree →
-    // shell session, so the same dock shell opens on every device. Creation
-    // stays the normal shell spawn; the service only owns the mapping row.
+    // shell session, so the same dock shell opens on every device. Its write
+    // runs on the sync write entry point (POD-6419): the shell's start is a
+    // `session.launch` effect record created in that write, and the spawn runs
+    // after the commit. A mapped shell whose start is still pending or running
+    // is live: its row is born when the start succeeds.
     const dockShells = new DockShellService({
       dockShells: this.store.dockShells,
       sessions: {
-        sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
-        createShell: (input) => sessionsSvc.createSession({ agentKind: 'shell', ...input }),
-        archiveSession: (sessionId) => sessionsSvc.state.setArchived(sessionId, true),
+        sessionById: async (sessionId) => {
+          const view = await sessionsSvc.sessionById(sessionId)
+          if (view !== undefined) return view
+          const launch = await this.store.effects.newestOnTarget(
+            SESSION_LAUNCH_KIND,
+            { kind: 'session', id: sessionId },
+            'active',
+          )
+          return launch === undefined
+            ? undefined
+            : { sessionId, agentKind: 'shell', archived: false, status: 'starting' }
+        },
+        createShell: async ({ writer, sessionId, cwd, ownerUserId, machineId, actor }) => {
+          await createEffectInUnit(writer, {
+            id: mintDeviceId('eff_'),
+            kind: SESSION_LAUNCH_KIND,
+            target: { kind: 'session', id: sessionId },
+            input: { agentKind: 'shell', cwd, ...(machineId ? { machineId } : {}) },
+            createdBy: ownerUserId,
+            actor: actor ?? ownerUserId,
+          })
+          return { sessionId }
+        },
+        archiveSession: (writer, sessionId) =>
+          sessionsSvc.state.setArchived(writer, sessionId, true),
       },
     })
 
@@ -3441,11 +4813,13 @@ export class SessionRegistry {
     // able to reach the reconciler, and the reconciler has to be able to ask the
     // engine whether an operation is active. Both reads are lazy, so neither
     // half captures the other's construction moment.
-    let updatesReconciler: UpdateReconciler | undefined
+    const updateReconciliation = new LifecyclePort<
+      Pick<UpdateReconciler, 'onOperationStarted' | 'onOperationSettled'>
+    >('update transition reconciliation')
     const operationsModule = createOperations({
       store: this.store.operations,
       startCleanupJanitor: !backgroundDisabled,
-      onChanged: updateOperationObserver(updatesService, () => updatesReconciler),
+      onChanged: updateOperationObserver(updatesService, updateReconciliation.read),
     })
     operationsModule.kinds.register(updateOperationKind())
     operationsModule.kinds.register(serverMoveOperationKind(serverTransfer))
@@ -3464,18 +4838,21 @@ export class SessionRegistry {
     // ordinary fleet pass and, before it, corrects any deferred promise the
     // moved target has just falsified — including one left by an update that
     // already finished, which is what an all-offline fleet always leaves.
-    targetChanged = () => updateFleetBridge.onTargetChanged()
+    targetChanged = async () => {
+      await updateFleetBridge.onTargetChanged()
+    }
     /**
      * THE STANDING RECONCILIATION (§3.6, POD-2105). Offline machines are
      * `deferred` at plan time so an update can finish without them; this is what
      * converges them afterwards, on their own reconnect, with no operation and
      * no second click.
      */
-    updatesReconciler = new UpdateReconciler({
+    const updatesReconciler = new UpdateReconciler({
       updates: updatesService,
       operationActive: async () =>
         (await operationsModule.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
     })
+    updateReconciliation.install(updatesReconciler)
     const reconciler = updatesReconciler
     this.bus.on('machine.connected', ({ machineId }) => {
       // The daemon's hello — and therefore the version it just booted with — is
@@ -3503,18 +4880,19 @@ export class SessionRegistry {
      * behavior is unchanged" structural rather than careful.
      */
     const interactionFeed = new InteractionFeedPublisher({
-      ledger,
-      seed: async () =>
-        (await ledger.authority.snapshot('pendingInteraction')) as readonly {
-          readonly id: string
-        }[],
-      toWire: (row) => interactions.wireOf(row),
+      ledger: writes.system('feed.interactions'),
     })
-    this.interactionFeed = interactionFeed
+    this.store.interactions.setFeedCapture(interactionFeed.capture)
     const interactions = new InteractionService({
       store: this.store.interactions,
+      // A sign-in ask on a session that runs on a credential names it (§7).
+      loginProviderForSession: async (sessionId) => {
+        const credentialId = (await sessionsSvc.sessionById(sessionId))?.credentialId
+        if (!credentialId) return undefined
+        const label = (await this.store.credentials.get(credentialId))?.label
+        return label ? `The credential "${label}"` : undefined
+      },
       now: () => new Date(this.now()).toISOString(),
-      publish: async (row) => await interactionFeed.publish(row),
       /**
        * THE FAMILY IS ALREADY A SESSION PROJECTION. It is resolved from the
        * harness manifest when the session metadata is built; handing that
@@ -3551,6 +4929,7 @@ export class SessionRegistry {
             getSession: async (id) => await sessionsSvc.sessionById(id),
             sessions: sessionsSvc,
             messages: messagesSvc,
+            writer: writes.system('messages.server'),
             rpc: {
               readTranscript: async (readInput) =>
                 await rpc.readTranscript(readInput, { kind: 'system', id: 'interaction-answer' }),
@@ -3576,7 +4955,12 @@ export class SessionRegistry {
         return deliverToNativeMenu(
           {
             getState: () => state,
-            answer: (answerInput) => sessionsSvc.answerAskUserQuestion(answerInput),
+            // An answer run after its record committed: the server's own.
+            answer: (answerInput) =>
+              sessionsSvc.answerAskUserQuestion({
+                ...answerInput,
+                writer: sessionsSvc.serverWriter,
+              }),
           },
           input,
         )
@@ -3611,15 +4995,18 @@ export class SessionRegistry {
         return session?.hasBoundDriver === true
       },
       deliverStructured: async (input) =>
-        await sessionsSvc.inbox.deliverInteractionAnswer(input, () =>
-          sessionsSvc.runtimeGateway.answer({
-            sessionId: input.sessionId,
-            interactionId: input.interactionId,
-            principal: { kind: input.principal.kind, ref: input.principal.principalRef },
-            answer: input.answer as unknown as Record<string, unknown>,
-          }),
+        await sessionsSvc.inbox.deliverInteractionAnswer(
+          { ...input, writer: sessionsSvc.serverWriter },
+          () =>
+            sessionsSvc.runtimeGateway.answer({
+              sessionId: input.sessionId,
+              interactionId: input.interactionId,
+              principal: { kind: input.principal.kind, ref: input.principal.principalRef },
+              answer: input.answer as unknown as Record<string, unknown>,
+            }),
         ),
     })
+    interactionsRef = interactions
     /**
      * THE PROTOCOL ASK INGRESS, BOUND (POD-2023).
      *
@@ -3681,36 +5068,92 @@ export class SessionRegistry {
     sessionsSvc.interactionResolved = async (msg) => {
       await interactions.onInteractionResolved(msg)
     }
-    this.bus.on('session.stateChanged', (e) => {
-      void interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
+    // Retain the interaction reaction in the frame's operation, including its async reads and writes.
+    this.bus.on('session.stateChanged', async (e) => {
+      await interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
     })
     this.bus.on('session.exited', async (e) => await interactions.onSessionExited(e.sessionId))
+    // CREDENTIAL HEALTH ON THE SESSION STREAM (§7, §8). An error that names the
+    // credential (a rejection, a limit) is noted; a turn boundary runs a restart
+    // or stop that was waiting for it.
+    this.bus.on('session.stateChanged', ({ sessionId, prev, next, ownerUserId }) => {
+      const boundary = CREDENTIAL_TURN_BOUNDARY.has(next.phase)
+      const enteredError = next.phase === 'errored' && next.error && prev?.phase !== 'errored'
+      if (!(boundary && !CREDENTIAL_TURN_BOUNDARY.has(prev?.phase ?? 'unknown')) && !enteredError) {
+        return
+      }
+      void (async () => {
+        const credentialId = (await sessionsSvc.sessionById(sessionId))?.credentialId ?? null
+        if (enteredError && next.error && credentialId) {
+          const failure = classifyCredentialFailure({ errorClass: next.error.class })
+          if (failure !== 'other') {
+            await credentialHealth.noteFailure({
+              credentialId,
+              failure,
+              reason: formatAgentError(next.error),
+              ...(ownerUserId ? { actorUserId: ownerUserId } : {}),
+              sessionId,
+            })
+          }
+        }
+        if (boundary) await credentialHealth.onTurnBoundary(sessionId, credentialId)
+      })().catch((err: unknown) => {
+        log.warn('credential health on a session state change failed', { sessionId, err })
+      })
+    })
     this.modules = {
+      superagentToolsWriter: this.writes.system('superagent.tools'),
+      superagentTurnsWriter: this.writes.system('superagent.turns'),
+      superagentBridgeWriter: this.writes.system('superagent.bridge'),
+      effects: {
+        executors: effectExecutors,
+        runner: this.effectsRunner,
+        get: async (id) => await this.store.effects.get(id),
+        awaitSettled: async (id, timeoutMs) =>
+          await awaitEffectSettled(this.store.effects, id, timeoutMs),
+        newestOnTarget: async (kind, target, phase) =>
+          await this.store.effects.newestOnTarget(kind, target, phase),
+        createAsSystem: async (effect) =>
+          await createEffectInUnit(writes.system('effects.system'), {
+            ...effect,
+            createdBy: null,
+            actor: attributionOf(systemPrincipal(effect.job)).actor,
+          }),
+        createInUnit: async (writer, effect) => await createEffectInUnit(writer, effect),
+      },
       bus: this.bus,
       funnel,
       sessions: sessionsSvc,
       machines,
+      checkouts: this.checkouts,
       updates: updatesService,
       operations: operationsModule,
       updatesReconciler: reconciler,
       updateFleetBridge,
       rpc,
+      credentialHealth,
+      credentialSwitch,
+      chatgptPlan,
       serverTransfer,
       loginPropagation,
       nativeLogin,
+      homeSignIn,
       memory,
       hosts,
       settings,
       layout,
+      syncWrite,
       dockShells,
       readPosition,
       headless,
       reactions,
       notify,
+      notices,
       issues,
       agentProfiles,
       shipping,
       issueSessionLifecycle,
+      sessionLifecycleController,
       issueCommands,
       specs,
       approvals,
@@ -3723,7 +5166,7 @@ export class SessionRegistry {
       readToolkit,
       issueArtifacts,
       pendingUploads,
-      automations,
+      automations: automationService,
       perf,
       logs,
       clientLogLevels,
@@ -3731,6 +5174,157 @@ export class SessionRegistry {
       fleetLogLevels,
       mutations,
     }
+    workflowModules.install(this.modules)
+    // THE OUTBOX COMMANDS ON THE ENTRY POINT (ADR 12 D2, POD-6350): every command
+    // the apps queue is registered on `syncWrite`, each family with its own
+    // target resolver and handler. Registered once the modules exist, because the
+    // session and issue handlers reach them per call.
+    const syncFamilyDeps = {
+      modules: () => this.modules,
+      roleOf: async (user: UserId) => await this.store.users.roleOf(user),
+    }
+    registerOutboxCommands(syncWrite.registry, syncFamilyDeps)
+    // The rest of the synced writes, family by family (POD-6359).
+    const fleetRepos = new RepoRegistry(this, this.store)
+    const processReadState: HostState = { hosts, rpc, issues, repos: fleetRepos }
+    processTopic.installReaders({
+      roots: (id) => memoryBreakdownRoots(processReadState, id),
+      reclaim: (id) =>
+        HOST_COMMANDS_TRPC.reclaimInventory.handler(processReadState, { machineId: id }),
+      fallback: (id) =>
+        HOST_COMMANDS_TRPC.memoryBreakdown.handler(processReadState, { machineId: id }),
+    })
+    registerFamilyCommands(syncWrite.registry, {
+      ...syncFamilyDeps,
+      fleet: {
+        repos: () => fleetRepos,
+        store: () => this.store,
+        servesHub: () => options.servesHub !== false,
+      },
+    })
+    // The generic create, edit and remove of every declared synced kind (ADR 12
+    // D3, POD-6391), beside the queued commands they replace one by one.
+    registerRecordCommands(syncWrite.registry, {
+      modules: () => this.modules,
+      store: () => this.store,
+    })
+    registerEffectCommands(syncWrite.registry, {
+      repo: this.store.effects,
+      executors: effectExecutors,
+      now: this.now,
+    })
+    // The effect kinds (POD-6394..6396): each family registers its executors.
+    registerIssueGitEffects({ modules: () => this.modules })
+    // The issue commands that act on machines (POD-6414).
+    registerIssueWorkEffects({ modules: () => this.modules, users: this.store.users })
+    // Adding, publishing and removing an issue's artifacts (POD-6420).
+    registerIssueArtifactEffects({ modules: () => this.modules, users: this.store.users })
+    // Filing a task and starting its first agent at once (POD-6410).
+    registerIssueStartEffect({ modules: () => this.modules, users: this.store.users })
+    // Starting a session is an effect record too (POD-6398).
+    this.modules.sessionLaunches = registerSessionLaunchEffect({
+      modules: () => this.modules,
+      users: this.store.users,
+    })
+    // Stop names the turn it is for and ends with it (POD-6397).
+    this.modules.sessionInterrupts = registerSessionInterruptEffect({
+      modules: () => this.modules,
+      now: this.now,
+    })
+    // A running session's model or effort changes through its driver (POD-6416).
+    registerSessionConfigureEffect({ modules: () => this.modules })
+    // An agent's approval request is an effect record with a human gate (POD-6674).
+    effectExecutors.register(approvals.executor())
+    // Answering an agent's question, every way Podium answers (POD-6415).
+    registerSessionAnswerEffect({
+      modules: () => this.modules,
+      users: this.store.users,
+      superagentThread: async (id) => await this.store.superagent.getSuperagentThread(id),
+      deliverMenuText: async ({ sessionId, answer, principal }) => {
+        const r = await deliverAnswerToSession(
+          {
+            getSession: async (id) => await sessionsSvc.sessionById(id),
+            sessions: sessionsSvc,
+            messages: messagesSvc,
+            writer: this.writes.system('messages.server'),
+            rpc: {
+              readTranscript: async (input) =>
+                await rpc.readTranscript(input, { kind: 'system', id: 'superagent-answer' }),
+            },
+          },
+          { sessionId, answer, principal },
+        )
+        if (!r.ok) return r
+        if (r.via !== 'menu') return { ok: false, message: 'failed: unexpected delivery path' }
+        return { ok: true, choices: r.choices, ...(r.note ? { note: r.note } : {}) }
+      },
+    })
+    // Moving a session to another machine (POD-6422).
+    registerSessionHandoffEffect({ modules: () => this.modules, users: this.store.users })
+    // Software update and server move start from effect records; the
+    // Operations engine is their executor (ADR 12 D5 E3, POD-6358).
+    this.modules.updateEffects = registerUpdateEffect({
+      executors: effectExecutors,
+      runner: this.effectsRunner,
+      engine: operationsModule.engine,
+      hostMachineId: this.store.hostMachineId,
+    })
+    registerServerMoveEffect({
+      executors: effectExecutors,
+      engine: operationsModule.engine,
+      modules: () => this.modules,
+      roleOf: async (userId) => await this.store.users.roleOf(userId),
+    })
+    // Saving a file from the app (POD-6395).
+    registerFileWriteEffect({
+      modules: () => this.modules,
+      repoPaths: async (machineId) => await this.store.repos.listRepoPaths(machineId),
+      hostMachineId: this.store.hostMachineId,
+    })
+    // Scans and clones on a machine (POD-6396).
+    this.repoDiscovery = new MachineRepoDiscovery({
+      listRepos: async () => await this.store.repos.listRepos(),
+      // Through the registry's write funnel: a discovered or healed repo's
+      // record commits with its row. Bare writes left it off the feed until
+      // the next boot reconcile (POD-6769's finding).
+      addRepo: async (path, machineId, originUrl) =>
+        await this.commitServerRepoWrite(
+          async () => await this.store.repos.addRepo(path, machineId, originUrl),
+        ),
+      removeRepo: async (path, machineId) =>
+        await this.commitServerRepoWrite(
+          async () => await this.store.repos.removeRepo(path, machineId),
+        ),
+      // Liveness probed on the MACHINE (POD-1498), never inferred from scan coverage:
+      // browseDirs answers from that daemon's own filesystem, and a directory that is
+      // gone comes back without a listing. Any failure to answer is treated as "cannot
+      // tell" by the caller, which then declines to heal.
+      pathExists: async (path, machineId) =>
+        Boolean((await this.modules.rpc.browseDirs(path, {}, machineId)).listing),
+      scanRepos: async (roots, opts, machineId) =>
+        await this.modules.rpc.scanRepos(roots, opts, machineId),
+      machineNames: async (ids) => await this.modules.machines.machineNames(ids),
+      log: (message) => repoDiscoveryLog.info(message),
+    })
+    const cloneRegistry = new RepoRegistry(this, this.store)
+    registerDiscoveryEffects({
+      modules: () => this.modules,
+      discovery: this.repoDiscovery,
+      addKnownOrigin: async (path, machineId, originUrl) =>
+        await cloneRegistry.addKnownOrigin(path, machineId, originUrl),
+    })
+    // The folder picker's writes and a machine's update (POD-6417).
+    registerFolderEffects({
+      modules: () => this.modules,
+      register: async (path, machineId) =>
+        await cloneRegistry.add(cloneRegistry.serverWriter, path, machineId),
+      registeredPaths: async (machineId) => await cloneRegistry.list(machineId),
+    })
+    registerMachineUpdateEffect({
+      modules: () => this.modules,
+      roleOf: async (userId) => await this.store.users.roleOf(userId),
+      servesHub: () => options.servesHub !== false,
+    })
     const agentRelayGate = new AgentRelayGate({
       // issues/repos ops run through the registry dispatcher (guard + schema +
       // handler, router-equal); the specs router (pspec, #135) is served by the
@@ -3744,7 +5338,6 @@ export class SessionRegistry {
         featureStates: () => getFeatureStates(currentSettings),
         featureEnabled,
         issueCommands,
-        issueSessionLifecycle,
         issues,
         listRepos: async () => await this.store.repos.listRepos(),
         lockCommands,
@@ -3759,39 +5352,35 @@ export class SessionRegistry {
         workflowCallerForCapability,
         workflows,
       }),
-      capabilityForSession: (sessionId) => sessionsSvc.capabilityForSession(sessionId),
+      capabilityForSession: (sessionId, machineId) =>
+        sessionsSvc.capabilityForSession(sessionId, machineId),
       toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       // Self-stop kill only after agentRelayResult is on the wire [spec:SP-9904].
       // POD-3989: graceful lifecycle(stop) first, kill frame as escalation.
       afterSuccessfulReply: (msg, result) => {
         if (!result || typeof result !== 'object') return
         if ((result as { deferredKill?: boolean }).deferredKill !== true) return
-        if (
-          (msg.router === 'sessions' && msg.proc === 'stop') ||
-          (msg.router === 'issues' && msg.proc === 'stop')
-        ) {
-          void sessionsSvc.finalizeDeferredStopKill(msg.sessionId).catch(() => {})
+        if (!(msg.router === 'sessions' || msg.router === 'issues') || msg.proc !== 'stop') return
+        // `issues.stop` as an effect record (POD-6414) left the caller's own
+        // session running: its `desired: stopped` now, as itself.
+        const self = result as { selfStopPending?: boolean; force?: boolean }
+        if (msg.router === 'issues' && self.selfStopPending === true) {
+          void finishSelfStop(this.modules, msg.sessionId, self.force === true).catch(() => {})
+          return
         }
+        void sessionsSvc.finalizeDeferredStopKill(msg.sessionId).catch(() => {})
       },
     })
-    // Module boot hook: eager hydration (a corrupt row is quarantined by the
-    // store's row-level guard, so boot proceeds minus that row instead of
-    // crash-looping) and the issue ledger boot reconcile.
+    // Shipping retries its durable work and recovers unfinished acknowledgements.
+    // Its remaining history scans are tracked by POD-6797.
     if (!backgroundDisabled) {
-      // issues.boot AND the closed-issue sweep both run in `hydrate` now. They
-      // are ORDERED: the sweep lists issues, and the issue store refuses a read
-      // before its factory has hydrated it. dev/mw ran boot then sweep here;
-      // moving only boot left the sweep reading an uninitialised store and
-      // warning on every cold start (POD-3684).
       shipping.start()
-      void shipping
-        .reconcile()
-        .catch((error) => log.warn('shipping startup recovery deferred', { err: error }))
     }
     // The durable queued-row pass runs in `hydrate` [spec:SP-c29e]. Called here it
     // was never awaited, so it raced the rest of boot AND the catch below it was
     // dead -- an unawaited rejection cannot be caught by the try that started it.
     this.steward = new StewardService({
+      writer: this.writes.system('steward'),
       principal: systemPrincipal('steward'),
       store: this.store.events,
       facts: this.store.notificationFacts,
@@ -3800,14 +5389,15 @@ export class SessionRegistry {
       // The cheap fleet read [POD-3857]: the steward nudges running sessions
       // from facts and looks parked ones up by id (POD-6160).
       runningSessionFacts: () => sessionsSvc.runningSessionFacts(),
-      readSessionFactsByIds: async (sessionIds) => await sessionsSvc.readSessionFactsByIds(sessionIds),
+      readSessionFactsByIds: async (sessionIds) =>
+        await sessionsSvc.readSessionFactsByIds(sessionIds),
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: async (sessionId) => await sessionsSvc.sessionById(sessionId),
       sessionOwner: async (sessionId) => (await sessionsSvc.sessionOwner(sessionId))?.owner,
       // The steward's notices are messages from `system:steward` (POD-4846):
       // stored under their derived id, enveloped, delivered and followed like
       // mail. Wake notices resurrect a parked session through the mail wake path.
-      sendNotice: stewardNoticeSender(messagesSvc),
+      sendNotice: stewardNoticeSender(messagesSvc, this.writes.system('steward')),
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
       // imported, so the steward's unit tests never touch ntfy/Telegram.
       notify: (ownerUserId, notice) => notify.notifyExternal(notice, ownerUserId),
@@ -3819,7 +5409,9 @@ export class SessionRegistry {
           void (async () => {
             if ((await messagesSvc.settleNotifiable(sessionId)).length === 0) return
             const meta = await sessionsSvc.sessionById(sessionId)
-            const issueId = meta ? (meta.issueId ?? (await issues.reports.issueForCwd(meta.cwd))) : null
+            const issueId = meta
+              ? (meta.issueId ?? (await issues.reports.issueForCwd(meta.cwd)))
+              : null
             const issue = issueId ? await issues.reports.getMeta(issueId) : null
             let lastCommit: string | undefined
             if (meta) {
@@ -3828,7 +5420,7 @@ export class SessionRegistry {
                 if (r.ok) lastCommit = r.output.split('\n')[0]
               } catch {}
             }
-            await messagesSvc.systemAckFallback(sessionId, {
+            await messagesSvc.systemAckFallback(this.writes.system('steward'), sessionId, {
               outcome,
               notificationFact,
               ...(issue ? { issueSeq: issue.seq, issueStage: issue.stage } : {}),
@@ -3866,6 +5458,15 @@ export class SessionRegistry {
         })
     }, DELIVERY_RETRY_BACKSTOP_MS)
     this.messageSweep.unref?.()
+    // The credential expiry sweep (§7): a notice two weeks before, attention at expiry.
+    const sweepCredentialExpiry = () => {
+      if (!backgroundDisabled)
+        this.startBackground('credential expiry sweep failed', () =>
+          this.modules.credentialHealth.checkExpiry(),
+        )
+    }
+    this.credentialExpirySweep = setInterval(sweepCredentialExpiry, CREDENTIAL_EXPIRY_SWEEP_MS)
+    this.credentialExpirySweep.unref?.()
     // The PTY queue's backstop (POD-1703). Faster than the ledger sweep because
     // it is cheap — `drain` is single-flight and returns immediately on a
     // session with an empty queue or one already draining — and because what it
@@ -3877,31 +5478,46 @@ export class SessionRegistry {
         })
     }, QUEUED_INPUT_SWEEP_MS)
     this.queuedInputSweep.unref?.()
-    // Composer uploads nobody sent within a day (POD-2148). Hourly, and once at
-    // boot; a server-transfer fence skips a pass rather than failing it.
-    const sweepPendingUploads = () => {
-      if (!backgroundDisabled)
-        void pendingUploads.sweep().catch((err: unknown) => {
-          log.warn('pending upload sweep failed', { err })
-        })
-      if (!backgroundDisabled)
-        void issueArtifacts.sweepUploads().catch((err: unknown) => {
-          log.warn('artifact upload sweep failed', { err })
-        })
+    // The workspace's file jobs (POD-6963 design 2.9). Hourly, and once at
+    // boot: composer uploads nobody sent within a day (POD-2148) and CLI
+    // transfers interrupted a day ago, each a query over its table plus
+    // idempotent deletes; a server-transfer fence skips a pass rather than
+    // failing it. Daily, starting an hour after boot: the orphan audit, which
+    // deletes what no row references. All three run in this process until
+    // POD-6962's lease-owned jobs exist; `fileJobs` is the seam it replaces.
+    const fileJobs = fileStorageJobs()
+    const orphanAudit = new OrphanAudit(workspaceFiles, this.store.workspaceId, {
+      pendingUploads: this.store.pendingUploads,
+      artifactUploads: this.store.artifactUploads,
+      panelArtifacts: async (issueIds) =>
+        (await this.store.issues.panel.forIssues(
+          'issuePanelArtifact',
+          issueIds,
+        )) as IssuePanelArtifactWire[],
+      // With the lake off nothing writes parts, and `transcripts/` is not audited.
+      ...(options.transcriptLake ? { lake: this.store.conversations.mirror } : {}),
+    })
+    let nextOrphanAuditAt = Date.now() + PENDING_UPLOAD_SWEEP_MS / 2
+    const runFileJob = (name: FileStorageJobName, job: () => Promise<unknown>) => {
+      void fileJobs.run(name, job).catch((err: unknown) => {
+        log.warn('file storage job failed', { job: name, err })
+      })
     }
-    sweepPendingUploads()
-    this.pendingUploadSweep = setInterval(sweepPendingUploads, PENDING_UPLOAD_SWEEP_MS)
-    this.pendingUploadSweep.unref?.()
-    // An approved op whose daemon takes the frame and never answers must not sit
-    // `executing` forever (POD-2223) — on the day an op-catalog widening ships, every
-    // daemon in the fleet is one that drops it.
-    this.approvalStallSweep = setInterval(() => {
-      if (!backgroundDisabled)
-        void approvals.sweepStalledExecutions().catch((err: unknown) => {
-          log.warn('approval stall sweep failed', { err })
+    const sweepFiles = () => {
+      if (backgroundDisabled) return
+      runFileJob('pending-upload-sweep', () => pendingUploads.sweep())
+      runFileJob('artifact-upload-sweep', () => issueArtifacts.sweepUploads())
+      if (Date.now() >= nextOrphanAuditAt) {
+        nextOrphanAuditAt = Date.now() + ORPHAN_AUDIT_EVERY_MS
+        runFileJob('orphan-audit', async () => {
+          const report = await orphanAudit.run()
+          log.info('file orphan audit', { roots: report.roots })
         })
-    }, APPROVAL_STALL_SWEEP_MS)
-    this.approvalStallSweep.unref?.()
+      }
+    }
+    sweepFiles()
+    this.pendingUploadSweep = setInterval(sweepFiles, PENDING_UPLOAD_SWEEP_MS)
+    this.pendingUploadSweep.unref?.()
     // Event-log retention + issue auto-archive timers RETIRED [POD-925]: both
     // jobs now run on the fenced janitor surface (parity-proven in unit tests).
     // Classes remain for tests / manual pruneNow; start() is no longer called.
@@ -3919,18 +5535,59 @@ export class SessionRegistry {
     if (!backgroundDisabled) this.issueGitWatch.start()
     // Reads through the same fan-out `quota.summary` serves, so the sampler adds
     // no new path to the daemons — only a clock behind the one that exists.
+    // A recorded window belongs to the reporting machine's custodian (POD-6300).
+    const quotaOwnerOf = async (machineId: string) => await this.store.machines.custodian(machineId)
     this.quotaSampler = new QuotaSampler(
       this.store.quotaHistory,
       async () => await this.modules.rpc.agentQuotaAll(),
+      { ownerOf: quotaOwnerOf },
     )
     if (!backgroundDisabled) this.quotaSampler.start()
+    // `account.quota` and `account.usage` (ADR 7 Amendment 2 D26, POD-5798):
+    // while anyone holds a key, a live pass every minute. Quota goes through
+    // the SAME sampler; usage is each holder's own harvest, held only while a
+    // usage reader is on screen. Holders are what start them, so they run even
+    // when the background timers are off (a holder is a person looking).
+    this.accountQuota = new AccountQuotaTopic({
+      sample: async () => await this.quotaSampler.sampleNow(),
+      custodian: async (machineId) => await this.store.machines.custodian(machineId),
+      publish: (user, value) => topics.publish('account.quota', user, value),
+    })
+    this.accountUsage = new AccountUsageTopic({
+      readUsage: async (user) => {
+        const role = await this.store.users.roleOf(user)
+        if (!role) return null
+        try {
+          return await readUsageSummary({
+            rpc: this.modules.rpc,
+            store: this.store,
+            privateAccess: privateResourceAccess(
+              {
+                sessionOwnerUserId: async (sessionId) =>
+                  (await this.store.sessions.getSession(sessionId))?.ownerUserId,
+                machines: this.modules.machines,
+              },
+              userCommandPrincipal(user, role),
+            ),
+            userId: user,
+          })
+        } catch (err) {
+          log.debug('account usage read failed', { err })
+          return null
+        }
+      },
+      publish: (user, value) => topics.publish('account.usage', user, value),
+    })
+    topicLate.quota = this.accountQuota
+    topicLate.usage = this.accountUsage
     this.quotaBackfill = new QuotaBackfill(
       this.store.quotaHistory,
       async (sinceMs) => await this.modules.rpc.quotaHistoryAll(sinceMs),
+      { ownerOf: quotaOwnerOf },
     )
     if (!backgroundDisabled) this.quotaBackfill.start()
     // Automations scheduler timer RETIRED [POD-925]: janitor owns automation-fire.
-    this.automationScheduler = new AutomationScheduler(automations)
+    this.automationScheduler = new AutomationScheduler(automationService)
     // this.automationScheduler.start()
 
     // THE GATEWAY (POD-317 / POD-389). The daemon socket mux is composed HERE,
@@ -3945,19 +5602,32 @@ export class SessionRegistry {
     this.clientGateway = new ClientMux({
       mobileVersions,
       registry: clientRegistry,
+      workspaceId: this.store.workspaceId,
       ports: { sessions: sessionsSvc },
       feed: feedServing,
       presence,
-      // This task is independent of session replay and feed admission. Only
-      // its own approvals -> host snapshot sequence is ordered (POD-3509).
+      topics,
+      serverBuild: () => serverBuildVersion(),
+      serverFeatures: () => serverFeatureFacts(),
+      syncKindTokens: () => readKindTokens(this.store.sync, effectExecutors.kinds()),
+      now: () => this.now(),
+      // This task is independent of session replay and feed admission
+      // (POD-3509). Approvals reach a client on the feed (POD-6674).
       bootstrap: async (client): Promise<void> => {
-        client.send({
-          type: 'approvalsChanged',
-          pending: await approvals.listPending(),
-        })
         hosts.snapshotFor(client.send)
       },
     })
+    // ACCESS CHANGES TAKE EFFECT AT THEIR COMMIT (POD-6293). A disable, removal
+    // or sign-out-everywhere closes the member's open connections; a role change
+    // rescopes them and rewrites their machine access rows.
+    const accessChangeSubscriptions = [
+      this.store.users.onAccessChange((change) => {
+        this.clientGateway.applyAccessChange(change)
+      }),
+    ]
+    this.unsubscribeAccessChanges = () => {
+      for (const unsubscribe of accessChangeSubscriptions) unsubscribe()
+    }
     this.gateway = new DaemonMux({
       bus: this.bus,
       ports: {
@@ -3991,6 +5661,26 @@ export class SessionRegistry {
             updateFleetBridge.onFleetChanged()
           },
         },
+        // TOPICS (ADR 7 Amendment 2 D21). A topics.v1 daemon publishes its host
+        // sample on machine.metrics:<self>; on the server it means exactly what
+        // the pre-topics hostMetrics frame means (pressure sweep, readiness), and
+        // the hosts service hands it on to the topic.
+        topics: createDaemonTopicIngress({
+          producers: topicProducers,
+          sinks: {
+            'checkout.changed': (_machine, payload, id) =>
+              topics.publish('checkout.changed', id, payload),
+            'machine.processes': (_machine, payload, id) =>
+              processTopic.receive(id, payload as HostMemoryBreakdown),
+            'machine.metrics': (machineId, payload) => {
+              const sample = payload as import('@podium/model').HostMetricsWire
+              void Promise.resolve(hosts.onHostMetrics(machineId, sample)).catch((err: unknown) => {
+                log.warn('host metrics sample failed', { machineId, err })
+              })
+              machines.recordDaemonReadiness(machineId, sample.daemonReadiness)
+            },
+          },
+        }),
       },
     })
   }
@@ -4005,9 +5695,34 @@ export class SessionRegistry {
     return this.ledger
   }
 
+  /**
+   * THE RECEIPT, read now (ADR 12 D2 step 8, POD-6273): the persisted feed
+   * identity and the change-log head. The entry point reads it after the call's
+   * commit, so the head covers every row the call wrote, and a no-op that wrote
+   * none (plan Decision 1).
+   */
+  async writeReceiptNow(): Promise<WriteReceipt> {
+    const identity = await this.syncDelta.serving.identity()
+    return { feedId: identity.feedId, epoch: identity.epoch, seq: await this.ledger.cursor() }
+  }
+
   /** Register the daemon-local upload fence for the all-in-one process. */
   attachLocalDaemonPortableState(control: LocalPortableStateControl): void {
     this.localDaemonPortableState = control
+  }
+
+  /**
+   * A repo registry write the server makes by itself (a scan's discovery, a
+   * handoff's clone), in one commit with the logical repos' records (POD-6770).
+   */
+  private async commitServerRepoWrite<T>(write: () => Promise<T>): Promise<T> {
+    return await asSystemWrite(
+      async () =>
+        await this.modules.issues.reports.store.commitRepoWrite(
+          this.writes.system('repos.registry'),
+          write,
+        ),
+    )
   }
 
   /**
@@ -4027,11 +5742,15 @@ export class SessionRegistry {
    * `dispose()` here. One of them getting a new line and the others not is
    * exactly the shape this bug already had.
    */
-  adoptSuperagent(service: { dispose(): void }): void {
+  adoptSuperagent(service: SuperagentService): void {
     this.adoptedSuperagent = service
   }
 
   async dispose(): Promise<void> {
+    this.stopping = true
+    clearInterval(this.credentialExpirySweep)
+    await Promise.allSettled(this.backgroundTasks)
+    this.unsubscribeAccessChanges?.()
     this.mobileVersions?.close()
     // FIRST, and before store.close() further down the shutdown's persist list:
     // the memory service owns paced loops (transcript mirror + FTS indexer) that
@@ -4041,15 +5760,18 @@ export class SessionRegistry {
     this.modules.memory.dispose()
     // Same hazard, same window: the superagent's turn reaper is a periodic
     // write against the store this shutdown is about to close (POD-2772).
-    this.adoptedSuperagent?.dispose()
+    await this.adoptedSuperagent?.dispose()
+    // Effect runs write their outcome to the store this shutdown closes.
+    await this.effectsRunner.stop()
     this.eventRetention.dispose()
     this.quotaSampler.dispose()
+    this.accountQuota.dispose()
+    this.accountUsage.dispose()
     this.quotaBackfill.dispose()
-    this.ledger.dispose()
     clearInterval(this.messageSweep)
+    clearInterval(this.credentialExpirySweep)
     clearInterval(this.queuedInputSweep)
     clearInterval(this.pendingUploadSweep)
-    clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
     this.modules.machines.dispose()
     this.modules.issueSessionLifecycle.dispose()

@@ -19,9 +19,9 @@
 
 import type { SessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
-import type { HarnessTranscript } from '../../manifest.js'
-import { declaredValue, type Declared } from '../../transcript-types.js'
+import type { HarnessAccountScope, HarnessTranscript } from '../../manifest.js'
 import { transcriptSourceFromGrammar } from '../../store/store.js'
+import { type Declared, declaredValue } from '../../transcript-types.js'
 import { DriverRefusalError } from '../errors.js'
 
 export interface EngineHistorySession {
@@ -45,7 +45,9 @@ export async function readEngineHistoryFromGrammar(
   grammarDecl: Declared<HarnessTranscript>,
   session: EngineHistorySession,
   range: EngineHistoryRange,
-  homeDir?: string,
+  /** The session's account (its pinned context): the folders its engine
+   *  writes, never `homedir()` (POD-6536). */
+  account: HarnessAccountScope,
 ): Promise<RuntimeHistoryPage> {
   const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
   if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
@@ -61,7 +63,7 @@ export async function readEngineHistoryFromGrammar(
     cwd: session.cwd,
     ...(session.resume?.value ? { resumeValue: session.resume.value } : {}),
     ...(session.pathHint ? { pathHint: session.pathHint } : {}),
-    ...(homeDir ? { homeDir } : {}),
+    account,
   })
   const slice = await source.readSlice({
     ...(range.from ? { anchor: range.from.pathHint } : {}),

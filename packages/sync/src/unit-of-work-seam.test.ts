@@ -64,7 +64,7 @@ import {
   sequentialMutationIds,
 } from './outbox/test-doubles'
 import { InMemoryReplicaStore } from './replica/memory-store'
-import type { OptimisticOverlayPort, RetirementIntent } from './replica/overlay'
+import type { OptimisticOverlayPort, RetirementEvidence } from './replica/overlay'
 import type { ReplicaCacheStore, ReplicaParticipantStore, SyncSpan } from './replica/ports'
 import { Replica, SyncUnitOfWorkRequiredError } from './replica/replica'
 import { deltaFrame, EPOCH, FakeAuthority, FEED_ID, upsertChange } from './replica/test-support'
@@ -119,9 +119,12 @@ async function wired(): Promise<{
     reduce: (base) => ({ kind: 'value', value: base }),
     // ASYNC, deliberately. A synchronous double here would pass on the old seam too
     // and would therefore prove nothing about the defect this file pins.
-    retire: (matches: readonly RetirementIntent[], span?: SyncSpan) => {
+    // A commit naming any provenance is a two-region commit: the rule this file pins
+    // the seam under. Coverage by receipt is the conformance suite's.
+    covers: (evidence: RetirementEvidence) => evidence.matches.length > 0,
+    retire: (evidence: RetirementEvidence, span?: SyncSpan) => {
       enrolments.push(span)
-      const ids = matches
+      const ids = evidence.matches
         .map((match) => match.mutationId)
         .filter((id): id is MutationId => id !== undefined) as MutationId[]
       return (async () => {
@@ -233,6 +236,7 @@ describe('POD-1158 — the Replica participates in a transaction it does not own
     const overlay: OptimisticOverlayPort = {
       pending: () => [],
       reduce: (base) => ({ kind: 'value', value: base }),
+      covers: () => false,
       retire: () => {},
     }
 

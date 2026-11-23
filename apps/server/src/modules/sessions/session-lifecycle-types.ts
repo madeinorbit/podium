@@ -3,101 +3,90 @@
  * Hoisted from lifecycle.ts so the service file can fall under the 600-line signal.
  */
 
-import type { SessionStartPorts } from './session-start'
 import type {
-  AccountId,
+  AgentKind,
   Attribution,
-  Geometry,
+  HarnessRef,
   IssueId,
-  ResumeRef,
-  SessionId,
-  SessionMeta,
-  TranscriptItem,
-  WorkState,
   MachineId,
+  MessageHeld,
+  SessionId,
+  TranscriptItemRef,
+  UserId,
 } from '@podium/model'
-import type { AgentKind, HarnessRef, MessageHeld, TranscriptItemRef, UserId } from '@podium/model'
+import type { MetadataChange, SubscriptionRegistry } from '@podium/protocol'
+import type { QueueDrainAbandonedReason, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type {
-  MetadataChange,
-  SubscriptionRegistry,
-} from '@podium/protocol'
-import type {
-  QueueDrainAbandonedReason,
-  RuntimeAttachmentRef,
-} from '@podium/protocol/daemon'
-import type {
-  EntityChangeSpec,
   LedgerCommitOp,
   LedgerCommitResult,
   MutationLedgerPort,
+  WriteScope,
 } from '@podium/sync'
-import type { ClientRegistry } from '../../gateway/client-registry'
-import type { ClientConn } from '../../gateway/client-registry'
+import type { ClientConn, ClientRegistry } from '../../gateway/client-registry'
+import type { DaemonLinkKind } from '../../gateway/daemon-link-kind'
+import type { SessionStore } from '../../store'
 import type { EventBus } from '../bus'
+import type { AttachAccessDeps } from '../credentials/attach-access'
 import type { WriteFunnel } from '../funnel'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
 import type { MemoryService } from '../memory/service'
-import type { SessionStore } from '../../store'
-import type { SyncChangesSinceResult } from '@podium/protocol'
+import type { MessageWriter } from '../messages/writer'
 import type { PreparedSessionInstructions } from './instructions'
 import type { Session } from './session'
+import type { SessionStartPorts } from './session-start'
 
 /** Re-exported from session-shared so receipt-retention tests keep a stable site. */
 export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 
-/** The write-seam change log face sessions run through ([spec:SP-3fe2] #256):
- *  `commit` binds a session row write and its declared change into one
- *  transaction; `reconcile` diffs the full restored truth at boot (including
- *  removes). Structurally satisfied by {@link @podium/sync.Ledger}; narrow so
- *  tests can fake it. */
-export interface SessionLedger {
-  readonly authority?: Pick<import('@podium/sync').Ledger['authority'], 'snapshot'>
-  commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
-  reconcile(
-    entity: 'session' | 'sessionUserState',
-    rows: { id: string; value: unknown }[],
-  ): Promise<MetadataChange[]>
+/** What a session write commits through: the writer of the command that asked,
+ *  or of the named origin a daemon report or server job writes under (ADR 12
+ *  D9, POD-6601). */
+export type SessionWriter = Pick<SessionLedger, 'commit'>
+
+/** The session service's own writers (see {@link SessionLifecycleDeps.writers}). */
+export interface SessionWriters {
+  /** A daemon's reports about its sessions (`sessions.daemon`). */
+  readonly daemon: SessionWriter
+  /** The server acting on a session after a commit (`sessions.lifecycle`). */
+  readonly lifecycle: SessionWriter
+  /** Live fields persisted to the feed, and the activity flush (`sessions.live`). */
+  readonly live: SessionWriter
+  /** Boot restores (`boot.reconcile`). */
+  readonly boot: SessionLedger
 }
 
-/** Non-session fields retained by the expiring wire-v1 catch-up snapshot.
- *  Without the old issue record (POD-4971): this tail answers no client, its
- *  only issue reader (session auto-archive) reads `issueProjections`, and a
- *  field nobody reads would keep a full read of the old record on every call. */
-export type SnapshotTail = Omit<
-  Extract<SyncChangesSinceResult, { kind: 'snapshot' }>,
-  'kind' | 'sessions' | 'issues' | 'cursor' | 'feedId' | 'epoch' | 'minAvailableSeq'
->
+export interface SessionLedger {
+  commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
+}
 
 /** Prepared half of a cross-aggregate issue/session deletion transaction. */
 export interface SessionDeletePlan {
   sessionIds: string[]
-  write(): Promise<void>
-  changes(): EntityChangeSpec[]
+  /** Inside the issue delete's commit, with its scope. */
+  write(scope: WriteScope): Promise<void>
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
 /** Prepared half of restoring issue-owned session tombstones. */
 export interface SessionRestorePlan {
   sessionIds: string[]
-  restoredSessions: SessionMeta[]
-  write(): Promise<void>
-  changes(): EntityChangeSpec[]
+  /** Inside the issue restore's commit, with its scope. */
+  write(scope: WriteScope): Promise<void>
   apply(changes: MetadataChange[], ledgerCursor: number): void
 }
 
 export interface SessionLifecycleDeps {
+  /** Periodic activity persistence; fenced recovery/rehearsal graphs flush explicitly. */
+  startActivityFlush?: boolean
   /** Deployment-qualified durable namespace, injected by the composition root. */
   durableLabelFor(sessionId: SessionId): string
   store: SessionStore
   now(): number
   bus: EventBus
   /** Lazy source-message re-authorization; resolved on every inbox drain. */
-  authorizeQueuedMessage?(
-    messageId: string,
-  ): Promise<import('./inbox').InboxAuthorizationDecision>
+  authorizeQueuedMessage?(messageId: string): Promise<import('./inbox').InboxAuthorizationDecision>
   /** Dead-letter the durable source intent after a drain-time refusal or a
    *  daemon failure; `cause` names why when the daemon said (POD-4775). */
   rejectQueuedMessage?(
@@ -109,25 +98,33 @@ export interface SessionLifecycleDeps {
    *  notice, inside the caller's transaction (POD-4816). `endedIssueId`: the
    *  issue is being deleted with them. */
   failMessagesToRemovedSessions?(
+    /** The removal's own commit scope (POD-6602): the failures are its write. */
+    scope: WriteScope,
     sessionIds: readonly SessionId[],
     opts?: { endedIssueId?: IssueId },
   ): Promise<void>
   /** Store a spawn's task prompt as the parent session's message to the child
    *  (POD-4778); answers its id. */
-  recordSpawnPrompt?(input: {
-    parentSessionId: SessionId
-    sessionId: SessionId
-    text: string
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordSpawnPrompt?(
+    writer: MessageWriter,
+    input: {
+      parentSessionId: SessionId
+      sessionId: SessionId
+      text: string
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   /** Store the task a person (or a job) started a session with as the owner's
    *  message, attributed to its creator (POD-4846); answers its id. */
-  recordOwnerPrompt?(input: {
-    sessionId: SessionId
-    text: string
-    attribution: Attribution
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string>
+  recordOwnerPrompt?(
+    writer: MessageWriter,
+    input: {
+      sessionId: SessionId
+      text: string
+      attribution: Attribution
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string>
   /** Chat uploads claimed into an issue (POD-2148): the inbox stages one on
    *  the agent's machine when it forwards the row that carries it, and the
    *  send seam checks a ref names one on the session's issue. Absent = a
@@ -140,13 +137,21 @@ export interface SessionLifecycleDeps {
   }
   /** Send an agent's continue as a message from `system:auto-continue`, one
    *  per errored turn (POD-4846). */
-  sendContinue?(input: {
-    sessionId: SessionId
-    erroredTurn: string
-  }): Promise<{ ok: boolean; reason?: string }>
+  sendContinue?(
+    writer: MessageWriter,
+    input: {
+      sessionId: SessionId
+      erroredTurn: string
+    },
+  ): Promise<{ ok: boolean; reason?: string }>
   /** The message is about to become this session's input: record the hand-off
    *  and answer whether it may still be handed on (POD-4776). */
-  handOffQueuedMessage?(messageId: string, sessionId: SessionId): Promise<boolean>
+  handOffQueuedMessage?(
+    /** The send's own writer (POD-6602): the hand-off is part of its write. */
+    writer: SessionWriter,
+    messageId: string,
+    sessionId: SessionId,
+  ): Promise<boolean>
   /** Advance the source intent only after queued input crosses into the PTY. */
   confirmQueuedMessageApplied?(messageId: string, sessionId: SessionId): Promise<void>
   /** The daemon proved late that a message it had reported unconfirmed
@@ -226,9 +231,12 @@ export interface SessionLifecycleDeps {
   /** THE write funnel (modules/funnel): every broadcast pipeline ends in its
    *  fan-out tail; session deltas ride its ordered pipe via the ledger bridge. */
   funnel: WriteFunnel
-  /** The write-seam change log ([spec:SP-3fe2] #256): persist() commits the row
-   *  write + declared session change atomically; loadFromStore reconciles. */
-  ledger: SessionLedger
+  /**
+   * THE SESSION SERVICE'S WRITERS, ONE PER DECLARED ORIGIN (ADR 12 D9, POD-6601;
+   * `write-contexts.ts`). A write a command makes is made with that command's
+   * writer, passed per call; these are the service's own accounts.
+   */
+  writers: SessionWriters
   /**
    * THE GATEWAY's client connection set (POD-390). Threaded in rather than
    * constructed here: the mux owns the lifecycle, and a service-built registry
@@ -251,6 +259,17 @@ export interface SessionLifecycleDeps {
    */
   residency?: { evictParked?: boolean; sweepIntervalMs?: number }
   machines: MachinesService
+  /**
+   * The server's judgement of each connected daemon's connection (credential
+   * management §8), `registry.daemonLinks.daemonLinkKind`. Absent: no daemon
+   * reads as connected, so a vault credential is refused, never sent.
+   */
+  daemonLinkKind?(machineId: MachineId): DaemonLinkKind | undefined
+  /**
+   * Issues the token a session on a type Podium renews runs on (the ChatGPT
+   * plan keeper, epic Task 15). Absent: such a credential is refused.
+   */
+  issueToken?: AttachAccessDeps['issueToken']
   rpc: DaemonRpcService
   /** Start-path notification; the propagation service decides whether login is needed. */
   onSpawnTargetLogin?(input: {
@@ -261,14 +280,20 @@ export interface SessionLifecycleDeps {
   memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex
-  /** The conversation diagnostics a device-grade snapshot carries. */
-  snapshotDiagnostics(): Promise<SnapshotTail['diagnostics']>
   /** One issue's installed projection, read by key from the durable authority
    *  (POD-6156): what auto-archive checks a parent against. */
-  installedIssueProjection(issueId: string): Promise<{ id: string; parentId?: string | null } | undefined>
+  installedIssueProjection(
+    issueId: string,
+  ): Promise<{ id: string; parentId?: string | null } | undefined>
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
+  /**
+   * A repo registry write of the server's own (a handoff's clone on its
+   * target), committed with the logical repo's record (POD-6770). Absent in
+   * fixtures with no feed: the write then runs bare.
+   */
+  commitRepoWrite?<T>(write: () => Promise<T>): Promise<T>
   /** Prepare every registered source of machine-authored context before spawn.
    * Providers commit side effects only after the session row + command exist. */
   instructionsForStart(input: {
@@ -285,13 +310,18 @@ export interface SessionLifecycleDeps {
   /** The draft task an agent started outside every task joins; absent = none. */
   draftForStart?: SessionStartPorts['draftForStart']
   discardUnlaunchedDraft?: SessionStartPorts['discardUnlaunchedDraft']
+  /** A session's owner's start record on its task (POD-6290); absent = none. */
+  recordIssueParticipation?: SessionStartPorts['recordIssueParticipation']
   /**
-   * Presence-room occupancy for a session (POD-1081). When provided,
-   * `clientCount` is derived from it and attach/watch policy can consult the
-   * same room world. Optional so unit fixtures without the stream plane keep
-   * using the attach-set size.
+   * Hand a session's newest live reading to the topic routing (POD-6764):
+   * `session.terminalState` or `session.condition`. Dropped when nobody holds
+   * the key. Absent in unit fixtures without the stream plane.
    */
-  sessionOccupancyCount?(sessionId: SessionId): number | undefined
+  publishSessionLive?(
+    kind: 'session.terminalState' | 'session.condition',
+    sessionId: SessionId,
+    value: unknown,
+  ): void
   /**
    * Join/leave the session presence room when a PTY attaches or detaches so
    * occupancy and attach stay one mechanism (POD-1081 §5).

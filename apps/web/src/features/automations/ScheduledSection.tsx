@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useRequestClient, useUi } from '@podium/client-core/react'
 import { observer } from '@podium/client-graph/react'
 import type { AutomationId } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
@@ -27,6 +27,7 @@ import { cn } from '@/lib/utils'
 import type { Automation, AutomationRun } from './AutomationsView'
 import { automationClassOf, automationRight } from './automation-form'
 import { AutomationHistory } from './automation-history'
+import { automationWrites } from './automation-writes'
 import { cronSummary, formatTime } from './cron-format'
 
 /**
@@ -127,7 +128,11 @@ export function ScheduledSection({
         </div>
       )}
 
-      {loading ? <p role="status" className="text-[12px] text-muted-foreground">Loading scheduled automations…</p> : automations.length === 0 ? (
+      {loading ? (
+        <p role="status" className="text-[12px] text-muted-foreground">
+          Loading scheduled automations…
+        </p>
+      ) : automations.length === 0 ? (
         <div className="rounded-md border border-border border-dashed bg-card px-3 py-4 text-center text-[12px] text-muted-foreground">
           No scheduled automations yet. Create one with “New automation”.
         </div>
@@ -140,9 +145,11 @@ export function ScheduledSection({
               busy={busyId === a.id}
               onEdit={() => onEdit(a)}
               onToggle={(enabled) =>
-                mutate(a.id, () => trpc.automations.setEnabled.mutate({ id: a.id, enabled }))
+                mutate(a.id, () => automationWrites(trpc).setEnabled.mutate({ id: a.id, enabled }))
               }
-              onRemove={() => mutate(a.id, () => trpc.automations.remove.mutate({ id: a.id }))}
+              onRemove={() =>
+                mutate(a.id, () => automationWrites(trpc).remove.mutate({ id: a.id }))
+              }
             />
           ))}
         </div>
@@ -282,7 +289,7 @@ const RunHistory = observer(function RunHistory({
 }: {
   automation: Automation
 }): JSX.Element {
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const pool = useWorklistPool()
   const history = useMemo(
     () => new AutomationHistory(automation.id, (input) => trpc.automations.runs.query(input), pool),
@@ -337,7 +344,7 @@ const RunHistory = observer(function RunHistory({
 
 /** One run: what happened, when, and — for a spawn — the session it produced. */
 const RunRow = observer(function RunRow({ run }: { run: AutomationRun }): JSX.Element {
-  const navigateToSession = useStoreHandle<Trpc>().access.navigateToSession
+  const navigateToSession = useUi().navigateToSession
   // Only a session that still exists can be opened — a deleted one leaves the run
   // row intact (the history is the truth about what happened, not about what lives).
   const session = useAutomationRunSession(run.sessionId ?? undefined)

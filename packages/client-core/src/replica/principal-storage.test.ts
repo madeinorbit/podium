@@ -1,8 +1,9 @@
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { addSink } from '@podium/logger'
 import { asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { asClientPrincipal, principalKey, samePrincipal } from '../principal'
-import type { StorageApi, StorageEventApi } from './contract'
+import type { StorageApi } from './contract'
 import { createSideCache } from './kernel/side-cache'
 import {
   type PrincipalNamespacePolicy,
@@ -28,10 +29,14 @@ describe('principal replica storage', () => {
       principal: 'alice',
       now: () => 1,
     })
-    const aliceUi = createSideCache({ storage: memory.api, keyPrefix: alice.keyPrefix }).uiState()
+    const aliceUi = openLegacyDeviceKeys(
+      createSideCache({ storage: memory.api, keyPrefix: alice.keyPrefix }).deviceStorage(),
+    )
     aliceUi.set('podium.panelMode', '{"s1":"chat"}')
     aliceUi.set('podium.view', 'issueProjections')
     await new Promise((r) => setTimeout(r, 0))
+    expect(aliceUi.get('podium.panelMode')).toBe('{"s1":"chat"}')
+    expect(memory.api.getItem(`${alice.keyPrefix}.uistate.v1`)).not.toBeNull()
 
     const bob = preparePrincipalNamespace({
       storage: memory.api,
@@ -40,40 +45,13 @@ describe('principal replica storage', () => {
       principal: 'bob',
       now: () => 2,
     })
-    const bobUi = createSideCache({ storage: memory.api, keyPrefix: bob.keyPrefix }).uiState()
+    const bobUi = openLegacyDeviceKeys(
+      createSideCache({ storage: memory.api, keyPrefix: bob.keyPrefix }).deviceStorage(),
+    )
     expect(bobUi.get('podium.panelMode')).toBeNull()
     expect(bobUi.get('podium.view')).toBeNull()
     // Alice's namespaced blob remains; Bob has a separate empty collection.
-    expect(
-      memory.keys().some((key) => key.startsWith(alice.keyPrefix) && key.includes('ui-state')),
-    ).toBe(true)
-  })
-
-  it('sharded transcript windows stay inside their principal namespace', () => {
-    const memory = keyedStorage()
-    const alicePrefix = principalKeyPrefix('podium.replica', 'alice')
-    const bobPrefix = principalKeyPrefix('podium.replica', 'bob')
-    const alice = createSideCache({
-      storage: memory.api,
-      enumerateKeys: memory.keys,
-      keyPrefix: alicePrefix,
-    })
-    alice.putTranscriptWindow('conversation/one', [{ id: 'alice-private' }] as never[])
-
-    const bob = createSideCache({
-      storage: memory.api,
-      enumerateKeys: memory.keys,
-      keyPrefix: bobPrefix,
-    })
-    expect(bob.transcriptWindow('conversation/one')).toBeUndefined()
-    expect(
-      memory
-        .keys()
-        .filter((key) => key.includes('.transcript-window.v2.'))
-        .every((key) => key.startsWith(alicePrefix)),
-    ).toBe(true)
-    alice.dispose()
-    bob.dispose()
+    expect(memory.keys().includes(`${alice.keyPrefix}.uistate.v1`)).toBe(true)
   })
 
   it('degrades safely when the active marker cannot be persisted', () => {
@@ -166,7 +144,7 @@ describe('principal replica storage', () => {
       enumerateKeys: memory.keys,
       keyPrefix: alicePrefix,
     })
-    expect(alice.uiState().get('podium.view')).toBe('issueProjections')
+    expect(openLegacyDeviceKeys(alice.deviceStorage()).get('podium.view')).toBe('issueProjections')
     expect(
       alice
         .outboxStorage()
@@ -182,33 +160,16 @@ describe('principal replica storage', () => {
       enumerateKeys: memory.keys,
       keyPrefix: principalKeyPrefix('podium.kernel-replica', 'bob'),
     })
-    expect(bob.uiState().get('podium.view')).toBeNull()
+    expect(openLegacyDeviceKeys(bob.deviceStorage()).get('podium.view')).toBeNull()
     expect(bob.outboxStorage().load()).toEqual([])
-    // Theme is mirrored deliberately: cosmetic, identity-free, and pre-auth.
-    expect(bob.uiState().get('podium.theme.mode')).toBe('dark')
+    // Theme's one home is the raw pre-auth key: cosmetic, identity-free, and read
+    // before sign-in. Neither principal's import takes it into its ui-state
+    // (7e4ba6f6c4 deleted that copy), so it survives both.
+    expect(openLegacyDeviceKeys(alice.deviceStorage()).get('podium.theme.mode')).toBeNull()
+    expect(openLegacyDeviceKeys(bob.deviceStorage()).get('podium.theme.mode')).toBeNull()
+    expect(memory.api.getItem('podium.theme.mode')).toBe('dark')
     alice.dispose()
     bob.dispose()
-  })
-
-  it('cross-tab storage events never cross principal keys, and dispose detaches', () => {
-    const memory = keyedStorage()
-    const events = storageEvents()
-    const alice = createSideCache({
-      storage: memory.api,
-      enumerateKeys: memory.keys,
-      storageEventApi: events.api,
-      keyPrefix: principalKeyPrefix('podium.kernel-replica', 'alice'),
-    })
-    const changed = vi.fn()
-    alice.uiState().subscribe(changed)
-
-    events.fire(principalKeyPrefix('podium.kernel-replica', 'bob') + '.uistate.v1')
-    expect(changed).not.toHaveBeenCalled()
-    events.fire(principalKeyPrefix('podium.kernel-replica', 'alice') + '.uistate.v1')
-    expect(changed).toHaveBeenCalledTimes(1)
-    alice.dispose()
-    events.fire(principalKeyPrefix('podium.kernel-replica', 'alice') + '.uistate.v1')
-    expect(changed).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -290,23 +251,6 @@ function keyedStorage(): { api: StorageApi; keys: () => string[] } {
       removeItem: (key) => void values.delete(key),
     },
     keys: () => [...values.keys()],
-  }
-}
-
-function storageEvents(): {
-  api: StorageEventApi
-  fire(key: string): void
-} {
-  const listeners = new Set<(event: StorageEvent) => void>()
-  return {
-    api: {
-      addEventListener: (_type, listener) => listeners.add(listener),
-      removeEventListener: (_type, listener) => listeners.delete(listener),
-    },
-    fire: (key) => {
-      const event = { key } as StorageEvent
-      for (const listener of [...listeners]) listener(event)
-    },
   }
 }
 

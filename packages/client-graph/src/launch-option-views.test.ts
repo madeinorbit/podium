@@ -238,18 +238,15 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
   entities.apply(repos.map((value, at) => ({ kind: 'repository' as const, id: `r${at}`, value })))
   const activity = vi.spyOn(pool.queries, 'activity').mockReturnValue(0)
   const latest = vi.spyOn(pool.queries, 'latestMachineSession').mockReturnValue(undefined)
-  const pins = observable.box({
-    repos: ['/first'],
-    worktrees: ['/first', '/first/linked', '/second', '/second/linked', '/unlisted'],
-  })
-  pool.sources.register(['commandWindow'], {
-    read: () =>
-      ({
-        get pins() {
-          return pins.get()
-        },
-      }) as never,
-    dispose() {},
+  // My pins are pin records in the pool (POD-6673).
+  const pin = (kind: 'repo' | 'worktree', path: string, value: unknown = { id: `${kind}:${path}`, userId: 'me', kind, entityId: path, pinnedAt: 't' }) =>
+    ({ kind: 'pin' as const, id: `${kind}:${path}`, value: value as never })
+  pool.apply({
+    type: 'update',
+    rows: [
+      pin('repo', '/first'),
+      ...['/first', '/first/linked', '/second', '/second/linked', '/unlisted'].map((path) => pin('worktree', path)),
+    ],
   })
   const views = launchOptionViews(pool), picker = createLaunchWorkPicker(pool), catalog = createLaunchCatalogPicker(pool)
   picker.open(); catalog.open()
@@ -262,7 +259,9 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
     expect(catalog.catalog().repoPaths).toEqual(['/first', '/second'])
     expect(catalog.catalog().initialRepoPath).toBe('/first')
     expect(projects.repos).toMatchObject([{ path: '/first', worktrees: [] }])
-    runInAction(() => pins.set({ repos: [], worktrees: pins.get().worktrees }))
+    runInAction(() =>
+      pool.apply({ type: 'update', rows: [{ kind: 'pin', id: 'repo:/first', value: undefined }] }),
+    )
     expect(projects.repos).toEqual([])
     runInAction(() => entities.order('repository', ['r1', 'r0', 'r2']))
     expect(picker.repositoryPaths).toEqual(['/second'])

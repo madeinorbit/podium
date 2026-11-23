@@ -47,6 +47,7 @@ import { PHASE_MIGRATION } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { feedPrincipalOf, userClientPrincipal } from '../../gateway/client-principal'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { perfPrincipal } from './principal'
 import { perf } from './registry'
 
@@ -54,6 +55,7 @@ import { perf } from './registry'
  *  a literal here would keep passing after `feedPrincipalOf` stopped returning
  *  this principal, which is the drift the dimension exists to catch. */
 const LIVE = perfPrincipal(
+  SELF_HOSTED_WORKSPACE_ID,
   feedPrincipalOf(userClientPrincipal('perf-fixture', firstAdminMemberId(), 'admin')),
 )
 
@@ -73,12 +75,20 @@ async function drive(): Promise<{ registry: SessionRegistry; inbox: unknown[] }>
   })
   await expect.poll(() => inbox).toContainEqual(expect.objectContaining({ type: 'feedResume' }))
   // A real write through the real funnel, then the deterministic flush seam.
-  await registry.issues.crud.create({ repoPath: '/r', title: 'switch-latency probe', startNow: false })
+  await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'switch-latency probe',
+    startNow: false,
+  })
   registry.modules.funnel.flushDeltas()
   // The feed's publish runs after the flush, asynchronously; since issue reads
   // come from the database (POD-6158) it can still be in flight here. Wait for
   // its frame phase rather than race it: a publish that never comes still fails.
-  await expect.poll(() => perf.snapshot().phases['feedPublish.frame']?.count ?? 0).toBeGreaterThan(0)
+  // The live principal's own publish: one to another principal (the
+  // device-grade funnel) can land first.
+  await expect
+    .poll(() => perf.snapshot().byPrincipal[LIVE.digest]?.phases['feedPublish.total']?.count ?? 0)
+    .toBeGreaterThan(0)
   return { registry, inbox }
 }
 
@@ -147,7 +157,7 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     // failure this whole file exists to make impossible.
     for (const name of Object.keys(snap.phases).filter((n) => n.startsWith('feedPublish.'))) {
       expect(
-        slice?.phases[name]?.count,
+        slice?.phases[name]?.count ?? 0,
         `${name} is recorded deployment-wide but missing from the live principal's partition`,
       ).toBeGreaterThan(0)
     }
@@ -184,7 +194,7 @@ describe('switch-latency harness observes the delta-feed path [POD-736]', () => 
     // …and it is a function OF the id, not a constant: a different principal
     // digests differently. A digest that ignored its input would pass every
     // assertion above and merge every principal into one partition.
-    const other = perfPrincipal({
+    const other = perfPrincipal(SELF_HOSTED_WORKSPACE_ID, {
       kind: 'agent',
       agentIdentity: asAgentIdentityId('sess-someone-else'),
       onBehalfOf: asUserId('u1'),

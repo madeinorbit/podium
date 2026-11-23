@@ -33,11 +33,16 @@ const trpc = {
   conversations: { search: { query: f.search } },
   files: { search: { query: f.files } },
 }
-vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ access: { readFileScoped: f.read, writeFileScoped: f.write } }),
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      access: { readFileScoped: f.read, writeFileScoped: f.write, trpc },
+    })),
+  }
+})
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (s: unknown) => unknown) => read({ trpc }),
+  readFixture: (read: (s: unknown) => unknown) => read({ trpc }),
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 afterEach(() => {

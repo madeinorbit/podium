@@ -1,144 +1,158 @@
+// workspace-scoped (POD-6959)
 import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
-import { and, eq, isNotNull, isNull, like, max, sql } from 'drizzle-orm'
-import { conversationIdentities, conversationSegments } from '../../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from '../executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from '../executor/sync-drizzle'
+import { and, eq, isNotNull, isNull, max, type SQL, sql } from 'drizzle-orm'
+import { captureWrite } from '../../sync/capture-pg'
+import { dialectOf } from '../executor/dialect-prepared'
+import type {
+  StoreDrizzle,
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from '../executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  prepared,
+  preparedFamily,
+  WORKSPACE,
+} from '../executor/sync-drizzle'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-/** One segment by its key, over the `machineId` / `nativeId` placeholders. */
-const segmentKey = () =>
-  and(
-    eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-    eq(conversationSegments.nativeId, param(conversationSegments.nativeId, 'nativeId')),
+/** One segment by its key, over the `machineId` / `nativeId` placeholders, in the workspace. */
+const segmentKey = (t: StoreTables) =>
+  inWorkspace(
+    t.conversationSegments,
+    eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+    eq(t.conversationSegments.nativeId, param(t.conversationSegments.nativeId, 'nativeId')),
   )
 
-const clearStraySubagentPaths = prepared((db: StoreDrizzle) =>
+const podiumIdOfSegment = prepared((db, t) =>
   db
-    .update(conversationSegments)
-    .set({ path: null })
-    .where(
-      and(
-        like(conversationSegments.path, '%/subagents/%'),
-        // The comparison is against a value built FROM THE ROW, so it is a
-        // fragment rather than a bound parameter: a subagent path is repaired
-        // unless it ends in its own native id.
-        sql`${conversationSegments.path} NOT LIKE '%/' || ${conversationSegments.nativeId} || '.jsonl'`,
-      ),
-    )
-    .prepare(),
-)
-
-const podiumIdOfSegment = prepared((db: StoreDrizzle) =>
-  db
-    .select({ podiumId: conversationSegments.podiumId })
-    .from(conversationSegments)
-    .where(segmentKey())
+    .select({ podiumId: t.conversationSegments.podiumId })
+    .from(t.conversationSegments)
+    .where(segmentKey(t))
     .prepare(),
 )
 
 /** One machine's podium ids for a set of native ids (POD-6160). */
-const podiumIdsOfSegments = preparedFamily((db: StoreDrizzle, size: number) =>
+const podiumIdsOfSegments = preparedFamily((db, t, size: number) =>
   db
-    .select({ nativeId: conversationSegments.nativeId, podiumId: conversationSegments.podiumId })
-    .from(conversationSegments)
+    .select({
+      nativeId: t.conversationSegments.nativeId,
+      podiumId: t.conversationSegments.podiumId,
+    })
+    .from(t.conversationSegments)
     .where(
-      and(
-        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-        inListOf(conversationSegments.nativeId, size),
+      inWorkspace(
+        t.conversationSegments,
+        eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+        inListOf(t.conversationSegments.nativeId, size),
       ),
     )
     .prepare(),
 )
 
 /** The batch reads below are keyed by the chunk's prepared IN-list size; values are `in0`, `in1`, ... */
-const segmentsWithPaths = preparedFamily((db: StoreDrizzle, size: number) =>
+const segmentsWithPaths = preparedFamily((db, t, size: number) =>
   db
     .select({
-      machineId: conversationSegments.machineId,
-      nativeId: conversationSegments.nativeId,
-      podiumId: conversationSegments.podiumId,
-      path: conversationSegments.path,
+      machineId: t.conversationSegments.machineId,
+      nativeId: t.conversationSegments.nativeId,
+      podiumId: t.conversationSegments.podiumId,
+      path: t.conversationSegments.path,
     })
-    .from(conversationSegments)
+    .from(t.conversationSegments)
     // SCOPED BY MACHINE, like every other lookup in this file. The caller
     // trusts the returned `machineId` as the transcript's identity, so an
     // unscoped match would let a path that also exists in another host's
     // segment rows attribute this daemon's spend to that host's session and
     // bank it under the wrong (machineId, nativeId) key.
     .where(
-      and(
-        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-        inListOf(conversationSegments.path, size),
+      inWorkspace(
+        t.conversationSegments,
+        eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+        inListOf(t.conversationSegments.path, size),
       ),
     )
     .prepare(),
 )
 
-const parentsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const parentsOf = preparedFamily((db, t, size: number) =>
   db
     .select({
-      podiumId: conversationIdentities.podiumId,
-      parentPodiumId: conversationIdentities.parentPodiumId,
+      podiumId: t.conversationIdentities.podiumId,
+      parentPodiumId: t.conversationIdentities.parentPodiumId,
     })
-    .from(conversationIdentities)
+    .from(t.conversationIdentities)
     .where(
-      and(
-        isNotNull(conversationIdentities.parentPodiumId),
-        inListOf(conversationIdentities.podiumId, size),
+      inWorkspace(
+        t.conversationIdentities,
+        isNotNull(t.conversationIdentities.parentPodiumId),
+        inListOf(t.conversationIdentities.podiumId, size),
       ),
     )
     .prepare(),
 )
 
-const nativeIdsOf = preparedFamily((db: StoreDrizzle, size: number) =>
+const nativeIdsOf = preparedFamily((db, t, size: number) =>
   db
     .select({
-      podiumId: conversationSegments.podiumId,
-      machineId: conversationSegments.machineId,
-      nativeId: conversationSegments.nativeId,
+      podiumId: t.conversationSegments.podiumId,
+      machineId: t.conversationSegments.machineId,
+      nativeId: t.conversationSegments.nativeId,
     })
-    .from(conversationSegments)
-    .where(inListOf(conversationSegments.podiumId, size))
-    .orderBy(conversationSegments.seqInConv)
+    .from(t.conversationSegments)
+    .where(inWorkspace(t.conversationSegments, inListOf(t.conversationSegments.podiumId, size)))
+    .orderBy(t.conversationSegments.seqInConv)
     .prepare(),
 )
 
-const pathsOfNativeIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const pathsOfNativeIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ nativeId: conversationSegments.nativeId, path: conversationSegments.path })
-    .from(conversationSegments)
+    .select({ nativeId: t.conversationSegments.nativeId, path: t.conversationSegments.path })
+    .from(t.conversationSegments)
     .where(
-      and(
-        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-        isNotNull(conversationSegments.path),
-        inListOf(conversationSegments.nativeId, size),
+      inWorkspace(
+        t.conversationSegments,
+        eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+        isNotNull(t.conversationSegments.path),
+        inListOf(t.conversationSegments.nativeId, size),
       ),
     )
     .prepare(),
 )
 
-const pathOfSegment = prepared((db: StoreDrizzle) =>
+const pathOfSegment = prepared((db, t) =>
   db
-    .select({ path: conversationSegments.path })
-    .from(conversationSegments)
-    .where(segmentKey())
+    .select({ path: t.conversationSegments.path })
+    .from(t.conversationSegments)
+    .where(segmentKey(t))
     .prepare(),
 )
 
-const adoptParent = prepared((db: StoreDrizzle) =>
+const adoptParent = prepared((db, t) =>
   db
-    .update(conversationIdentities)
+    .update(t.conversationIdentities)
     .set({ parentPodiumId: sql.placeholder('parentPodiumId') })
     .where(
-      and(
-        eq(conversationIdentities.podiumId, param(conversationIdentities.podiumId, 'podiumId')),
-        isNull(conversationIdentities.parentPodiumId),
+      inWorkspace(
+        t.conversationIdentities,
+        eq(t.conversationIdentities.podiumId, param(t.conversationIdentities.podiumId, 'podiumId')),
+        isNull(t.conversationIdentities.parentPodiumId),
       ),
     )
     .prepare(),
 )
+
+/** `IS NOT` as a comparison of two values that may be NULL: Postgres spells it `IS DISTINCT FROM`. */
+const isNot = (db: StoreDrizzle): SQL =>
+  dialectOf(db) === 'pg' ? sql`IS DISTINCT FROM` : sql`IS NOT`
 
 // The trailing predicate is what keeps a re-discovery of an UNCHANGED
 // segment free. Every sweep re-offers the whole corpus, so this matched
@@ -146,29 +160,31 @@ const adoptParent = prepared((db: StoreDrizzle) =>
 // the live server (2026-08-12, POD-1931). Comparing with `IS NOT`
 // against the value the SET would assign makes the no-op write vanish
 // while a real change still lands.
-const refreshSegmentFile = prepared((db: StoreDrizzle) => {
+const refreshSegmentFile = prepared((db, t) => {
   const path = sql.placeholder('path')
   const reportedBytes = sql.placeholder('reportedBytes')
+  const differs = isNot(db)
   return db
-    .update(conversationSegments)
+    .update(t.conversationSegments)
     .set({
-      path: sql`COALESCE(${path}, ${conversationSegments.path})`,
-      reportedBytes: sql`COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes})`,
+      path: sql`COALESCE(${path}, ${t.conversationSegments.path})`,
+      reportedBytes: sql`COALESCE(${reportedBytes}, ${t.conversationSegments.reportedBytes})`,
     })
     .where(
       and(
-        segmentKey(),
-        sql`(${conversationSegments.path} IS NOT COALESCE(${path}, ${conversationSegments.path})
-                   OR ${conversationSegments.reportedBytes} IS NOT COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes}))`,
+        segmentKey(t),
+        sql`(${t.conversationSegments.path} ${differs} COALESCE(${path}, ${t.conversationSegments.path})
+                   OR ${t.conversationSegments.reportedBytes} ${differs} COALESCE(${reportedBytes}, ${t.conversationSegments.reportedBytes}))`,
       ),
     )
     .prepare()
 })
 
-const insertIdentity = prepared((db: StoreDrizzle) =>
+const insertIdentity = prepared((db, t) =>
   db
-    .insert(conversationIdentities)
+    .insert(t.conversationIdentities)
     .values({
+      workspaceId: WORKSPACE,
       podiumId: sql.placeholder('podiumId'),
       parentPodiumId: sql.placeholder('parentPodiumId'),
       createdAt: sql.placeholder('createdAt'),
@@ -176,10 +192,10 @@ const insertIdentity = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const insertDiscoveredSegment = prepared((db: StoreDrizzle) =>
-  db
-    .insert(conversationSegments)
-    .values({
+const insertDiscoveredSegment = prepared((db, t) =>
+  captureWrite(
+    db.insert(t.conversationSegments).values({
+      workspaceId: WORKSPACE,
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
       providerId: sql.placeholder('providerId'),
@@ -189,8 +205,8 @@ const insertDiscoveredSegment = prepared((db: StoreDrizzle) =>
       seqInConv: 1,
       linkedBy: 'discovery',
       createdAt: sql.placeholder('createdAt'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
 // THE MANY-CONVERSATION FORMS OF `ensure` [POD-6227]: a discovery reports a
@@ -199,59 +215,96 @@ const insertDiscoveredSegment = prepared((db: StoreDrizzle) =>
 // 1,656 conversations a live sweep re-offered every four minutes). Each takes
 // its rows as ONE bound JSON array, `rows`, read with json_each, so a statement
 // has one shape for any number of rows, in the array's order.
+//
+// ON POSTGRES the array is read with `json_array_elements`, and a field with
+// `->>`, which gives text there (SQLite's gives the JSON value's own type): a
+// number field is cast to its column's type, a bound timestamp names its type
+// (a bare placeholder in a select list has none), and a field compared with a
+// column is compared in byte order (`COLLATE "C"`, design 2.3 rule 13).
 
-/** The rows of the bound JSON array `rows`, and one field of the row a statement is reading. */
-const offeredRows = () => sql`json_each(${sql.placeholder('rows')})`
-const offered = (field: string) => sql.raw(`value ->> '$.${field}'`)
+/**
+ * The workspace as an INSERT ... SELECT item, BARE: the insert names its columns
+ * by the select's keys, so the item needs no alias, and the workspace-scope audit
+ * reads a bare placeholder as the workspace (it does not read through
+ * `? AS "workspace_id"`). Drizzle's types ask every select item for an alias;
+ * the cast says this one needs none.
+ */
+const workspaceItem = sql`${WORKSPACE}` as unknown as SQL.Aliased<unknown>
 
-const insertIdentities = prepared((db: StoreDrizzle) =>
+/** The rows of the bound JSON array `rows`, as the engine reads a JSON array. */
+const offeredRows = (db: StoreDrizzle) =>
+  dialectOf(db) === 'pg'
+    ? sql`json_array_elements(CAST(${sql.placeholder('rows')} AS json)) AS r(value)`
+    : sql`json_each(${sql.placeholder('rows')})`
+
+/** One field of the row a statement is reading, as text, or cast to `type` on Postgres. */
+const offered = (db: StoreDrizzle, field: string, type?: 'bigint') =>
+  dialectOf(db) !== 'pg'
+    ? sql`value ->> ${`$.${field}`}`
+    : type === undefined
+      ? sql`(value ->> ${field})`
+      : sql`CAST(value ->> ${field} AS bigint)`
+
+/** {@link offered}, compared with a column: in byte order on Postgres. */
+const offeredKey = (db: StoreDrizzle, field: string) =>
+  dialectOf(db) === 'pg' ? sql`${offered(db, field)} COLLATE "C"` : offered(db, field)
+
+/** The bound timestamp `createdAt` as a select item, typed on Postgres. */
+const createdAtItem = (db: StoreDrizzle) =>
+  dialectOf(db) === 'pg'
+    ? sql`CAST(${sql.placeholder('createdAt')} AS timestamptz)`
+    : sql`${sql.placeholder('createdAt')}`
+
+const insertIdentities = prepared((db, t) =>
   db
-    .insert(conversationIdentities)
+    .insert(t.conversationIdentities)
     .select(
       db
         .select({
-          podiumId: sql`${offered('podiumId')}`.as('podium_id'),
-          parentPodiumId: sql`${offered('parentPodiumId')}`.as('parent_podium_id'),
-          createdAt: sql`${sql.placeholder('createdAt')}`.as('created_at'),
+          workspaceId: workspaceItem,
+          podiumId: sql`${offered(db, 'podiumId')}`.as('podium_id'),
+          parentPodiumId: sql`${offered(db, 'parentPodiumId')}`.as('parent_podium_id'),
+          createdAt: sql`${createdAtItem(db)}`.as('created_at'),
         })
-        .from(offeredRows()),
+        .from(offeredRows(db)),
     )
     .prepare(),
 )
 
-const insertDiscoveredSegments = prepared((db: StoreDrizzle) =>
-  db
-    .insert(conversationSegments)
-    .select(
+const insertDiscoveredSegments = prepared((db, t) =>
+  captureWrite(
+    db.insert(t.conversationSegments).select(
       db
         .select({
+          workspaceId: workspaceItem,
           machineId: sql`${sql.placeholder('machineId')}`.as('machine_id'),
-          nativeId: sql`${offered('nativeId')}`.as('native_id'),
-          providerId: sql`${offered('providerId')}`.as('provider_id'),
-          podiumId: sql`${offered('podiumId')}`.as('podium_id'),
-          path: sql`${offered('path')}`.as('path'),
-          reportedBytes: sql`${offered('reportedBytes')}`.as('reported_bytes'),
+          nativeId: sql`${offered(db, 'nativeId')}`.as('native_id'),
+          providerId: sql`${offered(db, 'providerId')}`.as('provider_id'),
+          podiumId: sql`${offered(db, 'podiumId')}`.as('podium_id'),
+          path: sql`${offered(db, 'path')}`.as('path'),
+          reportedBytes: sql`${offered(db, 'reportedBytes', 'bigint')}`.as('reported_bytes'),
           seqInConv: sql`1`.as('seq_in_conv'),
           linkedBy: sql`'discovery'`.as('linked_by'),
-          createdAt: sql`${sql.placeholder('createdAt')}`.as('created_at'),
+          createdAt: sql`${createdAtItem(db)}`.as('created_at'),
         })
-        .from(offeredRows()),
-    )
-    .prepare(),
+        .from(offeredRows(db)),
+    ),
+  ).prepare(),
 )
 
 /** {@link adoptParent} for many identities, one row each, for those that have none. */
-const adoptParents = prepared((db: StoreDrizzle) =>
+const adoptParents = prepared((db, t) =>
   db
-    .update(conversationIdentities)
+    .update(t.conversationIdentities)
     .set({
-      parentPodiumId: sql`(SELECT ${offered('parentPodiumId')} FROM ${offeredRows()}
-        WHERE ${offered('podiumId')} = ${conversationIdentities.podiumId})`,
+      parentPodiumId: sql`(SELECT ${offered(db, 'parentPodiumId')} FROM ${offeredRows(db)}
+        WHERE ${offeredKey(db, 'podiumId')} = ${t.conversationIdentities.podiumId})`,
     })
     .where(
-      and(
-        isNull(conversationIdentities.parentPodiumId),
-        sql`${conversationIdentities.podiumId} IN (SELECT ${offered('podiumId')} FROM ${offeredRows()})`,
+      inWorkspace(
+        t.conversationIdentities,
+        isNull(t.conversationIdentities.parentPodiumId),
+        sql`${t.conversationIdentities.podiumId} IN (SELECT ${offeredKey(db, 'podiumId')} FROM ${offeredRows(db)})`,
       ),
     )
     .prepare(),
@@ -262,36 +315,43 @@ const adoptParents = prepared((db: StoreDrizzle) =>
  * row per native id, with the same trailing predicate: an unchanged segment
  * is not rewritten.
  */
-const refreshSegmentFiles = prepared((db: StoreDrizzle) => {
-  const of = (field: string) =>
-    sql`(SELECT ${offered(field)} FROM ${offeredRows()} WHERE ${offered('nativeId')} = ${conversationSegments.nativeId})`
-  const path = sql`COALESCE(${of('path')}, ${conversationSegments.path})`
-  const reportedBytes = sql`COALESCE(${of('reportedBytes')}, ${conversationSegments.reportedBytes})`
+const refreshSegmentFiles = prepared((db, t) => {
+  const of = (field: string, type?: 'bigint') =>
+    sql`(SELECT ${offered(db, field, type)} FROM ${offeredRows(db)} WHERE ${offeredKey(db, 'nativeId')} = ${t.conversationSegments.nativeId})`
+  const path = sql`COALESCE(${of('path')}, ${t.conversationSegments.path})`
+  const reportedBytes = sql`COALESCE(${of('reportedBytes', 'bigint')}, ${t.conversationSegments.reportedBytes})`
+  const differs = isNot(db)
   return db
-    .update(conversationSegments)
+    .update(t.conversationSegments)
     .set({ path, reportedBytes })
     .where(
-      and(
-        eq(conversationSegments.machineId, param(conversationSegments.machineId, 'machineId')),
-        sql`${conversationSegments.nativeId} IN (SELECT ${offered('nativeId')} FROM ${offeredRows()})`,
-        sql`(${conversationSegments.path} IS NOT ${path} OR ${conversationSegments.reportedBytes} IS NOT ${reportedBytes})`,
+      inWorkspace(
+        t.conversationSegments,
+        eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
+        sql`${t.conversationSegments.nativeId} IN (SELECT ${offeredKey(db, 'nativeId')} FROM ${offeredRows(db)})`,
+        sql`(${t.conversationSegments.path} ${differs} ${path} OR ${t.conversationSegments.reportedBytes} ${differs} ${reportedBytes})`,
       ),
     )
     .prepare()
 })
 
-const highestSeqInConversation = prepared((db: StoreDrizzle) =>
+const highestSeqInConversation = prepared((db, t) =>
   db
-    .select({ m: max(conversationSegments.seqInConv) })
-    .from(conversationSegments)
-    .where(eq(conversationSegments.podiumId, param(conversationSegments.podiumId, 'podiumId')))
+    .select({ m: max(t.conversationSegments.seqInConv) })
+    .from(t.conversationSegments)
+    .where(
+      inWorkspace(
+        t.conversationSegments,
+        eq(t.conversationSegments.podiumId, param(t.conversationSegments.podiumId, 'podiumId')),
+      ),
+    )
     .prepare(),
 )
 
-const insertRolledSegment = prepared((db: StoreDrizzle) =>
-  db
-    .insert(conversationSegments)
-    .values({
+const insertRolledSegment = prepared((db, t) =>
+  captureWrite(
+    db.insert(t.conversationSegments).values({
+      workspaceId: WORKSPACE,
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
       providerId: sql.placeholder('providerId'),
@@ -300,19 +360,24 @@ const insertRolledSegment = prepared((db: StoreDrizzle) =>
       seqInConv: sql.placeholder('seqInConv'),
       linkedBy: 'live-roll',
       createdAt: sql.placeholder('createdAt'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
-const segmentsOfConversation = prepared((db: StoreDrizzle) =>
+const segmentsOfConversation = prepared((db, t) =>
   db
     .select({
-      machineId: conversationSegments.machineId,
-      nativeId: conversationSegments.nativeId,
+      machineId: t.conversationSegments.machineId,
+      nativeId: t.conversationSegments.nativeId,
     })
-    .from(conversationSegments)
-    .where(eq(conversationSegments.podiumId, param(conversationSegments.podiumId, 'podiumId')))
-    .orderBy(conversationSegments.seqInConv)
+    .from(t.conversationSegments)
+    .where(
+      inWorkspace(
+        t.conversationSegments,
+        eq(t.conversationSegments.podiumId, param(t.conversationSegments.podiumId, 'podiumId')),
+      ),
+    )
+    .orderBy(t.conversationSegments.seqInConv)
     .prepare(),
 )
 
@@ -320,25 +385,24 @@ const segmentsOfConversation = prepared((db: StoreDrizzle) =>
  * RETAINED ID MINT: new ConversationIds are created from UUID-backed strings;
  * selected registry ids flow from the schema without re-entry casts. */
 export class ConversationRegistryRepository {
-  private readonly rootDb: StoreDrizzle
+  /** Installed by composition: a native-id mapping is a session record
+   *  source, so its write runs as a change-log commit (POD-6920). */
+  sessionRecordWrite?: <T>(write: () => Promise<T>) => Promise<T>
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b]: the
-   * store's one drizzle instance, whose executor routes each statement to the
-   * current transaction.
+   * workspace's handle, which fills `workspaceId` in every statement and routes
+   * each to the current transaction.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
-  }
-
-  async repairSubagentSegmentPaths(): Promise<void> {
-    await clearStraySubagentPaths(this.db).run()
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   async podiumId(machineId: MachineId, nativeId: string): Promise<ConversationId | undefined> {
@@ -364,7 +428,9 @@ export class ConversationRegistryRepository {
     >()
     for (const chunk of chunks(paths)) {
       const size = inListSize(chunk.length)
-      const rows = await segmentsWithPaths(this.db, size).all(inListValues(chunk, size, 'in', { machineId }))
+      const rows = await segmentsWithPaths(this.db, size).all(
+        inListValues(chunk, size, 'in', { machineId }),
+      )
       for (const row of rows) {
         if (row.path === null || out.has(row.path)) continue
         out.set(row.path, {
@@ -385,7 +451,9 @@ export class ConversationRegistryRepository {
    * harvest finds that session. Fully populated on this machine: every one of
    * the 282 `subagents/` segments carries a parent.
    */
-  async parentPodiumIds(podiumIds: readonly ConversationId[]): Promise<Map<ConversationId, ConversationId>> {
+  async parentPodiumIds(
+    podiumIds: readonly ConversationId[],
+  ): Promise<Map<ConversationId, ConversationId>> {
     const out = new Map<ConversationId, ConversationId>()
     for (const chunk of chunks(podiumIds)) {
       const size = inListSize(chunk.length)
@@ -399,7 +467,9 @@ export class ConversationRegistryRepository {
   }
 
   /** The native ids evidencing each of these conversations, earliest segment first. */
-  async nativeIdsByPodiumIds(podiumIds: readonly ConversationId[]): Promise<Map<ConversationId, string[]>> {
+  async nativeIdsByPodiumIds(
+    podiumIds: readonly ConversationId[],
+  ): Promise<Map<ConversationId, string[]>> {
     const out = new Map<ConversationId, string[]>()
     for (const chunk of chunks(podiumIds)) {
       const size = inListSize(chunk.length)
@@ -420,11 +490,16 @@ export class ConversationRegistryRepository {
    * rather than one per session, which on the biggest epic on this machine is 67
    * round trips saved from a panel's first paint.
    */
-  async pathsByNativeIds(machineId: MachineId, nativeIds: readonly string[]): Promise<Map<string, string>> {
+  async pathsByNativeIds(
+    machineId: MachineId,
+    nativeIds: readonly string[],
+  ): Promise<Map<string, string>> {
     const out = new Map<string, string>()
     for (const chunk of chunks(nativeIds)) {
       const size = inListSize(chunk.length)
-      const rows = await pathsOfNativeIds(this.db, size).all(inListValues(chunk, size, 'in', { machineId }))
+      const rows = await pathsOfNativeIds(this.db, size).all(
+        inListValues(chunk, size, 'in', { machineId }),
+      )
       for (const row of rows) if (row.path !== null) out.set(row.nativeId, row.path)
     }
     return out
@@ -436,6 +511,19 @@ export class ConversationRegistryRepository {
   }
 
   async ensure(opts: {
+    machineId: MachineId
+    nativeId: string
+    providerId: string
+    parentPodiumId?: ConversationId
+    path?: string
+    sizeBytes?: number
+  }): Promise<ConversationId> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(() => this.ensureRows(opts))
+      : await this.ensureRows(opts)
+  }
+
+  private async ensureRows(opts: {
     machineId: MachineId
     nativeId: string
     providerId: string
@@ -460,7 +548,11 @@ export class ConversationRegistryRepository {
     }
     const podiumId = asConversationId(`conv_${randomUUID()}`)
     const now = new Date().toISOString()
-    await insertIdentity(this.db).run({ podiumId, parentPodiumId: opts.parentPodiumId ?? null, createdAt: now })
+    await insertIdentity(this.db).run({
+      podiumId,
+      parentPodiumId: opts.parentPodiumId ?? null,
+      createdAt: now,
+    })
     await insertDiscoveredSegment(this.db).run({
       machineId: opts.machineId,
       nativeId: opts.nativeId,
@@ -492,7 +584,25 @@ export class ConversationRegistryRepository {
       sizeBytes?: number
     }[],
   ): Promise<Map<string, ConversationId>> {
-    const ids = await this.podiumIds(machineId, entries.map((entry) => entry.nativeId))
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(() => this.ensureManyRows(machineId, entries))
+      : await this.ensureManyRows(machineId, entries)
+  }
+
+  private async ensureManyRows(
+    machineId: MachineId,
+    entries: readonly {
+      nativeId: string
+      providerId: string
+      parentPodiumId?: ConversationId
+      path?: string
+      sizeBytes?: number
+    }[],
+  ): Promise<Map<string, ConversationId>> {
+    const ids = await this.podiumIds(
+      machineId,
+      entries.map((entry) => entry.nativeId),
+    )
     type Created = {
       nativeId: string
       providerId: string
@@ -504,8 +614,14 @@ export class ConversationRegistryRepository {
     const created = new Map<string, Created>()
     // The first parent offered for an identity: the single calls' IS NULL guard
     // let only the first one land.
-    const adopted = new Map<ConversationId, { podiumId: ConversationId; parentPodiumId: ConversationId }>()
-    const refreshed = new Map<string, { nativeId: string; path: string | null; reportedBytes: number | null }>()
+    const adopted = new Map<
+      ConversationId,
+      { podiumId: ConversationId; parentPodiumId: ConversationId }
+    >()
+    const refreshed = new Map<
+      string,
+      { nativeId: string; path: string | null; reportedBytes: number | null }
+    >()
     for (const entry of entries) {
       const fresh = created.get(entry.nativeId)
       const existing = ids.get(entry.nativeId)
@@ -525,7 +641,8 @@ export class ConversationRegistryRepository {
       // A later offer of a row this call creates folds into the row: the
       // single calls would have adopted and refreshed it after its insert.
       if (fresh) {
-        if (entry.parentPodiumId && fresh.parentPodiumId === null) fresh.parentPodiumId = entry.parentPodiumId
+        if (entry.parentPodiumId && fresh.parentPodiumId === null)
+          fresh.parentPodiumId = entry.parentPodiumId
         if (entry.path || entry.sizeBytes !== undefined) {
           fresh.path = entry.path ?? fresh.path
           fresh.reportedBytes = entry.sizeBytes ?? fresh.reportedBytes
@@ -546,9 +663,13 @@ export class ConversationRegistryRepository {
     }
     // Adoption and refresh touch only rows that existed before this call; the
     // rows it creates already carry every offer made for them.
-    if (adopted.size > 0) await adoptParents(this.db).run({ rows: JSON.stringify([...adopted.values()]) })
+    if (adopted.size > 0)
+      await adoptParents(this.db).run({ rows: JSON.stringify([...adopted.values()]) })
     if (refreshed.size > 0) {
-      await refreshSegmentFiles(this.db).run({ machineId, rows: JSON.stringify([...refreshed.values()]) })
+      await refreshSegmentFiles(this.db).run({
+        machineId,
+        rows: JSON.stringify([...refreshed.values()]),
+      })
     }
     if (created.size > 0) {
       const createdAt = new Date().toISOString()
@@ -560,6 +681,17 @@ export class ConversationRegistryRepository {
   }
 
   async linkSegment(opts: {
+    machineId: MachineId
+    newNativeId: string
+    priorNativeId: string
+    providerId: string
+  }): Promise<ConversationId> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(() => this.linkSegmentRows(opts))
+      : await this.linkSegmentRows(opts)
+  }
+
+  private async linkSegmentRows(opts: {
     machineId: MachineId
     newNativeId: string
     priorNativeId: string
@@ -588,13 +720,19 @@ export class ConversationRegistryRepository {
   /** {@link podiumId} for many native ids on one machine: the map is keyed by
    *  the ids asked for and a missing row stays missing. One statement per 500
    *  ids (POD-6160: the durable session records of a listing ask together). */
-  async podiumIds(machineId: MachineId, nativeIds: readonly string[]): Promise<Map<string, ConversationId>> {
+  async podiumIds(
+    machineId: MachineId,
+    nativeIds: readonly string[],
+  ): Promise<Map<string, ConversationId>> {
     const out = new Map<string, ConversationId>()
     const unique = [...new Set(nativeIds)]
     for (let at = 0; at < unique.length; at += 500) {
       const chunk = unique.slice(at, at + 500)
       const size = inListSize(chunk.length)
-      const rows = await podiumIdsOfSegments(this.db, size).all({ machineId, ...inListValues(chunk, size) })
+      const rows = await podiumIdsOfSegments(this.db, size).all({
+        machineId,
+        ...inListValues(chunk, size),
+      })
       for (const row of rows) out.set(row.nativeId, row.podiumId)
     }
     return out

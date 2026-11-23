@@ -2,9 +2,7 @@ import { DEVICE_LOCAL_UI_KEYS, LAYOUT_KEY_FROM_LEGACY, THEME_UI_KEYS } from '@po
 import { describe, expect, it, vi } from 'vitest'
 import type { UiState } from './replica/contract'
 import {
-  createMemoryRouterWindow,
   createRoutedUiState,
-  createRouterUiState,
   FILE_SCROLL_MAP_CAP,
   FLIGHT_DECK_BRIEF_CUTOFF_KEY,
   FLIGHT_DECK_DISPLAY_KEY,
@@ -13,13 +11,12 @@ import {
   FLIGHT_DECK_FULL_DISPLAY_KEY,
   FLIGHT_DECK_FULL_EXPANDED_WIDTH_KEY,
   FLIGHT_DECK_FULL_WIDTH_KEY,
-  type ReplicatedUiStatePort,
+  type LayoutKeyPort,
   readFileScrollPosition,
   readStoredDensity,
   requireReplicatedLayoutKey,
   SHELL_DENSITY_KEY,
   UI_STATE_KEYS,
-  UI_STATE_ROUTES,
   uiStateRoute,
   writeFileScrollPosition,
 } from './ui-state'
@@ -37,7 +34,7 @@ function memoryUi(seed: Record<string, string> = {}): UiState & { data: Map<stri
   }
 }
 
-function replicatedUi(seed: Record<string, unknown> = {}): ReplicatedUiStatePort & {
+function replicatedUi(seed: Record<string, unknown> = {}): LayoutKeyPort & {
   data: Map<string, unknown>
   set: ReturnType<typeof vi.fn>
 } {
@@ -46,7 +43,6 @@ function replicatedUi(seed: Record<string, unknown> = {}): ReplicatedUiStatePort
   const clear = vi.fn((key: string) => void data.delete(key))
   return {
     data,
-    hydrate: async () => {},
     get: (key) => data.get(key),
     set,
     clear,
@@ -112,8 +108,15 @@ describe('workspace ui-state routing', () => {
   })
 
   it('is total over the closed key set and has both homes', () => {
-    expect(Object.keys(UI_STATE_ROUTES).sort()).toEqual(Object.values(UI_STATE_KEYS).sort())
-    expect(new Set(Object.values(UI_STATE_ROUTES).map((route) => route.home))).toEqual(
+    expect(
+      Object.values(UI_STATE_KEYS)
+        .map((key) => {
+          uiStateRoute(key)
+          return key
+        })
+        .sort(),
+    ).toEqual(Object.values(UI_STATE_KEYS).sort())
+    expect(new Set(Object.values(UI_STATE_KEYS).map((key) => uiStateRoute(key).home))).toEqual(
       new Set(['device-local', 'per-user-replicated']),
     )
   })
@@ -130,7 +133,7 @@ describe('workspace ui-state routing', () => {
     }
     expect(() => uiStateRoute('podium.unclassified')).toThrow(/Unclassified UI-state key/)
     // POD-1380 gave the last unrouted key a home, and it is not this module's:
-    // per-user state with its own family and command (`readPosition.advance`).
+    // per-user state, its own synced record (`userReadPosition`).
     expect(uiStateRoute('podium:superfeed:cursor').home).toBe('per-user-command')
   })
 
@@ -175,6 +178,19 @@ describe('workspace ui-state routing', () => {
         saved: 'native',
       }),
     ).toBe('chat')
+  })
+
+  it('follows startScreen until an explicit session choice overrides it', async () => {
+    const { effectivePanelMode } = await import('./ui-state')
+    const base = { chatCapable: true, terminalCapable: true, isMobile: false }
+    expect(effectivePanelMode({ ...base, startScreen: 'native' })).toBe('native')
+    expect(effectivePanelMode({ ...base, startScreen: 'chat' })).toBe('chat')
+    expect(effectivePanelMode({ ...base, startScreen: 'chat', saved: 'native' })).toBe('native')
+    expect(effectivePanelMode({ ...base, startScreen: 'auto', isMobile: true })).toBe('chat')
+    expect(effectivePanelMode({ ...base, startScreen: 'auto' })).toBe('native')
+    // Old persisted device defaults no longer participate in the derivation.
+    const legacy = { ...base, startScreen: 'native' as const, deviceDefault: 'chat' }
+    expect(effectivePanelMode(legacy)).toBe('native')
   })
 
   it('throws when a replicated route has no canonical family key', () => {
@@ -224,96 +240,25 @@ describe('workspace ui-state routing', () => {
     }
   })
 
-  it('moves legacy replicated values once, then removes the principal-local copy', () => {
+  it('never imports a saved device value into synced layout', () => {
     const local = memoryUi({ [UI_STATE_KEYS.superOpen]: '0' })
-    const replicated = replicatedUi()
+    const replicated = replicatedUi({ superOpen: '1' })
     const ui = createRoutedUiState({ local, replicated })
-
-    expect(ui.get(UI_STATE_KEYS.superOpen)).toBe('0')
-    expect(replicated.set).toHaveBeenCalledOnce()
-    expect(replicated.get('superOpen')).toBe('0')
-    expect(local.get(UI_STATE_KEYS.superOpen)).toBeNull()
-
-    expect(ui.get(UI_STATE_KEYS.superOpen)).toBe('0')
-    expect(replicated.set).toHaveBeenCalledOnce()
-  })
-
-  it('peeks at installed values without migrating or clearing legacy state', () => {
-    const key = UI_STATE_KEYS.issuesDisplay
-    const legacy = '{"ordering":"priority"}'
-    const local = memoryUi({ [key]: legacy, [SHELL_DENSITY_KEY]: 'compact' })
-    const writeLocal = vi.spyOn(local, 'set')
-    const replicated = replicatedUi({ 'issues.display': { ordering: 'updated' } })
-    const ui = createRoutedUiState({ local, replicated })
-
-    expect(ui.peek?.(key)).toBe('{"ordering":"updated"}')
-    expect(ui.peek?.(SHELL_DENSITY_KEY)).toBe('compact')
-    expect(writeLocal).not.toHaveBeenCalled()
+    expect(ui.get(UI_STATE_KEYS.superOpen)).toBe('1')
     expect(replicated.set).not.toHaveBeenCalled()
-    expect(ui.get(key)).toBe('{"ordering":"updated"}')
-    expect(writeLocal).toHaveBeenCalledExactlyOnceWith(key, null)
-
-    writeLocal.mockClear()
-    local.data.set(key, legacy)
-    replicated.data.clear()
-    expect(ui.peek?.(key)).toBeNull()
-    expect(writeLocal).not.toHaveBeenCalled()
-    expect(replicated.set).not.toHaveBeenCalled()
-    expect(ui.get(key)).toBe(legacy)
-    expect(replicated.set).toHaveBeenCalledExactlyOnceWith('issues.display', legacy)
-    expect(writeLocal).toHaveBeenCalledExactlyOnceWith(key, null)
+    expect(local.get(UI_STATE_KEYS.superOpen)).toBe('0')
   })
-
-  it('cannot let a second principal re-consume the first principal migration', () => {
-    const actingPrincipalLocal = memoryUi({ [UI_STATE_KEYS.panelMode]: '{"s1":"chat"}' })
-    const alice = replicatedUi()
-    const bob = replicatedUi()
-
+  it('reads only the acting user’s synced record, never another device’s old key', () => {
+    const old = memoryUi({ [UI_STATE_KEYS.panelMode]: '{"s1":"chat"}' })
+    const alice = replicatedUi({ panelMode: '{"s2":"native"}' }),
+      bob = replicatedUi()
     expect(
-      createRoutedUiState({ local: actingPrincipalLocal, replicated: alice }).get(
-        UI_STATE_KEYS.panelMode,
-      ),
-    ).toBe('{"s1":"chat"}')
-    expect(actingPrincipalLocal.get(UI_STATE_KEYS.panelMode)).toBeNull()
+      createRoutedUiState({ local: old, replicated: alice }).get(UI_STATE_KEYS.panelMode),
+    ).toBe('{"s2":"native"}')
     expect(
-      createRoutedUiState({ local: actingPrincipalLocal, replicated: bob }).get(
-        UI_STATE_KEYS.panelMode,
-      ),
+      createRoutedUiState({ local: old, replicated: bob }).get(UI_STATE_KEYS.panelMode),
     ).toBeNull()
-  })
-
-  it('hydrates and flushes the whole workspace through one path across reload', () => {
-    const local = memoryUi()
-    const replicated = replicatedUi()
-    const first = createRouterUiState({
-      local,
-      replicated,
-      win: createMemoryRouterWindow('/workspace?wt=%2Frepo%2Fwt&pane=s1'),
-    })
-    const hydrated = first.hydrate()
-    first.flush({
-      ...hydrated,
-      paneB: 's2' as never,
-      split: true,
-      superOpen: false,
-      panelMode: { s1: 'chat' },
-      dockShells: { '/repo/wt': 'shell1' as never },
-    })
-
-    const second = createRouterUiState({
-      local,
-      replicated,
-      win: createMemoryRouterWindow('/'),
-    }).hydrate()
-    expect(second).toMatchObject({
-      view: 'workspace',
-      selectedWorktree: '/repo/wt',
-      paneA: 's1',
-      paneB: 's2',
-      split: true,
-      superOpen: false,
-      panelMode: { s1: 'chat' },
-      dockShells: { '/repo/wt': 'shell1' },
-    })
+    expect(alice.set).not.toHaveBeenCalled()
+    expect(bob.set).not.toHaveBeenCalled()
   })
 })

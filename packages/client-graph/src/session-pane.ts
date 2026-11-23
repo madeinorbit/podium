@@ -1,6 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import type { MachineWire } from '@podium/model/browser'
-import { headerIds } from './enumerate'
+import type { MachineFacts } from '@podium/model/browser'
+import { headerView } from './header-views'
 import { here, omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import type { SessionPaneRows } from './session-pane-schema'
@@ -12,14 +12,23 @@ export function paneSession(pool: MobxPool, id: string | undefined): Loaded<Sess
 export function paneWindow(pool: MobxPool): Loaded<SessionPaneRows['sessionPaneWindow']> {
   return omitGone(pool.row('sessionPaneWindow', 'window'))
 }
-export function paneMachines(pool: MobxPool): MachineWire[] {
-  return headerIds(pool, 'machine').flatMap(id => {
-    const row = here(pool.row('machine', id)) as MachineWire | undefined
-    return row ? [row] : []
-  })
+/** My fleet's machine models: online is the LiveStore's (POD-6644). */
+export function paneMachines(pool: MobxPool): MachineFacts[] {
+  return headerView(pool).machines()
+}
+/**
+ * The machine a move still on its way is taking this session to, by name
+ * (POD-6422): from its `session.handoff` record, so the pane shows the move from
+ * the press, before the server paints its own overlay (`handoffTarget`).
+ */
+export function paneHandingOffTo(pool: MobxPool, id: string): string | undefined {
+  const machineId = pool.sessionObject(id).handingOffTo
+  if (machineId === undefined) return undefined
+  const machine = here(pool.model('machine', machineId))
+  return machine?.name || machineId
 }
 export function paneHasSessions(pool: MobxPool): boolean {
-  return pool.queries.count('session') > 0
+  return pool.queries.heldCount('session') > 0
 }
 export function paneSpawnConfirmed(pool: MobxPool, id: string): boolean {
   const window = paneWindow(pool)
@@ -42,7 +51,7 @@ export interface PaneIssue {
 export function eligiblePaneIssue(pool: MobxPool, id: string): Loaded<PaneIssue> {
   // An unknown ID has no summary yet; its addressed read requests the batch.
   // Removed and failed-load answers remain gone and never restart that load.
-  const summary = (omitGone(pool.row('issue', id, 'summary')) ??
+  const summary = (omitGone(pool.row('issue', id)) ??
     omitGone(pool.row('issue', id))) as Loaded<PaneIssue>
   if (summary === LOADING) return LOADING
   return summary && !summary.archived && !summary.deletedAt ? summary : undefined

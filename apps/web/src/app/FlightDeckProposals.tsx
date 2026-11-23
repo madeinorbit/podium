@@ -1,6 +1,8 @@
+import { useCommands, useRequestClient } from '@podium/client-core/react'
 import type { FullDeck, FullDeckTask } from '@podium/client-graph/mission-full-deck'
 import {
   type ProposalAction,
+  type ProposalPorts,
   type ProposalProvenance,
   pendingLabel,
   type Submission,
@@ -10,13 +12,29 @@ import {
 import { settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { Check, X } from 'lucide-react'
-import { type JSX, type MouseEvent, useState } from 'react'
+import { issueWrites } from '@podium/commands/issues-synced'
+import { type JSX, type MouseEvent, useMemo, useState } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useTipAnchorVisible, useTipMoment, useTipUnseen } from '@/features/tips'
 import { openMiniview } from '@/lib/ref-activation'
-import { useRuntimeSelector } from './store'
+import type { Trpc } from './trpc'
 
 export { ProposalSubmissions, submissionsFor } from '@podium/client-graph/mission-proposals'
+
+/** The desktop's bindings of the shared proposal verbs: the synced promote
+ *  write, a declined close, and the `issue.begin` start record (POD-6526). */
+function useProposalPorts(): ProposalPorts {
+  const trpc = useRequestClient<Trpc>()
+  const startIssueSession = useCommands<Trpc>().sessions.startIssueSession
+  return useMemo(
+    () => ({
+      promote: (input) => issueWrites(trpc).promote.mutate(input),
+      decline: (input) => trpc.issues.close.mutate({ ...input, reason: 'declined' }),
+      startIssueSession,
+    }),
+    [trpc, startIssueSession],
+  )
+}
 
 const FIRST_PROPOSAL_ANCHOR = 'first-proposal'
 const firstProposalCards = [
@@ -36,7 +54,7 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
   ...navigation
 }: { full: FullDeck } & ProposalNavigation): JSX.Element | null {
   const submissions = submissionsFor(full)
-  const trpc = useRuntimeSelector((store) => store.trpc)
+  const ports = useProposalPorts()
   const ids = submissions.ids
   // First Flights: the first proposal the operator has not acted on yet. A receipt
   // (or a pending/failed command) is acted on, so the tip skips it. Once the
@@ -64,7 +82,7 @@ export const FlightDeckProposals = observer(function FlightDeckProposals({
           provenance={submissions.provenance(full.task(id))}
           task={full.task(id)}
           status={submissions.byId.get(id)}
-          onSubmit={(verb) => void submissions.submit(id, verb, trpc)}
+          onSubmit={(verb) => void submissions.submit(id, verb, ports)}
           tipAnchor={id === firstId ? setAnchor : undefined}
           {...navigation}
         />
@@ -86,7 +104,7 @@ export const SpinOffProposals = observer(function SpinOffProposals({
   ...navigation
 }: { full: FullDeck } & ProposalNavigation): JSX.Element | null {
   const submissions = submissionsFor(full)
-  const trpc = useRuntimeSelector((store) => store.trpc)
+  const ports = useProposalPorts()
   const ids = submissions.spinOffIds
   if (!ids.length) return null
   return (
@@ -106,7 +124,7 @@ export const SpinOffProposals = observer(function SpinOffProposals({
           provenance={submissions.provenance(full.task(id))}
           task={full.task(id)}
           status={submissions.byId.get(id)}
-          onSubmit={(verb) => void submissions.submit(id, verb, trpc)}
+          onSubmit={(verb) => void submissions.submit(id, verb, ports)}
           {...navigation}
         />
       ))}
@@ -153,7 +171,7 @@ const FullProposal = observer(function FullProposal({
         {!receipt && <span className="flight-proposal-ring" aria-hidden="true" />}
         <Tooltip>
           <TooltipTrigger
-            render={<button type="button" className="flight-proposal-details" />}
+            render={<button data-pressable type="button" className="flight-proposal-details" />}
             aria-description={description}
             aria-label={`Open ${ref}: ${drawable ? task.row.title : 'proposal details'}`}
             aria-haspopup="dialog"
@@ -178,6 +196,7 @@ const FullProposal = observer(function FullProposal({
         ) : !receipt ? (
           <div className="flight-proposal-actions">
             <button
+              data-pressable
               type="button"
               className="flight-proposal-backlog"
               disabled={pending}
@@ -186,6 +205,7 @@ const FullProposal = observer(function FullProposal({
               Backlog
             </button>
             <button
+              data-pressable
               type="button"
               className="flight-proposal-start"
               disabled={pending}
@@ -194,6 +214,7 @@ const FullProposal = observer(function FullProposal({
               Start
             </button>
             <button
+              data-pressable
               type="button"
               className="flight-proposal-dismiss"
               disabled={pending}
@@ -214,7 +235,7 @@ const FullProposal = observer(function FullProposal({
       {status?.phase === 'error' && (
         <div className="flight-proposal-message flight-proposal-error" role="alert">
           <span>{status.error}</span>
-          <button type="button" onClick={() => onSubmit(status.action)}>
+          <button data-pressable type="button" onClick={() => onSubmit(status.action)}>
             Retry{' '}
             {status.action === 'dismiss'
               ? 'Dismiss'

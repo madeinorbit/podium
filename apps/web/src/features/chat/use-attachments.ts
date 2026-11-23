@@ -6,7 +6,6 @@ import type { UiState } from '@podium/client-core/ui-state'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { type SetStateAction, useCallback, useEffect, useRef, useState } from 'react'
-import type { Store } from '@/app/store'
 import { hasFileItems } from './transfer-items'
 
 /**
@@ -87,7 +86,7 @@ export interface UseAttachmentsResult {
 
 export function useAttachments(opts: {
   sessionId: SessionId
-  trpc: Store['trpc']
+  trpc: import('@/app/trpc').Trpc
   /** Where the bytes go when `sessionId` names no live session yet — the home
    *  composer's case. Omitted by the session chat composer, whose session
    *  decides for itself. */

@@ -46,13 +46,17 @@ export interface SliceIssue {
   landedSha?: string | null
   audience?: 'human' | 'agent'
   isDraftVessel?: boolean
-  /** Pinned issues move out of their group into the PINNED section (spec §3 R-GROUP). */
-  pinned?: boolean
   /** Persisted manual key, meaningful only against siblings (spec §3 R-ORDER). */
   sortKey?: string | null
   deferUntil?: string | null
   /** Server-state dismissal into the closed fold (spec §3 R-GROUP). */
   tuckedAt?: string | null
+  /** The viewer's own start or join record (POD-6290): when, and how. */
+  joinedAt?: string | null
+  joinedVia?: 'start' | 'agent' | 'join' | null
+  /** The viewer's removable "assigned to you by X" row (POD-6290). */
+  assignedAt?: string | null
+  assignedBy?: string | null
   repoId?: string | null
   repoPath: string
   /** The repo's server-decided name (`repo.name`, joined like `repoPath`; POD-6246). */

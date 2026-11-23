@@ -1,9 +1,9 @@
-import { asUserId } from '@podium/model'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { createSidebarFixture } from '../../test/sidebar-fixture'
+import { asUserId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createSidebarFixture } from '../../test/sidebar-fixture'
 
 /** These suites predate multi-user; they exercise ONE signed-in operator, which
  *  is what the shipped single-admin install is. */
@@ -22,6 +22,23 @@ const TEST_PRINCIPAL = asClientPrincipal(asUserId('operator'))
 // ---------------------------------------------------------------------------
 
 class FakeHub {
+  subscribeTopic(
+    _kind: string,
+    _id: string,
+    listener: { onState?: (state: { status: 'pending' }) => void },
+  ): () => void {
+    listener.onState?.({ status: 'pending' })
+    return () => {}
+  }
+  machines() {
+    return []
+  }
+  serverIdentity() {
+    return null
+  }
+  clockSkewMs() {
+    return null
+  }
   setViewState(): void {}
   setVisible(): void {}
   /** The P5a `on()` subscription seam the engine wires events through. */
@@ -63,16 +80,16 @@ const realRepo = {
   worktrees: [],
 }
 
+/** The registered repositories the replica holds as checkout records. */
+let knownRepos: (typeof realRepo)[] = [realRepo]
+
 const fakeTrpc = {
-  discovery: {
-    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [realRepo], diagnostics: [], machines: [] })) },
-  },
   pins: { list: { query: vi.fn(async () => ({ panels: [], repos: [], worktrees: [] })) } },
   tabs: { listOrders: { query: vi.fn(async () => ({})) } },
   settings: {
     get: {
       query: vi.fn(async () => ({
-        sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+        sidebar: { repoSort: 'lastUsed', repoOrder: [] },
       })),
     },
   },
@@ -82,10 +99,10 @@ vi.mock('./trpc', () => ({
 }))
 vi.mock('./AppErrorPage', () => ({ formatAppError: (_e: unknown, m: string) => m }))
 
-const { StoreProvider, useRuntimeSelector } = await import('./store')
+const { StoreProvider } = await import('./store')
 const { useWorklistPool } = await import('./store-worklist-pool')
-const { useRuntimeLocal } = await import('./keyed-runtime')
-const { loadingNavigationProvider } = await import('@podium/client-core/engine')
+const { useUiValue } = await import('@podium/client-core/react')
+const { loadingNavigationProvider } = await import('@podium/client-core/ui')
 
 let renderCount = 0
 let poolReady = false
@@ -96,9 +113,14 @@ let snapshot: {
 } | null = null
 
 function Consumer(): null {
-  const pool = useWorklistPool(), navigation = useRuntimeLocal('navigation')
+  const pool = useWorklistPool(),
+    navigation = useUiValue('navigation')
   poolReady = pool !== null && navigation !== loadingNavigationProvider
-  const s = useRuntimeSelector(s => ({ selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }))
+  const s = {
+    selectedWorktree: useUiValue('selectedWorktree'),
+    paneA: useUiValue('paneA'),
+    view: useUiValue('view'),
+  }
   renderCount++
   snapshot = { selectedWorktree: s.selectedWorktree, paneA: s.paneA, view: s.view }
   // The bug manifested as an unbounded update loop (React #185). Fail fast and
@@ -111,6 +133,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  knownRepos = [realRepo]
   renderCount = 0
   poolReady = false
   snapshot = null
@@ -141,7 +164,12 @@ async function mountAt(url: string): Promise<void> {
     root.render(
       <StoreProvider
         principal={TEST_PRINCIPAL}
-        createReplicaFn={() => createSidebarFixture(0, Date.now(), true).newReplica()}
+        createReplicaFn={() => {
+          // The registered repositories are checkout records (POD-6644).
+          const fixture = createSidebarFixture(0, Date.now(), true)
+          fixture.putMachinesAndRepos({ repos: knownRepos })
+          return fixture.newReplica()
+        }}
         config={{ wsClientUrl: 'ws://x', httpOrigin: 'http://x' }}
         onFatalError={(m) => {
           throw new Error(`fatal: ${m}`)
@@ -151,17 +179,22 @@ async function mountAt(url: string): Promise<void> {
       </StoreProvider>,
     )
   })
-  // Let boot (repos fetch) + the route/selection sync effects fully settle.
+  // Let the route/selection sync effects fully settle.
   await act(async () => {
     await Promise.resolve()
   })
   await act(async () => {
     await new Promise((r) => setTimeout(r, 20))
   })
-  await vi.waitFor(async () => {
-    await act(async () => { await Promise.resolve() })
-    expect(poolReady).toBe(true)
-  })
+  await vi.waitFor(
+    async () => {
+      await act(async () => {
+        await Promise.resolve()
+      })
+      expect(poolReady).toBe(true)
+    },
+    { timeout: 5_000 },
+  )
 }
 
 describe('workspace deep link with unknown wt/pane', () => {
@@ -192,7 +225,7 @@ describe('workspace deep link with unknown wt/pane', () => {
     expect(params.get('pane')).toBe(pane)
   })
 
-  it('navigating (popstate) to an unknown wt settles without a loop (React #185 regression)', async () => {
+  it('popstate retains an unknown session destination without a URL update loop', async () => {
     await mountAt('/workspace?wt=%2Ftmp%2Fknown-repo')
     expect(snapshot?.selectedWorktree).toBe('/tmp/known-repo')
     renderCount = 0
@@ -208,18 +241,21 @@ describe('workspace deep link with unknown wt/pane', () => {
     expect(renderCount).toBeLessThan(60)
     // The pane is adopted (Workspace holds/clears unknown panes safely) …
     expect(snapshot?.paneA).toBe('s1')
-    // … while the unknown worktree settles on the known fallback, mirrored into
-    // the URL exactly once.
-    expect(snapshot?.selectedWorktree).toBe('/tmp/known-repo')
-    expect(new URLSearchParams(window.location.search).get('wt')).toBe('/tmp/known-repo')
+    // The addressed session may still arrive. Preserve its destination until
+    // that lookup resolves, as for a cold session deep link at initial boot.
+    expect(snapshot?.selectedWorktree).toBe('/tmp/other')
+    const params = new URLSearchParams(window.location.search)
+    expect(params.get('wt')).toBe('/tmp/other')
+    expect(params.get('pane')).toBe('s1')
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    expect(renderCount).toBeLessThan(60)
+    expect(snapshot?.selectedWorktree).toBe('/tmp/other')
   })
 
   it('settles when there are no known worktrees at all', async () => {
-    fakeTrpc.discovery.refreshRepos.mutate.mockImplementationOnce(async () => ({
-      repositories: [],
-      diagnostics: [],
-      machines: [],
-    }))
+    knownRepos = []
     await mountAt('/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=dead-beef')
     expect(renderCount).toBeLessThan(60)
     expect(snapshot?.view).toBe('workspace')

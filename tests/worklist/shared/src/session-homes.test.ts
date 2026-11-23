@@ -1,4 +1,4 @@
-import type { OverlayTarget, PendingOverlay } from '@podium/client-core/engine'
+import type { OverlayTarget, PendingOverlay } from '@podium/client-core/command-reducers'
 // @vitest-environment happy-dom
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -286,7 +286,6 @@ describe('session homes in the graph row source', () => {
           id: 's1',
           op: 'patch',
           patch: { unread: true, readAt: null, snoozedUntil: null },
-          coveredBy: () => false,
         },
       ])
       expect(handle.source.row!('session', 's1')).toMatchObject({
@@ -351,7 +350,6 @@ describe('session homes in the graph row source', () => {
               id: 's1',
               op: 'patch',
               patch: edit.patch,
-              coveredBy: () => false,
             },
           ])
           const painted = notify()

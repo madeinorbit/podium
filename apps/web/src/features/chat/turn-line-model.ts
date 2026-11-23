@@ -3,9 +3,12 @@ import type { ChatBlock, ChatRow, ToolTitleClause } from '@podium/client-core/va
 import {
   harnessSummaryLine,
   isInteractiveTool,
+  isToolPending,
+  type ToolExecutionSection,
   toolActivityCount,
   toolBatchTitleFromClauses,
   toolCategory,
+  toolExecutionSections,
   toolSubject,
   toolVerdict,
 } from '@podium/client-core/values'
@@ -102,8 +105,7 @@ export class PresentedTurn {
           : row.block.item.role === 'tool'
             ? (this.presentation?.block(row.block.item.id) ?? row.block)
             : undefined
-      if (block)
-        return block.result === undefined && block.item.toolResult === undefined ? block : undefined
+      if (block) return isToolPending(block) ? block : undefined
     }
     return undefined
   }
@@ -192,6 +194,19 @@ export class PresentedTurn {
         .join(', ') || this.summary
     )
   }
+  @lazy get countTitle(): string {
+    return toolBatchTitleFromClauses(this.clauses, true)
+  }
+  @lazy get executionCount(): number {
+    let count = 0
+    for (const { row } of this.fold?.rows ?? []) {
+      if (row.kind === 'tools') {
+        const run = this.presentation?.run(rowIdentity(row))
+        count += run?.executionCount ?? row.blocks.filter((block) => block.execution).length
+      } else if (row.block.execution) count++
+    }
+    return count
+  }
   @lazy get eventCount(): number {
     return this.clauses.reduce((sum, clause) => sum + clause.count, 0)
   }
@@ -224,15 +239,22 @@ export class PresentedTurn {
           (this.presentation?.run(rowIdentity(row))?.failures ??
             row.blocks.filter(
               (block) =>
-                toolVerdict(block.result ?? block.item.toolResult, block.item.toolEffects) ===
-                'err',
+                toolVerdict(
+                  block.result ?? block.item.toolResult,
+                  block.item.toolEffects,
+                  block.item.toolExecution,
+                ) === 'err',
             ).length)
         )
       const block = this.presentation?.block(row.block.item.id) ?? row.block
       return (
         sum +
         (block.item.role === 'tool' &&
-        toolVerdict(block.result ?? block.item.toolResult, block.item.toolEffects) === 'err'
+        toolVerdict(
+          block.result ?? block.item.toolResult,
+          block.item.toolEffects,
+          block.item.toolExecution,
+        ) === 'err'
           ? 1
           : 0)
       )
@@ -294,4 +316,15 @@ export class PresentedTurn {
 
 function joinCounts(parts: readonly string[]): string {
   return parts.length < 2 ? parts.join('') : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`
+}
+
+/** Expanded working-set layout, independent of provider payloads. */
+export function groupTurnMembers(
+  members: readonly TurnMember[],
+): (ToolExecutionSection & { members: readonly TurnMember[] })[] {
+  const byId = new Map(members.map((member) => [member.id, member]))
+  return toolExecutionSections(members.map((member) => member.block)).map((section) => ({
+    ...section,
+    members: section.blocks.map((block) => byId.get(block.item.id)!),
+  }))
 }

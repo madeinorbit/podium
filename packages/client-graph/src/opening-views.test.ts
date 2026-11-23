@@ -80,7 +80,6 @@ it('keeps the old and opening-owned answers identical on the same fixtures', () 
       expect(next.title).toBe(`Task ${n}`)
     }
     expect(nextSettings.setup()).toEqual(oldSettings.setup())
-    expect(nextSettings.sessions()).toEqual(oldSettings.sessions())
     expect(nextSettings.sessionCount()).toEqual(oldSettings.sessionCount())
     expect(nextAutomations.list()).toEqual(oldAutomations.list())
     expect(nextAutomations.repositories()).toEqual(oldAutomations.repositories())
@@ -157,9 +156,7 @@ it('collects opening models and companions after fifty closes while their pool s
       void row.children
       void row.activeSessions
       issue.issues()
-      issue.explorer()
       settings.setup()
-      settings.sessions()
       automation.list()
       automation.repositories()
       automation.targets(null)

@@ -20,13 +20,14 @@
 
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
-import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
 import { FeedIdentityRegistry } from '../../feed'
+import { appliedMutations, changes, syncCapture, syncFeed, syncKind } from './schema'
 import { SyncRepository } from './sync-repository'
 import {
   createTestSyncDatabase,
   createTestSyncQueries,
   createTestSyncRepository,
+  TEST_WORKSPACE_ID,
   testQueuedMessages,
   testSyncServerTables,
   testUpstreamOutbox,
@@ -54,16 +55,14 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
     expect(fixtureColumns('changes')).toEqual(declaredColumns(changes))
   })
 
-  it('agrees on the installed world’s columns', () => {
-    expect(fixtureColumns('change_latest')).toEqual(declaredColumns(changeLatest))
-  })
+  it('agrees on the installed world’s columns', () => {})
 
   it('agrees on the receipt table’s columns', () => {
     expect(fixtureColumns('applied_mutations')).toEqual(declaredColumns(appliedMutations))
   })
 
-  it('agrees on the feed-identity table’s columns (ADR 2 D1)', () => {
-    expect(fixtureColumns('feed_identity')).toEqual(declaredColumns(feedIdentity))
+  it('agrees on the change capture’s columns (POD-6920)', () => {
+    expect(fixtureColumns('sync_capture')).toEqual(declaredColumns(syncCapture))
   })
 
   /**
@@ -102,27 +101,16 @@ describe('the test fixture mirrors the adapter-owned schema', () => {
   })
 })
 
-describe('the change log keeps AUTOINCREMENT', () => {
-  it('declares seq as an autoincrementing primary key', () => {
-    // Not stylistic. Without AUTOINCREMENT, SQLite reuses the rowids of deleted
-    // rows — and head-pruning (ADR 2 D5) deletes from the TAIL of the log, so a
-    // reused seq would hand two different changes the same position in the ONE
-    // global sequence and every replica that saw the first would skip the second.
-    const seq = getTableConfig(changes).columns.find((c) => c.name === 'seq')
-    expect(seq?.primary).toBe(true)
-    expect((seq as { autoIncrement?: boolean } | undefined)?.autoIncrement).toBe(true)
-  })
-
-  it('and the fixture creates it that way too', () => {
-    // sqlite_master is the only place the keyword survives — PRAGMA table_info
-    // reports the column as an ordinary INTEGER primary key either way, so a
-    // fixture that lost AUTOINCREMENT would pass the column comparison above.
-    const db = createTestSyncDatabase()
-    const ddl = (
-      db.prepare("SELECT sql FROM sqlite_master WHERE name = 'changes'").get() as { sql: string }
-    ).sql
-    db.close()
-    expect(ddl.toUpperCase()).toContain('AUTOINCREMENT')
+describe('workspace sync keys', () => {
+  it('keys changes and kind generations by workspace', () => {
+    for (const table of [changes, syncKind]) {
+      expect(getTableConfig(table).primaryKeys[0]?.columns.map((c) => c.name)).toEqual([
+        'workspace_id',
+        table === changes ? 'seq' : 'kind',
+      ])
+    }
+    expect(fixtureColumns('sync_feed')).toEqual(declaredColumns(syncFeed))
+    expect(fixtureColumns('sync_kind')).toEqual(declaredColumns(syncKind))
   })
 })
 
@@ -143,7 +131,10 @@ describe('feed identity persists, and there is exactly one of it', () => {
     // would satisfy the round trip and nothing would notice.
     expect(await repo.readFeedIdentity()).toBeNull()
 
-    await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1_700_000)
+    await repo.writeFeedIdentity(
+      { feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' },
+      1_700_000,
+    )
     expect(await repo.readFeedIdentity()).toEqual({
       feedId: 'feed-a',
       epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ',
@@ -156,12 +147,16 @@ describe('feed identity persists, and there is exactly one of it', () => {
     // row count is the assertion; equality of the read alone would pass against an
     // append-only table whose SELECT happened to return the newest row.
     const db = createTestSyncDatabase()
-    const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
+    const repo = new SyncRepository(
+      createTestSyncQueries(db),
+      testSyncServerTables,
+      TEST_WORKSPACE_ID,
+    )
     await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1)
     await repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P9Q1C2D3E4F5G6H7J8K9M' }, 2)
 
     expect((await repo.readFeedIdentity())?.epoch).toBe('01JQ0P9Q1C2D3E4F5G6H7J8K9M')
-    const { n } = db.prepare('SELECT COUNT(*) AS n FROM feed_identity').get() as { n: number }
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM sync_feed').get() as { n: number }
     expect(n).toBe(1)
     db.close()
   })

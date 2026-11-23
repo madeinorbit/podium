@@ -18,9 +18,9 @@ import {
   modelOptionsForDescriptor,
   parseServedDescriptors,
   providerOf,
+  type ResolvedDescriptor,
   refuseUnsupportedOperation,
   resolveDescriptors,
-  type ResolvedDescriptor,
 } from './browser.js'
 
 /** A served descriptor for a harness this build never shipped (no adapter,
@@ -81,6 +81,16 @@ describe('unknown harness renders from the served descriptor', () => {
     ])
   })
 
+  it('preserves the optional subagent-model support flag without inferring it for older frames', () => {
+    const descriptor = futureCliDescriptor()
+    const withOverride = {
+      ...descriptor,
+      capabilities: { argvPrompt: false, effort: true, systemPrompt: false, subagentModel: true },
+    }
+    expect(parseServedDescriptors([withOverride])[0]?.capabilities.subagentModel).toBe(true)
+    expect(parseServedDescriptors([descriptor])[0]?.capabilities.subagentModel).toBeUndefined()
+  })
+
   it('an unsupported operation fails with a typed refusal, nothing crashes', () => {
     const served = parseServedDescriptors([futureCliDescriptor()])
     const resolved = resolveDescriptors(served)
@@ -127,6 +137,30 @@ describe('schema versioning', () => {
     expect(resolved?.label).toBe('Future CLI')
     // Availability unknown: render enabled, refuse honestly at spawn.
     expect(resolved?.available).toBeUndefined()
+  })
+
+  it('a frame without accepts parses as an empty list', () => {
+    const [parsed] = parseServedDescriptors([futureCliDescriptor()])
+    expect(parsed?.accepts).toEqual([])
+  })
+
+  it('keeps well-formed accepts lines and drops malformed ones', () => {
+    const accepts = [
+      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      {
+        type: 'openai.chatgpt-plan',
+        deliver: { kind: 'env', variable: 'ACCESS_TOKEN' },
+        drivers: ['codex-app-server'],
+      },
+      { type: 'future.api-key', deliver: { kind: 'endpoint' } },
+    ]
+    const [parsed] = parseServedDescriptors([
+      {
+        ...futureCliDescriptor(),
+        accepts: [...accepts, null, { type: 7 }, { type: 'x' }, { type: 'y', deliver: {} }],
+      },
+    ])
+    expect(parsed?.accepts).toEqual(accepts)
   })
 
   it('parses the headed panel intent; missing or newer spellings render as today (POD-4541)', () => {

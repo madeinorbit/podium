@@ -302,6 +302,10 @@ export class SessionTerminal {
   private activityCount_ = 0
   private activityDirty_ = false
   private activityDirtyListener: (() => void) | undefined
+  /** Told when a LIVE reading moved: the controller, the size, busy, the gated
+   *  count or the last input time. The session's live topics publish from it
+   *  (POD-6764); nothing here reaches the synced record. */
+  private liveListener: (() => void) | undefined
   private shellBusy_ = false
   private shellBusyTimer: ReturnType<typeof setTimeout> | undefined
   private shellCommandRunning = false
@@ -431,6 +435,15 @@ export class SessionTerminal {
     if (this.activityDirty_) listener?.()
   }
 
+  /** The session's live topics own this listener (`live-topics.ts`). */
+  setLiveListener(listener: (() => void) | undefined): void {
+    this.liveListener = listener
+  }
+
+  private liveChanged(): void {
+    this.liveListener?.()
+  }
+
   private markActivityDirty(): void {
     this.activityDirty_ = true
     // Notify on every change, including while already dirty: an older write
@@ -474,6 +487,7 @@ export class SessionTerminal {
     this.controllerId = toId
     const next = this.clients.get(toId)
     if (next) this.controllerIdentity = identityOf(controlSubjectFromClient(next.principal))
+    this.liveChanged()
   }
 
   subscribeTranscript(client: ClientConn, since?: string): void {
@@ -560,7 +574,10 @@ export class SessionTerminal {
     return this.runtimeTranscript
   }
 
-  applyRuntimeDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string } = {}): boolean {
+  applyRuntimeDelta(
+    items: TranscriptItem[],
+    opts: { reset?: boolean; tail?: string } = {},
+  ): boolean {
     this.runtimeTranscript = mergeTranscriptItems(opts.reset ? [] : this.runtimeTranscript, items)
     return this.applyDelta(items, opts)
   }
@@ -706,6 +723,7 @@ export class SessionTerminal {
     this.inputCount_ += 1
     this.activityCount_ += 1
     this.markActivityDirty()
+    this.liveChanged()
   }
 
   recordObservationActivity(): void {
@@ -756,6 +774,7 @@ export class SessionTerminal {
     client.viewports.set(this.init.sessionId, { ...geometry })
     if (client.id !== this.controllerId || !this.rendersNative(client)) {
       this.requestsGated += 1
+      this.liveChanged()
       // `request:gated` — the same token the client traces use, so a session's
       // statements can be read against its asks on one timeline (POD-3239).
       log.debug('request:gated', {
@@ -854,6 +873,7 @@ export class SessionTerminal {
     this.controllerId = null
     this.controllerIdentity = identity
     if (attribution) this.lastInputAttribution = attribution
+    this.liveChanged()
   }
 
   /**
@@ -933,6 +953,7 @@ export class SessionTerminal {
     this.shellBusyTimer = undefined
     this.shellBusy_ = false
     this.shellCommandRunning = false
+    this.liveChanged()
   }
 
   /**
@@ -950,6 +971,7 @@ export class SessionTerminal {
     this.geometry = { cols: geometry.cols, rows: geometry.rows }
     // The DB copy is lazy: the activity flush writes it with the row.
     this.markActivityDirty()
+    this.liveChanged()
     this.broadcast({
       type: 'geometry',
       sessionId: this.init.sessionId,
@@ -978,6 +1000,11 @@ export class SessionTerminal {
     if (geometry) this.applyDaemonGeometry(geometry)
     this.reconcile()
     this.serveOwed()
+  }
+
+  /** A bind was received on the current link and that PTY has not exited. */
+  get hasBoundPty(): boolean {
+    return this.pictures !== undefined && !this.exited
   }
 
   /**
@@ -1252,25 +1279,30 @@ export class SessionTerminal {
     this.controllerId = clientId
     if (!client) {
       this.controllerIdentity = null
+      this.liveChanged()
       return
     }
     this.controllerIdentity = identityOf(controlSubjectFromClient(client.principal))
+    this.liveChanged()
   }
 
   private clearController(): void {
     this.controllerId = null
     this.controllerIdentity = null
+    this.liveChanged()
   }
 
   private markShellBusy(): void {
     const at = new Date().toISOString()
     const becameBusy = !this.shellBusy_
     this.shellBusy_ = true
+    if (becameBusy) this.liveChanged()
     this.init.onActivity?.(at, becameBusy)
     if (this.shellBusyTimer) clearTimeout(this.shellBusyTimer)
     this.shellBusyTimer = setTimeout(() => {
       this.shellBusy_ = false
       this.shellCommandRunning = false
+      this.liveChanged()
       this.init.onActivity?.(new Date().toISOString(), true)
     }, SHELL_BUSY_WINDOW_MS)
     this.shellBusyTimer.unref?.()
@@ -1330,7 +1362,7 @@ export class SessionTerminal {
   private clientAttribution(client: ClientConn): ReturnType<typeof perfPrincipal> {
     const cached = this.clientAttributions.get(client)
     if (cached) return cached
-    const attribution = perfPrincipal(feedPrincipalOf(client.principal))
+    const attribution = perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal))
     this.clientAttributions.set(client, attribution)
     return attribution
   }

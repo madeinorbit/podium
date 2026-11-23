@@ -30,8 +30,7 @@ const ui = vi.hoisted(() => {
 })
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (store: unknown) => unknown) =>
-    select({ uiState: ui.uiState } as never),
+  readFixture: (select: (store: unknown) => unknown) => select({ uiState: ui.uiState } as never),
 }))
 
 vi.mock('@/lib/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))

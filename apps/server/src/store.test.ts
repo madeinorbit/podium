@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   asAccountId,
+  asCredentialId,
   asIssueId,
   asMachineId,
   asSessionId,
@@ -11,11 +12,43 @@ import {
   firstAdminMemberId,
 } from '@podium/model'
 import { PodiumSettings } from '@podium/runtime'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
 import { afterAll, describe, expect, it } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreEngine } from './test-support/pg-test-database'
+import { storeSql } from './test-support/store-sql'
+
+/** One person's pins by kind, read the way the boot reconcile reads them. */
+async function pinsOf(
+  repo: {
+    allPinsForBootReconcile(): Promise<{ userId: string; kind: string; entityId: string }[]>
+  },
+  userId: string,
+): Promise<{ panels: string[]; worktrees: string[]; repos: string[] }> {
+  const pins = (await repo.allPinsForBootReconcile()).filter((p) => p.userId === userId)
+  const of = (kind: string) => pins.filter((p) => p.kind === kind).map((p) => p.entityId)
+  return { panels: of('panel'), worktrees: of('worktree'), repos: of('repo') }
+}
+
+/** One person's tab orders by worktree, read the way the boot reconcile reads them. */
+async function tabOrdersOf(
+  repo: {
+    allTabOrdersForBootReconcile(): Promise<
+      { userId: string; entityId: string; sessionIds: string[] }[]
+    >
+  },
+  userId: string,
+): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {}
+  for (const o of await repo.allTabOrdersForBootReconcile()) {
+    if (o.userId === userId) out[o.entityId] = o.sessionIds
+  }
+  return out
+}
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -35,15 +68,22 @@ async function tmpDbPath(): Promise<string> {
 }
 
 describe('SessionStore repos', () => {
-  it('reports the newest migration recorded by a real migrated store', async () => {
-    const store = await openTestStore(':memory:')
-    const expected = [...DRIZZLE_MIGRATIONS]
-      .map(({ name }) => name)
-      .sort()
-      .at(-1)
-    expect(await store.schemaVersionForTransfer()).toBe(expected)
-    await store.close()
-  })
+  // The transfer's schema stamp and fence are a SQLite file's: hosted Postgres has no transfer
+  // (POD-6958 design 2.9).
+  it.skipIf(testStoreEngine() === 'pg')(
+    'reports the newest migration recorded by a real migrated store',
+    async () => {
+      const store = await openTestStore(':memory:')
+      const expected = DRIZZLE_MIGRATIONS.filter(
+        (m) => !m.sql.startsWith('-- after-local-identity-import'),
+      )
+        .map(({ name }) => name)
+        .sort()
+        .at(-1)
+      expect(await store.schemaVersionForTransfer()).toBe(expected)
+      await store.close()
+    },
+  )
 
   it('starts empty, adds, dedupes, lists in insertion order, removes', async () => {
     const store = await openTestStore(':memory:')
@@ -57,14 +97,17 @@ describe('SessionStore repos', () => {
     await store.close()
   })
 
-  it('rejects SQLite writes while a transfer fence is held, then reopens them', async () => {
-    const store = await openTestStore(':memory:')
-    await store.beginTransferFence()
-    await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
-    await store.endTransferFence()
-    await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
-    await store.close()
-  })
+  it.skipIf(testStoreEngine() === 'pg')(
+    'rejects SQLite writes while a transfer fence is held, then reopens them',
+    async () => {
+      const store = await openTestStore(':memory:')
+      await store.beginTransferFence()
+      await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
+      await store.endTransferFence()
+      await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
+      await store.close()
+    },
+  )
 
   it('persists repos across instances on the same file', async () => {
     const file = await tmpDbPath()
@@ -92,6 +135,7 @@ describe('SessionStore repos', () => {
         originUrl,
         repoId: deriveRepoId({ originUrl, machineId: asMachineId(machineId), path }),
         prefix: expect.any(String),
+        defaultParentBranch: null,
       },
     ])
     await store.close()
@@ -136,6 +180,8 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     // decision above — always projected; null = nobody asked for a driver, which
     // is also what a row written before the column reads as.
     requestedDriverId: null,
+    boundDriverId: null,
+    boundDriverCapabilities: null,
     // Whether the launch ever had a conversation (POD-2392): always projected,
     // null = the row makes no claim (which is what a pre-column row reads as).
     conversationBinding: null,
@@ -185,17 +231,54 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     deletionSource: null,
     // Provenance lets restore recover cwd-derived sessions that had no explicit issueId.
     deletedByIssueId: null,
+    // Stored session facts the record projects (POD-6764): always read back,
+    // defaulted when the daemon reported nothing.
+    draftSyncEngine: false,
+    agentState: null,
+    agentColor: null,
+    observedModel: null,
+    observedEffort: null,
+    // The harness-reported mode and the last launch's terms (POD-6858).
+    observedMode: null,
+    launchPosture: null,
+    handoffTargetMachineId: null,
     ...overrides,
+    // The published activity time reads back as the row's own unless a test
+    // pins it (POD-6764).
+    publishedLastActiveAt:
+      overrides.publishedLastActiveAt ?? overrides.lastActiveAt ?? '2026-06-09T00:00:00.000Z',
   }
 }
 
 describe('SessionStore sessions', () => {
+  it('lists the live sessions on a credential, through its index (credential management Task 13)', async () => {
+    const s = await openTestStore(':memory:')
+    const credentialId = asCredentialId('cred_00000000-0000-4000-8000-000000006900')
+    const other = asCredentialId('cred_00000000-0000-4000-8000-000000006901')
+    await s.sessions.upsertSessions(fixtureWriteScope(), [
+      row({ id: asSessionId('on-b'), durableLabel: 'podium-on-b', credentialId }),
+      row({ id: asSessionId('on-a'), durableLabel: 'podium-on-a', credentialId }),
+      row({ id: asSessionId('elsewhere'), durableLabel: 'podium-x', credentialId: other }),
+      row({ id: asSessionId('none'), durableLabel: 'podium-none' }),
+      row({
+        id: asSessionId('gone'),
+        durableLabel: 'podium-gone',
+        credentialId,
+        deletedAt: '2026-06-10T00:00:00.000Z',
+      }),
+    ])
+    expect(await s.sessions.liveSessionIdsOnCredential(credentialId)).toEqual(['on-a', 'on-b'])
+    await s.close()
+  })
+
   it('rejects persisting an invalid agentKind (write-side guard against poison rows)', async () => {
     // Strict on write: an agentKind outside the enum (e.g. the 'auto' sentinel) must
     // never reach the table, since it later fails the sessionsChanged zod-parse and
     // blanks every client. Fail loudly at the source instead.
     const s = await openTestStore(':memory:')
-    await expect(s.sessions.upsertSession(row({ agentKind: 'auto' }))).rejects.toThrow(/agentKind/i)
+    await expect(
+      s.sessions.upsertSession(fixtureWriteScope(), row({ agentKind: 'auto' })),
+    ).rejects.toThrow(/agentKind/i)
     await s.close()
   })
 
@@ -203,7 +286,11 @@ describe('SessionStore sessions', () => {
     // Control: the one-row upsert, row by row. Three rows pad to a four-row
     // statement, and the existing row checks the rules the set keeps on update:
     // created_at stays, a bound conversation stays bound, login harness stays.
-    const existing = row({ id: asSessionId('b'), conversationBinding: 'bound', loginHarness: 'claude-code' })
+    const existing = row({
+      id: asSessionId('b'),
+      conversationBinding: 'bound',
+      loginHarness: 'claude-code',
+    })
     const batch = [
       row({ id: asSessionId('a'), title: 'first', outputCount: 3 }),
       row({
@@ -218,9 +305,10 @@ describe('SessionStore sessions', () => {
     ]
     const control = await openTestStore(':memory:')
     const candidate = await openTestStore(':memory:')
-    for (const store of [control, candidate]) await store.sessions.upsertSession(existing)
-    for (const r of batch) await control.sessions.upsertSession(r)
-    await candidate.sessions.upsertSessions(batch)
+    for (const store of [control, candidate])
+      await store.sessions.upsertSession(fixtureWriteScope(), existing)
+    for (const r of batch) await control.sessions.upsertSession(fixtureWriteScope(), r)
+    await candidate.sessions.upsertSessions(fixtureWriteScope(), batch)
     const byId = (rows: SessionRow[]) => [...rows].sort((x, y) => x.id.localeCompare(y.id))
     const written = byId(await candidate.sessions.loadSessions())
     expect(written).toEqual(byId(await control.sessions.loadSessions()))
@@ -234,7 +322,10 @@ describe('SessionStore sessions', () => {
 
     // Every row is checked before the first is written.
     await expect(
-      candidate.sessions.upsertSessions([row({ id: asSessionId('d') }), row({ id: asSessionId('e'), agentKind: 'auto' })]),
+      candidate.sessions.upsertSessions(fixtureWriteScope(), [
+        row({ id: asSessionId('d') }),
+        row({ id: asSessionId('e'), agentKind: 'auto' }),
+      ]),
     ).rejects.toThrow(/agentKind/i)
     expect((await candidate.sessions.loadSessions()).map((r) => r.id)).not.toContain('d')
     await control.close()
@@ -243,10 +334,10 @@ describe('SessionStore sessions', () => {
 
   it('round-trips optional cumulative compute time and preserves legacy absence', async () => {
     const store = await openTestStore(':memory:')
-    await store.sessions.upsertSession(row({ workingMsTotal: 123_456 }))
+    await store.sessions.upsertSession(fixtureWriteScope(), row({ workingMsTotal: 123_456 }))
     expect((await store.sessions.loadSessions())[0]?.workingMsTotal).toBe(123_456)
 
-    await store.sessions.upsertSession(row())
+    await store.sessions.upsertSession(fixtureWriteScope(), row())
     expect((await store.sessions.loadSessions())[0]).not.toHaveProperty('workingMsTotal')
     await store.close()
   })
@@ -254,17 +345,25 @@ describe('SessionStore sessions', () => {
   it('upserts, loads, updates in place (preserving created_at), and deletes', async () => {
     const file = await tmpDbPath()
     const a = await openTestStore(file)
-    await a.sessions.upsertSession(row())
+    await a.sessions.upsertSession(fixtureWriteScope(), row())
     await a.sessions.upsertSession(
+      fixtureWriteScope(),
       row({ status: 'live', title: 'renamed', lastActiveAt: '2026-06-09T00:05:00.000Z' }),
     )
     await a.close()
 
     const b = await openTestStore(file)
     expect(await b.sessions.loadSessions()).toEqual([
-      row({ status: 'live', title: 'renamed', lastActiveAt: '2026-06-09T00:05:00.000Z' }),
+      // The published activity time stays at the first publication until the
+      // publish interval has passed (POD-6764).
+      row({
+        status: 'live',
+        title: 'renamed',
+        lastActiveAt: '2026-06-09T00:05:00.000Z',
+        publishedLastActiveAt: '2026-06-09T00:00:00.000Z',
+      }),
     ])
-    await b.sessions.purgeSession(asSessionId('id-1'))
+    await b.sessions.purgeSession(fixtureWriteScope(), asSessionId('id-1'))
     expect(await b.sessions.loadSessions()).toEqual([])
     await b.close()
   })
@@ -273,9 +372,11 @@ describe('SessionStore sessions', () => {
     const file = await tmpDbPath()
     const source = await openTestStore(file)
     await source.sessions.upsertSession(
+      fixtureWriteScope(),
       row({ cwd: '/source/repo/.worktrees/x', machineId: asMachineId('m1') }),
     )
     await source.sessions.upsertSession(
+      fixtureWriteScope(),
       row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }),
     )
     await source.close()
@@ -290,7 +391,7 @@ describe('SessionStore sessions', () => {
   it('round-trips the last authoritative terminal geometry', async () => {
     const s = await openTestStore(':memory:')
     const resized = row({ geometry: { cols: 173, rows: 47 } })
-    await s.sessions.upsertSession(resized)
+    await s.sessions.upsertSession(fixtureWriteScope(), resized)
     expect(await s.sessions.loadSessions()).toEqual([resized])
     await s.close()
   })
@@ -301,13 +402,18 @@ describe('SessionStore sessions', () => {
     // SOURCE has to survive the write → restart → read cycle.
     const user = row({ id: asSessionId('u'), name: 'Merge lock lease expiry', nameSource: 'user' })
     const agent = row({ id: asSessionId('a'), name: 'Session title slot', nameSource: 'agent' })
-    await s.sessions.upsertSession(user)
-    await s.sessions.upsertSession(agent)
-    expect(await s.sessions.loadSessions()).toEqual([user, agent])
+    await s.sessions.upsertSession(fixtureWriteScope(), user)
+    await s.sessions.upsertSession(fixtureWriteScope(), agent)
+    // `loadSessions` orders by `created_at ASC, id ASC` (one order on both engines):
+    // the two share a created_at, so 'a' comes first.
+    expect(await s.sessions.loadSessions()).toEqual([agent, user])
 
     // A value that is neither must never read back as one that could out-rank the
     // user — an unknown source degrades to "nobody named it".
-    await s.sessions.upsertSession({ ...user, nameSource: 'root' } as unknown as SessionRow)
+    await s.sessions.upsertSession(fixtureWriteScope(), {
+      ...user,
+      nameSource: 'root',
+    } as unknown as SessionRow)
     expect((await s.sessions.loadSessions()).find((r) => r.id === 'u')?.nameSource).toBeNull()
     await s.close()
   })
@@ -318,7 +424,7 @@ describe('SessionStore sessions', () => {
       workflowRunId: 'run_9',
       workflowStepId: 'step_3',
     })
-    await s.sessions.upsertSession(r)
+    await s.sessions.upsertSession(fixtureWriteScope(), r)
     expect(await s.sessions.loadSessions()).toEqual([r])
     await s.close()
   })
@@ -326,7 +432,7 @@ describe('SessionStore sessions', () => {
   it('round-trips the agent profile a session started from (POD-6107)', async () => {
     const s = await openTestStore(':memory:')
     const r = row({ agentProfileId: 'agp_seed_review' })
-    await s.sessions.upsertSession(r)
+    await s.sessions.upsertSession(fixtureWriteScope(), r)
     expect(await s.sessions.loadSessions()).toEqual([r])
     await s.close()
   })
@@ -334,9 +440,17 @@ describe('SessionStore sessions', () => {
   it('hides issue-deleted session tombstones and restores them as exited records', async () => {
     const store = await openTestStore(':memory:')
     const deletedAt = '2026-07-13T10:00:00.000Z'
-    await store.sessions.upsertSession(row({ issueId: asIssueId('iss_1'), status: 'live' }))
+    await store.sessions.upsertSession(
+      fixtureWriteScope(),
+      row({ issueId: asIssueId('iss_1'), status: 'live' }),
+    )
 
-    await store.sessions.softDeleteForIssue(['id-1'], asIssueId('iss_1'), deletedAt)
+    await store.sessions.softDeleteForIssue(
+      fixtureWriteScope(),
+      ['id-1'],
+      asIssueId('iss_1'),
+      deletedAt,
+    )
     expect(await store.sessions.loadSessions()).toEqual([])
     // The delete killed the process, so the row records that exit (POD-4634):
     // no daemon agentExit will ever reach a session already out of the map.
@@ -352,7 +466,7 @@ describe('SessionStore sessions', () => {
       }),
     ])
 
-    await store.sessions.restoreDeletedForIssue(asIssueId('iss_1'))
+    await store.sessions.restoreDeletedForIssue(fixtureWriteScope(), asIssueId('iss_1'))
     expect(await store.sessions.loadDeletedSessionsForIssue(asIssueId('iss_1'))).toEqual([])
     expect(await store.sessions.loadSessions()).toEqual([
       row({
@@ -369,36 +483,85 @@ describe('SessionStore sessions', () => {
     const store = await openTestStore(':memory:')
     const deletedAt = '2026-07-13T12:00:00.000Z'
     const parkedAt = '2026-07-13T09:00:00.000Z'
-    const running = ['starting', 'live', 'reconnecting'] as const
+    const running = ['starting', 'live'] as const
     for (const [i, status] of running.entries())
-      await store.sessions.upsertSession(row({ id: asSessionId(`run-${i}`), durableLabel: `podium-run-${i}`, status }))
-    await store.sessions.upsertSession(row({
-      id: asSessionId('parked'), durableLabel: 'podium-parked', status: 'hibernated', stoppedAt: parkedAt, stopReason: 'self',
-    }))
-    await store.sessions.upsertSession(row({
-      id: asSessionId('dead'), durableLabel: 'podium-dead', status: 'exited', exitCode: 3, stoppedAt: parkedAt, stopReason: 'exited',
-    }))
+      await store.sessions.upsertSession(
+        fixtureWriteScope(),
+        row({ id: asSessionId(`run-${i}`), durableLabel: `podium-run-${i}`, status }),
+      )
+    await store.sessions.upsertSession(
+      fixtureWriteScope(),
+      row({
+        id: asSessionId('parked'),
+        durableLabel: 'podium-parked',
+        status: 'hibernated',
+        stoppedAt: parkedAt,
+        stopReason: 'self',
+      }),
+    )
+    await store.sessions.upsertSession(
+      fixtureWriteScope(),
+      row({
+        id: asSessionId('dead'),
+        durableLabel: 'podium-dead',
+        status: 'exited',
+        exitCode: 3,
+        stoppedAt: parkedAt,
+        stopReason: 'exited',
+      }),
+    )
 
-    await store.sessions.softDeleteSessions(['run-0', 'run-1', 'run-2', 'parked', 'dead'], deletedAt, 'standalone')
+    await store.sessions.softDeleteSessions(
+      fixtureWriteScope(),
+      ['run-0', 'run-1', 'run-2', 'parked', 'dead'],
+      deletedAt,
+      'standalone',
+    )
 
-    const byId = new Map((await store.sessions.loadDeletedSessions()).map((r) => [r.id as string, r]))
+    const byId = new Map(
+      (await store.sessions.loadDeletedSessions()).map((r) => [r.id as string, r]),
+    )
     for (const i of running.keys())
-      expect(byId.get(`run-${i}`)).toMatchObject({ status: 'exited', stoppedAt: deletedAt, stopReason: 'forced', deletedAt })
-    expect(byId.get('parked')).toMatchObject({ status: 'hibernated', stoppedAt: parkedAt, stopReason: 'self', deletedAt })
-    expect(byId.get('dead')).toMatchObject({ status: 'exited', exitCode: 3, stoppedAt: parkedAt, stopReason: 'exited', deletedAt })
+      expect(byId.get(`run-${i}`)).toMatchObject({
+        status: 'exited',
+        stoppedAt: deletedAt,
+        stopReason: 'forced',
+        deletedAt,
+      })
+    expect(byId.get('parked')).toMatchObject({
+      status: 'hibernated',
+      stoppedAt: parkedAt,
+      stopReason: 'self',
+      deletedAt,
+    })
+    expect(byId.get('dead')).toMatchObject({
+      status: 'exited',
+      exitCode: 3,
+      stoppedAt: parkedAt,
+      stopReason: 'exited',
+      deletedAt,
+    })
     await store.close()
   })
 
   it('keeps standalone session tombstones out of active loads and issue restoration', async () => {
     const store = await openTestStore(':memory:')
     const deletedAt = '2026-07-13T11:00:00.000Z'
-    await store.sessions.upsertSession(row({ issueId: asIssueId('iss_1'), status: 'live' }))
-    await store.sessions.setPin(firstAdminMemberId(), 'panel', 'id-1', true)
+    await store.sessions.upsertSession(
+      fixtureWriteScope(),
+      row({ issueId: asIssueId('iss_1'), status: 'live' }),
+    )
+    await store.sessions.addPin(firstAdminMemberId(), 'panel', 'id-1', '2026-11-08T00:00:00.000Z')
     await store.sessions.setDraft(asSessionId('id-1'), 'recoverable input')
-    await store.sessions.setSnooze(firstAdminMemberId(), asSessionId('id-1'), null)
+    await store.sessions.setSnooze(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('id-1'),
+      null,
+    )
     await store.sessions.setTabOrder(firstAdminMemberId(), '/proj', ['id-1'])
 
-    await store.sessions.softDeleteSessions(['id-1'], deletedAt, 'standalone')
+    await store.sessions.softDeleteSessions(fixtureWriteScope(), ['id-1'], deletedAt, 'standalone')
 
     expect(await store.sessions.loadSessions()).toEqual([])
     expect(await store.sessions.loadDeletedSessions()).toEqual([
@@ -412,14 +575,14 @@ describe('SessionStore sessions', () => {
       }),
     ])
     expect(await store.sessions.loadDeletedSessionsForIssue(asIssueId('iss_1'))).toEqual([])
-    expect((await store.sessions.listPins(firstAdminMemberId())).panels).toEqual(['id-1'])
+    expect((await pinsOf(store.sessions, firstAdminMemberId())).panels).toEqual(['id-1'])
     expect(await store.sessions.loadDrafts()).toEqual({ 'id-1': 'recoverable input' })
     expect(await store.sessions.listSnoozes(firstAdminMemberId())).toEqual({ 'id-1': null })
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({
       '/proj': ['id-1'],
     })
 
-    await store.sessions.restoreDeletedForIssue(asIssueId('iss_1'))
+    await store.sessions.restoreDeletedForIssue(fixtureWriteScope(), asIssueId('iss_1'))
     expect(await store.sessions.loadSessions()).toEqual([])
     expect(await store.sessions.loadDeletedSessions()).toHaveLength(1)
     await store.close()
@@ -435,7 +598,7 @@ describe('SessionStore sessions', () => {
       resumeValue: 't9',
       durableLabel: 'podium-id-2',
     })
-    await store.sessions.upsertSession(r)
+    await store.sessions.upsertSession(fixtureWriteScope(), r)
     expect(await store.sessions.loadSessions()).toEqual([r])
     await store.close()
   })
@@ -443,6 +606,7 @@ describe('SessionStore sessions', () => {
   it('round-trips the activity timestamps (output/input/resumed)', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       row({
         id: asSessionId('s1'),
         durableLabel: 'podium-s1',
@@ -460,7 +624,10 @@ describe('SessionStore sessions', () => {
 
   it('reads null activity timestamps for a row that never had them', async () => {
     const store = await openTestStore(':memory:')
-    await store.sessions.upsertSession(row({ id: asSessionId('s2'), durableLabel: 'podium-s2' }))
+    await store.sessions.upsertSession(
+      fixtureWriteScope(),
+      row({ id: asSessionId('s2'), durableLabel: 'podium-s2' }),
+    )
     const [r] = await store.sessions.loadSessions()
     expect(r?.lastOutputAt).toBeNull()
     expect(r?.lastInputAt).toBeNull()
@@ -471,6 +638,7 @@ describe('SessionStore sessions', () => {
   it('round-trips spawnedBy provenance (issue #60)', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       row({ id: asSessionId('s1'), durableLabel: 'podium-s1', spawnedBy: 'issue:iss_9' }),
     )
     expect((await store.sessions.loadSessions())[0]?.spawnedBy).toBe('issue:iss_9')
@@ -480,6 +648,7 @@ describe('SessionStore sessions', () => {
   it('round-trips the native login-shell purpose', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       row({
         id: asSessionId('login-shell'),
         durableLabel: 'podium-login-shell',
@@ -498,6 +667,7 @@ describe('SessionStore sessions', () => {
   it('round-trips the conversation-binding claim', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       row({ id: asSessionId('s1'), durableLabel: 'podium-s1', conversationBinding: 'never' }),
     )
     expect((await store.sessions.loadSessions())[0]?.conversationBinding).toBe('never')
@@ -507,11 +677,17 @@ describe('SessionStore sessions', () => {
   it('refuses to walk a bound conversation back to never', async () => {
     const store = await openTestStore(':memory:')
     const base = row({ id: asSessionId('s1'), durableLabel: 'podium-s1' })
-    await store.sessions.upsertSession({ ...base, conversationBinding: 'bound' })
+    await store.sessions.upsertSession(fixtureWriteScope(), {
+      ...base,
+      conversationBinding: 'bound',
+    })
     // A later writer holding a stale copy of the session — a status flush, a
     // rename, a reattach — persists the whole row, `never` and all.
-    await store.sessions.upsertSession({ ...base, conversationBinding: 'never' })
-    await store.sessions.upsertSession({ ...base, conversationBinding: null })
+    await store.sessions.upsertSession(fixtureWriteScope(), {
+      ...base,
+      conversationBinding: 'never',
+    })
+    await store.sessions.upsertSession(fixtureWriteScope(), { ...base, conversationBinding: null })
     expect((await store.sessions.loadSessions())[0]?.conversationBinding).toBe('bound')
     await store.close()
   })
@@ -519,6 +695,7 @@ describe('SessionStore sessions', () => {
   it('reads a rogue conversation-binding value as no claim, not as proof', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       row({
         id: asSessionId('s1'),
         durableLabel: 'podium-s1',
@@ -537,7 +714,7 @@ describe('SessionStore sessions', () => {
       id: asSessionId('s2'),
       durableLabel: 'podium-s2',
     })
-    await store.sessions.upsertSession(legacy)
+    await store.sessions.upsertSession(fixtureWriteScope(), legacy)
     expect((await store.sessions.loadSessions())[0]?.spawnedBy).toBeNull()
     await store.close()
   })
@@ -551,8 +728,26 @@ describe('SessionStore sessions', () => {
       stoppedAt: '2026-07-18T12:00:00.000Z',
       stopReason: 'forced',
     })
-    await store.sessions.upsertSession(stopped)
+    await store.sessions.upsertSession(fixtureWriteScope(), stopped)
     expect(await store.sessions.loadSessions()).toEqual([stopped])
+    await store.close()
+  })
+
+  // POD-6858 Task 11: a server restart keeps the mode the harness reported and
+  // what the last launch could not meet, so the notices and the chip survive.
+  it('round-trips the harness-reported mode and the launch report', async () => {
+    const store = await openTestStore(':memory:')
+    const launched = row({
+      observedMode: 'default',
+      launchPosture: {
+        requestedMode: 'auto',
+        unmet: [
+          { requirement: 'podium-cli', reason: 'this engine takes no allow rule per launch' },
+        ],
+      },
+    })
+    await store.sessions.upsertSession(fixtureWriteScope(), launched)
+    expect(await store.sessions.loadSessions()).toEqual([launched])
     await store.close()
   })
 
@@ -563,12 +758,15 @@ describe('SessionStore sessions', () => {
   it('round-trips per-user readAt; a session this user never opened has NO row', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       row({ id: asSessionId('s_read'), durableLabel: 'podium-s_read' }),
     )
     await store.sessions.upsertSession(
+      fixtureWriteScope(),
       row({ id: asSessionId('s_unread'), durableLabel: 'podium-s_unread' }),
     )
     await store.sessions.markSessionRead(
+      fixtureWriteScope(),
       firstAdminMemberId(),
       asSessionId('s_read'),
       '2026-07-07T00:00:00.000Z',
@@ -577,9 +775,7 @@ describe('SessionStore sessions', () => {
     expect(await store.sessions.getReadAt(firstAdminMemberId(), asSessionId('s_read'))).toBe(
       '2026-07-07T00:00:00.000Z',
     )
-    expect(
-      await store.sessions.getReadAt(firstAdminMemberId(), asSessionId('s_unread')),
-    ).toBeNull()
+    expect(await store.sessions.getReadAt(firstAdminMemberId(), asSessionId('s_unread'))).toBeNull()
     expect(await store.sessions.listReadAt(firstAdminMemberId())).toEqual({
       s_read: '2026-07-07T00:00:00.000Z',
     })
@@ -590,14 +786,23 @@ describe('SessionStore sessions', () => {
     expect(await store.sessions.listReadAt(asUserId('user:other'))).toEqual({})
 
     // markUnread DELETES rather than nulling, so absence keeps its one meaning.
-    await store.sessions.markSessionUnread(firstAdminMemberId(), asSessionId('s_read'))
+    await store.sessions.markSessionUnread(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('s_read'),
+    )
     expect(await store.sessions.listReadAt(firstAdminMemberId())).toEqual({})
 
     // A per-user WRITE with no identity fails CLOSED — it never falls back to an
     // operator. Reads tolerate an unknown user (an empty slice is the truth).
-    await expect(store.sessions.markSessionRead(asUserId(''), asSessionId('s_read'), 't')).rejects.toThrow(
-      /no user id/,
-    )
+    await expect(
+      store.sessions.markSessionRead(
+        fixtureWriteScope(),
+        asUserId(''),
+        asSessionId('s_read'),
+        '2026-07-01T00:00:00.000Z',
+      ),
+    ).rejects.toThrow(/no user id/)
     await store.close()
   })
 })
@@ -629,9 +834,9 @@ describe('SessionStore drafts', () => {
 
   it('drops a session draft when the session is deleted', async () => {
     const store = await openTestStore(':memory:')
-    await store.sessions.upsertSession(row())
+    await store.sessions.upsertSession(fixtureWriteScope(), row())
     await store.sessions.setDraft(asSessionId('id-1'), 'work in progress')
-    await store.sessions.purgeSession(asSessionId('id-1'))
+    await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('id-1'))
     expect(await store.sessions.loadDrafts()).toEqual({})
     await store.close()
   })
@@ -650,28 +855,39 @@ describe('SessionStore drafts', () => {
 // not in-process.
 
 describe('SessionStore pins', () => {
-  it('starts empty, adds, dedupes, lists by kind in insertion order, and removes', async () => {
+  it('starts empty, adds, dedupes, lists by kind oldest first, and removes', async () => {
     const store = await openTestStore(':memory:')
-    expect(await store.sessions.listPins(firstAdminMemberId())).toEqual({
+    expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: [],
       worktrees: [],
       repos: [],
     })
 
-    await store.sessions.setPin(firstAdminMemberId(), 'repo', '/repo/b', true)
-    await store.sessions.setPin(firstAdminMemberId(), 'worktree', '/repo/b-feature', true)
-    await store.sessions.setPin(firstAdminMemberId(), 'panel', 'session-2', true)
-    await store.sessions.setPin(firstAdminMemberId(), 'repo', '/repo/a', true)
-    await store.sessions.setPin(firstAdminMemberId(), 'repo', '/repo/b', true)
+    await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/b', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(
+      firstAdminMemberId(),
+      'worktree',
+      '/repo/b-feature',
+      '2026-11-08T00:00:00.000Z',
+    )
+    await store.sessions.addPin(
+      firstAdminMemberId(),
+      'panel',
+      'session-2',
+      '2026-11-08T00:00:00.000Z',
+    )
+    await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/a', '2026-11-08T00:00:00.000Z')
+    await store.sessions.addPin(firstAdminMemberId(), 'repo', '/repo/b', '2026-11-08T00:00:00.000Z')
 
-    expect(await store.sessions.listPins(firstAdminMemberId())).toEqual({
+    expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
-      repos: ['/repo/b', '/repo/a'],
+      // Oldest first; pins made at one instant in key order (POD-7024: the same on both engines).
+      repos: ['/repo/a', '/repo/b'],
     })
 
-    await store.sessions.setPin(firstAdminMemberId(), 'repo', '/repo/b', false)
-    expect(await store.sessions.listPins(firstAdminMemberId())).toEqual({
+    await store.sessions.removePin(firstAdminMemberId(), 'repo', '/repo/b')
+    expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: ['session-2'],
       worktrees: ['/repo/b-feature'],
       repos: ['/repo/a'],
@@ -681,12 +897,17 @@ describe('SessionStore pins', () => {
 
   it('removes a panel pin when the session is deleted', async () => {
     const store = await openTestStore(':memory:')
-    await store.sessions.upsertSession(row({ id: asSessionId('session-1') }))
-    await store.sessions.setPin(firstAdminMemberId(), 'panel', 'session-1', true)
+    await store.sessions.upsertSession(fixtureWriteScope(), row({ id: asSessionId('session-1') }))
+    await store.sessions.addPin(
+      firstAdminMemberId(),
+      'panel',
+      'session-1',
+      '2026-11-08T00:00:00.000Z',
+    )
 
-    await store.sessions.purgeSession(asSessionId('session-1'))
+    await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('session-1'))
 
-    expect(await store.sessions.listPins(firstAdminMemberId())).toEqual({
+    expect(await pinsOf(store.sessions, firstAdminMemberId())).toEqual({
       panels: [],
       worktrees: [],
       repos: [],
@@ -700,8 +921,14 @@ describe('SessionStore snoozes', () => {
     const store = await openTestStore(':memory:')
     expect(await store.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
 
-    await store.sessions.setSnooze(firstAdminMemberId(), asSessionId('s1'), null)
     await store.sessions.setSnooze(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('s1'),
+      null,
+    )
+    await store.sessions.setSnooze(
+      fixtureWriteScope(),
       firstAdminMemberId(),
       asSessionId('s2'),
       '2999-01-01T05:00:00.000Z',
@@ -713,6 +940,7 @@ describe('SessionStore snoozes', () => {
 
     // overwrite s1 with a timed value
     await store.sessions.setSnooze(
+      fixtureWriteScope(),
       firstAdminMemberId(),
       asSessionId('s1'),
       '2999-01-01T05:00:00.000Z',
@@ -721,7 +949,7 @@ describe('SessionStore snoozes', () => {
       '2999-01-01T05:00:00.000Z',
     )
 
-    await store.sessions.clearSnooze(firstAdminMemberId(), asSessionId('s1'))
+    await store.sessions.clearSnooze(fixtureWriteScope(), firstAdminMemberId(), asSessionId('s1'))
     expect(await store.sessions.listSnoozes(firstAdminMemberId(), 0)).toEqual({
       s2: '2999-01-01T05:00:00.000Z',
     })
@@ -731,11 +959,17 @@ describe('SessionStore snoozes', () => {
   it('lazily drops a timed snooze whose deadline has passed; keeps null forever', async () => {
     const store = await openTestStore(':memory:')
     await store.sessions.setSnooze(
+      fixtureWriteScope(),
       firstAdminMemberId(),
       asSessionId('past'),
       '2000-01-01T00:00:00.000Z',
     )
-    await store.sessions.setSnooze(firstAdminMemberId(), asSessionId('forever'), null)
+    await store.sessions.setSnooze(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('forever'),
+      null,
+    )
     const now = Date.parse('2026-06-19T00:00:00.000Z')
     expect(await store.sessions.listSnoozes(firstAdminMemberId(), now)).toEqual({ forever: null })
     // the expired row was deleted, not just filtered
@@ -745,9 +979,14 @@ describe('SessionStore snoozes', () => {
 
   it('removes a snooze when the session is deleted', async () => {
     const store = await openTestStore(':memory:')
-    await store.sessions.upsertSession(row({ id: asSessionId('s1') }))
-    await store.sessions.setSnooze(firstAdminMemberId(), asSessionId('s1'), null)
-    await store.sessions.purgeSession(asSessionId('s1'))
+    await store.sessions.upsertSession(fixtureWriteScope(), row({ id: asSessionId('s1') }))
+    await store.sessions.setSnooze(
+      fixtureWriteScope(),
+      firstAdminMemberId(),
+      asSessionId('s1'),
+      null,
+    )
+    await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('s1'))
     expect(await store.sessions.listSnoozes(firstAdminMemberId(), 0)).toEqual({})
     await store.close()
   })
@@ -765,35 +1004,39 @@ describe('SessionStore offers', () => {
     const store = await openTestStore(':memory:')
     expect(await store.sessions.listOffers()).toEqual({})
 
-    await store.sessions.setOffer(asSessionId('s1'), OFFER)
+    await store.sessions.setOffer(fixtureWriteScope(), asSessionId('s1'), OFFER)
     expect(await store.sessions.listOffers()).toEqual({ s1: OFFER })
 
     // A subsequent offer replaces the previous one.
-    const next = { message: 'Ready to land', actions: [], createdAt: 't2' }
-    await store.sessions.setOffer(asSessionId('s1'), next)
+    const next = { message: 'Ready to land', actions: [], createdAt: '2026-07-01T00:00:02.000Z' }
+    await store.sessions.setOffer(fixtureWriteScope(), asSessionId('s1'), next)
     expect(await store.sessions.listOffers()).toEqual({ s1: next })
 
-    await store.sessions.clearOffer(asSessionId('s1'))
+    await store.sessions.clearOffer(fixtureWriteScope(), asSessionId('s1'))
     expect(await store.sessions.listOffers()).toEqual({})
     await store.close()
   })
 
-  it('drops a row with corrupt JSON actions instead of throwing', async () => {
-    const store = await openTestStore(':memory:')
-    await store.sessions.setOffer(asSessionId('good'), OFFER)
-    // Simulate a corrupt persisted row.
-    ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
-      .prepare('UPDATE offers SET actions = ? WHERE session_id = ?')
-      .run('{not json', 'good')
-    expect(await store.sessions.listOffers()).toEqual({})
-    await store.close()
-  })
+  // A json column on Postgres refuses the corrupt text at the write: SQLite only.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'drops a row with corrupt JSON actions instead of throwing',
+    async () => {
+      const store = await openTestStore(':memory:')
+      await store.sessions.setOffer(fixtureWriteScope(), asSessionId('good'), OFFER)
+      // Simulate a corrupt persisted row.
+      await storeSql(store).run(
+        sql`UPDATE offers SET actions = ${'{not json'} WHERE session_id = ${'good'}`,
+      )
+      expect(await store.sessions.listOffers()).toEqual({})
+      await store.close()
+    },
+  )
 
   it('removes an offer when the session is purged', async () => {
     const store = await openTestStore(':memory:')
-    await store.sessions.upsertSession(row({ id: asSessionId('s1') }))
-    await store.sessions.setOffer(asSessionId('s1'), OFFER)
-    await store.sessions.purgeSession(asSessionId('s1'))
+    await store.sessions.upsertSession(fixtureWriteScope(), row({ id: asSessionId('s1') }))
+    await store.sessions.setOffer(fixtureWriteScope(), asSessionId('s1'), OFFER)
+    await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('s1'))
     expect(await store.sessions.listOffers()).toEqual({})
     await store.close()
   })
@@ -802,18 +1045,18 @@ describe('SessionStore offers', () => {
 describe('SessionStore tab order', () => {
   it('starts empty, upserts per worktree, and clears on an empty list', async () => {
     const store = await openTestStore(':memory:')
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({})
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({})
 
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/a', ['s1', 's2'])
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/b', ['s9'])
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/a', ['s2', 's1'])
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({
       '/repo/a': ['s2', 's1'],
       '/repo/b': ['s9'],
     })
 
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/b', [])
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({
       '/repo/a': ['s2', 's1'],
     })
     await store.close()
@@ -833,7 +1076,7 @@ describe('SessionStore tab order', () => {
     await a.sessions.setTabOrder(firstAdminMemberId(), '/repo/a', ['s2', 's1'])
     await a.close()
     const b = await openTestStore(file)
-    expect(await b.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(b.sessions, firstAdminMemberId())).toEqual({
       '/repo/a': ['s2', 's1'],
     })
     await b.close()
@@ -841,13 +1084,13 @@ describe('SessionStore tab order', () => {
 
   it('scrubs a session from every order when it is deleted', async () => {
     const store = await openTestStore(':memory:')
-    await store.sessions.upsertSession(row({ id: asSessionId('s1') }))
+    await store.sessions.upsertSession(fixtureWriteScope(), row({ id: asSessionId('s1') }))
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/a', ['s2', 's1'])
     await store.sessions.setTabOrder(firstAdminMemberId(), '/repo/b', ['s1'])
 
-    await store.sessions.purgeSession(asSessionId('s1'))
+    await store.sessions.purgeSession(fixtureWriteScope(), asSessionId('s1'))
 
-    expect(await store.sessions.listTabOrders(firstAdminMemberId())).toEqual({
+    expect(await tabOrdersOf(store.sessions, firstAdminMemberId())).toEqual({
       '/repo/a': ['s2'],
     })
     await store.close()
@@ -935,7 +1178,7 @@ describe('conversation index', () => {
 
   it('indexes discovered conversations and finds them by keyword', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('a', { title: 'fix the soft keyboard profiles' }),
       conv('b', { title: 'memory chip breakdown' }),
     ])
@@ -946,14 +1189,18 @@ describe('conversation index', () => {
 
   it('prefix-matches partial words', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
-    expect((await store.conversations.index.search({ query: 'rela' })).map((h) => h.id)).toEqual(['a'])
+    await store.conversations.index.upsert(fixtureWriteScope(), [
+      conv('a', { title: 'podium relay endpoint' }),
+    ])
+    expect((await store.conversations.index.search({ query: 'rela' })).map((h) => h.id)).toEqual([
+      'a',
+    ])
     await store.close()
   })
 
   it('filters by projectPath subtree and browses by recency on empty query', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('old', { updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('new', { updatedAt: '2026-06-12T00:00:00.000Z' }),
       conv('other', { projectPath: '/src/zzz' }),
@@ -965,36 +1212,38 @@ describe('conversation index', () => {
 
   it('excludes subagent (sidechain) conversations from the resume picker', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('top', { title: 'fix the parser' }),
       conv('sub', { title: 'fix the parser subagent', parentConversationId: 'top' }),
     ])
     // Empty-query browse: only the top-level session.
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['top'])
     // Keyword search: the subagent matches the term but is still filtered out.
-    expect((await store.conversations.index.search({ query: 'parser' })).map((h) => h.id)).toEqual(['top'])
+    expect((await store.conversations.index.search({ query: 'parser' })).map((h) => h.id)).toEqual([
+      'top',
+    ])
     await store.close()
   })
 
   it('orders search results by recency, not relevance (matches claude --resume)', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('older', { title: 'relay endpoint fix', updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
     ])
     // Both match "relay endpoint"; the more recently-active one comes first.
-    expect((await store.conversations.index.search({ query: 'relay endpoint' })).map((h) => h.id)).toEqual([
-      'newer',
-      'older',
-    ])
+    expect(
+      (await store.conversations.index.search({ query: 'relay endpoint' })).map((h) => h.id),
+    ).toEqual(['newer', 'older'])
     await store.close()
   })
 
   it('refuses metadata for an undiscovered conversation without creating a row', async () => {
     const store = await openTestStore(':memory:')
     try {
-      await expect(store.conversations.index.setMeta('undiscovered', { name: 'Name' }))
-        .rejects.toThrow('has not been reported by a daemon')
+      await expect(
+        store.conversations.index.setMeta(fixtureWriteScope(), 'undiscovered', { name: 'Name' }),
+      ).rejects.toThrow('has not been reported by a daemon')
       expect(await store.conversations.index.search({})).toEqual([])
     } finally {
       await store.close()
@@ -1003,12 +1252,14 @@ describe('conversation index', () => {
 
   it('curation (name/summary) survives re-discovery and is searchable', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([conv('a')])
-    await store.conversations.index.setMeta('a', {
+    await store.conversations.index.upsert(fixtureWriteScope(), [conv('a')])
+    await store.conversations.index.setMeta(fixtureWriteScope(), 'a', {
       name: 'Soft keyboard epic',
       summary: 'shipped; awaiting review',
     })
-    await store.conversations.index.upsert([conv('a', { title: 'renamed by discovery' })])
+    await store.conversations.index.upsert(fixtureWriteScope(), [
+      conv('a', { title: 'renamed by discovery' }),
+    ])
     const [hit] = await store.conversations.index.search({ query: 'epic' })
     expect(hit?.id).toBe('a')
     expect(hit?.name).toBe('Soft keyboard epic')
@@ -1018,41 +1269,53 @@ describe('conversation index', () => {
 
   it('deleteConversations removes the rows and keeps the FTS index consistent', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([
+    await store.conversations.index.upsert(fixtureWriteScope(), [
       conv('a', { title: 'keep this keyboard one' }),
       conv('b', { title: 'remove this keyboard one' }),
     ])
     // Both match before the delete.
     expect(
-      (await store.conversations.index
-        .search({ query: 'keyboard' }))
-        .map((h) => h.id)
-        .sort(),
+      (await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id).sort(),
     ).toEqual(['a', 'b'])
 
-    expect(await store.conversations.index.delete(TEST_MACHINE, ['b'])).toEqual(['b'])
+    expect(
+      await store.conversations.index.delete(fixtureWriteScope(), TEST_MACHINE, ['b']),
+    ).toEqual(['b'])
 
     // Browse (empty query, table read) no longer lists the deleted row...
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
     // ...and the FTS index dropped it too (the DELETE trigger keeps it in sync),
     // so a keyword search returns only the survivor — no stale match for 'b'.
-    expect((await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id)).toEqual(['a'])
+    expect(
+      (await store.conversations.index.search({ query: 'keyboard' })).map((h) => h.id),
+    ).toEqual(['a'])
     await store.close()
   })
 
   it('deleteConversations reaches only rows indexed under the reporting machine (POD-4628)', async () => {
     const store = await openTestStore(':memory:')
     const other = asMachineId('other-machine')
-    await store.conversations.index.upsert([conv('mine'), conv('theirs', { machineId: other })])
-    expect(await store.conversations.index.delete(TEST_MACHINE, ['mine', 'theirs', 'unknown'])).toEqual(['mine'])
+    await store.conversations.index.upsert(fixtureWriteScope(), [
+      conv('mine'),
+      conv('theirs', { machineId: other }),
+    ])
+    expect(
+      await store.conversations.index.delete(fixtureWriteScope(), TEST_MACHINE, [
+        'mine',
+        'theirs',
+        'unknown',
+      ]),
+    ).toEqual(['mine'])
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['theirs'])
     await store.close()
   })
 
   it('deleteConversations is a no-op on an empty id list', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([conv('a')])
-    expect(await store.conversations.index.delete(TEST_MACHINE, [])).toEqual([])
+    await store.conversations.index.upsert(fixtureWriteScope(), [conv('a')])
+    expect(await store.conversations.index.delete(fixtureWriteScope(), TEST_MACHINE, [])).toEqual(
+      [],
+    )
     expect((await store.conversations.index.search({})).map((h) => h.id)).toEqual(['a'])
     await store.close()
   })
@@ -1127,27 +1390,31 @@ describe('SessionStore superagent threads', () => {
     await s.close()
   })
 
-  it('tolerates a corrupt tool_calls column instead of dropping the whole thread', async () => {
-    // One message with unparseable tool_calls must NOT throw out of the row map and
-    // blank the entire thread's history — quarantine that field to undefined, keep
-    // the message and the rest of the thread.
-    const s = await openTestStore(':memory:')
-    await s.superagent.appendSuperagentMessage(asThreadId('global'), {
-      role: 'assistant',
-      content: 'a',
-    })
-    await s.superagent.appendSuperagentMessage(asThreadId('global'), {
-      role: 'assistant',
-      content: 'b',
-    })
-    ;(s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
-      .prepare("UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'")
-      .run()
+  // A json column on Postgres refuses the corrupt text at the write: SQLite only.
+  it.skipIf(testStoreEngine() === 'pg')(
+    'tolerates a corrupt tool_calls column instead of dropping the whole thread',
+    async () => {
+      // One message with unparseable tool_calls must NOT throw out of the row map and
+      // blank the entire thread's history — quarantine that field to undefined, keep
+      // the message and the rest of the thread.
+      const s = await openTestStore(':memory:')
+      await s.superagent.appendSuperagentMessage(asThreadId('global'), {
+        role: 'assistant',
+        content: 'a',
+      })
+      await s.superagent.appendSuperagentMessage(asThreadId('global'), {
+        role: 'assistant',
+        content: 'b',
+      })
+      await storeSql(s).run(
+        sql`UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'`,
+      )
 
-    await s.superagent.loadSuperagentMessages('global')
-    const msgs = await s.superagent.loadSuperagentMessages('global')
-    expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
-    expect(msgs[0]?.toolCalls).toBeUndefined()
-    await s.close()
-  })
+      await s.superagent.loadSuperagentMessages('global')
+      const msgs = await s.superagent.loadSuperagentMessages('global')
+      expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
+      expect(msgs[0]?.toolCalls).toBeUndefined()
+      await s.close()
+    },
+  )
 })

@@ -7,7 +7,6 @@ import { isFinished as modelFinished } from '@podium/model/browser'
 import { headerView } from './header-views'
 import { createIssueBoardSource } from './issue-board-source'
 import { MissionScreen } from './mission-screen'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { MobxPool } from './pool'
 import { isClosed, isFinished } from './shared/predicates'
 import { LOADING } from './worklist/rollup'
@@ -42,7 +41,7 @@ it('mission header, mission pane and sidebar agree on empty, absent and legacy r
   ]
   const byId = new Map<string, IssueNavigationModel>(rows.map(row => [row.id, row]))
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined, {
-    load: (_entity, id) => byId.get(id), summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {},
+    load: (_entity, id) => byId.get(id), schedule: () => () => {},
   })
   attachMissionTestPreferences(pool)
   const header = headerView(pool)
@@ -53,7 +52,6 @@ it('mission header, mission pane and sidebar agree on empty, absent and legacy r
     expect(issueClosed).toBe(isFinished)
     expect(isClosed(rows[3]!)).toBe(true)
     pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
-    expect(pool.tables.issue.has('cold-empty')).toBe(false)
     const read = () => ({ header: header.folded(), pane: pane.ready ? { progress: pane.progress } : LOADING, sidebar: sidebarView(pool).row('root') } as const)
     const openIds = () => {
       const result = board.queryIds({ kind: 'board', filter: { status: 'open' } })

@@ -115,6 +115,12 @@ export interface OperationEngineDeps {
   onChanged?: (row: OperationRow, previousState: string | undefined) => void | Promise<void>
 }
 
+/** A watcher of persisted transitions; see {@link OperationEngine.onChanged}. */
+export type OperationChangeListener = (
+  row: OperationRow,
+  previousState: string | undefined,
+) => void | Promise<void>
+
 export type StartResult =
   | { started: true; operation: Operation }
   | { started: false; alreadyRunning: string }
@@ -209,6 +215,8 @@ export class OperationEngine {
   private readonly deferredAdoptions = new Set<string>()
   /** Set by `stop()`. The store is about to close, so nothing may write again. */
   private stopped = false
+  /** Who else hears about every persisted transition (see {@link onChanged}). */
+  private readonly listeners = new Set<OperationChangeListener>()
 
   constructor(deps: OperationEngineDeps) {
     this.deps = deps
@@ -227,7 +235,16 @@ export class OperationEngine {
   async start(
     kind: string,
     context?: unknown,
-    opts: { createdBy?: string } = {},
+    opts: {
+      createdBy?: string
+      /**
+       * The new operation's id, when the caller has one to name (POD-6358): an
+       * effect record's operation is named after the record, so a second
+       * dispatch or a recovery finds it instead of starting another. It must be
+       * new; the caller looks it up first.
+       */
+      id?: string
+    } = {},
   ): Promise<StartResult> {
     const def = this.deps.registry.get(kind)
     if (!def) {
@@ -255,7 +272,7 @@ export class OperationEngine {
 
     const at = this.now()
     const operation: PersistedOperation = {
-      id: this.mintId(),
+      id: opts.id ?? this.mintId(),
       kind: def.kind,
       exclusionGroup: def.exclusionGroup,
       state: 'running',
@@ -2073,7 +2090,33 @@ export class OperationEngine {
     // "what an observer reads must already be what the database holds" -- had
     // its body running AFTER announce returned. Awaiting is safe for a
     // synchronous observer, whose undefined return awaits to undefined.
-    if (row) await this.deps.onChanged?.(row, previousState)
+    if (!row) return
+    await this.deps.onChanged?.(row, previousState)
+    for (const listener of [...this.listeners]) {
+      try {
+        await listener(row, previousState)
+      } catch (err) {
+        // A listener only watches. Its failure is its own; the operation and
+        // the other listeners carry on.
+        log.warn('an operation change listener threw', {
+          operationId: row.id,
+          err: describeError(err),
+        })
+      }
+    }
+  }
+
+  /**
+   * Hear about every persisted transition, after the composition's own
+   * `onChanged` (POD-6358). The effect executors follow their operations
+   * through this: a record mirrors its operation's state as the engine
+   * persists it, never by polling. Returns the unsubscribe.
+   */
+  onChanged(listener: OperationChangeListener): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
   }
 
   private now(): number {

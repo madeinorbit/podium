@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * PERSONAL PREFERENCES AT REST, KEYED BY USER (POD-1213).
  *
@@ -45,11 +46,21 @@
  * distinguish a stored default from a choice.
  */
 
-import { settingsPathsInTier, type UserId } from '@podium/model'
-import { and, asc, eq, sql } from 'drizzle-orm'
-import { userPreferences } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import {
+  settingsPathsInTier,
+  USER_PREFERENCE_LEAVES,
+  type UserId,
+  type UserPreferencesWire,
+} from '@podium/model'
+import { asc, eq, sql } from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
 /** The admissible keys, derived once. A `Set` for the membership test only — the
  *  ORDER and the CONTENT are the classification's, never this module's. */
@@ -65,22 +76,32 @@ export const isPersonalPreferenceKey = (key: string): boolean => PERSONAL_PREFER
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const preferencesOfUser = prepared((db: StoreDrizzle) =>
+const preferencesOfUser = prepared((db, t) =>
   db
-    .select({ key: userPreferences.key, value: userPreferences.value })
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, param(userPreferences.userId, 'userId')))
+    .select({ key: t.userPreferences.key, value: t.userPreferences.value })
+    .from(t.userPreferences)
+    .where(
+      inWorkspace(
+        t.userPreferences,
+        eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')),
+      ),
+    )
     .prepare(),
 )
 
-const onePreference = () =>
-  and(
-    eq(userPreferences.userId, param(userPreferences.userId, 'userId')),
-    eq(userPreferences.key, param(userPreferences.key, 'key')),
+const onePreference = (t: StoreTables) =>
+  inWorkspace(
+    t.userPreferences,
+    eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')),
+    eq(t.userPreferences.key, param(t.userPreferences.key, 'key')),
   )
 
-const preferenceValue = prepared((db: StoreDrizzle) =>
-  db.select({ value: userPreferences.value }).from(userPreferences).where(onePreference()).prepare(),
+const preferenceValue = prepared((db, t) =>
+  db
+    .select({ value: t.userPreferences.value })
+    .from(t.userPreferences)
+    .where(onePreference(t))
+    .prepare(),
 )
 
 const preferencePlaceholders = {
@@ -90,45 +111,83 @@ const preferencePlaceholders = {
   updatedAt: sql.placeholder('updatedAt'),
 }
 
-const upsertPreference = prepared((db: StoreDrizzle) =>
+const upsertPreference = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.userPreferences)
+      .values({ workspaceId: WORKSPACE, ...preferencePlaceholders })
+      .onConflictDoUpdate({
+        target: [t.userPreferences.workspaceId, t.userPreferences.userId, t.userPreferences.key],
+        // The key columns equal the conflict target's, so the set names only the rest:
+        // Postgres change capture refuses an upsert that assigns its key (POD-6983).
+        set: { value: preferencePlaceholders.value, updatedAt: preferencePlaceholders.updatedAt },
+      }),
+  ).prepare(),
+)
+
+const deletePreference = prepared((db, t) =>
+  captureWrite(db.delete(t.userPreferences).where(onePreference(t))).prepare(),
+)
+
+const preferenceKeysOfUser = prepared((db, t) =>
   db
-    .insert(userPreferences)
-    .values(preferencePlaceholders)
-    .onConflictDoUpdate({
-      target: [userPreferences.userId, userPreferences.key],
-      set: preferencePlaceholders,
+    .select({ key: t.userPreferences.key })
+    .from(t.userPreferences)
+    .where(
+      inWorkspace(
+        t.userPreferences,
+        eq(t.userPreferences.userId, param(t.userPreferences.userId, 'userId')),
+      ),
+    )
+    .orderBy(asc(t.userPreferences.key))
+    .prepare(),
+)
+
+// Every person's preference rows: the `userPreferences` kind's full truth for
+// the boot reconcile (POD-6673).
+const allPreferenceRows = prepared((db, t) =>
+  db
+    .select({
+      userId: t.userPreferences.userId,
+      key: t.userPreferences.key,
+      value: t.userPreferences.value,
     })
+    .from(t.userPreferences)
+    .where(inWorkspace(t.userPreferences))
     .prepare(),
 )
 
-const deletePreference = prepared((db: StoreDrizzle) =>
-  db.delete(userPreferences).where(onePreference()).prepare(),
-)
-
-const preferenceKeysOfUser = prepared((db: StoreDrizzle) =>
-  db
-    .select({ key: userPreferences.key })
-    .from(userPreferences)
-    .where(eq(userPreferences.userId, param(userPreferences.userId, 'userId')))
-    .orderBy(asc(userPreferences.key))
-    .prepare(),
-)
+/** A leaf's stored JSON as the record carries it; undefined when it is not a
+ *  record leaf or does not parse as one (treated as never set, as `getFor`). */
+function leafValue(key: string, raw: string): unknown {
+  const schema = USER_PREFERENCE_LEAVES.get(key)
+  if (schema === undefined) return undefined
+  try {
+    const parsed = schema.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
 
 export class UserPreferencesRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /** `written` runs after every preference write: the settings repository's
    *  per-operation resolution is invalidated by it (POD-6218). */
-  constructor(queries: StoreQueries, private readonly written: () => void = () => {}) {
-    this.rootDb = queries.rootDb
+  constructor(
+    queries: WorkspaceQueries,
+    private readonly written: () => void = () => {},
+  ) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -206,6 +265,37 @@ export class UserPreferencesRepository {
   async clear(userId: UserId, key: string): Promise<void> {
     await deletePreference(this.db).run({ userId, key })
     this.written()
+  }
+
+  /**
+   * One person's `userPreferences` record (POD-6673): their chosen leaves,
+   * flat by path. A leaf never chosen is absent.
+   */
+  async recordFor(userId: UserId): Promise<UserPreferencesWire> {
+    const rows = await preferencesOfUser(this.db).all({ userId })
+    const record: Record<string, unknown> = { userId }
+    for (const row of rows) {
+      const value = leafValue(row.key, row.value)
+      if (value !== undefined) record[row.key] = value
+    }
+    return record as UserPreferencesWire
+  }
+
+  /** Every person's record that holds a choice, for the boot reconcile. The
+   *  one cross-user read here, and boot-only. */
+  async allRecordsForBootReconcile(): Promise<UserPreferencesWire[]> {
+    const byUser = new Map<UserId, Record<string, unknown>>()
+    for (const row of await allPreferenceRows(this.db).all()) {
+      const value = leafValue(row.key, row.value)
+      if (value === undefined) continue
+      let record = byUser.get(row.userId)
+      if (record === undefined) {
+        record = { userId: row.userId }
+        byUser.set(row.userId, record)
+      }
+      record[row.key] = value
+    }
+    return [...byUser.values()] as UserPreferencesWire[]
   }
 
   /** Every path this person has set. Scoped to one user like every other method

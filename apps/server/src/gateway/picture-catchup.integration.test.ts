@@ -261,7 +261,11 @@ describe('viewer catch-up through a real server', () => {
     const held = new Promise<void>((resolve) => {
       release = resolve
     })
-    const blocker = handle.registry.modules.sessions.repository.persist(session, () => held)
+    const blocker = handle.registry.modules.sessions.repository.persist(
+      handle.registry.modules.sessions.serverWriter,
+      session,
+      () => held,
+    )
     const bound = bind(sid, 100, 30)
     handle.registry.gateway.routeDaemonOutput(
       machineId,

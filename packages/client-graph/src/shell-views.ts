@@ -1,9 +1,10 @@
-import type { Store } from '@podium/client-core/engine'
-import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { ScreenState } from '@podium/client-core/ui'
 import type { ActiveWorktree } from '@podium/client-core/values'
 import { companion, keyedComputed, lazy } from '@podium/mobx-helpers'
+import type { MachineFacts } from '@podium/model/browser'
 import { asIssueId, asSessionId, type IssueId, type RepoId } from '@podium/model/browser'
+import { issueRefText } from '@podium/protocol'
 import { compareShallow, compareStructural } from 'mobx'
 import { headerIds } from './enumerate'
 import { headerEntities } from './header-entities'
@@ -19,19 +20,35 @@ import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Shell rules over the shared record; no copied issue summary or history list. */
 export class ShellIssueChrome {
-  constructor(readonly issue: IssueModel, private readonly pool: MobxPool) {}
-  get id() { return this.issue.id }
+  constructor(
+    readonly issue: IssueModel,
+    private readonly pool: MobxPool,
+  ) {}
+  get id() {
+    return this.issue.id
+  }
 
   @lazy get known(): Loaded<boolean> {
-    const row = omitGone(this.pool.row('issue', this.id, 'summary')) ??
-      omitGone(this.pool.row('issue', this.id))
-    if (row === LOADING) { void omitGone(this.pool.row('issue', this.id)); return LOADING }
+    const row =
+      omitGone(this.pool.row('issue', this.id)) ?? omitGone(this.pool.row('issue', this.id))
+    if (row === LOADING) {
+      void omitGone(this.pool.row('issue', this.id))
+      return LOADING
+    }
     return row ? true : undefined
   }
-  @lazy get parentId() { return this.issue.parentId }
-  @lazy get type() { return this.issue.type ?? 'task' }
-  @lazy get title() { return this.issue.authoredTitle }
-  @lazy get childCount() { return this.issue.closeChildren.childCount }
+  @lazy get parentId() {
+    return this.issue.parentId
+  }
+  @lazy get type() {
+    return this.issue.type ?? 'task'
+  }
+  @lazy get title() {
+    return this.issue.authoredTitle
+  }
+  @lazy get childCount() {
+    return this.issue.closeChildren.childCount
+  }
   @lazy private get needsPresentSessions() {
     return Boolean(this.issue.isDraftVessel && !this.issue.worktreePath)
   }
@@ -45,7 +62,7 @@ export class ShellIssueChrome {
 /** Only scalar answers and stable companions enter the shell's chrome snapshot. */
 export class ShellChrome {
   private readonly issue = companion((issue: IssueModel) => new ShellIssueChrome(issue, this.pool))
-  constructor(private readonly pool: MobxPool, private readonly sessionCount: () => number) {}
+  constructor(private readonly pool: MobxPool) {}
 
   @lazy private get missionRoot(): Loaded<ShellIssueChrome> {
     const state = omitGone(this.pool.row('shellWindow', 'window'))
@@ -63,17 +80,14 @@ export class ShellChrome {
     if (!state || state === LOADING) return LOADING
     try {
       const missionRoot = this.missionRoot
-      if (missionRoot === LOADING)
-        return LOADING
+      if (missionRoot === LOADING) return LOADING
       return {
         view: state.view,
-        reposLoaded: state.reposLoaded,
         superOpen: state.superOpen,
         paletteOpen: state.paletteOpen,
         selectedIssueId: state.selectedIssueId,
         repoCount: headerView(this.pool).repositoryCount(),
         worktreeCount: headerView(this.pool).worktreeCount(),
-        sessionCount: this.sessionCount(),
         missionRoot,
       }
     } catch (error) {
@@ -87,11 +101,15 @@ export class ShellChrome {
  * a visible (not collapsed) session whose summary is here. One row read; a
  * heartbeat's equal answer stops here. */
 export class ShellDockSession {
-  constructor(readonly session: SessionModel, private readonly pool: MobxPool) {}
+  constructor(
+    readonly session: SessionModel,
+    private readonly pool: MobxPool,
+  ) {}
   @lazy get known(): Loaded<boolean> {
     if (this.pool.queries.collapsed(this.session.id)) return undefined
     // An absent summary still needs the addressed lookup's pending/gone answer.
-    const row = omitGone(this.pool.row('session', this.session.id, 'summary-fields')) ??
+    const row =
+      omitGone(this.pool.row('session', this.session.id)) ??
       omitGone(this.pool.row('session', this.session.id))
     return row === LOADING ? LOADING : row ? true : undefined
   }
@@ -102,26 +120,34 @@ export class ShellDockSession {
  * fields, so its heartbeat re-resolves nothing; the recent-session fallback
  * stays live by design. Catalogues stay with the queue/shipping panels. */
 export class ShellDock {
-  private readonly session = companion((session: SessionModel) => new ShellDockSession(session, this.pool))
+  private readonly session = companion(
+    (session: SessionModel) => new ShellDockSession(session, this.pool),
+  )
   private readonly issue = companion((issue: IssueModel) => new ShellIssueChrome(issue, this.pool))
-  constructor(private readonly pool: MobxPool, private readonly files: () => Loaded<ShellRows['shellFile'][]>) {}
+  constructor(
+    private readonly pool: MobxPool,
+    private readonly files: () => Loaded<ShellRows['shellFile'][]>,
+  ) {}
 
   @lazy private get paneA(): Loaded<string | null> {
     const state = omitGone(this.pool.row('shellWindow', 'window'))
     return !state || state === LOADING ? LOADING : state.paneA
   }
   @lazy private get selectedFile(): Loaded<ShellRows['shellFile']> {
-    const paneA = this.paneA, files = this.files()
+    const paneA = this.paneA,
+      files = this.files()
     if (paneA === LOADING || files === LOADING) return LOADING
     return files?.find((file) => file.id === paneA)
   }
   /** The session the dock resolved its checkout from: the pane's session,
    * else (no pane session or file checkout) the most recent unarchived one. */
   @lazy get activeSession(): Loaded<SessionModel> {
-    const paneA = this.paneA, file = this.selectedFile
+    const paneA = this.paneA,
+      file = this.selectedFile
     if (paneA === LOADING || file === LOADING) return LOADING
     if (paneA && !file) {
-      const selected = this.pool.sessionObject(paneA), known = this.session(selected).known
+      const selected = this.pool.sessionObject(paneA),
+        known = this.session(selected).known
       if (known === LOADING) return LOADING
       if (known) return selected
     }
@@ -130,7 +156,8 @@ export class ShellDock {
     for (;;) {
       const id = this.pool.queries.indexed({ kind: 'headerRecentSession', excluded })[0]
       if (!id) return undefined
-      const candidate = this.pool.sessionObject(id), known = this.session(candidate).known
+      const candidate = this.pool.sessionObject(id),
+        known = this.session(candidate).known
       if (known === LOADING) return LOADING
       if (known && !candidate.archived) return candidate
       excluded.push(id)
@@ -139,7 +166,8 @@ export class ShellDock {
   @lazy({ equals: compareStructural }) get active(): Loaded<ActiveWorktree | null> {
     const session = this.activeSession
     if (session === LOADING) return LOADING
-    if (session) return { cwd: session.cwd, machineId: session.machineId, sessionId: asSessionId(session.id) }
+    if (session)
+      return { cwd: session.cwd, machineId: session.machineId, sessionId: asSessionId(session.id) }
     const tab = this.selectedFile
     if (tab === LOADING) return LOADING
     if (!tab?.worktreePath) return null
@@ -157,27 +185,34 @@ export class ShellDock {
     return id ? this.known(id) : undefined
   }
   @lazy private get attached(): Loaded<IssueModel> {
-    const active = this.active, session = this.activeSession
+    const active = this.active,
+      session = this.activeSession
     if (active === LOADING || session === LOADING) return LOADING
     const id = active?.issueId ?? session?.issueId
     return id ? this.known(id) : this.containing
   }
-  @lazy({ equals: compareStructural }) get scope(): Loaded<{ repoId: RepoId | null; repoPath: string } | null> {
+  @lazy({ equals: compareStructural }) get scope(): Loaded<{
+    repoId: RepoId | null
+    repoPath: string
+  } | null> {
     const active = this.active
     if (active === LOADING) return LOADING
     if (!active) return null
     const discovered = headerEntities(this.pool).shippingScope(active.cwd, active.machineId)
-    if (discovered) return { repoId: discovered.repoId as RepoId | null, repoPath: discovered.repoPath }
+    if (discovered)
+      return { repoId: discovered.repoId as RepoId | null, repoPath: discovered.repoPath }
     const attached = this.attached
     if (attached === LOADING) return LOADING
-    return attached ? { repoId: (attached.repoId ?? null) as RepoId | null, repoPath: attached.repoPath } : null
+    return attached
+      ? { repoId: (attached.repoId ?? null) as RepoId | null, repoPath: attached.repoPath }
+      : null
   }
   /** Explicit file attachment wins over checkout containment. */
   @lazy get gitIssue(): Loaded<IssueModel> {
     const active = this.active
     if (active === LOADING) return LOADING
     const explicit = active?.issueId ? this.known(active.issueId) : undefined
-    return explicit === LOADING ? LOADING : explicit ?? this.containing
+    return explicit === LOADING ? LOADING : (explicit ?? this.containing)
   }
   @lazy get mailIssueId(): Loaded<IssueId> {
     const session = this.activeSession
@@ -188,11 +223,14 @@ export class ShellDock {
   }
   @lazy get shipping(): Loaded<{ unfinishedCount: number; decisionCount: number }> {
     const scope = this.scope
-    return scope === LOADING ? LOADING : headerEntities(this.pool).shippingCounts(scope?.repoId ?? null)
+    return scope === LOADING
+      ? LOADING
+      : headerEntities(this.pool).shippingCounts(scope?.repoId ?? null)
   }
 
   private known(id: string): Loaded<IssueModel> {
-    const issue = this.pool.issueObject(id), known = this.issue(issue).known
+    const issue = this.pool.issueObject(id),
+      known = this.issue(issue).known
     return known === LOADING ? LOADING : known ? issue : undefined
   }
 }
@@ -209,7 +247,7 @@ function createShellViews(pool: MobxPool) {
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   const window = () => omitGone(pool.row('shellWindow', 'window'))
   const catalog = () => omitGone(pool.row('shellCatalog', 'catalog'))
-  function records<E extends 'shellApproval' | 'shellFile' | 'shellShipLane'>(
+  function records<E extends 'shellFile' | 'shellShipLane'>(
     entity: E,
     ids: readonly string[],
   ): Loaded<ShellRows[E][]> {
@@ -222,27 +260,29 @@ function createShellViews(pool: MobxPool) {
     return values
   }
   function issue(id: string, full = false): Loaded<ShellIssue> {
-    const value = omitGone(pool.row('issue', id, full ? 'load' : 'summary'))
-    if (value === LOADING) {
-      void omitGone(pool.row('issue', id))
-      return LOADING
-    }
+    const value = omitGone(pool.row('issue', id))
+    if (value === LOADING) return LOADING
     if (!value) return undefined
     const input = value as unknown as Record<string, unknown>,
       repoId = input.repoId as string | undefined
-    const repo = repoId ? (here(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
+    const repo = repoId
+      ? (here(pool.row('repo', repoId)) as { prefix?: string } | undefined)
+      : undefined
     const prefix = repo?.prefix
+    // The full issue carries its panel (artifact links resolve against it). It
+    // holds ordered shared artifact models, available with the synced records.
+    let body: { panel?: unknown } = {}
+    if (full) {
+      const model = pool.issueObject(id)
+      body = model.panel ? { panel: model.panel } : {}
+    }
     return {
       ...(full ? input : Object.fromEntries(SHELL_SUMMARIES.issue.map((key) => [key, input[key]]))),
+      ...body,
       id,
       prefix,
-      displayRef: prefix ? `${prefix}-${input.seq}` : `#${input.seq}`,
+      displayRef: issueRefText(input.seq as number, prefix),
     } as unknown as ShellIssue
-  }
-  function sessions(): Loaded<SessionView[]> {
-    return pool.queries.project({ kind: 'shellSessions' }, 'shell.sessions', session, {
-      order: (id) => pool.queries.orderKey(id),
-    })
   }
   function linkedIssue(identifier: string): Loaded<ShellIssue> {
     const id = pool.queries.linkedIssueId(identifier)
@@ -255,29 +295,19 @@ function createShellViews(pool: MobxPool) {
   function session(id: string): Loaded<SessionView> {
     return memo(`session:${id}`, () => {
       if (pool.queries.collapsed(id)) return undefined
-      const row = omitGone(pool.row('session', id, 'summary-fields'))
+      const row = omitGone(pool.row('session', id))
       if (row === LOADING) return LOADING
       return row
         ? (Object.fromEntries(
-            SHELL_SUMMARIES.session.map((key) => [key, (row as unknown as Record<string, unknown>)[key]]),
+            SHELL_SUMMARIES.session.map((key) => [
+              key,
+              (row as unknown as Record<string, unknown>)[key],
+            ]),
           ) as unknown as SessionView)
         : undefined
     })
   }
-  function sessionCount(): number {
-    return pool.queries.setupSessionCount()
-  }
-  function issues(): Loaded<IssueViewModel[]> {
-    return memo('issues', () => {
-      const values: IssueViewModel[] = []
-      for (const id of pool.queries.ids({ kind: 'shellIssues' }).sort()) {
-        const row = issue(id)
-        if (row === LOADING) return LOADING
-        if (row) values.push(row as IssueViewModel)
-      }
-      return values
-    })
-  }
+
   function repositories(): HeaderRows['repository'][] {
     return memo('repositories', () =>
       headerIds(pool, 'repository').flatMap((id) => {
@@ -286,17 +316,9 @@ function createShellViews(pool: MobxPool) {
       }),
     )
   }
-  function machines(): Store['machines'] {
-    return memo('machines', () =>
-      headerIds(pool, 'machine').flatMap((id) => {
-        const value = here(pool.model('machine', id))
-        return value ? [value] : []
-      }),
-    )
-  }
-  function approvals() {
-    const keys = catalog()
-    return !keys || keys === LOADING ? LOADING : records('shellApproval', keys.approvals)
+  /** My fleet's machine models (POD-6644): the header's one answer. */
+  function machines(): MachineFacts[] {
+    return memo('machines', () => headerView(pool).machines())
   }
   function files() {
     const keys = catalog()
@@ -337,9 +359,11 @@ function createShellViews(pool: MobxPool) {
       return layout === LOADING ? LOADING : { workspaceKey: key, layout, fileTabs }
     })
   }
-  const shellChrome = new ShellChrome(pool, sessionCount)
+  const shellChrome = new ShellChrome(pool)
   const shellDock = new ShellDock(pool, files)
-  function chrome() { return shellChrome.value }
+  function chrome() {
+    return shellChrome.value
+  }
   function windowSnapshot() {
     return memo('window', () => {
       const state = window()
@@ -348,14 +372,11 @@ function createShellViews(pool: MobxPool) {
   }
   return {
     window: windowSnapshot,
-    approvals,
     files,
     lanes,
-    sessions,
     session,
     linkedIssue,
     linkedSession,
-    issues,
     issue,
     machines,
     repositories,

@@ -1,165 +1,136 @@
-import { ingestSettings } from './requested-record-source'
-import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { ClientRuntime, HeaderInputKey, KeyedListChange } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { observe, runInAction } from 'mobx'
 import { allResidentSessions } from './enumerate'
-import {
-  HEADER_SCHEMA,
-  type HeaderEntity,
-  type HeaderRecord,
-  type HeaderRows,
-} from './header-schema'
+import { headerEntities } from './header-entities'
+import { attachHeaderRequests, type HeaderRequestsApi } from './header-requests'
+import type { HeaderEntity, HeaderRecord, HeaderRows } from './header-schema'
+import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
-import { createFieldInputs } from './shared/field-inputs'
+import { bindCheckoutRecords, checkoutRepositoryId } from './shared/checkout-repositories'
 
-/** Read-side bridge owned by the existing StoreProvider attachment. The metric
- * channels never subscribe to snapshots. Network samples arrive from the
- * runtime service; this adapter owns neither network calls nor timers. */
+/** Read-side bridge owned by the existing StoreProvider attachment. Live
+ * readings (metrics, quota, connection) are not copied here: they are
+ * LiveStore conditions (POD-5798). The header's two request answers belong to
+ * {@link HeaderRequests}, which only a mounted header retains. */
 export function attachHeaderSource<TApi extends PodiumClientApi>(
   pool: MobxPool,
   runtime: ClientRuntime<TApi>,
 ): () => void {
-  let disposed = false
-  const known = new Map<HeaderEntity, Set<string>>()
-  function replace(entity: HeaderEntity, entries: readonly (readonly [string, object])[]): void {
-    if (disposed) return
-    const next = new Set(entries.map(([id]) => id))
-    const records = entries.map(([id, value]) => ({ kind: entity, id, value })) as HeaderRecord[]
-    runInAction(() => {
-      // A previous apply may have thrown after writing some rows. Reconcile
-      // the actual table so its next successful sample removes those leftovers.
-      // The keys() read is observable state: it stays inside this action so
-      // the strict diagnostic trap (observableRequiresReaction) stays quiet.
-      for (const id of headerEntities(pool).tables[entity].keys()) {
-        if (!next.has(id)) records.push({ kind: entity, id, value: undefined })
-      }
-      headerEntities(pool).apply(records)
-      headerEntities(pool).order(entity, [...next])
-    })
-    known.set(entity, next)
-  }
-  // Keyed (POD-5433): machines and repos arrive by id, with only the rows
-  // that changed; the window wakes on its own four locals.
-  function keyed(
-    entity: 'machine' | 'repository',
-    name: 'machines' | 'repos',
-    change?: KeyedListChange,
-  ): void {
-    if (disposed) return
-    const ids = change === undefined || change.order ? runtime.listIds(name) : undefined
-    const changed = change === undefined ? ids! : [...change.ids]
-    const records = changed.map((id) => ({
-      kind: entity,
-      id,
-      value: runtime.listRow(name, id),
-    })) as HeaderRecord[]
-    runInAction(() => {
-      // Live machine rows win over their feed companions (POD-5661, POD-5704);
-      // repositories have no companions and apply directly.
-      if (entity === 'machine') pool.ingestLiveMachines(records)
-      else headerEntities(pool).apply(records)
-      if (ids) headerEntities(pool).order(entity, ids)
-    })
-  }
-  const windowKeys = HEADER_SCHEMA.window.fields
-  const inputs = createFieldInputs<HeaderRows['window']>(windowKeys, {}, 'headerWindow')
-  function locals(changed?: ReadonlySet<string>): void {
-    runInAction(() => {
-      for (const key of windowKeys)
-        if (!changed || changed.has(key)) inputs.set(key, runtime.readLocal(key))
-    })
-  }
-  function metrics(): void {
-    replace(
-      'hostMetric',
-      runtime.hostMetrics
-        .getSnapshot()
-        .map((metric) => [metric.machineId ?? metric.hostname, metric]),
-    )
-  }
-  function shipping(): void {
-    replace(
-      'shipOrder',
-      runtime.replica.rows('shipOrders').map((order) => [order.id, order]),
-    )
-  }
-  function sample(key: HeaderInputKey): void {
-    if (disposed) return
-    try {
-      if (key === 'quota') {
-        const rows = runtime.headerInputs.read('quota')
-        if (!rows) return
-        replace('quota', rows.map(row => [row.machineId, row]))
-        headerEntities(pool).received.quotas = rows
-      } else if (key === 'history') {
-        const reading = runtime.headerInputs.read('history')
-        if (!reading) return
-        replace('history', [['fleet', reading]])
-        headerEntities(pool).received.history = reading
-      } else {
-        const settings = runtime.headerInputs.read('lifecycle')
-        if (!settings) return
-        ingestSettings(pool, settings)
-        replace('lifecycle', [['hosts', settings]])
-        headerEntities(pool).received.lifecycle = settings
-      }
-    } catch (error) {
-      pool.diagnostics.report(`header:${key}`, error)
+  return runInAction(() => {
+    bindCheckoutRecords(pool, runtime.replica)
+    let disposed = false
+    const known = new Map<HeaderEntity, Set<string>>()
+    function replace(entity: HeaderEntity, entries: readonly (readonly [string, object])[]): void {
+      if (disposed) return
+      const next = new Set(entries.map(([id]) => id))
+      const records = entries.map(([id, value]) => ({ kind: entity, id, value })) as HeaderRecord[]
+      runInAction(() => {
+        // A previous apply may have thrown after writing some rows. Reconcile
+        // the actual table so its next successful sample removes those leftovers.
+        // The keys() read is observable state: it stays inside this action so
+        // the strict diagnostic trap (observableRequiresReaction) stays quiet.
+        for (const id of headerEntities(pool).tables[entity].keys()) {
+          if (!next.has(id)) records.push({ kind: entity, id, value: undefined })
+        }
+        headerEntities(pool).apply(records)
+        headerEntities(pool).order(entity, [...next])
+      })
+      known.set(entity, next)
     }
-  }
-  runInAction(() => {
-    for (const [id, row] of allResidentSessions(pool)) headerEntities(pool).change('session', id, row)
-  })
-  const offSessions = observe(pool.tables.session, (change) => {
-    headerEntities(pool).change(
-      'session',
-      change.name,
-      change.type === 'delete'
-        ? undefined
-        : (omitGone(pool.row('session', change.name)) as object | undefined),
-    )
-  })
-  keyed('machine', 'machines')
-  keyed('repository', 'repos')
-  locals()
-  replace('window', [['window', inputs.row]])
-  metrics()
-  shipping()
-  replace('connection', [['server', runtime.hub.connectionHealth()]])
-  const stops = [
-    offSessions,
-    runtime.replica.subscribeAddressedBatch!((batch) => {
-      if (batch.type === 'replace') {
-        shipping()
-        return
+    // Machines are feed records (the row source installs them). Repositories
+    // are derived from the `checkout` records (POD-6644).
+    let repositoriesFrom: unknown
+    const written = new Map<string, string>()
+    function repositories(): void {
+      const rows = runtime.replica.rows('checkouts')
+      if (rows === repositoriesFrom) return
+      repositoriesFrom = rows
+      pool.checkoutRecordsChanged()
+      // One derivation pass per checkout change (they are rare: a worktree made
+      // or removed, a branch checked out), but only the repositories whose facts
+      // moved are written, so one change redraws one repository row.
+      const next = pool.checkoutRepositories
+      const keep = new Set<string>()
+      const records: HeaderRecord[] = []
+      for (const repo of next) {
+        const id = checkoutRepositoryId(repo)
+        const shape = JSON.stringify(repo)
+        keep.add(id)
+        if (written.get(id) === shape && headerEntities(pool).tables.repository.has(id)) continue
+        written.set(id, shape)
+        records.push({ kind: 'repository', id, value: repo } as HeaderRecord)
       }
-      const records: HeaderRecord<'shipOrder'>[] = []
-      const ids = known.get('shipOrder')!
-      for (const record of batch.rows) {
-        if (record.kind !== 'shipOrders') continue
-        const value = runtime.replica.row!('shipOrders', record.id)
-        if (value) ids.add(record.id)
-        else ids.delete(record.id)
-        records.push({ kind: 'shipOrder', id: record.id, value })
-      }
-      headerEntities(pool).apply(records)
-    }),
-    runtime.onLocals(windowKeys, locals),
-    runtime.onList('machines', (change) => keyed('machine', 'machines', change)),
-    runtime.onList('repos', (change) => keyed('repository', 'repos', change)),
-    runtime.hostMetrics.subscribe(metrics),
-    runtime.hub.onConnectionHealth((health) => replace('connection', [['server', health]])),
-  ]
-  for (const key of ['quota', 'history', 'lifecycle'] as const) {
-    stops.push(runtime.headerInputs.onInput(key, () => sample(key)))
-    sample(key)
-  }
-  return () => {
-    if (disposed) return
-    disposed = true
-    for (const stop of stops) stop()
-    known.clear()
-  }
+      if (disposed) return
+      runInAction(() => {
+        // Also reconcile the table itself: an earlier apply may have thrown.
+        for (const id of headerEntities(pool).tables.repository.keys())
+          if (!keep.has(id))
+            records.push({ kind: 'repository', id, value: undefined } as HeaderRecord)
+        for (const id of [...written.keys()]) if (!keep.has(id)) written.delete(id)
+        if (records.length) headerEntities(pool).apply(records)
+        headerEntities(pool).order('repository', [...keep])
+      })
+      known.set('repository', keep)
+    }
+    const window = Object.defineProperties(
+      {},
+      {
+        view: { enumerable: true, get: () => runtime.ui.view },
+        paneA: { enumerable: true, get: () => runtime.ui.paneA },
+        fileTabs: { enumerable: true, get: () => runtime.ui.fileTabList },
+      },
+    ) as HeaderRows['window']
+    function shipping(): void {
+      replace(
+        'shipOrder',
+        runtime.replica.rows('shipOrders').map((order) => [order.id, order]),
+      )
+    }
+    runInAction(() => {
+      for (const [id, row] of allResidentSessions(pool))
+        headerEntities(pool).change('session', id, row)
+    })
+    const offSessions = observe(pool.tables.session, (change) => {
+      headerEntities(pool).change(
+        'session',
+        change.name,
+        change.type === 'delete'
+          ? undefined
+          : (omitGone(pool.row('session', change.name)) as object | undefined),
+      )
+    })
+    repositories()
+    replace('window', [['window', window]])
+    shipping()
+    attachHeaderRequests(pool, runtime.api as unknown as HeaderRequestsApi)
+    const stops = [
+      offSessions,
+      runtime.replica.subscribeAddressedBatch!((batch) => {
+        if (batch.type === 'replace') {
+          shipping()
+          repositories()
+          return
+        }
+        if (batch.rows.some((record) => record.kind === 'checkouts')) repositories()
+        const records: HeaderRecord<'shipOrder'>[] = []
+        const ids = known.get('shipOrder')!
+        for (const record of batch.rows) {
+          if (record.kind !== 'shipOrders') continue
+          const value = runtime.replica.row!('shipOrders', record.id)
+          if (value) ids.add(record.id)
+          else ids.delete(record.id)
+          records.push({ kind: 'shipOrder', id: record.id, value })
+        }
+        headerEntities(pool).apply(records)
+      }),
+    ]
+    return () =>
+      runInAction(() => {
+        if (disposed) return
+        disposed = true
+        for (const stop of stops) stop()
+        known.clear()
+      })
+  })
 }

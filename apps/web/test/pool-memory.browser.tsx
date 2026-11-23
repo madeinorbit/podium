@@ -5,15 +5,15 @@
  * analyzer uses as ownership barriers. The analyzer never follows the
  * holder's own edges, so holding them changes no liveness. */
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useRuntimeSelector, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime, useUi, useUiValue } from '@podium/client-core/react'
 import {
   createKernelReplica,
   createSideCache,
   replicaNamespaceKey,
   retainReplicaEntity,
 } from '@podium/client-core/replica'
+import { type ClientRuntime, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
 import { asUserId } from '@podium/model/browser'
@@ -49,11 +49,6 @@ document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 
 const answers: Record<string, unknown> = {
-  'discovery.refreshRepos.mutate': {
-    repositories: corpus.repos,
-    machines: corpus.machines,
-    diagnostics: [],
-  },
   'settings.get.query': {
     sessionDefaults: { agent: 'codex' },
     roles: { coding: { startScreen: 'chat' } },
@@ -84,7 +79,7 @@ const apiAt = (path: string[] = []): unknown =>
   })
 const api = apiAt() as PodiumClientApi
 let seedRecords: ReturnType<ReturnType<typeof seedCacheFromCorpus>['readEntities']> | null =
-  seedCacheFromCorpus(corpus).readEntities()
+  seedCacheFromCorpus(corpus, { principal: 'acceptance-alice' }).readEntities()
 const database = await IndexedDbSyncStore.open({
   factory: indexedDB as unknown as Parameters<typeof IndexedDbSyncStore.open>[0]['factory'],
   databaseName: 'pool-memory-synthetic',
@@ -125,16 +120,15 @@ async function assemble(name: string) {
 const assembly = await assemble('acceptance-alice')
 
 function Fixture() {
-  const runtime = useStoreHandle() as ClientRuntime
+  const runtime = useClientRuntime() as ClientRuntime
   const pool = useWorklistPool()
-  const selected = useRuntimeSelector((s) => s.selectedIssueId)
+  const selected = useUiValue('selectedIssueId')
   owner = runtime
   graph = pool
   useEffect(() => {
     ready = false
-    void runtime.access.refreshRepos().then(() => {
-      ready = pool !== null
-    })
+    // Repositories and machines are in the seeded records (POD-6644).
+    ready = pool !== null
     return () => {
       ready = false
     }

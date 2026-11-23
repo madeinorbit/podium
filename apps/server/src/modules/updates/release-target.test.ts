@@ -1,4 +1,13 @@
+import {
+  fetchFromReleaseOrigin,
+  MIRROR_RELEASE_ORIGIN,
+  PRIMARY_RELEASE_ORIGIN,
+  RELEASE_ORIGINS,
+  releaseChannelPath,
+  releaseUrl,
+} from '@podium/runtime/release-origins'
 import { describe, expect, it, vi } from 'vitest'
+import { ReleasePublicationPendingError } from './feed-errors'
 import {
   type ChannelFeed,
   desktopManifestFeedChannel,
@@ -23,6 +32,79 @@ const DEV_FEED: ChannelFeed = {
   trust: 'instance',
   headers: { authorization: 'Bearer machine-token' },
 }
+
+describe('release origin failover', () => {
+  it('binds a mirror product manifest and companion to the mirror without artifact probes', async () => {
+    const artifact = releaseUrl(releaseChannelPath('edge') + 'headless.tgz', MIRROR_RELEASE_ORIGIN)
+    const release = { ...releaseManifest('1.0.0', artifact), minRequired: { desktop: '1.0.0' } }
+    const mirrorManifest = releaseUrl(
+      releaseChannelPath('edge') + 'podium-update.json',
+      MIRROR_RELEASE_ORIGIN,
+    )
+    const mirrorDesktop = releaseUrl(
+      releaseChannelPath('edge') + 'latest.json',
+      MIRROR_RELEASE_ORIGIN,
+    )
+    const fetchImpl = vi.fn<typeof fetch>(async (url, init) => {
+      if (String(url) === releaseManifestUrl('edge')) return new Response(null, { status: 504 })
+      if (String(url) === mirrorManifest) return json(release)
+      if (String(url) === mirrorDesktop)
+        return json({
+          ...desktopManifest('1.0.0'),
+          platforms: {
+            'darwin-aarch64': {
+              url: releaseUrl('download/edge/Podium.app.tar.gz', MIRROR_RELEASE_ORIGIN),
+              signature: 'DESKTOP-SIGNATURE',
+            },
+          },
+        })
+      if (String(url) === artifact && init?.method === 'HEAD') return new Response(null)
+      throw new Error(`unexpected URL ${url}`)
+    })
+    const target = await resolveReleaseTarget('edge', { fetch: fetchImpl })
+    expect(target.artifacts.headless?.platforms['linux-x86_64']?.url).toBe(artifact)
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      releaseManifestUrl('edge'),
+      mirrorManifest,
+      mirrorDesktop,
+    ])
+    expect(target.trust).toBe('release')
+  })
+
+  for (const serving of RELEASE_ORIGINS) {
+    for (const other of RELEASE_ORIGINS.filter((origin) => origin !== serving)) {
+      it(`${serving.id} cannot name ${other.id} artifacts`, async () => {
+        const foreign = releaseUrl(releaseChannelPath('edge') + 'headless.tgz', other)
+        const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+          String(url) === releaseUrl(releaseChannelPath('edge') + 'podium-update.json', serving)
+            ? json(releaseManifest('1.0.0', foreign))
+            : new Response(null, { status: 504 }),
+        )
+        await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
+          'outside the edge feed',
+        )
+        expect(fetchImpl.mock.calls.every(([, init]) => init?.method !== 'HEAD')).toBe(true)
+      })
+    }
+  }
+
+  it('resolves relative artifact paths only against the serving origin', async () => {
+    const manifestUrl = releaseUrl(
+      releaseChannelPath('edge') + 'podium-update.json',
+      MIRROR_RELEASE_ORIGIN,
+    )
+    const fetchImpl = vi.fn<typeof fetch>(async (url) => {
+      if (String(url) === releaseManifestUrl('edge')) return new Response(null, { status: 504 })
+      if (String(url) === manifestUrl)
+        return json(releaseManifest('1.0.0', 'download/edge/headless.tgz'))
+      return new Response(null)
+    })
+    const result = await resolveReleaseTarget('edge', { fetch: fetchImpl })
+    expect(result.artifacts.headless?.platforms['linux-x86_64']?.url).toBe(
+      releaseUrl('download/edge/headless.tgz', MIRROR_RELEASE_ORIGIN),
+    )
+  })
+})
 
 function releaseManifest(version = '0.4.2', url = HEADLESS_URL) {
   return {
@@ -104,7 +186,7 @@ function fetchFixture(input: {
   })
 }
 
-/** The dev feed answers only its own manifest; everything else is an artifact HEAD. */
+/** The private dev feed authenticates its single discovery request. */
 function devFetchFixture(input: {
   release?: unknown
   artifactStatus?: Partial<Record<string, number>>
@@ -119,25 +201,13 @@ function devFetchFixture(input: {
 }
 
 describe('resolveReleaseTarget', () => {
-  it('publishes the target once the headless artifacts it names exist', async () => {
+  it('resolves a published manifest with one request and no artifact probes', async () => {
     const fetchImpl = fetchFixture({})
-
     await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
       version: '0.4.2',
     })
-
-    expect(fetchImpl).toHaveBeenCalledTimes(2)
-    const calls = fetchImpl.mock.calls
-    expect(calls.map(([url]) => String(url))).toEqual([releaseManifestUrl('edge'), HEADLESS_URL])
-    expect(calls.slice(0, 1).every(([, init]) => init?.cache === 'no-store')).toBe(true)
-    expect(
-      calls
-        .slice(1)
-        .every(
-          ([, init]) =>
-            init?.method === 'HEAD' && init?.cache === 'no-store' && init?.redirect === 'manual',
-        ),
-    ).toBe(true)
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([releaseManifestUrl('edge')])
+    expect(fetchImpl.mock.calls[0]?.[1]?.cache).toBe('no-store')
   })
 
   it('offers the headless payload when no desktop build was ever published', async () => {
@@ -256,37 +326,73 @@ describe('resolveReleaseTarget', () => {
     )
   })
 
-  it('does not advertise a target whose headless artifact is not fetchable', async () => {
+  it('does not probe a missing named artifact during discovery', async () => {
     const fetchImpl = fetchFixture({ artifactStatus: { [HEADLESS_URL]: 404 } })
-
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      'headless linux-x86_64 artifact returned HTTP 404',
-    )
-  })
-
-  // A release now names four headless platforms, both Darwin ones included
-  // [spec:SP-6144 section 8b]. The resolver reads whatever the manifest declares rather
-  // than a list of its own, so widening the set needed no change here — these two tests
-  // are what turn that from an assumption into something checked.
-  it('checks every platform a four-platform release names', async () => {
-    const fetchImpl = fetchFixture({ release: fourPlatformManifest() })
-
     await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
       version: '0.4.2',
     })
-    const asked = fetchImpl.mock.calls.map(([url]) => String(url))
-    for (const url of Object.values(FOUR_PLATFORM_URLS)) expect(asked).toContain(url)
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([releaseManifestUrl('edge')])
   })
 
-  it('does not advertise a release whose darwin artifact is missing from the page', async () => {
+  it('retains all four platform descriptors without requesting any artifact', async () => {
     const fetchImpl = fetchFixture({
       release: fourPlatformManifest(),
       artifactStatus: { [FOUR_PLATFORM_URLS['darwin-aarch64'] as string]: 404 },
     })
-
-    await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-      'headless darwin-aarch64 artifact returned HTTP 404',
+    const target = await resolveReleaseTarget('edge', { fetch: fetchImpl })
+    expect(Object.keys(target.artifacts.headless?.platforms ?? {}).sort()).toEqual(
+      Object.keys(FOUR_PLATFORM_URLS).sort(),
     )
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([releaseManifestUrl('edge')])
+  })
+
+  it('stops an unchanged manifest before rechecking its companion', async () => {
+    const fetchImpl = fetchFixture({
+      release: { ...releaseManifest(), minRequired: { desktop: '0.4.2' } },
+    })
+    const previous = await resolveReleaseTarget('edge', { fetch: fetchImpl })
+    fetchImpl.mockClear()
+    expect(await resolveReleaseTarget('edge', { fetch: fetchImpl, previous })).toBe(previous)
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([releaseManifestUrl('edge')])
+  })
+
+  it('rechecks a same-version manifest when its digest changes', async () => {
+    const release = { ...releaseManifest(), minRequired: { desktop: '0.4.2' } }
+    const fetchImpl = fetchFixture({ release })
+    const previous = await resolveReleaseTarget('edge', { fetch: fetchImpl })
+    release.artifacts.headless.platforms['linux-x86_64'].digest = 'sha256-republished'
+    fetchImpl.mockClear()
+    const changed = await resolveReleaseTarget('edge', { fetch: fetchImpl, previous })
+    expect(changed.artifacts.headless?.platforms['linux-x86_64']?.digest).toBe('sha256-republished')
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
+      releaseManifestUrl('edge'),
+      desktopReleaseManifestUrl('edge'),
+    ])
+  })
+
+  it.each([
+    404, 503,
+  ])('uses short publication retry only for a required companion 404 (%s)', async (status) => {
+    const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+      String(url) === releaseManifestUrl('edge')
+        ? json({ ...releaseManifest(), minRequired: { desktop: '0.4.2' } })
+        : new Response(null, { status }),
+    )
+    const error = await resolveReleaseTarget('edge', { fetch: fetchImpl }).catch(
+      (error: unknown) => error,
+    )
+    expect(error instanceof ReleasePublicationPendingError).toBe(status === 404)
+    expect(error).toBeInstanceOf(Error)
+  })
+
+  it('validates trust even when the previous target has the same version and bytes', async () => {
+    const previous = await resolveReleaseTarget('edge', { fetch: fetchFixture({}) })
+    await expect(
+      resolveReleaseTarget('edge', {
+        previous,
+        fetch: fetchFixture({ release: { ...releaseManifest(), trust: 'instance' } }),
+      }),
+    ).rejects.toThrow('declared its own trust root')
   })
 })
 
@@ -313,13 +419,8 @@ describe('resolveReleaseTarget trust root', () => {
       resolveReleaseTarget('dev', { fetch: fetchImpl, feed: DEV_FEED }),
     ).resolves.toMatchObject({ version: '0.1.2-dev.4+abc1234', trust: 'instance' })
 
-    // Manifest AND artifact HEAD both authenticated: the dev feed is 401-first,
-    // and a resolver that authenticated only the manifest would resolve targets
-    // whose artifacts nothing could actually fetch.
-    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([
-      DEV_FEED.manifestUrl,
-      DEV_ARTIFACT_URL,
-    ])
+    // Discovery authenticates the manifest and makes no artifact requests.
+    expect(fetchImpl.mock.calls.map(([url]) => String(url))).toEqual([DEV_FEED.manifestUrl])
     for (const [, init] of fetchImpl.mock.calls) {
       expect((init?.headers as Record<string, string>)?.authorization).toBe('Bearer machine-token')
     }
@@ -400,175 +501,51 @@ describe('resolveReleaseTarget trust root', () => {
     it('REFUSES an artifact URL that does not parse', async () => {
       await expectRefusedAtResolve('https://[broken')
     })
-
-    /**
-     * CONTAINMENT AT FETCH TIME. The named URL sits inside the fence; the
-     * transport then follows a 302 to another origin. Default `fetch` follows
-     * redirects, so the URL we validated is not the URL we HEAD. A feed
-     * serving its own artifacts has no reason to send us off-origin.
-     */
-    it('REFUSES an in-feed artifact that redirects to another origin', async () => {
-      const attacker = 'https://attacker.example/x.tar.gz'
-      const fetchImpl = vi.fn<typeof fetch>(async (request, init) => {
-        const url = String(request)
-        if (url === releaseManifestUrl('edge')) return json(releaseManifest())
-        if (url === desktopReleaseManifestUrl('edge')) return json(desktopManifest())
-        if (url === HEADLESS_URL) {
-          const mode = init?.redirect ?? 'follow'
-          if (mode === 'follow') {
-            // Default fetch would request Location next. Returning 200 here is
-            // that hop succeeding against the attacker, without a recursive
-            // mock that TypeScript cannot type.
-            return new Response(null, { status: 200 })
-          }
-          if (mode === 'error') throw new TypeError('Failed to fetch')
-          return new Response(null, { status: 302, headers: { location: attacker } })
-        }
-        if (url === attacker) return new Response(null, { status: 200 })
-        return new Response(null, { status: 200 })
-      })
-
-      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-        /headless linux-x86_64 artifact redirected outside the edge feed/,
-      )
-      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(attacker)
-    })
   })
 
-  /**
-   * REDIRECTS ARE PER CHANNEL. Dev never follows: it is this server serving
-   * its own artifacts. Edge and stable follow GitHub's object-host hop, and
-   * only that hop — bounded, https, whole-host allowlist.
-   */
-  describe('artifact redirect hops', () => {
-    const GITHUB_OBJECT =
-      'https://objects.githubusercontent.com/github-production-release-asset/x.tar.gz'
-
-    const edgeFetch = (onHeadless: (init?: RequestInit) => Response) =>
-      vi.fn<typeof fetch>(async (request, init) => {
-        const url = String(request)
-        if (url === releaseManifestUrl('edge')) return json(releaseManifest())
-        if (url === desktopReleaseManifestUrl('edge')) return json(desktopManifest())
-        if (url === HEADLESS_URL) return onHeadless(init)
-        return new Response(null, { status: 200 })
-      })
-
-    it('REFUSES a dev-feed artifact that redirects anywhere, including inside the feed', async () => {
-      const inFeed = `${DEV_ORIGIN}/updates/feed/dev/other.tar.gz`
-      const fetchImpl = vi.fn<typeof fetch>(async (request, init) => {
-        const url = String(request)
-        if (url === DEV_FEED.manifestUrl) {
-          return json(releaseManifest('0.1.2-dev.4+abc1234', DEV_ARTIFACT_URL))
-        }
-        if (url === DEV_ARTIFACT_URL) {
-          const mode = init?.redirect ?? 'follow'
-          if (mode === 'follow') return new Response(null, { status: 200 })
-          return new Response(null, { status: 302, headers: { location: inFeed } })
-        }
-        if (url === inFeed) return new Response(null, { status: 200 })
-        return new Response(null, { status: 200 })
-      })
-
+  // Discovery no longer touches artifact URLs. Redirect trust is enforced by the
+  // shared transport when an artifact is actually downloaded.
+  describe('artifact download redirect policy', () => {
+    const object = 'https://objects.githubusercontent.com/github-production-release-asset/x.tar.gz'
+    it.each(
+      PRIMARY_RELEASE_ORIGIN.redirectHosts,
+    )('accepts an allowed %s redirect', async (host) => {
+      const destination = `https://${host}/payload.tar.gz`
+      const fetchImpl = vi.fn<typeof fetch>(async (url) =>
+        String(url) === HEADLESS_URL
+          ? new Response(null, { status: 302, headers: { location: destination } })
+          : new Response(null),
+      )
       await expect(
-        resolveReleaseTarget('dev', { fetch: fetchImpl, feed: DEV_FEED }),
-      ).rejects.toThrow(/redirect/)
-      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(inFeed)
+        fetchFromReleaseOrigin(HEADLESS_URL, PRIMARY_RELEASE_ORIGIN, {}, fetchImpl),
+      ).resolves.toHaveProperty('status', 200)
+      expect(fetchImpl.mock.calls.map(([url]) => String(url))).toContain(destination)
     })
-
-    it('ACCEPTS a release-channel hop from github.com to objects.githubusercontent.com', async () => {
-      const fetchImpl = vi.fn<typeof fetch>(async (request, init) => {
-        const url = String(request)
-        if (url === releaseManifestUrl('edge')) return json(releaseManifest())
-        if (url === desktopReleaseManifestUrl('edge')) return json(desktopManifest())
-        if (url === HEADLESS_URL) {
-          expect(init?.redirect).toBe('manual')
-          return new Response(null, { status: 302, headers: { location: GITHUB_OBJECT } })
-        }
-        if (url === GITHUB_OBJECT) return new Response(null, { status: 200 })
-        return new Response(null, { status: 200 })
-      })
-
-      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
-        version: '0.4.2',
-      })
-      expect(fetchImpl.mock.calls.map(([request]) => String(request))).toContain(GITHUB_OBJECT)
-    })
-
-    it('ACCEPTS the hop GitHub serves releases through today (release-assets)', async () => {
-      // What github.com/<repo>/releases/download/... actually 302s to as of 2026: an
-      // install that refused this host could never resolve another release.
-      const releaseAssets =
-        'https://release-assets.githubusercontent.com/github-production-release-asset/1/x?sp=r'
-      const fetchImpl = edgeFetch(
-        () => new Response(null, { status: 302, headers: { location: releaseAssets } }),
+    it.each([
+      'https://objects.githubusercontent.com.evil.example/a',
+      'https://attacker.example/a',
+      'http://objects.githubusercontent.com/a',
+      'https://user:pw@objects.githubusercontent.com/a',
+      'https://objects.githubusercontent.com:444/a',
+    ])('refuses an unsafe artifact redirect %s', async (destination) => {
+      const fetchImpl = vi.fn<typeof fetch>(
+        async () => new Response(null, { status: 302, headers: { location: destination } }),
       )
-
-      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
-        version: '0.4.2',
-      })
-      expect(fetchImpl.mock.calls.map(([request]) => String(request))).toContain(releaseAssets)
+      await expect(
+        fetchFromReleaseOrigin(HEADLESS_URL, PRIMARY_RELEASE_ORIGIN, {}, fetchImpl),
+      ).rejects.toThrow('redirected outside')
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
     })
-
-    it('REFUSES a release-channel hop to a lookalike of the object host', async () => {
-      const lookalike = 'https://objects.githubusercontent.com.evil.example/x.tar.gz'
-      const fetchImpl = edgeFetch(
-        () => new Response(null, { status: 302, headers: { location: lookalike } }),
+    it('caps redirect chains', async () => {
+      const fetchImpl = vi.fn<typeof fetch>(
+        async () => new Response(null, { status: 302, headers: { location: object } }),
       )
-
-      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-        /redirected outside the edge feed/,
-      )
-      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(lookalike)
+      await expect(
+        fetchFromReleaseOrigin(HEADLESS_URL, PRIMARY_RELEASE_ORIGIN, {}, fetchImpl),
+      ).rejects.toThrow('invalid release redirect')
     })
-
-    it('REFUSES a redirect chain longer than the hop cap', async () => {
-      const hops: [string, ...string[]] = [
-        `${RELEASE_BASE}/h1.tar.gz`,
-        `${RELEASE_BASE}/h2.tar.gz`,
-        `${RELEASE_BASE}/h3.tar.gz`,
-        GITHUB_OBJECT,
-      ]
-      const fetchImpl = vi.fn<typeof fetch>(async (request) => {
-        const url = String(request)
-        if (url === releaseManifestUrl('edge')) return json(releaseManifest())
-        if (url === desktopReleaseManifestUrl('edge')) return json(desktopManifest())
-        if (url === HEADLESS_URL) {
-          return new Response(null, { status: 302, headers: { location: hops[0] } })
-        }
-        const index = hops.indexOf(url)
-        const nextHop = hops[index + 1]
-        if (index >= 0 && nextHop !== undefined) {
-          return new Response(null, { status: 302, headers: { location: nextHop } })
-        }
-        return new Response(null, { status: 200 })
-      })
-
-      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(
-        /redirected too many times/,
-      )
-      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(GITHUB_OBJECT)
-    })
-
-    it('REFUSES an http downgrade on any hop', async () => {
-      const downgrade =
-        'http://objects.githubusercontent.com/github-production-release-asset/x.tar.gz'
-      const fetchImpl = edgeFetch(
-        () => new Response(null, { status: 302, headers: { location: downgrade } }),
-      )
-
-      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).rejects.toThrow(/https/)
-      expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(downgrade)
-    })
-
-    it('lists the GitHub object host on the release feed, never as a suffix match', () => {
-      expect(RELEASE_ARTIFACT_REDIRECT_HOSTS).toEqual([
-        'github.com',
-        'objects.githubusercontent.com',
-        'release-assets.githubusercontent.com',
-      ])
-      expect(releaseChannelFeed('edge')?.redirectHosts).toEqual([
-        ...RELEASE_ARTIFACT_REDIRECT_HOSTS,
-      ])
+    it('leaves redirect hosts owned by the shared release-origin policy', () => {
+      expect(releaseChannelFeed('edge')?.redirectHosts).toEqual(RELEASE_ARTIFACT_REDIRECT_HOSTS)
       expect(DEV_FEED.redirectHosts).toBeUndefined()
     })
   })

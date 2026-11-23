@@ -53,6 +53,12 @@ export type IssueId = z.infer<typeof IssueId>
 export const IssueIdField = idField<'IssueId'>()
 export const asIssueId = (s: string): IssueId => s as IssueId
 
+/** One stable todo, artifact entry or deferred item; never a list ordinal. */
+export const IssuePanelItemId = z.string().uuid().brand<'IssuePanelItemId'>()
+export type IssuePanelItemId = z.infer<typeof IssuePanelItemId>
+export const IssuePanelItemIdField = idField<'IssuePanelItemId'>()
+export const asIssuePanelItemId = (s: string): IssuePanelItemId => s as IssuePanelItemId
+
 export const RepoId = z.string().min(1).brand<'RepoId'>()
 export type RepoId = z.infer<typeof RepoId>
 export const RepoIdField = idField<'RepoId'>()
@@ -240,6 +246,22 @@ export type DeviceId = z.infer<typeof DeviceId>
 export const DeviceIdField = idField<'DeviceId'>()
 export const asDeviceId = (s: string): DeviceId => s as DeviceId
 
+/**
+ * A workspace: the tenant every workspace table's rows belong to (POD-6959 design 2.4).
+ *
+ * Text, and its shape is not ours to dictate here: `'local'` on a self-hosted install, the
+ * `ws_` KSUID podium-cloud's registry mints on hosted. So, like the Tier 1 brands, it checks
+ * only that the value is not empty.
+ *
+ * MINTED IN THREE PLACES ONLY: the self-hosted composition, hosted routing and test support.
+ * A repository is built for one workspace and its query handle fills the `workspaceId`
+ * placeholder from it, so no request value ever becomes one on the way to a query. There is no
+ * `…Field` schema: no wire payload carries this brand.
+ */
+export const WorkspaceId = z.string().min(1).brand<'WorkspaceId'>()
+export type WorkspaceId = z.infer<typeof WorkspaceId>
+export const asWorkspaceId = (s: string): WorkspaceId => s as WorkspaceId
+
 // ---------------------------------------------------------------------------
 // Tier 2 — added by POD-361, recorded for ratification (see the header)
 // ---------------------------------------------------------------------------
@@ -274,6 +296,24 @@ export const AccountId = z.string().min(1).brand<'AccountId'>()
 export type AccountId = z.infer<typeof AccountId>
 export const AccountIdField = idField<'AccountId'>()
 export const asAccountId = (s: string): AccountId => s as AccountId
+
+/**
+ * A CREDENTIAL (credential management spec §4): one piece of provider access a
+ * person gave Podium. Minted by the server as `cred_` followed by a UUID; the id
+ * means nothing by itself (no provider, harness or identity in it), which is
+ * exactly what the `AccountId` spellings it replaces got wrong.
+ */
+export const CREDENTIAL_ID_PREFIX = 'cred_'
+export const CredentialId = z
+  .string()
+  .max(CREDENTIAL_ID_PREFIX.length + 36)
+  .regex(/^cred_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, {
+    message: 'a credential id is cred_ followed by a UUID',
+  })
+  .brand<'CredentialId'>()
+export type CredentialId = z.infer<typeof CredentialId>
+export const CredentialIdField = idField<'CredentialId'>()
+export const asCredentialId = (s: string): CredentialId => s as CredentialId
 
 // Shipping aggregate family. These are independently addressable durable rows,
 // not issue ids wearing a prefix; each gets the validating/field schema pair
@@ -333,7 +373,7 @@ export const asDeliveryReceiptId = (s: string): DeliveryReceiptId => s as Delive
 // `z.string()` and tightening one turns a payload that parses today into a parse
 // failure. That argument is about fields that ALREADY PARSE. `mem_` and `inv_`
 // fields do not exist yet — A2 adds the member column, A4 adds
-// `member_invites` — so there is no such payload, and a permissive field schema
+// invitation records — so there is no such payload, and a permissive field schema
 // here would only be an invitation to bind the unchecked one at the very fields
 // the prefix exists to protect. `MemberIdField` is therefore the same schema as
 // `MemberId`, named so a schema author reaching for the usual spelling cannot
@@ -351,7 +391,7 @@ export const asMemberId = (s: string): MemberId => s as MemberId
 export const newMemberId = (at?: Instant): MemberId =>
   asMemberId(mintBrandedId(MEMBER_ID_PREFIX, at))
 
-/** §9.1: a workspace invite — `member_invites`, the A4 invite-and-claim row. */
+/** §9.1: a workspace invitation identifier, preserved when a link is imported. */
 export const INVITE_ID_PREFIX = ID_PREFIXES.invite
 export const InviteId = brandedIdSchema(INVITE_ID_PREFIX).brand<'InviteId'>()
 export type InviteId = z.infer<typeof InviteId>

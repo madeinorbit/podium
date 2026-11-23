@@ -1,13 +1,12 @@
-import type { MachineWire } from '@podium/model/browser'
+import type { MachineFacts } from '@podium/model/browser'
 import { useEffect, useState } from 'react'
-import type { Store } from '@/app/store'
 
 /**
  * POD-838: the server's own build version, fetched once from setup.info.
  * null while unknown (loading, older server, or a failed probe) — callers must
  * treat that as "no skew signal", never as "up to date".
  */
-export function useServerAppVersion(trpc: Store['trpc']): string | null {
+export function useServerAppVersion(trpc: import('@/app/trpc').Trpc): string | null {
   const [version, setVersion] = useState<string | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -33,7 +32,7 @@ export function useServerAppVersion(trpc: Store['trpc']): string | null {
  * for compatibility with older servers that did not project channel targets.
  */
 export function machineNeedsUpdate(
-  machine: Pick<MachineWire, 'inventory' | 'targetVersion' | 'versionState' | 'installKind'>,
+  machine: Pick<MachineFacts, 'inventory' | 'targetVersion' | 'versionState' | 'installKind'>,
   serverAppVersion: string | null,
 ): boolean {
   const daemonVersion = machine.inventory?.podiumVersion

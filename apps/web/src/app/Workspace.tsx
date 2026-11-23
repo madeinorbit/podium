@@ -1,4 +1,5 @@
 import { beginSwitch } from '@podium/client-core/perf'
+import { useCommands, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
@@ -26,7 +27,6 @@ import {
 import {
   type ComponentType,
   type JSX,
-  lazy,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   Suspense,
@@ -37,21 +37,23 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import type { Trpc } from '@/app/trpc'
+import { lazyScreen } from '@/components/LazyScreen'
 import { Button } from '@/components/ui/button'
 import { isArtifactsTab, useArtifactCount } from '@/features/files/artifacts-tab'
 import { FileTypeIcon } from '@/features/files/file-icon'
 import { FIRST_ARTIFACT_NEW_PANEL_ANCHOR } from '@/features/issues/first-artifact-tip'
 import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
+import { MemberMachineStep, useNeedsMemberMachine } from '@/features/setup/MemberMachineStep'
 import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { useNewTaskOverlayOpen } from '@/features/worklist/new-task-overlay'
-import { throughRestarts } from '@/lib/chunk-recovery'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
-import { useRuntimeActions, useRuntimeUiValue } from './keyed-runtime'
+import { useRuntimeUiValue } from './model-inputs'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useOperatorFocus } from './operator-focus'
 import { PanelDeck } from './PanelDeck'
@@ -88,17 +90,15 @@ import type {
 // The cold-start composer only renders in the empty pane (no issue selected),
 // and it fronts the whole first-run setup graph — loading it on demand keeps
 // that graph out of the eager bundle.
-const ColdStartComposer = lazy(() =>
-  throughRestarts(() => import('@/features/setup/ColdStartComposer')).then((module) => ({
-    default: module.ColdStartComposer,
-  })),
+const ColdStartComposer = lazyScreen(
+  () => import('@/features/setup/ColdStartComposer'),
+  (module) => module.ColdStartComposer,
 )
 // Loads only when a pane is empty: the mission view model and proposal rows it
 // reads stay out of the eager bundle.
-const MovedConversationPane = lazy(() =>
-  throughRestarts(() => import('./MovedConversationPane')).then((module) => ({
-    default: module.MovedConversationPane,
-  })),
+const MovedConversationPane = lazyScreen(
+  () => import('./MovedConversationPane'),
+  (module) => module.MovedConversationPane,
 )
 
 // dnd-kit is interaction infrastructure, not first-paint UI. A post-paint load
@@ -262,7 +262,6 @@ const MIN_PANE_PX = 160
 const RESIZE_STEP = 0.02
 /** Keyboard resize floor when there is no measured box to convert px against. */
 const MIN_PANE_FRACTION = 0.12
-const RENAME_ACTIONS = ['renameSession'] as const
 
 export function Workspace({
   loadDragRuntime = loadWorkspaceTabDrag,
@@ -854,10 +853,7 @@ export function Workspace({
   // pane's strip rather than per tab.
   const coordinatorIds = new Set(
     deckTabs
-      .filter(
-        (t) =>
-          t.kind === 'session' && missionCoordinatorIds.has(t.session.sessionId),
-      )
+      .filter((t) => t.kind === 'session' && missionCoordinatorIds.has(t.session.sessionId))
       .map((t) => t.id),
   )
 
@@ -923,10 +919,16 @@ export function Workspace({
    * anyway — the spawn inserts its session optimistically, so the draft
    * resolves as a mission from the click rather than from the broadcast.
    */
+  const workspaceLoading = useUiValue('workspaceLoading')
+  // A member who joined someone else's server and has no machine gets the
+  // machine step where the composer would be (POD-6882): with nothing to run
+  // on, the composer could only refuse to launch.
+  const needsMemberMachine = useNeedsMemberMachine()
   const partialLaunchNeedsRecovery =
     activationDraft.pendingIssueId !== '' &&
     activationDraft.pendingIssueId === selectedIssueId &&
     !pendingIssueHasSession
+  if (workspaceLoading) return <section className="native-agents-pane relative" aria-busy="true" />
   if (partialLaunchNeedsRecovery) {
     return (
       <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
@@ -949,9 +951,13 @@ export function Workspace({
     return (
       <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
         <div className="workspace-sheet relative flex min-h-0 flex-1">
-          <Suspense fallback={null}>
-            <ColdStartComposer first={!hasAnyTask} />
-          </Suspense>
+          {needsMemberMachine ? (
+            <MemberMachineStep />
+          ) : (
+            <Suspense fallback={null}>
+              <ColdStartComposer first={!hasAnyTask} />
+            </Suspense>
+          )}
         </div>
       </section>
     )
@@ -1295,11 +1301,7 @@ function PaneChrome({
         onKeyDownCapture={onColdKeyDown}
         className={cn(
           'native-tab-strip pointer-events-auto relative flex flex-none items-center gap-[4px] border-b border-hairline-soft surface-base-tabstrip px-[8px]',
-          isOver
-            ? 'surface-mix-18'
-            : focused
-              ? 'surface-mix-2'
-              : 'surface-mix-0',
+          isOver ? 'surface-mix-18' : focused ? 'surface-mix-2' : 'surface-mix-0',
         )}
       >
         {drag ? (
@@ -1579,7 +1581,7 @@ function SortableTab({
   onKeepOpen: () => void
   onSplit?: (axis: SplitAxis) => void
 }): JSX.Element {
-  const { renameSession } = useRuntimeActions(RENAME_ACTIONS)
+  const { renameSession } = { renameSession: useCommands<Trpc>().sessions.rename }
   const [editing, setEditing] = useState(false)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const isDragging = drag?.isDragging === true

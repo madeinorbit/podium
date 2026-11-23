@@ -6,7 +6,7 @@ import { HttpBootstrapSource, HttpDeltaSource, NdjsonLineReader, readSyncStream,
 
 const encoder = new TextEncoder()
 const cursor = { feedId: 'feed-1', epoch: 'epoch-1', seq: 5 }
-const meta = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: 't', feedId: cursor.feedId, epoch: cursor.epoch, seq: 10, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0123456789abcdef', totalRows: 1 }
+const meta = { type: 'syncMeta', kindTokens: {}, formatVersion: 1, mode: 'snapshot', transferId: 't', feedId: cursor.feedId, epoch: cursor.epoch, seq: 10, minAvailableSeq: 0, wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: '0123456789abcdef', totalRows: 1 }
 const row = { seq: 1, entity: 'future-kind', entityId: 'one', op: 'upsert', value: { title: 'é 🦊' } }
 const chunk = { type: 'feedBootstrap', feedId: cursor.feedId, epoch: cursor.epoch, fromSeq: 0, seq: 10, minAvailableSeq: 0, changes: [row], last: true }
 const complete = { type: 'syncComplete', transferId: 't', seq: 10, records: 1, rows: 1 }
@@ -36,6 +36,50 @@ function sources(reply: () => Response | Promise<Response>) {
   const deps = { origin: 'https://example.test/', streamingFetch: { fetch, credentials: 'omit' as const, headers: () => ({ Authorization: 'Bearer test' }) }, onMeta: vi.fn(), onChunk: vi.fn() }
   return { bootstrap: new HttpBootstrapSource(deps), delta: new HttpDeltaSource(deps), fetch, deps }
 }
+
+it('a changed kind on a device with no policy reloads through the first download, never a kind-named one', async () => {
+  // Kind-named bootstraps are gone (POD-7086): with a policy a kind reload
+  // refetches that kind's collections (the conformance suite's case); without
+  // one, only the first download can replace what the device holds.
+  const store = new InMemoryReplicaStore()
+  const cache = store.cache
+  cache.installSnapshot(
+    [
+      { entity: 'other-kind', entityId: 'gone', value: { name: 'old' }, provenance: { seq: 5 } },
+      { entity: row.entity, entityId: 'obsolete', value: { old: true }, provenance: { seq: 5 } },
+    ],
+    cursor,
+    [],
+    undefined,
+    { kindTokens: { [row.entity]: 'old', 'other-kind': 'unchanged' } },
+  )
+  const kindTokens = { [row.entity]: 'new', 'other-kind': 'unchanged' }
+  const requests: string[] = []
+  const source = sources(() => response([{ ...meta, kindTokens }, chunk, complete]))
+  source.fetch.mockImplementation(async (url: string) => {
+    const parsed = new URL(url)
+    requests.push(parsed.pathname + parsed.search)
+    return response([{ ...meta, kindTokens }, chunk, complete])
+  })
+  const replica = new Replica({
+    store: cache,
+    unitOfWork: store.unitOfWork,
+    authority: {
+      bootstrap: source.bootstrap.bootstrap.bind(source.bootstrap),
+      changesRange: source.delta.changesRange.bind(source.delta),
+    },
+  })
+  new FeedSink({ replica }).kindTokens(kindTokens)
+  await replica.settled()
+  expect(requests).toEqual(['/sync/bootstrap'])
+  expect(cache.readCursor()).toEqual({ ...cursor, seq: 10 })
+  expect(cache.readKindTokens()).toEqual(kindTokens)
+  expect(cache.readLoadingSince()).toBeNull()
+  expect(cache.read(row.entity, row.entityId)?.value).toEqual(row.value)
+  // What the finished load did not deliver is gone.
+  expect(cache.read(row.entity, 'obsolete')).toBeUndefined()
+  expect(cache.read('other-kind', 'gone')).toBeUndefined()
+})
 
 describe('NdjsonLineReader', () => {
   it('decodes every possible split, including inside multibyte UTF-8', async () => {
@@ -128,6 +172,14 @@ describe('readSyncStream', () => {
 })
 
 describe('HTTP sources', () => {
+  it('rejects a tokenless server header before yielding bootstrap or delta data', async () => {
+    const source = sources(() => response([{ ...meta, kindTokens: undefined }, chunk, complete]))
+    await expect(source.bootstrap.bootstrap().next()).rejects.toBeInstanceOf(SyncCorruptContentError)
+    const deltas = sources(() => response([{ ...deltaMeta, kindTokens: undefined }, delta, complete]))
+    await expect(collectRange(deltas.delta.changesRange(cursor))).rejects.toBeInstanceOf(SyncCorruptContentError)
+    expect(source.fetch).toHaveBeenCalledTimes(1)
+    expect(deltas.fetch).toHaveBeenCalledTimes(1)
+  })
   it('yields bootstrap data before completion and emits last only after EOF', async () => {
     const stream = byteStream(wire([meta, chunk, complete]).map(line => encoder.encode(line)))
     const source = sources(() => new Response(stream.body, { headers: { 'content-type': 'application/x-ndjson' } }))
@@ -138,7 +190,7 @@ describe('HTTP sources', () => {
     expect(stream.pull).toHaveBeenCalledTimes(4)
     expect(source.deps.onMeta).toHaveBeenCalledWith(1)
     expect(source.deps.onChunk).toHaveBeenCalledWith(1, encoder.encode(JSON.stringify(chunk)).length)
-    expect(source.fetch).toHaveBeenCalledWith('https://example.test/sync/bootstrap', expect.objectContaining({ credentials: 'omit', headers: { Authorization: 'Bearer test' } }))
+    expect(source.fetch).toHaveBeenCalledWith('https://example.test/sync/bootstrap', expect.objectContaining({ credentials: 'omit', headers: expect.objectContaining({ Authorization: 'Bearer test', 'Podium-Sync-Client': expect.any(String) }) }))
     await iterator.return(undefined)
   })
   it('does not install a truncated snapshot or one with trailing records', async () => {
@@ -191,7 +243,7 @@ describe('HTTP sources', () => {
     const target = vi.fn()
     const range = await source.delta.changesRange(cursor, undefined, target)
     const reply = await collectRange(Promise.resolve(range))
-    expect(target).toHaveBeenCalledWith({ ...cursor, seq: 10 })
+    expect(target).toHaveBeenCalledWith({ ...cursor, seq: 10 }, meta.kindTokens)
     expect(reply).toMatchObject([{ fromSeq: 5, seq: 7, changes: [{ seq: 6 }] }, { fromSeq: 7, seq: 10, changes: [{ seq: 9 }] }])
     expect(source.fetch.mock.calls[0]?.[0]).toBe('https://example.test/sync/delta?feedId=feed-1&epoch=epoch-1&from=5')
   })

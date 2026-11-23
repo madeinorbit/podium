@@ -25,17 +25,14 @@ import type {
   AgentKind,
   ArtifactId,
   GitDiscoveryDiagnosticWire,
-  GitRepositoryWire,
   HarnessAgent,
   IssueId,
   IssueReport,
   LayoutSnapshot,
   MachineId,
   MachineQuotaWire,
-  MachineWire,
   MutationId,
   QuotaWindowHistoryWire,
-  ReadPositionSnapshot,
   SessionId,
   ThreadId,
   UsageBucketWire,
@@ -46,12 +43,10 @@ import type {
   LockWire,
   ModelChoiceWire,
   SessionIdentifierResolution,
-  SyncChangesSinceResult,
+  SyncSubmitInput,
+  SyncSubmitReply,
 } from '@podium/protocol'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
-import type { PodiumSettings } from '@podium/runtime'
-import type { SuperThreadView } from './values/compose/superagent'
-import type { PinKind, PinState } from './values/types'
 
 export interface ApiQuery<I, O> {
   query(input: I): Promise<O>
@@ -112,7 +107,13 @@ type WithMutationId<T> = T & { mutationId?: MutationId }
  */
 export interface PodiumClientApi {
   sync: {
-    changesSince: ApiQuery<{ cursor: number | null }, SyncChangesSinceResult>
+    /**
+     * The sync write entry point (ADR 12 D2): every queued command goes here, and
+     * the reply's receipt is what confirms it (POD-6277). Optional in this mirror
+     * only: structural test clients often omit it, and the outbox then sends
+     * through the old per-command routes, as it does to a server without it.
+     */
+    submit?: ApiMutation<SyncSubmitInput, SyncSubmitReply>
   }
   /**
    * Advisory named locks are deliberately queried rather than replicated: the
@@ -122,14 +123,9 @@ export interface PodiumClientApi {
     status: ApiQuery<{ repoPath: string; name?: string }, LockWire[]>
   }
   discovery: {
-    refreshRepos: ApiMutation<
-      void,
-      {
-        repositories: GitRepositoryWire[]
-        diagnostics: GitDiscoveryDiagnosticWire[]
-        machines: MachineWire[]
-      }
-    >
+    /** Look again at my machines (POD-6644): the checkouts reach every device
+     *  as records; the answer is the scans' diagnostics, for the view that asked. */
+    refreshRepos: ApiMutation<void, { diagnostics: GitDiscoveryDiagnosticWire[] }>
   }
   models?: {
     catalog: ApiQuery<
@@ -239,6 +235,12 @@ export interface PodiumClientApi {
     clear: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
   }
   issues: {
+    /** One page of search answers (POD-7108). They carry identities; the
+     * collection loader installs each record. `next` continues the answer. */
+    searchNormalized: ApiQuery<
+      { text: string; repoPath?: string; cursor?: string; limit?: number },
+      { readonly hits: readonly { id: IssueId }[]; readonly next: string | null }
+    >
     /** Identity only. The pool loads the row through its existing reader. */
     resolveRefs: ApiQuery<{ refs: string[] }, Array<{ ref: string; id: IssueId | null }>>
     /** Insert-shaped optimistic create: both ids are minted by the client and
@@ -302,27 +304,6 @@ export interface PodiumClientApi {
     >
     restore: ApiMutation<WithMutationId<{ id: string }>>
   }
-  pins: {
-    list: ApiQuery<void, PinState>
-    set: ApiMutation<WithMutationId<{ kind: PinKind; id: string; pinned: boolean }>, PinState>
-  }
-  tabs: {
-    listOrders: ApiQuery<void, Record<string, string[]>>
-    setOrder: ApiMutation<
-      WithMutationId<{ worktree: string; sessionIds: SessionId[] }>,
-      Record<string, string[]>
-    >
-  }
-  /** Per-user event-stream read positions (POD-1380). `advance` is monotonic —
-   *  the server clamps to max(stored, proposed) — and returns the caller's whole
-   *  snapshot, never anyone else's. */
-  readPosition: {
-    get: ApiQuery<void, ReadPositionSnapshot>
-    advance: ApiMutation<
-      WithMutationId<{ streamId: string; lastEventId: number; seenAt?: string | null }>,
-      ReadPositionSnapshot
-    >
-  }
   layout: {
     get: ApiQuery<void, LayoutSnapshot>
     set: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, LayoutSnapshot>
@@ -376,10 +357,6 @@ export interface PodiumClientApi {
       { ok: boolean; output: string }
     >
   }
-  settings: {
-    get: ApiQuery<void, PodiumSettings>
-    updatePersonal: ApiMutation<WithMutationId<{ values: Record<string, unknown> }>, PodiumSettings>
-  }
   /** Hour×model token buckets for the last 7 days, harvested from harness
    *  transcripts. All window/cost math is client-side — see `viewmodels/usage`. */
   usage: {
@@ -396,10 +373,6 @@ export interface PodiumClientApi {
     history: ApiQuery<{ days?: number } | void, QuotaWindowHistoryWire[]>
   }
   superagent: {
-    /** The signed-in principal's own threads. The authority scopes this to the
-     *  caller (doc §3.1.6 S2: superagent state is per-user and private), so the
-     *  client never asks for "a user's" threads — only for its own. */
-    listThreads: ApiQuery<void, SuperThreadView[]>
     /** `superagent.startBtw` is NOT declared here. The server still serves it —
      *  it mints a `btw_<sessionId>` thread, which MCP and the CLI can still use
      *  — but no client calls it since POD-1069 folded "Ask superagent (BTW)"
@@ -436,23 +409,4 @@ export interface PodiumClientApi {
       { threadId: ThreadId; podiumSessionId?: SessionId }
     >
   }
-}
-
-/**
- * A durable superagent turn failure (POD-4806). Mirrors the server's
- * `SuperagentTurnFailure` field for field: the web reads it off its
- * AppRouter-typed client and the phone declares it in its hand-written
- * extras, so drift fails a typecheck rather than reaching a phone.
- *
- * Deliberately NOT on the `PodiumClientApi` seam below: the seam is what the
- * SHARED store/actions layer calls, and restoration is read by the two
- * shells (web's headless hook, the phone screen), not by shared code.
- */
-export interface SuperagentTurnFailure {
-  inputId: string
-  userText: string | null
-  error: string
-  /** ISO 8601 recording time, for the structural supersede check against the
-   *  transcript tail (never a text comparison). */
-  at: string
 }

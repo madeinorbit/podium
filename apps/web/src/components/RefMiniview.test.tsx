@@ -37,22 +37,29 @@ const hostStore = vi.hoisted(() => ({
 }))
 
 vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   const { withKeyedInputs } = await import('@podium/client-core/test-support/keyed-inputs')
   const { fixtureStoreSnapshot } = await import('@/test-support/fixture-store')
-  const { useRuntimeSelector } = await import('@/app/store')
+  const { fixtureSnapshot: readFixture } = await import('@/test-support/fixture-snapshot')
   const owner = withKeyedInputs({
-    getSnapshot: () => fixtureStoreSnapshot(useRuntimeSelector((state) => state)),
+    getSnapshot: () => fixtureStoreSnapshot(readFixture((state) => state)),
     services: {},
     subscribe: () => () => {},
   })
-  return { ...actual, useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
+  return {
+    ...actual,
+    ...fixtureRuntimeHooks(() => owner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+    useHarnessDescriptors: () => ({ served: [] }),
+  }
 })
 
 vi.mock('@/app/store', async () => {
   const { poolFixtureStore } = await import('@/test-support/pool-issue-fixture')
   return {
-    useRuntimeSelector: (select: (state: unknown) => unknown) =>
+    readFixture: (select: (state: unknown) => unknown) =>
       select({
         ...poolFixtureStore({
           issues: hostStore.replicaIssues,

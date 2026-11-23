@@ -39,7 +39,7 @@ import { createPortal } from 'react-dom'
 import { CardBoundary } from '@/app/CardBoundary'
 import type { IssueViewModel } from '@/app/store'
 import { cn } from '@/lib/utils'
-import { useBoardColumn, useBoardDropIndex } from './board-pool-data'
+import { useBoardColumn, useBoardColumnCount, useBoardDropIndex } from './board-pool-data'
 import { BoardIssueCard, IssueCard } from './IssueCard'
 import type { BoardFilter } from './issue-board-filter'
 import { STAGE_LABELS } from './issue-card'
@@ -443,6 +443,10 @@ const IssueColumn = memo(function IssueColumn({
     [initialScrollTop],
   )
   const issueIds = useBoardColumn({ stage, filter, ordering, showAgentTasks }, suppliedIds)
+  // The column's count over all history: the cards the device holds show at
+  // once, the count waits for the stubs or the page (POD-7088).
+  const pooledCount = useBoardColumnCount({ stage, filter, ordering, showAgentTasks })
+  const count = pooledCount === undefined ? issueIds.length : pooledCount
   const virtual = useBoundedVirtualList({
     keys: issueIds,
     scrollRef,
@@ -478,7 +482,7 @@ const IssueColumn = memo(function IssueColumn({
       >
         <StageGlyph stage={stage} size={13} />
         <h3 className="font-semibold text-[12px] text-foreground">{label}</h3>
-        <span className="font-mono text-[10px] text-text-dim tabular-nums">{issueIds.length}</span>
+        <span className="font-mono text-[10px] text-text-dim tabular-nums">{count === 'loading' ? '…' : count}</span>
         <button
           data-pressable
           type="button"

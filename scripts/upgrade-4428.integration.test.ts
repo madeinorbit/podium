@@ -22,13 +22,10 @@
  *  (2) a hibernated grok + generic-pty session whose row is NULLed to
  *      selected_driver_id NULL (hibernate needs a resume ref no model-less
  *      box can earn, so the ref is seeded in sessionResumeRef shape; the park
- *      itself is the real old API; grok tolerates the unresolvable ref);
+ *      itself is the real old API; the isolated native history makes it valid);
  *  (3) a live shell; (4) a login shell (agentKind shell + loginHarness);
- *  (5) a hibernated grok + generic-pty session holding two queued_messages rows
- *      (creation prompt queues row 1 at spawn — cursor is the only
- *      non-argv manifest; row 2 follows once live with a non-empty queue;
- *      pre-upgrade binds are accepted since forwarded rows persist without
- *      proof; the per-custody exactly-once is read off delivery_owner);
+ *  (5) a hibernated grok + generic-pty session holding two legacy standalone
+ *      queued_messages rows with complete attribution, no message-ledger source;
  *  (6) a live harness session holding one pending native-menu interaction row
  *      written with the exact columns the old InteractionService.ask inserts
  *      (the ask itself is driver-emitted, so only its trigger is synthetic —
@@ -42,22 +39,21 @@
  *  (3) live with no driver, and bytes relay end to end (a marker written
  *      through the server's sendText echoes back through the output frames);
  *  (4) live with no driver, keeping its login shape (shell + loginHarness)
- *      and a live relay in both directions (its PTY runs the harness auth
- *      flow, so echo is impossible by design — frames flowing is the proof);
- *  (5) the two rows drain through the gateway exactly once, in FIFO order
- *      (row 1's reservation strictly precedes row 2's, seconds apart —
- *      observed by polling owners; both rows survive with delivery_owner set
- *      by the new gateway — legacy typing would have deleted them; attempts
- *      clamp, never reset; 30s quiet proves no second forward);
+ *      and real PTY geometry control round trips while the native auth command
+ *      awaits its browser callback without completing login);
+ *  (5) both old inputs are admitted exactly once in FIFO order. The logged-out
+ *      program cannot confirm delivery: explicit unconfirmed outcomes retain
+ *      both full texts and owner in durable events. Thirty seconds after those
+ *      outcomes proves no duplicate admission, retyping, report or confirmation;
  *  (6) interactions.answer traverses the gateway to the real driver (which
  *      builds the script from the row payload and truthfully reports
  *      delivery-failed, no menu on screen); the ask is kept open, and a
  *      retry takes the same honest route.
  *
- * ARMING (DONE WHEN 1): this file must go red with POD-4426 reverted (binds
- * carry no driverId, so assertions (1)(2) fail) and red with POD-4427 reverted
- * (the typing loop deletes the queued rows on echo, so assertion (5)'s
- * rows-survive check fails). The red runs are recorded in VERIFY-4428.md.
+ * The original driver-removal arming runs are historical evidence in
+ * VERIFY-4428.md. The current queue guard checks terminal uncertainty and its
+ * durable recovery record; physical queue rows are transient custody, not the
+ * recovery record after a terminal outcome.
  *
  * ISOLATION. The hermetic setup already scrubs the ambient session env; this
  * file additionally deletes every PODIUM_* var except an explicit allowlist
@@ -68,6 +64,7 @@
  * process env afterwards. Child envs are built from the scrubbed set.
  */
 import { execFileSync, spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import {
   closeSync,
   existsSync,
@@ -79,18 +76,19 @@ import {
   writeFileSync,
   writeSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import type { SessionId } from '@podium/model'
+import { hostHasSession } from '@podium/process/durable'
+import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
+import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { openDatabase, type SqlParam } from '@podium/runtime/sqlite'
-import { hostHasSession } from '@podium/process/durable'
-import type { SessionId } from '@podium/model'
-import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createTRPCClient, httpBatchLink } from '@trpc/client'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { startServer } from '../apps/server/src/test-support/enrolled-server'
 
@@ -173,12 +171,7 @@ interface ProcHandle {
   kill: () => Promise<void>
 }
 
-function spawnLogged(
-  args: string[],
-  cwd: string,
-  env: NodeJS.ProcessEnv,
-  tag: string,
-): ProcHandle {
+function spawnLogged(args: string[], cwd: string, env: NodeJS.ProcessEnv, tag: string): ProcHandle {
   let captured = ''
   const logPath = join(runLogDir || stateDir, `log-${tag}.txt`)
   // File-backed first: pipe capture alone has proven lossy across a daemon
@@ -187,7 +180,10 @@ function spawnLogged(
   try {
     fileFd = openSync(logPath, 'a')
   } catch {}
-  const child = spawn(BUN, args, {
+  // A historical checkout runs on its own pinned runtime. The candidate's
+  // toolchain must not be used to install or boot the release under test.
+  const command = cwd === BASE_DIR ? baseBunCommand() : [BUN]
+  const child = spawn(command[0]!, [...command.slice(1), ...args], {
     cwd,
     env,
     detached: true,
@@ -225,14 +221,19 @@ function spawnLogged(
       try {
         if (child.exitCode === null && child.signalCode === null) process.kill(-pid, 'SIGKILL')
       } catch {}
-      await waitFor(() => {
-        try {
-          process.kill(pid, 0)
-          return false
-        } catch {
-          return true
-        }
-      }, `${tag} pid ${pid} to die`, 15_000, () => `tail:\n${captured.slice(-3000)}`)
+      await waitFor(
+        () => {
+          try {
+            process.kill(pid, 0)
+            return false
+          } catch {
+            return true
+          }
+        },
+        `${tag} pid ${pid} to die`,
+        15_000,
+        () => `tail:\n${captured.slice(-3000)}`,
+      )
       try {
         writeFileSync(logPath, captured)
       } catch {}
@@ -276,18 +277,39 @@ function openDb(ro = true): {
  * (worktree + frozen install) and reused while its HEAD still pins BASE_SHA —
  * a green here must mean the real old tree ran, never a skip.
  */
+function baseBunCommand(): string[] {
+  const pkg = JSON.parse(readFileSync(join(BASE_DIR, 'package.json'), 'utf8')) as {
+    packageManager?: string
+  }
+  const version = /^bun@(\d+\.\d+\.\d+)$/.exec(pkg.packageManager ?? '')?.[1]
+  if (!version) throw new Error('the pinned base must declare its exact Bun runtime')
+  const current = execFileSync(BUN, ['--version'], { encoding: 'utf8' }).trim()
+  return current === version ? [BUN] : [BUN, 'x', '--package', `bun@${version}`, 'bun']
+}
+
 async function ensureBaseTree(): Promise<string> {
   const headOf = (dir: string): string | undefined => {
     try {
-      const text = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+      const text = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+      }).trim()
       return /^[0-9a-f]{40}$/.test(text) ? text : undefined
     } catch {
       return undefined
     }
   }
-  const run = async (cmd: string[], cwd: string, what: string, timeoutMs: number): Promise<void> => {
+  const run = async (
+    cmd: string[],
+    cwd: string,
+    what: string,
+    timeoutMs: number,
+  ): Promise<void> => {
     try {
-      execFileSync(cmd[0]!, cmd.slice(1), { cwd, timeout: timeoutMs, stdio: ['ignore', 'pipe', 'pipe'] })
+      execFileSync(cmd[0]!, cmd.slice(1), {
+        cwd,
+        timeout: timeoutMs,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
     } catch (e: any) {
       throw new Error(
         `upgrade-4428: ${what} failed in ${cwd}:\n${String(e?.stderr ?? e?.message ?? e).slice(-3000)}`,
@@ -309,7 +331,12 @@ async function ensureBaseTree(): Promise<string> {
     )
   }
   if (!existsSync(join(BASE_DIR, 'node_modules', '@podium', 'runtime'))) {
-    await run([BUN, 'install', '--frozen-lockfile'], BASE_DIR, 'base install', 600_000)
+    await run(
+      [...baseBunCommand(), 'install', '--frozen-lockfile'],
+      BASE_DIR,
+      'base install',
+      600_000,
+    )
   }
   if (!existsSync(join(BASE_DIR, 'scripts', 'cli.ts'))) {
     throw new Error(`upgrade-4428: base checkout at ${BASE_DIR} has no scripts/cli.ts`)
@@ -371,19 +398,53 @@ async function bootOldServer(baseDir: string, port: number): Promise<ProcHandle>
   }
   stripLoopbackPublicUrl()
   const proc = spawnLogged(
-    [BUN_CONDITIONS, join(baseDir, 'scripts', 'cli.ts'), '--instance', INSTANCE, 'server', '--takeover'],
+    [
+      BUN_CONDITIONS,
+      join(baseDir, 'scripts', 'cli.ts'),
+      '--instance',
+      INSTANCE,
+      'server',
+      '--takeover',
+    ],
     baseDir,
     env,
     'old-server',
   )
-  await waitFor(async () => {
-    try {
-      return (await fetch(`http://127.0.0.1:${port}/version`)).ok
-    } catch {
-      return false
-    }
-  }, `old server on :${port}`, 180_000, () => `tail:\n${proc.output()}`)
+  await waitFor(
+    async () => {
+      try {
+        return (await fetch(`http://127.0.0.1:${port}/version`)).ok
+      } catch {
+        return false
+      }
+    },
+    `old server on :${port}`,
+    180_000,
+    () => `tail:\n${proc.output()}`,
+  )
   return proc
+}
+
+/** Native history the real logged-out Grok CLI can resume without a model turn. */
+function seedGrokResume(cwd: string): string {
+  const id = randomUUID()
+  const directory = join(stateDir, 'agent-home', '.grok', 'sessions', encodeURIComponent(cwd), id)
+  mkdirSync(directory, { recursive: true })
+  const now = new Date().toISOString()
+  writeFileSync(
+    join(directory, 'summary.json'),
+    JSON.stringify({
+      info: { id, cwd },
+      session_summary: 'Upgrade resume fixture',
+      created_at: now,
+      updated_at: now,
+      num_chat_messages: 0,
+      git_remotes: [],
+    }),
+  )
+  writeFileSync(join(directory, 'chat_history.jsonl'), '')
+  writeFileSync(join(directory, 'updates.jsonl'), '')
+  return id
 }
 
 /** Kill and reboot the old server on the SAME port: the daemon reconnects
@@ -424,9 +485,13 @@ async function bootDaemon(
     agentRelay: { port: 0 },
   }
   const readyFile = join(dir, 'daemon.ready')
-  writeFileSync(join(dir, 'daemon-config.json'), JSON.stringify({ options: daemonOpts, readyFile }), {
-    mode: 0o600,
-  })
+  writeFileSync(
+    join(dir, 'daemon-config.json'),
+    JSON.stringify({ options: daemonOpts, readyFile }),
+    {
+      mode: 0o600,
+    },
+  )
   const env: NodeJS.ProcessEnv = {
     ...scrubEnv(),
     PODIUM_STATE_DIR: stateDir,
@@ -441,7 +506,11 @@ async function bootDaemon(
     PODIUM_LOG: 'daemon:*=debug',
   }
   const proc = spawnLogged(
-    [BUN_CONDITIONS, join(treeDir, 'tests', 'e2e', 'daemon-process.ts'), join(dir, 'daemon-config.json')],
+    [
+      BUN_CONDITIONS,
+      join(treeDir, 'tests', 'e2e', 'daemon-process.ts'),
+      join(dir, 'daemon-config.json'),
+    ],
     treeDir,
     env,
     opts.tag,
@@ -456,10 +525,14 @@ async function bootDaemon(
 }
 
 async function waitMachineOnline(api: any, machineId: string, what: string): Promise<void> {
-  await waitFor(async () => {
-    const machines = await api.machines.list.query().catch(() => [])
-    return Array.isArray(machines) && machines.some((m: any) => m.id === machineId && m.online)
-  }, `${what} online`, 180_000)
+  await waitFor(
+    async () => {
+      const machines = await api.machines.list.query().catch(() => [])
+      return Array.isArray(machines) && machines.some((m: any) => m.id === machineId && m.online)
+    },
+    `${what} online`,
+    180_000,
+  )
 }
 
 async function createSession(api: any, input: Record<string, unknown>): Promise<string> {
@@ -488,31 +561,47 @@ async function waitStatus(
   timeoutMs = 180_000,
 ): Promise<any> {
   let last: any
-  await waitFor(async () => {
-    const list = await api.sessions.list.query().catch(() => [])
-    last = Array.isArray(list) ? list.find((s: any) => (s.sessionId ?? s.id) === sessionId) : undefined
-    if (last?.status === 'exited' && status === 'live') {
-      throw new Error(
-        `upgrade-4428: ${what} exited instead of going live: spawnFailure=${String(last?.spawnFailure ?? '').slice(0, 1500)} exitCode=${last?.exitCode}`,
-      )
-    }
-    return last?.status === status
-  }, `${what} -> ${status}`, timeoutMs, () => `last: ${JSON.stringify({ ...last, spawnFailure: last?.spawnFailure }).slice(0, 2000)}`)
+  await waitFor(
+    async () => {
+      const list = await api.sessions.list.query().catch(() => [])
+      last = Array.isArray(list)
+        ? list.find((s: any) => (s.sessionId ?? s.id) === sessionId)
+        : undefined
+      if (last?.status === 'exited' && status === 'live') {
+        throw new Error(
+          `upgrade-4428: ${what} exited instead of going live: spawnFailure=${String(last?.spawnFailure ?? '').slice(0, 1500)} exitCode=${last?.exitCode}`,
+        )
+      }
+      return last?.status === status
+    },
+    `${what} -> ${status}`,
+    timeoutMs,
+    () => `last: ${JSON.stringify({ ...last, spawnFailure: last?.spawnFailure }).slice(0, 2000)}`,
+  )
   return last
 }
 
 function sessionMeta(api: any, sessionId: string): Promise<any> {
-  return api.sessions.list.query().then((list: any[]) =>
-    (Array.isArray(list) ? list : []).find((s: any) => (s.sessionId ?? s.id) === sessionId),
-  )
+  return api.sessions.list
+    .query()
+    .then((list: any[]) =>
+      (Array.isArray(list) ? list : []).find((s: any) => (s.sessionId ?? s.id) === sessionId),
+    )
 }
 
 /** Attach a real client socket and collect PTY bytes as text. */
-async function attachCollector(port: number, sessionId: string, cookie?: string): Promise<{
+async function attachCollector(
+  port: number,
+  sessionId: string,
+  cookie?: string,
+): Promise<{
   text: () => string
+  geometry: () => { cols: number; rows: number } | undefined
+  resize: (cols: number, rows: number) => void
   close: () => void
 }> {
   let text = ''
+  let geometry: { cols: number; rows: number } | undefined
   // Setup-completed servers gate the client socket: attach with the login
   // cookie (bare sockets are refused with a non-101, as the first new-phase
   // run showed).
@@ -527,14 +616,37 @@ async function attachCollector(port: number, sessionId: string, cookie?: string)
   ws.on('error', () => {})
   ws.on('message', (raw: any) => {
     try {
-      const msg = parseServerMessage(String(raw)) as any
+      const msg = parseServerMessage(String(raw))
+      if (!msg) return
       if (msg.type === 'outputFrame' && typeof msg.data === 'string') {
         text += Buffer.from(msg.data, 'base64').toString('utf8')
       }
+      if (msg.type === 'attached') geometry = msg.geometry
+      if (msg.type === 'geometry') geometry = { cols: msg.cols, rows: msg.rows }
     } catch {}
   })
   ws.send(encode({ type: 'attach', sessionId } as any))
-  return { text: () => text, close: () => ws.close() }
+  // Peers without pictures serve live bytes on attach. Ask the preserved PTY
+  // to repaint rather than treating replay of old login output as a contract.
+  ws.send(encode({ type: 'redrawRequest', sessionId } as any))
+  return {
+    text: () => text,
+    geometry: () => geometry,
+    resize: (cols, rows) => {
+      ws.send(encode({ type: 'viewState', visible: [sessionId], focused: sessionId } as any))
+      ws.send(
+        encode({
+          type: 'viewportRequest',
+          sessionId,
+          geometry: { cols, rows },
+          visible: true,
+          mode: 'native',
+          claimControl: true,
+        } as any),
+      )
+    },
+    close: () => ws.close(),
+  }
 }
 
 beforeAll(() => {
@@ -579,7 +691,10 @@ afterAll(() => {
 })
 
 describe('upgrade proof: previous-release sessions open under this build', () => {
-  it('reattaches, resumes, relays, drains and answers old sessions', { retry: 0, timeout: 900_000 }, async () => {
+  it('reattaches, resumes, relays, drains and answers old sessions', {
+    retry: 0,
+    timeout: 900_000,
+  }, async () => {
     const baseDir = await ensureBaseTree()
     const base = `http://127.0.0.1`
     const oldPort = await freePort()
@@ -587,6 +702,8 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
     let oldDaemon: DaemonHandle | undefined
     let newDaemon: DaemonHandle | undefined
     let newServer: Awaited<ReturnType<typeof startServer>> | undefined
+    const queueOutcomes: Array<Extract<RuntimeEvent, { t: 'delivery' }>> = []
+    let restoreFrameProbe: (() => void) | undefined
     let attemptsPre: number[] = []
     let sHarness = ''
     let sHib = ''
@@ -625,9 +742,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // would carry (kind from the manifest's resumeKind). The PARK itself
       // (status flip, process kill, row shape) is the real old API, and the
       // NULL driver column is the documented old-row shape. Post-upgrade,
-      // resurrect spawns `grok --resume <ref>`; grok tolerates an unresolvable
-      // ref by staying alive (verified by hand), so the session genuinely
-      // returns to live with a driver.
+      // Resurrect spawns `grok --resume <ref>`. Current Grok refuses an
+      // invented ref, so seed the native summary/history files too. The real
+      // logged-out CLI can open that history at its sign-in screen; no model
+      // turn or credentials are needed to prove driver-bound resurrection.
       sHib = await createSession(oldApi, {
         agentKind: 'grok',
         cwd,
@@ -640,7 +758,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.run(
             'UPDATE sessions SET resume_kind = ?, resume_value = ? WHERE id = ?',
             'grok-session',
-            `up4428-${sHib.slice(0, 8)}`,
+            seedGrokResume(cwd),
             sHib,
           )
         } finally {
@@ -676,7 +794,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           db.run(
             'UPDATE sessions SET resume_kind = ?, resume_value = ? WHERE id = ?',
             'grok-session',
-            `up4428-${sQueue.slice(0, 8)}`,
+            seedGrokResume(cwd),
             sQueue,
           )
         } finally {
@@ -690,10 +808,16 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       await waitStatus(oldApi, sHib, 'live', 'hibernation candidate after old restart')
       await waitStatus(oldApi, sQueue, 'live', 'queue session after old restart')
       const hibRes2 = await oldApi.sessions.hibernate.mutate({ sessionId: sHib })
-      expect(hibRes2, `(2) hibernate refused: ${JSON.stringify(hibRes2).slice(0, 300)}`).toMatchObject({ ok: true })
+      expect(
+        hibRes2,
+        `(2) hibernate refused: ${JSON.stringify(hibRes2).slice(0, 300)}`,
+      ).toMatchObject({ ok: true })
       await waitStatus(oldApi, sHib, 'hibernated', 'hibernated session')
       const qhibRes = await oldApi.sessions.hibernate.mutate({ sessionId: sQueue })
-      expect(qhibRes, `(5) hibernate refused: ${JSON.stringify(qhibRes).slice(0, 300)}`).toMatchObject({ ok: true })
+      expect(
+        qhibRes,
+        `(5) hibernate refused: ${JSON.stringify(qhibRes).slice(0, 300)}`,
+      ).toMatchObject({ ok: true })
       await waitStatus(oldApi, sQueue, 'hibernated', 'queue session parked')
       // Both rows are INSERTED, not sent: every send API wakes a parked
       // session (queueText auto-resurrects; the seam wakes-and-delivers), and
@@ -813,7 +937,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       {
         const db = openDb()
         try {
-          const nullDriver = db.get('SELECT selected_driver_id AS d FROM sessions WHERE id = ?', sHib) as any
+          const nullDriver = db.get(
+            'SELECT selected_driver_id AS d FROM sessions WHERE id = ?',
+            sHib,
+          ) as any
           expect(nullDriver?.d, 'hibernated row carries NULL driver').toBeNull()
           const rows = db.all(
             'SELECT id, text, attempts FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
@@ -827,7 +954,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
           attemptsPre = rows.map((r) => r.attempts as number)
           const ixn = db.get('SELECT status FROM pending_interactions WHERE id = ?', ixnId) as any
           expect(ixn?.status, 'interaction row pending').toBe('asked')
-          const loginRow = db.get('SELECT agent_kind AS k, login_harness AS h FROM sessions WHERE id = ?', sLogin) as any
+          const loginRow = db.get(
+            'SELECT agent_kind AS k, login_harness AS h FROM sessions WHERE id = ?',
+            sLogin,
+          ) as any
           expect(loginRow?.k, 'login row is a shell').toBe('shell')
           expect(loginRow?.h, 'login row names its harness').toBe('claude-code')
         } finally {
@@ -839,7 +969,9 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       if (oldDaemon) {
         const oldDaemonPid2 = oldDaemon.pid
         await oldDaemon.kill()
-        expect(pidGone(oldDaemonPid2), 'old daemon pid is gone before the new one attaches').toBe(true)
+        expect(pidGone(oldDaemonPid2), 'old daemon pid is gone before the new one attaches').toBe(
+          true,
+        )
         oldDaemon = undefined
       }
       const oldServerPid = oldServer.pid
@@ -867,6 +999,15 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // -- NEW BUILD takes over the same state dir and DB --------------------
       stripLoopbackPublicUrl()
       newServer = await startServer({ port: 0 })
+      const gateway = newServer.registry.gateway
+      const routeFrame = gateway.routeDaemonFrame.bind(gateway)
+      const frameProbe = vi.spyOn(gateway, 'routeDaemonFrame').mockImplementation((peer, msg) => {
+        if (msg.type === 'runtimeEvent' && msg.sessionId === sQueue && msg.event.t === 'delivery') {
+          queueOutcomes.push(msg.event)
+        }
+        return routeFrame(peer, msg)
+      })
+      restoreFrameProbe = () => frameProbe.mockRestore()
       const newPort = (newServer as unknown as { port: number }).port
       {
         const db = openDb()
@@ -895,7 +1036,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         // selected_driver_id below is its durable proof.
         const db = openDb()
         try {
-          const row = db.get('SELECT selected_driver_id AS d, status AS s FROM sessions WHERE id = ?', sHarness) as any
+          const row = db.get(
+            'SELECT selected_driver_id AS d, status AS s FROM sessions WHERE id = ?',
+            sHarness,
+          ) as any
           expect(row?.d, '(1) driver persisted').toBe('generic-pty')
           expect(row?.s).toBe('live')
         } finally {
@@ -912,7 +1056,10 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         expect(live?.driverId, '(2) driver announced after resume').toBe('generic-pty')
         const db = openDb()
         try {
-          const row = db.get('SELECT selected_driver_id AS d FROM sessions WHERE id = ?', sHib) as any
+          const row = db.get(
+            'SELECT selected_driver_id AS d FROM sessions WHERE id = ?',
+            sHib,
+          ) as any
           expect(row?.d, '(2) driver column filled').toBe('generic-pty')
         } finally {
           db.close()
@@ -942,7 +1089,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // harness's own auth flow (`claude auth login`), NOT a shell — so no
       // echo is possible by design ((3) covers echo semantics). What the
       // upgrade must preserve is the login shape (shell + loginHarness, no
-      // driver) with frames flowing both directions.
+      // driver) with the surviving PTY still responding to control requests.
       {
         const meta = await waitStatus(newApi, sLogin, 'live', 'upgraded (4) login shell')
         expect(meta?.agentKind, '(4) still a shell').toBe('shell')
@@ -956,35 +1103,40 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
         const collector = await attachCollector(newPort, sLogin, newCookie)
         try {
-          await waitFor(
-            () => collector.text().length > 0,
-            '(4) output frames flow',
-            60_000,
-          )
+          const probe = 'up4428-login-write-probe'
           const res = (await newApi.sessions.sendText.mutate({
             sessionId: sLogin,
-            text: 'up4428-login-write-probe',
+            text: probe,
           })) as any
           expect(res?.ok, '(4) write path accepts').toBe(true)
+          // A native auth command may stay silent awaiting its browser callback
+          // and need not echo input or Ctrl-L. The preserved host's reported
+          // kernel grid proves a real control round trip without completing login.
+          for (const geometry of [
+            { cols: 91, rows: 27 },
+            { cols: 80, rows: 24 },
+          ]) {
+            collector.resize(geometry.cols, geometry.rows)
+            await waitFor(
+              () =>
+                collector.geometry()?.cols === geometry.cols &&
+                collector.geometry()?.rows === geometry.rows,
+              `(4) preserved login PTY reports ${geometry.cols}x${geometry.rows}`,
+              30_000,
+            )
+          }
         } finally {
           collector.close()
         }
       }
 
-      // (5) the two rows drain through the gateway exactly once, in order.
-      //
-      // The reservation precedes every forward, and the drain forwards
-      // head-first awaiting each receipt — so row 1's owner flips strictly
-      // before row 2's, seconds apart (one verification window). Polling the
-      // owners at 1s observes that order directly; PTY bytes cannot (the
-      // resurrected grok sits at its restore screen, not a composer). Without
-      // a model turn there is no delivery proof, so the rows stay queued; the
-      // 30s quiet afterwards proves no second forward. A legacy retype would
-      // have deleted the rows instead — the 4427-reverted red detector.
+      // (5) Resurrect alone re-admits both old inputs, in FIFO order. Neither
+      // a logged-out program nor the transport can prove delivery. The terminal
+      // outcome must be honest uncertainty with durable text, never silent loss
+      // or an invitation to send again.
       {
-        // The owner poll starts BEFORE the resurrect (both NULL guaranteed)
-        // at 250ms — the forwards land seconds apart (one verification
-        // window each), so the transition order is observed, not inferred.
+        // Observe pre-resurrect custody and poll the real durable owners while
+        // the resumed session binds. No fresh send is needed to kick the drain.
         let tRow1Set = 0
         let tRow2Set = 0
         const pollOwners = (): boolean => {
@@ -1004,60 +1156,33 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
         if (pollOwners()) throw new Error('upgrade-4428: rows already reserved pre-resurrect')
         await newApi.sessions.resurrect.mutate({ sessionId: sQueue })
-        const eLive = await waitStatus(newApi, sQueue, 'live', 'resumed queue session')
-        expect(eLive?.driverId, '(5) resurrected session bound a driver').toBe('generic-pty')
-        // A live send returns its gateway receipt in-band: if the queued rows
-        // keep refusing, the reason prints here instead of hiding in a log.
-        {
-          const probe = (await newApi.sessions.sendText.mutate({
-            sessionId: sQueue,
-            text: 'up4428-live-probe',
-          })) as any
-          console.log(`upgrade-4428 live-send receipt: ${JSON.stringify(probe)?.slice(0, 400)}`)
-        }
-        // The owner poll runs CONCURRENTLY with the live-wait: the justBound
-        // drain starts at bind, possibly before live is visible, and both
-        // reserves would land before a sequential poll ever starts. At 250ms
-        // against ~5s-apart forwards, the transition order is observed.
-        await Promise.all([
+        const [eLive] = await Promise.all([
           waitStatus(newApi, sQueue, 'live', 'resumed queue session'),
           (async () => {
             const deadline = Date.now() + 120_000
             while (!pollOwners()) {
               if (Date.now() > deadline) {
-                throw new Error('upgrade-4428: timed out waiting for both rows reserved post-upgrade')
+                throw new Error(
+                  'upgrade-4428: timed out waiting for both rows reserved post-upgrade',
+                )
               }
               await sleep(250)
             }
           })(),
         ])
+        expect(eLive?.driverId, '(5) resurrected session bound a driver').toBe('generic-pty')
         expect(tRow1Set, '(5) row 1 reserved').toBeGreaterThan(0)
         expect(tRow2Set, '(5) row 2 reserved').toBeGreaterThan(0)
-        // NOTE: no timestamp order here — the daemon ACKs custody in
-        // milliseconds (reserves land in the same poll tick by design); the
-        // FIFO order is proven by the telemetry line order below instead.
-        // The daemon ACKed custody per turn ('queued' receipts) and owes the
-        // async delivery while grok stays non-idle: its per-turn telemetry
-        // must name each row id exactly once (requested + queued), in FIFO
-        // order. A duplicate forward would double a row's lines.
-        {
-          const out = newDaemon?.output(100_000) ?? ''
-          const id1 = `qmsg_up4428_${sQueue.slice(0, 8)}_1`
-          const id2 = `qmsg_up4428_${sQueue.slice(0, 8)}_2`
-          const count = (s: string, sub: string): number => s.split(sub).length - 1
-          const detail = `daemon tail:\n${out.slice(-4000)}`
-          expect(count(out, id1), `(5) row 1 telemetry lines\n${detail}`).toBe(2)
-          expect(count(out, id2), `(5) row 2 telemetry lines\n${detail}`).toBe(2)
-          expect(out.indexOf(id1) < out.indexOf(id2), `(5) telemetry FIFO\n${detail}`).toBe(true)
-          expect(out, `(5) custody ACKs logged\n${detail}`).toContain('prompt_queued')
-        }
         const db = openDb()
         try {
           const rows = db.all(
             'SELECT id, text, attempts, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
             sQueue,
           ) as any[]
-          expect(rows.map((r) => r.text), '(5) no row lost').toEqual([t1, t2])
+          expect(
+            rows.map((r) => r.text),
+            '(5) no row lost',
+          ).toEqual([t1, t2])
           expect(
             rows.map((r) => r.delivery_owner),
             '(5) new gateway reserved both rows',
@@ -1069,7 +1194,74 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         } finally {
           db.close()
         }
+        const id1 = `qmsg_up4428_${sQueue.slice(0, 8)}_1`
+        const id2 = `qmsg_up4428_${sQueue.slice(0, 8)}_2`
+        await waitFor(
+          () => queueOutcomes.length >= 2,
+          '(5) both explicit delivery outcomes',
+          90_000,
+        )
+        expect(
+          queueOutcomes.map(({ rowId, outcome, cause }) => ({ rowId, outcome, cause })),
+        ).toEqual([
+          { rowId: id1, outcome: 'failed', cause: 'unconfirmed' },
+          { rowId: id2, outcome: 'failed', cause: 'unconfirmed' },
+        ])
+        for (const outcome of queueOutcomes) {
+          expect(outcome.reason).toContain('delivery could not be confirmed')
+        }
+        const store = newServer.registry.sessionStore
+        const session = await store.sessions.getSession(sQueue as SessionId)
+        expect(session?.ownerUserId, '(5) the original session owner survives').toBeTruthy()
+        const unconfirmed = () =>
+          store.events.listEventsSince(0, {
+            subject: sQueue,
+            kinds: ['session.input_unconfirmed'],
+            limit: 10,
+          })
+        await waitFor(
+          async () => (await unconfirmed()).length >= 2,
+          '(5) durable uncertainty records',
+          30_000,
+        )
+        const preserved = await unconfirmed()
+        expect(preserved.map(({ payload }) => payload)).toEqual(
+          [t1, t2].map((text) =>
+            expect.objectContaining({
+              sessionId: sQueue,
+              ownerUserId: session?.ownerUserId,
+              text,
+              unconfirmed: true,
+              reason: expect.stringContaining('delivery could not be confirmed'),
+            }),
+          ),
+        )
+        // No legacy row is invented as a confirmed message or a safe-to-retry
+        // draft. These standalone inputs recover through their durable events.
+        expect(await newApi.messages.ledger.query({ sessionId: sQueue, limit: 20 })).toEqual([])
+        const settledOutcomes = [...queueOutcomes]
         await sleep(30_000)
+        expect(queueOutcomes, '(5) no repeated or falsely confirmed outcome').toEqual(
+          settledOutcomes,
+        )
+        expect(await unconfirmed(), '(5) exactly the same durable recovery records').toEqual(
+          preserved,
+        )
+        // NOTE: no timestamp order here — the daemon ACKs custody in
+        // milliseconds (reserves land in the same poll tick by design); the
+        // FIFO order is proven by the telemetry line order below instead.
+        // The daemon ACKed custody per input ('queued' receipts). Its telemetry
+        // must name each id exactly once (requested + queued), in FIFO order,
+        // even through the quiet period after both unconfirmed outcomes.
+        {
+          const out = newDaemon?.output(100_000) ?? ''
+          const count = (s: string, sub: string): number => s.split(sub).length - 1
+          const detail = `daemon tail:\n${out.slice(-4000)}`
+          expect(count(out, id1), `(5) row 1 telemetry lines\n${detail}`).toBe(2)
+          expect(count(out, id2), `(5) row 2 telemetry lines\n${detail}`).toBe(2)
+          expect(out.indexOf(id1) < out.indexOf(id2), `(5) telemetry FIFO\n${detail}`).toBe(true)
+          expect(out, `(5) custody ACKs logged\n${detail}`).toContain('prompt_queued')
+        }
         {
           const db = openDb()
           try {
@@ -1077,11 +1269,14 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
               'SELECT text, delivery_owner FROM queued_messages WHERE session_id = ? ORDER BY queued_at ASC',
               sQueue,
             ) as any[]
-            expect(again.map((r) => r.text), '(5) still exactly two rows').toEqual([t1, t2])
             expect(
-              again.map((r) => r.delivery_owner),
-              '(5) owners undisturbed',
-            ).toEqual(['daemon', 'daemon'])
+              again,
+              '(5) settled custody is retired after durable uncertainty is recorded',
+            ).toEqual([])
+            expect(
+              await newApi.messages.ledger.query({ sessionId: sQueue, limit: 20 }),
+              '(5) no confirmed message or retry draft appears during quiet',
+            ).toEqual([])
           } finally {
             db.close()
           }
@@ -1102,15 +1297,23 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
       // back with its payload intact, and the refusal settles openly.
       {
         const open = await newApi.interactions.forSession.query({ sessionId: sMenu })
-        const rows = Array.isArray(open) ? open : (open as any)?.rows ?? []
-        expect(rows.some((r: any) => (r.id ?? r.interactionId) === ixnId), '(6) ask still open').toBe(true)
+        const rows = Array.isArray(open) ? open : ((open as any)?.rows ?? [])
+        expect(
+          rows.some((r: any) => (r.id ?? r.interactionId) === ixnId),
+          '(6) ask still open',
+        ).toBe(true)
         const outcome = (await newApi.interactions.answer.mutate({
           id: ixnId,
           answer: { kind: 'question', selections: [{ optionIndices: [0] }] },
         })) as any
-        expect(outcome?.ok, `(6) refused, not misdelivered: ${JSON.stringify(outcome).slice(0, 250)}`).toBe(false)
+        expect(
+          outcome?.ok,
+          `(6) refused, not misdelivered: ${JSON.stringify(outcome).slice(0, 250)}`,
+        ).toBe(false)
         expect(outcome?.reason, '(6) driver truthfully reports no menu').toBe('delivery-failed')
-        expect(String(outcome?.detail ?? ''), '(6) refusal names the cause').toContain('no menu on screen')
+        expect(String(outcome?.detail ?? ''), '(6) refusal names the cause').toContain(
+          'no menu on screen',
+        )
         const db = openDb()
         try {
           const row = db.get(
@@ -1153,6 +1356,7 @@ describe('upgrade proof: previous-release sessions open under this build', () =>
         }
       } catch {}
       for (const d of daemonDirs.splice(0)) rmSync(d, { recursive: true, force: true })
+      restoreFrameProbe?.()
       if (newServer) await newServer.close().catch(() => {})
       try {
         oldDaemon && (await oldDaemon.kill().catch(() => {}))

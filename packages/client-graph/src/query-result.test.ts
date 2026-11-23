@@ -526,6 +526,56 @@ describe('unpublished keyed answer construction', () => {
   })
 })
 
+describe('keyed answers edited in place between publications (POD-7181)', () => {
+  type Value = { id: string; rank: number; deadline: number }
+  const compare = (a: Value, b: Value) => a.rank - b.rank
+  const reference = (rows: Map<string, Value>) =>
+    [...rows.values()].sort((a, b) => a.rank - b.rank || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const firstAtMost = (rows: Map<string, Value>, bound: number) =>
+    reference(rows).find((value) => value.deadline <= bound)
+  const firstAbove = (rows: Map<string, Value>, bound: number) =>
+    reference(rows).find((value) => value.deadline > bound)
+
+  it('matches a sorted rebuild while forks and snapshots taken in between never change', () => {
+    let seed = 7
+    const random = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648
+      return seed % n
+    }
+    const sides = [
+      { answer: createKeyedAnswer<Value>(compare, (value) => value.deadline), rows: new Map<string, Value>() },
+    ]
+    const frozen: { snapshot: Value[]; expected: Value[] }[] = []
+    for (let step = 0; step < 4_000; step += 1) {
+      const side = sides[random(sides.length)]!
+      const id = `s${random(120)}`
+      const roll = random(100)
+      if (roll < 60) {
+        const value = { id, rank: random(15), deadline: random(9) }
+        side.answer.set(id, String(value.rank), value)
+        side.rows.set(id, value)
+      } else if (roll < 90) {
+        side.answer.delete(id)
+        side.rows.delete(id)
+      } else if (roll < 95) {
+        frozen.push({ snapshot: side.answer.snapshot(), expected: reference(side.rows) })
+      } else if (sides.length < 6) {
+        sides.push({ answer: side.answer.fork(), rows: new Map(side.rows) })
+      }
+      if (step % 97 === 0)
+        for (const { answer, rows } of sides) {
+          expect(answer.snapshot()).toEqual(reference(rows))
+          for (const [key, value] of rows) expect(answer.get(key)).toBe(value)
+          expect(answer.firstBounded(4, 'atMost')).toEqual(firstAtMost(rows, 4))
+          expect(answer.firstBounded(4, 'above')).toEqual(firstAbove(rows, 4))
+        }
+    }
+    for (const { answer, rows } of sides) expect(answer.snapshot()).toEqual(reference(rows))
+    expect(frozen.length).toBeGreaterThan(50)
+    for (const { snapshot, expected } of frozen) expect([...snapshot]).toEqual(expected)
+  })
+})
+
 describe('keyed subsets and bounded partitions', () => {
   it('tracks shared-record predicates and totals independently of order and releases demand', () => {
     const rows = observable.map([

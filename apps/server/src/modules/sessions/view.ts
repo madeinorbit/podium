@@ -1,6 +1,5 @@
 import { readIssue, readIssues } from '../issues/issue-reader'
 import {
-  firstAdminMemberId,
   asUserId,
   type SessionId,
   type SessionMeta,
@@ -14,7 +13,6 @@ import { harnessCapabilitiesFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { IssueRow } from '../../store/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
-import { granteesOf } from './session-state/grantees'
 import type { Session, SessionDurableFields } from './session'
 import { isResident, type SessionRecordReads, type SessionSubject } from './records'
 import { projectSessionMeta, type SessionIdentity, type SessionRecord } from './session-record'
@@ -25,9 +23,7 @@ import type { SessionOwnerFacts, SessionStatePrincipal, SessionStateService } fr
 export interface ProjectionPass {
   queuedMessageCounts: ReadonlyMap<SessionId, number>
   issues: Map<string, IssueRow | null>
-  grants: Map<string, string[]>
   refRepoIds?: ReadonlyMap<string, RepoId | undefined>
-  occupancy: ReadonlyMap<SessionId, number | undefined>
   /** The candidates' owners and issues, for the visibility check (POD-6160). */
   sessions?: Map<SessionId, SessionOwnerFacts | null>
 }
@@ -37,12 +33,6 @@ export interface SessionViewPorts {
   records: Pick<SessionRecordReads, 'all' | 'issueMembers' | 'resolve' | 'page'>
   store: SessionStore
   state: SessionStateService
-  /**
-   * Room occupancy for a session (POD-1081). When provided, `clientCount` is
-   * the occupancy size rather than the PTY attach-set size — attach remains for
-   * frame delivery; who-is-watching is presence rooms.
-   */
-  sessionOccupancyCount?(sessionId: SessionId): number | undefined
 }
 
 /**
@@ -201,9 +191,9 @@ export class SessionView {
     try {
       const session = (await this.ports.records.resolve([sessionId], 'spawnedByOf')).get(sessionId)
       if (!session) return undefined
-      const principal = forPrincipal ?? await this.defaultPrincipal()
-      if (!principal) return undefined
-      if (!(await this.ports.state.canReadSession(principal, sessionId, { issues: new Map(), grants: new Map() }))) {
+      if (forPrincipal) {
+        if (!(await this.ports.state.canReadSession(forPrincipal, sessionId, {}))) return undefined
+      } else if (!(await this.defaultPrincipal()) || !(await this.ports.state.resolvableSessions([sessionId])).has(sessionId)) {
         return undefined
       }
       return session.spawnedBy
@@ -216,12 +206,19 @@ export class SessionView {
    *  `listForIssue()` and `byId()` share so the visibility rule and the memo
    *  lifetime have exactly one definition. */
   private async project(candidates: SessionSubject[], forPrincipal?: SessionStatePrincipal): Promise<SessionMeta[]> {
-    const principal = forPrincipal ?? await this.defaultPrincipal()
-    if (!principal) return []
-    const pass = await this.buildProjectionPass(candidates, { published: false })
-    const visible = await this.ports.state.visibleSessions(
-      principal, candidates.map(session => session.sessionId), pass,
-    )
+    // NO PRINCIPAL IS AN IN-PROCESS READ (POD-6283): authorization lookups,
+    // delegation walks, lifecycle work. It used to be filtered as the earliest
+    // admin, whose scope `all` saw every session with an owner; sessions are
+    // private now, so that stand-in would hide every other member's sessions
+    // from the server itself. It reads what it always read: every session whose
+    // owner resolves, once the instance has a member. Retiring the stand-in on
+    // request paths is POD-6285's.
+    if (!forPrincipal && !(await this.defaultPrincipal())) return []
+    const pass = await this.buildProjectionPass(candidates)
+    const ids = candidates.map(session => session.sessionId)
+    const visible = forPrincipal
+      ? await this.ports.state.visibleSessions(forPrincipal, ids, pass)
+      : await this.ports.state.resolvableSessions(ids, pass)
     const readable = candidates.filter(session => visible.has(session.sessionId))
     if (readable.length === 0) return []
     return readable.map(session => (isResident(session) ? this.wire(session, pass) : wireRecord(session, pass)))
@@ -230,72 +227,16 @@ export class SessionView {
   /**
    * Build after any transaction writes; drafts supply the fields being committed.
    *
-   * `published` (the default) says the projected rows are published, so the
-   * feed's visibility pass will ask for each session's OWN grants, also for a
-   * session on an issue, whose projection reads the issue's (POD-6217). The
-   * pass reads those in the same statement, and the publication finds them in
-   * the operation's memo. A pass that only answers a read passes `false`.
+   * No grant is read: sessions are private (POD-6283), so a session's
+   * visibility is its owner, which each candidate already carries.
    */
   async buildProjectionPass(
     sessions: readonly (SessionDurableFields & { sessionId: SessionId; ownerUserId?: UserId })[],
-    { published = true }: { published?: boolean } = {},
   ): Promise<ProjectionPass> {
-    const ids = sessions.map(s => s.sessionId)
-    const issueIds = [...new Set(sessions.flatMap(s =>
-      [s.issueId, s.refIssueId].filter((id): id is IssueId => !!id),
-    ))]
-    const found = issueIds.length ? await readIssues(this.ports.store.issues, issueIds) : new Map<string, IssueRow>()
-    const issues = new Map(issueIds.map(id => [id, found.get(id) ?? null]))
-    const grants = new Map<string, string[]>()
-    const issueResources = [...new Set(sessions.flatMap(s => (s.issueId ? [s.issueId] : [])))]
-    const sessionResources = [...new Set(sessions.flatMap(s => (!s.issueId ? [s.sessionId] : [])))]
-    const sessionAsked = published ? [...new Set(ids)] : sessionResources
-    const asked = {
-      ...(issueResources.length ? { issue: issueResources } : {}),
-      ...(sessionAsked.length ? { session: sessionAsked } : {}),
-    }
-    if (Object.keys(asked).length) {
-      // Through the operation's loader (POD-6189): the access check before a
-      // session write and the reprojections after it ask about the same session.
-      // Both kinds in one statement (POD-6217).
-      const edges = await this.ports.store.grants.loadForResourcesOfKinds(asked)
-      for (const id of issueResources) grants.set(`issue:${id}`, granteesOf(edges.get('issue')?.get(id) ?? []))
-      for (const id of sessionResources) grants.set(`session:${id}`, granteesOf(edges.get('session')?.get(id) ?? []))
-    }
-    const paths = new Set(sessions.flatMap(s => {
-      const issue = s.refIssueId && s.refLetter ? issues.get(s.refIssueId) : undefined
-      return issue ? [issue.repoPath] : s.refDraft != null ? [s.cwd] : []
-    }))
-    const refRepoIds = new Map<string, RepoId | undefined>()
-    if (paths.size) {
-      const repoIdForPath = await this.ports.store.repos.repoIdResolver()
-      for (const path of paths) refRepoIds.set(path, repoIdForPath(path) ?? undefined)
-    }
-    const queuedMessageCounts = await this.ports.store.sync.queuedMessageCounts(ids)
-    const occupancy = new Map(
-      sessions.map((s) => [s.sessionId, this.ports.sessionOccupancyCount?.(s.sessionId)]),
-    )
-    // The owner each candidate already carries (a record, a resident session):
-    // the visibility check reads it here rather than the row again.
-    const owners = new Map<SessionId, SessionOwnerFacts | null>()
-    for (const s of sessions) {
-      if (s.ownerUserId !== undefined) owners.set(s.sessionId, { ownerUserId: s.ownerUserId, issueId: s.issueId ?? null })
-    }
-    return {
-      issues,
-      grants,
-      refRepoIds,
-      queuedMessageCounts,
-      occupancy,
-      sessions: owners,
-    }
+    return await sessionProjectionPass(this.ports.store, sessions)
   }
 
   readonly wire = wireSession
-
-  async broadcastViewer(): Promise<UserId> {
-    return (await firstAdminMemberId(this.ports.store))
-  }
 
   async principalForTrustedUser(userId: UserId): Promise<SessionStatePrincipal> {
     const role = await this.ports.store.users.roleOf(userId)
@@ -303,6 +244,8 @@ export class SessionView {
     return sessionStatePrincipalFor(userCommandPrincipal(userId, role))
   }
 
+  /** The instance's earliest admin, or none on an instance with no member. A
+   *  principal-less read only asks whether it exists (see `project`). */
   async defaultPrincipal(): Promise<SessionStatePrincipal | undefined> {
     const member = await this.ports.store.users.earliestAdmin()
     return member
@@ -310,8 +253,10 @@ export class SessionView {
       : undefined
   }
 
-  async overlay(sessionId: SessionId): Promise<SessionUserOverlay> {
-    return await this.ports.state.overlay((await this.broadcastViewer()), sessionId)
+  /** `userId`'s personal state on one session. Sessions are private, so the
+   *  only person with state worth reading is the owner (POD-6285). */
+  async overlay(userId: UserId, sessionId: SessionId): Promise<SessionUserOverlay> {
+    return await this.ports.state.overlay(userId, sessionId)
   }
 
   /**
@@ -346,6 +291,56 @@ export class SessionView {
 
 }
 
+/** What a projection pass reads: issues, the repo registry and the message queue. */
+export type SessionProjectionStore = Pick<SessionStore, 'issues' | 'repos' | 'sync'>
+
+/**
+ * THE PROJECTION PASS, FROM THE DATABASE ALONE (POD-6764): the per-session
+ * joins `wireProjected` needs, read once for a whole set. A function of the
+ * store only, so the session record builder (`sync/record-builders.ts`) builds
+ * the same record on any connection, with no service in reach.
+ */
+export async function sessionProjectionPass(
+  store: SessionProjectionStore,
+  sessions: readonly (SessionDurableFields & { sessionId: SessionId; ownerUserId?: UserId })[],
+): Promise<ProjectionPass> {
+  const ids = sessions.map((s) => s.sessionId)
+  const issueIds = [
+    ...new Set(
+      sessions.flatMap((s) => [s.issueId, s.refIssueId].filter((id): id is IssueId => !!id)),
+    ),
+  ]
+  const found = issueIds.length
+    ? await readIssues(store.issues, issueIds)
+    : new Map<string, IssueRow>()
+  const issues = new Map(issueIds.map((id) => [id, found.get(id) ?? null]))
+  const paths = new Set(
+    sessions.flatMap((s) => {
+      const issue = s.refIssueId && s.refLetter ? issues.get(s.refIssueId) : undefined
+      return issue ? [issue.repoPath] : s.refDraft != null ? [s.cwd] : []
+    }),
+  )
+  const refRepoIds = new Map<string, RepoId | undefined>()
+  if (paths.size) {
+    const repoIdForPath = await store.repos.repoIdResolver()
+    for (const path of paths) refRepoIds.set(path, repoIdForPath(path) ?? undefined)
+  }
+  const queuedMessageCounts = await store.sync.queuedMessageCounts(ids)
+  // The owner each candidate already carries (a record, a resident session):
+  // the visibility check reads it here rather than the row again.
+  const owners = new Map<SessionId, SessionOwnerFacts | null>()
+  for (const s of sessions) {
+    if (s.ownerUserId !== undefined)
+      owners.set(s.sessionId, { ownerUserId: s.ownerUserId, issueId: s.issueId ?? null })
+  }
+  return {
+    issues,
+    refRepoIds,
+    queuedMessageCounts,
+    sessions: owners,
+  }
+}
+
 /** Pure projection: only the session, its optional durable draft, and captured facts. */
 export function wireSession(
   session: Session,
@@ -357,7 +352,7 @@ export function wireSession(
 
 /** {@link wireSession} for a durable record read from the database (POD-6160). */
 export function wireRecord(record: SessionRecord, pass: ProjectionPass): SessionMeta {
-  return wireProjected(record, projectSessionMeta(record, record, record.live), record, pass)
+  return wireProjected(record, projectSessionMeta(record, record), record, pass)
 }
 
 function wireProjected(
@@ -367,7 +362,6 @@ function wireProjected(
   pass: ProjectionPass,
 ): SessionMeta {
   const queuedMessageCount = pass.queuedMessageCounts.get(session.sessionId) ?? 0
-  const occupancy = pass.occupancy.get(session.sessionId)
   const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
   let refRepoId: RepoId | undefined
   let refSeq: number | undefined
@@ -381,7 +375,6 @@ function wireProjected(
   return {
     ...meta,
     ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}),
-    ...(occupancy !== undefined ? { clientCount: occupancy } : {}),
     ...(harnessCapabilities ? {
       harnessHandoff: harnessCapabilities.handoff,
       harnessPromptModeHints: harnessCapabilities.promptModeHints,

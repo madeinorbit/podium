@@ -1,21 +1,22 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real provider/replica/outbox, synthetic rows, and actual composer/offer UI.
  * Reports counts only: this acceptance is not a timed benchmark. */
-import type { ClientRuntime } from '@podium/client-core/engine'
-import { DRAFTS_UI_KEY } from '@podium/client-core/engine'
+
+import { DRAFTS_UI_KEY } from '@podium/client-core/conversation'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-
-import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
-import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
+import { omitGone } from '@podium/client-graph/lookup'
 import { asSessionId, asUserId } from '@podium/model/browser'
+import { observer } from 'mobx-react-lite'
 import { Profiler, StrictMode, useEffect, useRef } from 'react'
 import { createRoot } from 'react-dom/client'
+import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
+import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { ChatComposer } from '../src/features/chat/ChatComposer'
-import { checkChatContext } from './chat/chat-context-check'
 import { OfferArtifactStrip } from '../src/features/chat/OfferArtifactStrip'
 import {
   useChatArtifactIssue,
@@ -32,7 +33,7 @@ import {
   useChatThreads,
 } from '../src/features/chat/use-chat-context'
 import { useConversation } from '../src/features/chat/use-conversation'
-import { observer } from 'mobx-react-lite'
+import { checkChatContext } from './chat/chat-context-check'
 import { createHeaderFixture } from './header-fixture'
 import '../src/index.css'
 import '../src/styles.css'
@@ -114,7 +115,7 @@ storeStats.enable()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 const Surface = observer(function Surface() {
-  const runtime = useStoreHandle() as ClientRuntime,
+  const runtime = useClientRuntime() as ClientRuntime,
     pool = useWorklistPool()
   const session = useChatSession(id),
     machines = useChatMachines(),
@@ -128,7 +129,7 @@ const Surface = observer(function Surface() {
     refs = useChatReferenceMachines(),
     repos = useChatRepositoryKey()
   const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never })
-  const actions = runtime.access
+  const actions = runtime.ui
   const conversation = useConversation(id)
   const held = omitGone(pool?.row('chatHeld', id))
   const reader = omitGone(pool?.row('chatContextReader', 'reader'))
@@ -161,8 +162,11 @@ const Surface = observer(function Surface() {
           ready: conversation?.ready,
           conversationReady: conversation?.ready,
           conversationDraft: conversation?.draft ?? '',
-          held: held && typeof held !== 'symbol' ? held.sends.map(row => row.mutationId) : [],
-          records: reader && typeof reader !== 'symbol' ? reader.records(id).records.map(row => row.id) : [],
+          held: held && typeof held !== 'symbol' ? held.sends.map((row) => row.mutationId) : [],
+          records:
+            reader && typeof reader !== 'symbol'
+              ? reader.records(id).records.map((row) => row.id)
+              : [],
         })}
       </output>
       <ChatComposer
@@ -183,16 +187,16 @@ const Surface = observer(function Surface() {
         offer={null}
         onOfferAction={async () => {}}
         onOfferDismiss={async () => {}}
-        session={session}
+        session={session && pool ? pool.sessionObject(id) : undefined}
         turnError={null}
         transcriptFreshness="saved"
         offlineAsOf={null}
         autoFocusKey={id}
         transcriptSettled
       />
-      {!omitArtifactStrip && session && (
+      {!omitArtifactStrip && session && pool && (
         <OfferArtifactStrip
-          session={session}
+          session={pool.sessionObject(id)}
           offer={
             {
               message: 'Synthetic concept ready',
@@ -217,18 +221,16 @@ root.render(
         const replica = fixture.newReplica()
         // The real runtime hydrates this device ledger in its constructor, before
         // either controller mounts. Attachment is intentionally a later boundary.
-        replica
-          .uiState()
-          .set(
-            DRAFTS_UI_KEY,
-            JSON.stringify({ [id]: { text: 'Saved synthetic draft', serverRev: 0, editedAt: 1 } }),
-          )
+        openLegacyDeviceKeys(replica.deviceStorage()).set(
+          DRAFTS_UI_KEY,
+          JSON.stringify({ [id]: { text: 'Saved synthetic draft', serverRev: 0, editedAt: 1 } }),
+        )
         return replica
       }}
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.hub)
+        fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
         fixture.publishMachines()
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
@@ -266,10 +268,12 @@ const driver = {
   },
   check() {
     if (!owner || !graph) return null
-    return checkChatContext(graph, { ...referenceState(owner), drafts: Object.fromEntries(owner.drafts.values) }, allIssueViewModels(owner.replica), [
-      id,
-      asSessionId('synthetic-session-1'),
-    ])
+    return checkChatContext(
+      graph,
+      { ...referenceState(owner), drafts: Object.fromEntries(owner.drafts.values) },
+      allIssueViewModels(owner.replica),
+      [id, asSessionId('synthetic-session-1')],
+    )
   },
   close: () => root.unmount(),
 }

@@ -121,3 +121,51 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `runtime.embedded`: pi ships an SDK, but it is not hosted in-process yet
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
+
+## Default posture by launch mode
+
+What `{"mode":"autonomous"}` comes to for a current install, from each adapter's posture section (`packages/harness/src/adapters/<harness>/posture.ts`). `met`: by a flag, inline config or by default. `home edit`: only by an edit to the harness home. `unmet`: this launch cannot meet it; the reasons follow the table. The mode column is the harness mode Podium asks for.
+
+| harness | launch | mode | workspace-trust | podium-cli | autonomy | quiet-start | podium-material |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| claude-code | terminal | `auto` | home edit | met | met | met | met |
+| claude-code | engine | `auto` | home edit | met | met | met | met |
+| claude-code | turn | `auto` | home edit | met | met | met | met |
+| claude-code | client | `auto` | home edit | met | met | met | met |
+| codex | terminal | `auto-review` | met | home edit | met | met | met |
+| codex | engine | `auto-review` | met | home edit | met | met | met |
+| codex | turn | `auto-review` | met | home edit | met | met | met |
+| codex | client | none | met | home edit | met | met | met |
+| grok | terminal | `auto` | met | met | met | met | met |
+| grok | engine | `auto` | met | home edit | met | met | met |
+| grok | turn | `auto` | met | met | met | met | met |
+| grok | client | `auto` | met | met | met | met | met |
+| opencode | terminal | `auto` | met | met | met | met | met |
+| opencode | engine | none | met | met | met | met | met |
+| opencode | turn | `auto` | met | met | met | met | met |
+| opencode | client | none | met | met | met | met | met |
+| cursor | terminal | none | unmet | unmet | unmet | unmet | unmet |
+| cursor | engine | `auto-review` | met | unmet | met | met | unmet |
+| cursor | turn | `auto-review` | met | unmet | met | met | unmet |
+| cursor | client | none | unmet | unmet | unmet | unmet | unmet |
+| pi | terminal | none | met | met | met | met | met |
+| pi | engine | none | met | met | met | met | met |
+| pi | turn | none | met | met | met | met | met |
+| pi | client | none | met | met | met | met | met |
+
+Unmet, and why:
+
+- cursor, terminal, `workspace-trust`: Cursor keeps interactive folder trust in private state that Podium does not write
+- cursor, terminal, `podium-cli`: Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit
+- cursor, terminal, `autonomy`: unmeasured: Cursor's mode flags were not run in its terminal UI (no signed-in Cursor account was available to the spike), so it starts in the mode its own settings choose
+- cursor, terminal, `quiet-start`: unmeasured: no signed-in Cursor account was available to the spike
+- cursor, terminal, `podium-material`: unmeasured: whether Cursor asks before reading Podium's attachments outside the working folder; no signed-in Cursor account was available to the spike
+- cursor, engine, `podium-cli`: Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit
+- cursor, engine, `podium-material`: unmeasured: whether Cursor asks before reading Podium's attachments outside the working folder; no signed-in Cursor account was available to the spike
+- cursor, turn, `podium-cli`: Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit
+- cursor, turn, `podium-material`: unmeasured: whether Cursor asks before reading Podium's attachments outside the working folder; no signed-in Cursor account was available to the spike
+- cursor, client, `workspace-trust`: Cursor keeps interactive folder trust in private state that Podium does not write
+- cursor, client, `podium-cli`: Cursor takes allow rules only from a settings file shared with every Cursor session, which Podium does not edit
+- cursor, client, `autonomy`: unmeasured: Cursor's mode flags were not run in its terminal UI (no signed-in Cursor account was available to the spike), so it starts in the mode its own settings choose
+- cursor, client, `quiet-start`: unmeasured: no signed-in Cursor account was available to the spike
+- cursor, client, `podium-material`: unmeasured: whether Cursor asks before reading Podium's attachments outside the working folder; no signed-in Cursor account was available to the spike

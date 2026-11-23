@@ -1,0 +1,1 @@
+CREATE INDEX `idx_maintenance_commands_applied_at` ON `maintenance_commands` (`applied_at`,`job_kind`,`run_key`);

@@ -26,30 +26,33 @@
 
 import { asIssueId, asSessionId, asThreadId, type IssueId } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
-import { INLINE_BODY_MAX, isPointerMessage, MessagesRepository } from './messages'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { sql } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { type MessageStoreSlice, openMessageStoreSlice } from '../test-support/message-store-slice'
+import { testStoreEngine } from '../test-support/pg-test-database'
+import { INLINE_BODY_MAX, isPointerMessage, type MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
-/**
- * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
- * [POD-3221 spec rule 27b]. Local to this file on purpose: hoisting it into
- * `test-support` would put several parallel conversion waves in one shared file.
- */
-const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).queries
-  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
-}
-
-let db: ReturnType<typeof openDatabase>
+let slice: MessageStoreSlice
 let messages: MessagesRepository
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  messages = new MessagesRepository(stageQueries(db))
+beforeEach(async () => {
+  slice = await openMessageStoreSlice()
+  messages = slice.messages
 })
+
+afterEach(async () => {
+  await slice.close()
+})
+
+/**
+ * The instants the fixtures name, `T[n]` seconds into one day, in order. Postgres
+ * stores these columns as `timestamptz`, so they are real instants on both engines,
+ * written as `toISOString()` writes them so they read back unchanged.
+ */
+const at = (seconds: number): string => new Date(Date.UTC(2026, 0, 1, 0, 0, seconds)).toISOString()
+const T = [at(0), at(1), at(2), at(3), at(4), at(5), at(6), at(7), at(8), at(9)] as const
 
 const TARGET = 'iss_target'
 const READER = asSessionId('sess-reader')
@@ -69,7 +72,7 @@ function message(input: Omit<Partial<MessageRow>, 'id'> & { id: string }): Messa
     lifecycle: 'wait',
     body: input.id,
     expiresAt: null,
-    createdAt: 't0',
+    createdAt: T[0],
     deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
@@ -97,15 +100,10 @@ function message(input: Omit<Partial<MessageRow>, 'id'> & { id: string }): Messa
  */
 const add = async (input: Omit<Partial<MessageRow>, 'id'> & { id: string }): Promise<void> => {
   const row = message(input)
-  await messages.addMessage({ ...row, deliveryStatus: 'stored' })
+  await messages.addMessage(fixtureWriteScope(), { ...row, deliveryStatus: 'stored' })
   if (row.deliveryStatus !== 'stored' || row.injectedAt || row.readAt) {
-    db.prepare(
-      'UPDATE messages SET delivery_status = ?, injected_at = ?, read_at = ? WHERE id = ?',
-    ).run(
-      row.deliveryStatus,
-      row.injectedAt ?? null,
-      row.readAt ?? null,
-      row.id,
+    await slice.run(
+      sql`UPDATE messages SET delivery_status = ${row.deliveryStatus}, injected_at = ${row.injectedAt ?? null}, read_at = ${row.readAt ?? null} WHERE id = ${row.id}`,
     )
   }
 }
@@ -170,11 +168,27 @@ describe('markDeadLetter / markDeliveryAbandoned — the notice rides the move',
 
   it('stores the notice when the move applies, and nothing on a repeat', async () => {
     await add({ id: 'gone' })
-    expect((await messages.markDeadLetter('gone', 't1', undefined, notice('ntf-gone'))).kind).toBe(
-      'applied',
-    )
+    expect(
+      (
+        await messages.markDeadLetter(
+          fixtureWriteScope(),
+          'gone',
+          T[1],
+          undefined,
+          notice('ntf-gone'),
+        )
+      ).kind,
+    ).toBe('applied')
     expect((await back('ntf-gone'))?.deliveryStatus).toBe('stored')
-    expect(await messages.markDeadLetter('gone', 't2', undefined, notice('ntf-gone-2'))).toEqual({
+    expect(
+      await messages.markDeadLetter(
+        fixtureWriteScope(),
+        'gone',
+        T[2],
+        undefined,
+        notice('ntf-gone-2'),
+      ),
+    ).toEqual({
       kind: 'already-there',
     })
     expect(await back('ntf-gone-2')).toBeNull()
@@ -182,9 +196,16 @@ describe('markDeadLetter / markDeliveryAbandoned — the notice rides the move',
 
   it('stores no notice when the move is refused', async () => {
     await add({ id: 'confirmed' })
-    await messages.markDelivered('confirmed', String(READER), 't1')
+    await messages.markDelivered(fixtureWriteScope(), 'confirmed', String(READER), T[1])
     expect(
-      await messages.markDeliveryAbandoned('confirmed', READER, 't2', 'teardown', notice('ntf-c')),
+      await messages.markDeliveryAbandoned(
+        fixtureWriteScope(),
+        'confirmed',
+        READER,
+        T[2],
+        'teardown',
+        notice('ntf-c'),
+      ),
     ).toEqual({ kind: 'refused', current: 'confirmed' })
     expect(await back('ntf-c')).toBeNull()
     expect((await back('confirmed'))?.deadLetteredAt).toBeNull()
@@ -192,11 +213,11 @@ describe('markDeadLetter / markDeliveryAbandoned — the notice rides the move',
 
   it('a notice that cannot be stored takes the move back with it', async () => {
     await add({ id: 'on-its-way' })
-    await messages.markDispatched('on-its-way', READER, 't1')
+    await messages.markDispatched(fixtureWriteScope(), 'on-its-way', READER, T[1])
     // A notice that is not `stored` is refused by the insert: the failure
     // must not commit without it.
     await expect(
-      messages.markDeliveryAbandoned('on-its-way', READER, 't2', 'teardown', {
+      messages.markDeliveryAbandoned(fixtureWriteScope(), 'on-its-way', READER, T[2], 'teardown', {
         ...notice('ntf-bad'),
         deliveryStatus: 'confirmed',
       }),
@@ -210,28 +231,55 @@ describe('markDeadLetter / markDeliveryAbandoned — the notice rides the move',
 // A lost answer is `unknown`, never failed, and never walks a row back
 // ---------------------------------------------------------------------------
 
+describe('markDispatched — a recorded retract wins the first hand-off', () => {
+  it('a recorded retract blocks first dispatch without blocking other held inputs', async () => {
+    await add({ id: 'withdrawn-before-dispatch' })
+    await add({ id: 'still-pending' })
+    await messages.requestRetract(fixtureWriteScope(), 'withdrawn-before-dispatch', T[1])
+    expect(
+      await messages.markDispatched(fixtureWriteScope(), 'withdrawn-before-dispatch', READER, T[2]),
+    ).toEqual({ kind: 'refused', current: 'stored' })
+    expect(await back('withdrawn-before-dispatch')).toMatchObject({
+      deliveryStatus: 'stored',
+      retractRequestedAt: T[1],
+      deliveredTo: null,
+      injectedAt: null,
+    })
+    await messages.markDispatched(fixtureWriteScope(), 'still-pending', READER, T[2])
+    expect(await back('still-pending')).toMatchObject({
+      deliveryStatus: 'dispatched',
+      deliveredTo: READER,
+      injectedAt: T[2],
+    })
+  })
+})
+
 describe('markUnknown — only a handed-on row, only for its session (POD-4775)', () => {
   it('moves the row handed to that session and nothing else', async () => {
     await add({ id: 'on-its-way' })
-    await messages.markDispatched('on-its-way', READER, 't1')
+    await messages.markDispatched(fixtureWriteScope(), 'on-its-way', READER, T[1])
     await add({ id: 'confirmed' })
-    await messages.markDispatched('confirmed', READER, 't1')
-    await messages.markDelivered('confirmed', String(READER), 't1')
+    await messages.markDispatched(fixtureWriteScope(), 'confirmed', READER, T[1])
+    await messages.markDelivered(fixtureWriteScope(), 'confirmed', String(READER), T[1])
     await add({ id: 'held', deliveredTo: READER })
 
     // Another session's lost answer cannot move this row.
-    expect(await messages.markUnknown('on-its-way', OTHER)).toEqual({
+    expect(await messages.markUnknown(fixtureWriteScope(), 'on-its-way', OTHER)).toEqual({
       kind: 'refused',
       current: 'dispatched',
     })
-    expect((await messages.markUnknown('on-its-way', READER)).kind).toBe('applied')
-    expect(await messages.markUnknown('on-its-way', READER)).toEqual({ kind: 'already-there' })
+    expect((await messages.markUnknown(fixtureWriteScope(), 'on-its-way', READER)).kind).toBe(
+      'applied',
+    )
+    expect(await messages.markUnknown(fixtureWriteScope(), 'on-its-way', READER)).toEqual({
+      kind: 'already-there',
+    })
     // Confirmed is past the question; a row never handed on has no answer to lose.
-    expect(await messages.markUnknown('confirmed', READER)).toEqual({
+    expect(await messages.markUnknown(fixtureWriteScope(), 'confirmed', READER)).toEqual({
       kind: 'refused',
       current: 'confirmed',
     })
-    expect(await messages.markUnknown('held', READER)).toEqual({
+    expect(await messages.markUnknown(fixtureWriteScope(), 'held', READER)).toEqual({
       kind: 'refused',
       current: 'stored',
     })
@@ -244,9 +292,11 @@ describe('markUnknown — only a handed-on row, only for its session (POD-4775)'
 
   it('a later confirmation still lands on an unknown row', async () => {
     await add({ id: 'lost' })
-    await messages.markDispatched('lost', READER, 't1')
-    await messages.markUnknown('lost', READER)
-    expect((await messages.markDelivered('lost', String(READER), 't2')).kind).toBe('applied')
+    await messages.markDispatched(fixtureWriteScope(), 'lost', READER, T[1])
+    await messages.markUnknown(fixtureWriteScope(), 'lost', READER)
+    expect(
+      (await messages.markDelivered(fixtureWriteScope(), 'lost', String(READER), T[2])).kind,
+    ).toBe('applied')
     expect((await back('lost'))?.deliveryStatus).toBe('confirmed')
   })
 })
@@ -258,17 +308,23 @@ describe('markUnknown — only a handed-on row, only for its session (POD-4775)'
 describe('guarded ledger transitions', () => {
   it('markDeliveryAbandoned dedupes: a repeat is already there', async () => {
     await add({ id: 'm1' })
-    expect((await messages.markDeliveryAbandoned('m1', READER, 't1', 'never-live')).kind).toBe('applied')
+    expect(
+      (await messages.markDeliveryAbandoned(fixtureWriteScope(), 'm1', READER, T[1], 'never-live'))
+        .kind,
+    ).toBe('applied')
     // Abandonment reports are retryable and repeat across restarts; the second
     // finds the row already failed. This is how the caller emits exactly one
     // transition per turn.
-    expect((await messages.markDeliveryAbandoned('m1', READER, 't2', 'never-live')).kind).toBe('already-there')
-    expect((await back('m1'))?.deadLetteredAt).toBe('t1')
+    expect(
+      (await messages.markDeliveryAbandoned(fixtureWriteScope(), 'm1', READER, T[2], 'never-live'))
+        .kind,
+    ).toBe('already-there')
+    expect((await back('m1'))?.deadLetteredAt).toBe(T[1])
   })
 
   it('markDeliveryAbandoned COALESCEs delivered_to rather than overwriting it', async () => {
     await add({ id: 'm1', deliveredTo: OTHER })
-    await messages.markDeliveryAbandoned('m1', READER, 't1', 'teardown')
+    await messages.markDeliveryAbandoned(fixtureWriteScope(), 'm1', READER, T[1], 'teardown')
     // The row was aimed at OTHER; the report names READER. The existing target is
     // the evidence and must win.
     expect((await back('m1'))?.deliveredTo).toBe(OTHER)
@@ -277,13 +333,13 @@ describe('guarded ledger transitions', () => {
   // POD-4776: the retract request is a stamp beside the status, never a move.
   it('requestRetract stamps a pending row once, and never a settled one', async () => {
     await add({ id: 'q', deliveryStatus: 'dispatched' })
-    await add({ id: 'd', deliveryStatus: 'confirmed', deliveredAt: 't1' })
-    expect(await messages.requestRetract('q', 't2')).toBe(true)
-    expect(await messages.requestRetract('q', 't3')).toBe(true)
-    expect(await messages.requestRetract('d', 't2')).toBe(false)
+    await add({ id: 'd', deliveryStatus: 'confirmed', deliveredAt: T[1] })
+    expect(await messages.requestRetract(fixtureWriteScope(), 'q', T[2])).toBe(true)
+    expect(await messages.requestRetract(fixtureWriteScope(), 'q', T[3])).toBe(true)
+    expect(await messages.requestRetract(fixtureWriteScope(), 'd', T[2])).toBe(false)
     expect(await back('q')).toMatchObject({
       deliveryStatus: 'dispatched',
-      retractRequestedAt: 't2',
+      retractRequestedAt: T[2],
     })
     expect((await back('d'))?.retractRequestedAt).toBeUndefined()
   })
@@ -291,16 +347,20 @@ describe('guarded ledger transitions', () => {
   it('markCancelled onlyFrom moves only from that status', async () => {
     await add({ id: 's' })
     await add({ id: 'h', deliveryStatus: 'dispatched' })
-    expect((await messages.markCancelled('h', { onlyFrom: 'stored' })).kind).not.toBe('applied')
-    expect((await messages.markCancelled('s', { onlyFrom: 'stored' })).kind).toBe('applied')
+    expect(
+      (await messages.markCancelled(fixtureWriteScope(), 'h', { onlyFrom: 'stored' })).kind,
+    ).not.toBe('applied')
+    expect(
+      (await messages.markCancelled(fixtureWriteScope(), 's', { onlyFrom: 'stored' })).kind,
+    ).toBe('applied')
     expect((await back('h'))?.deliveryStatus).toBe('dispatched')
   })
 
   it('markCancelled only moves a row that is not yet typed or ended', async () => {
     await add({ id: 'q' })
-    await add({ id: 'd', deliveryStatus: 'confirmed', deliveredAt: 't1' })
-    expect((await messages.markCancelled('q')).kind).toBe('applied')
-    expect((await messages.markCancelled('d')).kind).toBe('refused')
+    await add({ id: 'd', deliveryStatus: 'confirmed', deliveredAt: T[1] })
+    expect((await messages.markCancelled(fixtureWriteScope(), 'q')).kind).toBe('applied')
+    expect((await messages.markCancelled(fixtureWriteScope(), 'd')).kind).toBe('refused')
     expect((await back('q'))?.deliveryStatus).toBe('cancelled')
     expect((await back('d'))?.deliveryStatus).toBe('confirmed')
   })
@@ -312,13 +372,16 @@ describe('guarded ledger transitions', () => {
     // it — clearing their pending count. A peer pull now marks only the
     // READER's receipt, not the row another session is still pending on.
     await add({ id: 'pushed' })
-    await messages.markDispatched('pushed', OTHER, 't1')
-    expect((await messages.markDeliveredByPull('pushed', String(READER), 't2')).kind).toBe('refused')
+    await messages.markDispatched(fixtureWriteScope(), 'pushed', OTHER, T[1])
+    expect(
+      (await messages.markDeliveredByPull(fixtureWriteScope(), 'pushed', String(READER), T[2]))
+        .kind,
+    ).toBe('refused')
 
     const row = await back('pushed')
     expect(row?.deliveryStatus).toBe('dispatched')
     expect(row?.deliveredTo).toBe(OTHER)
-    expect(row?.injectedAt).toBe('t1')
+    expect(row?.injectedAt).toBe(T[1])
     // The pull still proves THIS reader has it, whoever the row was pushed to.
     expect(await messages.readReceipts(READER, ['pushed'])).toEqual(new Set(['pushed']))
     // The push target still has no receipt — its pending survives the peer read.
@@ -330,8 +393,11 @@ describe('guarded ledger transitions', () => {
     // the row was pushed to DOES advance, and COALESCE still preserves the
     // target instead of erasing it.
     await add({ id: 'own-push' })
-    await messages.markDispatched('own-push', READER, 't1')
-    expect((await messages.markDeliveredByPull('own-push', String(READER), 't2')).kind).toBe('applied')
+    await messages.markDispatched(fixtureWriteScope(), 'own-push', READER, T[1])
+    expect(
+      (await messages.markDeliveredByPull(fixtureWriteScope(), 'own-push', String(READER), T[2]))
+        .kind,
+    ).toBe('applied')
 
     const row = await back('own-push')
     expect(row?.deliveryStatus).toBe('confirmed')
@@ -343,7 +409,7 @@ describe('guarded ledger transitions', () => {
     // The admission beside the denial: COALESCE must still WRITE when the column
     // is null, or the ledger never learns who pulled it.
     await add({ id: 'unpushed' })
-    await messages.markDeliveredByPull('unpushed', String(READER), 't2')
+    await messages.markDeliveredByPull(fixtureWriteScope(), 'unpushed', String(READER), T[2])
     expect((await back('unpushed'))?.deliveredTo).toBe(READER)
   })
 
@@ -354,34 +420,38 @@ describe('guarded ledger transitions', () => {
     // written. A conversion that folds the receipt inside the `if (changes === 1)`
     // branch passes every happy-path test and silently re-nags this session.
     await add({ id: 'shared', deliveryStatus: 'cancelled' })
-    expect((await messages.markRead('shared', String(READER), 't2')).firstRead).toBe(false)
+    expect(
+      (await messages.markRead(fixtureWriteScope(), 'shared', String(READER), T[2])).firstRead,
+    ).toBe(false)
     expect(await messages.readReceipts(READER, ['shared'])).toEqual(new Set(['shared']))
   })
 
   it('markRead confirms a pending row AND stamps the first read on a confirmed one', async () => {
     await add({ id: 'q' })
-    await add({ id: 'd', deliveryStatus: 'confirmed', deliveredAt: 't1' })
-    const pending = await messages.markRead('q', String(READER), 't2')
+    await add({ id: 'd', deliveryStatus: 'confirmed', deliveredAt: T[1] })
+    const pending = await messages.markRead(fixtureWriteScope(), 'q', String(READER), T[2])
     expect(pending).toEqual({ outcome: { kind: 'applied' }, firstRead: true })
     expect((await back('q'))?.deliveryStatus).toBe('confirmed')
-    expect((await back('q'))?.readAt).toBe('t2')
+    expect((await back('q'))?.readAt).toBe(T[2])
     // A confirmed row can still be read if later pulled — the read is a stamp,
     // not a move, and dropping that arm is invisible to a pending-only fixture.
-    const confirmed = await messages.markRead('d', String(READER), 't2')
+    const confirmed = await messages.markRead(fixtureWriteScope(), 'd', String(READER), T[2])
     expect(confirmed).toEqual({ outcome: { kind: 'already-there' }, firstRead: true })
     expect((await back('d'))?.deliveryStatus).toBe('confirmed')
-    expect((await back('d'))?.readAt).toBe('t2')
+    expect((await back('d'))?.readAt).toBe(T[2])
     // The first read wins; a second read announces nothing.
-    expect((await messages.markRead('d', String(READER), 't3')).firstRead).toBe(false)
-    expect((await back('d'))?.readAt).toBe('t2')
+    expect(
+      (await messages.markRead(fixtureWriteScope(), 'd', String(READER), T[3])).firstRead,
+    ).toBe(false)
+    expect((await back('d'))?.readAt).toBe(T[2])
   })
 
   it('markDeadLetter takes its no-cause branch without stamping a reason', async () => {
     await add({ id: 'gone' })
-    expect((await messages.markDeadLetter('gone', 't1')).kind).toBe('applied')
+    expect((await messages.markDeadLetter(fixtureWriteScope(), 'gone', T[1])).kind).toBe('applied')
     const row = await back('gone')
     expect(row?.deliveryStatus).toBe('failed')
-    expect(row?.deadLetteredAt).toBe('t1')
+    expect(row?.deadLetteredAt).toBe(T[1])
     // A dead letter with no cause reads downstream as a vanished target, which is
     // right for this callsite. The columns must stay null, not be filled in.
     expect(row?.deliveryDeferredAt).toBeNull()
@@ -392,30 +462,34 @@ describe('guarded ledger transitions', () => {
     // The method switches between two different SQL texts and two different
     // argument lists on `cause`. Both branches need a walker.
     await add({ id: 'refused' })
-    expect((await messages.markDeadLetter('refused', 't1', 'delivery-failed')).kind).toBe('applied')
+    expect(
+      (await messages.markDeadLetter(fixtureWriteScope(), 'refused', T[1], 'delivery-failed')).kind,
+    ).toBe('applied')
     const row = await back('refused')
-    expect(row?.deliveryDeferredAt).toBe('t1')
+    expect(row?.deliveryDeferredAt).toBe(T[1])
     expect(row?.deliveryDeferredReason).toBe('delivery-failed')
   })
 
   it('markDeadLetter refuses a row that is not queued, in both branches', async () => {
-    await add({ id: 'a', deliveryStatus: 'confirmed', deliveredAt: 't1' })
-    await add({ id: 'b', deliveryStatus: 'confirmed', deliveredAt: 't1' })
-    expect((await messages.markDeadLetter('a', 't2')).kind).toBe('refused')
-    expect((await messages.markDeadLetter('b', 't2', 'teardown')).kind).toBe('refused')
+    await add({ id: 'a', deliveryStatus: 'confirmed', deliveredAt: T[1] })
+    await add({ id: 'b', deliveryStatus: 'confirmed', deliveredAt: T[1] })
+    expect((await messages.markDeadLetter(fixtureWriteScope(), 'a', T[2])).kind).toBe('refused')
+    expect((await messages.markDeadLetter(fixtureWriteScope(), 'b', T[2], 'teardown')).kind).toBe(
+      'refused',
+    )
   })
 
   it('markReminded fires once and never again', async () => {
     await add({ id: 'm1' })
-    expect(await messages.markReminded('m1', 't1')).toBe(true)
-    expect(await messages.markReminded('m1', 't2')).toBe(false)
-    expect((await back('m1'))?.remindedAt).toBe('t1')
+    expect(await messages.markReminded(fixtureWriteScope(), 'm1', T[1])).toBe(true)
+    expect(await messages.markReminded(fixtureWriteScope(), 'm1', T[2])).toBe(false)
+    expect((await back('m1'))?.remindedAt).toBe(T[1])
   })
 
   it('markAcked stamps the first ack and refuses the second', async () => {
     await add({ id: 'm1' })
-    expect(await messages.markAcked('m1', 'ack-1')).toBe(true)
-    expect(await messages.markAcked('m1', 'ack-2')).toBe(false)
+    expect(await messages.markAcked(fixtureWriteScope(), 'm1', 'ack-1')).toBe(true)
+    expect(await messages.markAcked(fixtureWriteScope(), 'm1', 'ack-2')).toBe(false)
     expect((await back('m1'))?.ackedBy).toBe('ack-1')
   })
 })
@@ -432,55 +506,80 @@ describe('expireObserved — conditional on every observed fact', () => {
     // expiry is null — which is most of them — while the non-null case below
     // keeps passing.
     await add({ id: 'no-expiry', expiresAt: null })
-    expect((await messages.expireObserved({
-        id: 'no-expiry',
-        createdAt: 't0',
-        lifecycle: 'wait',
-        expiresAt: null,
-      })).kind).toBe('applied')
+    expect(
+      (
+        await messages.expireObserved(fixtureWriteScope(), {
+          id: 'no-expiry',
+          createdAt: T[0],
+          lifecycle: 'wait',
+          expiresAt: null,
+        })
+      ).kind,
+    ).toBe('applied')
     expect((await back('no-expiry'))?.deliveryStatus).toBe('expired')
   })
 
   it('matches a non-null expires_at', async () => {
-    await add({ id: 'with-expiry', expiresAt: 't9' })
-    expect((await messages.expireObserved({
-        id: 'with-expiry',
-        createdAt: 't0',
-        lifecycle: 'wait',
-        expiresAt: 't9',
-      })).kind).toBe('applied')
+    await add({ id: 'with-expiry', expiresAt: T[9] })
+    expect(
+      (
+        await messages.expireObserved(fixtureWriteScope(), {
+          id: 'with-expiry',
+          createdAt: T[0],
+          lifecycle: 'wait',
+          expiresAt: T[9],
+        })
+      ).kind,
+    ).toBe('applied')
   })
 
   it('refuses when any observed fact has moved underneath the janitor', async () => {
-    await add({ id: 'moved', expiresAt: 't9' })
+    await add({ id: 'moved', expiresAt: T[9] })
     // Each clause is dropped one at a time, so a predicate missing any single one
     // is caught rather than merely a predicate missing all of them.
-    expect((await messages.expireObserved({
-        id: 'moved',
-        createdAt: 'WRONG',
-        lifecycle: 'wait',
-        expiresAt: 't9',
-      })).kind).toBe('refused')
-    expect((await messages.expireObserved({
-        id: 'moved',
-        createdAt: 't0',
-        lifecycle: 'wake',
-        expiresAt: 't9',
-      })).kind).toBe('refused')
-    expect((await messages.expireObserved({
-        id: 'moved',
-        createdAt: 't0',
-        lifecycle: 'wait',
-        expiresAt: null,
-      })).kind).toBe('refused')
+    expect(
+      (
+        await messages.expireObserved(fixtureWriteScope(), {
+          id: 'moved',
+          createdAt: T[8],
+          lifecycle: 'wait',
+          expiresAt: T[9],
+        })
+      ).kind,
+    ).toBe('refused')
+    expect(
+      (
+        await messages.expireObserved(fixtureWriteScope(), {
+          id: 'moved',
+          createdAt: T[0],
+          lifecycle: 'wake',
+          expiresAt: T[9],
+        })
+      ).kind,
+    ).toBe('refused')
+    expect(
+      (
+        await messages.expireObserved(fixtureWriteScope(), {
+          id: 'moved',
+          createdAt: T[0],
+          lifecycle: 'wait',
+          expiresAt: null,
+        })
+      ).kind,
+    ).toBe('refused')
     expect((await back('moved'))?.deliveryStatus).toBe('stored')
   })
 
   it('refuses a row that was handed on: a timer cannot say it will not arrive', async () => {
-    await add({ id: 'handed-on', expiresAt: 't9' })
-    await messages.markDispatched('handed-on', READER, 't1')
+    await add({ id: 'handed-on', expiresAt: T[9] })
+    await messages.markDispatched(fixtureWriteScope(), 'handed-on', READER, T[1])
     expect(
-      await messages.expireObserved({ id: 'handed-on', createdAt: 't0', lifecycle: 'wait', expiresAt: 't9' }),
+      await messages.expireObserved(fixtureWriteScope(), {
+        id: 'handed-on',
+        createdAt: T[0],
+        lifecycle: 'wait',
+        expiresAt: T[9],
+      }),
     ).toEqual({ kind: 'refused', current: 'dispatched' })
     expect((await back('handed-on'))?.deliveryStatus).toBe('dispatched')
   })
@@ -493,9 +592,9 @@ describe('expireObserved — conditional on every observed fact', () => {
 describe('queued projections for a principal', () => {
   it('queuedPositionForSession counts the queue ahead in (created_at, id) order', async () => {
     const to = { toKind: 'session' as const, toId: String(READER) }
-    await add({ id: 'b', createdAt: 't1', ...to })
-    await add({ id: 'a', createdAt: 't1', ...to })
-    await add({ id: 'c', createdAt: 't2', ...to })
+    await add({ id: 'b', createdAt: T[1], ...to })
+    await add({ id: 'a', createdAt: T[1], ...to })
+    await add({ id: 'c', createdAt: T[2], ...to })
 
     // Same timestamp: the id breaks the tie, so 'a' precedes 'b'.
     expect(await messages.queuedPositionForSession(READER, 'a')).toBe(1)
@@ -504,49 +603,60 @@ describe('queued projections for a principal', () => {
   })
 
   it('queuedPositionForSession counts a row aimed via delivered_to as well as one addressed', async () => {
-    await add({ id: 'addressed', createdAt: 't1', toKind: 'session', toId: String(READER) })
-    await add({ id: 'aimed', createdAt: 't2', deliveredTo: READER })
+    await add({ id: 'addressed', createdAt: T[1], toKind: 'session', toId: String(READER) })
+    await add({ id: 'aimed', createdAt: T[2], deliveredTo: READER })
     expect(await messages.queuedPositionForSession(READER, 'aimed')).toBe(2)
   })
 
   it('queuedPositionForSession is undefined for an injected or non-queued row', async () => {
     await add({ id: 'pushed', toKind: 'session', toId: String(READER) })
-    await messages.markDispatched('pushed', READER, 't1')
+    await messages.markDispatched(fixtureWriteScope(), 'pushed', READER, T[1])
     await add({ id: 'done', toKind: 'session', toId: String(READER) })
-    await messages.markDelivered('done', String(READER), 't1')
+    await messages.markDelivered(fixtureWriteScope(), 'done', String(READER), T[1])
     expect(await messages.queuedPositionForSession(READER, 'pushed')).toBeUndefined()
     expect(await messages.queuedPositionForSession(READER, 'done')).toBeUndefined()
   })
 
   it('pendingForPages pages each target forward by its own keyset', async () => {
-    for (const id of ['a', 'b', 'c', 'd']) await add({ id, createdAt: `t-${id}` })
-    await add({ id: 'other-1', toId: 'iss_other', createdAt: 't-a' })
-    await add({ id: 'other-2', toId: 'iss_other', createdAt: 't-b' })
+    for (const id of ['a', 'b', 'c', 'd']) await add({ id, createdAt: at(10 + 'abcd'.indexOf(id)) })
+    await add({ id: 'other-1', toId: 'iss_other', createdAt: at(10) })
+    await add({ id: 'other-2', toId: 'iss_other', createdAt: at(11) })
     const to = { kind: 'issue' as const, id: TARGET }
     const other = { kind: 'issue' as const, id: 'iss_other' }
     const nobody = { kind: 'session' as const, id: 'sess_nobody' }
 
     const first = await messages.pendingForPages([{ to }, { to: other }, { to: nobody }], 2)
-    expect(first.map((page) => page.map((m) => m.id))).toEqual([['a', 'b'], ['other-1', 'other-2'], []])
+    expect(first.map((page) => page.map((m) => m.id))).toEqual([
+      ['a', 'b'],
+      ['other-1', 'other-2'],
+      [],
+    ])
 
     const next = await messages.pendingForPages(
-      [{ to, after: { createdAt: 't-b', id: 'b' } }, { to: other, after: { createdAt: 't-a', id: 'other-1' } }],
+      [
+        { to, after: { createdAt: at(11), id: 'b' } },
+        { to: other, after: { createdAt: at(10), id: 'other-1' } },
+      ],
       2,
     )
     expect(next.map((page) => page.map((m) => m.id))).toEqual([['c', 'd'], ['other-2']])
   })
 
   it('pendingForPages reads more targets than one statement holds', async () => {
-    const targets = Array.from({ length: 300 }, (_, i) => ({ kind: 'issue' as const, id: `iss_${i}` }))
-    for (const [i, target] of targets.entries()) await add({ id: `m-${i}`, toId: target.id, createdAt: `t-${i}` })
+    const targets = Array.from({ length: 300 }, (_, i) => ({
+      kind: 'issue' as const,
+      id: `iss_${i}`,
+    }))
+    for (const [i, target] of targets.entries())
+      await add({ id: `m-${i}`, toId: target.id, createdAt: at(100 + i) })
     const pages = await messages.pendingForPages(targets.map((to) => ({ to })))
     expect(pages.map((page) => page.map((m) => m.id))).toEqual(targets.map((_, i) => [`m-${i}`]))
   })
 
   it('pendingTargets answers each target from its pending rows alone', async () => {
-    await add({ id: 'held', createdAt: 't1' })
-    await add({ id: 'old', toId: 'iss_history', createdAt: 't1' })
-    await messages.markDelivered('old', null, 't2')
+    await add({ id: 'held', createdAt: T[1] })
+    await add({ id: 'old', toId: 'iss_history', createdAt: T[1] })
+    await messages.markDelivered(fixtureWriteScope(), 'old', null, T[2])
     const targets = [
       { kind: 'issue' as const, id: TARGET },
       { kind: 'issue' as const, id: 'iss_history' },
@@ -556,20 +666,32 @@ describe('queued projections for a principal', () => {
 
     // More targets than one statement holds.
     const many = Array.from({ length: 300 }, (_, i) => ({ kind: 'issue' as const, id: `iss_${i}` }))
-    for (const [i, target] of many.entries()) if (i % 2 === 1) await add({ id: `m-${i}`, toId: target.id, createdAt: `t-${i}` })
+    for (const [i, target] of many.entries())
+      if (i % 2 === 1) await add({ id: `m-${i}`, toId: target.id, createdAt: at(100 + i) })
     expect(await messages.pendingTargets(many)).toEqual(many.map((_, i) => i % 2 === 1))
   })
 
-  it('latestPendingOperatorForSession breaks a same-tick tie by rowid, not by id', async () => {
-    // Random message ids do not encode creation order, so an ORDER BY that fell
-    // back to `id` would pick the alphabetically last row rather than the last
-    // one inserted. Named so the alphabetical answer and the insertion answer
-    // differ.
+  it('latestPendingOperatorForSession breaks a same-tick tie by rowid on SQLite, by id on Postgres', async () => {
+    // Random message ids do not encode creation order, so on SQLite an ORDER BY
+    // that fell back to `id` would pick the alphabetically last row rather than
+    // the last one inserted. Named so the alphabetical answer and the insertion
+    // answer differ. Postgres keeps no insertion order (no rowid, and the table
+    // has no insertion counter), so there the tie falls to the larger id.
     const to = { toKind: 'session' as const, toId: String(READER), fromKind: 'operator' as const }
-    await add({ id: 'zzz-first', createdAt: 't1', ...to })
-    await add({ id: 'aaa-second', createdAt: 't1', ...to })
+    await add({ id: 'zzz-first', createdAt: T[1], ...to })
+    await add({ id: 'aaa-second', createdAt: T[1], ...to })
 
-    expect((await messages.latestPendingOperatorForSession(READER))?.id).toBe('aaa-second')
+    expect((await messages.latestPendingOperatorForSession(READER))?.id).toBe(
+      slice.engine === 'pg' ? 'zzz-first' : 'aaa-second',
+    )
+  })
+
+  it('latestPendingOperatorForSession takes the newest send when the ticks differ', async () => {
+    const to = { toKind: 'session' as const, toId: String(READER), fromKind: 'operator' as const }
+    await add({ id: 'zzz-older', createdAt: T[1], ...to })
+    await add({ id: 'aaa-newer', createdAt: T[2], ...to })
+
+    expect((await messages.latestPendingOperatorForSession(READER))?.id).toBe('aaa-newer')
   })
 
   it('latestPendingOperatorForSession ignores non-operator senders', async () => {
@@ -586,7 +708,12 @@ describe('queued projections for a principal', () => {
     await add({ id: 'm1', fromIssue: asIssueId('iss_a') })
     await add({ id: 'm2', fromIssue: asIssueId('iss_a') })
     await add({ id: 'm3', fromIssue: asIssueId('iss_b') })
-    await add({ id: 'm4', fromIssue: asIssueId('iss_b'), deliveryStatus: 'confirmed', readAt: 't1' })
+    await add({
+      id: 'm4',
+      fromIssue: asIssueId('iss_b'),
+      deliveryStatus: 'confirmed',
+      readAt: T[1],
+    })
 
     const summary = await messages.pendingSummary({ kind: 'issue', id: TARGET })
     // The count is the sum of the groups, not the number of groups.
@@ -600,7 +727,7 @@ describe('queued projections for a principal', () => {
   it('countQueued counts the whole substrate, across principals', async () => {
     await add({ id: 'm1' })
     await add({ id: 'm2', toKind: 'session', toId: String(READER) })
-    await add({ id: 'm3', deliveryStatus: 'confirmed', deliveredAt: 't1' })
+    await add({ id: 'm3', deliveryStatus: 'confirmed', deliveredAt: T[1] })
     expect(await messages.countQueued()).toBe(2)
   })
 })
@@ -611,16 +738,16 @@ describe('per-reader pending', () => {
   it('pendingSummaryForSession excludes the reader own sends, receipts and deliveries', async () => {
     // One admission and three denials in one fixture, so the predicate cannot
     // pass by refusing everything.
-    await add({ id: 'counts', fromSession: PEER, createdAt: 't5' })
-    await add({ id: 'own-send', fromSession: READER, createdAt: 't5' })
-    await add({ id: 'receipted', fromSession: PEER, createdAt: 't5' })
-    await messages.recordRead('receipted', READER, 't5')
+    await add({ id: 'counts', fromSession: PEER, createdAt: T[5] })
+    await add({ id: 'own-send', fromSession: READER, createdAt: T[5] })
+    await add({ id: 'receipted', fromSession: PEER, createdAt: T[5] })
+    await messages.recordRead('receipted', READER, T[5])
     await add({
       id: 'delivered-here',
       fromSession: PEER,
-      createdAt: 't5',
+      createdAt: T[5],
       deliveryStatus: 'confirmed',
-      deliveredAt: 't5',
+      deliveredAt: T[5],
       deliveredTo: READER,
     })
 
@@ -639,35 +766,40 @@ describe('per-reader pending', () => {
   // short fyi is typed inline like any other row, so it is on its way too
   // [POD-4845].
   it('pendingSummaryForSession skips inline mail already handed to this reader', async () => {
-    await add({ id: 'waiting', fromSession: PEER, createdAt: 't5', urgency: 'next-turn' })
+    await add({ id: 'waiting', fromSession: PEER, createdAt: T[5], urgency: 'next-turn' })
     await add({
       id: 'handed-on',
       fromSession: PEER,
-      createdAt: 't5',
+      createdAt: T[5],
       urgency: 'next-turn',
     })
     await add({
       id: 'fyi-handed-on',
       fromSession: PEER,
-      createdAt: 't5',
+      createdAt: T[5],
       urgency: 'fyi',
     })
     await add({
       id: 'oversized-handed-on',
       fromSession: PEER,
-      createdAt: 't5',
+      createdAt: T[5],
       urgency: 'next-turn',
       body: 'x'.repeat(INLINE_BODY_MAX + 1),
     })
 
     // Handed to ANOTHER session: it never reaches this reader as a turn, so it
     // still nags here.
-    await add({ id: 'handed-to-peer', fromIssue: asIssueId('iss_x'), createdAt: 't5', urgency: 'next-turn' })
+    await add({
+      id: 'handed-to-peer',
+      fromIssue: asIssueId('iss_x'),
+      createdAt: T[5],
+      urgency: 'next-turn',
+    })
     // Handed on the way production does it: stamped injected to the reader.
     for (const id of ['handed-on', 'fyi-handed-on', 'oversized-handed-on']) {
-      await messages.markDispatched(id, READER, 't6')
+      await messages.markDispatched(fixtureWriteScope(), id, READER, T[6])
     }
-    await messages.markDispatched('handed-to-peer', PEER, 't6')
+    await messages.markDispatched(fixtureWriteScope(), 'handed-to-peer', PEER, T[6])
     const summary = await messages.pendingSummaryForSession(asIssueId(TARGET) as IssueId, READER)
     expect(summary.count).toBe(3)
     const issue = asIssueId(TARGET) as IssueId
@@ -680,7 +812,7 @@ describe('per-reader pending', () => {
     await add({ id: 'fyi-handed-on', urgency: 'fyi' })
     await add({ id: 'pointer-handed-on', body: 'x'.repeat(INLINE_BODY_MAX + 1) })
     for (const id of ['handed-on', 'fyi-handed-on', 'pointer-handed-on']) {
-      await messages.markDispatched(id, READER, 't6')
+      await messages.markDispatched(fixtureWriteScope(), id, READER, T[6])
     }
     expect((await messages.pendingSummary({ kind: 'issue', id: TARGET })).count).toBe(2)
   })
@@ -706,7 +838,7 @@ describe('per-reader pending', () => {
     for (const [id, body] of Object.entries(bodies)) {
       const before = await messages.countPendingForSession(issue, READER)
       await add({ id, fromSession: PEER, body })
-      await messages.markDispatched(id, READER, 't6')
+      await messages.markDispatched(fixtureWriteScope(), id, READER, T[6])
       if ((await messages.countPendingForSession(issue, READER)) > before) nagging.push(id)
     }
     const pointers = Object.entries(bodies)
@@ -721,13 +853,14 @@ describe('per-reader pending', () => {
     const to = { toKind: 'session' as const, toId: String(READER) }
     await add({ id: 'long-to-session', ...to, body: 'x'.repeat(INLINE_BODY_MAX + 1) })
     await add({ id: 'fyi-to-session', ...to, urgency: 'fyi' })
-    for (const id of ['long-to-session', 'fyi-to-session']) await messages.markDispatched(id, READER, 't6')
+    for (const id of ['long-to-session', 'fyi-to-session'])
+      await messages.markDispatched(fixtureWriteScope(), id, READER, T[6])
     expect((await messages.pendingSummary({ kind: 'session', id: String(READER) })).count).toBe(0)
   })
 
   it('countPendingForSession and listPendingSendersForSession agree with the summary', async () => {
-    await add({ id: 'counts', fromSession: PEER, createdAt: 't5' })
-    await add({ id: 'own-send', fromSession: READER, createdAt: 't5' })
+    await add({ id: 'counts', fromSession: PEER, createdAt: T[5] })
+    await add({ id: 'own-send', fromSession: READER, createdAt: T[5] })
 
     const issue = asIssueId(TARGET) as IssueId
     expect(await messages.countPendingForSession(issue, READER)).toBe(1)
@@ -741,7 +874,7 @@ describe('per-reader pending', () => {
     // is the held handoff a newly-arrived session must be told about, so it
     // counts even though it predates the session row. A conversion that applies
     // the timestamp clause uniformly loses exactly this case.
-    await add({ id: 'held', fromSession: PEER, createdAt: 't0' })
+    await add({ id: 'held', fromSession: PEER, createdAt: T[0] })
     expect(
       await messages.countPendingForSession(
         asIssueId(TARGET) as IssueId,
@@ -784,7 +917,7 @@ describe('the ack and settle sets', () => {
     await add({
       id,
       deliveryStatus: 'confirmed',
-      deliveredAt: 't1',
+      deliveredAt: T[1],
       deliveredTo: READER,
       expectsResponse: true,
       ...over,
@@ -794,10 +927,10 @@ describe('the ack and settle sets', () => {
     await unacked('wanted')
     await unacked('no-request', { expectsResponse: false })
     await unacked('already-acked', { ackedBy: 'ack-1' })
-    await unacked('expired', { expiresAt: 't0' })
-    await unacked('still-valid', { expiresAt: 't9' })
+    await unacked('expired', { expiresAt: T[0] })
+    await unacked('still-valid', { expiresAt: T[9] })
 
-    const ids = (await messages.listDeliveredUnacked(READER, 't5')).map((m) => m.id)
+    const ids = (await messages.listDeliveredUnacked(READER, T[5])).map((m) => m.id)
     expect(ids).toEqual(['still-valid', 'wanted'].sort())
     expect(ids).not.toContain('no-request')
     expect(ids).not.toContain('already-acked')
@@ -805,8 +938,8 @@ describe('the ack and settle sets', () => {
   })
 
   it('listDeliveredUnacked accepts a READ row as well as a delivered one', async () => {
-    await unacked('pulled', { deliveryStatus: 'confirmed', readAt: 't1' })
-    expect((await messages.listDeliveredUnacked(READER, 't5')).map((m) => m.id)).toEqual(['pulled'])
+    await unacked('pulled', { deliveryStatus: 'confirmed', readAt: T[1] })
+    expect((await messages.listDeliveredUnacked(READER, T[5])).map((m) => m.id)).toEqual(['pulled'])
   })
 
   it('listSettleNotifiable drops a row that already produced a settle notice', async () => {
@@ -818,12 +951,12 @@ describe('the ack and settle sets', () => {
     await unacked('already')
     await add({ id: 'the-notice', kind: 'notification', inReplyTo: 'already' })
 
-    expect((await messages.listSettleNotifiable(READER, 't5')).map((m) => m.id)).toEqual([
+    expect((await messages.listSettleNotifiable(READER, T[5])).map((m) => m.id)).toEqual([
       'not-yet',
     ])
     // The admission: the same row IS in the unacked set, so the exclusion above
     // belongs to the NOT EXISTS and not to some other clause.
-    expect((await messages.listDeliveredUnacked(READER, 't5')).map((m) => m.id)).toContain(
+    expect((await messages.listDeliveredUnacked(READER, T[5])).map((m) => m.id)).toContain(
       'already',
     )
   })
@@ -833,48 +966,78 @@ describe('the ack and settle sets', () => {
   // whole table, ~90 ms a statement on a real database, about once a second.
   // The recipient's own rows are the scan these readers must take. Plans are
   // read off the statements the repository actually prepared, so a rewrite of
-  // the predicate is judged as it ships.
-  it.each([
-    ['listDeliveredUnacked', () => messages.listDeliveredUnacked(READER, 't5')],
-    ['listSettleNotifiable', () => messages.listSettleNotifiable(READER, 't5')],
-    ['pendingForSessionProof', () => messages.pendingForSessionProof(READER, 't5')],
-  ] as const)('%s reads confirmed rows through the recipient index, not a status scan', async (_name, read) => {
-    await unacked('wanted')
-    const prepared: string[] = []
-    const prepare = db.prepare.bind(db)
-    db.prepare = ((text: string) => {
-      prepared.push(text)
-      return prepare(text)
-    }) as typeof db.prepare
-    try {
-      expect((await read()).map((m) => m.id)).toEqual(['wanted'])
-    } finally {
-      db.prepare = prepare
-    }
-    const statement = prepared.find((text) => /^select /i.test(text) && text.includes('"acked_by" is null'))
-    expect(statement).toBeDefined()
-    const text = statement as string
-    const params = Array.from({ length: (text.match(/\?/g) ?? []).length }, () => null)
-    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${text}`).all(...params) as { detail: string }[])
-      .map((row) => row.detail)
-    expect(plan.join('\n')).toContain('idx_messages_delivered_to')
-    expect(plan.filter((detail) => detail.includes('idx_messages_delivery_'))).toEqual([])
-  })
+  // the predicate is judged as it ships. SQLite's planner only: Postgres reads
+  // statistics, and its plans are the Postgres query-plan audit's (POD-6992).
+  it.skipIf(testStoreEngine() === 'pg').each([
+    ['listDeliveredUnacked', () => messages.listDeliveredUnacked(READER, T[5])],
+    ['listSettleNotifiable', () => messages.listSettleNotifiable(READER, T[5])],
+    ['pendingForSessionProof', () => messages.pendingForSessionProof(READER, T[5])],
+  ] as const)(
+    '%s reads confirmed rows through the recipient index, not a status scan',
+    async (_name, read) => {
+      await unacked('wanted')
+      const db = slice.probeTarget.db as ReturnType<typeof openDatabase>
+      const prepared: string[] = []
+      const prepare = db.prepare.bind(db)
+      db.prepare = ((text: string) => {
+        prepared.push(text)
+        return prepare(text)
+      }) as typeof db.prepare
+      try {
+        expect((await read()).map((m) => m.id)).toEqual(['wanted'])
+      } finally {
+        db.prepare = prepare
+      }
+      const statement = prepared.find(
+        (text) => /^select /i.test(text) && text.includes('"acked_by" is null'),
+      )
+      expect(statement).toBeDefined()
+      const text = statement as string
+      const params = Array.from({ length: (text.match(/\?/g) ?? []).length }, () => null)
+      // A self-hosted database's picture (POD-7024): one workspace holds every row, and the
+      // columns after it are what SQLite guesses without statistics. With no statistics at all
+      // SQLite takes `workspace_id = ?` as selective and seeks on any index that leads with it.
+      const indexes = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'messages'")
+        .all() as { name: string }[]
+      db.exec('ANALYZE')
+      db.exec("DELETE FROM sqlite_stat1 WHERE tbl = 'messages'")
+      for (const { name } of indexes) {
+        const columns = db.prepare(`PRAGMA index_info(${JSON.stringify(name)})`).all().length
+        const rest = Array.from({ length: columns - 1 }, (_, i) => [10, 9, 8, 7, 6][i] ?? 5)
+        db.prepare("INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES ('messages', ?, ?)").run(
+          name,
+          ['100000', '100000', ...rest].join(' '),
+        )
+      }
+      db.exec('ANALYZE sqlite_schema')
+      const plan = (
+        db.prepare(`EXPLAIN QUERY PLAN ${text}`).all(...params) as { detail: string }[]
+      ).map((row) => row.detail)
+      expect(plan.join('\n')).toContain('idx_messages_delivered_to')
+      expect(plan.filter((detail) => detail.includes('idx_messages_delivery_'))).toEqual([])
+    },
+  )
 })
 
 describe('alreadyCommunicated', () => {
   it('is existence-only across every status, from the since bound', async () => {
-    await add({ id: 'm1', fromIssue: asIssueId('iss_a'), createdAt: 't5', deliveryStatus: 'cancelled' })
+    await add({
+      id: 'm1',
+      fromIssue: asIssueId('iss_a'),
+      createdAt: T[5],
+      deliveryStatus: 'cancelled',
+    })
     // Even a terminal row proves the producer already acted.
-    expect(await messages.alreadyCommunicated('iss_a', { kind: 'issue', id: TARGET }, 't1')).toBe(
+    expect(await messages.alreadyCommunicated('iss_a', { kind: 'issue', id: TARGET }, T[1])).toBe(
       true,
     )
     // Before the bound, it has not.
-    expect(await messages.alreadyCommunicated('iss_a', { kind: 'issue', id: TARGET }, 't9')).toBe(
+    expect(await messages.alreadyCommunicated('iss_a', { kind: 'issue', id: TARGET }, T[9])).toBe(
       false,
     )
     // A different producer has not.
-    expect(await messages.alreadyCommunicated('iss_b', { kind: 'issue', id: TARGET }, 't1')).toBe(
+    expect(await messages.alreadyCommunicated('iss_b', { kind: 'issue', id: TARGET }, T[1])).toBe(
       false,
     )
   })
@@ -883,10 +1046,10 @@ describe('alreadyCommunicated', () => {
 describe('wake cooldowns', () => {
   it('records a keyed attempt and overwrites it on conflict', async () => {
     expect(await messages.getWakeCooldown('k')).toBeNull()
-    await messages.recordWakeCooldown('k', 't1')
-    expect(await messages.getWakeCooldown('k')).toBe('t1')
-    await messages.recordWakeCooldown('k', 't2')
-    expect(await messages.getWakeCooldown('k')).toBe('t2')
+    await messages.recordWakeCooldown('k', T[1])
+    expect(await messages.getWakeCooldown('k')).toBe(T[1])
+    await messages.recordWakeCooldown('k', T[2])
+    expect(await messages.getWakeCooldown('k')).toBe(T[2])
     // Keyed, so a neighbouring key is untouched.
     expect(await messages.getWakeCooldown('other')).toBeNull()
   })
@@ -895,15 +1058,28 @@ describe('wake cooldowns', () => {
 describe('recordRead', () => {
   it('is idempotent and keeps the FIRST stamp', async () => {
     await add({ id: 'm1' })
-    await messages.recordRead('m1', READER, 't1')
+    await messages.recordRead('m1', READER, T[1])
     // ON CONFLICT DO NOTHING, not DO UPDATE: the first sighting is the one that
     // happened, and a conversion that reaches for DO UPDATE here changes what the
     // column means.
-    await messages.recordRead('m1', READER, 't2')
+    await messages.recordRead('m1', READER, T[2])
     expect(await messages.readReceipts(READER, ['m1'])).toEqual(new Set(['m1']))
-    const stamp = db
-      .prepare('SELECT read_at FROM message_reads WHERE message_id = ? AND session_id = ?')
-      .get('m1', String(READER)) as { read_at: string }
-    expect(stamp.read_at).toBe('t1')
+    const [stamp] = await slice.all<{ read_at: string }>(
+      sql`SELECT read_at FROM message_reads WHERE message_id = ${'m1'} AND session_id = ${String(READER)}`,
+    )
+    expect(stamp?.read_at).toBe(T[1])
+  })
+})
+
+describe('external text without NUL (POD-6958 design 2.3 rule 9)', () => {
+  it('stores a body and sender name holding U+0000 with U+FFFD in its place, on both engines', async () => {
+    // Postgres `text` cannot hold U+0000 and SQLite can, so the writer replaces it
+    // on both: the stored row is the same text on either engine.
+    await add({ id: 'nul', body: 'before\u0000after', fromName: 'na\u0000me' })
+    const row = await back('nul')
+    expect(row?.body).toBe('before�after')
+    expect(row?.fromName).toBe('na�me')
+    // The pointer rule counts the stored text; one character stays one character.
+    expect(isPointerMessage({ toKind: 'issue', body: row?.body ?? '' })).toBe(false)
   })
 })

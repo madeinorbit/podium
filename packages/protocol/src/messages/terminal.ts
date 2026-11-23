@@ -6,6 +6,7 @@ import {
   GeometryState,
   HarnessAgent,
   IssueIdField,
+  LaunchPostureReport,
   MachineIdField,
   ResumeRef,
   SessionDelegation,
@@ -14,9 +15,11 @@ import {
 } from '@podium/model'
 import { z } from 'zod'
 import { PresenceIdentity } from '../planes/presence-rooms'
-import { FeedCursorField } from './feed'
+import { FeedCursorField, SyncKindTokens } from './feed'
 import { ClientLogOrigin } from './logs'
 import { NativeBindingReceipt } from './native-binding'
+import { SessionPostureSchema } from './posture'
+import { AccessField } from './session-access'
 
 const positiveInt = z.number().int().positive()
 
@@ -222,7 +225,15 @@ export const RedrawRequestMessage = z.object({
 // traffic. The server answers with pong.
 export const PingMessage = z.object({ type: z.literal('ping') })
 // Reply to a client PingMessage; its arrival is the liveness signal.
-export const PongMessage = z.object({ type: z.literal('pong') })
+export const PongMessage = z.object({
+  type: z.literal('pong'),
+  /**
+   * The server's clock (epoch ms) when it answered. With the round-trip the
+   * client measures, this gives the clock skew the LiveStore shows (ADR 12 D1,
+   * POD-5798). Absent from older servers: skew stays unknown.
+   */
+  serverTime: z.number().optional(),
+})
 // User presence (page visibility) — the smart-notification router skips mobile
 // push while some Podium window is visibly open.
 export const PresenceMessage = z.object({ type: z.literal('presence'), visible: z.boolean() })
@@ -278,12 +289,52 @@ export const DraftTargetMessage = z.object({
 export type DraftTargetMessage = z.infer<typeof DraftTargetMessage>
 
 // ---- Server -> browser client: terminal control frames ----
+/** One flag a server build defines (`ServerFeatureFlag`). */
+const ServerFeatureFlagWire = z.object({
+  id: z.string().min(1).max(100),
+  name: z.string().max(200),
+  description: z.string().max(2000),
+  visibility: z.enum(['hidden', 'development', 'edge', 'stable']),
+  config: z.boolean().optional(),
+})
+
+/** A server's feature facts (`ServerFeatureFacts`, `features.ts`). */
+export const ServerFeatureFactsWire = z.object({
+  devMode: z.boolean(),
+  developmentBuild: z.boolean(),
+  channel: z.enum(['stable', 'edge', 'dev']).optional(),
+  flags: z.array(ServerFeatureFlagWire).max(500),
+})
+
 export const WelcomeMessage = z.object({
   type: z.literal('welcome'),
   wireVersion: z.number().int().positive().optional(),
   clientId: z.string(),
   /** Capabilities negotiated for this connection. Absent from older servers. */
   caps: z.array(z.string()).optional(),
+  kindTokens: SyncKindTokens,
+  /**
+   * The account this connection is signed in as, sent with `topics.v1` so the
+   * client can hold its own `account.events:<user>` topic (ADR 7 Amendment 2
+   * D26). Absent from older servers and without the capability.
+   */
+  accountUser: UserIdField.optional(),
+  /**
+   * The build this server runs (its app version), on every connect, so a
+   * client sees a redeploy as soon as it reconnects instead of polling for it
+   * (POD-5798). Absent from older servers.
+   */
+  serverBuild: z.string().min(1).max(200).optional(),
+  /**
+   * What this server's build and config say about its feature flags (POD-5798,
+   * POD-6677; detailed design 1.6), on every connect: whether it is a source or
+   * development build, the update channel its environment or config.json
+   * forces, and each flag it defines with its config override. Changes only
+   * when the server is upgraded or reconfigured. The app joins these with the
+   * instance's experimental toggles (`resolveFeatureStates`). Absent from older
+   * servers.
+   */
+  serverFeatures: ServerFeatureFactsWire.optional(),
 })
 export const AttachedMessage = z.object({
   type: z.literal('attached'),
@@ -468,9 +519,9 @@ export const SpawnMessage = z.object({
   // distinct from initialPrompt: adapters deliver them through their native
   // system/developer/rules/config channel, never as a user-authored turn.
   instructions: z.array(AgentInstruction).optional(),
-  // Managed-credential + environment vars resolved SERVER-side and merged into the
-  // daemon's spawn env overlay (SP-6454, #216). Generic on purpose — an LLM
-  // credential, a GitHub token (#214) and machine-level pins (#234) all ride here.
+  // Environment vars resolved SERVER-side and merged into the daemon's spawn env
+  // overlay (SP-6454). NEVER a credential: a credential rides `access` below
+  // (credential management §8), which the daemon keeps in memory only.
   // Additive + optional: an older daemon ignores it, an older server omits it.
   env: z.record(z.string(), z.string()).optional(),
   // Seed the CLI's theme with per-session official flags so it follows the
@@ -509,6 +560,23 @@ export const SpawnMessage = z.object({
    * that can tell a typo from a driver this build does not ship.
    */
   requestedDriverId: z.string().min(1).optional(),
+  /**
+   * THE SESSION'S LAUNCH TERMS, in Podium's words (POD-6858,
+   * harness-session-posture.md §4.2–4.3). Absent means
+   * `DEFAULT_SESSION_POSTURE`. The daemon stores the posture it resolves with
+   * the session, so a resume or wake while the server is unreachable runs on
+   * the same terms. Appended at the END: an older daemon strips it and runs
+   * the default, as it always did.
+   */
+  posture: SessionPostureSchema.optional(),
+  /**
+   * WHAT THIS SESSION RUNS ON (credential management §8): the credential the
+   * server resolved and, for an `env` delivery, its secret. Sent only to a
+   * daemon that offered `CAP_SESSION_ACCESS`; absent means the harness's own
+   * login. The daemon keeps it in memory for the session's life and applies it
+   * at every process start; this frame type is never logged.
+   */
+  access: AccessField.optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -688,6 +756,19 @@ export const DriverSelectedMessage = z.object({
   type: z.literal('driverSelected'),
   sessionId: SessionIdField,
   driverId: z.string().min(1),
+  /**
+   * THE LAUNCH'S TERMS, AS APPLIED (POD-6858 Task 11, harness-session-posture.md
+   * §4.6 and §5): the harness mode Podium asked for and every requirement this
+   * launch cannot meet, with the reason in words.
+   *
+   * The decision above is announced before the launch is built, so it carries
+   * none. The daemon sends this frame once more, with the same `driverId`,
+   * after it has applied the launch's terms and before the process starts. A
+   * frame WITHOUT it announces a new launch decision, so the server drops the
+   * previous launch's report; an older daemon never sends it, and an older
+   * server reads the repeat as the same decision again.
+   */
+  posture: LaunchPostureReport.optional(),
 })
 /** Daemon capability, advertised in its `hello`: this daemon reports the grid it
  *  APPLIED (`geometryApplied`) after every resize it dispatches. A server talking
@@ -924,6 +1005,19 @@ export const AgentModelMessage = z.object({
   /** The observed reasoning-effort tier (assistant records' top-level `effort`),
    *  when the transcript reports one. Optional for wire-compat with older daemons. */
   effort: z.string().optional(),
+})
+// Daemon → server: the permission mode the HARNESS reports it is in (POD-6858
+// Task 11, harness-session-posture.md §4.9), read from its own records, e.g.
+// Claude Code's `permission-mode` transcript record. The session's mode chip
+// shows it over the mode Podium asked for at launch. An older server drops
+// the frame unparsed and keeps showing the requested mode.
+export const AgentModeMessage = z.object({
+  type: z.literal('agentMode'),
+  /** Native record time when available; absent means the source supplied none. */
+  at: z.string().datetime().optional(),
+  source: z.enum(['transcript', 'native']).optional(),
+  sessionId: SessionIdField,
+  mode: z.string().min(1),
 })
 // Daemon → server: exact context-window usage observed in the harness's native
 // transcript. Harnesses without a reliable numerator + window do not emit it.

@@ -39,7 +39,8 @@ unreachable agents, and a minimal client outbox for offline authoring.
 
 - New table: `queued_messages (id TEXT PRIMARY KEY /* = mutationId */,
   session_id TEXT, text TEXT, queued_at INTEGER, attempts INTEGER)`, FIFO per
-  session by `queued_at, rowid`.
+  session by `queue_order`: the enqueue INSERT takes one more than the session's
+  highest, under the workspace's single writer (POD-7075; it was `queued_at, rowid`).
 - `registry.queueText({sessionId, text, mutationId})`:
   - Session live/starting AND its queue empty → deliver immediately (today's
     `sendText`), return `{delivered: true}`.

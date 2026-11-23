@@ -1,5 +1,4 @@
 import { act, renderHook } from '@testing-library/react'
-import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 /**
@@ -11,13 +10,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
  */
 const ui = vi.hoisted(() => {
   const values = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(changed: ReadonlySet<string>) => void>()
   return {
     values,
     listeners,
     setCalls: [] as [string, string | null][],
-    emit: () => {
-      for (const listener of [...listeners]) listener()
+    emit: (keys: Iterable<string> = values.keys()) => {
+      const changed = new Set(keys)
+      for (const listener of [...listeners]) listener(changed)
     },
     state: {
       get: (key: string) => values.get(key) ?? null,
@@ -25,9 +25,9 @@ const ui = vi.hoisted(() => {
         ui.setCalls.push([key, value])
         if (value === null) values.delete(key)
         else values.set(key, value)
-        ui.emit()
+        ui.emit([key])
       },
-      subscribe: (cb: () => void) => {
+      subscribe: (cb: (changed: ReadonlySet<string>) => void) => {
         listeners.add(cb)
         return () => listeners.delete(cb)
       },
@@ -37,18 +37,6 @@ const ui = vi.hoisted(() => {
 
 vi.mock('../client/hooks', () => ({ useUiState: () => ui.state }))
 
-// Only the addressed pool projection is stubbed; ui.state remains the write owner.
-vi.mock('../client/mobile-pool', () => ({
-  useMobilePoolProjection: (read: (pool: unknown) => readonly (string | null)[]) => {
-    const subscribe = (wake: () => void) => ui.state.subscribe(wake)
-    const revision = useSyncExternalStore(subscribe, () => JSON.stringify([...ui.values]))
-    // biome-ignore lint/correctness/useExhaustiveDependencies: The external revision invalidates the addressed getter when fixture values change.
-    return useMemo(
-      () => read({ row: (_entity: string, key: string) => ({ value: ui.state.get(key) }) }),
-      [read, revision],
-    )
-  },
-}))
 const { useCollapsedSet } = await import('./useCollapsedSet')
 
 const storageKeyFor = (key: string) => `fold:${key}`

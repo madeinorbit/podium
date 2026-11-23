@@ -20,7 +20,7 @@ import { ToolBatchView } from './ToolBatchView'
 // from the transcript, so any row on screen proves git was not the source.
 const git = vi.hoisted(() => ({ calls: [] as string[] }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
+  readFixture: (sel: (s: unknown) => unknown) =>
     sel({
       gitDiffFile: async ({ path }: { path: string }) => {
         git.calls.push(path)
@@ -29,6 +29,9 @@ vi.mock('@/app/store', () => ({
       readFileScoped: async () => ({ ok: true, content: '' }),
     }),
 }))
+
+// A recorded diff does not need a checkout refresh subscription in this row fixture.
+vi.mock('@/lib/use-checkout-signal', () => ({ useCheckoutSignal: () => undefined }))
 
 // Count unified-diff builds without changing what they return: a collapsed
 // run must build zero, opening the sheet builds the same text as before.
@@ -201,7 +204,7 @@ describe('ToolBatchView — the work line', () => {
     )
     const line = host.querySelector('[data-testid="work-line"]')!
     expect(line.getAttribute('data-state')).toBe('done')
-    expect(line.querySelector('.work-line-phrase')?.textContent).toBe('Read a file, ran a command')
+    expect(line.querySelector('.work-line-phrase')?.textContent).toBe('Read a file, 1 command')
     expect(line.querySelector('.work-line-time')?.textContent).toMatch(/^\d{2}:\d{2}–\d{2}:\d{2}$/)
   })
 
@@ -254,7 +257,7 @@ describe('ToolBatchView — the work line', () => {
     expect(line.querySelector('.work-line-fail')?.textContent).toContain('1 failed')
     expect(line.querySelector('.work-line-glyph')?.className).toContain('work-line-glyph--err')
     expect(line.querySelector('.work-line-row')?.getAttribute('aria-label')).toBe(
-      'Read a file, ran a command. 2 events. 1 failed.',
+      'Read a file, 1 command. 2 events. 1 failed.',
     )
   })
 
@@ -718,4 +721,39 @@ it('reveals a search hit in an edit receipt as well as the recorded diff', () =>
   mount(row, false, undefined, undefined, true)
   expect(host.querySelector('[data-testid="tool-edit-diff"]')).not.toBeNull()
   expect(host.querySelector('.tool-result-full')?.textContent).toBe('needle only in the receipt')
+})
+
+it('retains an open execution and keyboard focus when its native batch gains another command', () => {
+  const native = (id: string): TranscriptItem =>
+    call({
+      id,
+      toolUseId: id,
+      toolName: 'Bash',
+      toolBatch: { id: 'message', kind: 'message' },
+      toolExecution: {
+        kind: 'commands',
+        inputs: [
+          {
+            kind: 'command',
+            toolName: 'Bash',
+            text: id === 'a' ? 'pwd' : 'git status --short',
+            capture: 'complete',
+          },
+        ],
+        status: 'completed',
+        output: { capture: 'complete' },
+      },
+      toolResult: '',
+    })
+  mount(batchOf([native('a')]))
+  const first = host.querySelector<HTMLElement>('.command-execution')!
+  const heading = first.querySelector<HTMLButtonElement>('.execution-heading')!
+  act(() => heading.click())
+  heading.focus()
+  expect(first.dataset.open).toBe('true')
+  mount(batchOf([native('a'), native('b')]))
+  expect(host.querySelector('.command-execution')).toBe(first)
+  expect(first.dataset.open).toBe('true')
+  expect(document.activeElement).toBe(heading)
+  expect(host.querySelectorAll('.execution-batch')).toHaveLength(1)
 })

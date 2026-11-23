@@ -18,10 +18,13 @@ import {
   machineRejectionMessage,
   machinesFor,
   type NameableMachine,
+  pinRowId,
   RETIRED_ISSUE_TYPES,
   type SelectableMachine,
   type SessionId,
   structuralEligibility,
+  subscriptionRowIdOf,
+  type UserId,
 } from '@podium/model'
 import {
   bareSelfRefCount,
@@ -29,7 +32,9 @@ import {
   ISSUE_TREE_DEFAULT_MAX_DEPTH,
   ISSUE_TREE_DEFAULT_MAX_NODES,
   issueDisplayRef,
+  type SyncSubmitTransport,
   selfRefNudge,
+  submitNow,
   TITLE_RULE_TERSE,
 } from '@podium/protocol'
 import { z } from 'zod'
@@ -56,8 +61,8 @@ import { newMessageId, repeatUntilAnswered } from './send-once.js'
  * `@podium/commands`'s `ISSUE_COMMAND_NAMES`, which is now `Object.keys(
  * ISSUE_CONTRACTS)` rather than a hand-typed array in `@podium/protocol`. A verb
  * cannot call a proc that has no contract, and the check runs in both directions:
- * `scripts/audit-issue-commands.ts` fails if this table reaches a proc whose contract
- * does not declare `cli`, AND if a contract declares `cli` that no verb reaches.
+ * `commands.drift.test.ts` fails if this table reaches a proc whose contract does
+ * not declare `cli`, AND if a contract declares `cli` that no verb reaches.
  * `apps/server/src/modules/issues/cli-surface.runtime.test.ts` then drives this table
  * against a REAL dispatcher, because a source scan cannot tell a wired surface from a
  * dead one.
@@ -65,7 +70,7 @@ import { newMessageId, repeatUntilAnswered } from './send-once.js'
  * PRESENTATION, DELIBERATELY NOT SHARED: the `args` schemas below. They are not a
  * second declaration of a command's input — they are a different schema doing a
  * different job. They parse ARGV: `idArg` accepts a bare number so `show 10` works,
- * `cliBool` accepts `--pinned`, `--pinned true` and `--pinned=false`, `label` takes a
+ * `cliBool` accepts `--claim`, `--claim true` and `--claim=false`, `label` takes a
  * comma string it splits before calling `setLabels` with an array. Deriving these from the wire input would either lose those
  * affordances or push argv coercion into the contract, where it does not belong. The
  * contract decides WHAT MAY BE CALLED; this table decides HOW A HUMAN TYPES IT.
@@ -97,14 +102,18 @@ export interface IssueCommand {
 
 const repoArg = { repoPath: z.string() }
 const optRepo = { repoPath: z.string().optional() }
+/** `--assignee me|all|<member>` (POD-6296): resolved by the server. */
+const assigneeArg = { assignee: z.string().min(1).optional() }
+const ASSIGNEE_HELP =
+  '--assignee me|all|<member id, email or name> narrows to one accountable person'
 
 /** Issue references accept the internal `iss_…` id, the prefixed display id create
  *  prints (`POD-10`), or a bare/`#` seq (`10` / `#10`); MCP callers may pass the seq
  *  as a number. Resolution happens server-side (IssueService.resolveRef). */
 const idArg = z.union([z.string(), z.number()]).transform((v) => String(v))
 
-/** Boolean flag that also accepts an explicit value: `--pinned`, `--pinned true`,
- *  `--pinned=false` (a bare flag parses to `true`; values arrive as strings). */
+/** Boolean flag that also accepts an explicit value: `--claim`, `--claim true`,
+ *  `--claim=false` (a bare flag parses to `true`; values arrive as strings). */
 const cliBool = z.union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
 
 /**
@@ -260,10 +269,12 @@ function line(i: {
   priority?: number
   stage?: string
   closedReason?: string | null
+  /** Sent on a shared instance only (POD-6296), so one-member output is unchanged. */
+  assigneeName?: string
 }): string {
   const p = i.priority != null ? `P${i.priority} ` : ''
   const s = i.stage ? `[${statusWord(i)}] ` : ''
-  return `#${i.seq} ${p}${s}${i.title}`
+  return `#${i.seq} ${p}${s}${i.title}${i.assigneeName ? ` · assignee: ${i.assigneeName}` : ''}`
 }
 
 /**
@@ -303,6 +314,9 @@ export function mailSendOutcomeText(ref: string, id: string, disposition?: strin
       return `mail QUEUED for ${ref} (${id}) — on its way, NOT yet confirmed; ${told}`
   }
 }
+
+/** A start's shared-machine warning (POD-6296), on its own line after the result. */
+const warned = (i: { warning?: string }): string => (i.warning ? `\nWARNING: ${i.warning}` : '')
 
 type Row = Parameters<typeof line>[0]
 const listResult = (rows: Row[], empty: string): IssueCommandResult => ({
@@ -376,7 +390,7 @@ async function fetchComments(c: IssueTrpc, id: string): Promise<ShowComment[]> {
  * Actionable session state for managers: process status when not live, else
  * agent phase. `needs_user` → `blocked` (the spawn-check vocabulary) [spec:SP-99d3].
  */
-function sessionStateLabel(s: {
+export function sessionStateLabel(s: {
   status: string
   phase?: string
   agentState?: { phase?: string }
@@ -384,6 +398,8 @@ function sessionStateLabel(s: {
   if (s.status === 'exited') return 'exited'
   if (s.status === 'hibernated') return 'hibernated'
   if (s.status === 'starting') return 'starting'
+  // The server sends the shown status: `reconnecting` over a running session
+  // whose machine it has no daemon link to (`shownSessionStatus`, ADR 12 D1).
   if (s.status === 'reconnecting') return 'reconnecting'
   const phase = s.phase ?? s.agentState?.phase
   if (phase === 'needs_user') return 'blocked'
@@ -522,13 +538,87 @@ type TreeNode = Omit<IssueTreeNode<ShowSession>, 'sessions' | 'children'> & {
   children: TreeNode[]
 }
 
+/**
+ * PIN OR UNPIN A TASK FOR THE CALLER'S HUMAN (POD-6692): a pin is that person's
+ * own `pin` record of the task (kind `issue`), never a field of it. One read
+ * resolves the reference and names the human the caller acts for (an agent's,
+ * or the person themself); the pin is then a generic record create or remove
+ * on the sync write entry point, idempotent by key: pinning a pinned task, or
+ * unpinning one that is not, changes nothing.
+ */
+async function setIssuePin(
+  c: IssueTrpc,
+  ref: string,
+  pinned: boolean,
+): Promise<{ id: IssueId; seq: number; pinned: boolean }> {
+  const issue = (await c.issues.get.query({ id: ref })) as {
+    id: IssueId
+    seq: number
+    viewerUserId?: UserId
+  } | null
+  if (!issue) throw new Error(`unknown issue ${ref}`)
+  if (issue.viewerUserId === undefined) {
+    throw new Error('update --pinned: a pin is a person’s own, and this caller acts for nobody')
+  }
+  const id = pinRowId(issue.viewerUserId, 'issue', issue.id)
+  const transport = c as unknown as SyncSubmitTransport
+  if (pinned) {
+    await submitNow(transport, 'records.pin.create', {
+      id,
+      fields: { userId: issue.viewerUserId, kind: 'issue', entityId: issue.id },
+    })
+  } else {
+    await submitNow(transport, 'records.pin.remove', { id })
+  }
+  return { id: issue.id, seq: issue.seq, pinned }
+}
+
+/** One of the caller's own subscriptions, as `issues.subscriptionList` lists it. */
+type OwnSubscription = {
+  id: string
+  subscriberKind: 'session' | 'issue'
+  subscriberId: string
+  event: string
+  sourceKind: string
+  sourceRef: string
+  enabled: boolean
+  deliverNudge: boolean
+  deliverNotify: boolean
+  createdAt: string
+}
+
+/**
+ * Every one of the caller's own subscriptions. The operator's listing comes one
+ * page at a time (POD-6209); a caller that lists only its own gets all of it at
+ * once, so a page that adds no new row ends the walk too.
+ */
+async function ownSubscriptions(c: IssueTrpc): Promise<OwnSubscription[]> {
+  const PAGE = 500
+  const byId = new Map<string, OwnSubscription>()
+  let after: { createdAt: string; id: string } | undefined
+  for (;;) {
+    const page = (await c.issues.subscriptionList.query({
+      ...(after ? { after } : {}),
+      limit: PAGE,
+    })) as OwnSubscription[]
+    const before = byId.size
+    for (const row of page) byId.set(row.id, row)
+    const last = page.at(-1)
+    if (page.length < PAGE || byId.size === before || !last) break
+    after = { createdAt: last.createdAt, id: last.id }
+  }
+  return [...byId.values()]
+}
+
 export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'ready',
-    summary: 'List issues ready to work (open, not deferred, unblocked).',
-    args: z.strictObject(optRepo),
+    summary: `List issues ready to work (open, not deferred, unblocked). On a shared instance the default is your own person's tasks (an agent's: the person it acts for); ${ASSIGNEE_HELP}.`,
+    args: z.strictObject({ ...optRepo, ...assigneeArg }),
     async run(c, a) {
-      const rows = (await c.issues.ready.query(a as { repoPath?: string })) as Row[]
+      const rows = (await c.issues.ready.query(
+        a as { repoPath?: string; assignee?: string },
+      )) as Row[]
       return listResult(rows, '(no ready issues)')
     },
   },
@@ -543,10 +633,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'list',
-    summary: 'List all issues in the repo.',
-    args: z.strictObject(optRepo),
+    summary: `List all issues in the repo, everyone's by default; ${ASSIGNEE_HELP}.`,
+    args: z.strictObject({ ...optRepo, ...assigneeArg }),
     async run(c, a) {
-      const rows = (await c.issues.list.query(a as { repoPath?: string })) as Row[]
+      const rows = (await c.issues.list.query(
+        a as { repoPath?: string; assignee?: string },
+      )) as Row[]
       return listResult(rows, '(no issues)')
     },
   },
@@ -621,11 +713,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       id: idArg,
       maxDepth: z.coerce.number().int().min(0).max(20).optional(),
       maxNodes: z.coerce.number().int().min(1).max(1000).optional(),
+      ...assigneeArg,
     }),
     positionals: ['id'],
     async run(c, a) {
       const t = (await c.issues.tree.query({
         id: a.id as string,
+        ...(a.assignee ? { assignee: a.assignee as string } : {}),
         ...(a.maxDepth != null ? { maxDepth: a.maxDepth as number } : {}),
         ...(a.maxNodes != null ? { maxNodes: a.maxNodes as number } : {}),
       })) as {
@@ -636,6 +730,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         // footer still names a cap rather than `undefined`.
         maxDepth?: number
         maxNodes?: number
+        assigneeHidden?: number
       }
       const out: string[] = []
       const walk = (n: TreeNode, depth: number): void => {
@@ -648,7 +743,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
               ? 'READY'
               : n.stage
         const extras = [
-          n.assignee ? `assignee=${n.assignee}` : null,
+          n.assignee ? `assignee=${n.assigneeName ?? n.assignee}` : null,
           n.branch ? `branch=${n.branch}` : null,
           n.blocksDeps.length ? `waits-on=${n.blocksDeps.map((s) => `#${s}`).join(',')}` : null,
           n.needsHuman ? `NEEDS HUMAN${n.humanQuestion ? `: ${n.humanQuestion}` : ''}` : null,
@@ -665,6 +760,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         if (n.omittedChildren > 0) out.push(`${'  '.repeat(depth + 1)}(+${n.omittedChildren} more)`)
       }
       walk(t.root, 0)
+      if (t.assigneeHidden)
+        out.push(
+          '',
+          `${t.assigneeHidden} issue${t.assigneeHidden === 1 ? '' : 's'} with another assignee hidden by --assignee ${a.assignee}.`,
+        )
       // A capped tree used to just end (POD-1342): nothing said the walk stopped
       // early, so `(+3 more)` deep in the output was the only hint and an empty
       // branch looked like a leaf. Name the cap that bit and the exact rerun.
@@ -694,12 +794,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'deck',
-    summary:
-      'The user’s flight deck: deck <id> [--json] — ordered phases and tasks, shared state words, session seats, unmet blockers, proposals and leaf task counts.',
-    args: z.strictObject({ id: idArg }),
+    summary: `The user’s flight deck: deck <id> [--json] — ordered phases and tasks, shared state words, session seats, unmet blockers, proposals and leaf task counts. Everyone's tasks by default; ${ASSIGNEE_HELP} (counts stay the mission's).`,
+    args: z.strictObject({ id: idArg, ...assigneeArg }),
     positionals: ['id'],
     async run(c, a) {
-      const deck = (await c.issues.deck.query({ id: a.id as string })) as IssueDeck
+      const deck = (await c.issues.deck.query({
+        id: a.id as string,
+        ...(a.assignee ? { assignee: a.assignee as string } : {}),
+      })) as IssueDeck
       return { text: renderIssueDeck(deck), data: deck }
     },
   },
@@ -782,7 +884,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'start',
     summary:
-      "Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--model <slug>] [--effort low|medium|high] [--profile <name>] [--machine <name|id>] [--force-unknown-model]. --profile/--model/--effort take the same values as create/update and PERSIST onto the issue, so later sessions on it run the same; without them the issue's stored model/effort is used (`auto` = the CLI default). An unknown model or effort is refused before anything is created. --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.",
+      "Start an issue: create its worktree+branch, claim it, spawn its agent. start <id> [--agent claude-code] [--model <slug>] [--effort low|medium|high] [--profile <name>] [--machine <name|id>] [--credential <label | id | none>] [--force-unknown-model]. --credential picks the login or key the session runs on: a credential label (any case) or id you can use, or `none` for the harness's own login; without it your default for the harness applies, and it is not stored on the issue. --profile/--model/--effort take the same values as create/update and PERSIST onto the issue, so later sessions on it run the same; without them the issue's stored model/effort is used (`auto` = the CLI default). An unknown model or effort is refused before anything is created. --machine HOMES the issue on that machine (see `podium machine list`) — its worktree, branch and agent all live there from now on.",
     args: z.strictObject({
       id: idArg,
       agent: z.string().min(1).optional(),
@@ -790,6 +892,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       effort: z.string().min(1).optional(),
       profile: z.string().min(1).optional(),
       machine: z.string().min(1).optional(),
+      credential: z.string().min(1).optional(),
       forceUnknownModel: z.boolean().optional(),
     }),
     positionals: ['id'],
@@ -810,6 +913,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.model ? { defaultModel: a.model as string } : {}),
         ...(a.effort ? { defaultEffort: a.effort as string } : {}),
         ...(a.profile ? { agentProfile: a.profile as string } : {}),
+        ...(a.credential ? { credential: a.credential as string } : {}),
         ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
       })) as {
         seq: number
@@ -820,12 +924,13 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         model?: string | null
         effort?: string | null
         machine?: string
+        warning?: string
       }
       const placement = i.agentId
         ? `\n  ${i.agentId} (${i.harness ?? 'unknown'}) model=${i.model ?? 'default'} effort=${i.effort ?? 'default'} machine=${i.machine ?? 'unknown'}`
         : ''
       return {
-        text: `started #${i.seq} (${i.branch ?? '?'} @ ${i.worktreePath ?? '?'})${placement}`,
+        text: `started #${i.seq} (${i.branch ?? '?'} @ ${i.worktreePath ?? '?'})${placement}${warned(i)}`,
         data: i,
       }
     },
@@ -854,6 +959,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       dueAt: z.string().optional(),
       deferUntil: z.string().optional(),
       closedReason: z.string().optional(),
+      // `--pinned` (POD-6692) is not a field of the task: it creates or removes
+      // the caller's human's own `pin` record of it (see {@link setIssuePin}).
       pinned: cliBool.optional(),
       // Manual sidebar order (POD-168): fractional key, ascending = top of the
       // row's sibling scope. Normally written by the sidebar drag; exposed here
@@ -862,6 +969,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       estimateMin: z.coerce.number().int().optional(),
       // Closing through update (`--stage done`, `--closed-reason`) takes close's guard.
       confirmInterrupt: z.boolean().optional(),
+      // The revision the edit was cut from (POD-6295), from `show --json`: a
+      // task that has moved on since refuses the write, naming its current
+      // revision, so nobody's description or brief is overwritten unseen.
+      expectedRevision: z.coerce.number().int().positive().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
@@ -880,7 +991,6 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         'dueAt',
         'deferUntil',
         'closedReason',
-        'pinned',
         'sortKey',
         'estimateMin',
       ]
@@ -892,15 +1002,22 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (a.profile != null) patch.agentProfile = a.profile === 'none' ? null : a.profile
       // 'none' clears the pin (back to repo-affinity routing).
       if (a.machine != null) patch.machineId = a.machine === 'none' ? null : a.machine
+      const pinned = a.pinned as boolean | undefined
       // An empty patch is a caller mistake (typo'd/absent flags), not a success (#345).
-      if (Object.keys(patch).length === 0) {
+      if (Object.keys(patch).length === 0 && pinned === undefined) {
         throw new Error('update: no fields given — nothing changed (see update --help for flags)')
+      }
+      if (Object.keys(patch).length === 0) {
+        const pin = await setIssuePin(c, a.id as string, pinned!)
+        return { text: `${pinned ? 'pinned' : 'unpinned'} #${pin.seq}`, data: pin }
       }
       const i = (await c.issues.update.mutate({
         id: a.id as string,
         patch: patch as never,
         ...(a.confirmInterrupt ? { confirmInterrupt: true } : {}),
+        ...(a.expectedRevision != null ? { expectedRevision: a.expectedRevision as number } : {}),
       })) as { seq: number; acceptance?: string | null }
+      if (pinned !== undefined) await setIssuePin(c, a.id as string, pinned)
       const handoff = patch.stage === 'review' || patch.stage === 'done'
       return { text: `updated #${i.seq}${handoff ? acceptanceReminder(i) : ''}`, data: i }
     },
@@ -1080,13 +1197,14 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'claim',
-    summary: 'Claim an issue (set assignee + in_progress): claim <id> --assignee me.',
-    args: z.strictObject({ id: idArg, assignee: z.string() }),
+    summary:
+      'Claim an issue (in_progress): claim <id> [--assignee me|<member id>]. A person claiming becomes its assignee (or names one); an agent claiming starts work and never changes the assignee.',
+    args: z.strictObject({ id: idArg, assignee: z.string().optional() }),
     positionals: ['id'],
     async run(c, a) {
       const i = (await c.issues.claim.mutate({
         id: a.id as string,
-        assignee: a.assignee as string,
+        ...(a.assignee ? { assignee: a.assignee as string } : {}),
       })) as { seq: number }
       return { text: `claimed #${i.seq}`, data: i }
     },
@@ -1198,10 +1316,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'add-session',
     summary:
-      "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code] [--force-unknown-model]. Model/effort follow the issue defaults (update --model/--effort).",
+      "Spawn another agent session in a started issue's worktree: add-session <id> [--agent claude-code] [--credential <label | id | none>] [--force-unknown-model]. Model/effort follow the issue defaults (update --model/--effort). --credential picks the login or key the session runs on: a credential label (any case) or id you can use, or `none` for the harness's own login; without it your default for the harness applies.",
     args: z.strictObject({
       id: idArg,
       agent: z.string().optional(),
+      credential: z.string().min(1).optional(),
       forceUnknownModel: z.boolean().optional(),
     }),
     positionals: ['id'],
@@ -1209,9 +1328,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const i = (await c.issues.addSession.mutate({
         id: a.id as string,
         ...(a.agent ? { agentKind: a.agent as string } : {}),
+        ...(a.credential ? { credential: a.credential as string } : {}),
         ...(a.forceUnknownModel ? { forceUnknownModel: true } : {}),
-      })) as { seq: number }
-      return { text: `session added to #${i.seq}`, data: i }
+      })) as { seq: number; warning?: string }
+      return { text: `session added to #${i.seq}${warned(i)}`, data: i }
     },
   },
   {
@@ -1220,8 +1340,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     args: z.strictObject({ id: idArg }),
     positionals: ['id'],
     async run(c, a) {
-      const i = (await c.issues.addShell.mutate({ id: a.id as string })) as { seq: number }
-      return { text: `shell added to #${i.seq}`, data: i }
+      const i = (await c.issues.addShell.mutate({ id: a.id as string })) as {
+        seq: number
+        warning?: string
+      }
+      return { text: `shell added to #${i.seq}${warned(i)}`, data: i }
     },
   },
   {
@@ -1344,7 +1467,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     //   [--nudge] [--notify] · subscription list · subscription remove <id>.
     name: 'subscription',
     summary:
-      'Subscribe THIS agent to events: subscription add <event> --source-kind relationship|issue|session --source-ref <ref> [--nudge] [--notify] · subscription list · subscription remove <id>. Events: issue.closed, issue.stage_changed:review, session.finished/errored/waiting. Relationship refs: my-children, my-subtree.',
+      'Subscribe THIS agent to events: subscription add <event> --source-kind relationship|issue|session --source-ref <ref> [--nudge] [--notify] · subscription list · subscription remove <id>. Events: issue.closed, issue.stage_changed:review, session.finished/errored/waiting, issue.mail (receive other people’s mail to that task as input; without it their task mail is only in the task’s mailbox). Relationship refs: my-children, my-subtree.',
     args: z.strictObject({
       sub: z.enum(['add', 'remove', 'list']),
       ref: z.string().optional(),
@@ -1382,43 +1505,19 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         }
         case 'remove': {
           if (!a.ref) throw new Error('subscription remove needs an id: subscription remove <id>')
-          const r = (await c.issues.subscriptionRemove.mutate({ id: a.ref as string })) as {
-            removed: boolean
-          }
-          return {
-            text: r.removed ? `removed ${a.ref}` : `no such subscription: ${a.ref}`,
-            data: r,
-          }
+          // A subscription is a synced record keyed by its subscriber (POD-6676):
+          // find it among the caller's own, then remove it as a generic record.
+          const id = a.ref as string
+          const own = await ownSubscriptions(c)
+          const found = own.find((row) => row.id === id)
+          if (!found) return { text: `no such subscription: ${id}`, data: { removed: false } }
+          await submitNow(c as unknown as SyncSubmitTransport, 'records.subscription.remove', {
+            id: subscriptionRowIdOf(found),
+          })
+          return { text: `removed ${id}`, data: { removed: true } }
         }
         case 'list': {
-          type Row = {
-            id: string
-            event: string
-            sourceKind: string
-            sourceRef: string
-            enabled: boolean
-            deliverNudge: boolean
-            deliverNotify: boolean
-            createdAt: string
-          }
-          // The operator's listing comes one page at a time (POD-6209); a
-          // caller that lists only its own gets all of it at once, so a page
-          // that adds no new row ends the walk too.
-          const PAGE = 500
-          const byId = new Map<string, Row>()
-          let after: { createdAt: string; id: string } | undefined
-          for (;;) {
-            const page = (await c.issues.subscriptionList.query({
-              ...(after ? { after } : {}),
-              limit: PAGE,
-            })) as Row[]
-            const before = byId.size
-            for (const row of page) byId.set(row.id, row)
-            const last = page.at(-1)
-            if (page.length < PAGE || byId.size === before || !last) break
-            after = { createdAt: last.createdAt, id: last.id }
-          }
-          const rows = [...byId.values()]
+          const rows = await ownSubscriptions(c)
           const fmt = (s: (typeof rows)[number]) => {
             const deliver =
               [s.deliverNudge && 'nudge', s.deliverNotify && 'notify'].filter(Boolean).join(',') ||
@@ -1437,9 +1536,10 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'search',
-    summary: 'Search issues (--text --status --priority --type --label …).',
+    summary: `Search issues (--text --status --priority --type --label --assignee …), everyone's by default; ${ASSIGNEE_HELP}.`,
     args: z.strictObject({
       ...optRepo,
+      ...assigneeArg,
       text: z.string().optional(),
       status: z.string().optional(),
       priority: z.coerce.number().int().optional(),
@@ -1836,10 +1936,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'prime',
     summary:
-      "Print this session's issue context (bound issue + children/blockers, or ready-work lobby).",
-    args: z.strictObject(optRepo),
+      "Print this session's issue context (bound issue + children/blockers, or ready-work lobby). On a shared instance it names the person you act for, the task's assignee and your scope, and the lobby lists your person's ready work unless --assignee says otherwise.",
+    args: z.strictObject({ ...optRepo, ...assigneeArg }),
     async run(c, a) {
-      const text = (await c.issues.prime.query(a as { repoPath?: string })) as string
+      const text = (await c.issues.prime.query(
+        a as { repoPath?: string; assignee?: string },
+      )) as string
       return { text, data: { prime: text } }
     },
   },
@@ -1945,7 +2047,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     async run(c, a) {
       const op =
         a.add != null
-          ? { op: 'todo-add', text: a.add }
+          ? { op: 'todo-add', text: a.add, itemId: crypto.randomUUID() }
           : a.done != null
             ? { op: 'todo-done', index: a.done }
             : a.undone != null
@@ -2072,7 +2174,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
     async run(c, a) {
       const op =
         a.add != null
-          ? { op: 'deferred-add', text: a.add }
+          ? { op: 'deferred-add', text: a.add, itemId: crypto.randomUUID() }
           : a.remove != null
             ? { op: 'deferred-remove', index: a.remove }
             : null

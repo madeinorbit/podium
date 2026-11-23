@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, firstAdminMemberId, type UpdateChannel } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId, type UpdateChannel } from '@podium/model'
 import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
@@ -12,7 +12,9 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
+import { pinMachineChannel } from './test-support/machine-records'
 import { openTestStore } from './test-support/open-test-store'
+import { countStatements, quietShipping } from './test-support/statement-count'
 import { writeTestBackup } from './test-support/write-test-backup'
 
 /**
@@ -57,6 +59,8 @@ interface HarnessOptions {
    * still carries a `server` step.
    */
   hostUpdateReceiver?: false | ((message: unknown) => void)
+  /** Call as this member (role `member`) instead of the admin operator (POD-6358). */
+  member?: string
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
@@ -91,7 +95,9 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
     typeof requestCoordinatorRestart === 'function'
       ? { requestCoordinatorRestart }
       : (requestCoordinatorRestart ?? {})
-  const registry = await SessionRegistry.create(opts.store, undefined, { instanceId: 'updates-test' })
+  const registry = await SessionRegistry.create(opts.store, undefined, {
+    instanceId: 'updates-test',
+  })
   const hostMachineId = registry.sessionStore.hostMachineId
   // Registry construction no longer enrolls the host. Supply the enrolled
   // coordinator and its running identity before attaching an update receiver.
@@ -100,11 +106,12 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
   await registry.modules.machines.setMachineBuild(
     hostMachineId,
     { appVersion: process.env.PODIUM_APP_VERSION ?? 'dev' },
-    [],
+    ['update.delivery.feed', 'update.delivery.bundle'],
     '2026-08-13T00:00:00.000Z',
   )
   const hostUpdateReceiver = opts.hostUpdateReceiver ?? (() => {})
-  if (hostUpdateReceiver !== false) registry.gateway.attachDaemon(hostMachineId, hostUpdateReceiver)
+  if (hostUpdateReceiver !== false)
+    await registry.gateway.attachDaemon(hostMachineId, hostUpdateReceiver)
   await registry.modules.machines.setUpdateChannel(hostMachineId, 'dev')
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
@@ -119,8 +126,12 @@ async function harness(requestCoordinatorRestart?: (() => void) | HarnessOptions
     registry,
     repos,
     superagent,
-    capability: OPERATOR,
-    principal: userCommandPrincipal(firstAdminMemberId(), 'admin'),
+    capability: opts.member
+      ? userCommandPrincipal(asUserId(opts.member), 'member').capability
+      : OPERATOR,
+    principal: opts.member
+      ? userCommandPrincipal(asUserId(opts.member), 'member')
+      : userCommandPrincipal(firstAdminMemberId(), 'admin'),
     ...(opts.serverInstallKind ? { serverInstallKind: opts.serverInstallKind } : {}),
     ...(opts.requestCoordinatorRestart
       ? { requestCoordinatorRestart: opts.requestCoordinatorRestart }
@@ -155,8 +166,77 @@ afterEach(async () => {
  * and the fleet default is what Settings → Updates writes. `updateChannel` on the
  * wire is therefore the RESOLVED answer; `updateChannelOverride` is the pin.
  */
+describe('read-only update space RPC', () => {
+  it.each([
+    5, 200,
+  ])('scopes %i previews with one directory and one grouped grant read', async (size) => {
+    const { registry, caller } = await harness()
+    try {
+      const store = registry.sessionStore
+      for (let index = 0; index < size; index++)
+        await store.machines.upsertMachine({
+          id: `space-visible-${index}`,
+          name: `space-visible-${index}`,
+          hostname: 'fixture',
+          tokenHash: 'fixture',
+          ownerUserId: firstAdminMemberId(),
+        })
+      vi.spyOn(registry.modules.updates, 'target').mockReturnValue(target())
+      const check = vi.spyOn(registry.modules.machines, 'checkUpdateSpace').mockResolvedValue({
+        status: 'enough',
+        checkedAt: 1,
+        volumes: [],
+      })
+      await quietShipping(registry)
+      // The machine writes' deliveries run before the count, not inside it.
+      await registry.changeLedger.authority.settled()
+      const counted = await countStatements(store, () =>
+        caller.updates.checkSpace({ scope: 'all' }),
+      )
+      expect(counted.statements, JSON.stringify([...counted.byQuery])).toBe(2)
+      expect(counted.result.machines).toHaveLength(size + 1)
+      expect(check).toHaveBeenCalledTimes(size + 1)
+    } finally {
+      vi.restoreAllMocks()
+      await registry.dispose()
+    }
+  })
+
+  it('requests information without invoking fleet reconciliation, creating an operation or preparing an update', async () => {
+    const { registry, caller } = await harness()
+    try {
+      await registry.modules.updates.setTarget('dev', target())
+      const fleet = vi
+        .spyOn(registry.modules.updates, 'fleet')
+        .mockRejectedValue(new Error('Preview must not reconcile the fleet'))
+      const check = vi.spyOn(registry.modules.machines, 'checkUpdateSpace').mockResolvedValue({
+        status: 'low',
+        checkedAt: 1,
+        volumes: [],
+      })
+      const start = vi.spyOn(registry.modules.operations.engine, 'start')
+      const result = await caller.updates.checkSpace()
+      expect(
+        result.machines.some(
+          (machine) =>
+            machine.machineId === registry.sessionStore.hostMachineId && machine.status === 'low',
+        ),
+      ).toBe(true)
+      expect(check).toHaveBeenCalledTimes(1)
+      expect(fleet).not.toHaveBeenCalled()
+      expect(start).not.toHaveBeenCalled()
+    } finally {
+      vi.restoreAllMocks()
+      await registry.dispose()
+    }
+  })
+})
+
 describe('fleet default update channel', () => {
-  async function addMachine(registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'], id: string) {
+  async function addMachine(
+    registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'],
+    id: string,
+  ) {
     await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
@@ -172,9 +252,9 @@ describe('fleet default update channel', () => {
     const { registry } = await harness()
     await addMachine(registry, 'unpinned')
 
-    const machine = (await registry.modules.machines
-      .listMachines())
-      .find((candidate) => candidate.id === 'unpinned')
+    const machine = (await registry.modules.machines.listMachines()).find(
+      (candidate) => candidate.id === 'unpinned',
+    )
     expect(machine?.updateChannelOverride ?? null).toBeNull()
     expect(machine?.updateChannel).toBe('edge')
     expect(await registry.modules.machines.updateChannel(asMachineId('unpinned'))).toBe('edge')
@@ -192,15 +272,15 @@ describe('fleet default update channel', () => {
     // The fleet moves; the pinned machine does not.
     process.env.PODIUM_UPDATE_CHANNEL = 'dev'
     expect(await registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
-    const pinned = (await registry.modules.machines
-      .listMachines())
-      .find((candidate) => candidate.id === 'pinned')
+    const pinned = (await registry.modules.machines.listMachines()).find(
+      (candidate) => candidate.id === 'pinned',
+    )
     expect(pinned?.updateChannelOverride).toBe('stable')
     await registry.dispose()
   })
 
   it("moves an unpinned machine's resolved channel and target the moment the fleet default changes, and leaves a pinned one alone", async () => {
-    process.env.PODIUM_UPDATE_CHANNEL = 'stable'
+    delete process.env.PODIUM_UPDATE_CHANNEL
     const { registry } = await harness()
     await addMachine(registry, 'follower')
     await addMachine(registry, 'pinned')
@@ -212,8 +292,7 @@ describe('fleet default update channel', () => {
     expect(followerBefore?.updateChannel).toBe('stable')
 
     // The fleet default moves — exactly what Settings → Updates writes.
-    process.env.PODIUM_UPDATE_CHANNEL = 'dev'
-    registry.modules.machines.refreshFleetChannel()
+    await registry.sessionStore.settings.updateDeployment({ updateChannel: 'dev' })
 
     const after = await registry.modules.machines.listMachines()
     expect(after.find((m) => m.id === 'follower')?.updateChannel).toBe('dev')
@@ -239,9 +318,9 @@ describe('fleet default update channel', () => {
     await registry.modules.machines.setUpdateChannel(asMachineId('released'), null)
 
     expect(await registry.modules.machines.updateChannel(asMachineId('released'))).toBe('edge')
-    const released = (await registry.modules.machines
-      .listMachines())
-      .find((candidate) => candidate.id === 'released')
+    const released = (await registry.modules.machines.listMachines()).find(
+      (candidate) => candidate.id === 'released',
+    )
     expect(released?.updateChannelOverride ?? null).toBeNull()
     await registry.dispose()
   })
@@ -258,7 +337,10 @@ describe('fleet default update channel', () => {
  * three paths, one channel.
  */
 describe('one default channel', () => {
-  async function addMachine(registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'], id: string) {
+  async function addMachine(
+    registry: Awaited<Awaited<ReturnType<typeof harness>>>['registry'],
+    id: string,
+  ) {
     await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
@@ -280,7 +362,7 @@ describe('one default channel', () => {
     expect(machine).toBeDefined()
     expect(registry.modules.updates.channelOf(machine as never)).toBe('edge')
 
-    await caller.machines.setUpdateChannel({ id: 'unpinned', channel: null })
+    await pinMachineChannel(caller, 'unpinned', null)
     await caller.machines.applyUpdate({ id: 'unpinned' })
 
     // Not merely "each handler refreshed something" — the SAME channel the
@@ -317,11 +399,11 @@ describe('one default channel', () => {
       podiumManaged: false,
     })
     const sharedMachineId = asMachineId('shared')
-    registry.gateway.attachDaemon(sharedMachineId, () => {})
+    await registry.gateway.attachDaemon(sharedMachineId, () => {})
     await registry.modules.machines.setMachineBuild(
       sharedMachineId,
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-26T00:00:00.000Z',
     )
     const refreshTarget = vi
@@ -329,7 +411,7 @@ describe('one default channel', () => {
       .mockResolvedValue(true)
     await registry.modules.updates.setTarget('dev', target())
 
-    await caller.machines.setUpdateChannel({ id: 'shared', channel: 'dev' })
+    await pinMachineChannel(caller, 'shared', 'dev')
     const { outcome } = await caller.machines.applyUpdate({ id: 'shared' })
 
     expect(await registry.modules.machines.updateChannel(sharedMachineId)).toBe('dev')
@@ -368,6 +450,7 @@ describe('release target checks', () => {
 
   it('exposes per-channel checked-at and outcome on the fleet payload', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'stable'
+    vi.stubEnv('PODIUM_UPDATE_FEED_POLLING', 'on')
     const fetchSpy = offline()
     const { registry, caller } = await harness()
     await registry.modules.updates.refreshTarget('stable')
@@ -381,7 +464,7 @@ describe('release target checks', () => {
         outcome: {
           status: 'unavailable',
           // The resolver names the manifest boundary so feed failures stay actionable.
-          reason: 'stable target unavailable: release manifest getaddrinfo ENOTFOUND',
+          reason: expect.stringContaining('getaddrinfo ENOTFOUND'),
         },
       },
     ])
@@ -473,7 +556,12 @@ describe('the fleet counted is the fleet the global action would grant', () => {
   ) => {
     const id = registry.sessionStore.hostMachineId
     await registry.modules.machines.setUpdateChannel(id, channel)
-    await registry.modules.machines.setMachineBuild(id, { appVersion }, [], '2026-08-13T00:00:00.000Z')
+    await registry.modules.machines.setMachineBuild(
+      id,
+      { appVersion },
+      ['update.delivery.feed', 'update.delivery.bundle'],
+      '2026-08-13T00:00:00.000Z',
+    )
   }
 
   /** THE DEFECT: a real stable release, a host behind it, and a read model that
@@ -510,7 +598,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       tokenHash: 'packaged-token',
       ownerUserId: firstAdminMemberId(),
     })
-    registry.gateway.attachDaemon(asMachineId('packaged'), () => {})
+    await registry.gateway.attachDaemon(asMachineId('packaged'), () => {})
     await registry.modules.machines.setUpdateChannel(asMachineId('packaged'), 'dev')
     await registry.modules.machines.setMachineBuild(
       asMachineId('packaged'),
@@ -568,7 +656,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('stable-vps'),
       { appVersion: '0.1.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget('stable', target('0.1.3'))
@@ -601,7 +689,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('stable-vps'),
       { appVersion: '0.1.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget('dev', target('dev+47a01e3'))
@@ -625,9 +713,10 @@ describe('the fleet counted is the fleet the global action would grant', () => {
     await registry.modules.updates.setTarget('stable', target('0.1.3'))
 
     const fleet = await caller.updates.fleet()
-    const channel = await registry.modules.updates.operationChannel(
-      { kind: 'fleet', machineId: registry.sessionStore.hostMachineId },
-    )
+    const channel = await registry.modules.updates.operationChannel({
+      kind: 'fleet',
+      machineId: registry.sessionStore.hostMachineId,
+    })
 
     expect(channel).toBe('stable')
     expect(fleet.targetVersion).toBe(registry.modules.updates.target(channel)?.version)
@@ -695,7 +784,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())
@@ -720,7 +809,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget({
@@ -756,7 +845,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
@@ -775,7 +864,7 @@ describe('updates tRPC', () => {
       ['update.delivery.feed'],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('source-machine', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('source-machine', (message) => grants.push(message))
     // A published dev release, as the resolver hands it over: an ordinary feed
     // artifact, on the instance trust root.
     await registry.modules.updates.setTarget({
@@ -841,7 +930,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
@@ -855,10 +944,10 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -894,7 +983,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
@@ -908,10 +997,10 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -943,7 +1032,10 @@ describe('updates tRPC', () => {
     const grants: unknown[] = []
     let finish: (() => void) | undefined
     const requestDestBundle = vi.fn(
-      () => new Promise<void>((resolve) => { finish = resolve }),
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve
+        }),
     )
     const { registry, caller } = await harness({
       hostUpdateReceiver: (message) => grants.push(message),
@@ -1000,7 +1092,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
@@ -1014,10 +1106,10 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -1071,7 +1163,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget({
@@ -1150,10 +1242,10 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('installed-edge', (message) => grants.push(message))
     await registry.modules.updates.setTarget({
       version: 'dev+47a01e3',
       critical: false,
@@ -1178,14 +1270,14 @@ describe('updates tRPC', () => {
       ['update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon(bundleMachine, (message) => grants.push(message))
+    await registry.gateway.attachDaemon(bundleMachine, (message) => grants.push(message))
 
     await caller.updates.converge()
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
     expect(
-      (await registry.modules.operations.engine
-        .active('lifecycle'))
-        ?.operation?.steps?.map((step) => step.id),
+      (await registry.modules.operations.engine.active('lifecycle'))?.operation?.steps?.map(
+        (step) => step.id,
+      ),
     ).toContain('prepare')
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
@@ -1229,7 +1321,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('installed-edge'),
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:01.000Z',
     )
     registry.bus.emit('machine.connected', { machineId: asMachineId('installed-edge') })
@@ -1261,7 +1353,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+aaaaaaa' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget({
@@ -1301,7 +1393,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:01.000Z',
     )
     registry.bus.emit('machine.connected', { machineId: registry.sessionStore.hostMachineId })
@@ -1328,7 +1420,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: 'dev+47a01e3' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget({
@@ -1357,7 +1449,7 @@ describe('updates tRPC', () => {
       await registry.modules.machines.setMachineBuild(
         registry.sessionStore.hostMachineId,
         { appVersion: 'dev+47a01e3' },
-        [],
+        ['update.delivery.feed', 'update.delivery.bundle'],
         '2026-08-13T00:00:00.000Z',
       )
       await registry.modules.updates.setTarget({
@@ -1466,24 +1558,24 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
     await registry.sessionStore.machines.upsertMachine({
-      id: 'flatblock',
+      id: 'remote-machine',
       name: 'Flatblock',
-      hostname: 'flatblock',
+      hostname: 'remote-machine',
       tokenHash: 'flatblock-token',
       ownerUserId: firstAdminMemberId(),
     })
-    await registry.modules.machines.setUpdateChannel(asMachineId('flatblock'), 'dev')
+    await registry.modules.machines.setUpdateChannel(asMachineId('remote-machine'), 'dev')
     await registry.modules.machines.setMachineBuild(
-      asMachineId('flatblock'),
+      asMachineId('remote-machine'),
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
-    registry.gateway.attachDaemon('flatblock', (message) => grants.push(message))
+    await registry.gateway.attachDaemon('remote-machine', (message) => grants.push(message))
     await registry.modules.updates.setTarget(target())
 
     const result = await caller.updates.converge()
@@ -1491,7 +1583,7 @@ describe('updates tRPC', () => {
       state: 'in-progress',
       version: '0.4.2',
       total: 1,
-      grantedMachineIds: ['flatblock'],
+      grantedMachineIds: ['remote-machine'],
     })
     expect(grants).toEqual([expect.objectContaining({ type: 'updateGrant' })])
     await registry.dispose()
@@ -1505,7 +1597,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())
@@ -1537,7 +1629,7 @@ describe('updates tRPC', () => {
     await registry.modules.machines.setMachineBuild(
       asMachineId('stable-machine'),
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-10T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())
@@ -1579,7 +1671,7 @@ describe('the update operation', () => {
     await built.registry.modules.machines.setMachineBuild(
       built.registry.sessionStore.hostMachineId,
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await built.registry.modules.updates.setTarget(target())
@@ -1633,7 +1725,7 @@ describe('the update operation', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     const behind = asMachineId('behind-machine')
@@ -1644,11 +1736,11 @@ describe('the update operation', () => {
       tokenHash: 'behind-token',
       ownerUserId: firstAdminMemberId(),
     })
-    registry.gateway.attachDaemon(behind, () => {})
+    await registry.gateway.attachDaemon(behind, () => {})
     await registry.modules.machines.setMachineBuild(
       behind,
       { appVersion: '0.4.1' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.machines.setUpdateChannel(behind, 'dev')
@@ -1675,6 +1767,67 @@ describe('the update operation', () => {
     expect(second.operationId).toBe(first.operationId)
     expect(second.alreadyRunning).toBe(true)
     expect(await caller.operations.history({ kind: 'update' })).toHaveLength(1)
+    await registry.dispose()
+  })
+
+  it('refuses a member: only an admin may update the instance (POD-6358)', async () => {
+    const { registry, caller } = await behindHarness({
+      requestCoordinatorRestart: () => {},
+      member: 'mem_2MEMBERMEMBERMEMBERMEMBERM',
+    })
+    await expect(caller.updates.start()).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(caller.updates.converge()).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    // Refused before it looks, so a member cannot learn which updates exist.
+    await expect(caller.updates.retry({ id: 'op_none' })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    // Re-delivering a payload and restarting the server are an admin's too.
+    await expect(caller.updates.repairPayload()).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(caller.updates.repairCompatibility()).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    // Nothing started: no operation, and no record left behind.
+    expect(await registry.modules.operations.engine.active('lifecycle')).toBeUndefined()
+    await registry.dispose()
+  })
+
+  it('starts from a server.update effect record that every device reads on the feed (POD-6358)', async () => {
+    const { registry, caller } = await behindHarness({ requestCoordinatorRestart: () => {} })
+    // Two presses at once: two records, one operation, named after the first.
+    const [started, again] = await Promise.all([caller.updates.start(), caller.updates.start()])
+    expect(started.operationId).toMatch(/^op_eff_/)
+    expect(again.operationId).toBe(started.operationId)
+    expect(again.alreadyRunning).toBe(true)
+    const recordId = started.operationId.replace(/^op_/, '')
+    const record = await registry.sessionStore.effects.get(recordId)
+    expect(record).toMatchObject({
+      kind: 'server.update',
+      target: { kind: 'machine', id: registry.sessionStore.hostMachineId },
+      result: { operationId: started.operationId },
+    })
+
+    // The operation's end is the record's end, in the standard status.
+    const engine = registry.modules.operations.engine
+    if ((await engine.active('lifecycle')) !== undefined) await engine.cancel(started.operationId)
+    const want = { done: 'succeeded', failed: 'failed', canceled: 'cancelled' } as const
+    let ended: string | undefined
+    for (let i = 0; i < 200; i++) {
+      const op = await engine.get(started.operationId)
+      const status = (await registry.sessionStore.effects.get(recordId))?.status
+      ended = op && op.state in want ? want[op.state as keyof typeof want] : undefined
+      if (ended !== undefined && status === ended) break
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(ended).toBeDefined()
+    expect((await registry.sessionStore.effects.get(recordId))?.status).toBe(ended)
+
+    // Every device reads it off the feed: pending, then running, then the end.
+    const feed = (await registry.sessionStore.sync.changesSince(0))
+      .filter((row) => row.entity === 'effect' && row.entityId === recordId)
+      .map((row) => JSON.parse(row.payload ?? 'null') as { effect: { status: string } })
+    expect(feed[0]?.effect.status).toBe('pending')
+    expect(feed.some((row) => row.effect.status === 'running')).toBe(true)
+    expect(feed.at(-1)?.effect.status).toBe(ended)
     await registry.dispose()
   })
 
@@ -1730,7 +1883,7 @@ describe('the update operation', () => {
     await registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
       { appVersion: '0.4.2' },
-      [],
+      ['update.delivery.feed', 'update.delivery.bundle'],
       '2026-08-13T00:00:00.000Z',
     )
     await registry.modules.updates.setTarget(target())

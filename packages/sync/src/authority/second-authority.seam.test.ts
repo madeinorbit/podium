@@ -40,17 +40,15 @@
 
 import { describe, expect, it } from 'vitest'
 import type { ChangeLogStore } from '../change-log'
-import type { ChangeLogReadRow } from './change-lifecycle'
+import { ModelAuthority as Authority } from '../conformance/model-records'
+import { DeviceGradeNoAnchors, DeviceGradeUnscopedPolicy } from '../feed'
 import {
   assertOpaqueEpoch,
-  FeedIdentityRegistry,
   type FeedIdentity,
+  FeedIdentityRegistry,
   type FeedIdentityStore,
 } from '../feed/identity'
-import { DeviceGradeNoAnchors, DeviceGradeUnscopedPolicy } from '../feed'
-import { Authority } from './authority'
-import type { StagedChangeSpec } from './change-lifecycle'
-import { installedWorldOver } from '../conformance/installed-reads'
+import type { ChangeLogReadRow, StagedChangeSpec } from './change-lifecycle'
 
 /**
  * ONE in-memory instantiation of the kernel's storage ports: a change log, a real
@@ -84,11 +82,6 @@ function instantiateKernelPorts(name: string) {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    ...installedWorldOver(async () => {
-      const latest = new Map<string, (typeof rows)[number]>()
-      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
-      return [...latest.values()]
-    }),
   }
 
   // A REAL span: it snapshots and restores, so an atomicity claim here is measured
@@ -150,8 +143,7 @@ async function commit(
   id: string,
 ): Promise<readonly number[] | undefined> {
   const outcome = await world.authority.commit({
-    write: async () => undefined,
-    changes: () => [upsert(id)],
+    write: async () => world.authority.models.set([upsert(id)]),
   })
   return outcome.outcome === 'committed' ? outcome.changes.map((c) => c.seq) : undefined
 }

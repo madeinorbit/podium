@@ -19,16 +19,23 @@ import { machinePathBasename } from '@podium/model'
 
 import {
   asRepoId,
+  asSessionId,
+  asThreadId,
   asUserId,
-  IssueProjection,
+  issueBriefText,
   issueDepId,
+  issueDescriptionText,
+  SlimIssueProjection,
   issueUserStateRowId,
+  pinRowId,
+  type SuperagentThreadWire,
+  superagentThreadRowId,
   type UserId,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
 import { memoryStorage } from '../replica/contract'
 import { createKernelReplica, createSideCache, type KernelBackedReplica } from '../replica/kernel'
-import { DEMO_ISSUES, DEMO_SESSIONS } from './demo-data'
+import { DEMO_ISSUES, DEMO_SESSIONS, DEMO_SUPER_SESSION } from './demo-data'
 
 /** The demo principal. Named rather than borrowed from a real id so nothing in
  *  a demo run can land under a person's namespace. */
@@ -61,30 +68,48 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
   for (const session of DEMO_SESSIONS) {
     put(records, 'session', session.sessionId, { ...session })
   }
+  let panelId = 0
   const repos = new Map<string, { id: string; repoPath: string; prefix?: string; name: string }>()
   for (const issue of DEMO_ISSUES) {
     const source = issue as unknown as Record<string, unknown>
     const row: Record<string, unknown> = {}
-    for (const key of Object.keys(IssueProjection.shape)) {
+    for (const key of Object.keys(SlimIssueProjection.shape)) {
       const value = source[key]
       if (value != null) row[key] = value
     }
     const repoId = issue.repoId ?? asRepoId(`fixture:${issue.repoPath}`)
     row.repoId = repoId
-    row.description = { value: issue.description ?? '' }
     row.intentOrigin = issue.intentOrigin
     row.isDraftVessel = issue.isDraftVessel
     put(records, 'issueProjection', issue.id, row)
+    // The brief and description are records of their own (POD-6921).
+    const brief = issueBriefText((issue as { brief?: unknown }).brief)
+    if (brief) put(records, 'issueBrief', issue.id, { id: issue.id, text: brief })
+    const description = issueDescriptionText(issue.description)
+    if (description) put(records, 'issueDescription', issue.id, { id: issue.id, text: description })
+    for (const [collection, kind] of [['todos', 'issuePanelTodo'], ['artifacts', 'issuePanelArtifact'], ['deferred', 'issuePanelDeferred']] as const)
+      for (const [position, item] of (issue.panel?.[collection] ?? []).entries()) {
+        const id = `00000000-0000-4000-8000-${String(++panelId).padStart(12, '0')}`
+        put(records, kind, id, { ...item, id, issueId: issue.id, position })
+      }
+    if (issue.activityNotes) put(records, 'issuePanelState', issue.id, { id: issue.id, text: issue.activityNotes, updatedAt: issue.notesUpdatedAt ?? issue.updatedAt })
     put(records, 'issueUserState', issueUserStateRowId(userId, issue.id as never), {
       userId,
       entityId: issue.id,
       readAt: issue.readAt ?? null,
       tuckedAt: issue.tuckedAt ?? null,
-      pinned: issue.pinned ?? false,
     })
+    // My pin is a pin record (POD-6692), never a field of the issue state.
+    if (issue.pinned) {
+      put(records, 'pin', pinRowId(userId, 'issue', issue.id), {
+        userId,
+        kind: 'issue',
+        entityId: issue.id,
+        pinnedAt: issue.createdAt,
+      })
+    }
     if (issue.gitState) put(records, 'issueGitState', issue.id, { ...issue.gitState, id: issue.id })
-    const prefix =
-      issue.prefix ?? issue.displayRef?.match(/^([A-Z][A-Z0-9]*)-/)?.[1]
+    const prefix = issue.prefix ?? issue.displayRef?.match(/^([A-Z][A-Z0-9]*)-/)?.[1]
     repos.set(repoId, {
       id: repoId,
       repoPath: issue.repoPath,
@@ -102,6 +127,22 @@ export function buildDemoEntityRecords(userId: UserId = DEMO_PRINCIPAL): EntityR
     }
   }
   for (const repo of repos.values()) put(records, 'repo', repo.id, repo)
+  // The demo's global superagent thread (POD-6675: a synced record). The screen
+  // reads its session transcript, so it names a session DEMO_TRANSCRIPTS has
+  // rows for (POD-344).
+  const demoThread: SuperagentThreadWire = {
+    threadId: asThreadId('global'),
+    ownerUserId: userId,
+    kind: 'global',
+    podiumSessionId: asSessionId(DEMO_SUPER_SESSION),
+    archived: false,
+    resumable: false,
+    turnRunning: false,
+    lastTurnFailure: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }
+  put(records, 'superagentThread', superagentThreadRowId(userId, 'global'), demoThread)
   return [...records.values()]
 }
 
@@ -138,6 +179,13 @@ const DEMO_SLICE_KINDS = [
   'issueProjections',
   'issueUserStates',
   'issueGitStates',
+  'issueBriefs',
+  'issueDescriptions',
+  'issuePanelTodos',
+  'issuePanelArtifacts',
+  'issuePanelDeferreds',
+  'issuePanelStates',
+
   'issueDeps',
   'repos',
   'issueEvents',
@@ -148,7 +196,23 @@ const DEMO_SLICE_KINDS = [
   'conversations',
   'automations',
   'automationRuns',
+  'effects',
   'userLayouts',
+  'pins',
+  'tabOrders',
+  'userPreferences',
+  'userReadPositions',
+  'superagentThreads',
+  'agentProfiles',
+  'workflows',
+  'workflowRevisions',
+  'workflowBindings',
+  'workflowRuns',
+  'subscriptions',
+  'instancePreferences',
+  'machineAccess',
+  'checkouts',
+  'inboxNotices',
 ] as const
 
 /**

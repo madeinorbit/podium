@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# A fleet of stand-in VPSs for testing the Podium installer end to end [POD-3274].
+#
+# Each box is Ubuntu 24.04 with systemd as PID 1 and sshd, on one user-defined bridge so the
+# boxes can reach each other by name. You ssh in and paste the same command a real operator
+# would paste. Nothing here knows anything about Podium: the whole point is that the target
+# is stock and the installer has to cope.
+#
+#   ./lab build              build the base image
+#   ./lab up [N]             start N boxes (default 5) — vps1..vpsN
+#   ./lab status             what is running, and how to reach it
+#   ./lab ssh N [user]       shell into a box (default user: mgw; use `root` for the root path)
+#   ./lab exec N cmd...      run one command in a box, as root
+#   ./lab bare N             strip curl and wget, to test the installer's prerequisite path
+#   ./lab snapshot N [tag]   save a box's current state as an image
+#   ./lab reset N [tag]      recreate a box, from a snapshot tag if given, else from base
+#   ./lab down               remove every box (the image and snapshots survive)
+#   ./lab nuke               remove the boxes, the network, the base image and the snapshots
+set -euo pipefail
+
+IMAGE="podium-vps-lab:base"
+NET="podium-lab"
+PREFIX="vps"
+PORT_BASE=2200
+LAB_USER="${LAB_USER:-mgw}"
+LAB_PASSWORD="${LAB_PASSWORD:-podium}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+KNOWN_HOSTS="$HERE/.known_hosts"
+
+die() { echo "lab: $*" >&2; exit 1; }
+name_of() { echo "$PREFIX$1"; }
+port_of() { echo "$((PORT_BASE + $1))"; }
+running() { docker ps --format '{{.Names}}' | grep -qx "$1"; }
+
+ensure_network() {
+  docker network inspect "$NET" >/dev/null 2>&1 || docker network create "$NET" >/dev/null
+}
+
+cmd_build() {
+  docker build -t "$IMAGE" \
+    --build-arg "LAB_USER=$LAB_USER" --build-arg "LAB_PASSWORD=$LAB_PASSWORD" "$HERE"
+}
+
+start_box() {
+  local n="$1" image="${2:-$IMAGE}" name port
+  name="$(name_of "$n")"; port="$(port_of "$n")"
+  docker rm -f "$name" >/dev/null 2>&1 || true
+  # --privileged and the cgroup mount are what let systemd actually run as PID 1.
+  # NET_ADMIN and /dev/net/tun are what let a REAL tailscaled come up, rather than forcing
+  # userspace networking that a genuine VPS would never use.
+  docker run -d --name "$name" --hostname "$name" \
+    --network "$NET" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
+    --privileged --cgroupns=host \
+    --tmpfs /run --tmpfs /run/lock \
+    -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+    --cap-add NET_ADMIN --cap-add SYS_MODULE \
+    --device /dev/net/tun \
+    -p "127.0.0.1:$port:22" \
+    "$image" >/dev/null
+  # Snapshots may predate the image policy; install it on every fresh/reset box.
+  docker cp "$HERE/provision/update-feed-policy.sh" "$name:/tmp/podium-lab-feed-policy.sh"
+  docker exec "$name" sh /tmp/podium-lab-feed-policy.sh
+  install_key "$name"
+  echo "  $name  ssh -p $port $LAB_USER@127.0.0.1   (password: $LAB_PASSWORD)"
+}
+
+# Push the operator's own public key in, so `lab ssh` and any scripted run are not
+# password prompts. Falls back silently to password auth when there is no key.
+install_key() {
+  local name="$1" key
+  key="$(cat "$HOME/.ssh/id_ed25519.pub" 2>/dev/null || cat "$HOME/.ssh/id_rsa.pub" 2>/dev/null || true)"
+  [[ -n "$key" ]] || return 0
+  docker exec -i "$name" bash -c "
+    set -e
+    for u in root '$LAB_USER'; do
+      h=\$(getent passwd "\$u" | cut -d: -f6)
+      mkdir -p "\$h/.ssh" && echo '$key' >> "\$h/.ssh/authorized_keys"
+      chmod 700 "\$h/.ssh"; chmod 600 "\$h/.ssh/authorized_keys"; chown -R "\$u" "\$h/.ssh"
+    done" >/dev/null 2>&1 || true
+}
+
+cmd_up() {
+  local count="${1:-5}" n
+  docker image inspect "$IMAGE" >/dev/null 2>&1 || cmd_build
+  ensure_network
+  echo "Starting $count boxes on the '$NET' network:"
+  for n in $(seq 1 "$count"); do start_box "$n"; done
+  echo
+  echo "They reach each other by name (vps1..vps$count). Wait a second or two for sshd."
+  echo "Vendor installers are already on each box, stock, in /root/lab/."
+}
+
+cmd_status() {
+  docker ps -a --filter "name=^/$PREFIX" \
+    --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.Image}}'
+}
+
+ssh_opts=(-o StrictHostKeyChecking=no -o "UserKnownHostsFile=$KNOWN_HOSTS" -o LogLevel=ERROR)
+
+cmd_ssh() {
+  local n="${1:-}" user="${2:-$LAB_USER}"
+  [[ -n "$n" ]] || die "ssh needs a box number"
+  running "$(name_of "$n")" || die "$(name_of "$n") is not running"
+  echo "lab: password is '$LAB_PASSWORD'" >&2
+  exec ssh "${ssh_opts[@]}" -p "$(port_of "$n")" "$user@127.0.0.1"
+}
+
+cmd_exec() {
+  local n="${1:-}"; shift || true
+  [[ -n "$n" && $# -gt 0 ]] || die "exec needs a box number and a command"
+  docker exec -i "$(name_of "$n")" "$@"
+}
+
+cmd_bare() {
+  local n="${1:-}"
+  [[ -n "$n" ]] || die "bare needs a box number"
+  # The installer claims it can bootstrap a distro that has no downloader at all. This is how
+  # that claim gets tested rather than assumed.
+  docker exec "$(name_of "$n")" bash -c \
+    'DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge curl wget >/dev/null 2>&1 || true'
+  echo "$(name_of "$n") now has no curl and no wget."
+}
+
+cmd_snapshot() {
+  local n="${1:-}" tag="${2:-snap}"
+  [[ -n "$n" ]] || die "snapshot needs a box number"
+  docker commit "$(name_of "$n")" "podium-vps-lab:$tag" >/dev/null
+  echo "Saved $(name_of "$n") as podium-vps-lab:$tag — restore it with: ./lab reset $n $tag"
+}
+
+cmd_reset() {
+  local n="${1:-}" tag="${2:-}"
+  [[ -n "$n" ]] || die "reset needs a box number"
+  ensure_network
+  if [[ -n "$tag" ]]; then start_box "$n" "podium-vps-lab:$tag"; else start_box "$n"; fi
+}
+
+cmd_down() {
+  local names
+  names="$(docker ps -aq --filter "name=^/$PREFIX" || true)"
+  [[ -n "$names" ]] && docker rm -f $names >/dev/null
+  rm -f "$KNOWN_HOSTS"
+  echo "Boxes removed. The base image and any snapshots are still here."
+}
+
+cmd_nuke() {
+  cmd_down
+  docker network rm "$NET" >/dev/null 2>&1 || true
+  docker images --format '{{.Repository}}:{{.Tag}}' \
+    | grep '^podium-vps-lab:' | xargs -r docker rmi -f >/dev/null 2>&1 || true
+  echo "Network, base image and snapshots removed."
+}
+
+case "${1:-}" in
+  build) shift; cmd_build "$@" ;;
+  up) shift; cmd_up "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  ssh) shift; cmd_ssh "$@" ;;
+  exec) shift; cmd_exec "$@" ;;
+  bare) shift; cmd_bare "$@" ;;
+  snapshot) shift; cmd_snapshot "$@" ;;
+  reset) shift; cmd_reset "$@" ;;
+  down) shift; cmd_down "$@" ;;
+  nuke) shift; cmd_nuke "$@" ;;
+  *) sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \?//' ;;
+esac

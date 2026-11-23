@@ -422,7 +422,7 @@ rebuild (#241) relocated most of them. `packages/core` is now
 | ambient injection (#214) | `apps/daemon/src/control/exec.ts:17` (`runRepoOp` — still passes no env) |
 | Account / RoleBackend / resolveRole | `packages/runtime/src/settings.ts:122` / `:143` / `:394` |
 | `AccountProvider` (to split) | `packages/runtime/src/settings.ts:116` |
-| native detection | `apps/server/src/accounts.ts:18` (`AccountView`), `:94` (`accountViews`) |
+| native detection | `apps/server/src/modules/accounts/native-views.ts` (`nativeAccountViews`) |
 | argv render | `packages/harness/src/manifests/*.ts` |
 | settings-changed bus (forward to daemons) | `apps/server/src/modules/settings/service.ts` |
 | machine routing / push | `apps/server/src/modules/machines/service.ts` (`toMachine`) |

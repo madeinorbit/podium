@@ -1,7 +1,6 @@
-import { observer } from '@podium/client-graph/react'
-import { FileTreeView } from './file-tree-view'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useCommands, useRequestClient, useUi } from '@podium/client-core/react'
 import { basename } from '@podium/client-core/values'
+import { observer } from '@podium/client-graph/react'
 import type { MachineId } from '@podium/model'
 import {
   joinMachinePath,
@@ -17,7 +16,9 @@ import { useClickIntent } from '@/app/click-intent'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useCheckoutSignal } from '@/lib/use-checkout-signal'
 import { FileTypeIcon } from './file-icon'
+import { FileTreeView } from './file-tree-view'
 
 type Entry = { name: string; isDir: boolean }
 
@@ -169,10 +170,13 @@ export const WorktreeFileTree = observer(function WorktreeFileTree({
   root: string
   machineId?: MachineId
 }): JSX.Element {
-  const { listDir, openFileInWorktree, trpc } = useStoreHandle<Trpc>().access
+  const refreshSignal = useCheckoutSignal(machineId, root)
+  const { list: listDir } = useCommands<Trpc>().files,
+    { openFileInWorktree } = useUi(),
+    trpc = useRequestClient<Trpc>()
   const view = useMemo(
-    () => new FileTreeView(root, machineId, { listDir, trpc }),
-    [root, machineId, listDir, trpc],
+    () => new FileTreeView(root, machineId, { listDir, trpc, refreshSignal }),
+    [root, machineId, listDir, trpc, refreshSignal],
   )
   const { children, expanded, loadingDirs, error } = view
   const [query, setQuery] = useState('')
@@ -185,13 +189,13 @@ export const WorktreeFileTree = observer(function WorktreeFileTree({
   const searchInputId = useId()
 
   useEffect(() => {
-    void view.load(root)
+    view.open()
     return () => view.close()
-  }, [view, root])
+  }, [view])
   useEffect(() => {
     const trimmed = query.trim()
     if (!trimmed) {
-      view.search.close()
+      view.clearSearch()
       setActiveSearchIndex(0)
       return
     }
@@ -204,6 +208,7 @@ export const WorktreeFileTree = observer(function WorktreeFileTree({
       view.search.cancel()
     }
   }, [view, query])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a replaced result resets keyboard selection.
   useEffect(() => {
     setActiveSearchIndex(0)
   }, [view.search.answer])

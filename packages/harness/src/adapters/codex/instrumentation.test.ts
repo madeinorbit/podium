@@ -10,19 +10,25 @@ import { promisify } from 'node:util'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import { addSink, type LogRecord } from '@podium/logger'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { testAccount } from '../../driver/testing/harness-context.js'
 import {
   type CodexVersionProbe,
   checkPodiumHookTrust,
+  codexEngineHookTrustArgs,
+  codexHookTrustedHash,
   codexInstrumentation,
-  detectCodexVersion,
+  codexLaunchHookTrustOverride,
   ensurePodiumCodexHooks,
-  parseCodexHookTrustState,
   PODIUM_CODEX_HOOK_COMMAND,
   PODIUM_CODEX_HOOK_COMMAND_WINDOWS,
+  parseCodexHookTrustState,
   parseCodexVersion,
   podiumHookPositions,
   supportsCodexHooks,
 } from './instrumentation.js'
+
+/** No account folders exist: the payloads below name everything they need. */
+const NO_ACCOUNT = testAccount('codex', '/nonexistent-podium-home')
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -40,7 +46,7 @@ const LEGACY_PODIUM_CODEX_HOOK_COMMAND = `bash -c 'u="$PODIUM_CODEX_HOOK_URL"; [
 
 const execFileAsync = promisify(execFile)
 const knownVersion: CodexVersionProbe = async () => 'codex-cli 0.146.0'
-const ensureHooks = (opts: Parameters<typeof ensurePodiumCodexHooks>[0] = {}) =>
+const ensureHooks = (opts: Parameters<typeof ensurePodiumCodexHooks>[0]) =>
   ensurePodiumCodexHooks({ ...opts, versionProbe: opts.versionProbe ?? knownVersion })
 
 const home = async (): Promise<string> => {
@@ -74,7 +80,9 @@ describe('ensurePodiumCodexHooks', () => {
     ]) {
       expect(doc.hooks[event]?.[0]?.hooks?.[0]?.command).toBe(PODIUM_CODEX_HOOK_COMMAND)
       // Windows runs commandWindows (cmd.exe), never the bash command.
-      expect(doc.hooks[event]?.[0]?.hooks?.[0]?.commandWindows).toBe(PODIUM_CODEX_HOOK_COMMAND_WINDOWS)
+      expect(doc.hooks[event]?.[0]?.hooks?.[0]?.commandWindows).toBe(
+        PODIUM_CODEX_HOOK_COMMAND_WINDOWS,
+      )
       expect(doc.hooks[event]?.[0]?.hooks?.[0]?.timeout).toBe(5)
     }
     expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
@@ -249,7 +257,10 @@ describe('codex hook trust detection (POD-4076)', () => {
     Stop: 'stop',
   }
 
-  function trustConfig(hooksJsonPath: string, opts?: { enabled?: boolean; omitHash?: boolean }): string {
+  function trustConfig(
+    hooksJsonPath: string,
+    opts?: { enabled?: boolean; omitHash?: boolean },
+  ): string {
     const lines = ['model = "gpt-5.5"', '']
     for (const event of events) {
       lines.push(`[hooks.state."${hooksJsonPath}:${snake[event]}:0:0"]`)
@@ -355,6 +366,192 @@ describe('codex hook trust detection (POD-4076)', () => {
     expect(podiumHookPositions(doc)).toEqual([
       { event: 'Stop', snake: 'stop', group: 1, handler: 0 },
     ])
+  })
+})
+
+/**
+ * Per-launch trust for Podium's own handlers (POD-6999). The fixtures are what
+ * real Codex 0.169.0 wrote: a hooks.json Podium installed, and the config.toml
+ * Codex saved after "Trust all and continue". Only the home folder in the keys
+ * was renamed to /home/user; the hashes do not depend on it (measured).
+ */
+describe('codex per-launch hook trust (POD-6999)', () => {
+  const FIXTURES = join(import.meta.dirname, 'fixtures', 'hook-trust-0.169.0')
+  const HOOKS_JSON = '/home/user/.codex/hooks.json'
+
+  async function fixture(name: 'trust' | 'matcher') {
+    const doc = JSON.parse(await readFile(join(FIXTURES, `${name}.hooks.json`), 'utf8'))
+    const written = parseCodexHookTrustState(
+      await readFile(join(FIXTURES, `${name}.config.toml`), 'utf8'),
+    )
+    return { doc, written }
+  }
+
+  function entriesOf(override: string | undefined): Map<string, string> {
+    const entries = new Map<string, string>()
+    for (const match of (override ?? '').matchAll(/"([^"]+)"=\{trusted_hash="([^"]+)"\}/g)) {
+      entries.set(match[1] as string, match[2] as string)
+    }
+    return entries
+  }
+
+  it("reproduces the hashes Codex 0.169.0 wrote for Podium's six handlers, byte for byte", async () => {
+    const { doc, written } = await fixture('trust')
+    const override = codexLaunchHookTrustOverride({ hooksJsonPath: HOOKS_JSON, doc })
+    expect(override?.startsWith('hooks.state={')).toBe(true)
+    const ours = entriesOf(override)
+    expect(ours.size).toBe(6)
+    expect(written.size).toBe(6)
+    for (const [key, entry] of written) expect(ours.get(key)).toBe(entry.trustedHash)
+  })
+
+  it('keeps a group matcher in the hash and gives a foreign handler beside Podium no entry', async () => {
+    // PreToolUse holds one group, matcher "Bash": a foreign handler at 0:0 and
+    // Podium's at 0:1. Codex wrote trust for both; Podium names only its own.
+    const { doc, written } = await fixture('matcher')
+    const ours = entriesOf(codexLaunchHookTrustOverride({ hooksJsonPath: HOOKS_JSON, doc }))
+    const foreign = `${HOOKS_JSON}:pre_tool_use:0:0`
+    expect(written.has(foreign)).toBe(true)
+    expect(ours.has(foreign)).toBe(false)
+    expect(ours.get(`${HOOKS_JSON}:pre_tool_use:0:1`)).toBe(
+      written.get(`${HOOKS_JSON}:pre_tool_use:0:1`)?.trustedHash,
+    )
+    expect(ours.size).toBe(written.size - 1)
+    for (const [key, hash] of ours) expect(written.get(key)?.trustedHash).toBe(hash)
+  })
+
+  it('a changed handler hashes differently, so Codex asks again rather than trusting it', () => {
+    const handler = { type: 'command', command: PODIUM_CODEX_HOOK_COMMAND, timeout: 5 }
+    const ours = codexHookTrustedHash({ snake: 'stop', matcher: undefined, handler })
+    expect(ours).toBe('sha256:bde712998083bff83f7e1eeb73800c4c83e5fe5a561c25ecf8727696f29dd515')
+    expect(
+      codexHookTrustedHash({
+        snake: 'stop',
+        matcher: undefined,
+        handler: { ...handler, command: `${PODIUM_CODEX_HOOK_COMMAND} ` },
+      }),
+    ).not.toBe(ours)
+  })
+
+  it('names no handler when the doc holds none of Podium', () => {
+    const doc = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'mine', timeout: 5 }] }] } }
+    expect(codexLaunchHookTrustOverride({ hooksJsonPath: HOOKS_JSON, doc })).toBeUndefined()
+  })
+
+  it('ensurePodiumCodexHooks: launch trust counts as trust and writes nothing', async () => {
+    const dir = await home()
+    const onDegraded = vi.fn()
+    const res = await ensureHooks({ homeDir: dir, launchTrust: true, onDegraded })
+    expect(res).toMatchObject({ installed: true, trusted: true, untrustedEvents: [] })
+    expect(res.degraded).toBeUndefined()
+    expect(onDegraded).not.toHaveBeenCalled()
+    expect(entriesOf(res.launchTrustOverride).size).toBe(6)
+    expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
+  })
+
+  it('ensurePodiumCodexHooks: without launch trust the untrusted fallback is unchanged', async () => {
+    const dir = await home()
+    const res = await ensureHooks({ homeDir: dir })
+    expect(res.trusted).toBe(false)
+    expect(res.launchTrustOverride).toBeUndefined()
+  })
+
+  it("trusts only a handler that is exactly Podium's current one, never an older or look-alike", async () => {
+    // Both carry the marker Podium finds its handlers by; neither is the
+    // command Podium writes today, so neither gets an entry.
+    const { doc } = await fixture('trust')
+    const stale = structuredClone(doc)
+    stale.hooks.Stop[0].hooks[0].command = `${PODIUM_CODEX_HOOK_COMMAND} # older`
+    stale.hooks.SessionStart[0].hooks[0].timeout = 30
+    const ours = entriesOf(codexLaunchHookTrustOverride({ hooksJsonPath: HOOKS_JSON, doc: stale }))
+    expect(ours.size).toBe(4)
+    expect(ours.has(`${HOOKS_JSON}:stop:0:0`)).toBe(false)
+    expect(ours.has(`${HOOKS_JSON}:session_start:0:0`)).toBe(false)
+  })
+
+  describe('the engine (chat view, POD-7028)', () => {
+    async function installedHome(): Promise<{ dir: string; hooksJson: string; before: string }> {
+      const dir = await home()
+      await ensureHooks({ homeDir: dir })
+      const hooksJson = join(dir, '.codex', 'hooks.json')
+      return { dir, hooksJson, before: await readFile(hooksJson, 'utf8') }
+    }
+
+    it("passes the terminal's override for the hooks.json the home holds, and writes nothing", async () => {
+      const { dir, hooksJson, before } = await installedHome()
+      const terminal = (await ensureHooks({ homeDir: dir, launchTrust: true })).launchTrustOverride
+      const args = await codexEngineHookTrustArgs({
+        hooksRoot: join(dir, '.codex'),
+        version: '0.169.0',
+        platform: 'linux',
+      })
+      expect(args).toEqual(['-c', terminal])
+      expect(entriesOf(args[1]).size).toBe(6)
+      expect(await readFile(hooksJson, 'utf8')).toBe(before)
+      expect(existsSync(join(dir, '.codex', 'config.toml'))).toBe(false)
+    })
+
+    it('reproduces the hashes Codex 0.169.0 wrote, from the fixture file on disk', async () => {
+      const dir = await home()
+      const { written } = await fixture('trust')
+      await copyFile(join(FIXTURES, 'trust.hooks.json'), join(dir, '.codex', 'hooks.json'))
+      const args = await codexEngineHookTrustArgs({
+        hooksRoot: join(dir, '.codex'),
+        version: '0.147.0',
+        platform: 'linux',
+      })
+      const ours = entriesOf(args[1])
+      expect(ours.size).toBe(6)
+      for (const [key, entry] of written) {
+        expect(ours.get(key.replace('/home/user/.codex', join(dir, '.codex')))).toBe(
+          entry.trustedHash,
+        )
+      }
+    })
+
+    it('passes nothing below the minimum, for an unknown version, or on Windows', async () => {
+      const { dir } = await installedHome()
+      const hooksRoot = join(dir, '.codex')
+      for (const [version, platform] of [
+        ['0.146.9', 'linux'],
+        ['', 'linux'],
+        ['codex-cli dev', 'linux'],
+        ['0.169.0', 'win32'],
+      ] as const) {
+        expect(await codexEngineHookTrustArgs({ hooksRoot, version, platform })).toEqual([])
+      }
+    })
+
+    it('passes nothing when the home holds no hooks.json, an unreadable one, or none of Podium', async () => {
+      const dir = await home()
+      const hooksRoot = join(dir, '.codex')
+      const args = () =>
+        codexEngineHookTrustArgs({ hooksRoot, version: '0.169.0', platform: 'linux' })
+      expect(await args()).toEqual([])
+      await writeFile(join(hooksRoot, 'hooks.json'), '{not json')
+      expect(await args()).toEqual([])
+      await writeFile(join(hooksRoot, 'hooks.json'), '[]')
+      expect(await args()).toEqual([])
+      await writeFile(
+        join(hooksRoot, 'hooks.json'),
+        JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'mine' }] }] } }),
+      )
+      expect(await args()).toEqual([])
+      expect(existsSync(join(hooksRoot, 'config.toml'))).toBe(false)
+    })
+  })
+
+  it('ensurePodiumCodexHooks: a handler the user turned off stays reported', async () => {
+    const dir = await home()
+    await ensureHooks({ homeDir: dir })
+    const hooksJsonPath = join(dir, '.codex', 'hooks.json')
+    await writeFile(
+      join(dir, '.codex', 'config.toml'),
+      `[hooks.state."${hooksJsonPath}:stop:0:0"]\nenabled = false\n`,
+    )
+    const res = await ensureHooks({ homeDir: dir, launchTrust: true })
+    expect(res.trusted).toBe(false)
+    expect(res.untrustedEvents).toEqual(['Stop'])
   })
 })
 
@@ -474,10 +671,13 @@ describe('PODIUM_CODEX_HOOK_COMMAND', () => {
       const primeBody = JSON.stringify({
         hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'PRIME' },
       })
-      const answerPrime = (req: { on: (event: string, fn: (chunk: Buffer) => void) => void }, res: {
-        writeHead: (code: number, headers: Record<string, string>) => void
-        end: (body: string) => void
-      }): void => {
+      const answerPrime = (
+        req: { on: (event: string, fn: (chunk: Buffer) => void) => void },
+        res: {
+          writeHead: (code: number, headers: Record<string, string>) => void
+          end: (body: string) => void
+        },
+      ): void => {
         const chunks: Buffer[] = []
         req.on('data', (chunk: Buffer) => chunks.push(chunk))
         req.on('end', () => {
@@ -549,7 +749,10 @@ describe('codex hooks real-binary smoke', () => {
   it.skipIf(!enabled)(
     'recognizes the installed real Codex binary before editing hook files',
     async () => {
-      const version = parseCodexVersion(await detectCodexVersion())
+      const { stdout } = await execFileAsync('codex', ['--version'], {
+        timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+      })
+      const version = parseCodexVersion(stdout)
       if (!version) throw new Error('installed Codex binary did not report a parseable version')
       expect(supportsCodexHooks(version)).toBe(true)
     },
@@ -568,7 +771,7 @@ describe('codex hooks real-binary smoke', () => {
       const dir = await home()
       await copyFile(auth, join(dir, '.codex', 'auth.json'))
       await writeFile(join(dir, '.codex', 'config.toml'), '[features]\nhooks = true\n')
-      await ensurePodiumCodexHooks({ homeDir: dir })
+      await ensureHooks({ homeDir: dir })
 
       // SALVAGED FROM POD-4070 (commit 71dd868f6): the two-arm proof. The
       // isolated CODEX_HOME holds only Podium's hook and no persisted trust,
@@ -671,17 +874,20 @@ describe('codexInstrumentation.payloadCodec', () => {
   it('decodes native hooks with the hook channel', async () => {
     const codec = codexInstrumentation.payloadCodec
     await expect(
-      codec.decode({ hook_event_name: 'SessionStart', session_id: 'cx1' }),
+      codec.decode({ hook_event_name: 'SessionStart', session_id: 'cx1' }, NO_ACCOUNT),
     ).resolves.toEqual([{ kind: 'session_started', source: 'hook', confidence: 1 }])
     await expect(
-      codec.decode({ hook_event_name: 'UserPromptSubmit', session_id: 'cx1' }),
+      codec.decode({ hook_event_name: 'UserPromptSubmit', session_id: 'cx1' }, NO_ACCOUNT),
     ).resolves.toEqual([{ kind: 'prompt_submitted', source: 'hook', confidence: 1 }])
     await expect(
-      codec.decode({
-        hook_event_name: 'Stop',
-        session_id: 'cx1',
-        last_assistant_message: 'All done.',
-      }),
+      codec.decode(
+        {
+          hook_event_name: 'Stop',
+          session_id: 'cx1',
+          last_assistant_message: 'All done.',
+        },
+        NO_ACCOUNT,
+      ),
     ).resolves.toEqual([
       {
         kind: 'turn_completed',
@@ -690,7 +896,7 @@ describe('codexInstrumentation.payloadCodec', () => {
         confidence: 1,
       },
     ])
-    await expect(codec.decode(null)).resolves.toEqual([])
+    await expect(codec.decode(null, NO_ACCOUNT)).resolves.toEqual([])
   })
 
   it('declares the loopback transport', () => {

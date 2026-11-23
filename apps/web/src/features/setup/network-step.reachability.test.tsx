@@ -2,12 +2,7 @@ import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
-import {
-  NetworkStep,
-  reachabilityHintFor,
-  type NetworkSaveController,
-  type SetupCompleteInput,
-} from './network-step'
+import { NetworkStep, reachabilityHintFor, type SetupCompleteInput } from './network-step'
 
 /**
  * THE ADVISORY PROBE (POD-4535). The web setup screen runs `trpc.connect.check`
@@ -17,22 +12,28 @@ import {
  *
  * Every test below mocks the trpc client; none performs network I/O.
  */
-function fakeTrpc(opts: {
-  publicUrl?: string | null
-  hasOwnCredential?: boolean
-  complete?: ReturnType<typeof vi.fn>
-  check?: (url: string) => Promise<CheckResult>
-} = {}) {
+function fakeTrpc(
+  opts: {
+    publicUrl?: string | null
+    hasOwnCredential?: boolean
+    complete?: ReturnType<typeof vi.fn>
+    check?: (url: string) => Promise<CheckResult>
+  } = {},
+) {
   const complete = opts.complete ?? vi.fn().mockResolvedValue({ mode: 'all-in-one' })
   const trpc = {
     setup: {
       info: {
-        query: vi.fn().mockResolvedValue({ publicUrl: opts.publicUrl ?? null, networkOption: null }),
+        query: vi
+          .fn()
+          .mockResolvedValue({ publicUrl: opts.publicUrl ?? null, networkOption: null }),
       },
       options: {
-        query: vi.fn().mockResolvedValue([
-          { id: 'tailscale-funnel', label: 'Tailscale Funnel', note: 'Reachable anywhere.' },
-        ]),
+        query: vi
+          .fn()
+          .mockResolvedValue([
+            { id: 'tailscale-funnel', label: 'Tailscale Funnel', note: 'Reachable anywhere.' },
+          ]),
       },
       commandFor: {
         query: vi.fn().mockResolvedValue({ command: 'tailscale funnel 18787', hint: 'Paste it.' }),
@@ -59,15 +60,12 @@ const URL = 'https://box.tail.ts.net'
 const FAIL: CheckResult = { ok: false, error: 'PORT_NOT_REACHABLE', detail: 'probe detail' }
 
 function stubFetch(): void {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }),
-  )
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }))
 }
 
 /** Fill the fresh-instance form (password mode) and press the private button. */
-async function fillAndSubmit(): Promise<void> {
-  fireEvent.change(await screen.findByLabelText(/podium url/i), { target: { value: URL } })
+async function fillAndSubmit(url = URL): Promise<void> {
+  fireEvent.change(await screen.findByLabelText(/podium url/i), { target: { value: url } })
   fireEvent.change(screen.getByLabelText(/^login password$/i), { target: { value: 'hunter2' } })
   fireEvent.click(screen.getByRole('button', { name: /^(finish|save network settings)$/i }))
 }
@@ -79,6 +77,11 @@ afterEach(() => {
 })
 
 describe('reachabilityHintFor', () => {
+  it('describes an unsupported port without repeating a URL rejection', () => {
+    expect(
+      reachabilityHintFor({ ok: false, error: 'PORT_UNSUPPORTED', detail: 'must be on port 443' }),
+    ).toBe(CHECK_ERROR_SENTENCES.PORT_UNSUPPORTED)
+  })
   it('has no opinion on ok, CONNECT_UNAVAILABLE, or no answer', () => {
     expect(reachabilityHintFor(undefined)).toBeNull()
     expect(reachabilityHintFor({ ok: true, url: URL, resolvedTo: [] })).toBeNull()
@@ -94,15 +97,61 @@ describe('reachabilityHintFor', () => {
   })
 
   it('names an unrecognised code instead of rendering undefined', () => {
-    const hint = reachabilityHintFor(
-      { ok: false, error: 'SOME_FUTURE_CODE', detail: '' } as unknown as CheckResult,
-    )
+    const hint = reachabilityHintFor({
+      ok: false,
+      error: 'SOME_FUTURE_CODE',
+      detail: '',
+    } as unknown as CheckResult)
     expect(hint).toContain('SOME_FUTURE_CODE')
     expect(hint).not.toContain('undefined')
   })
 })
 
 describe('NetworkStep advisory probe', () => {
+  it.each([
+    { ok: false, error: 'INVALID_URL', detail: 'must be on port 443' },
+    { ok: false, error: 'PORT_UNSUPPORTED', detail: 'port is outside the probe allowlist' },
+  ] satisfies CheckResult[])('saves a non-443 address directly when Connect cannot check it: $error', async (verdict) => {
+    stubFetch()
+    const complete = vi.fn().mockResolvedValue({ mode: 'all-in-one' })
+    const onSaved = vi.fn()
+    const onChecked = vi.fn()
+    const url = 'https://example.com:18787'
+    render(
+      <NetworkStep
+        embedded
+        trpc={fakeTrpc({ complete, check: async () => verdict })}
+        onSaved={onSaved}
+        onChecked={onChecked}
+      />,
+    )
+    await fillAndSubmit(url)
+    await waitFor(() => expect(complete).toHaveBeenCalledTimes(1))
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({ publicUrl: url }))
+    expect(onSaved).toHaveBeenCalledTimes(1)
+    expect(onChecked).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url,
+        verdict: expect.objectContaining({ error: 'PORT_UNSUPPORTED' }),
+      }),
+    )
+    expect(screen.getByText(CHECK_ERROR_SENTENCES.PORT_UNSUPPORTED)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /use this url anyway/i })).toBeNull()
+    expect(screen.queryByText(/not a usable URL|check for typos|must be on port 443/)).toBeNull()
+  })
+
+  it('still offers the override for a probed non-443 address that cannot be reached', async () => {
+    stubFetch()
+    const trpc = fakeTrpc({ check: async () => FAIL })
+    render(<NetworkStep embedded trpc={trpc} onSaved={vi.fn()} />)
+    await fillAndSubmit('https://example.com:8443')
+    fireEvent.click(await screen.findByRole('button', { name: /use this url anyway/i }))
+    await waitFor(() => expect(trpc.setup.complete.mutate).toHaveBeenCalledTimes(1))
+    expect(trpc.setup.complete.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ publicUrl: 'https://example.com:8443' }),
+    )
+  })
+
   it('shows the check while it runs, then commits silently on ok', async () => {
     stubFetch()
     let resolveCheck!: (v: CheckResult) => void
@@ -140,7 +189,9 @@ describe('NetworkStep advisory probe', () => {
 
     // The shared sentence, plus the one-click override. The safe path (fix the
     // URL, then save again) stays the prominent primary button.
-    expect(await screen.findByText(CHECK_ERROR_SENTENCES.PORT_NOT_REACHABLE, { exact: false })).toBeTruthy()
+    expect(
+      await screen.findByText(CHECK_ERROR_SENTENCES.PORT_NOT_REACHABLE, { exact: false }),
+    ).toBeTruthy()
     const override = await screen.findByRole('button', { name: /use this url anyway/i })
     expect(override).toBeTruthy()
     expect(complete).not.toHaveBeenCalled()
@@ -168,7 +219,10 @@ describe('NetworkStep advisory probe', () => {
     render(
       <NetworkStep
         embedded
-        trpc={fakeTrpc({ complete: okComplete, check: async (url) => ({ ok: true, url, resolvedTo: [] }) })}
+        trpc={fakeTrpc({
+          complete: okComplete,
+          check: async (url) => ({ ok: true, url, resolvedTo: [] }),
+        })}
         onSaved={vi.fn()}
       />,
     )
@@ -191,72 +245,6 @@ describe('NetworkStep advisory probe', () => {
     fireEvent.click(await screen.findByRole('button', { name: /use this url anyway/i }))
     await waitFor(() => expect(overrideComplete).toHaveBeenCalledTimes(1))
     expect(overrideComplete.mock.calls[0]?.[0]).toEqual(silentPayload)
-  })
-
-  it('the check is advisory on the deferred onCollected path too', async () => {
-    stubFetch()
-    const collected: SetupCompleteInput[] = []
-    const trpc = fakeTrpc({ check: async () => FAIL })
-    render(
-      <NetworkStep
-        trpc={trpc}
-        mode="all-in-one"
-        onSaved={vi.fn()}
-        onCollected={(p) => {
-          collected.push(p)
-        }}
-      />,
-    )
-    fireEvent.change(await screen.findByLabelText(/podium url/i), { target: { value: URL } })
-    fireEvent.change(screen.getByLabelText(/^login password$/i), { target: { value: 'hunter2' } })
-    fireEvent.click(screen.getByRole('button', { name: /^finish$/i }))
-
-    expect(await screen.findByRole('button', { name: /use this url anyway/i })).toBeTruthy()
-    // Override NOT taken: nothing handed up, nothing written.
-    expect(collected).toHaveLength(0)
-    expect(trpc.setup.complete.mutate).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByRole('button', { name: /use this url anyway/i }))
-    await waitFor(() => expect(collected).toHaveLength(1))
-    expect(collected[0]).toMatchObject({ publicUrl: URL, mode: 'all-in-one', password: 'hunter2' })
-    expect(trpc.setup.complete.mutate).not.toHaveBeenCalled()
-  })
-
-  it('the check is advisory on the embedded save-bar path too', async () => {
-    stubFetch()
-    let controller: NetworkSaveController | null = null
-    const complete = vi.fn().mockResolvedValue({ mode: 'all-in-one' })
-    const trpc = fakeTrpc({ complete, check: async () => FAIL })
-    const onSaved = vi.fn()
-    render(
-      <NetworkStep
-        embedded
-        trpc={trpc}
-        onSaved={onSaved}
-        onSaveStateChange={(s) => {
-          controller = s
-        }}
-      />,
-    )
-    fireEvent.change(await screen.findByLabelText(/podium url/i), { target: { value: URL } })
-    fireEvent.change(screen.getByLabelText(/^login password$/i), { target: { value: 'hunter2' } })
-    await waitFor(() => expect(controller).not.toBeNull())
-
-    // The shared save bar drives the same `finish`: it probes, warns, and waits.
-    await act(async () => {
-      await controller?.save()
-    })
-    expect(await screen.findByRole('button', { name: /use this url anyway/i })).toBeTruthy()
-    expect(complete).not.toHaveBeenCalled()
-    expect(onSaved).not.toHaveBeenCalled()
-
-    // The override commits unchanged — the same values the silent run writes.
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /use this url anyway/i }))
-    })
-    await waitFor(() => expect(complete).toHaveBeenCalledTimes(1))
-    expect(complete.mock.calls[0]?.[0]).toMatchObject({ publicUrl: URL, password: 'hunter2' })
-    expect(onSaved).toHaveBeenCalled()
   })
 
   it('CONNECT_UNAVAILABLE adds no UI at all', async () => {

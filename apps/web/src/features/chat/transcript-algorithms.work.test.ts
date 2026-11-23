@@ -38,9 +38,9 @@ it('records retained transcript work at one and four times history', async () =>
       const log = new TranscriptLog({
         sessionId: asSessionId('work-probe'),
         source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} },
-        cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
         retainHistory: () => true,
       })
+      log.merge(items)
       try { return await count(name, () => log.merge(frame)) }
       finally { log.dispose() }
     }
@@ -49,8 +49,9 @@ it('records retained transcript work at one and four times history', async () =>
     const log = new TranscriptLog({
       sessionId: asSessionId('work-page'),
       source: { read: async () => ({ items: older, head: older[0]!.cursor, hasMore: false }), subscribe: () => () => {} },
-      cache: { read: () => ({ items, savedAt: 1 }), write: () => {} }, retainHistory: () => true,
+      retainHistory: () => true,
     })
+    log.merge(items)
     log.head = items[0]!.cursor
     const coreOlder = await count('TranscriptLog.loadOlder', () => log.loadOlder())
     expect(log.items).toHaveLength(items.length + older.length)
@@ -82,6 +83,9 @@ it('records retained transcript work at one and four times history', async () =>
       webStream, webIncoming, webOlder, webVerbosity, webSearch })
   }
   expect(samples[1]!.webStream.elements).toBeGreaterThan(samples[0]!.webStream.elements * 3)
-  expect(samples[1]!.coreStream.elements).toBeGreaterThan(samples[0]!.coreStream.elements * 3)
+  // A streamed token no longer copies the window for the device store (POD-5801:
+  // the store reads it lazily, when its throttled write lands), so the log's
+  // stream work stays flat as history grows.
+  expect(samples[1]!.coreStream.elements).toBe(samples[0]!.coreStream.elements)
   console.log('[transcript-work-baseline]', JSON.stringify(samples))
 })

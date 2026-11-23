@@ -107,8 +107,7 @@ export class HandoffTransfer {
     const source = { machineId: session.machineId, cwd: session.cwd, status: session.status }
     const wasRunning =
       session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting'
+      session.status === 'starting'
     if (wasRunning) {
       this.ports.onSessionGone(session.sessionId)
       await this.ports.write(session, (draft) => {

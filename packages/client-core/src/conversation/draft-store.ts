@@ -1,6 +1,6 @@
+import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { action, actionBound, observable } from 'mobx'
-import { createLogger } from '@podium/logger'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts/draft-ledger'
 import type { SocketHub } from '../socket-transport/socket-hub'
 
@@ -12,7 +12,7 @@ const log = createLogger('client-core:drafts')
 
 export interface DraftStoreOptions {
   storage: { get(key: string): string | null; set(key: string, value: string | null): void }
-  hub: Pick<SocketHub, 'on' | 'sendDraftEdit' | 'connectionHealth'>
+  hub: Pick<SocketHub, 'on' | 'sendDraftEdit'>
   sendDebounceMs?: number
   persistDebounceMs?: number
   /** Temporary bridge for readers that have not moved to MobX yet. */
@@ -32,7 +32,6 @@ export class DraftStore {
   private disposed = false
 
   constructor(private readonly options: DraftStoreOptions) {
-
     // Hydrate synchronously: the very first composer read sees its durable text.
     try {
       const stored = options.storage.get(DRAFTS_UI_KEY)
@@ -83,17 +82,10 @@ export class DraftStore {
   start(): void {
     if (this.started || this.disposed) return
     this.started = true
-    let health = this.options.hub.connectionHealth().status
     this.stops.push(
       this.options.hub.on('sessionDraft', (id, text, meta) =>
         this.adoptRemote(id, { text, ...(meta?.rev !== undefined ? { rev: meta.rev } : {}) }),
       ),
-    )
-    this.stops.push(
-      this.options.hub.on('connectionHealth', (next) => {
-        if (next.status === 'ok' && health !== 'ok') this.flushDirty()
-        health = next.status
-      }),
     )
     if (this.options.pagehide) this.stops.push(this.options.pagehide.subscribe(() => this.flush()))
     else if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {

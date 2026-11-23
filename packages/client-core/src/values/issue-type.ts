@@ -1,4 +1,10 @@
-import type { IssueId, IssueProjection, IssueGitState, SessionId } from '@podium/model'
+import type {
+  IssueGitState,
+  IssueId,
+  IssuePanel,
+  SessionId,
+  SlimIssueProjection,
+} from '@podium/model'
 export interface IssueView {
   id: string
 
@@ -26,13 +32,14 @@ export interface IssueSessionRollups {
 }
 
 
-export type IssueViewModel = Omit<
-  IssueProjection,
-  'description' | 'worktreePath' | 'branch'
-> &
+/** An issue as the pool shows it. Brief, description, panel items and the
+ * state paragraph join their own synced records (POD-6921). */
+export type IssueViewModel = Omit<SlimIssueProjection, 'worktreePath' | 'branch'> &
   Omit<IssueView, 'id'> &
   Partial<IssueSessionRollups> & {
-    description: string
+    panel?: IssuePanel
+    activityNotes?: string
+    notesUpdatedAt?: string
     worktreePath: string | null
     branch: string | null
     readAt: string | null
@@ -45,3 +52,33 @@ export type IssueViewModel = Omit<
     prefix?: string
     deps: Array<{ id: IssueId; type: string }>
   }
+
+/**
+ * An issue's bodies as a row may carry them: never on a synced record, only
+ * painted by the client itself (an optimistic create or edit the log has not
+ * settled, a demo, a test fixture). `IssueModel` prefers a painted value over
+ * the synced `issueBrief` / `issueDescription` records.
+ */
+export type IssueBodyValues = {
+  brief?: string
+  panel?: IssuePanel
+  activityNotes?: string
+  description?: string
+}
+
+/**
+ * An issue's bodies as a screen reads them (POD-6921). `IssueModel` answers
+ * them from the issue's synced body and panel records, which load at start
+ * with everything else; a painted row (a fixture, a demo) carries them itself.
+ */
+export type IssueBodyFields = {
+  readonly brief?: string | undefined
+  readonly panel?: IssuePanel | undefined
+  readonly activityNotes?: string | undefined
+  readonly notesUpdatedAt?: string | undefined
+  /** The human summary's text; empty when there is none. */
+  readonly description: string
+}
+
+/** An issue a screen shows with its bodies: `IssueModel` and `PageIssue` are one. */
+export type IssueWithBodies = IssueViewModel & IssueBodyFields

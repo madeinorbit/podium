@@ -77,18 +77,23 @@ describe('ref links when the prefix registry arrives after the row rendered', ()
     expect(host.querySelector('a.ref-link[data-ref="POD-4945"]')).not.toBeNull()
   })
 
-  it('links an opened mail body and its sender chip once the prefixes are registered', () => {
+  it('links an opened mail body once prefixes arrive while retaining its sender attribution', () => {
     mount({
       id: 'u1',
       role: 'user',
       text: frame('msg_1', 'issue:POD-84', 'See POD-86.'),
     } as TranscriptItem)
-    click(host.querySelector('[data-testid="message-envelope-toggle"]'))
-    click(host.querySelector('[data-testid="mail-item"] .mail-item-head'))
+    const toggle = host.querySelector('[data-testid="mail-item"] .mail-item-head')
+    expect(toggle).not.toBeNull()
+    click(toggle)
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
     expect(host.querySelector('a.ref-link')).toBeNull()
     act(() => setKnownRefPrefixes(['POD']))
     expect(host.querySelector('a.ref-link[data-ref="POD-86"]')).not.toBeNull()
-    expect(host.querySelector('a.ref-link[data-ref="POD-84"]')).not.toBeNull()
+    expect(host.querySelector('[data-testid="mail-item"]')?.textContent).toContain('POD-84')
+    expect(host.querySelector('a.ref-link[data-ref="POD-86"]')?.getAttribute('data-ref')).toBe(
+      'POD-86',
+    )
   })
 
   it('links worker-rendered markdown once prefixes arrive without replacing its cached input', () => {

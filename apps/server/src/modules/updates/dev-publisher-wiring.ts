@@ -30,16 +30,17 @@ import {
 } from '@podium/runtime/release-build-timing'
 import type { Hono } from 'hono'
 import { registerDevFeedRoutes } from './artifact-route'
+import { buildTask, throwIfBuildAborted, withBuildAttempt } from './build-attempt'
 import { releaseTimingStagingDir } from './build-record'
 import {
   type BuiltDevBundle,
   createDevBundlePublisher,
-  readDaemonWireAt,
   DEV_ARTIFACT_ROUTE,
   DevBundleProposalMovedError,
   DevBundleUnavailableError,
   developmentHeadSha,
   finalizeTimingIntoRecord,
+  readDaemonWireAt,
 } from './dev-bundle'
 import { createServerDevBundleLock, type DevBundleLockService } from './dev-bundle-lock'
 import { createDevWebBuilder, type DevWebBuildState } from './dev-web-build'
@@ -230,6 +231,8 @@ export async function wireDevBundlePublisher(deps: {
    * (spec dispositions 19, 20).
    */
   readonly refreshDevTarget?: () => Promise<unknown>
+  /** One overall deadline for preparation, compilation, and publication. */
+  readonly buildTimeoutMs?: number
   readonly locks: DevBundleLockService
   /** Names the transient build units. Defaults to the default instance. */
   readonly instanceId?: string
@@ -547,9 +550,9 @@ export async function wireDevBundlePublisher(deps: {
     if (!publisher) return false
     const candidate = publisher.current()
     if (!candidate) return false
-    await prepareRemoteConsumerSnapshot()
+    await buildTask(prepareRemoteConsumerSnapshot)
     try {
-      await proveLocalArtifactRoutes(candidate)
+      await buildTask(() => proveLocalArtifactRoutes(candidate))
     } catch (error) {
       if (error instanceof DevBundleUnavailableError) {
         recordPublishFailure(error)
@@ -558,9 +561,10 @@ export async function wireDevBundlePublisher(deps: {
       throw error
     }
     try {
-      const published = await publisher.publishFeed()
-      if (published) await deps.refreshDevTarget?.()
-      else {
+      const published = await buildTask(() => publisher.publishFeed())
+      if (published && deps.refreshDevTarget) {
+        await buildTask(deps.refreshDevTarget)
+      } else if (!published) {
         const reason = publisher.unavailable()
         if (reason?.startsWith('Target daemon wire range ')) throw new Error(reason)
       }
@@ -573,6 +577,7 @@ export async function wireDevBundlePublisher(deps: {
 
   const approval = createReleaseApprovalFlow({
     proposal: async () => publisher?.proposal(),
+    buildTimeoutMs: deps.buildTimeoutMs,
     release: async (approved) => {
       // One id for this attempt, minted before the first line is emitted. Two approvals
       // of the same version are two runs and must not share a staging file.
@@ -587,29 +592,31 @@ export async function wireDevBundlePublisher(deps: {
             version: approved.version,
             sourceSha: approved.headSha,
           },
-          async () => {
-            if (!publisher) throw new Error('This server does not publish development releases.')
-            await prepareRemoteConsumerSnapshot()
-            const blocked = artifactOriginFailure()
-            if (blocked) throw blocked
-            publishFailureDetail = undefined
-            headSha?.invalidate()
-            try {
-              await publisher.requestBuild(true, approved)
-            } catch (error) {
-              if (error instanceof DevBundleProposalMovedError) {
-                throw new ReleaseApprovalRefusal(error.publicReason)
+          () =>
+            buildTask(async () => {
+              if (!publisher) throw new Error('This server does not publish development releases.')
+              await buildTask(prepareRemoteConsumerSnapshot)
+              const blocked = artifactOriginFailure()
+              if (blocked) throw blocked
+              publishFailureDetail = undefined
+              headSha?.invalidate()
+              try {
+                await buildTask(() => publisher.requestBuild(true, approved))
+              } catch (error) {
+                if (error instanceof DevBundleProposalMovedError) {
+                  throw new ReleaseApprovalRefusal(error.publicReason)
+                }
+                throw error
               }
-              throw error
-            }
-            await observeBundleReadiness()
-            publishedVersion = publisher.current()?.version
-            if (!(await publishToFeed())) {
-              throw new Error('the development feed manifest was not published')
-            }
-            unavailableDiagnostic = undefined
-            publishFailureDetail = undefined
-          },
+              await buildTask(observeBundleReadiness)
+              throwIfBuildAborted()
+              publishedVersion = publisher.current()?.version
+              if (!(await publishToFeed())) {
+                throw new Error('the development feed manifest was not published')
+              }
+              unavailableDiagnostic = undefined
+              publishFailureDetail = undefined
+            }),
           releaseTiming,
         )
       } finally {
@@ -619,7 +626,10 @@ export async function wireDevBundlePublisher(deps: {
         currentTimingRunId = undefined
       }
     },
-    failureLogs: (error) => releaseFailureLogs(publisher?.unavailable(), error),
+    failureLogs: (error) => {
+      log.warn('approved development release failed', { err: error })
+      return releaseFailureLogs(publisher?.unavailable(), error)
+    },
   })
 
   return {
@@ -663,62 +673,64 @@ export async function wireDevBundlePublisher(deps: {
       }
       return approval.approve(approvedBy, expected)
     },
-    requestBuild: async () => {
-      if (!publisher) return
-      await prepareRemoteConsumerSnapshot()
-      // Refuse before the compile, with the remedy in the sentence, rather than
-      // pack for thirty-five seconds and leave the step waiting (POD-2227).
-      const blocked = artifactOriginFailure()
-      if (blocked) {
-        recordPublishFailure(blocked)
-        throw blocked
-      }
-      publishFailureDetail = undefined
-      // A human pressed Update. Whatever the stamp says, ask git — the one
-      // interaction where someone is watching is not the place to save 8ms,
-      // and it is the escape hatch if this cache is ever wrong about a
-      // checkout. Read-only publication keeps the cache.
-      headSha?.invalidate()
-      // `preparing` is published by the publisher's `onAdmitted` above, not
-      // from here: this call returns before admission has been decided.
-      //
-      // This legacy entry point opens no approval envelope, so it mints the run id
-      // itself: its lines are still ONE attempt and must not merge with another's.
-      const runId = mintReleaseTimingRunId()
-      currentTimingRunId = runId
-      return publisher.requestBuild(true).then(
-        async (built) => {
-          try {
-            await observeBundleReadiness()
-            publishedVersion = built?.version
-            // The order is the handoff: write the manifest into the feed, then
-            // ask the resolver to pull it. This legacy internal entry point is
-            // intentionally not composed into update operations any more; only
-            // proposal approval calls the release path above.
-            await publishToFeed()
-            return built
-          } finally {
-            if (built) finalizeReleaseTiming(built.version, runId)
+    requestBuild: () =>
+      withBuildAttempt(async () => {
+        if (!publisher) return
+        await buildTask(prepareRemoteConsumerSnapshot)
+        // Refuse before the compile, with the remedy in the sentence, rather than
+        // pack for thirty-five seconds and leave the step waiting (POD-2227).
+        const blocked = artifactOriginFailure()
+        if (blocked) {
+          recordPublishFailure(blocked)
+          throw blocked
+        }
+        publishFailureDetail = undefined
+        // A human pressed Update. Whatever the stamp says, ask git — the one
+        // interaction where someone is watching is not the place to save 8ms,
+        // and it is the escape hatch if this cache is ever wrong about a
+        // checkout. Read-only publication keeps the cache.
+        headSha?.invalidate()
+        // `preparing` is published by the publisher's `onAdmitted` above, not
+        // from here: this call returns before admission has been decided.
+        //
+        // This legacy entry point opens no approval envelope, so it mints the run id
+        // itself: its lines are still ONE attempt and must not merge with another's.
+        const runId = mintReleaseTimingRunId()
+        currentTimingRunId = runId
+        return publisher.requestBuild(true).then(
+          async (built) => {
+            try {
+              await buildTask(observeBundleReadiness)
+              throwIfBuildAborted()
+              publishedVersion = built?.version
+              // The order is the handoff: write the manifest into the feed, then
+              // ask the resolver to pull it. This legacy internal entry point is
+              // intentionally not composed into update operations any more; only
+              // proposal approval calls the release path above.
+              await publishToFeed()
+              return built
+            } finally {
+              if (built) finalizeReleaseTiming(built.version, runId)
+              currentTimingRunId = undefined
+            }
+          },
+          async (error: unknown) => {
             currentTimingRunId = undefined
-          }
-        },
-        async (error: unknown) => {
-          currentTimingRunId = undefined
-          await observeBundleReadiness()
-          // The failure must reach the read model, or a stale target stays
-          // published while the only trace of the problem is this log line.
-          // Log each distinct refusal once. This full text — offending paths
-          // included — is the CONSOLE half; only
-          // `readiness().publicReason` travels to a client.
-          const diagnostic = releaseFailureLogs(publisher.unavailable(), error)
-          if (diagnostic !== unavailableDiagnostic) {
-            unavailableDiagnostic = diagnostic
-            log.warn('development bundle unavailable', { diagnostic, err: error })
-          }
-          throw error
-        },
-      )
-    },
+            await observeBundleReadiness()
+            // The failure must reach the read model, or a stale target stays
+            // published while the only trace of the problem is this log line.
+            // Log each distinct refusal once. This full text — offending paths
+            // included — is the CONSOLE half; only
+            // `readiness().publicReason` travels to a client.
+            const diagnostic = releaseFailureLogs(publisher.unavailable(), error)
+            if (diagnostic !== unavailableDiagnostic) {
+              unavailableDiagnostic = diagnostic
+              log.warn('development bundle unavailable', { diagnostic, err: error })
+            }
+            throw error
+          },
+        )
+      }, deps.buildTimeoutMs),
     channelFeed: () => {
       if (!publisher) return undefined
       let origin: string

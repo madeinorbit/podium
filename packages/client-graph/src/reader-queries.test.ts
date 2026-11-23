@@ -1,95 +1,33 @@
-import { omitGone } from './lookup'
-import { headerEntities } from './header-entities'
-import { settingsView } from './settings-views'
-import { headerView } from './header-views'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { headerView } from './header-views'
+import { liveFixture } from './live-fixture'
+import { omitGone } from './lookup'
+import { settingsView } from './settings-views'
 // @vitest-environment happy-dom
 
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { compareSidebarSnapshots, type SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
+import { createMobileInboxSnapshotViews as createMobileInboxViews } from '../../../tests/worklist/diagnostics/mobile-inbox'
+import {
+  compareSidebarSnapshots,
+  type SidebarSnapshot,
+} from '../../../tests/worklist/diagnostics/sidebar-check'
 import { automationViews } from './automation-views'
 import { chatMentionIssues, chatReferenceSessions } from './chat-context'
-import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
-import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { attachCommandLaunchSource } from './command-launch-source'
-import { knownIds } from './enumerate'
-import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
+import { residentIds } from './enumerate'
 import { createIssueBoardSource } from './issue-board-source'
 import { issuePages } from './issue-page'
-import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
-import { MOBILE_INBOX_SUMMARIES } from './mobile-inbox-schema'
 import { MobileInboxSource } from './mobile-inbox-source'
-import { createMobileInboxSnapshotViews as createMobileInboxViews } from '../../../tests/worklist/diagnostics/mobile-inbox'
 import { createMobileSessionReader } from './mobile-session-context'
 import { MobxPool } from './pool'
 import { paneHasSessions } from './session-pane'
-import { type ColdIndex, createColdIndex, type HeldSummaries } from './shared/cold-index'
 import { createReaderIndex, questionEntity, type ReaderQuestion } from './shared/reader-questions'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord } from './shared/source'
-import { SHELL_SUMMARIES } from './shell-schema'
-import { shellViews } from './shell-views'
-import { mergePoolSummaries } from './source-registry'
 import { LOADING } from './worklist/rollup'
 
 const now = Date.parse('2026-10-03T12:00:00Z'),
   old = '2020-01-01T00:00:00Z'
-
-it('hydrates normalized issue facets without reading the repository companion', () => {
-  const issue = {
-    id: 'cold', seq: 7, repoId: 'repo', title: 'Cold issue', stage: 'done',
-    archived: true, audience: 'agent', createdAt: old, updatedAt: old, deps: [],
-  }
-  const lane = {
-    path: '/repo/checkout', repoId: 'repo', repoPath: '/repo', prefix: 'SYN', repoName: 'Repo',
-  }
-  const fields: PropertyKey[] = []
-  const countedLane = new Proxy(lane, {
-    get(row, field, receiver) {
-      fields.push(field)
-      return Reflect.get(row, field, receiver)
-    },
-  })
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    load: () => issue, schedule: () => () => {},
-  })
-  let stop: (() => void) | undefined
-  try {
-    pool.apply({ type: 'replace', rows: [
-      { kind: 'worktree', id: lane.path, value: countedLane },
-      { kind: 'issue', id: issue.id, value: issue },
-    ] as RowRecord[] })
-    expect(omitGone(pool.row('issue', issue.id))).toBe(LOADING)
-    fields.length = 0
-    expect(pool.hydrate()).toBe(1)
-    expect(fields).toEqual([])
-    expect(pool.queries.linkedIssueId('SYN-7')).toBe(issue.id)
-    const query = { kind: 'boardIssues', archived: true, projectPaths: ['/repo'] } as const
-    expect(pool.queries.ids(query)).toEqual([issue.id])
-
-    const shownPaths: unknown[] = []
-    stop = autorun(() => {
-      const row = omitGone(pool.row('issue', issue.id)) as { repoPath: string }
-      shownPaths.push(row.repoPath)
-    })
-    expect(shownPaths).toEqual(['/repo'])
-    pool.apply({ type: 'update', rows: [
-      { kind: 'worktree', id: lane.path, value: { ...lane, repoPath: '/renamed' } },
-    ] as RowRecord[] })
-    expect(shownPaths).toEqual(['/repo', '/renamed'])
-    expect(pool.queries.ids(query)).toEqual([])
-    expect(pool.queries.ids({ ...query, projectPaths: ['/renamed'] })).toEqual([issue.id])
-
-    // Painted fields remain authoritative even before the source catches up.
-    runInAction(() => pool.tables.issue.set(issue.id, { ...issue, deletedAt: old }))
-    expect(pool.queries.ids({ ...query, projectPaths: ['/renamed'] })).toEqual([])
-  } finally {
-    stop?.()
-    pool.dispose()
-  }
-})
 
 it('addresses ancestor scope independently of presentation, resident overlays and source replacement', () => {
   const issue = (patch: object = {}): RowRecord =>
@@ -112,10 +50,7 @@ it('addresses ancestor scope independently of presentation, resident overlays an
         ...patch,
       },
     }) as RowRecord
-  let source = createColdIndex(SCHEMA)
-  source.apply({ type: 'replace', rows: [issue()] })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    cold: () => source,
     load: () => undefined,
     schedule: () => () => {},
   })
@@ -124,31 +59,22 @@ it('addresses ancestor scope independently of presentation, resident overlays an
   const stop = autorun(() => {
     seen.push(pool.queries.issueScope('scope-parent'))
   })
-  const publish = (record: RowRecord) => {
-    const event = { type: 'update' as const, rows: [record] }
-    source.apply(event)
-    pool.apply(event)
-  }
+  const publish = (record: RowRecord) => pool.apply({ type: 'update', rows: [record] })
   try {
     expect(seen).toEqual([{ draft: false, deleted: false, archived: false, agent: false }])
     publish(issue({ title: 'Renamed' }))
     expect(seen).toHaveLength(1)
-    // A local table overlay wins even while the source is already ahead.
-    source.apply({ type: 'update', rows: [issue({ audience: 'agent' })] })
+    // A local table overlay wins over the published row.
     runInAction(() =>
       pool.tables.issue.set('scope-parent', issue({ isDraftVessel: true }).value as never),
     )
     expect(seen.at(-1)).toEqual({ draft: true, deleted: false, archived: false, agent: false })
-    runInAction(() => pool.tables.issue.delete('scope-parent'))
-    expect(seen.at(-1)).toEqual({ draft: false, deleted: false, archived: false, agent: true })
     publish(issue({ archived: true, deletedAt: old }))
     expect(seen.at(-1)).toEqual({ draft: false, deleted: true, archived: true, agent: false })
     publish({ kind: 'issue', id: 'scope-parent', value: undefined })
     expect(seen.at(-1)).toBeUndefined()
-    // A new source may reuse every numeric revision from the previous one.
-    source = createColdIndex(SCHEMA)
-    source.apply({ type: 'replace', rows: [issue({ audience: 'agent', isDraftVessel: true })] })
-    pool.apply({ type: 'replace', rows: [] })
+    // A replacement may reuse every numeric revision from the previous slice.
+    pool.apply({ type: 'replace', rows: [issue({ audience: 'agent', isDraftVessel: true })] })
     expect(seen.at(-1)).toEqual({ draft: true, deleted: false, archived: false, agent: true })
   } finally {
     stop()
@@ -185,23 +111,17 @@ it('keeps spawn placement in its declared source subset across reassignment, rea
     issue('foreign-repo', { repoId: 'other' }),
     issue('unassigned-other-path', { repoId: null, repoPath: '/other' }),
   ]
-  const source = createColdIndex(SCHEMA)
-  source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-    cold: () => source,
     load: () => undefined,
     schedule: () => () => {},
   })
-  pool.apply({ type: 'replace', rows: [...rows, issue('resident-only')] })
+  pool.apply({ type: 'replace', rows })
   const query = { kind: 'spawnIssues', repoId: 'wanted', repoPath: '/wanted' } as const
   let seen: string[] = []
   const stop = autorun(() => {
     seen = pool.queries.ids(query).sort()
   })
-  const publish = (event: Parameters<ColdIndex['apply']>[0]) => {
-    source.apply(event)
-    pool.apply(event)
-  }
+  const publish = (event: Parameters<MobxPool['apply']>[0]) => pool.apply(event)
   try {
     expect(pool.queries.indexed(query).sort()).toEqual(['archived-repo', 'unassigned-path'])
     expect(seen).toEqual(['archived-repo', 'unassigned-path'])
@@ -262,7 +182,10 @@ function fixture(scale = 1, bootOnly = false) {
         lastActiveAt: old,
         createdAt: old,
         refRepoId: 'query-repo',
-        refSeq: id === 'z-twin' ? 1 : (sessionSequences.get(id) ??
+        refSeq:
+          id === 'z-twin'
+            ? 1
+            : (sessionSequences.get(id) ??
               (sessionSequences.set(id, sessionSequences.size + 2), sessionSequences.size + 1)),
         refLetter: 'A',
         ...extra,
@@ -304,38 +227,14 @@ function fixture(scale = 1, bootOnly = false) {
   })
   if (bootOnly) rows = rows.filter((row) => row.kind !== 'session' && !row.id.includes('proposal'))
   const values = new Map(rows.map((row) => [`${row.kind}:${row.id}`, row.value]))
-  // The feed's cold index, as `RowSource.cold(summaries)` builds it: holding
-  // the declared summary fields the pool names (POD-5407).
-  let built: ColdIndex | undefined
-  const cold = (held: HeldSummaries): ColdIndex => {
-    if (built === undefined || !built.holds(held)) {
-      built = createColdIndex(SCHEMA, held)
-      built.apply({ type: 'replace', rows })
-    }
-    return built
-  }
   const load = vi.fn((entity: string, id: string) => values.get(`${entity}:${id}`))
-  const summaries = mergePoolSummaries(
-    COMMAND_SUMMARIES,
-    MOBILE_INBOX_SUMMARIES,
-    CHAT_CONTEXT_SUMMARIES,
-    ISSUE_PAGE_SUMMARIES,
-    ISSUE_BOARD_SUMMARIES,
-    MISSION_VIEW_SUMMARIES,
-    SHELL_SUMMARIES,
-  )
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
-    cold,
-    header: true,
     settings: true,
-    summaries,
     schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
-  headerEntities(pool).apply([
-    { kind: 'hostMetric', id: 'metric', value: { machineId: 'query-host' } } as never,
-  ])
+  liveFixture(pool).metric('query-host', { machineId: 'query-host' } as never)
   const mobile = new MobileInboxSource(
     { replica: { getCursor: () => 1, subscribeCursor: () => () => {} } } as never,
     pool,
@@ -359,9 +258,10 @@ function fixture(scale = 1, bootOnly = false) {
     withKeyedInputs({
       getSnapshot: () => ({ repos: [], machines: [] }),
       subscribe: () => () => {},
+      replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
     }) as never,
   )
-  return { pool, index: cold({}), load, rows, values }
+  return { pool, index: pool.deviceIndex(), load, rows, values }
 }
 
 it('rebuilds observed identities once on replacement without probing every cold member first', () => {
@@ -381,7 +281,6 @@ it('rebuilds observed identities once on replacement without probing every cold 
     expect(contains.mock.calls.length).toBeLessThan(16)
     contains.mockClear()
     const rows = f.rows.filter((row) => row.id !== 'cold-issue-0')
-    f.index.apply({ type: 'replace', rows })
     f.pool.apply({ type: 'replace', rows })
     expect(seen).toHaveLength(511)
     expect(seen).not.toContain('cold-issue-0')
@@ -407,7 +306,6 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
       const view = createMobileInboxViews(pool)
       try {
         return {
-          inbox: view.inbox(),
           screening: view.screening(),
           session: view.session('QUERY-1-A'),
         }
@@ -447,16 +345,11 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
     name: 'issue page',
     read: (pool) => ({
       issues: issuePages(pool).issues(),
-      explorer: issuePages(pool).explorer(),
       panel: (() => {
         const issue = issuePages(pool).panelIssue({ cwd: '/query/cold/file' })
         return issue && issue !== LOADING ? issue.id : issue
       })(),
     }),
-  },
-  {
-    name: 'shell',
-    read: (pool) => ({ issues: shellViews(pool).issues(), sessions: shellViews(pool).sessions() }),
   },
   {
     name: 'board',
@@ -538,7 +431,6 @@ describe('readers behind declared cold questions', () => {
     ]
     const publish = (changed: RowRecord[]) => {
       for (const row of changed) f.values.set(`${row.kind}:${row.id}`, row.value)
-      f.index.apply({ type: 'update', rows: changed })
       f.pool.apply({ type: 'update', rows: changed })
     }
     const question = {
@@ -550,7 +442,7 @@ describe('readers behind declared cold questions', () => {
     try {
       publish(rows)
       // An unrelated resident must not be unioned into the requested roster.
-      omitGone(f.pool.row('session', 'host', 'summary'))
+      omitGone(f.pool.row('session', 'host'))
       f.pool.hydrate()
       const roster = () => f.pool.queries.ids(question).sort()
       expect(roster()).toEqual([
@@ -594,22 +486,14 @@ describe('readers behind declared cold questions', () => {
     }
   })
   for (const reader of readers)
-    it(`${reader.name}: preserves output, rejects a plant, and never enumerates the cold registry`, async () => {
+    it(`${reader.name}: preserves output and rejects a plant`, async () => {
       const f = fixture(1, reader.bootOnly),
         pool = f.pool
-      let scans = 0
-      const ids = pool.residency!.ids.bind(pool.residency)
-      const census = vi.spyOn(pool.residency!, 'ids').mockImplementation((...args) => {
-        scans++
-        return ids(...args)
-      })
       try {
         // Drain demanded values before comparing, without a browser or a second
-        // runtime. Each reader starts with its own cold history fixture.
+        // runtime.
         for (let turn = 0; turn < 8; turn++) {
-          scans = 0
           runInAction(() => reader.read(pool))
-          expect(scans).toBe(0)
           await Promise.resolve()
           if (!pool.hydrate()) break
         }
@@ -617,13 +501,12 @@ describe('readers behind declared cold questions', () => {
           reader.name,
           runInAction(() => reader.read(pool)),
         )
-        const original = pool.queries.ids.bind(pool.queries)
         const legacy = vi
           .spyOn(pool.queries, 'ids')
-          .mockImplementation((question) => knownIds(pool, questionEntity(question)))
+          .mockImplementation((question) => residentIds(pool, questionEntity(question)))
         const legacyCount = vi
-          .spyOn(pool.queries, 'count')
-          .mockImplementation((entity) => knownIds(pool, entity).length)
+          .spyOn(pool.queries, 'heldCount')
+          .mockImplementation((entity) => residentIds(pool, entity).length)
         const expected = snapshot(
           reader.name,
           runInAction(() => reader.read(pool)),
@@ -636,7 +519,7 @@ describe('readers behind declared cold questions', () => {
         })
         const membership = vi.spyOn(pool.queries, 'ids').mockReturnValue([])
         const repos = vi.spyOn(pool.queries, 'repoIds').mockReturnValue([])
-        const count = vi.spyOn(pool.queries, 'count').mockReturnValue(0)
+        const count = vi.spyOn(pool.queries, 'heldCount').mockReturnValue(0)
         const addressed =
           reader.name === 'phone prefix'
             ? vi.spyOn(pool.queries, 'hasIssuePrefix').mockReturnValue(false)
@@ -654,49 +537,6 @@ describe('readers behind declared cold questions', () => {
         repos.mockRestore()
         count.mockRestore()
         addressed?.mockRestore()
-        // A real registry walk is the scan counter, including walks hidden in
-        // a helper. It is measured only during the reader, not test hydration.
-        scans = 0
-        runInAction(() => reader.read(pool))
-        expect(scans).toBe(0)
-        // The counter rejects an actual planted old enumeration, not a mock
-        // number. Keep the output identical so this proves the cost assertion.
-        vi.spyOn(pool.queries, 'ids').mockImplementation((question) => {
-          pool.residency!.ids(questionEntity(question))
-          return original(question)
-        })
-        const originalCount = pool.queries.count.bind(pool.queries)
-        vi.spyOn(pool.queries, 'count').mockImplementation((entity) => {
-          pool.residency!.ids(entity)
-          return originalCount(entity)
-        })
-        const originalRepos = pool.queries.repoIds.bind(pool.queries)
-        vi.spyOn(pool.queries, 'repoIds').mockImplementation((path) => {
-          pool.residency!.ids('issue')
-          return originalRepos(path)
-        })
-        if (reader.name === 'phone prefix') {
-          const originalPrefix = pool.queries.hasIssuePrefix.bind(pool.queries)
-          vi.spyOn(pool.queries, 'hasIssuePrefix').mockImplementation((...args) => {
-            pool.residency!.ids('issue')
-            return originalPrefix(...args)
-          })
-        } else if (reader.name === 'settings') {
-          const originalSetupCount = pool.queries.setupSessionCount.bind(pool.queries)
-          vi.spyOn(pool.queries, 'setupSessionCount').mockImplementation(() => {
-            pool.residency!.ids('session')
-            return originalSetupCount()
-          })
-        } else if (reader.name === 'automation sessions') {
-          const originalPresent = pool.queries.setupSessionPresent.bind(pool.queries)
-          vi.spyOn(pool.queries, 'setupSessionPresent').mockImplementation((id) => {
-            pool.residency!.ids('session')
-            return originalPresent(id)
-          })
-        }
-        runInAction(() => reader.read(pool))
-        expect(scans).toBeGreaterThan(0)
-        census.mockRestore()
       } finally {
         vi.restoreAllMocks()
         pool.dispose()
@@ -733,7 +573,6 @@ describe('readers behind declared cold questions', () => {
           repoId: 'moved-repo',
         },
       } as RowRecord
-      f.index.apply({ type: 'update', rows: [changed] })
       f.pool.apply({ type: 'update', rows: [changed] })
       expect(f.index.readerIds({ kind: 'proposedIssues' })).toContain(cold.id)
       expect(f.index.readerIds({ kind: 'containingIssues', cwd: '/query/moved/file' })).toEqual([
@@ -743,11 +582,9 @@ describe('readers behind declared cold questions', () => {
         [],
       )
       expect(f.index.issueRepoIds()).toEqual(['moved-repo', 'query-repo'])
-      f.index.apply({ type: 'replace', rows: [] })
       f.pool.apply({ type: 'replace', rows: [] })
       expect(paneHasSessions(f.pool)).toBe(false)
       expect(f.index.issueRepoIds()).toEqual([])
-      expect(f.index.readerIds({ kind: 'boardCatalog' })).toEqual([])
     } finally {
       f.pool.dispose()
     }
@@ -763,11 +600,9 @@ describe('readers behind declared cold questions', () => {
         ...session,
         value: { ...(session.value as object), agentState: { phase: 'idle' } },
       } as RowRecord
-      f.index.apply({ type: 'update', rows: [unchangedMembership] })
       f.pool.apply({ type: 'update', rows: [unchangedMembership] })
       expect(reads).toHaveBeenCalledTimes(1)
       const removed = { kind: 'issue', id: 'cold-issue-1', value: undefined } as RowRecord
-      f.index.apply({ type: 'update', rows: [removed] })
       f.pool.apply({ type: 'update', rows: [removed] })
       expect(reads).toHaveBeenCalledTimes(2)
       expect(reads.mock.results[1]!.value).not.toContain(removed.id)
@@ -777,86 +612,38 @@ describe('readers behind declared cold questions', () => {
     }
   })
 
-  it('queues a missing selected cold summary once through the single batched reader', () => {
-    const f = fixture()
-    const missing = vi.spyOn(f.pool.residency!, 'summary').mockReturnValue(undefined)
-    try {
-      expect(omitGone(f.pool.row('session', 'cold-session-0', 'summary'))).toBe(LOADING)
-      expect(omitGone(f.pool.row('session', 'cold-session-0', 'summary'))).toBe(LOADING)
-      expect(f.load).not.toHaveBeenCalled()
-      expect(f.pool.hydrate()).toBeGreaterThan(0)
-      expect(f.load.mock.calls.filter(([, id]) => id === 'cold-session-0')).toHaveLength(1)
-    } finally {
-      missing.mockRestore()
-      f.pool.dispose()
-    }
-  })
-
-  it('counts source history and an independently resident row without enumerating history', () => {
-    const index = createColdIndex(SCHEMA)
-    index.apply({
-      type: 'replace',
-      rows: [
-        {
-          kind: 'session',
-          id: 'history',
-          value: {
-            sessionId: 'history',
-            cwd: '/history',
-            lastActiveAt: old,
-            status: 'exited',
-            stoppedAt: old,
-          },
-        },
-      ],
-    })
+  it('counts held rows and an independently resident row without enumerating them', () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-      cold: () => index,
       load: () => undefined,
       schedule: () => () => {},
     })
-    pool.apply({
-      type: 'replace',
-      rows: [
-        {
-          kind: 'session',
-          id: 'resident',
-          value: { sessionId: 'resident', cwd: '/resident', status: 'live', lastActiveAt: old },
-        },
-      ],
-    })
-    const census = vi.spyOn(pool.residency!, 'ids')
+    const resident = {
+      kind: 'session',
+      id: 'resident',
+      value: { sessionId: 'resident', cwd: '/resident', status: 'live', lastActiveAt: old },
+    } as RowRecord
+    pool.apply({ type: 'replace', rows: [resident] })
     let observedCount = 0
     const stop = autorun(() => {
-      observedCount = pool.queries.count('session')
+      observedCount = pool.queries.heldCount('session')
     })
     try {
-      expect(pool.queries.count('session')).toBe(2)
-      expect(census).not.toHaveBeenCalled()
-      const adopted = {
-        kind: 'session',
-        id: 'resident',
-        value: { sessionId: 'resident', cwd: '/resident', status: 'live', lastActiveAt: old },
-      } as RowRecord
+      expect(pool.queries.heldCount('session')).toBe(1)
+      runInAction(() => pool.apply({ type: 'update', rows: [resident] }))
+      expect(observedCount).toBe(1)
       runInAction(() => {
-        index.apply({ type: 'update', rows: [adopted] })
-        pool.apply({ type: 'update', rows: [adopted] })
+        pool.tables.session.set('local', {
+          ...(resident.value as object),
+          sessionId: 'local',
+        } as never)
       })
       expect(observedCount).toBe(2)
-      runInAction(() => {
-        pool.tables.session.set('local', { ...adopted.value, sessionId: 'local' })
-      })
-      expect(observedCount).toBe(3)
       runInAction(() => pool.tables.session.delete('local'))
-      expect(observedCount).toBe(2)
-      runInAction(() => {
-        index.apply({ type: 'replace', rows: [] })
-        pool.apply({ type: 'replace', rows: [] })
-      })
+      expect(observedCount).toBe(1)
+      runInAction(() => pool.apply({ type: 'replace', rows: [] }))
       expect(observedCount).toBe(0)
     } finally {
       stop()
-      census.mockRestore()
       pool.dispose()
     }
   })
@@ -867,7 +654,7 @@ describe('readers behind declared cold questions', () => {
     const known = vi.spyOn(f.index, 'known')
     try {
       for (let click = 0; click < 8; click++)
-        expect(f.pool.queries.count('session')).toBe(
+        expect(f.pool.queries.heldCount('session')).toBe(
           f.rows.filter((row) => row.kind === 'session').length,
         )
       expect(keys).not.toHaveBeenCalled()
@@ -900,7 +687,6 @@ describe('readers behind declared cold questions', () => {
           } as RowRecord,
         ],
       }
-      f.index.apply(event)
       f.pool.apply(event)
       expect(f.pool.queries.ids(query)).toContain(record.id)
       expect(ids).not.toHaveBeenCalled()
@@ -918,7 +704,7 @@ describe('readers behind declared cold questions', () => {
       { kind: 'commandIssues' },
       { kind: 'commandSessions' },
       { kind: 'proposedIssues' },
-      { kind: 'inboxSessions' },
+      { kind: 'pausedSessions' },
       { kind: 'headerSessions' },
       { kind: 'headerOccupancy' },
       { kind: 'sessionReference', ref: 'QUERY-1-A' },
@@ -965,10 +751,7 @@ describe('readers behind declared cold questions', () => {
         },
       },
     ]
-    const index = createColdIndex(SCHEMA)
-    index.apply({ type: 'replace', rows })
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
-      cold: () => index,
       load: () => undefined,
       schedule: () => () => {},
     })
@@ -983,12 +766,9 @@ describe('readers behind declared cold questions', () => {
         },
       ],
     })
-    const census = vi.spyOn(pool.residency!, 'ids')
     try {
       expect(pool.queries.ids({ kind: 'headerRecentSession' })).toEqual(['history'])
-      expect(census).not.toHaveBeenCalled()
     } finally {
-      census.mockRestore()
       pool.dispose()
     }
   })
@@ -1005,7 +785,6 @@ describe('readers behind declared cold questions', () => {
       type: 'update',
       rows: [{ kind: 'session', id: 'host', value: host } as RowRecord],
     })
-    const census = vi.spyOn(f.pool.residency!, 'ids')
     try {
       expect(f.pool.tables.session.has('host')).toBe(true)
       expect(f.pool.queries.activity(question)).toBe(Date.parse('2026-10-02T12:00:00Z'))
@@ -1031,9 +810,7 @@ describe('readers behind declared cold questions', () => {
         ],
       })
       expect(f.pool.queries.activity(question)).toBe(Date.parse('2027-01-01T00:00:00Z'))
-      expect(census).not.toHaveBeenCalled()
     } finally {
-      census.mockRestore()
       f.pool.dispose()
     }
   })

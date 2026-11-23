@@ -1,8 +1,15 @@
-import '@/test-support/mock-core-store-handle'
-import { asMachineId } from '@podium/model'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import '@/test-support/mock-pool-store-handle'
+import { asMachineId, type MachineWire } from '@podium/model'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
+import { renderSettingsPool } from '@/test-support/mock-settings-pool-fixture'
+import { SettingsOpening } from '../SettingsOpening'
+import { SettingsControlsContext } from './shared'
+
+const notify = vi.hoisted(() => vi.fn())
+vi.mock('sonner', () => ({ toast: notify }))
 
 const trpc = {
   setup: {
@@ -17,29 +24,42 @@ const trpc = {
     approveProposal: { mutate: vi.fn().mockResolvedValue(null) },
     repairPayload: { mutate: vi.fn() },
   },
-  operations: { history: { query: vi.fn() } },
+  // The update reader asks machines.list for the transient reasons (POD-6765).
+  machines: {
+    applyUpdate: { mutate: vi.fn() },
+    list: { query: vi.fn(async () => machines) },
+  },
+  operations: { history: { query: vi.fn() }, active: { query: vi.fn().mockResolvedValue(null) } },
 }
 
-const machines = [
-  {
-    id: 'machine-ludovico',
-    name: 'ludovico',
-    hostname: 'ludovico.local',
-    appVersion: '0.4.1',
-    versionState: 'behind',
-    updateChannelOverride: null as string | null,
-    targetUnavailableReason: null as string | null,
-    targetVersion: null as string | null,
-    presenceSource: undefined as 'supervisor' | 'legacy-daemon' | undefined,
-    deliveryCaps: undefined as string[] | undefined,
-  },
-]
+const firstMachine = {
+  id: asMachineId('machine-ludovico'),
+  name: 'ludovico',
+  hostname: 'build.example',
+  appVersion: '0.4.1',
+  versionState: 'behind',
+  updateChannelOverride: null,
+  targetUnavailableReason: null,
+  targetVersion: null,
+} as MachineWire
+const machines: MachineWire[] = [firstMachine]
 
-vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (store: unknown) => unknown) => selector({ trpc, machines }),
+// The update-status reader (POD-6683) builds its own plain-HTTP client; here it
+// is the same fake, and the page's `/version` reads answer nothing.
+vi.mock('@/app/trpc', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/trpc')>()),
+  makeTrpc: () => trpc,
+}))
+vi.mock('@/lib/workspace-request', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/workspace-request')>()),
+  workspaceFetch: async () => ({ ok: false }),
 }))
 
-/** Settings → Experimental "Podium development" (POD-1882). */
+vi.mock('@/app/store', () => ({
+  readFixture: (selector: (store: unknown) => unknown) => selector({ trpc, machines }),
+}))
+
+/** Settings → Labs "Podium development" (POD-1882). */
 let developing = false
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => developing }))
 
@@ -50,7 +70,8 @@ vi.mock('@/lib/logging/build-version', () => ({
   pageBuildDigest: () => webDigest,
 }))
 
-const { SETTINGS_RELEASE_PROPOSAL_POLL_MS, UpdatesSection } = await import('./updates')
+const { UpdatesSection } = await import('./updates')
+const { resetUpdateStatus, WATCHED_POLL_MS } = await import('@/lib/update-status')
 
 /**
  * Move the DOCUMENT, not a stub of the source module.
@@ -60,6 +81,19 @@ const { SETTINGS_RELEASE_PROPOSAL_POLL_MS, UpdatesSection } = await import('./up
  * than naming one. A mocked module would leave a hard-coded "Live server" in
  * the component looking exactly as correct as the real call.
  */
+let admin = true
+function render(ui: ReactElement) {
+  return renderSettingsPool(
+    <SettingsOpening>
+      <SettingsControlsContext.Provider
+        value={{ permitted: { 'records.instancePreferences.edit': admin } }}
+      >
+        {ui}
+      </SettingsControlsContext.Provider>
+    </SettingsOpening>,
+  )
+}
+
 const BROWSER_URL = 'http://podium.local/'
 function pageServedFrom(url: string): void {
   ;(window as unknown as { happyDOM: { setURL: (u: string) => void } }).happyDOM.setURL(url)
@@ -67,6 +101,7 @@ function pageServedFrom(url: string): void {
 
 afterEach(() => {
   cleanup()
+  resetUpdateStatus()
   vi.clearAllMocks()
   trpc.updates.proposal.query.mockReset().mockResolvedValue(null)
   trpc.updates.approveProposal.mutate.mockReset().mockResolvedValue(null)
@@ -74,13 +109,17 @@ afterEach(() => {
   vi.useRealTimers()
   pageServedFrom(BROWSER_URL)
   developing = false
+  admin = true
+  machines.splice(1)
+  firstMachine.online = false
+  firstMachine.transferable = false
   webVersion = '0.4.1'
   webDigest = undefined
-  machines[0]!.updateChannelOverride = null
-  machines[0]!.targetUnavailableReason = null
-  machines[0]!.targetVersion = null
-  machines[0]!.presenceSource = undefined
-  machines[0]!.deliveryCaps = undefined
+  firstMachine.updateChannelOverride = null
+  firstMachine.targetUnavailableReason = null
+  firstMachine.targetVersion = null
+  firstMachine.presenceSource = undefined
+  firstMachine.deliveryCaps = undefined
   ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = undefined
 })
 
@@ -101,6 +140,7 @@ function quietHistory(): void {
 
 describe('UpdatesSection', () => {
   it('tracks a moved proposal and approves exactly the SHA and version on screen', async () => {
+    developing = true
     vi.useFakeTimers()
     trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
     trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
@@ -131,7 +171,7 @@ describe('UpdatesSection', () => {
     expect(screen.getByText('First proposal')).toBeTruthy()
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(SETTINGS_RELEASE_PROPOSAL_POLL_MS)
+      await vi.advanceTimersByTimeAsync(WATCHED_POLL_MS)
     })
     expect(screen.getByText('Latest proposal')).toBeTruthy()
 
@@ -147,6 +187,7 @@ describe('UpdatesSection', () => {
   })
 
   it('uses the server range and states an empty changelog without fleet data', async () => {
+    developing = true
     trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
     trpc.setup.info.query.mockResolvedValue({ appVersion: 'dev+aaaaaaa' })
     trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
@@ -195,12 +236,13 @@ describe('UpdatesSection', () => {
       ],
     })
 
+    firstMachine.targetVersion = '0.4.2'
     render(<UpdatesSection />)
 
-    expect(await screen.findByText('0.4.2')).toBeTruthy()
+    expect(await screen.findByText('0.4.1 → 0.4.2')).toBeTruthy()
     expect(screen.getByText('ludovico')).toBeTruthy()
     // Behind with nobody having accepted the offer is the mechanism working.
-    expect(screen.getByText('Update available')).toBeTruthy()
+    expect(screen.getByText('Update waiting')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
   })
 
@@ -226,7 +268,7 @@ describe('UpdatesSection', () => {
 
     render(<UpdatesSection />)
 
-    await screen.findByText('None published')
+    await waitFor(() => expect(screen.getByTestId('running-version').textContent).toBe('0.4.1'))
     expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
     expect(screen.getByTestId('running-version').textContent).toBe('0.4.1')
     expect(screen.queryByText('Server')).toBeNull()
@@ -254,7 +296,9 @@ describe('UpdatesSection', () => {
 
     render(<UpdatesSection />)
 
-    await screen.findByText('None published')
+    await waitFor(() =>
+      expect(screen.getByTestId('running-version').textContent).toBe('dev+a5f041c'),
+    )
     expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
   })
 
@@ -348,13 +392,10 @@ describe('UpdatesSection', () => {
   })
 
   /**
-   * Spec §2.1 durability layer 3, and the reason the Interface row exists at
-   * all: the shell fell back to the copy baked into the .app, which can be
-   * frozen at whatever shipped. Every version agrees here, so the ONLY thing
-   * that can open the breakdown is the row having actually asked where this
-   * document came from.
+   * A cached or built-in copy with matching build identity remains one line.
+   * Source provenance alone does not open the version breakdown.
    */
-  it('opens the breakdown for the built-in copy, even when every version agrees', async () => {
+  it('keeps a matching built-in copy on one line', async () => {
     pageServedFrom('tauri://localhost/')
     trpc.setup.channel.query.mockResolvedValue({ channel: 'edge', envForced: false })
     trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
@@ -363,10 +404,8 @@ describe('UpdatesSection', () => {
 
     render(<UpdatesSection />)
 
-    const source = await screen.findByTestId('component-version-interface')
-    expect(source.textContent).toContain('Built-in copy')
-    expect(source.textContent).toContain('fell back to the interface built into the app')
-    expect(screen.queryByTestId('running-version')).toBeNull()
+    expect((await screen.findByTestId('running-version')).textContent).toBe('0.4.1')
+    expect(screen.queryByTestId('component-version-breakdown')).toBeNull()
   })
 
   it('collapses on the same data when the page came from the server', async () => {
@@ -398,6 +437,7 @@ describe('UpdatesSection', () => {
       targetVersion: '0.1.1-dev.8+77f0e91',
     })
 
+    firstMachine.targetVersion = '0.1.1-dev.8+77f0e91'
     render(<UpdatesSection />)
 
     expect((await screen.findByTestId('component-version-server')).textContent).toContain(
@@ -406,7 +446,9 @@ describe('UpdatesSection', () => {
     expect(screen.getByTestId('component-version-interface').textContent).toContain(
       'dev.7 (ab12cd3)',
     )
-    expect(screen.getByText('dev.8 (77f0e91)')).toBeTruthy()
+    expect(screen.getByTestId('update-machine-machine-ludovico').textContent).toContain(
+      'dev.8 (77f0e91)',
+    )
     expect(document.body.textContent).not.toContain('0.1.1-dev.7+ab12cd3')
     expect(document.body.textContent).not.toContain('0.1.1-dev.8+77f0e91')
   })
@@ -428,7 +470,7 @@ describe('UpdatesSection', () => {
     expect(source.textContent).toContain('Reloading')
   })
 
-  it('keeps the channel selector writable', async () => {
+  it('saves a segmented channel choice with Undo after the running version', async () => {
     trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
     trpc.setup.info.query.mockResolvedValue({ appVersion: 'dev+abc1234' })
     quietHistory()
@@ -443,6 +485,18 @@ describe('UpdatesSection', () => {
     )
     expect(screen.getByRole('button', { name: 'Edge' }).getAttribute('aria-pressed')).toBe('true')
     expect(screen.getByText('dev+abc1234')).toBeTruthy()
+    const version = screen.getByText('dev+abc1234').closest('.settings-row')!
+    const channel = screen.getByRole('button', { name: 'Edge' }).closest('fieldset')!
+    expect(channel.classList.contains('settings-segmented')).toBe(true)
+    expect(version.nextElementSibling).toBe(channel.closest('.settings-row'))
+    const undo = notify.mock.calls.find((call) => call[0] === 'Saved')?.[1]?.action
+    expect(undo?.label).toBe('Undo')
+    trpc.setup.setChannel.mutate.mockResolvedValue({ channel: 'stable', envForced: false })
+    await act(async () => undo.onClick())
+    await waitFor(() =>
+      expect(trpc.setup.setChannel.mutate).toHaveBeenLastCalledWith({ channel: 'stable' }),
+    )
+    expect(screen.getByRole('button', { name: 'Stable' }).getAttribute('aria-pressed')).toBe('true')
   })
 
   it('persists a stable switch into the native shell', async () => {
@@ -489,7 +543,7 @@ describe('UpdatesSection', () => {
     })
 
     render(<UpdatesSection />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Repair payload' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Repair' }))
 
     await waitFor(() =>
       expect(trpc.updates.repairPayload.mutate).toHaveBeenCalledWith({
@@ -528,7 +582,7 @@ describe('UpdatesSection', () => {
     render(<UpdatesSection />)
     await screen.findByRole('button', { name: 'Stable' })
 
-    expect(screen.queryByRole('button', { name: 'Repair payload' }) !== null).toBe(shown)
+    expect(screen.queryByRole('button', { name: 'Repair' }) !== null).toBe(shown)
   })
 
   /**
@@ -568,7 +622,7 @@ describe('UpdatesSection', () => {
       )
     })
 
-    it('still shows Development when the fleet is ON dev and the flag is off', async () => {
+    it('discloses a selected Development channel without offering it as an option', async () => {
       // Turning the flag off must not make the selector lie about where the fleet is.
       trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
       trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
@@ -577,20 +631,21 @@ describe('UpdatesSection', () => {
 
       render(<UpdatesSection />)
 
-      const dev = await screen.findByRole('button', { name: 'Development' })
-      expect(dev.getAttribute('aria-pressed')).toBe('true')
+      expect(await screen.findByText('Development')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Development' })).toBeNull()
     })
 
-    it('discloses a machine pinned away from the fleet default, flag or no flag', async () => {
+    it('shows a machine channel pin with the development lab', async () => {
+      developing = true
       trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
       trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
       quietHistory()
       trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
-      machines[0]!.updateChannelOverride = 'dev'
+      firstMachine.updateChannelOverride = 'dev'
 
       render(<UpdatesSection />)
 
-      expect(await screen.findByText('Pinned: Development')).toBeTruthy()
+      expect(await screen.findByText(/Pinned: Development/)).toBeTruthy()
     })
   })
 
@@ -616,8 +671,7 @@ describe('UpdatesSection', () => {
 
       render(<UpdatesSection />)
 
-      expect(await screen.findByText('Nothing published on Stable yet.')).toBeTruthy()
-      expect(screen.getByText('checked 2h ago')).toBeTruthy()
+      expect(await screen.findByText('2h ago · Nothing published on Stable yet.')).toBeTruthy()
       expect(screen.queryByText(/is not configured/)).toBeNull()
     })
 
@@ -643,12 +697,12 @@ describe('UpdatesSection', () => {
 
       expect(
         await screen.findByText(
-          'Nothing to install from Development yet: The source checkout has 2 uncommitted changes.',
+          /Nothing to install from Development yet: The source checkout has 2 uncommitted changes./,
         ),
       ).toBeTruthy()
     })
 
-    it('names the published version on a channel that answered', async () => {
+    it('collapses a successful channel check to one line', async () => {
       trpc.setup.channel.query.mockResolvedValue({ channel: 'dev', envForced: false })
       trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
       quietHistory()
@@ -660,8 +714,7 @@ describe('UpdatesSection', () => {
 
       render(<UpdatesSection />)
 
-      expect(await screen.findByText('Podium 0.4.3 is published on Development.')).toBeTruthy()
-      expect(screen.getByText('checked just now')).toBeTruthy()
+      expect(await screen.findByText('just now')).toBeTruthy()
     })
 
     it('never renders "No update target is configured." for a machine without one', async () => {
@@ -671,7 +724,7 @@ describe('UpdatesSection', () => {
       trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
       // The exact string the server throws, and the exact prefix this row used
       // to wrap it in, are the two things that must be gone.
-      machines[0]!.targetUnavailableReason = 'No update target is configured.'
+      firstMachine.targetUnavailableReason = 'No update target is configured.'
 
       render(<UpdatesSection />)
 
@@ -685,12 +738,13 @@ describe('UpdatesSection', () => {
       trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
       quietHistory()
       trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
-      machines[0]!.presenceSource = 'supervisor'
-      machines[0]!.deliveryCaps = ['update.delivery.feed']
+      firstMachine.targetVersion = '0.4.2'
+      firstMachine.presenceSource = 'supervisor'
+      firstMachine.deliveryCaps = ['update.delivery.feed']
 
       render(<UpdatesSection />)
 
-      expect(await screen.findByText('Update available')).toBeTruthy()
+      expect(await screen.findByText('Update waiting')).toBeTruthy()
       expect(document.body.textContent).not.toContain('Managed by Podium Desktop')
     })
 
@@ -838,7 +892,7 @@ describe('UpdatesSection', () => {
 
       render(<UpdatesSection />)
 
-      fireEvent.click(await screen.findByRole('button', { name: 'What happened?' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Why?' }))
 
       expect(screen.getByText(/local files or edits that prevent a safe update/)).toBeTruthy()
       expect(screen.getByText(/Commit, stash, move, or locally exclude/)).toBeTruthy()
@@ -872,7 +926,8 @@ describe('UpdatesSection', () => {
         await screen.findByText('This server does not keep a record of past updates.'),
       ).toBeTruthy()
       // The running version and the machine both still report 0.4.1.
-      expect(screen.getAllByText('0.4.1').length).toBe(2)
+      expect(screen.getByTestId('running-version').textContent).toBe('0.4.1')
+      expect(screen.getByTestId('update-machine-machine-ludovico').textContent).toContain('0.4.1')
       expect(screen.getByRole('button', { name: 'Check now' })).toBeTruthy()
     })
   })
@@ -911,7 +966,7 @@ describe('a deployment that owns the server binary', () => {
 
     render(<UpdatesSection />)
 
-    await screen.findByText('Fleet default channel')
+    await screen.findByText('Update channel')
     expect(screen.queryByText(/Server updates are managed by this deployment/)).toBeNull()
   })
 
@@ -923,7 +978,137 @@ describe('a deployment that owns the server binary', () => {
 
     render(<UpdatesSection />)
 
-    await screen.findByText('Fleet default channel')
+    await screen.findByText('Update channel')
     expect(screen.queryByText(/Server updates are managed by this deployment/)).toBeNull()
+  })
+})
+
+describe('Updates permissions and batch actions', () => {
+  function ready() {
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+  }
+
+  it('shows channel and history read-only for a member who manages no machines', async () => {
+    ready()
+    admin = false
+    render(<UpdatesSection />)
+    await screen.findByText('Stable')
+    expect(screen.queryByRole('button', { name: 'Stable' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Check now' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Apply update to/ })).toBeNull()
+    expect(screen.queryByTestId(`update-machine-${firstMachine.id}`)).toBeNull()
+    expect(screen.getByText('History')).toBeTruthy()
+  })
+
+  it('lists and batches only manageable machines for a member', async () => {
+    ready()
+    admin = false
+    Object.assign(firstMachine, { targetVersion: '0.4.2', online: true, transferable: true })
+    machines.push({
+      ...firstMachine,
+      id: asMachineId('another-owner'),
+      name: 'Another machine',
+      transferable: false,
+    })
+    trpc.machines.applyUpdate.mutate.mockResolvedValue({
+      outcome: { result: 'granted', version: '0.4.2' },
+    })
+    render(<UpdatesSection />)
+    const batch = await screen.findByRole('button', { name: 'Update 1 machine' })
+    expect(screen.getByTestId(`update-machine-${firstMachine.id}`)).toBeTruthy()
+    expect(screen.queryByTestId('update-machine-another-owner')).toBeNull()
+    fireEvent.click(batch)
+    await waitFor(() =>
+      expect(trpc.machines.applyUpdate.mutate).toHaveBeenCalledExactlyOnceWith({
+        id: firstMachine.id,
+      }),
+    )
+  })
+
+  it('updates every waiting online manageable machine, with row outcomes for partial failure', async () => {
+    ready()
+    Object.assign(firstMachine, { targetVersion: '0.4.2', online: true, transferable: true })
+    const second = { ...firstMachine, id: asMachineId('second'), name: 'Second' }
+    machines.push(
+      second,
+      { ...second, id: asMachineId('offline'), online: false },
+      { ...second, id: asMachineId('current'), appVersion: '0.4.2' },
+      { ...second, id: asMachineId('not-mine'), transferable: false },
+    )
+    trpc.machines.applyUpdate.mutate.mockImplementation(async ({ id }: { id: string }) => {
+      if (id === 'second') throw new Error('Second could not download')
+      return { outcome: { result: 'granted', version: '0.4.2' } }
+    })
+    render(<UpdatesSection />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Update 2 machines' }))
+    await waitFor(() => expect(trpc.machines.applyUpdate.mutate).toHaveBeenCalledTimes(2))
+    expect(trpc.machines.applyUpdate.mutate).toHaveBeenCalledWith({ id: 'machine-ludovico' })
+    expect(trpc.machines.applyUpdate.mutate).toHaveBeenCalledWith({ id: 'second' })
+    expect(await screen.findByText('Second could not download')).toBeTruthy()
+    expect(screen.getByText('Updating ludovico to 0.4.2…')).toBeTruthy()
+    expect(screen.getByTestId('update-machine-offline').textContent).toContain('Offline')
+  })
+
+  it('hides development publishing and channel pins when the lab is off', async () => {
+    ready()
+    firstMachine.updateChannelOverride = 'dev'
+    trpc.updates.proposal.query.mockResolvedValue({
+      headSha: 'aaaaaaa',
+      version: '0.4.2-dev.1+aaaaaaa',
+      branch: 'main',
+      commits: [],
+      addedMigrations: [],
+      state: 'pending',
+    })
+    render(<UpdatesSection />)
+    await screen.findByRole('button', { name: 'Stable' })
+    expect(screen.queryByText('Development release')).toBeNull()
+    expect(screen.queryByText(/Pinned:/)).toBeNull()
+  })
+})
+
+describe('forced update channel', () => {
+  it('discloses the override and prevents a channel write', async () => {
+    trpc.setup.channel.query.mockResolvedValue({
+      channel: 'edge',
+      envForced: true,
+      channelSource: 'file',
+    })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+    render(<UpdatesSection />)
+    const stable = await screen.findByRole('button', { name: 'Stable' })
+    expect(stable.hasAttribute('disabled')).toBe(true)
+    fireEvent.click(stable)
+    expect(trpc.setup.setChannel.mutate).not.toHaveBeenCalled()
+    expect(screen.getByText(/config.json overrides/)).toBeTruthy()
+  })
+})
+
+describe('member desktop recovery', () => {
+  it('repairs the local installation through the native bridge without an admin command', async () => {
+    admin = false
+    const repair = vi.fn().mockResolvedValue(undefined)
+    ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = {
+      currentVersion: '0.4.1',
+      launchMode: 'client',
+      platform: 'macos',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      repairPayload: repair,
+    }
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+    render(<UpdatesSection />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Repair' }))
+    await waitFor(() => expect(repair).toHaveBeenCalledOnce())
+    expect(trpc.updates.repairPayload.mutate).not.toHaveBeenCalled()
   })
 })

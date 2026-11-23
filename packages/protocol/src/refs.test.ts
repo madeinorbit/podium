@@ -10,12 +10,17 @@ import {
   formatSessionRef,
   formatShort,
   indexForLetter,
+  isPendingIssueSeq,
   isSessionIdPrefix,
   isShortSessionIdentifier,
+  issueDisplayRef,
+  issueNumberText,
+  issueRefText,
   isValidPrefix,
   letterForIndex,
   OTHER_REF_RULE,
   otherRefRule,
+  PENDING_ISSUE_SEQ,
   parseAnyRef,
   parseIssueRef,
   parseSessionRef,
@@ -305,6 +310,21 @@ describe('isSessionIdPrefix (POD-4637)', () => {
     expect(isSessionIdPrefix('214a3887')).toBe(true)
     expect(isSessionIdPrefix('POD-12-A')).toBe(false)
     expect(isSessionIdPrefix('214a3887-6146-4a1d-9c3e-0123456789ab')).toBe(false)
+  })
+})
+
+describe('a new issue’s pending number (POD-6400)', () => {
+  it('reads as pending in every ref text, never as number 0', () => {
+    expect(issueRefText(PENDING_ISSUE_SEQ, 'POD')).toBe('POD-…')
+    expect(issueRefText(PENDING_ISSUE_SEQ)).toBe('#…')
+    expect(issueNumberText(PENDING_ISSUE_SEQ)).toBe('…')
+    expect(issueDisplayRef({ seq: PENDING_ISSUE_SEQ })).toBe('#…')
+  })
+
+  it('a real number reads as itself', () => {
+    expect(issueRefText(12, 'POD')).toBe('POD-12')
+    expect(issueRefText(12, null)).toBe('#12')
+    expect(isPendingIssueSeq(1)).toBe(false)
   })
 })
 

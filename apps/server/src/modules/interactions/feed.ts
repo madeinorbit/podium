@@ -29,84 +29,55 @@
  * and never the answer.)
  *
  * ---------------------------------------------------------------------------
- * IT NEVER THROWS INTO A MUTATION
+ * THE OPEN SET IS A QUERY, NOT A MEMORY (POD-6766, design POD-6253 §1)
  * ---------------------------------------------------------------------------
- * By the time `publish` runs the durable write has happened. A publisher fault
- * must not turn a recorded ask into a failed state-change, or a recorded answer
- * into an error the operator sees after the digits already landed.
+ * What the feed carries is `status = 'asked'` in `pending_interactions`, the
+ * same read the record builder streams. The publisher keeps no copy of it: a
+ * row that changed is named, and the Authority builds an open ask as an
+ * `upsert` and a closed ask as a `remove`. The repository captures every change
+ * to the open set in the row's transaction. Before this, the publisher seeded an in-memory set
+ * from the log with the record's own id where it later looked up the row id,
+ * so no ask carried across a restart was ever removed: 25 closed asks were
+ * still on clients on 2026-11-09.
+ *
+ * ---------------------------------------------------------------------------
+ * THE ROW AND THE LOG COMMIT TOGETHER
+ * ---------------------------------------------------------------------------
+ * The capture is awaited before the source transaction commits. A log failure
+ * rolls the mutation back, so there is no missing entry for a later boot to repair.
  */
 
-import { createLogger } from '@podium/logger'
 import { interactionRowId } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
-import type { InteractionRow } from '../../store/interactions'
-
-const log = createLogger('server:interactions:feed')
+import type { LedgerWriter } from '@podium/sync'
+import { changeLogCommit } from '../../store/change-log-commit'
+import type { InteractionFeedCapture, InteractionRow } from '../../store/interactions'
 
 export interface InteractionFeedDeps {
   /** Write-seam ledger. Rows ride entity kind `pendingInteraction`. */
-  readonly ledger: Pick<Ledger, 'capture'>
-  /** What the Authority already holds for this kind when async boot resolves it —
-   *  the same seeding argument `IssueEventFeedPublisher` makes: seeding from the
-   *  TABLE would re-publish rows a restart had not lost, and disagree with the
-   *  snapshot a connected replica already has. */
-  readonly seed: () =>
-    | readonly { readonly id: string }[]
-    | Promise<readonly { readonly id: string }[]>
-  /** The wire projection of a durable row (the service's, injected so the
-   *  publisher does not own a second copy of it). */
-  readonly toWire: (row: InteractionRow) => PendingInteractionWire
+  readonly ledger: Pick<LedgerWriter, 'commit'>
+}
+
+/** The feed's records for these rows: the open ones, keyed by row id. */
+export function openInteractionRecords(
+  rows: readonly InteractionRow[],
+  toWire: (row: InteractionRow) => PendingInteractionWire,
+): { id: string; value: PendingInteractionWire }[] {
+  return rows
+    .filter((row) => row.status === 'asked')
+    .map((row) => ({ id: interactionRowId(row.sessionId, row.id), value: toWire(row) }))
 }
 
 export class InteractionFeedPublisher {
-  /** Change-log ids currently carried. */
-  private carried = new Set<string>()
-  private resolved = false
-  private resolving: Promise<void> | undefined
-
   constructor(private readonly deps: InteractionFeedDeps) {}
 
-  /** Read the authority's existing open set after composition and before serving. */
-  async resolve(): Promise<void> {
-    if (this.resolved) return
-    if (!this.resolving) {
-      this.resolving = (async () => {
-        this.carried = new Set((await this.deps.seed()).map((row) => row.id))
-        this.resolved = true
-      })()
-    }
-    await this.resolving
-  }
-
   /**
-   * Publish one row's current state — an `upsert` while it is open, a `remove`
-   * once it resolves.
-   *
-   * A resolved row that was never carried publishes nothing: an ask the policy
-   * table auto-answered in the same tick it was minted never blocked anyone, and
-   * a `remove` for a row no replica ever held is a change with no meaning.
+   * Capture successful row writes: the row is already written, and this
+   * commit, in the same transaction, drains the database's change capture,
+   * so the Authority builds the record from the table: open is an `upsert`,
+   * anything else a `remove` (POD-6920). The source transaction cannot be
+   * overtaken between its row change and this append.
    */
-  async publish(row: InteractionRow): Promise<void> {
-    await this.resolve()
-    try {
-      const id = interactionRowId(row.sessionId, row.id)
-      if (row.status === 'asked') {
-        this.carried.add(id)
-        await this.capture([
-          { entity: 'pendingInteraction', id, op: 'upsert', value: this.deps.toWire(row) },
-        ])
-        return
-      }
-      if (this.carried.delete(id)) {
-        await this.capture([{ entity: 'pendingInteraction', id, op: 'remove' }])
-      }
-    } catch (err) {
-      log.warn('interaction feed publish failed', { err, id: row.id })
-    }
-  }
-
-  private async capture(changes: EntityChangeSpec[]): Promise<void> {
-    await this.deps.ledger.capture(changes)
-  }
+  readonly capture: InteractionFeedCapture = async (write) =>
+    await changeLogCommit(this.deps.ledger)(write)
 }

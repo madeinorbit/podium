@@ -69,7 +69,9 @@ export interface PulseBodyProps {
   quotaCold?: boolean
   quotaFailed?: boolean
   tasksFailed?: boolean
-  onRetry: (reading: 'usage' | 'quota') => void
+  /** Asks again for the requested readings (task costs). Usage and quota are
+   *  pushed: their notes say the figures are older, with nothing to retry. */
+  onRetry: () => void
   onOpenTask: (issueId: string) => void
   buildStamp: string
 }
@@ -94,9 +96,7 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
     // Rebuild native text measurements without resetting the section folds above.
     <View key={fontScale} style={styles.page}>
       <Card>
-        {props.failed ? (
-          <ReadingFailure label="usage" stale={!cold} onRetry={() => props.onRetry('usage')} />
-        ) : null}
+        {props.failed ? <ReadingFailure label="usage" stale={!cold} /> : null}
         <HeroBlock hero={hero} cold={cold} />
         <View style={[styles.stats, stackedStats && styles.statsStacked]}>
           <Stat
@@ -143,13 +143,7 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
       )}
       {open('quota') ? (
         <Card>
-          {props.quotaFailed ? (
-            <ReadingFailure
-              label="quota"
-              stale={!props.quotaCold}
-              onRetry={() => props.onRetry('quota')}
-            />
-          ) : null}
+          {props.quotaFailed ? <ReadingFailure label="quota" stale={!props.quotaCold} /> : null}
           {props.quota.length === 0 ? (
             props.quotaFailed ? null : (
               <Message
@@ -177,11 +171,7 @@ export const PulseBody = memo(function PulseBody(props: PulseBodyProps) {
       {open('projects') ? (
         <Card>
           {props.tasksFailed ? (
-            <ReadingFailure
-              label="task costs"
-              stale={!props.tasksCold}
-              onRetry={() => props.onRetry('usage')}
-            />
+            <ReadingFailure label="task costs" stale={!props.tasksCold} onRetry={props.onRetry} />
           ) : null}
           {props.projects === null || props.projects.rows.length === 0 ? (
             props.tasksFailed ? null : (
@@ -351,16 +341,18 @@ function ReadingFailure({
 }: {
   label: string
   stale: boolean
-  onRetry: () => void
+  onRetry?: () => void
 }) {
   return (
     <View style={styles.message}>
       <Text style={styles.messageText}>
         {stale ? `Couldn’t refresh ${label}. Showing the last reading.` : `Couldn’t read ${label}.`}
       </Text>
-      <Pressable accessibilityRole="button" onPress={onRetry} hitSlop={8}>
-        <Text style={styles.retry}>Try Again</Text>
-      </Pressable>
+      {onRetry ? (
+        <Pressable accessibilityRole="button" onPress={onRetry} hitSlop={8}>
+          <Text style={styles.retry}>Try Again</Text>
+        </Pressable>
+      ) : null}
     </View>
   )
 }

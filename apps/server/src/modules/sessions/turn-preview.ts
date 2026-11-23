@@ -39,10 +39,10 @@
  *      lossy on purpose.
  */
 
+import { streamItemIdOf } from '@podium/harness/store'
 import type { SessionId } from '@podium/model'
 import type { TurnPreviewItem, TurnPreviewMessage } from '@podium/protocol'
 import type { RuntimeEvent } from '@podium/protocol/daemon'
-import { streamItemIdOf } from '@podium/harness/store'
 
 /**
  * How often a session may emit a preview frame, at most.
@@ -66,6 +66,8 @@ export interface TurnPreviewPorts {
 
 interface SessionPreview {
   turnEpoch: number
+  /** The newest epoch whose start the gate accepted (POD-6280), or -1. */
+  admitted: number
   /** Cursor ordinal of the newest event folded in — the frame's `seq`. */
   seq: number
   /** Insertion order, so the preview renders the way the turn happened. */
@@ -107,6 +109,7 @@ export class TurnPreviewAccumulator {
   record(sessionId: SessionId, event: RuntimeEvent): void {
     if (event.t === 'turn') {
       if (event.ev.ev === 'completed' || event.ev.ev === 'failed') this.fence(sessionId, event)
+      else if (event.ev.ev === 'started') this.admit(sessionId, event.turnEpoch)
       return
     }
     if (event.t !== 'item') return
@@ -138,19 +141,21 @@ export class TurnPreviewAccumulator {
     this.schedule(sessionId, state, event.cursor.components.seq ?? state.seq + 1)
   }
 
-  /** The frame a late subscriber is caught up with, if the epoch is still open. */
-  retained(sessionId: SessionId): TurnPreviewMessage | undefined {
-    const state = this.sessions.get(sessionId)
-    if (!state || state.rows.size === 0) return undefined
-    return this.frameOf(sessionId, state)
-  }
-
   /** The session is gone, rebound, or its daemon changed: no preview survives
-   *  that, because the epoch numbering it was keyed on may not either. */
+   *  that, because the epoch numbering it was keyed on may not either. What
+   *  viewers were shown goes too: the terminal keeps the last frame for late
+   *  subscribers, and a fold that drops its rows silently would leave that
+   *  frame standing for every later viewer (POD-6280). */
   forget(sessionId: SessionId): void {
     const state = this.sessions.get(sessionId)
     if (state?.timer !== undefined) this.clearTimer(state.timer)
     this.sessions.delete(sessionId)
+    if (state && state.rows.size > 0) {
+      this.ports.publish(sessionId, {
+        ...this.frameOf(sessionId, { ...state, order: [], rows: new Map() }),
+        done: true,
+      })
+    }
   }
 
   dispose(): void {
@@ -159,31 +164,45 @@ export class TurnPreviewAccumulator {
 
   // -- internals ------------------------------------------------------------
 
+  /**
+   * A TURN THE GATE ACCEPTED (POD-6280). Fragments bypass the durable gate, but
+   * only its coarse events clear a preview. A fragment for a turn the gate
+   * never opened would build a preview nothing could clear: the stream whose
+   * gate rejected every coarse event left the reply on screen, grey, for every
+   * viewer who opened the chat afterwards. So fragments fold only inside a turn
+   * whose start came through the gate.
+   */
+  private admit(sessionId: SessionId, turnEpoch: number): void {
+    const state = this.sessions.get(sessionId)
+    if (!state) {
+      this.sessions.set(sessionId, {
+        turnEpoch,
+        admitted: turnEpoch,
+        seq: 0,
+        order: [],
+        rows: new Map(),
+        fencedThrough: -1,
+        dirty: false,
+        lastSentAt: 0,
+      })
+      return
+    }
+    state.admitted = Math.max(state.admitted, turnEpoch)
+  }
+
   private open(sessionId: SessionId, turnEpoch: number): SessionPreview | undefined {
     const existing = this.sessions.get(sessionId)
-    if (existing) {
-      // RULE 2. A fragment for a fenced epoch, or for one older than the epoch
-      // on screen, is a late arrival whose preview was already replaced.
-      if (turnEpoch <= existing.fencedThrough) return undefined
-      if (turnEpoch < existing.turnEpoch) return undefined
-      if (turnEpoch > existing.turnEpoch) {
-        existing.turnEpoch = turnEpoch
-        existing.order = []
-        existing.rows.clear()
-      }
-      return existing
+    if (!existing || turnEpoch !== existing.admitted) return undefined
+    // RULE 2. A fragment for a fenced epoch, or for one older than the epoch
+    // on screen, is a late arrival whose preview was already replaced.
+    if (turnEpoch <= existing.fencedThrough) return undefined
+    if (turnEpoch < existing.turnEpoch) return undefined
+    if (turnEpoch > existing.turnEpoch) {
+      existing.turnEpoch = turnEpoch
+      existing.order = []
+      existing.rows.clear()
     }
-    const state: SessionPreview = {
-      turnEpoch,
-      seq: 0,
-      order: [],
-      rows: new Map(),
-      fencedThrough: -1,
-      dirty: false,
-      lastSentAt: 0,
-    }
-    this.sessions.set(sessionId, state)
-    return state
+    return existing
   }
 
   private retire(state: SessionPreview, itemId: string): void {
@@ -218,6 +237,7 @@ export class TurnPreviewAccumulator {
     if (!state) {
       this.sessions.set(sessionId, {
         turnEpoch: event.turnEpoch,
+        admitted: -1,
         seq: event.cursor.components.seq ?? 0,
         order: [],
         rows: new Map(),

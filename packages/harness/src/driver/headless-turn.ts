@@ -58,10 +58,11 @@ function canonicalJson(value: unknown): string {
  * requestId) deliberately do not affect it — a reconnect replays the SAME turn,
  * not a new one.
  *
- * `structuredPermissions` rides the digest when present (absent-means-absent):
- * it flips the SDK's effective permission mode (`default` vs `auto`) when no
- * explicit `permissionMode` is set, so a turn minted unstructured must never
- * verify as structured.
+ * `allowedTools`, `permissionMode` and `structuredPermissions` are the old
+ * frame's vendor-worded launch terms (`TurnInput.legacyTerms`). The server
+ * still mints the digest over them, because a daemon that predates posture
+ * recomputes it over them, and an older daemon strips `posture` before it
+ * recomputes: so `posture` is never a digest fact (POD-6858).
  *
  * `attachmentPaths` rides the same way (POD-6093): the staged paths the turn
  * puts ahead of its prompt, so the text the harness reads is still exactly

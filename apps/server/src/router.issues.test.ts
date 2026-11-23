@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId } from '@podium/model'
+import { asIssueId, asSessionId, subscriptionRowIdOf } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { firstAdminMemberId, resolvePrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
@@ -44,7 +44,10 @@ describe('issues router inputs (P1)', () => {
     for (const type of ['blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates'])
       expect(inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b', type }).type).toBe(type)
     for (const type of ['blocks', 'waits-on', 'duplicate', 'parent-child', 'tracks'])
-      expect(() => inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b', type }), type).toThrow()
+      expect(
+        () => inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b', type }),
+        type,
+      ).toThrow()
   })
 
   // POD-1342: the CLI's truncation footer tells the reader to raise these, so
@@ -232,21 +235,35 @@ describe('issues.* subtree scope (P1a)', () => {
     expect(defaulted.humanQuestionAskedBy).toBe('sess_me')
   })
 
-  it('answerQuestion is scope-gated and never clears on failed delivery (issue #53)', async () => {
+  // Answering is driving the asking session (design §2.3, POD-6283 17082bb365):
+  // the gate is that session's owner, not the task subtree, and it is proven in
+  // private-sessions.test.ts ('Alice and her agent are refused; Bob's answer is
+  // delivered'). What stays here is the delivery rule.
+  it('answerQuestion never clears on failed delivery (issue #53)', async () => {
     const c = callerWith({
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(A.id) },
       actorSessionId: asSessionId('sess_gone'),
     })
-    await expect(c.issues.answerQuestion({ id: B.id, answer: 'Yes' })).rejects.toThrow(
-      /outside your subtree/,
-    )
     // Asks as itself (server-authoritative default); that session isn't live in
     // this registry, so delivery below must fail and preserve the flag.
     await c.issues.setNeedsHuman({ id: A.id, question: 'merge?' })
-    // The asking session doesn't exist in this registry → delivery fails →
-    // the pending question must survive.
+    // The answer is a `session.answer` record (POD-6415) whose run re-reads its
+    // writer: an agent writer whose session is gone may no longer act, and
+    // nothing is delivered.
     await expect(c.issues.answerQuestion({ id: A.id, answer: 'Yes' })).rejects.toThrow(
+      /may no longer/,
+    )
+    // A person answers; the asking session doesn't exist in this registry →
+    // delivery fails → the pending question must survive.
+    const human = appRouter.createCaller({
+      registry,
+      repos: {} as never,
+      superagent: {} as never,
+      capability: OPERATOR,
+      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+    })
+    await expect(human.issues.answerQuestion({ id: A.id, answer: 'Yes' })).rejects.toThrow(
       /answer not delivered/,
     )
     const w = (await c.issues.get({ id: A.id })) as { needsHuman: boolean }
@@ -274,8 +291,8 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     registries.push(registry)
     await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
     // create + set worktreePath directly (start() needs a daemon repoOp round-trip).
-    const i = await registry.issues.crud.create({ repoPath: '/r', title: 'W', startNow: false })
-    await registry.issues.crud.update(i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
+    const i = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/r', title: 'W', startNow: false })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, i.id, { worktreePath: '/r/.worktrees/issue-1-w' })
     const wt = (await registry.issues.reports.get(i.id))!.worktreePath as string
 
     const { sessionId: sid } = await registry.modules.sessions.createSession({
@@ -303,7 +320,9 @@ describe('SessionRegistry.capabilityForSession (P1b)', () => {
     })
 
     // No session behind the id → no actor to name.
-    expect(await registry.modules.sessions.capabilityForSession(asSessionId('no-such-session'))).toEqual({
+    expect(
+      await registry.modules.sessions.capabilityForSession(asSessionId('no-such-session')),
+    ).toEqual({
       role: 'worker',
       scope: { kind: 'none' },
     })
@@ -333,6 +352,10 @@ describe('scope-gate coverage (P1b)', () => {
     // subscriptionSetEnabled targets a subscription id, not an issue; the
     // own-or-operator check runs in the handler itself.
     'subscriptionSetEnabled',
+    // answerQuestion is gated on the ASKING SESSION's owner, decided by the
+    // handler (design §2.3, POD-6283 17082bb365); a task target would admit the
+    // task's assignee, who must not drive someone else's session.
+    'answerQuestion',
   ])
 
   it('every write/manage command that targets an existing issue is scope-gated', () => {
@@ -365,6 +388,11 @@ describe('scope-gate coverage (P1b)', () => {
     // it folds a finished row away and changes nothing about the work itself.
     // Node-local like markRead, never hub-forwarded, 'read' authority only.
     'setTucked',
+    // join and dismissAssignment (POD-6290 f97c15fe73) write the caller's own
+    // personal start/join and assignment records (design §4.4): per-user state,
+    // self only (§4.1), with the setTucked policy; neither changes the task.
+    'join',
+    'dismissAssignment',
   ])
 
   it('every issues.* mutation exposed by the router carries write/manage authority', () => {
@@ -487,7 +515,12 @@ describe('issues.mail* (agent mail #103)', () => {
   it('mailClaim is scope-gated to the OWN issue via the message target', async () => {
     const op = callerWith(OPERATOR)
     const mine = await seedMailboxRow(registry.sessionStore, asIssueId(A.id), 'operator', 'mine')
-    const theirs = await seedMailboxRow(registry.sessionStore, asIssueId(B.id), 'operator', 'theirs')
+    const theirs = await seedMailboxRow(
+      registry.sessionStore,
+      asIssueId(B.id),
+      'operator',
+      'theirs',
+    )
     const c = scopedToA()
     const r = await c.issues.mailClaim({ messageId: mine.id })
     expect(r.claimed).toBe(true)
@@ -658,17 +691,34 @@ describe('issues.subscription* authz (Phase B)', () => {
     ).toEqual([])
   })
 
+  /** A generic record write on the sync write entry point (POD-6676): a
+   *  subscription's toggle and removal are its record's edits. */
+  const submit = async (
+    caller: ReturnType<typeof callerWith>,
+    command: string,
+    input: unknown,
+  ): Promise<{ outcome: string }> =>
+    (await caller.sync.submit({
+      mutationId: `mut_${Math.random().toString(36).slice(2)}`,
+      command,
+      version: 1,
+      input,
+    })) as { outcome: string }
+
   it('a subtree caller may only remove its OWN subscription', async () => {
     const sa = await scopedTo(A.id).issues.subscriptionAdd({
       event: 'issue.closed',
       source: { kind: 'issue', ref: A.id },
     })
-    await expect(scopedTo(B.id).issues.subscriptionRemove({ id: sa.id })).rejects.toThrow(
-      /do not own/,
-    )
-    await expect(scopedTo(A.id).issues.subscriptionRemove({ id: sa.id })).resolves.toMatchObject({
-      removed: true,
-    })
+    const id = subscriptionRowIdOf(sa)
+    // Another subscriber's subscription fails as an unknown one.
+    expect(
+      (await submit(scopedTo(B.id), 'records.subscription.remove', { id })).outcome,
+    ).toBe('rejected')
+    expect(
+      (await submit(scopedTo(A.id), 'records.subscription.remove', { id })).outcome,
+    ).toBe('applied')
+    expect(await scopedTo(A.id).issues.subscriptionList()).toEqual([])
   })
 
   it('the operator creates a subscription for an EXPLICIT subscriber (Automations UI)', async () => {
@@ -695,18 +745,21 @@ describe('issues.subscription* authz (Phase B)', () => {
       event: 'issue.closed',
       source: { kind: 'issue', ref: A.id },
     })
+    const id = subscriptionRowIdOf(sa)
+    const toggle = (enabled: boolean) => ({ id, patch: { enabled } })
     // Operator toggles it off, then a foreign subtree caller is refused.
-    await expect(
-      callerWith(OPERATOR).issues.subscriptionSetEnabled({ id: sa.id, enabled: false }),
-    ).resolves.toMatchObject({ updated: true })
+    expect(
+      (await submit(callerWith(OPERATOR), 'records.subscription.edit', toggle(false))).outcome,
+    ).toBe('applied')
     expect((await callerWith(OPERATOR).issues.subscriptionList())[0]!.enabled).toBe(false)
-    await expect(
-      scopedTo(B.id).issues.subscriptionSetEnabled({ id: sa.id, enabled: true }),
-    ).rejects.toThrow(/do not own/)
+    expect(
+      (await submit(scopedTo(B.id), 'records.subscription.edit', toggle(true))).outcome,
+    ).toBe('rejected')
     // The owner may re-enable it.
-    await expect(
-      scopedTo(A.id).issues.subscriptionSetEnabled({ id: sa.id, enabled: true }),
-    ).resolves.toMatchObject({ updated: true })
+    expect(
+      (await submit(scopedTo(A.id), 'records.subscription.edit', toggle(true))).outcome,
+    ).toBe('applied')
+    expect((await callerWith(OPERATOR).issues.subscriptionList())[0]!.enabled).toBe(true)
   })
 })
 

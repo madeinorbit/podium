@@ -1,6 +1,12 @@
 import { openDatabase } from '@podium/runtime/sqlite'
 import { expect, it } from 'vitest'
-import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
+import { DRIZZLE_MIGRATIONS as ALL_MIGRATIONS } from './drizzle-manifest.generated'
+
+const DRIZZLE_MIGRATIONS = ALL_MIGRATIONS.slice(
+  0,
+  ALL_MIGRATIONS.findIndex((m) => m.name.endsWith('_sync-log-only')),
+)
+
 import { runDrizzleMigrations } from './index'
 
 it('removes retired replication payloads, preserves current rows, and invalidates the old cursor', () => {

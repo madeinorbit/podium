@@ -1,12 +1,14 @@
 import { createLogger } from '@podium/logger'
-import { type IssueId, type IssueProjection, isIssueClosed } from '@podium/model'
-import type { Ledger } from '@podium/sync'
+import { type IssueId, type IssueProjection, isIssueClosed, type UserId } from '@podium/model'
+import type { LedgerWriter } from '@podium/sync'
 import { systemPrincipal } from '../command-principal'
 import { afterCommit } from '../store/executor/executor'
+import { ClosedIssueRefusals } from './closed-issue-refusals'
 import type { IssueService } from './issues/service'
 import { IssueNotFound } from './issues/service/not-found'
 import type { HandoffCaller } from './sessions/handoff/ports'
-import type { SessionLifecycle } from './sessions/lifecycle'
+import type { SessionIssueWorkflowPort } from './sessions/issue-workflow-port'
+import type { SessionLifecycle, SessionLifecycleDeps } from './sessions/lifecycle'
 
 const log = createLogger('server:closed-issue-reaper')
 
@@ -25,8 +27,13 @@ export interface RestoreIssueResult {
   restoredSessionIds: string[]
 }
 
+/** What an issue delete or restore commits on: the command's own writer. */
+type IssueLifecycleWriter = Pick<LedgerWriter, 'commit'>
+
 export class IssueSessionLifecycle {
   private readonly closedIssueStops = new Map<string, Promise<void>>()
+  /** Refused closed issues the sweep sits out, by refusal (POD-7036). */
+  private readonly closedIssueRefusals = new ClosedIssueRefusals()
   private closedIssueSweepTimer: ReturnType<typeof setInterval> | undefined
   /** True while a closed-issue sweep is running — see {@link sweepClosedIssues}. */
   private sweepingClosedIssues = false
@@ -37,29 +44,76 @@ export class IssueSessionLifecycle {
     private readonly deps: {
       issues: IssueService
       sessions: SessionLifecycle
-      ledger: Pick<Ledger, 'commit'>
+      ledger: Pick<LedgerWriter, 'commit'>
+      /** The issue revision arbitration, applied to a command's own writer. */
+      arbitrate: (writer: IssueLifecycleWriter) => IssueLifecycleWriter
     },
   ) {}
 
+  /** The launch record has committed; its session's draft is the lifecycle's
+   * own issue write, carrying the same accountable human as the session. */
+  async draftForStart(
+    ...[writer, input]: Parameters<NonNullable<SessionLifecycleDeps['draftForStart']>>
+  ) {
+    const { cwd, agentKind, ownerUserId, machineId } = input
+    return (
+      await this.deps.issues.attention.createDraftFor(
+        writer,
+        cwd,
+        agentKind,
+        undefined,
+        { ownerUserId, createdByActor: ownerUserId, createdByOnBehalfOf: ownerUserId },
+        machineId,
+      )
+    ).id
+  }
+
+  async discardUnlaunchedDraft(
+    issueId: Parameters<IssueService['attention']['discardUnlaunchedDraft']>[0],
+  ) {
+    await this.deps.issues.attention.discardUnlaunchedDraft(issueId)
+  }
+
+  async recordParticipation(...args: Parameters<IssueService['attention']['recordParticipation']>) {
+    await this.deps.issues.attention.recordParticipation(...args)
+  }
+
+  /**
+   * The issue workflow as the session paths see it. A resume or a resurrect is
+   * the server acting after a commit (the launch run, the lifecycle
+   * controller), so a session's re-home writes the issue as `sessions.lifecycle`
+   * (ADR 12 D9, POD-6601).
+   */
+  private sessionWorkflow(): SessionIssueWorkflowPort {
+    const workflow = this.deps.issues.gitWorkflow
+    return {
+      ensureWorktree: async (...args) => await workflow.ensureWorktree(...args),
+      freeWorktreeKeepBranch: async (...args) => await workflow.freeWorktreeKeepBranch(...args),
+      rehome: async (issueId, where) =>
+        await workflow.rehome(this.deps.sessions.serverWriter, issueId, where),
+      recordSessionGitActivity: async (...args) => await workflow.recordSessionGitActivity(...args),
+    }
+  }
+
   /** Resume a durable conversation under one visible issue/session workflow. */
   async resumeSession(input: Parameters<SessionLifecycle['resumeSession']>[0]) {
-    return await this.deps.sessions.resumeSession(input, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.resumeSession(input, this.sessionWorkflow())
   }
 
   /** Recreate a freed issue worktree before respawning its parked session. */
   async resurrectSession(input: Parameters<SessionLifecycle['resurrectSession']>[0]) {
-    return await this.deps.sessions.resurrectSession(input, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.resurrectSession(input, this.sessionWorkflow())
   }
 
   /** Park one session and free its worktree without an asynchronous ordering hop. */
   async stopSession(input: Parameters<SessionLifecycle['stopSession']>[0]) {
-    return await this.deps.sessions.stopSession(input, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.stopSession(input, this.sessionWorkflow())
   }
 
   /** Stop every issue member before the single final worktree-free pass. */
   async stopIssue(input: Parameters<SessionLifecycle['stopIssue']>[0]) {
     const issueId = await this.deps.issues.reports.resolveRef(input.issueId)
-    return await this.deps.sessions.stopIssue({ ...input, issueId }, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.stopIssue({ ...input, issueId }, this.sessionWorkflow())
   }
   /**
    * Stop a closed issue through the same no-force path as `podium issue stop`.
@@ -72,6 +126,8 @@ export class IssueSessionLifecycle {
   async stopClosedIssue(input: {
     issueId: IssueId
     reason: ClosedIssueSweepReason
+    /** Whose sessions the close stops (POD-6287): the closer's, nobody else's. */
+    closedBy?: UserId
   }): Promise<void> {
     // AFTER THE COMMIT, not inside the span [POD-3806]. The `void` is the point
     // of this method — the close must not wait for worktree work — but under the
@@ -93,6 +149,7 @@ export class IssueSessionLifecycle {
   private async stopClosedIssueNow(input: {
     issueId: IssueId
     reason: ClosedIssueSweepReason
+    closedBy?: UserId
   }): Promise<void> {
     let issueId: IssueId
     try {
@@ -111,9 +168,20 @@ export class IssueSessionLifecycle {
     const task = (async (): Promise<void> => {
       const current = await this.deps.issues.reports.get(issueId)
       if (!current || current.deletedAt || !isIssueClosed(current)) return
-      log.info('closed issue stop requested', { issueId, reason: input.reason })
+      // ONLY THE CLOSER'S SESSIONS (POD-6287, MU-24). A close is the closer
+      // stopping their own work on the task; another member's agent on it
+      // keeps running. The sweep, which has no caller, reads the closer off
+      // the row; a row closed before that was recorded, or by the server,
+      // stops the assignee's.
+      const meta = input.closedBy ? undefined : await this.deps.issues.reports.getMeta(issueId)
+      const ownedBy = input.closedBy ?? meta?.closedByUserId ?? meta?.ownerUserId
+      // The close itself is worth a line; a sweep's ask is routine (POD-7036).
+      if (input.reason === 'close')
+        log.info('closed issue stop requested', { issueId, reason: input.reason })
+      else log.debug('closed issue stop requested', { issueId, reason: input.reason })
       const result = await this.stopIssue({
         issueId,
+        ownedBy,
         // ONLY THE CLOSE ITSELF RE-REAPS [POD-3845]. `reapParked` is the sole
         // way `stopSession` reaches `gracefulStopThenKill` for a row that is
         // ALREADY parked (session-teardown.ts), so asking for it on every sweep
@@ -138,11 +206,27 @@ export class IssueSessionLifecycle {
         reapParked: input.reason === 'close',
         principal: systemPrincipal(input.reason === 'close' ? 'issue-close' : 'closed-issue-sweep'),
       })
-      if (!result.ok) {
+      // A worktree the final pass could not free is refused too: the issue
+      // stays a candidate, and asking again changes nothing until it does.
+      const refusal = !result.ok
+        ? (result.reason ?? 'unknown')
+        : !result.worktreeFreed && result.reason
+          ? result.reason
+          : undefined
+      if (refusal === undefined) {
+        this.closedIssueRefusals.succeeded(issueId)
+        return
+      }
+      // LOGGED ONCE PER CHANGE (POD-7036): the same refusal again is the
+      // same dirty worktree, and the sweep now sits it out (see
+      // `closed-issue-refusals.ts`) rather than repeating the line.
+      const changed = this.closedIssueRefusals.refusedWith(issueId, refusal)
+      if (!result.ok && changed) {
+        const cleanupReason = refusal
         log.warn('closed issue cleanup refused', {
           issueId,
           reason: input.reason,
-          cleanupReason: result.reason ?? 'unknown',
+          cleanupReason,
           stopped: result.stopped.length,
         })
       }
@@ -175,7 +259,9 @@ export class IssueSessionLifecycle {
         log.warn('closed issue sweep could not list issues', { err: error, reason })
         return
       }
-      for (const issueId of candidates) {
+      // A REFUSED ISSUE SITS OUT, AND A PASS IS CAPPED (POD-7036): see
+      // `closed-issue-refusals.ts` for what the back-off forgets and when.
+      for (const issueId of this.closedIssueRefusals.beginPass(candidates)) {
         await this.stopClosedIssueNow({ issueId, reason })
       }
     } finally {
@@ -267,30 +353,40 @@ export class IssueSessionLifecycle {
     input: Parameters<SessionLifecycle['handoffSession']>[0],
     caller: HandoffCaller,
   ) {
-    return await this.deps.sessions.handoffSession(input, caller, this.deps.issues.gitWorkflow)
+    return await this.deps.sessions.handoffSession(input, caller, this.sessionWorkflow())
   }
   /** Soft-delete an issue and tombstone all of its local member sessions.
    *  Both durable entity changes land in one ledger transaction; PTY teardown and
    *  broadcasts happen only after the commit succeeds. */
-  async deleteIssue(id: string): Promise<DeleteIssueResult> {
+  async deleteIssue(
+    writer: IssueLifecycleWriter,
+    id: string,
+    /** Whose sessions the deletion ends (POD-6287, MU-24): the deleter's own.
+     *  Another member's session on the task keeps running. Absent, for the
+     *  server's own deletions: every member session. */
+    by?: UserId,
+  ): Promise<DeleteIssueResult> {
     // Membership and no-op results use durable facts, without report joins.
     const current = await this.deps.issues.reports.getMeta(id)
     if (!current) throw new IssueNotFound(id)
     if (current.deletedAt)
-      return { issue: await this.deps.issues.reports.store.projection(current), deletedSessionIds: [] }
+      return {
+        issue: await this.deps.issues.reports.store.projection(current),
+        deletedSessionIds: [],
+      }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionDelete(
       current.id,
       current.worktreePath,
+      by,
     )
     const issuePlan = await this.deps.issues.crud.prepareSoftDelete(current.id)
 
-    await this.deps.ledger.commit({
-      write: async () => {
-        await sessionPlan.write()
-        await issuePlan.write()
+    await this.deps.arbitrate(writer).commit({
+      write: async (scope) => {
+        await sessionPlan.write(scope)
+        await issuePlan.write(scope)
       },
-      changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // THE RUNTIME HALF WAITS FOR THE OUTERMOST COMMIT [POD-3366]. It used to
       // run on the statement after this call, and when a caller already has a
       // span open that statement is on the success path of a SAVEPOINT release,
@@ -324,22 +420,24 @@ export class IssueSessionLifecycle {
   /** Restore an issue and the exact sessions tombstoned by its deletion. Session
    *  metadata returns as exited because the deletion deliberately killed the PTY;
    *  resumable sessions can then be started through the normal resurrection path. */
-  async restoreIssue(id: string): Promise<RestoreIssueResult> {
+  async restoreIssue(writer: IssueLifecycleWriter, id: string): Promise<RestoreIssueResult> {
     // No-op restores return the same normalized shape as committed ones.
     const current = await this.deps.issues.reports.getMeta(id)
     if (!current) throw new IssueNotFound(id)
     if (!current.deletedAt)
-      return { issue: await this.deps.issues.reports.store.projection(current), restoredSessionIds: [] }
+      return {
+        issue: await this.deps.issues.reports.store.projection(current),
+        restoredSessionIds: [],
+      }
 
     const sessionPlan = await this.deps.sessions.prepareIssueSessionRestore(current.id)
     const issuePlan = await this.deps.issues.crud.prepareRestore(current.id)
 
-    await this.deps.ledger.commit({
-      write: async () => {
-        await sessionPlan.write()
-        await issuePlan.write()
+    await this.deps.arbitrate(writer).commit({
+      write: async (scope) => {
+        await sessionPlan.write(scope)
+        await issuePlan.write(scope)
       },
-      changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
       // The same argument as the delete above, in the other direction: the
       // restore's apply INSTALLS runtime sessions and reloads the session state,
       // and installing a live session for a restore the enclosing span can still

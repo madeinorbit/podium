@@ -22,7 +22,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { MachineQuotaWire } from '@podium/model'
+import type { MachineQuotaWire, UserId } from '@podium/model'
 import type { QuotaHistoryRepository } from '../../store/quota-history'
 import { samplesFromQuota } from './samples'
 
@@ -48,39 +48,62 @@ export const QUOTA_HISTORY_DEFAULT_DAYS = 90
  * of serving quota, and a failure to write history must never turn a working
  * `quota.summary` into an error for the person watching the meter.
  */
+/** The custodian of a machine, or null when nobody looks after it (POD-6300). */
+export type QuotaOwnerOf = (machineId: string) => Promise<UserId | null>
+
+/** No owner known: rows this opens answer to nobody. */
+const NO_OWNER: QuotaOwnerOf = async () => null
+
 export async function recordQuotaSamples(
   history: QuotaHistoryRepository,
   machines: MachineQuotaWire[],
   intervalMs: number = QUOTA_SAMPLE_INTERVAL_MS,
+  ownerOf: QuotaOwnerOf = NO_OWNER,
 ): Promise<{ recorded: number; openedWindows: number }> {
   let recorded = 0
   let openedWindows = 0
-  for (const sample of samplesFromQuota(machines)) {
-    try {
-      const { openedWindow } = await history.record(sample, intervalMs)
-      recorded += 1
-      if (openedWindow) {
-        openedWindows += 1
-        // A reset is the one event here worth a log line: it is when a window's
-        // number becomes final, and it is what the whole chart is made of.
-        log.info('quota window opened', {
+  // A window belongs to the custodian of the machine that reported it, read
+  // once per machine per pass (POD-6300).
+  const owners = new Map<string, UserId | null>()
+  for (const machine of machines) {
+    if (!owners.has(machine.machineId)) {
+      owners.set(machine.machineId, await ownerOf(machine.machineId).catch(() => null))
+    }
+  }
+  for (const machine of machines) {
+    for (const sample of samplesFromQuota([machine])) {
+      try {
+        const { openedWindow } = await history.record(
+          sample,
+          intervalMs,
+          owners.get(machine.machineId) ?? null,
+        )
+        recorded += 1
+        if (openedWindow) {
+          openedWindows += 1
+          // A reset is the one event here worth a log line: it is when a window's
+          // number becomes final, and it is what the whole chart is made of.
+          log.info('quota window opened', {
+            accountKey: sample.accountKey,
+            windowKey: sample.windowKey,
+            resetsAt: new Date(sample.resetsAtMs).toISOString(),
+          })
+        }
+      } catch (err) {
+        log.warn('quota sample not recorded', {
           accountKey: sample.accountKey,
           windowKey: sample.windowKey,
-          resetsAt: new Date(sample.resetsAtMs).toISOString(),
+          err,
         })
       }
-    } catch (err) {
-      log.warn('quota sample not recorded', {
-        accountKey: sample.accountKey,
-        windowKey: sample.windowKey,
-        err,
-      })
     }
   }
   return { recorded, openedWindows }
 }
 
 export interface QuotaSamplerOptions {
+  /** Whose a recorded window is: the reporting machine's custodian. */
+  ownerOf?: QuotaOwnerOf
   intervalMs?: number
   bootDelayMs?: number
   retentionMs?: number
@@ -90,13 +113,14 @@ export interface QuotaSamplerOptions {
 export class QuotaSampler {
   private bootTimer: ReturnType<typeof setTimeout> | undefined
   private timer: ReturnType<typeof setInterval> | undefined
-  private inFlight: Promise<void> | undefined
+  private inFlight: Promise<MachineQuotaWire[] | undefined> | undefined
   private disposed = false
 
   private readonly intervalMs: number
   private readonly retentionMs: number
   private readonly bootDelayMs: number
   private readonly now: () => number
+  private readonly ownerOf: QuotaOwnerOf
 
   constructor(
     private readonly history: QuotaHistoryRepository,
@@ -104,6 +128,7 @@ export class QuotaSampler {
     options: QuotaSamplerOptions = {},
   ) {
     this.intervalMs = options.intervalMs ?? QUOTA_SAMPLE_INTERVAL_MS
+    this.ownerOf = options.ownerOf ?? NO_OWNER
     this.bootDelayMs = options.bootDelayMs ?? QUOTA_SAMPLE_BOOT_DELAY_MS
     this.retentionMs = options.retentionMs ?? QUOTA_HISTORY_RETENTION_MS
     this.now = options.now ?? Date.now
@@ -134,18 +159,23 @@ export class QuotaSampler {
    * second one. So a tick landing on an open tab's poll can still produce two
    * concurrent fan-outs — bounded by the daemon's own 120 s memo, which is what
    * keeps the cost off the providers.
+   *
+   * The `account.quota` topic's live passes come through here too, so while
+   * anyone holds it the timer above and its passes share one fan-out.
    */
-  async sampleNow(): Promise<void> {
-    if (this.inFlight) return this.inFlight
+  async sampleNow(): Promise<MachineQuotaWire[] | undefined> {
+    if (this.inFlight) return await this.inFlight
     const flight = this.runPass().finally(() => {
       if (this.inFlight === flight) this.inFlight = undefined
     })
     this.inFlight = flight
-    return flight
+    return await flight
   }
 
-  private async runPass(): Promise<void> {
-    if (this.disposed) return
+  /** One pass; resolves with the reading (undefined when it failed), which the
+   *  `account.quota` topic hands to its holders (POD-5798). */
+  private async runPass(): Promise<MachineQuotaWire[] | undefined> {
+    if (this.disposed) return undefined
     let machines: MachineQuotaWire[]
     try {
       machines = await this.readQuota()
@@ -153,11 +183,12 @@ export class QuotaSampler {
       // A provider outage, an offline daemon, or a fan-out timeout. The next tick
       // tries again; a gap in the ledger is the honest outcome and is shown as one.
       log.debug('quota sample failed', { err })
-      return
+      return undefined
     }
-    if (this.disposed) return
-    await recordQuotaSamples(this.history, machines, this.intervalMs)
+    if (this.disposed) return undefined
+    await recordQuotaSamples(this.history, machines, this.intervalMs, this.ownerOf)
     await this.pruneExpired()
+    return machines
   }
 
   private async pruneExpired(): Promise<void> {

@@ -6,7 +6,7 @@
  * see where the update lands and what they will notice there, not implementation
  * details about how those places are connected.
  */
-import type { ServerVersion, SkewVerdict, UpdateNotes } from '@podium/protocol'
+import type { ServerVersion, SkewVerdict, UpdateNotes, UpdateTarget } from '@podium/protocol'
 /**
  * THE SUBPATHS ARE LOAD-BEARING (POD-2241, POD-2190, POD-2502).
  *
@@ -34,7 +34,7 @@ import {
  * shell does not render it — so the row describes something the operator will
  * pick up later, never the page they are reading.
  */
-export type PlaceKind = 'this-app' | 'phone' | 'server' | 'machines'
+export type PlaceKind = 'this-app' | 'phone' | 'server' | 'machines' | 'database'
 
 /**
  * How much the operator will notice at a place: `interrupts` briefly takes it
@@ -74,6 +74,12 @@ export type UpdateView =
       version: string
       places: Place[]
       notes?: { summary?: string; url?: string }
+      runningVersion?: string
+      releasedAt?: string
+      branch?: string
+      commits?: UpdateTarget['commits']
+      commitCount?: number
+      machineCount?: number
       restartNote: string
       reason?: string
       blockedNote?: string
@@ -315,6 +321,15 @@ function placesFor(input: UpdateInput): Place[] {
     })
   }
 
+  if (affected.server && (input.server.target?.addedMigrations?.length ?? 0) > 0) {
+    const count = input.server.target?.addedMigrations?.length ?? 0
+    places.push({
+      kind: 'database',
+      label: 'Database',
+      impact: 'background',
+      effect: `${count} schema ${count === 1 ? 'change' : 'changes'}, backed up first`,
+    })
+  }
   return places
 }
 
@@ -571,6 +586,10 @@ const MACHINE_FAILURE_COPY: Record<
       'Ask the server operator to re-publish the release before applying it again — what ' +
       'arrived was not what was signed.',
   }),
+  'artifact-not-published': () => ({
+    message: 'The update package is not published yet.',
+    nextAction: 'Wait a few minutes, then retry the update.',
+  }),
   'artifact-unreachable': (subject) => ({
     message: `${subject ?? 'This machine'} cannot reach the artifact address published for this update.`,
     nextAction:
@@ -702,6 +721,16 @@ export function describeUpdate(input: UpdateInput): UpdateView {
     version,
     places,
     restartNote: restartNote(input),
+    runningVersion: input.localVersion,
+    machineCount: input.touched.machines ? input.fleet.behind : 0,
+    ...(!appOnlyFromReleaseFeed(input) && target
+      ? {
+          ...(target.releasedAt ? { releasedAt: target.releasedAt } : {}),
+          ...(target.branch ? { branch: target.branch } : {}),
+          ...(target.commits ? { commits: target.commits } : {}),
+          ...(target.commitCount !== undefined ? { commitCount: target.commitCount } : {}),
+        }
+      : {}),
   }
 
   const targetUpdateNotes = targetNotes(target?.notes)

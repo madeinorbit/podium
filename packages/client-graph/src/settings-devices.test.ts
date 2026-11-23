@@ -1,14 +1,12 @@
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { SettingsDevices } from './settings-devices'
 
-const device = (sessionId: string, current = false): MobileClientSession => ({
-  sessionId,
-  userId: 'user:one',
-  label: 'mobile',
-  deviceId: sessionId,
-  deviceName: sessionId,
+const device = (id: string, current = false): DeviceSignInView => ({
+  id,
+  kind: 'phone',
+  deviceName: id,
   platform: 'ios',
   current,
   createdAt: '2026-08-01T00:00:00.000Z',
@@ -22,10 +20,10 @@ function fixture() {
 }
 it('shares pending inventory and the settled answer across Settings routes', async () => {
   const { pool, devices } = fixture()
-  let resolve!: (rows: MobileClientSession[]) => void
+  let resolve!: (rows: DeviceSignInView[]) => void
   const read = vi.fn(
     () =>
-      new Promise<MobileClientSession[]>((done) => {
+      new Promise<DeviceSignInView[]>((done) => {
         resolve = done
       }),
   )
@@ -37,18 +35,18 @@ it('shares pending inventory and the settled answer across Settings routes', asy
   await home
   await devices.ensure(read)
   expect(read).toHaveBeenCalledTimes(1)
-  expect(devices.orderedModels.map((row) => row.sessionId)).toEqual(['this', 'other'])
+  expect(devices.orderedModels.map((row) => row.id)).toEqual(['this', 'other'])
   expect(devices.orderedModels[0]).toBe(pool.model('device', 'this'))
   const refreshed = devices.refresh(read)
   expect(read).toHaveBeenCalledTimes(2)
   resolve([device('this', true)])
   await refreshed
-  expect(devices.orderedModels.map((row) => row.sessionId)).toEqual(['this'])
+  expect(devices.orderedModels.map((row) => row.id)).toEqual(['this'])
   pool.dispose()
 })
 it('fences closed openings before ingestion while a new opening can load', async () => {
   const { pool, devices } = fixture()
-  let resolve!: (rows: MobileClientSession[]) => void
+  let resolve!: (rows: DeviceSignInView[]) => void
   const stale = devices.ensure(
     () =>
       new Promise((done) => {
@@ -62,8 +60,8 @@ it('fences closed openings before ingestion while a new opening can load', async
   await stale
   expect(devices.answer).toBeUndefined()
   expect(next.answer).toEqual(['new'])
-  expect(pool.row('device', 'new')).toMatchObject({ sessionId: 'new' })
-  expect(pool.row('device', 'stale')).not.toMatchObject({ sessionId: 'stale' })
+  expect(pool.row('device', 'new')).toMatchObject({ id: 'new' })
+  expect(pool.row('device', 'stale')).not.toMatchObject({ id: 'stale' })
   pool.dispose()
 })
 it('allows a failed opening to retry', async () => {
@@ -88,10 +86,10 @@ it('refreshes an expired focus answer once, keeps fresh returns, and joins concu
   await devices.ensure(first, 15_000)
   expect(first).toHaveBeenCalledTimes(1)
   vi.advanceTimersByTime(1)
-  let resolve!: (rows: MobileClientSession[]) => void
+  let resolve!: (rows: DeviceSignInView[]) => void
   const read = vi.fn(
     () =>
-      new Promise<MobileClientSession[]>((done) => {
+      new Promise<DeviceSignInView[]>((done) => {
         resolve = done
       }),
   )

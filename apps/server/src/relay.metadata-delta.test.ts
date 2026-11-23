@@ -1,17 +1,25 @@
-import type { IssueProjection, IssueUserStateWire, SessionMeta } from '@podium/model'
+import type {
+  IssueBriefWire,
+  IssueProjection,
+  IssueUserStateWire,
+  SessionMeta,
+} from '@podium/model'
 import { firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type MetadataChange, type ServerMessage } from '@podium/protocol'
+import { CHANGE_LOG_OBSERVER } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userClientPrincipal } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
+import { authoritySnapshot } from './test-support/authority-snapshot'
+import { worldSnapshot } from './test-support/bootstrap-snapshot'
 import { attachTestClient } from './test-support/client-transport'
+import { feedDelta } from './test-support/feed-delta'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
 
 // The split fan-out + catch-up seam (docs/spec/oplog-read-path.md §2.3-2.5):
-// delta-cap clients receive per-entity metadataDelta batches, legacy clients keep
-// the full-list snapshots byte-for-byte, and sync.changesSince converges a stale
-// cursor onto the same state a fresh snapshot would give.
+// current clients receive scoped feed deltas; direct Authority reads converge a
+// stale cursor onto the state a worker-backed bootstrap would give.
 describe('SessionRegistry metadata deltas', () => {
   const registries: SessionRegistry[] = []
   afterEach(async () => {
@@ -24,8 +32,7 @@ describe('SessionRegistry metadata deltas', () => {
     try {
       const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
       registries.push(registry)
-      const snapshot = await registry.modules.sessions.syncChangesSince(null)
-      expect(snapshot.kind).toBe('snapshot')
+      await authoritySnapshot(registry)
       expect(attempts).not.toHaveBeenCalled()
     } finally {
       attempts.mockRestore()
@@ -40,20 +47,7 @@ describe('SessionRegistry metadata deltas', () => {
     return registry
   }
 
-  async function makeLegacyRegistry(): Promise<SessionRegistry> {
-    const registry = await SessionRegistry.create(await openTestStore(':memory:'), undefined, {
-      instanceId: 'default',
-    })
-    registries.push(registry)
-    // The host runs the sessions and reports `/r`, before any client connects (2b803efb5).
-    await attachHostDaemon(registry, () => {}, { repos: ['/r'] })
-    return registry
-  }
-
-  async function client(
-    registry: SessionRegistry,
-    caps?: string[],
-  ): Promise<{ inbox: ServerMessage[] }> {
+  async function client(registry: SessionRegistry): Promise<{ inbox: ServerMessage[] }> {
     const inbox: ServerMessage[] = []
     const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
     await registry.clientGateway.routeClientFrame(id, {
@@ -61,7 +55,7 @@ describe('SessionRegistry metadata deltas', () => {
       wireVersion: CLIENT_WIRE_VERSION,
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
-      caps: ['sync.http.v1', ...(caps ?? [])],
+      caps: ['sync.http.v1'],
     })
     await expect.poll(() => inbox.some((m) => m.type === 'feedResume')).toBe(true)
     return { inbox }
@@ -78,35 +72,34 @@ describe('SessionRegistry metadata deltas', () => {
 
   /** Emission is coalesced at microtask level since #256 (one ordered pipe);
    *  flush deterministically before reading a delta client's inbox. */
-  const flush = (registry: SessionRegistry): void => registry.modules.funnel.flushDeltas()
+  const flush = async (registry: SessionRegistry): Promise<void> => {
+    await registry.modules.funnel.flushDeltas()
+  }
 
-  it('sends canonical per-entity deltas regardless of the retired metadataDelta cap', async () => {
-    const registry = await makeLegacyRegistry()
-    const legacy = await client(registry)
-    const delta = await client(registry, ['metadataDelta'])
-    const legacyBefore = legacy.inbox.length
-    const deltaBefore = delta.inbox.length
+  it('sends canonical per-entity deltas', async () => {
+    const registry = await makeRegistry()
+    const subscriber = await client(registry)
+    const before = subscriber.inbox.length
 
-    await registry.issues.crud.create({ repoPath: '/r', title: 'first', startNow: false })
-    flush(registry)
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'first',
+      startNow: false,
+    })
+    await flush(registry)
 
-    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(2)
-    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(2)
-
-    // Wire v2 is canonical; the retired cap no longer selects a second entity path.
-    const legacyNew = legacy.inbox.slice(legacyBefore)
-    expect(legacyNew.some((m) => m.type === 'feedDelta')).toBe(true)
-    expect(legacyNew.some((m) => m.type === 'metadataDelta')).toBe(false)
-
-    // Both clients receive the same scoped feed; capabilities do not widen it.
-    const deltaNew = delta.inbox.slice(deltaBefore)
-    expect(deltaNew.some((m) => String(m.type) === 'issuesChanged')).toBe(false)
-    const changes = deltas(deltaNew)
-    // `issueEvent` rides along because creating an issue APPENDS an event, and
-    // that event is a feed row now (POD-1772) rather than something the pane
-    // re-asks for on a timer. The `issues.update` case below is unchanged on
-    // purpose: its kind is not one the feed carries.
-    expect(changes.map((change) => change.entity).sort()).toEqual(['issueEvent', 'issueProjection'])
+    await expect.poll(() => deltas(subscriber.inbox.slice(before)).length).toBe(3)
+    const published = subscriber.inbox.slice(before)
+    expect(published.some((m) => m.type === 'feedDelta')).toBe(true)
+    expect(published.some((m) => m.type === 'metadataDelta')).toBe(false)
+    expect(published.some((m) => String(m.type) === 'issuesChanged')).toBe(false)
+    const changes = deltas(published)
+    // Creating an issue also appends its event and user state.
+    expect(changes.map((change) => change.entity).sort()).toEqual([
+      'issueEvent',
+      'issueProjection',
+      'issueUserState',
+    ])
     const residue = changes.find((change) => change.entity === 'issueProjection')
     expect(residue).toMatchObject({ entity: 'issueProjection', op: 'upsert' })
     expect((residue?.value as IssueProjection).title).toBe('first')
@@ -114,44 +107,50 @@ describe('SessionRegistry metadata deltas', () => {
 
   it('a single-issue update touches one canonical row and never rebuilds the bystander (#22)', async () => {
     const registry = await makeRegistry()
-    const w = await registry.issues.crud.create({ repoPath: '/r', title: 'solo', startNow: false })
-    await registry.issues.crud.create({ repoPath: '/r', title: 'bystander', startNow: false })
-    flush(registry) // drain the setup writes' pending batch before the clients attach
-    const legacy = await client(registry)
-    const delta = await client(registry, ['metadataDelta'])
-    const legacyBefore = legacy.inbox.length
-    const deltaBefore = delta.inbox.length
+    const w = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'solo',
+      startNow: false,
+    })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'bystander',
+      startNow: false,
+    })
+    await flush(registry)
+    const subscriber = await client(registry)
+    const before = subscriber.inbox.length
 
-    await registry.issues.crud.update(w.id, { brief: 'self-contained edit' })
-    flush(registry)
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, w.id, {
+      brief: 'self-contained edit',
+    })
+    await flush(registry)
 
-    await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(1)
-    await expect.poll(() => deltas(delta.inbox.slice(deltaBefore)).length).toBe(1)
-
-    // Both wire-v2 peers receive exactly the changed issue rows. There is no
-    // full-list translation on the production path and the bystander is untouched.
-    const legacyNew = legacy.inbox.slice(legacyBefore)
-    expect(legacyNew.map((m) => m.type)).toEqual(['feedDelta'])
-    const legacyChanges = deltas(legacyNew)
-    expect(legacyChanges.map((change) => change.entity).sort()).toEqual(['issueProjection'])
-    expect(legacyChanges.every((change) => change.id === w.id)).toBe(true)
-    // The cap-advertising peer observes the same canonical rows.
-    const changes = deltas(delta.inbox.slice(deltaBefore))
-    expect(changes.map((change) => change.entity).sort()).toEqual(['issueProjection'])
+    // The record and its brief, a record of its own (POD-6921).
+    await expect.poll(() => deltas(subscriber.inbox.slice(before)).length).toBe(2)
+    const published = subscriber.inbox.slice(before)
+    expect(published.map((m) => m.type)).toEqual(['feedDelta'])
+    const changes = deltas(published)
+    expect(changes.map((change) => change.entity).sort()).toEqual(['issueBrief', 'issueProjection'])
     expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
     const residue = changes.find((change) => change.entity === 'issueProjection')
-    expect((residue as { value: IssueProjection }).value.brief).toBe('self-contained edit')
+    expect(residue?.value).not.toHaveProperty('brief')
+    const brief = changes.find((change) => change.entity === 'issueBrief')
+    expect((brief as { value: IssueBriefWire }).value).toEqual({
+      id: w.id,
+      text: 'self-contained edit',
+    })
   })
 
   it('streams session upserts through the same seam', async () => {
     const registry = await makeRegistry()
-    const delta = await readyClient(registry, ['metadataDelta'])
+    const delta = await client(registry)
     const before = delta.inbox.length
     const { sessionId } = await registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
     })
-    flush(registry)
+    await flush(registry)
     await vi.waitFor(() => {
       expect(
         deltas(delta.inbox.slice(before)).some((c) => c.entity === 'session' && c.id === sessionId),
@@ -165,10 +164,18 @@ describe('SessionRegistry metadata deltas', () => {
 
   it('batches carry seq of the last change and stay in order', async () => {
     const registry = await makeRegistry()
-    const delta = await client(registry, ['metadataDelta'])
-    await registry.issues.crud.create({ repoPath: '/r', title: 'a', startNow: false })
-    await registry.issues.crud.create({ repoPath: '/r', title: 'b', startNow: false })
-    flush(registry)
+    const delta = await client(registry)
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'a',
+      startNow: false,
+    })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'b',
+      startNow: false,
+    })
+    await flush(registry)
     await expect
       .poll(() => deltas(delta.inbox).filter((c) => c.entity === 'issueEvent').length)
       .toBe(2)
@@ -184,23 +191,30 @@ describe('SessionRegistry metadata deltas', () => {
     }
   })
 
-  it('changesSince: snapshot on null cursor, delta after, snapshot-equivalent replay', async () => {
+  it('direct Authority catch-up replay equals a fresh snapshot', async () => {
     const registry = await makeRegistry()
-    await registry.issues.crud.create({ repoPath: '/r', title: 'a', startNow: false })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'a',
+      startNow: false,
+    })
 
-    const boot = await registry.modules.sessions.syncChangesSince(null)
-    expect(boot.kind).toBe('snapshot')
-    if (boot.kind !== 'snapshot') return
-    expect(boot.issues).toEqual([])
+    const boot = await authoritySnapshot(registry)
     expect(boot.issueProjections?.map((i) => i.title)).toEqual(['a'])
 
-    const created = await registry.issues.crud.create({ repoPath: '/r', title: 'b', startNow: false })
-    await registry.issues.crud.close(created.id, 'wontfix')
+    const created = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'b',
+      startNow: false,
+    })
+    await registry.issues.crud.close(
+      registry.issues.reports.store.serverWriter,
+      created.id,
+      'wontfix',
+    )
     await registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
 
-    const catchUp = await registry.modules.sessions.syncChangesSince(boot.cursor)
-    expect(catchUp.kind).toBe('delta')
-    if (catchUp.kind !== 'delta') return
+    const catchUp = await feedDelta(registry, boot.cursor, CHANGE_LOG_OBSERVER)
 
     // Replay the delta over the boot snapshot -> must equal a fresh snapshot.
     const fold = <T>(list: T[], key: (t: T) => string, entity: MetadataChange['entity']): T[] => {
@@ -212,8 +226,7 @@ describe('SessionRegistry metadata deltas', () => {
       }
       return [...m.values()]
     }
-    const fresh = await registry.modules.sessions.syncChangesSince(null)
-    if (fresh.kind !== 'snapshot') throw new Error('expected snapshot')
+    const fresh = await authoritySnapshot(registry)
     const byId = <T>(l: T[], key: (t: T) => string) =>
       [...l].sort((x, y) => key(x).localeCompare(key(y)))
     expect(
@@ -236,22 +249,28 @@ describe('SessionRegistry metadata deltas', () => {
   // showing the row live again. Its personal marker now rides this seam.
   it('a tuck reaches other live clients and heals a reconnecting one', async () => {
     const registry = await makeRegistry()
-    const w = await registry.issues.crud.create({ repoPath: '/r', title: 'finished', startNow: false })
-    await registry.issues.crud.close(w.id)
-    flush(registry)
+    const w = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'finished',
+      startNow: false,
+    })
+    await registry.issues.crud.close(registry.issues.reports.store.serverWriter, w.id)
+    await flush(registry)
 
     // The cursor a client held while it was away — nothing tucked yet.
     const principal = userClientPrincipal('reconnecting', firstAdminMemberId(), 'admin')
-    const away = await registry.modules.sessions.syncChangesSince(null, principal)
-    if (away.kind !== 'snapshot') throw new Error('expected snapshot')
-    expect(away.issues).toEqual([])
+    const away = await worldSnapshot(registry, principal)
     expect(away.issueUserStates?.find((i) => i.entityId === w.id)?.tuckedAt ?? null).toBeNull()
 
     // A SECOND client is watching while the first one tucks.
-    const other = await client(registry, ['metadataDelta'])
+    const other = await client(registry)
     const before = other.inbox.length
-    await registry.issues.crud.setIssueTucked(w.id, true)
-    flush(registry)
+    await registry.issues.crud.setIssueTucked(
+      registry.issues.reports.store.serverWriter,
+      w.id,
+      true,
+    )
+    await flush(registry)
 
     await expect
       .poll(
@@ -264,47 +283,46 @@ describe('SessionRegistry metadata deltas', () => {
 
     // And the client that was disconnected converges through catch-up rather
     // than painting the stale un-tucked row from its own storage.
-    const healed = await registry.modules.sessions.syncChangesSince(away.cursor, principal)
-    expect(healed.kind).toBe('delta')
-    if (healed.kind !== 'delta') return
+    const healed = await feedDelta(registry, away.cursor, principal)
     const change = healed.changes.find((c) => c.entity === 'issueUserState')
     expect((change as { value: IssueUserStateWire } | undefined)?.value.tuckedAt).toBeTruthy()
   })
 
-  it('a pre-hello client receives no entity world until it announces an eviction-capable wire', async () => {
+  it('withholds entity rows until the client announces an eviction-capable wire', async () => {
     const registry = await makeRegistry()
     const inbox: ServerMessage[] = []
-    attachTestClient(registry.clientGateway, (msg) => inbox.push(msg)) // no hello at all
-    // Attachment still sends control-plane snapshots asynchronously.
+    const id = attachTestClient(registry.clientGateway, (msg) => inbox.push(msg))
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'before hello',
+      startNow: false,
+    })
+    await flush(registry)
+    expect(
+      inbox.some((message) => message.type === 'feedResume' || message.type === 'feedDelta'),
+    ).toBe(false)
+    expect(inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
+
+    await registry.clientGateway.routeClientFrame(id, {
+      type: 'hello',
+      clientId: '',
+      wireVersion: CLIENT_WIRE_VERSION,
+      viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: ['sync.http.v1'],
+    })
+    await expect.poll(() => inbox.some((m) => m.type === 'feedResume')).toBe(true)
+    const created = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'after hello',
+      startNow: false,
+    })
+    await flush(registry)
     await expect
-      .poll(
-        () =>
-          inbox.some((m) => m.type === 'approvalsChanged') &&
-          inbox.some((m) => m.type === 'machinesChanged'),
+      .poll(() =>
+        deltas(inbox).some(
+          (change) => change.entity === 'issueProjection' && change.id === created.id,
+        ),
       )
       .toBe(true)
-    expect(inbox.some((message) => message.type === 'feedResume')).toBe(false)
-    const before = inbox.length
-    await registry.issues.crud.create({ repoPath: '/r', title: 'x', startNow: false })
-    flush(registry)
-    expect(inbox.some((m) => m.type === 'metadataDelta')).toBe(false)
-    expect(inbox).toHaveLength(before)
   })
 })
-
-// Observe session publication only after hello has delivered the final bootstrap chunk.
-async function readyClient(registry: SessionRegistry, caps: string[]) {
-  const inbox: ServerMessage[] = []
-  const id = attachTestClient(registry.clientGateway, (message) => inbox.push(message))
-  await registry.clientGateway.routeClientFrame(id, {
-    type: 'hello',
-    clientId: '',
-    wireVersion: CLIENT_WIRE_VERSION,
-    viewport: { cols: 80, rows: 24, dpr: 1 },
-    caps: ['sync.http.v1', ...caps],
-  })
-  await vi.waitFor(() => {
-    expect(inbox.some((message) => message.type === 'feedResume')).toBe(true)
-  })
-  return { inbox }
-}

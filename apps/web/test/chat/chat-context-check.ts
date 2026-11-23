@@ -1,11 +1,10 @@
-import { omitGone } from '@podium/client-graph/lookup'
 import { headerView } from '@podium/client-graph/header-views'
+import { omitGone } from '@podium/client-graph/lookup'
 /** Fixture comparison for pool regression tests. The report exports only counts
  * and positions; both sets of words and authored sends remain in memory. */
 
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueBodyValues, IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
-import type { PendingInteractionModel } from '@podium/client-graph/message-models'
 import {
   chatArtifactIssue,
   chatInteractions,
@@ -15,20 +14,30 @@ import {
   chatReferenceMachines,
   chatReferenceSessions,
 } from '@podium/client-graph/chat-context'
+import type { PendingInteractionModel } from '@podium/client-graph/message-models'
 import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+
 type Store = ReferenceState & { drafts?: Record<string, string> }
+
+import { issueMentions } from '@/lib/at-mention/mention-sources'
+import { resolveRef, sessionForIssue } from '@/lib/ref-miniview.before.test.fixture'
 import {
   type CheckSection,
   compareSidebarSnapshots,
 } from '../../../../tests/worklist/diagnostics/sidebar-check'
-import { issueMentions } from '@/lib/at-mention/mention-sources'
-import { resolveRef, sessionForIssue } from '@/lib/ref-miniview.before.test.fixture'
+import { expectedThreads } from '../../../../tests/worklist/diagnostics/superagent-check'
 
 const loading = (row: unknown): row is symbol => typeof row === 'symbol'
+/** Compare displayed fields across DTOs and the current shared item models. */
+const panelItemFacts = (item: object) => {
+  const row = ('row' in item ? item.row : item) as Record<string, unknown>
+  const { id: _id, issueId: _issueId, position: _position, ...facts } = row
+  return facts
+}
 export function checkChatContext(
   pool: MobxPool,
   state: Store,
-  issues: readonly IssueViewModel[],
+  issues: readonly (IssueViewModel & IssueBodyValues)[],
   ids: readonly string[],
   queries = ['', 'SYN', 'task', '1'],
 ) {
@@ -55,7 +64,6 @@ export function checkChatContext(
     'window',
     {
       attachedSessionId: state.attachedSessionId ?? null,
-      transcriptReveal: state.transcriptReveal ?? null,
     },
     window,
     loading(window),
@@ -85,19 +93,22 @@ export function checkChatContext(
     compare(
       `pending:${id}`,
       { blocked: mine.length > 0, question: mine.find((row) => row.kind === 'question') },
-      { blocked: asks.blocked, question: (asks.question as PendingInteractionModel | undefined)?.row },
+      {
+        blocked: asks.blocked,
+        question: (asks.question as PendingInteractionModel | undefined)?.row,
+      },
       asks.pending > 0,
     )
     compare(
       `records:${id}`,
       (state.messageRecords ?? []).filter((row) => row.sessionId === id),
-      records.records.map(record => record.row),
+      records.records.map((record) => record.row),
       records.pending > 0,
     )
     const serialSends = (
       sends:
-        | ReturnType<Store['chatSendsFor']>
-        | readonly import('@podium/client-core/engine').OutboxChatSend[],
+        | ReturnType<import('@podium/client-core/conversation').ChatCommands['chatSendsFor']>
+        | readonly import('@podium/client-core/conversation').OutboxChatSend[],
     ) =>
       sends.map((send) => ({
         ...send,
@@ -116,11 +127,15 @@ export function checkChatContext(
       const old =
         issues.find((row) => row.id === session.issueId) ??
         issues.find((row) => row.memberSessionIds?.includes(session.sessionId))
-      const facts = (issue: IssueViewModel | undefined) =>
+      const facts = (issue: (IssueViewModel & IssueBodyValues) | undefined) =>
         issue
           ? {
               id: issue.id,
-              panel: issue.panel,
+              panel: {
+                todos: (issue.panel?.todos ?? []).map(panelItemFacts),
+                artifacts: (issue.panel?.artifacts ?? []).map(panelItemFacts),
+                deferred: (issue.panel?.deferred ?? []).map(panelItemFacts),
+              },
               root: issue.worktreePath ?? issue.repoPath,
               machineId: issue.machineId,
             }
@@ -166,7 +181,14 @@ export function checkChatContext(
     sessionFacts(sessions.sessions),
     sessions.pending > 0,
   )
-  compare('referenceMachines', state.machines, chatReferenceMachines(pool))
+  // What the composer reads of a machine (POD-6644: the pool's are its facts).
+  const machineView = (rows: readonly { id: string; name: string; online: boolean }[]) =>
+    rows.map(({ id, name, online }) => ({ id, name, online }))
+  compare(
+    'referenceMachines',
+    machineView(state.machines),
+    machineView(chatReferenceMachines(pool)),
+  )
   compare(
     'referenceRepos',
     state.repos
@@ -186,7 +208,12 @@ export function checkChatContext(
   )
   const reader = omitGone(pool.row('chatContextReader', 'reader'))
   const threads = reader && !loading(reader) ? reader.threads() : { threads: [], pending: 1 }
-  compare('threads', state.superThreads ?? [], threads.threads, threads.pending > 0)
+  compare(
+    'threads',
+    expectedThreads(state.superagentThreads ?? []),
+    threads.threads,
+    threads.pending > 0,
+  )
   const targetIdentity = (target: ReturnType<typeof sessionForIssue>) =>
     target ? { sessionId: target.session.sessionId, via: target.via.id } : null
   for (const issue of issues.slice(0, 8)) {

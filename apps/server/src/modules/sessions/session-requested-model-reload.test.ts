@@ -29,8 +29,11 @@ import { firstAdminMemberId } from '@podium/model'
  */
 
 import { asMachineId, asSessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { createBunStoreExecutor } from '../../store/executor'
+import { legacyWorkspaceQueries } from '../../store/executor/sync-drizzle'
 import { SessionsRepository } from '../../store/sessions'
 import type { SessionRow } from '../../store/types'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
@@ -46,7 +49,8 @@ import { Session } from './session'
 const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
   const stage = createBunStoreExecutor({ database }).queries
   if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
+  return legacyWorkspaceQueries(stage, SELF_HOSTED_WORKSPACE_ID)
 }
 
 /** The stored row, asserted present rather than assumed. A `getSession` that
@@ -83,7 +87,7 @@ const launched = (): Session =>
 const hydrator = (): SessionRepository =>
   new SessionRepository({
     sessions: new Map(),
-    ledger: { capture: vi.fn(() => []) },
+    writers: ((ledger) => ({ live: ledger, boot: ledger }))({ capture: vi.fn(() => []) }),
     view: { buildProjectionPass: async () => ({}), wire: vi.fn() },
     now: () => Date.now(),
     runScheduledBroadcast: vi.fn(),
@@ -102,7 +106,7 @@ describe('a runtime model change survives a server restart', () => {
       const session = launched()
       expect(session.setRequestedModel({ model: 'gpt-5.1-codex-max', effort: 'high' })).toBe(true)
 
-      await store.upsertSession(session.toRow())
+      await store.upsertSession(fixtureWriteScope(), session.toRow())
 
       // (1) IT REACHED THE DISK. A missing column or a mis-counted placeholder in
       // the 55-wide upsert fails here, against real SQLite and the real migration
@@ -135,7 +139,7 @@ describe('a runtime model change survives a server restart', () => {
     const db = openMigratedTestDatabase()
     try {
       const store = new SessionsRepository(stageQueries(db))
-      await store.upsertSession(launched().toRow())
+      await store.upsertSession(fixtureWriteScope(), launched().toRow())
 
       const stored = await store.getSession(SID)
       const rehydrated = await hydrator().sessionFromStoredRow(storedRow(stored), 'boot')
@@ -162,9 +166,9 @@ describe('a runtime model change survives a server restart', () => {
       const store = new SessionsRepository(stageQueries(db))
       const session = launched()
       session.setRequestedModel({ model: 'gpt-5.1-codex-max' })
-      await store.upsertSession(session.toRow())
+      await store.upsertSession(fixtureWriteScope(), session.toRow())
       session.setRequestedModel({ effort: 'high' })
-      await store.upsertSession(session.toRow())
+      await store.upsertSession(fixtureWriteScope(), session.toRow())
 
       // The upsert's ON CONFLICT arm has to carry BOTH columns; a set-list that
       // named only one would leave the second at whatever the first INSERT wrote

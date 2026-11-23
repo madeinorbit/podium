@@ -3,13 +3,13 @@
  * only changed keys; snapshots own a complete replacement instead. Neither path
  * copies or mutates the published map while staging.
  */
-export class ChangedKeyDraft<T> {
+export class ChangedKeyDraft<T, M extends Map<string, T> = Map<string, T>> {
   private readonly changes = new Map<string, T | undefined>()
   // A remove followed by an upsert must reinsert the key at the end, just as
   // applying the feed operations to a Map in order would.
   private readonly removed = new Set<string>()
 
-  constructor(private readonly replacement?: Map<string, T>) {}
+  constructor(private readonly replacement?: M) {}
 
   set(key: string, value: T): void {
     if (this.replacement !== undefined) this.replacement.set(key, value)
@@ -18,6 +18,14 @@ export class ChangedKeyDraft<T> {
       if (this.changes.get(key) === undefined) this.changes.delete(key)
       this.changes.set(key, value)
     }
+  }
+
+  /** The value this draft leaves for `key` over `base`. */
+  get(key: string, base: ReadonlyMap<string, T>): T | undefined {
+    if (this.replacement !== undefined) return this.replacement.get(key)
+    if (this.changes.has(key)) return this.changes.get(key)
+    if (this.removed.has(key)) return undefined
+    return base.get(key)
   }
 
   delete(key: string): void {
@@ -47,7 +55,7 @@ export class ChangedKeyDraft<T> {
   }
 
   /** Called by the adapter's existing publication hook, after prepare/commit. */
-  publish(base: Map<string, T>): Map<string, T> {
+  publish(base: M): M {
     if (this.replacement !== undefined) return this.replacement
     for (const key of this.removed) base.delete(key)
     for (const [key, value] of this.changes) {

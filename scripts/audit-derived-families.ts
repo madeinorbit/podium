@@ -75,18 +75,17 @@ const MODULES = 'apps/server/src/modules'
  * declaration, so the list cannot rot into names that no longer exist either.
  */
 export const GOVERNED: readonly { table: string; module: string }[] = [
-  { table: 'APPROVAL_COMMANDS_TRPC', module: 'approvals' },
   { table: 'CONVERSATION_COMMANDS_TRPC', module: 'conversations' },
   { table: 'PERF_COMMANDS_TRPC', module: 'perf' },
   { table: 'MODEL_COMMANDS_TRPC', module: 'models' },
-  { table: 'AGENT_PROFILE_COMMANDS_TRPC', module: 'agent-profiles' },
   { table: 'FILE_COMMANDS_TRPC', module: 'files' },
   { table: 'HOST_COMMANDS_TRPC', module: 'hosts' },
-  { table: 'ACCOUNT_COMMANDS_TRPC', module: 'accounts' },
   { table: 'CLOUD_COMMANDS_TRPC', module: 'cloud' },
   { table: 'SETUP_COMMANDS_TRPC', module: 'instance' },
   { table: 'AUTH_COMMANDS_TRPC', module: 'instance' },
   { table: 'TELEMETRY_COMMANDS_TRPC', module: 'instance' },
+  { table: 'VAULT_COMMANDS_TRPC', module: 'vault' },
+  { table: 'CREDENTIAL_COMMANDS_TRPC', module: 'credentials' },
 ]
 
 const read = (rel: string): string => readFileSync(join(ROOT, rel), 'utf8')

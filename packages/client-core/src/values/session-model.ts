@@ -130,22 +130,42 @@ export function modelReadoutReason(
   return `${provenance} ${capability}`
 }
 
-/** What a `sessions.configure` answer means to the operator, as one sentence
- *  and whether it worked. `undefined` is a call that threw. */
-export function configureResultNotice(
-  result: { ok: unknown; effective?: string } | { reason: string; detail?: string } | undefined,
-): { ok: boolean; text: string } {
-  if (!result) return { ok: false, text: 'Could not change the running session.' }
-  if ('ok' in result)
+/** The words for a `session.configure` write that never reached the queue. */
+export const CONFIGURE_WRITE_FAILED = 'Could not change the running session.'
+
+/**
+ * How a `session.configure` change ended (POD-6523), as one sentence and
+ * whether it worked; null for a cancel, which is the person's own choice. The
+ * web chip's toast and the phone composer's caption say the same words.
+ */
+export function configureEndingNotice(change: {
+  readonly status: string
+  readonly result?: unknown
+  readonly error?: { readonly message?: string } | null | undefined
+}): { ok: boolean; text: string } | null {
+  const answer = change.result as
+    | { ok?: unknown; effective?: string; reason?: string; detail?: string }
+    | null
+    | undefined
+  if (change.status === 'succeeded')
     return {
       ok: true,
       text:
-        result.effective === 'next-turn'
-          ? 'The change applies from the next turn.'
-          : 'The running session changed.',
+        answer?.effective === 'now'
+          ? 'The running session changed.'
+          : 'The change applies from the next turn.',
+    }
+  if (change.status === 'cancelled') return null
+  if (typeof answer?.reason === 'string')
+    return {
+      ok: false,
+      text: answer.detail ?? `Could not change the running session (${answer.reason}).`,
     }
   return {
     ok: false,
-    text: result.detail ?? `Could not change the running session (${result.reason}).`,
+    text:
+      change.status === 'expired'
+        ? 'The change was not made in time; the session runs as before.'
+        : (change.error?.message ?? CONFIGURE_WRITE_FAILED),
   }
 }

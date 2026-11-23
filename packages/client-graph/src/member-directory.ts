@@ -1,36 +1,110 @@
-import type { MemberView } from '@podium/model'
+import type { AuthCapabilities } from '@podium/client-core/accounts'
 import { lazy } from '@podium/mobx-helpers'
+import type { MemberView } from '@podium/model'
 import { action, compareShallow } from 'mobx'
 import { here } from './lookup'
-import type { MobxPool, PoolRows } from './pool'
+import { ingestMemberRoster, type MemberRosterAnswer } from './member-roster'
+import type { MobxPool } from './pool'
 import { RequestAnswer } from './request-answer'
 import { ingestRequested } from './requested-records'
+import { rosterFacts } from './worklist/view-model'
 
 export interface MemberDirectoryAnswer {
   members: MemberView[]
-  invites: { id: string; memberId?: string | null; email: string | null; role: string; expiresAt: string }[]
-  mailAvailable: boolean
+  invites: {
+    id: string
+    memberId?: string | null
+    email: string | null
+    role: string
+    expiresAt: string
+  }[]
+  capabilities?: AuthCapabilities
   currentMemberId: string
+  /** Absent on older servers, where the UI still asks for confirmation. */
+  hasOwnCredential?: boolean
+  /** What the admin may do to each member, decided by the server (POD-6299). */
+  actions?: Record<string, readonly string[]>
 }
 type Directory = Omit<MemberDirectoryAnswer, 'members'> & { memberIds: readonly string[] }
 /** Invite receipts and authority hints are request answers. Members are records. */
 export class MemberDirectory extends RequestAnswer<Directory> {
-  constructor(private readonly pool: MobxPool) { super() }
-  @action read(read: () => Promise<MemberDirectoryAnswer>): Promise<void> {
+  constructor(private readonly pool: MobxPool) {
+    super()
+  }
+  @action read(read: () => Promise<MemberDirectoryAnswer | MemberRosterAnswer>): Promise<void> {
     return this.load(read, false, ({ members, ...answer }) => {
-      const memberIds = ingestRequested(this.pool, 'member', members as PoolRows['member'][], row => row.id)
-      const present = new Set(memberIds)
-      const removed = (this.answer?.memberIds ?? []).filter(id => !present.has(id))
-      if (removed.length) this.pool.apply({ type: 'update', rows: removed.map(id => ({ kind: 'member', id, value: undefined })) })
-      return { ...answer, memberIds }
+      const full = 'invites' in answer
+      const memberIds = full
+        ? ingestRequested(this.pool, 'member', members, (row) => row.id)
+        : ingestMemberRoster(this.pool, members)
+      // `/list` includes disabled members and owns complete row replacement
+      // (including cleared optional fields) and removal. `/directory` owns
+      // only its public fields and active membership.
+      if (full) {
+        const present = new Set(memberIds)
+        const removed = (this.answer?.memberIds ?? []).filter((id) => !present.has(id))
+        if (removed.length)
+          this.pool.apply({
+            type: 'update',
+            rows: removed.map((id) => ({ kind: 'member', id, value: undefined })),
+          })
+      }
+      // This request already has the roster's active names. Publish its ids
+      // without fetching a second, narrower directory answer over these rows.
+      rosterFacts(this.pool).accept(
+        full
+          ? members
+              .filter((member) => !('disabledAt' in member) || !member.disabledAt)
+              .map((member) => member.id)
+          : memberIds,
+        answer.currentMemberId,
+      )
+      return {
+        memberIds,
+        currentMemberId: answer.currentMemberId,
+        invites: 'invites' in answer ? answer.invites : [],
+        // What the server's sign-in edition offers; the admin list carries it.
+        capabilities: 'capabilities' in answer ? answer.capabilities : undefined,
+        hasOwnCredential: 'hasOwnCredential' in answer ? answer.hasOwnCredential : false,
+        actions: 'actions' in answer ? answer.actions : undefined,
+      }
     })
   }
 
   @lazy({ equals: compareShallow }) get members() {
-    return (this.answer?.memberIds ?? []).flatMap(id => here(this.pool.model('member', id)) ?? [])
+    return (this.answer?.memberIds ?? []).flatMap((id) => here(this.pool.model('member', id)) ?? [])
   }
-  @lazy get invites() { return this.answer?.invites ?? [] }
-  @lazy get mailAvailable() { return this.answer?.mailAvailable ?? false }
-  @lazy get currentMemberId() { return this.answer?.currentMemberId }
-  dispose() { this.close() }
+  @lazy get invites() {
+    return this.answer?.invites ?? []
+  }
+  @lazy get capabilities() {
+    return this.answer?.capabilities
+  }
+  @lazy get needsEmailBeforeInvite() {
+    return (
+      this.capabilities?.sameMachineSignIn === true &&
+      !this.members.find((member) => member.id === this.currentMemberId)?.email
+    )
+  }
+  @lazy get currentMemberId() {
+    return this.answer?.currentMemberId
+  }
+  @lazy get hasOwnCredential() {
+    return this.answer?.hasOwnCredential ?? true
+  }
+  /** The server's allowed actions for one member; none until it says so. */
+  actionsFor(memberId: string): readonly string[] {
+    return (this.answer?.actions?.[memberId] ?? []).filter((action) =>
+      action === 'recovery'
+        ? this.capabilities?.passwordReset === 'admin-link'
+        : action === 'signOutEverywhere'
+          ? memberId === this.currentMemberId
+            ? !this.capabilities?.accountUrl
+            : this.capabilities?.adminSignOutEverywhere === true
+          : true,
+    )
+  }
+  dispose() {
+    this.close()
+  }
 }

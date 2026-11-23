@@ -26,7 +26,7 @@
 
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
 import { parseCursorChatId } from '../../../registry.js'
-import { createClaudeStreamClient, type ClaudeStreamTransport } from '../claude-sdk/protocol.js'
+import { type ClaudeStreamTransport, createClaudeStreamClient } from '../claude-sdk/protocol.js'
 import type { EngineAttachment, EngineProcessOwner } from '../engine-supervision.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
 import { createHeadlessProgressReader, foldHeadlessOutcome } from './fold.js'
@@ -86,10 +86,10 @@ export interface HostedTurnDeps {
    * the instance home are the supervisor's decision; the adapter's per-turn
    * env (`execEnv`) and the family's overlay arrive as inputs.
    */
-  childEnv(input: {
-    execEnv?: Record<string, string>
-    envOverlay?: Record<string, string>
-  }): { env: Record<string, string>; stripEnv: readonly string[] }
+  childEnv(input: { execEnv?: Record<string, string>; envOverlay?: Record<string, string> }): {
+    env: Record<string, string>
+    stripEnv: readonly string[]
+  }
   now?(): number
   /** Whether the daemon runs as root (claude refuses bypass as root without IS_SANDBOX). */
   isRoot?: boolean
@@ -281,7 +281,9 @@ export function runHostedHeadlessTurn(
     control = undefined
   }
 
-  const finish = (result: { ok: true; outcome: HeadlessTurnOutcome } | { ok: false; error: unknown }): void => {
+  const finish = (
+    result: { ok: true; outcome: HeadlessTurnOutcome } | { ok: false; error: unknown },
+  ): void => {
     if (settled || disposed) return
     settled = true
     if (deadline) clearTimeout(deadline)
@@ -366,8 +368,7 @@ export function runHostedHeadlessTurn(
         ...(invocation.pinnedSessionId ? { pinnedSessionId: invocation.pinnedSessionId } : {}),
       },
       stdin: invocation.stdin,
-      cmd: invocation.cmd,
-      args: invocation.args,
+      command: invocation.command,
     })
     const { env, stripEnv } = deps.childEnv({
       ...(invocation.execEnv ? { execEnv: invocation.execEnv } : {}),
@@ -375,8 +376,7 @@ export function runHostedHeadlessTurn(
     })
     const { attachment: writer } = await deps.owner.startEngine({
       label,
-      cmd: wrapped.cmd,
-      args: wrapped.args,
+      command: wrapped,
       cwd: spec.cwd,
       env,
       stripEnv,
@@ -388,7 +388,8 @@ export function runHostedHeadlessTurn(
     current = replay.run
     if (invocation.stdin.kind === 'bytes') {
       const write = writer.connection.write
-      if (!write) throw new Error(`podium-host for '${label}' has no write channel for the turn's stdin`)
+      if (!write)
+        throw new Error(`podium-host for '${label}' has no write channel for the turn's stdin`)
       await write.call(writer.connection, Buffer.from(invocation.stdin.data, 'utf8'))
     }
     return replay.run
@@ -567,7 +568,8 @@ export function runHostedHeadlessTurn(
       emit({ kind: 'status', status: 'starting' })
       let allocated: string | undefined
       if (adopted?.marker.phase === 'alloc' || needsAllocation(spec)) {
-        const allocRun = adopted?.run ?? (await start('alloc', allocationInvocation(snapshot), createdAt))
+        const allocRun =
+          adopted?.run ?? (await start('alloc', allocationInvocation(spec, snapshot), createdAt))
         allocated = await allocate(allocRun)
         detach()
         armDeadline(createdAt)
@@ -613,8 +615,10 @@ export function runHostedHeadlessTurn(
     },
     ...(structured
       ? {
-          answerPermission: (interactionId: string, answer: Parameters<NonNullable<HeadlessTurnHandle['answerPermission']>>[1]) =>
-            structuredClient?.answerPermission(interactionId, answer),
+          answerPermission: (
+            interactionId: string,
+            answer: Parameters<NonNullable<HeadlessTurnHandle['answerPermission']>>[1],
+          ) => structuredClient?.answerPermission(interactionId, answer),
         }
       : {}),
     dispose: () => {

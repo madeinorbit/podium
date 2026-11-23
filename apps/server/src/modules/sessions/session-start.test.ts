@@ -1,11 +1,11 @@
+import { memberFacts } from '../../store/fixtures/test-support'
 /**
  * SessionStart seams that mutation found silent after the POD-1396 extract
  * (POD-1433). Both rules predate the cut and moved with the code; neither had
  * an assertion that would fail if inverted/disabled.
  *
- *   1. create(): issue owner wins over an explicit ownerUserId
- *      (parentOwner ?? input.ownerUserId ?? …). Authorization-shaped: an
- *      issue-owned child inherits the issue owner (ADR 1).
+ *   1. create(): the active starter owns the session, including when it sits
+ *      on another person's task; an authenticated binding determines the human.
  *   2. spawn(): refuse a client-supplied sessionId that already maps to a live
  *      Session. Without the guard the registry overwrites the live object and
  *      orphans its PTY/daemon binding.
@@ -55,17 +55,22 @@ function spawns(daemon: ControlMessage[]) {
   return daemon.filter((m): m is Extract<ControlMessage, { type: 'spawn' }> => m.type === 'spawn')
 }
 
-describe('SessionStart: issue owner precedence', () => {
-  // ADR 1: ownership per class — an issue-owned child inherits the issue owner.
-  // Without this assertion, inverting parentOwner ?? input.ownerUserId stays green.
-  it('ADR 1: createSession with issueId and a conflicting ownerUserId lands on the issue owner', async () => {
+describe('SessionStart: a session is its starter’s, whatever task it is on (POD-6283)', () => {
+  // Design §2.3: the task a session sits on does not change who owns it. Without
+  // this assertion, letting the task owner win again stays green.
+  it('createSession on another person’s task lands on the starter, in the row and the binding', async () => {
     const issueOwner = asUserId('user:issue-owner')
-    const conflicting = asUserId('user:explicit-conflict')
-    expect(issueOwner).not.toBe(conflicting)
-    expect(issueOwner).not.toBe(firstAdminMemberId())
+    const starter = asUserId('user:starter')
+    expect(issueOwner).not.toBe(starter)
+    expect(starter).not.toBe(firstAdminMemberId())
 
     const { reg, daemon } = await makeRegistry()
-    const issue = await reg.issues.crud.create({
+    for (const id of [issueOwner, starter]) {
+      await memberFacts(reg.sessionStore).create({
+        id, displayName: id, role: 'member', createdAt: new Date(0).toISOString(), disabledAt: null,
+      }, 'fixture-hash')
+    }
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Owned issue',
       startNow: false,
@@ -77,17 +82,35 @@ describe('SessionStart: issue owner precedence', () => {
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
       issueId: issue.id,
-      ownerUserId: conflicting,
+      ownerUserId: starter,
     })
 
-    // Durable row is the issue's owner — not the conflicting input.
     const row = (await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)
-    expect(row?.ownerUserId).toBe(issueOwner)
+    expect(row?.ownerUserId).toBe(starter)
+    expect(row?.createdBy?.onBehalfOf).toBe(starter)
 
     // create() feeds one ownership answer into the daemon binding as well.
     const frame = spawns(daemon).at(-1)
     expect(frame?.sessionId).toBe(sessionId)
-    expect(frame?.binding?.principal).toEqual({ kind: 'user', userId: issueOwner })
+    expect(frame?.binding?.principal).toEqual({ kind: 'user', userId: starter })
+  })
+
+  it('a binding’s on-behalf-of human wins over a requested owner', async () => {
+    const { reg } = await makeRegistry()
+    const human = asUserId('user:binding-human')
+    const requested = asUserId('user:requested')
+    for (const id of [human, requested]) {
+      await memberFacts(reg.sessionStore).create({
+        id, displayName: id, role: 'member', createdAt: new Date(0).toISOString(), disabledAt: null,
+      }, 'fixture-hash')
+    }
+    const { sessionId } = await reg.modules.sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/r',
+      ownerUserId: requested,
+      binding: { principal: { kind: 'user', userId: human } },
+    })
+    expect((await reg.sessionStore.sessions.loadSessions()).find((r) => r.id === sessionId)?.ownerUserId).toBe(human)
   })
 })
 
@@ -465,7 +488,7 @@ describe('non-picker driver requests', () => {
         { harness: 'codex', id: 'codex-pty', family: 'terminal' },
       ],
     })
-    const issue = await reg.issues.crud.create({
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/proj', title: 'CLI contract request', startNow: false,
       defaultAgent: 'codex', machineId,
     })
@@ -650,13 +673,13 @@ describe('SessionStart: the task an agent start joins', () => {
 
   it('an explicit issue wins over the task that owns the cwd', async () => {
     const { reg } = await makeRegistry()
-    const owning = await reg.issues.crud.create({
+    const owning = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Owns cwd',
       startNow: false,
     })
-    await reg.issues.crud.update(owning.id, { worktreePath: '/r/.worktrees/a' })
-    const chosen = await reg.issues.crud.create({
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, owning.id, { worktreePath: '/r/.worktrees/a' })
+    const chosen = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Chosen',
       startNow: false,
@@ -672,12 +695,12 @@ describe('SessionStart: the task an agent start joins', () => {
 
   it('an agent started in a task worktree joins that task and makes no draft', async () => {
     const { reg } = await makeRegistry()
-    const owning = await reg.issues.crud.create({
+    const owning = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Owns cwd',
       startNow: false,
     })
-    await reg.issues.crud.update(owning.id, { worktreePath: '/r/.worktrees/a' })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, owning.id, { worktreePath: '/r/.worktrees/a' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/r/.worktrees/a/src',

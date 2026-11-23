@@ -4,7 +4,6 @@ import { type JSX, useMemo } from 'react'
 import { type UsageScan, useUsageFeed } from '@/features/usage/useUsageFeed'
 import { StatusMetric, type StatusMetricBucket } from './StatusMetric'
 import { money, shareTokenBurn } from './status-share'
-import type { Trpc } from './trpc'
 
 const HOUR_MS = 60 * 60 * 1_000
 const BURN_HOURS = 12
@@ -77,8 +76,8 @@ export function rollingBurnRate(scans: readonly UsageScan[]): RollingBurnRate | 
   }
 }
 
-export function StatusPerformanceStats({ trpc }: { trpc: Trpc }): JSX.Element {
-  const feed = useUsageFeed(trpc)
+export function StatusPerformanceStats(): JSX.Element {
+  const feed = useUsageFeed()
   const nowMs = Date.now()
   // History is O(all usage buckets) and the strip rerenders on every store tick,
   // so it is pinned to the source rows and the hour the buckets are cut on.

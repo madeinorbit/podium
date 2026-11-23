@@ -13,9 +13,12 @@ import { createHash } from 'node:crypto'
 import { asMachineId, asShipOrderId, firstAdminMemberId, type ShipOrder } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { logStoreRecords } from '../../test-support/record-writer'
+import { seedRows } from '../../test-support/seed-rows'
 import { sessionReadPorts } from '../../test-support/session-facts'
 import { IssueService } from '../issues/service'
 import { CompatibilityShippingPolicyResolver } from './policy'
@@ -43,6 +46,7 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
+    records: await logStoreRecords(store),
     now: Date.now,
     transact: async (fn) => await store.transact(fn),
   })
@@ -53,7 +57,6 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'codex' },
@@ -61,17 +64,20 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
     spawnSession: async () => ({ sessionId: 'session-1' as never, machine: 'machine-1' }),
     repoOp: async () => ({ ok: true, output: '' }),
     funnel: { run: (op) => op.write() },
-    ledger,
+    ledger: testLedgerWriter(ledger),
   })
   const service = new ShippingService({
+    workspaceId: store.workspaceId,
     repository: store.shipping,
     issues: {
       get: async (id) => (await issues.reports.get(id))!,
       children: async (id, recursive) => await issues.reports.children(id, recursive),
-      shippingCommit: issues.crud.shippingCommit.bind(issues.crud),
-      shippingCommitMany: issues.crud.shippingCommitMany.bind(issues.crud),
+      shippingCommit: async (writer, id, mutation, write) =>
+        await issues.crud.shippingCommit(writer, id, mutation, write),
+      shippingCommitMany: async (writer, entries, write) =>
+        await issues.crud.shippingCommitMany(writer, entries, write),
     },
-    ledger,
+    ledger: testLedgerWriter(ledger),
     daemon: {
       shippingJob: async () => {
         throw new Error('not used')
@@ -98,30 +104,32 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
     id: string,
   ) => {
     const at = new Date(Date.UTC(2026, 7, 13, 0, minute++)).toISOString()
-    return await store.shipping.createOrder({
-      id: asShipOrderId(id),
-      issueId,
-      descendantManifest: [],
-      repoId,
-      repoPath,
-      machineId: asMachineId('machine-1'),
-      targetBranch: 'main',
-      destination: 'local:main',
-      approvedBaseSha: 'base-sha',
-      approvedHeadSha: `head-${id}`,
-      deliveryDependsOn: [],
-      requestedBy,
-      requestedAt: at,
-      policyId: 'compatibility-local:main',
-      validationProfile: PROFILE,
-      validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
-      closeMode: 'after-destination',
-      state: 'queued',
-      stateChangedAt: at,
-    })
+    return await seedRows(store, () =>
+      store.shipping.createOrder(fixtureWriteScope(), {
+        id: asShipOrderId(id),
+        issueId,
+        descendantManifest: [],
+        repoId,
+        repoPath,
+        machineId: asMachineId('machine-1'),
+        targetBranch: 'main',
+        destination: 'local:main',
+        approvedBaseSha: 'base-sha',
+        approvedHeadSha: `head-${id}`,
+        deliveryDependsOn: [],
+        requestedBy,
+        requestedAt: at,
+        policyId: 'compatibility-local:main',
+        validationProfile: PROFILE,
+        validationProfileDigest: createHash('sha256').update(JSON.stringify(PROFILE)).digest('hex'),
+        closeMode: 'after-destination',
+        state: 'queued',
+        stateChangedAt: at,
+      }),
+    )
   }
   const issueIn = async (repoPath: string, title: string) => {
-    const created = await issues.crud.create({
+    const created = await issues.crud.create(issues.reports.store.serverWriter, {
       repoPath,
       title,
       startNow: false,
@@ -139,11 +147,14 @@ async function world(outside: number, laneSize: number, outsideQueued = true) {
       await order(other.id, other.repoId!, `/other-${index}`, `outside-${index}`)
     } else {
       const old = await order(history.id, history.repoId!, '/history', `outside-${index}`)
-      await store.shipping.transitionOrder(
-        old.id,
-        'queued',
-        'cancelled',
-        '2026-08-13T09:00:00.000Z',
+      await seedRows(store, () =>
+        store.shipping.transitionOrder(
+          fixtureWriteScope(),
+          old.id,
+          'queued',
+          'cancelled',
+          '2026-08-13T09:00:00.000Z',
+        ),
       )
     }
   }
@@ -209,9 +220,7 @@ describe('POD-4974 O2 commit cost against orders outside the lane', () => {
     const counts: number[] = []
     for (const outside of [10, 100, 1_000]) {
       const { store, service } = await world(outside, 4, false)
-      counts.push(
-        await rowsRead(store, async () => await service['ordersWithNativeStackEdges']()),
-      )
+      counts.push(await rowsRead(store, async () => await service['ordersWithNativeStackEdges']()))
       service.dispose()
     }
     expect(counts[0]).toBeGreaterThan(0)

@@ -1,8 +1,9 @@
+import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+
 /** Real mobile StoreProvider + real pool + real RN-web SectionList. Only
  * platform/navigation chrome is stubbed; rows, launch inputs and folds are real. */
 
-import type { ClientRuntime } from '@podium/client-core/engine'
 import {
   createKernelReplica,
   createSideCache,
@@ -12,6 +13,7 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { asIssueId, asSessionId, isSortKey, issueDepId, sortKeyBetween } from '@podium/model'
@@ -281,6 +283,13 @@ function kernelFixture(corpus: ReturnType<typeof buildCorpus>) {
   install('repos', corpus.repoProjections)
   install('issueDeps', corpus.issueDeps)
   install('sessions', corpus.sessions)
+  // Machines (records and my access rows) and repositories (checkout records), POD-6644.
+  for (const record of machineAndRepoRecords({
+    userId: 'u-bench',
+    machines: corpus.machines as never,
+    repos: corpus.repos as never,
+  }))
+    records.set(key(record.entity, record.entityId), { ...record, provenance: { seq } })
   const replica = createKernelReplica({
     cache: {
       readCursor: () => ({ seq }),
@@ -347,13 +356,13 @@ function attachFixtureRuntime(runtime: ClientRuntime<MobileTrpc>): () => void {
     try {
       detach()
     } finally {
-      runtime.destroy()
+      runtime.dispose()
     }
   }
 }
 
 async function mount(scale: 1 | 4, corpus = buildCorpus(scale)) {
-  if (state.runtime?.isDestroyed) releaseFixtureReferences()
+  if (state.runtime?.isDisposed) releaseFixtureReferences()
   // Corpus construction also creates temporary legacy rollups. Collect those
   // after the builder returns, before attaching the real pool over its records.
   await collectRetiredFixtures()
@@ -632,10 +641,13 @@ describe('mobile WorkScreen pool consumer', () => {
       neighbours: number
       rowReads: number
       derivations: number
+      machines: number
+      repositories: number
     }[] = []
     for (const scale of [1, 4] as const) {
       let rowReads = 0
-      const { view } = await mount(scale, clickCorpus(scale))
+      const corpus = clickCorpus(scale)
+      const { view } = await mount(scale, corpus)
       await drainNativeLoads()
       const pool = state.pool!
       const originalRow = pool.row
@@ -665,6 +677,8 @@ describe('mobile WorkScreen pool consumer', () => {
           neighbours,
           rowReads: (phase.sampled.rowReads ?? before) - before,
           derivations: phase.computedRuns + phase.reactionRuns,
+          machines: corpus.machines.length,
+          repositories: corpus.repos.length,
         })
         expect(state.sliceReads, name).toBe(0)
         expect(state.rowDerivations, name).toBe(0)
@@ -730,11 +744,19 @@ describe('mobile WorkScreen pool consumer', () => {
     for (const base of cells.filter((cell) => cell.scale === 1)) {
       const larger = cells.find((cell) => cell.scale === 4 && cell.click === base.click)!
       const ratio = larger.neighbours / base.neighbours
+      // Launch choices read each of my machines' facts and each registered
+      // repository once (POD-6644: the pickers are plain React and need values;
+      // repositories come from checkout records): both lists are what the
+      // sheet offers, so their growth is allowed on row reads.
+      const fleet =
+        base.click === 'open launch choices'
+          ? larger.machines - base.machines + (larger.repositories - base.repositories)
+          : 0
       for (const metric of ['rowReads', 'derivations'] as const) {
         expect(
           larger[metric],
           `${base.click}: 4x/1x ${metric} exceeds visible-neighbourhood ratio ${ratio}`,
-        ).toBeLessThanOrEqual(base[metric] * ratio)
+        ).toBeLessThanOrEqual(base[metric] * ratio + (metric === 'rowReads' ? fleet : 0))
       }
     }
   }, 240_000)

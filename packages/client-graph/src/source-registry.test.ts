@@ -2,6 +2,7 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { expect, it, vi } from 'vitest'
 import { autorun, configure, observable, runInAction } from 'mobx'
 import { PoolSources, type PoolSource, type PoolSourceRows } from './source-registry'
+import { settingsOwnerFixture } from './settings-owner-fixture'
 import { SettingsSource } from './settings-source'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -105,7 +106,7 @@ it('independent row declarations preserve a typed public reader', () => {
   const registry = new PoolSources()
   const custom = new SourceProbe<'sourceTypeProbe'>({ sourceTypeProbe: { count: 3 } })
   const independent = new SourceProbe<'sourceTextProbe'>({ sourceTextProbe: { label: 'Second source' } })
-  const settings = new SettingsSource(withKeyedInputs({ getSnapshot: () => ({ machines: [], repos: [], settingsTab: 'general' }), subscribe: () => () => {} }))
+  const settings = new SettingsSource(settingsOwnerFixture({ settingsTab: () => 'general' }).owner)
   registry.register(['sourceTypeProbe'], custom)
   registry.register(['sourceTextProbe'], independent)
   registry.register(['settingsWindow', 'settingsCatalog', 'settingsMachine', 'settingsRepository'], settings)

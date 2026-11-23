@@ -1,11 +1,12 @@
 import { LOCAL_PROJECT_INTAKE_DRAFT_KEY } from '@podium/client-core/ui-state'
+import { repoWrites } from '@podium/commands/fleet-synced'
 import type { MachineId } from '@podium/model'
 import { asMachineId, HOST_REPOS, isAbsoluteMachinePath, machinesFor } from '@podium/model'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
-import { useSettingsClient } from '@/features/settings/stable-access'
 import { useSettingsCatalog, useSettingsDraftSeed } from '@/features/settings/readers'
+import { useSettingsClient } from '@/features/settings/stable-access'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { RepoPickerModal } from './RepoPickerModal'
 import { RepoScanResults } from './RepoScanResults'
@@ -69,6 +70,8 @@ function readLocalProjectDraft(raw: string | null | undefined): LocalProjectDraf
  * filesystem to fall back to.
  */
 type RepoScanFlowProps = {
+  /** Render in an existing settings pane instead of opening another dialog. */
+  embedded?: boolean
   onClose: () => void
   /** Fired once the selection is committed; the count covers adds + removals. */
   onDone: (changedCount: number) => void
@@ -79,13 +82,28 @@ type RepoScanFlowProps = {
 }
 
 export function RepoScanFlow(props: RepoScanFlowProps): JSX.Element {
-  const seed = useSettingsDraftSeed(props.onboarding ? LOCAL_PROJECT_INTAKE_DRAFT_KEY : null, readLocalProjectDraft)
+  const seed = useSettingsDraftSeed(
+    props.onboarding ? LOCAL_PROJECT_INTAKE_DRAFT_KEY : null,
+    readLocalProjectDraft,
+  )
   if (seed.loading) return <p role="status">Loading setup…</p>
   return <RepoScanFlowBody {...props} initialDraft={seed.value} />
 }
 
-function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineId, initialDraft }: RepoScanFlowProps & { initialDraft: LocalProjectDraft }): JSX.Element {
-  const { trpc, refreshRepos, uiState } = useSettingsClient()
+function RepoScanFlowBody({
+  onClose,
+  onDone,
+  onboarding = false,
+  initialMachineId,
+  initialDraft,
+  embedded = false,
+}: RepoScanFlowProps & { initialDraft: LocalProjectDraft }): JSX.Element {
+  const { trpc, uiState } = useSettingsClient()
+  // Look again at my machines (POD-6644): what the scans find arrives as
+  // `checkout` records on every device; this only waits for the scans.
+  const refreshRepos = async (): Promise<void> => {
+    await trpc.discovery.refreshRepos.mutate()
+  }
   const { machines } = useSettingsCatalog()
   const [draft, setDraftState] = useState<LocalProjectDraft>(initialDraft)
   const [results, setResults] = useState<Results | null>(() => initialDraft.results ?? null)
@@ -198,7 +216,7 @@ function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineI
   // Direct add of the browsed repo. The picker closes itself afterward (its
   // onClose), and refreshRepos has already updated the sidebar.
   async function addThisFolder(path: string): Promise<void> {
-    await trpc.repos.add.mutate({ path, ...repoMachineInput() })
+    await repoWrites(trpc).add.mutate({ path, ...repoMachineInput() })
     await refreshRepos()
     finish(1)
   }
@@ -264,12 +282,12 @@ function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineI
     try {
       const failed: string[] = []
       if (add.length > 0) {
-        const res = await trpc.repos.addMany.mutate({ paths: add, ...repoMachineInput() })
+        const res = await repoWrites(trpc).addMany.mutate({ paths: add, ...repoMachineInput() })
         failed.push(...res.failed.map((f) => f.path))
       }
       for (const path of remove) {
         try {
-          await trpc.repos.remove.mutate({ path, ...repoMachineInput() })
+          await repoWrites(trpc).remove.mutate({ path, ...repoMachineInput() })
         } catch {
           failed.push(path)
         }
@@ -289,6 +307,7 @@ function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineI
 
   return (
     <RepoPickerModal
+      embedded={embedded}
       onClose={() => {
         if (!committed.current) onClose()
       }}

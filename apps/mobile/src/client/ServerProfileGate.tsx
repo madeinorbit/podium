@@ -1,3 +1,4 @@
+import type { AuthCapabilities } from '@podium/client-core/accounts'
 import {
   activateServerProfile,
   adoptServerProfileMove,
@@ -255,7 +256,7 @@ function profileReplacementFailure(profile: ServerProfile): ActivationFailure {
 function alertUnrevokedPhoneSession(): void {
   Alert.alert(
     'Phone session still active',
-    'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
+    'A superseded phone session could not be revoked. Revoke it from Settings → Account on the server.',
   )
 }
 
@@ -316,7 +317,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     reason: string
     server: string
     workspaceId?: string
-    signInUrl?: string
+    capabilities?: AuthCapabilities
   } | null>(null)
   const [handoffStatus, setHandoffStatus] = useState('')
   const [hostedReturn, setHostedReturn] = useState<{
@@ -931,7 +932,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           throw new Error(
             revoked
               ? `Could not save this phone session: ${detail}`
-              : `Could not save this phone session, and remote revocation failed. Revoke it from Settings → Connected devices: ${detail}`,
+              : `Could not save this phone session, and remote revocation failed. Revoke it from Settings → Account: ${detail}`,
           )
         }
         throw cause
@@ -974,15 +975,15 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         const status = await fetchAuthStatus(result.server, result.token, result.workspaceId)
         if (!current()) return
         if (!status.authed || !status.userId) {
-          if (status.providerSignedIn === true && status.deniedReason) {
+          if (status.denied === 'not_workspace_member') {
             await revokePhoneSession(result)
             session = null
             if (!current()) return
             setMembershipRefusal({
-              reason: status.deniedReason,
+              reason: 'This account is not a member of this workspace.',
               server: result.server,
               workspaceId: result.workspaceId,
-              signInUrl: status.signInUrl,
+              capabilities: status.capabilities,
             })
             setHostedReturn(null)
             setHandoffStatus('')
@@ -1512,7 +1513,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           reason={membershipRefusal.reason}
           workspaceId={membershipRefusal.workspaceId}
           server={membershipRefusal.server}
-          signInUrl={membershipRefusal.signInUrl}
+          capabilities={membershipRefusal.capabilities}
         />
       </LaunchReadyView>
     )
@@ -1670,7 +1671,7 @@ function ActivationFailureView({
           <Text style={styles.setupBody}>
             Podium cannot safely contact or trust this server, so its remote mobile session may
             remain active. The saved bearer will not be sent. Revoke the session later from Settings
-            → Connected devices on another signed-in client.
+            → Account on another signed-in client.
           </Text>
           <PrimaryButton
             label={forgetting ? 'Forgetting…' : 'Forget locally'}

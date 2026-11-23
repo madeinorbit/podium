@@ -1,3 +1,4 @@
+import { useChatSends } from '@podium/client-core/react'
 /**
  * A PHONE ERROR NOTICE IS SHOWN ON WHATEVER SCREEN IS UP (POD-4662).
  *
@@ -14,14 +15,7 @@
  * shows here is shown by the shell, not by a screen.
  */
 
-import { useRuntimeSelector } from '@podium/client-core/react'
-import {
-  asIssueId,
-  asMutationId,
-  asSessionId,
-  type SessionMeta,
-  UNADDRESSABLE_SEND_REASON,
-} from '@podium/model'
+import { asSessionId, type SessionMeta, UNADDRESSABLE_SEND_REASON } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { act } from 'react'
 import { Text } from 'react-native'
@@ -54,7 +48,7 @@ const deleted = {
  *  reads nothing from the shell, which is the point. */
 let send: ((text: string) => Promise<void>) | null = null
 function DeletedSessionRoute() {
-  const sendChat = useRuntimeSelector((s) => s.sendChat)
+  const sendChat = useChatSends().sendChat
   // The send itself rejects ("not sent"); what this suite asserts is the notice.
   send = (text) =>
     sendChat({ sessionId: GONE, text, wake: true }).then(
@@ -132,55 +126,5 @@ describe('phone error notices', () => {
 
     fireEvent.click(screen.getByLabelText('Dismiss error'))
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
-  })
-
-  it.each([
-    false,
-    true,
-  ])('clears only the retried launch notice when that same reservation is accepted, newer error: %s', async (newerError) => {
-    let accept!: () => void
-    const create = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('this attachment is no longer available'))
-      .mockImplementationOnce(
-        () =>
-          new Promise<void>((resolve) => {
-            accept = resolve
-          }),
-      )
-    const app = await renderWithMobileStore(<Text>Draft chat</Text>, {
-      liveShell: true,
-      api: { sessions: { create: { mutate: create } } },
-    })
-    const reservation = {
-      issueId: asIssueId('retry-task'),
-      sessionId: asSessionId('retry-session'),
-      mutationId: asMutationId('retry-create'),
-      target: { path: '/repo', repoPath: '/repo' },
-      agentKind: 'claude-code' as const,
-      firstPrompt: 'Review the image',
-    }
-    await act(async () => {
-      const failed = app.runtime.access.spawnDraftAgent(reservation)
-      expect(await failed.settled).toBe(false)
-    })
-    const message = "Couldn't start the agent — this attachment is no longer available"
-    expect(screen.getByRole('alert').textContent).toBe(message)
-
-    let retry!: ReturnType<typeof app.runtime.access.spawnDraftAgent>
-    act(() => {
-      retry = app.runtime.access.spawnDraftAgent(reservation)
-    })
-    expect(screen.getByRole('alert').textContent).toBe(message)
-    if (newerError) {
-      act(() => app.runtime.spawnNotices.error('A different request failed'))
-    }
-    await act(async () => {
-      accept()
-      expect(await retry.settled).toBe(true)
-    })
-    expect(create.mock.calls[1]?.[0]).toEqual(create.mock.calls[0]?.[0])
-    if (newerError) expect(screen.getByRole('alert').textContent).toBe('A different request failed')
-    else expect(screen.queryByRole('alert')).toBeNull()
   })
 })

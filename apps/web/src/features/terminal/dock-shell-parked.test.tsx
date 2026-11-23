@@ -1,8 +1,10 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { publishScreenPoolFixture } from '@/test-support/mock-screen-pool'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -41,7 +43,7 @@ const mockState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(mockState),
+  readFixture: (sel: (s: unknown) => unknown) => sel(mockState),
 }))
 
 vi.mock('@podium/terminal-client-react', () => ({
@@ -63,7 +65,9 @@ vi.mock('./use-terminal-appearance', () => ({
 const { DockShellPanel } = await import('./DockShellPanel')
 const lifecycle = await import('./dock-shell-lifecycle')
 
-function shellMeta(over: Omit<Partial<SessionMeta>, 'sessionId'> & { sessionId: string }): SessionMeta {
+function shellMeta(
+  over: Omit<Partial<SessionMeta>, 'sessionId'> & { sessionId: string },
+): SessionMeta {
   const { sessionId, ...rest } = over
   return {
     sessionId: asSessionId(sessionId),
@@ -105,10 +109,10 @@ async function flush(): Promise<void> {
 }
 
 describe('POD-4429 parked dock shell', () => {
-  it("a hibernated shell is parked, not dead", () => {
-    expect(
-      lifecycle.dockShellIsDead(shellMeta({ sessionId: 'h', status: 'hibernated' })),
-    ).toBe(false)
+  it('a hibernated shell is parked, not dead', () => {
+    expect(lifecycle.dockShellIsDead(shellMeta({ sessionId: 'h', status: 'hibernated' }))).toBe(
+      false,
+    )
     expect(lifecycle.dockShellIsParked(shellMeta({ sessionId: 'h', status: 'hibernated' }))).toBe(
       true,
     )
@@ -119,10 +123,9 @@ describe('POD-4429 parked dock shell', () => {
   })
 
   it('excludes a parked shell from the stale set the lifecycle would archive', () => {
-    const ids = lifecycle.staleDockShellIds(
-      { '/repo/a': asSessionId('parked') },
-      [shellMeta({ sessionId: 'parked', status: 'hibernated' })],
-    )
+    const ids = lifecycle.staleDockShellIds({ '/repo/a': asSessionId('parked') }, [
+      shellMeta({ sessionId: 'parked', status: 'hibernated' }),
+    ])
     expect(ids).toEqual([])
   })
 
@@ -141,6 +144,7 @@ describe('POD-4429 parked dock shell', () => {
     storeSessions[0] = shellMeta({ sessionId: 'dock1', status: 'hibernated' })
     mockState.sessions = [...storeSessions]
     await act(async () => {
+      publishScreenPoolFixture()
       root.render(<DockShellPanel cwd="/repo/a" />)
     })
     await flush()

@@ -7,9 +7,10 @@ import {
   agentLoginCondition,
   agentProbeTimeoutDescription,
   asMachineId,
+  type CredentialId,
   type IssueId,
+  type MachineFacts,
   type MachineId,
-  type MachineWire,
   machinePathBasename,
   machinePathsEqual,
   machinesForRepoOrClone,
@@ -31,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { NewSessionCredentialSection } from '@/features/credentials/session/NewSessionCredentialSection'
 import {
   ARTIFACTS_TAB_ARTIFACT_ID,
   useArtifactCount,
@@ -96,7 +98,6 @@ const MENU_GLYPH = 'size-3.5 flex-none'
  *  14px column, so the names still line up with the labels above them. */
 const MACHINE_DOT = 'mx-[4px] size-1.5 flex-none'
 
-
 export function NewPanelMenu(
   props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>,
 ): JSX.Element {
@@ -154,7 +155,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
   trigger?: React.ReactElement
 }): JSX.Element {
   const { machines } = data
-  const { trpc, setPanelMode } = useCommandLaunchActions()
+  const { launchSession, setPanelMode } = useCommandLaunchActions()
   const runtimeDriversEnabled = useFeature('runtime-drivers')
 
   // Resolve the repo view for the current worktree (cross-machine merged view).
@@ -194,18 +195,32 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
     ...repoView.machines.map((m) => m.machineId),
   ])
 
-  async function create(agentKind: AgentKind, machineId?: MachineId, requestedDriverId?: string) {
+  function create(
+    agentKind: AgentKind,
+    machineId?: MachineId,
+    requestedDriverId?: string,
+    credentialId?: CredentialId | null,
+  ) {
     const cwd = cwdFor(machineId)
     // A concrete driver id is an explicit per-session selection (the
     // experimental driver row passes its id); absent is the manifest's headed
     // terminal default, which the daemon binds unconditionally (POD-4426). The
     // old `true` spelling named that default explicitly and is gone.
-    const { sessionId } = await trpc.sessions.create.mutate({
+    //
+    // A `session.launch` effect record (POD-6523): the session id is minted
+    // here and the starting session paints from the record at once, also while
+    // the machine is offline, so its panel opens without a round trip.
+    const { sessionId } = launchSession({
       agentKind,
-      cwd,
-      ...(machineId ? { machineId } : {}),
+      target: {
+        path: cwd,
+        repoPath: repoView.path,
+        ...(worktree.repoId ? { repoId: worktree.repoId } : {}),
+        ...(machineId ? { machineId } : {}),
+      },
       ...(issueId ? { issueId } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
+      ...(credentialId !== undefined ? { credentialId } : {}),
     })
     // Server-family sessions derive Chat before startScreen/device preferences.
     // Materialize a headed row's descriptor-stated native intent before exposing
@@ -239,6 +254,19 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
     menuAgents.map((agent) => agent.kind),
   )
 
+  const credentialSection = (machineFor: (kind: AgentKind) => MachineId | undefined) => (
+    <NewSessionCredentialSection
+      agents={menuAgents.map(({ kind, label, Icon }) => ({
+        kind,
+        label,
+        icon: <Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />,
+      }))}
+      machineFor={machineFor}
+      acceptsOf={(kind) => descriptors.find((d) => d.kind === kind)?.accepts ?? []}
+      onCreate={(kind, machineId, credentialId) => create(kind, machineId, undefined, credentialId)}
+    />
+  )
+
   // Single-machine (or no machines yet): no Machines region to choose between.
   if (machines.length <= 1) {
     const machine = machines[0]
@@ -269,13 +297,14 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
                 ...(hint ? { hint } : {}),
                 ...(warning ? { warning } : {}),
               }}
-              onSelect={() => void create(kind, machine?.id)}
+              onSelect={() => create(kind, machine?.id)}
             />
           )
         })}
         {runtimeDriversEnabled && machine ? (
           <HeadlessDriverItems machine={machine} onCreate={create} agents={menuAgents} />
         ) : null}
+        {machine ? credentialSection(() => machine.id) : null}
         {issueId ? <ArtifactsItem issueId={issueId} worktree={worktree} /> : null}
         <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
       </DropdownMenuContent>
@@ -307,9 +336,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
                     hint: 'no host',
                   }
             }
-            onSelect={() =>
-              void create(kind, target === undefined ? undefined : asMachineId(target))
-            }
+            onSelect={() => create(kind, target === undefined ? undefined : asMachineId(target))}
           />
         )
       })}
@@ -363,6 +390,10 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
         })}
       </TooltipProvider>
 
+      {credentialSection((kind) => {
+        const target = targetFor(kind)
+        return target === undefined ? undefined : asMachineId(target)
+      })}
       {issueId ? <ArtifactsItem issueId={issueId} worktree={worktree} /> : null}
       <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
     </DropdownMenuContent>
@@ -474,8 +505,8 @@ function HeadlessDriverItems({
   onCreate,
   agents,
 }: {
-  machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => Promise<void>
+  machine: MachineFacts
+  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => void
   agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element | null {
   const drivers = headlessRuntimeDrivers(machine)
@@ -501,7 +532,7 @@ function HeadlessDriverItems({
                   }
                 : {}),
             }}
-            onSelect={() => void onCreate(driver.harness, machine.id, driver.id)}
+            onSelect={() => onCreate(driver.harness, machine.id, driver.id)}
           />
         )
       })}
@@ -515,8 +546,8 @@ function MachineSubmenu({
   runtimeDriversEnabled,
   agents,
 }: {
-  machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => Promise<void>
+  machine: MachineFacts
+  onCreate: (kind: AgentKind, machineId: MachineId, requestedDriverId?: string) => void
   runtimeDriversEnabled: boolean
   agents: { kind: AgentKind; label: string; Icon: IconComponent }[]
 }): JSX.Element {
@@ -552,7 +583,7 @@ function MachineSubmenu({
                 ...(hint ? { hint } : {}),
                 ...(warning ? { warning } : {}),
               }}
-              onSelect={() => void onCreate(kind, machine.id)}
+              onSelect={() => onCreate(kind, machine.id)}
             />
           )
         })}

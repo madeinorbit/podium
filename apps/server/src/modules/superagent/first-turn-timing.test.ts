@@ -3,17 +3,13 @@
 // in-flight turn — Clear resets the thread, so a fresh send measures the
 // dispatch path the phone's "sending…" waits on.
 import type { SessionId } from '@podium/model'
-import {
-  asThreadId,
-  BUILTIN_HARNESS_KINDS,
-  firstAdminMemberId,
-} from '@podium/model'
+import { asThreadId, BUILTIN_HARNESS_KINDS, firstAdminMemberId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SuperagentService } from './service'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { assignHostMachine } from '../../test-support/host-daemon'
+import { SuperagentService } from './service'
 
 const registries: SessionRegistry[] = []
 afterEach(async () => {
@@ -104,7 +100,7 @@ async function onlineHarness() {
     },
   })
   const repos = new RepoRegistry(registry, registry.sessionStore)
-  await repos.add('/r', host)
+  await repos.add(repos.serverWriter, '/r', host)
   const sa = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return { registry, repos, sa, frames, host, peer }
 }
@@ -113,7 +109,7 @@ describe('POD-4872: first turn on an online machine', () => {
   it('acks + emits establish/turn frames within 10s of the send', async () => {
     const h = await onlineHarness()
     const sendStart = Date.now()
-    const ack = await h.sa.sendTurn({
+    const ack = await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
       text: 'Reply with exactly the word PONG-SUPER.',
@@ -143,13 +139,13 @@ describe('POD-4872: first turn on an online machine', () => {
   it('the offline refusal carries no TRPCError prefix', async () => {
     const h = await onlineHarness()
     // Bind (no turn) so the offline send below refuses on the bound session.
-    await h.sa.ensureSession({
+    await h.sa.ensureSession(h.registry.modules.superagentBridgeWriter, {
       ownerUserId: firstAdminMemberId(),
       threadId: asThreadId('global'),
     })
     h.registry.gateway.detachDaemon(h.host, h.peer)
     const err = await h.sa
-      .sendTurn({
+      .sendTurn(h.registry.modules.superagentBridgeWriter, {
         ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'second',
@@ -161,20 +157,24 @@ describe('POD-4872: first turn on an online machine', () => {
       )
     expect(err).toContain('is offline')
     expect(err).not.toContain('TRPCError')
-    const failure = await h.sa.latestTurnFailure(firstAdminMemberId(), asThreadId('global'))
-    expect(failure?.error).toContain('is offline')
-    expect(failure?.error).not.toContain('TRPCError')
+    const failure = (await h.registry.sessionStore.superagent.getSuperagentThread('global'))
+      ?.lastTurnFailure
+    expect(failure?.message).toContain('is offline')
+    expect(failure?.message).not.toContain('TRPCError')
   })
 
   it('the global seed reuses fetched issues instead of re-listing per live session', async () => {
     const h = await onlineHarness()
     // One issue, three live headed sessions bound to it: the seed must resolve
     // all three from the single repo fetch, not one fetch per session.
-    const issue = await h.registry.issues.crud.create({
-      repoPath: '/r',
-      title: 'Fix the thing',
-      startNow: false,
-    })
+    const issue = await h.registry.issues.crud.create(
+      h.registry.issues.reports.store.serverWriter,
+      {
+        repoPath: '/r',
+        title: 'Fix the thing',
+        startNow: false,
+      },
+    )
     for (let i = 0; i < 3; i++) {
       await h.registry.modules.sessions.createSession({
         agentKind: 'claude-code',
@@ -192,7 +192,7 @@ describe('POD-4872: first turn on an online machine', () => {
       return await origList(...args)
     }) as typeof inner.list
     try {
-      await h.sa.sendTurn({
+      await h.sa.sendTurn(h.registry.modules.superagentBridgeWriter, {
         ownerUserId: firstAdminMemberId(),
         threadId: asThreadId('global'),
         text: 'hello',

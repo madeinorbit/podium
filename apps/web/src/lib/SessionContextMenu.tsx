@@ -1,8 +1,12 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime, useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
-import { type MissionActionInputs, missionView, readMissionHandoffTargets } from '@podium/client-graph/mission-view'
+import {
+  type MissionActionInputs,
+  missionView,
+  readMissionHandoffTargets,
+} from '@podium/client-graph/mission-view'
 import {
   handoffAvailability,
   isSnoozed,
@@ -27,7 +31,6 @@ import {
 } from 'lucide-react'
 import { type JSX, useCallback, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { toast } from 'sonner'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
@@ -52,6 +55,7 @@ import {
   handoffRejectionText,
   sessionMenuEligibility,
 } from './session-context-menu'
+import { useSessionHandoff } from './session-handoff'
 import { useCursorMenu } from './use-cursor-menu'
 import { sessionDisplayName } from './WorkerLabel'
 
@@ -82,23 +86,29 @@ export function SessionContextMenu({
   onRename,
   poolInputs,
 }: SessionContextMenuProps): JSX.Element {
-  const owner = useStoreHandle<Trpc>()
+  const owner = useClientRuntime<Trpc>()
+  const commandModules = useCommands<Trpc>()
+
   const {
-    setSnooze,
+    snooze: setSnooze,
     clearSnooze,
-    hibernateSession,
-    resurrectSession,
+    hibernate: hibernateSession,
+    resume: resurrectSession,
     startBtw,
-    markSessionRead,
-    markSessionUnread,
-    trpc,
-  } = owner.access
+    markRead: markSessionRead,
+    markUnread: markSessionUnread,
+  } = commandModules.sessions
+  const handoffSession = useSessionHandoff()
   const { repos, machines, issue } = poolInputs
   const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(undefined, undefined, [
     session,
   ])
   const handoffEnabled = useFeature('session-handoff')
-  const now = useDeadlineNow(session.snoozedUntil && session.snoozedUntil !== 'forever' ? Date.parse(session.snoozedUntil) : undefined)
+  const now = useDeadlineNow(
+    session.snoozedUntil && session.snoozedUntil !== 'forever'
+      ? Date.parse(session.snoozedUntil)
+      : undefined,
+  )
   // The attached issue is part of the handoff gate: a session whose cwd drifted
   // onto the main checkout is still eligible via the issue's worktree (SP-3f7a).
   // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two
@@ -106,13 +116,18 @@ export function SessionContextMenu({
   const { ref, pos } = useCursorMenu(anchor, onClose)
   const [handoffTop, setHandoffTop] = useState<number | null>(null)
   const targetsOpen = handoffEnabled && handoffTop !== null
-  const readTargets = useCallback((pool: import('@podium/client-graph').MobxPool) =>
-    targetsOpen ? readMissionHandoffTargets(missionView(pool), session.sessionId) : undefined,
-  [targetsOpen, session.sessionId])
+  const readTargets = useCallback(
+    (pool: import('@podium/client-graph').MobxPool) =>
+      targetsOpen ? readMissionHandoffTargets(missionView(pool), session.sessionId) : undefined,
+    [targetsOpen, session.sessionId],
+  )
   const targets = useWorklistPoolProjection(readTargets, undefined)
-  const { blocker, candidates } = handoffAvailability(session,
+  const { blocker, candidates } = handoffAvailability(
+    session,
     reposToViews(targets && targets !== LOADING ? targets.repos : repos),
-    targets && targets !== LOADING ? targets.machines : machines, issue)
+    targets && targets !== LOADING ? targets.machines : machines,
+    issue,
+  )
 
   const id = session.sessionId
   const snoozed = isSnoozed(session, now)
@@ -128,15 +143,10 @@ export function SessionContextMenu({
   // the operator who is looking somewhere else: it names WHICH session landed
   // WHERE, and a failure names the target it never reached (the server rolls the
   // session back to where it was).
+  // A `session.handoff` effect record (POD-6422); the hook tells how it ended.
   const handoff = (machineId: MachineId, machineName: string): void => {
     onClose()
-    void trpc.sessions.handoff.mutate({ sessionId: id, machineId }).then(
-      () => toast.success(`${sessionDisplayName(session)} resumed on ${machineName}`),
-      (error: unknown) =>
-        toast.error(
-          `Handover to ${machineName} failed — ${error instanceof Error ? error.message : String(error)}`,
-        ),
-    )
+    handoffSession(id, machineId, { session: sessionDisplayName(session), machine: machineName })
   }
 
   const itemCls = MENU_ITEM

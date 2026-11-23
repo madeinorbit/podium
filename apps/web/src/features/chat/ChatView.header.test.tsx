@@ -77,8 +77,6 @@ const fakeReplica = {
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
 }
 
 // Every chat send runs the REAL outbox, draining into `fakeTrpc` (POD-4762).
@@ -107,7 +105,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -131,10 +129,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -175,7 +169,7 @@ async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -267,5 +261,26 @@ describe('the chat header is gone and find is behind the rail button', () => {
     press('f', { metaKey: true })
     await flush()
     expect(findInput()).toBeNull()
+  })
+})
+
+describe("the composer's model and mode chips (POD-7002)", () => {
+  it('shows the model the agent runs and the mode it reports, from the session row', async () => {
+    // The live web drew neither chip for a Claude session whose row held both:
+    // the chat view hands its chips the shared session model, which had no
+    // getter for either field.
+    storeSessions = [
+      meta({
+        observedModel: 'claude-opus-5-5',
+        observedMode: 'auto',
+        launchPosture: { requestedMode: 'auto', unmet: [] },
+      } as Partial<SessionMetaInput>),
+    ]
+    await mount(<ChatView sessionId={asSessionId('s1')} />, [item('a', 'c1', 'hello')])
+    const model = container.querySelector('[data-testid="session-model"]')
+    const mode = container.querySelector('[data-testid="session-mode"]')
+    expect(model?.getAttribute('data-provenance')).toBe('observed')
+    expect(mode?.textContent).toBe('auto')
+    expect(mode?.getAttribute('data-provenance')).toBe('observed')
   })
 })

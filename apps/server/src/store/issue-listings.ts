@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * ISSUE LISTINGS IN SQL (POD-6191, part of the issue map removal POD-6158).
  *
@@ -8,8 +9,10 @@
  * the visibility check and the order are SQL, and the joins a report needs are
  * read for the listed rows only.
  *
- * VISIBILITY is the rule `IssueCommandCtx.mayReadIssue` applies per row: the
- * reader owns the issue, or holds a `read`, `write` or `manage` grant on it.
+ * VISIBILITY is not a filter here: every member reads every task (design
+ * §2.2, POD-6288), so a listing holds every row its shape selects. What a
+ * reader may not receive of a task is taken out of the report afterwards
+ * (`modules/issues/execution-visibility.ts`).
  *
  * WHAT STAYS IN JAVASCRIPT, and why: deferral (`isIssueDeferred` parses
  * `deferUntil` with `Date.parse`, whose zone rules SQLite does not share) is
@@ -17,19 +20,43 @@
  * and the git-log match are not SQL questions.
  */
 
-import type { IssueId, RepoId, UserId } from '@podium/model'
-import { and, asc, type Column, count, eq, inArray, isNotNull, isNull, not, type SQL, sql } from 'drizzle-orm'
+import type { IssueId, RepoId } from '@podium/model'
+import {
+  and,
+  asc,
+  type Column,
+  count,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  not,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 import { alias } from 'drizzle-orm/sqlite-core'
-import { grants, issueComments, issueDeps, issueLabels, issues, issueUserState, labels } from '../migrations/schema'
-import { inListOf, inListSize, inListValues, param, preparedFamily, type StoreDrizzle } from './executor/sync-drizzle'
+import type { StoreDialect } from './executor/binding'
+import { dialectOf } from './executor/dialect-prepared'
+import type { StoreTables } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  preparedFamily,
+  sameWorkspace,
+} from './executor/sync-drizzle'
+import { throughIndex } from './index-hints'
 
 /** Board stages a ready queue may hold (`isReadyIssueStage` over the enum). */
 const READY_STAGES = ['backlog', 'planning', 'in_progress', 'review', 'done'] as const
-/** Grant verbs that cover reading (`IssueReportsModule.ownedTarget`). */
-const READ_VERBS = ['read', 'write', 'manage'] as const
 
 /** The columns these fragments read: the table or an alias of it. */
-type IssueColumns = Record<'id' | 'stage' | 'closedReason' | 'ownerUserId' | 'parentId' | 'deletedAt', Column>
+type IssueColumns = Record<
+  'id' | 'stage' | 'closedReason' | 'ownerUserId' | 'parentId' | 'deletedAt' | 'workspaceId',
+  Column
+>
 
 /** Finished by board stage or a recorded close reason (`isIssueClosed`). */
 function closedOf(table: IssueColumns): SQL {
@@ -40,23 +67,18 @@ function closedOf(table: IssueColumns): SQL {
 // definition in this file builds its statement once and embeds them
 // (`prepared-guard.test.ts` admits no builder outside a definition).
 
-/** The reader owns the issue or holds a read-covering grant on it, by the
- *  grant's primary key (kind, resource, grantee, verb). */
-function readableBy(table: IssueColumns): SQL {
-  const verbs = sql.join(READ_VERBS.map((verb) => sql`${verb}`), sql`, `)
-  return sql`(${table.ownerUserId} = ${sql.placeholder('reader')} OR EXISTS (SELECT 1 FROM ${grants} WHERE ${grants.resourceKind} = 'issue' AND ${grants.resourceId} = ${table.id} AND ${grants.grantee} = ${sql.placeholder('reader')} AND ${grants.verb} IN (${verbs})))`
-}
-
-const blocker = alias(issues, 'blocker')
+const blocker = (t: StoreTables) => alias(t.issues, 'blocker')
 
 /** An open `blocked-by` target: the row is blocked unless it is itself closed
  *  (`isIssueBlocked`). A deleted target still blocks while open; a target
  *  whose row is gone does not. */
-function blockedOf(table: IssueColumns): SQL {
-  return sql`EXISTS (SELECT 1 FROM ${issueDeps} INNER JOIN ${sql.raw('"issues" "blocker"')} ON ${blocker.id} = ${issueDeps.toId} WHERE ${issueDeps.fromId} = ${table.id} AND ${issueDeps.type} = 'blocked-by' AND NOT ${closedOf(blocker)})`
+function blockedOf(t: StoreTables, table: IssueColumns): SQL {
+  // Each table in its own scope: the edge in the outer row's workspace, the
+  // blocker in the edge's.
+  return sql`EXISTS (SELECT 1 FROM ${t.issueDeps} INNER JOIN ${sql.raw('"issues" "blocker"')} ON ${blocker(t).workspaceId} = ${t.issueDeps.workspaceId} AND ${blocker(t).id} = ${t.issueDeps.toId} WHERE ${t.issueDeps.workspaceId} = ${table.workspaceId} AND ${t.issueDeps.fromId} = ${table.id} AND ${t.issueDeps.type} = 'blocked-by' AND NOT ${closedOf(blocker(t))})`
 }
 
-const child = alias(issues, 'child')
+const child = (t: StoreTables) => alias(t.issues, 'child')
 
 /**
  * One listing's shape. Every option changes the statement's text, so each
@@ -68,8 +90,6 @@ export interface IssueListingShape {
   repo: boolean
   /** `deleted_at IS NULL`. */
   live: boolean
-  /** Owned by or granted to `:reader`. */
-  readable: boolean
   /** `open`: not finished; `closed`: finished; `ready`: open, in a ready
    *  stage and not blocked (deferral is the caller's); `blocked`: open and
    *  blocked. */
@@ -99,21 +119,38 @@ export interface IssueListingShape {
   label?: boolean
   /** Lowercased ASCII text inside `title description brief`. */
   text?: boolean
+  /** Keyset page (POD-7108): only rows after `:afterPriority, :afterSeq,
+   *  :afterPath, :afterId` in `priority-seq` order. */
+  after?: boolean
+  /** At most `:limit` rows. */
+  limit?: boolean
   /** `path-seq`: the boot map's order (repository path, sequence);
    *  `updated`: oldest update first. */
   order: 'repo-seq' | 'path-seq' | 'priority-seq' | 'seq' | 'updated'
 }
 
 const FLAGS = [
-  'unarchived', 'updatedBefore', 'completeParent', 'deferred', 'hasWorktree', 'topLevel', 'stage', 'priority', 'type',
-  'assignee', 'parent', 'label', 'text',
+  'unarchived',
+  'updatedBefore',
+  'completeParent',
+  'deferred',
+  'hasWorktree',
+  'topLevel',
+  'stage',
+  'priority',
+  'type',
+  'assignee',
+  'parent',
+  'label',
+  'text',
+  'after',
+  'limit',
 ] as const
 
 export function listingKey(shape: IssueListingShape): string {
   return [
     shape.repo ? 'repo' : 'all',
     shape.live ? 'live' : 'any',
-    shape.readable ? 'readable' : 'unrestricted',
     shape.state ?? 'any-state',
     shape.parents === undefined ? 'any-parent' : `parents${shape.parents}`,
     shape.ids === undefined ? 'any-id' : `ids${shape.ids}`,
@@ -123,12 +160,11 @@ export function listingKey(shape: IssueListingShape): string {
 }
 
 function parseListingKey(key: string): IssueListingShape {
-  const [repo, live, readable, state, parents, ids, order, flags] = key.split(',')
+  const [repo, live, state, parents, ids, order, flags] = key.split(',')
   const set = new Set(flags === 'plain' ? [] : flags!.split('+'))
   const shape: IssueListingShape = {
     repo: repo === 'repo',
     live: live === 'live',
-    readable: readable === 'readable',
     ...(state !== 'any-state' ? { state: state as IssueListingShape['state'] } : {}),
     ...(parents !== 'any-parent' ? { parents: Number(parents!.slice('parents'.length)) } : {}),
     ...(ids !== 'any-id' ? { ids: Number(ids!.slice('ids'.length)) } : {}),
@@ -138,85 +174,132 @@ function parseListingKey(key: string): IssueListingShape {
   return shape
 }
 
-function listingWhere(shape: IssueListingShape): SQL | undefined {
+/**
+ * The two engines' forms of what differs (POD-6984, POD-6958 design 2.3): SQLite
+ * compares the text `updated_at` as an instant through `julianday`, Postgres compares
+ * and orders its `timestamptz` column directly; SQLite's `instr` is Postgres's
+ * `strpos`, over a lowered text kept in byte order (`COLLATE "C"`, rule 13), which
+ * also keeps Postgres's `lower()` to ASCII as SQLite's is.
+ */
+function listingWhere(
+  t: StoreTables,
+  shape: IssueListingShape,
+  dialect: StoreDialect,
+): SQL | undefined {
   // The boot load's structural quarantine (`structurallySound` in issues.ts):
   // a corrupt row counts in no listing, as it was in no map.
-  const where: SQL[] = [
-    sql`${issues.id} IS NOT NULL AND ${issues.repoPath} IS NOT NULL AND ${issues.stage} IS NOT NULL AND ${issues.title} IS NOT NULL`,
+  const where: (SQL | undefined)[] = [
+    sql`${t.issues.id} IS NOT NULL AND ${t.issues.repoPath} IS NOT NULL AND ${t.issues.stage} IS NOT NULL AND ${t.issues.title} IS NOT NULL`,
   ]
-  if (shape.repo) where.push(eq(issues.repoId, param(issues.repoId, 'repoId')))
-  if (shape.live) where.push(isNull(issues.deletedAt))
-  if (shape.readable) where.push(readableBy(issues))
-  if (shape.state === 'closed') where.push(closedOf(issues))
-  else if (shape.state) where.push(not(closedOf(issues)))
+  if (shape.repo) where.push(eq(t.issues.repoId, param(t.issues.repoId, 'repoId')))
+  if (shape.live) where.push(isNull(t.issues.deletedAt))
+  if (shape.state === 'closed') where.push(closedOf(t.issues))
+  else if (shape.state) where.push(not(closedOf(t.issues)))
   if (shape.state === 'ready') {
-    where.push(inArray(issues.stage, [...READY_STAGES]), sql`NOT ${blockedOf(issues)}`)
+    where.push(inArray(t.issues.stage, [...READY_STAGES]), sql`NOT ${blockedOf(t, t.issues)}`)
   }
-  if (shape.state === 'blocked') where.push(blockedOf(issues))
-  if (shape.unarchived) where.push(eq(issues.archived, false))
-  if (shape.parents !== undefined) where.push(inListOf(issues.parentId, shape.parents, 'parent'))
-  if (shape.ids !== undefined) where.push(inListOf(issues.id, shape.ids, 'id'))
-  if (shape.updatedBefore) where.push(sql`julianday(${issues.updatedAt}) < julianday(${sql.placeholder('before')})`)
+  if (shape.state === 'blocked') where.push(blockedOf(t, t.issues))
+  if (shape.unarchived) where.push(eq(t.issues.archived, false))
+  if (shape.parents !== undefined) where.push(inListOf(t.issues.parentId, shape.parents, 'parent'))
+  if (shape.ids !== undefined) where.push(inListOf(t.issues.id, shape.ids, 'id'))
+  if (shape.updatedBefore)
+    where.push(
+      dialect === 'pg'
+        ? sql`${t.issues.updatedAt} < ${sql.placeholder('before')}`
+        : sql`julianday(${t.issues.updatedAt}) < julianday(${sql.placeholder('before')})`,
+    )
   if (shape.completeParent) {
-    const visible = shape.readable ? sql` AND ${readableBy(child)}` : sql``
     const liveVisibleChild = (extra: SQL) =>
-      sql`EXISTS (SELECT 1 FROM ${sql.raw('"issues" "child"')} WHERE ${child.parentId} = ${issues.id} AND ${child.deletedAt} IS NULL${visible} AND ${extra})`
-    where.push(liveVisibleChild(sql`1`), sql`NOT ${liveVisibleChild(sql`NOT ${closedOf(child)}`)}`)
+      sql`EXISTS (SELECT 1 FROM ${sql.raw('"issues" "child"')} WHERE ${child(t).workspaceId} = ${t.issues.workspaceId} AND ${child(t).parentId} = ${t.issues.id} AND ${child(t).deletedAt} IS NULL AND ${extra})`
+    where.push(
+      // Postgres refuses an integer as an AND operand; SQLite keeps its text (POD-6992).
+      liveVisibleChild(dialect === 'pg' ? sql`TRUE` : sql`1`),
+      sql`NOT ${liveVisibleChild(sql`NOT ${closedOf(child(t))}`)}`,
+    )
   }
-  if (shape.deferred) where.push(isNotNull(issues.deferUntil))
-  if (shape.hasWorktree) where.push(isNotNull(issues.worktreePath))
-  if (shape.topLevel) where.push(isNull(issues.parentId))
-  if (shape.stage) where.push(eq(issues.stage, param(issues.stage, 'stage')))
-  if (shape.priority) where.push(eq(issues.priority, param(issues.priority, 'priority')))
-  if (shape.type) where.push(eq(issues.type, param(issues.type, 'type')))
-  if (shape.assignee) where.push(eq(issues.assignee, param(issues.assignee, 'assignee')))
-  if (shape.parent) where.push(eq(issues.parentId, param(issues.parentId, 'parent')))
+  if (shape.deferred) where.push(isNotNull(t.issues.deferUntil))
+  if (shape.hasWorktree) where.push(isNotNull(t.issues.worktreePath))
+  if (shape.topLevel) where.push(isNull(t.issues.parentId))
+  if (shape.stage) where.push(eq(t.issues.stage, param(t.issues.stage, 'stage')))
+  if (shape.priority) where.push(eq(t.issues.priority, param(t.issues.priority, 'priority')))
+  if (shape.type) where.push(eq(t.issues.type, param(t.issues.type, 'type')))
+  // THE ASSIGNEE IS THE OWNER (POD-6287, design §4.3): `issues.assignee` is
+  // only a legacy display label now, so the filter matches the accountable human.
+  if (shape.assignee) where.push(eq(t.issues.ownerUserId, param(t.issues.ownerUserId, 'assignee')))
+  if (shape.parent) where.push(eq(t.issues.parentId, param(t.issues.parentId, 'parent')))
   if (shape.label) {
     where.push(
-      sql`EXISTS (SELECT 1 FROM ${issueLabels} INNER JOIN ${labels} ON ${labels.id} = ${issueLabels.labelId} WHERE ${issueLabels.issueId} = ${issues.id} AND ${labels.name} = ${sql.placeholder('label')})`,
+      sql`EXISTS (SELECT 1 FROM ${t.issueLabels} INNER JOIN ${t.labels} ON ${t.labels.workspaceId} = ${t.issueLabels.workspaceId} AND ${t.labels.id} = ${t.issueLabels.labelId} WHERE ${t.issueLabels.workspaceId} = ${t.issues.workspaceId} AND ${t.issueLabels.issueId} = ${t.issues.id} AND ${t.labels.name} = ${sql.placeholder('label')})`,
     )
   }
   if (shape.text) {
+    const haystack = sql`${t.issues.title} || ' ' || ${t.issues.description} || ' ' || coalesce(${t.issues.brief}, '')`
     where.push(
-      sql`instr(lower(${issues.title} || ' ' || ${issues.description} || ' ' || coalesce(${issues.brief}, '')), ${sql.placeholder('text')}) > 0`,
+      dialect === 'pg'
+        ? sql`strpos(lower((${haystack}) COLLATE "C"), ${sql.placeholder('text')}) > 0`
+        : sql`instr(lower(${haystack}), ${sql.placeholder('text')}) > 0`,
     )
   }
-  return and(...where)
+  if (shape.after) {
+    if (shape.order !== 'priority-seq') throw new Error('A keyset page is in priority-seq order')
+    // The row value compares in the listing's own order, every key ascending.
+    where.push(
+      sql`(${t.issues.priority}, ${t.issues.seq}, ${t.issues.repoPath}, ${t.issues.id}) > (${sql.placeholder('afterPriority')}, ${sql.placeholder('afterSeq')}, ${sql.placeholder('afterPath')}, ${sql.placeholder('afterId')})`,
+    )
+  }
+  return inWorkspace(t.issues, ...where)
 }
 
-function listingOrder(shape: IssueListingShape) {
+function listingOrder(t: StoreTables, shape: IssueListingShape, dialect: StoreDialect) {
   switch (shape.order) {
-    // `list`: by repository, then sequence — the unique (repo_id, seq) index.
+    // `list`: by repository, then sequence — the unique (repo_id, seq) index. A
+    // row without a repository id comes first, where SQLite sorts NULL.
     case 'repo-seq':
-      return [asc(issues.repoId), asc(issues.seq)]
+      return dialect === 'pg'
+        ? [sql`${t.issues.repoId} asc nulls first`, asc(t.issues.seq)]
+        : [asc(t.issues.repoId), asc(t.issues.seq)]
     // Work queues: priority, then sequence; the repository path and id only
     // break ties between repositories, in the order the boot load read them.
     case 'priority-seq':
-      return [asc(issues.priority), asc(issues.seq), asc(issues.repoPath), asc(issues.id)]
+      return [asc(t.issues.priority), asc(t.issues.seq), asc(t.issues.repoPath), asc(t.issues.id)]
     case 'path-seq':
-      return [asc(issues.repoPath), asc(issues.seq), asc(issues.id)]
+      return [asc(t.issues.repoPath), asc(t.issues.seq), asc(t.issues.id)]
     case 'seq':
-      return [asc(issues.seq), asc(issues.repoPath), asc(issues.id)]
+      return [asc(t.issues.seq), asc(t.issues.repoPath), asc(t.issues.id)]
     case 'updated':
-      return [sql`julianday(${issues.updatedAt})`, asc(issues.repoPath), asc(issues.seq)]
+      return [
+        dialect === 'pg' ? asc(t.issues.updatedAt) : sql`julianday(${t.issues.updatedAt})`,
+        asc(t.issues.repoPath),
+        asc(t.issues.seq),
+      ]
   }
 }
 
 /** Full issue rows for one listing shape. */
-export const issueListing = preparedFamily((db: StoreDrizzle, key: string) => {
+export const issueListing = preparedFamily((db, t, key: string) => {
   const shape = parseListingKey(key)
-  return db
+  const dialect = dialectOf(db)
+  const listing = db
     .select()
-    .from(issues)
-    .where(listingWhere(shape))
-    .orderBy(...listingOrder(shape))
-    .prepare()
+    .from(t.issues)
+    .where(listingWhere(t, shape, dialect))
+    .orderBy(...listingOrder(t, shape, dialect))
+    .$dynamic()
+  if (shape.limit) listing.limit(sql.placeholder('limit'))
+  return listing.prepare()
 })
+
+/** Where a `priority-seq` page ends: the last row's ordering keys. */
+export interface IssueListingKeyset {
+  priority: number
+  seq: number
+  repoPath: string
+  id: string
+}
 
 /** The values a listing of this shape binds. */
 export interface IssueListingInput {
   repoId?: RepoId
-  reader?: UserId
   parents?: readonly string[]
   ids?: readonly string[]
   /** ISO instant for `updatedBefore`. */
@@ -229,69 +312,100 @@ export interface IssueListingInput {
   label?: string
   /** Already lowercased ASCII. */
   text?: string
+  /** For `after`: the previous page's last row. */
+  after?: IssueListingKeyset
+  /** For `limit`. */
+  limit?: number
 }
 
-export function listingValues(shape: IssueListingShape, input: IssueListingInput): Record<string, unknown> {
+export function listingValues(
+  shape: IssueListingShape,
+  input: IssueListingInput,
+): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   if (shape.repo) values.repoId = input.repoId
-  if (shape.readable) values.reader = input.reader
-  if (shape.parents !== undefined) inListValues(input.parents ?? [], shape.parents, 'parent', values)
+  if (shape.parents !== undefined)
+    inListValues(input.parents ?? [], shape.parents, 'parent', values)
   if (shape.ids !== undefined) inListValues(input.ids ?? [], shape.ids, 'id', values)
   if (shape.updatedBefore) values.before = input.before
   for (const key of ['stage', 'priority', 'type', 'assignee', 'parent', 'label', 'text'] as const) {
     if (shape[key]) values[key] = input[key]
   }
+  if (shape.after) {
+    values.afterPriority = input.after?.priority
+    values.afterSeq = input.after?.seq
+    values.afterPath = input.after?.repoPath
+    values.afterId = input.after?.id
+  }
+  if (shape.limit) values.limit = input.limit
   return values
 }
 
-/** Counted per (stage, priority, type, assignee) for `issues.count`; the
+/** Counted per (stage, priority, type, assignee) for `issues.count`, the
+ *  assignee being the owner (POD-6287); the
  *  minimum (repo path, sequence) of each group keeps the boot map's order of
- *  first appearance. */
-export const issueCountGroups = preparedFamily((db: StoreDrizzle, key: string) => {
+ *  first appearance. `first` is only that order's key: the path, a separator
+ *  below every path character (SQLite's NUL; Postgres text cannot hold one, so
+ *  U+0001) and the zero-padded sequence, compared in byte order on both engines. */
+export const issueCountGroups = preparedFamily((db, t, key: string) => {
   const shape = parseListingKey(key)
+  const dialect = dialectOf(db)
   return db
     .select({
-      stage: issues.stage,
-      priority: issues.priority,
-      type: issues.type,
-      assignee: issues.assignee,
-      n: count(),
-      first: sql<string>`min(${issues.repoPath} || char(0) || printf('%020d', ${issues.seq}))`,
+      stage: t.issues.stage,
+      priority: t.issues.priority,
+      type: t.issues.type,
+      assignee: t.issues.ownerUserId,
+      n: count().as('n'),
+      first: (dialect === 'pg'
+        ? sql<string>`min((${t.issues.repoPath} || chr(1) || lpad(${t.issues.seq}::text, 20, '0')) COLLATE "C")`
+        : sql<string>`min(${t.issues.repoPath} || char(0) || printf('%020d', ${t.issues.seq}))`
+      ).as('first'),
     })
-    .from(issues)
-    .where(listingWhere(shape))
-    .groupBy(issues.stage, issues.priority, issues.type, issues.assignee)
+    .from(t.issues)
+    .where(listingWhere(t, shape, dialect))
+    .groupBy(t.issues.stage, t.issues.priority, t.issues.type, t.issues.ownerUserId)
     .prepare()
 })
 
 /** `issues.stats`: totals over one listing shape; deferral is counted by the
- *  caller over the rows that carry a `defer_until`. */
-export const issueStatTotals = preparedFamily((db: StoreDrizzle, key: string) => {
+ *  caller over the rows that carry a `defer_until`. Each total has its own alias:
+ *  unaliased, Postgres names all three `coalesce` and the row keeps one of them
+ *  (POD-7103; `dialect-census.test.ts` refuses such a select list). */
+export const issueStatTotals = preparedFamily((db, t, key: string) => {
   const shape = parseListingKey(key)
   return db
     .select({
-      total: count(),
-      closed: sql<number>`coalesce(sum(case when ${closedOf(issues)} then 1 else 0 end), 0)`,
-      ready: sql<number>`coalesce(sum(case when not ${closedOf(issues)} and ${inArray(issues.stage, [...READY_STAGES])} and not ${blockedOf(issues)} then 1 else 0 end), 0)`,
-      blocked: sql<number>`coalesce(sum(case when not ${closedOf(issues)} and ${blockedOf(issues)} then 1 else 0 end), 0)`,
+      total: count().as('total'),
+      closed: sql<number>`coalesce(sum(case when ${closedOf(t.issues)} then 1 else 0 end), 0)`.as(
+        'closed',
+      ),
+      ready:
+        sql<number>`coalesce(sum(case when not ${closedOf(t.issues)} and ${inArray(t.issues.stage, [...READY_STAGES])} and not ${blockedOf(t, t.issues)} then 1 else 0 end), 0)`.as(
+          'ready',
+        ),
+      blocked:
+        sql<number>`coalesce(sum(case when not ${closedOf(t.issues)} and ${blockedOf(t, t.issues)} then 1 else 0 end), 0)`.as(
+          'blocked',
+        ),
     })
-    .from(issues)
-    .where(listingWhere(shape))
+    .from(t.issues)
+    .where(listingWhere(t, shape, dialectOf(db)))
     .prepare()
 })
 
 /** The rows of one listing shape that carry a deferral, with what deciding it
  *  for `ready` needs. */
-export const deferralsOf = preparedFamily((db: StoreDrizzle, key: string) => {
+export const deferralsOf = preparedFamily((db, t, key: string) => {
   const shape = parseListingKey(key)
   return db
     .select({
-      id: issues.id,
-      deferUntil: issues.deferUntil,
-      ready: sql<number>`case when not ${closedOf(issues)} and ${inArray(issues.stage, [...READY_STAGES])} and not ${blockedOf(issues)} then 1 else 0 end`,
+      id: t.issues.id,
+      deferUntil: t.issues.deferUntil,
+      ready: sql<number>`case when not ${closedOf(t.issues)} and ${inArray(t.issues.stage, [...READY_STAGES])} and not ${blockedOf(t, t.issues)} then 1 else 0 end`,
     })
-    .from(issues)
-    .where(and(listingWhere(shape), isNotNull(issues.deferUntil)))
+    .from(t.issues)
+    .where(and(listingWhere(t, shape, dialectOf(db)), isNotNull(t.issues.deferUntil)))
     .prepare()
 })
 
@@ -300,25 +414,29 @@ export const deferralsOf = preparedFamily((db: StoreDrizzle, key: string) => {
 /**
  * One sort-key scope, narrow: a parent's live children (`parent`), or a
  * repository's live top-level issues (`top`), optionally without the ones the
- * broadcast viewer pinned (`top-unpinned`), which have their own section.
+ * named member pinned (`top-unpinned`), which have their own section. A pin is
+ * the member's `pins` row of kind 'issue' (POD-6692), read by its primary key.
  */
-export const sortScopeOf = preparedFamily((db: StoreDrizzle, key: 'parent' | 'top' | 'top-unpinned') =>
+export const sortScopeOf = preparedFamily((db, t, key: 'parent' | 'top' | 'top-unpinned') =>
   db
     .select({
-      id: issues.id,
-      sortKey: issues.sortKey,
-      createdAt: issues.createdAt,
-      seq: issues.seq,
+      id: t.issues.id,
+      sortKey: t.issues.sortKey,
+      createdAt: t.issues.createdAt,
+      seq: t.issues.seq,
     })
-    .from(issues)
+    .from(t.issues)
     .where(
-      and(
-        isNull(issues.deletedAt),
+      inWorkspace(
+        t.issues,
+        isNull(t.issues.deletedAt),
         ...(key === 'parent'
-          ? [eq(issues.parentId, param(issues.parentId, 'parentId'))]
-          : [isNull(issues.parentId), eq(issues.repoId, param(issues.repoId, 'repoId'))]),
+          ? [eq(t.issues.parentId, param(t.issues.parentId, 'parentId'))]
+          : [isNull(t.issues.parentId), eq(t.issues.repoId, param(t.issues.repoId, 'repoId'))]),
         ...(key === 'top-unpinned'
-          ? [sql`NOT EXISTS (SELECT 1 FROM ${issueUserState} WHERE ${issueUserState.userId} = ${sql.placeholder('viewer')} AND ${issueUserState.issueId} = ${issues.id} AND ${issueUserState.pinnedAt} IS NOT NULL)`]
+          ? [
+              sql`NOT EXISTS (SELECT 1 FROM ${t.pins} WHERE ${t.pins.workspaceId} = ${t.issues.workspaceId} AND ${t.pins.userId} = ${sql.placeholder('viewer')} AND ${t.pins.kind} = 'issue' AND ${t.pins.id} = ${t.issues.id})`,
+            ]
           : []),
       ),
     )
@@ -327,66 +445,70 @@ export const sortScopeOf = preparedFamily((db: StoreDrizzle, key: 'parent' | 'to
 
 // ---- the joins a report needs, for the listed rows only -------------------
 
-export const labelsOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+export const labelsOfIssues = preparedFamily((db, t, size: number) =>
   db
-    .select({ issueId: issueLabels.issueId, label: labels.name })
-    .from(issueLabels)
-    .innerJoin(labels, eq(labels.id, issueLabels.labelId))
-    .where(inListOf(issueLabels.issueId, size, 'ids'))
-    .orderBy(asc(issueLabels.issueId), asc(labels.name))
+    .select({ issueId: t.issueLabels.issueId, label: t.labels.name })
+    .from(t.issueLabels)
+    .innerJoin(
+      t.labels,
+      and(sameWorkspace(t.labels, t.issueLabels), eq(t.labels.id, t.issueLabels.labelId)),
+    )
+    .where(inWorkspace(t.issueLabels, inListOf(t.issueLabels.issueId, size, 'ids')))
+    .orderBy(asc(t.issueLabels.issueId), asc(t.labels.name))
     .prepare(),
 )
 
-export const depsFromIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+export const depsFromIssues = preparedFamily((db, t, size: number) =>
   db
-    .select({ fromId: issueDeps.fromId, toId: issueDeps.toId, type: issueDeps.type })
-    .from(issueDeps)
-    .where(inListOf(issueDeps.fromId, size, 'ids'))
-    .orderBy(asc(issueDeps.fromId), asc(issueDeps.toId), asc(issueDeps.type))
+    .select({ fromId: t.issueDeps.fromId, toId: t.issueDeps.toId, type: t.issueDeps.type })
+    .from(t.issueDeps)
+    .where(inWorkspace(t.issueDeps, inListOf(t.issueDeps.fromId, size, 'ids')))
+    .orderBy(asc(t.issueDeps.fromId), asc(t.issueDeps.toId), asc(t.issueDeps.type))
     .prepare(),
 )
 
-export const depsToIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+export const depsToIssues = preparedFamily((db, t, size: number) =>
   db
-    .select({ fromId: issueDeps.fromId, toId: issueDeps.toId, type: issueDeps.type })
-    .from(issueDeps)
-    .where(inListOf(issueDeps.toId, size, 'ids'))
-    .orderBy(asc(issueDeps.toId), asc(issueDeps.fromId), asc(issueDeps.type))
+    .select({ fromId: t.issueDeps.fromId, toId: t.issueDeps.toId, type: t.issueDeps.type })
+    .from(t.issueDeps)
+    .where(inWorkspace(t.issueDeps, inListOf(t.issueDeps.toId, size, 'ids')))
+    .orderBy(asc(t.issueDeps.toId), asc(t.issueDeps.fromId), asc(t.issueDeps.type))
     .prepare(),
 )
 
-export const commentCountsOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+export const commentCountsOfIssues = preparedFamily((db, t, size: number) =>
   db
-    .select({ issueId: issueComments.issueId, n: count() })
-    .from(issueComments)
-    .where(inListOf(issueComments.issueId, size, 'ids'))
-    .groupBy(issueComments.issueId)
+    .select({ issueId: t.issueComments.issueId, n: count() })
+    .from(t.issueComments)
+    .where(inWorkspace(t.issueComments, inListOf(t.issueComments.issueId, size, 'ids')))
+    .groupBy(t.issueComments.issueId)
     .prepare(),
 )
+
+/** A column by its bare name, mapped as the table maps it: for a FROM that is
+ *  an INDEXED BY clause, over which drizzle refuses a table column. */
+const bare = <T extends Column>(column: T) => sql`${sql.identifier(column.name)}`.mapWith(column)
 
 /** Live children of a set of parents, with the columns a report counts them by;
- *  in the boot map's order (repository path, then sequence). */
-export const liveChildrenOf = preparedFamily((db: StoreDrizzle, size: number) =>
+ *  in the boot map's order (repository path, then sequence). Through
+ *  `idx_issues_children` by name on SQLite (POD-7034): the statistics average the
+ *  children over the parents that have any, so at a few hundred parents the
+ *  planner prices the seeks above a scan of every issue, while most parents a
+ *  report asks about have none. */
+export const liveChildrenOf = preparedFamily((db, t, size: number) =>
   db
     .select({
-      id: issues.id,
-      parentId: issues.parentId,
-      stage: issues.stage,
-      closedReason: issues.closedReason,
-      deletedAt: issues.deletedAt,
+      id: bare(t.issues.id),
+      parentId: bare(t.issues.parentId),
+      stage: bare(t.issues.stage),
+      closedReason: bare(t.issues.closedReason),
+      deletedAt: bare(t.issues.deletedAt),
     })
-    .from(issues)
-    .where(and(inListOf(issues.parentId, size, 'ids'), isNull(issues.deletedAt)))
-    .orderBy(asc(issues.repoPath), asc(issues.seq), asc(issues.id))
-    .prepare(),
-)
-
-/** Which of these issues the reader may see. */
-export const readableAmong = preparedFamily((db: StoreDrizzle, size: number) =>
-  db
-    .select({ id: issues.id })
-    .from(issues)
-    .where(and(inListOf(issues.id, size, 'ids'), readableBy(issues)))
+    .from(throughIndex(db, t.issues, 'idx_issues_children'))
+    .where(
+      inWorkspace(t.issues, inListOf(t.issues.parentId, size, 'ids'), isNull(t.issues.deletedAt)),
+    )
+    .orderBy(asc(t.issues.repoPath), asc(t.issues.seq), asc(t.issues.id))
     .prepare(),
 )
 

@@ -23,7 +23,7 @@
  * documents for its own key, and it is a floor on what must be declared, never proof
  * that nothing else is missing.
  */
-import { readFileSync, readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 export type ClientApp = 'apps/web' | 'apps/mobile'
@@ -42,7 +42,8 @@ const SCRIPTS: Record<ClientApp, readonly string[]> = {
     'scripts/archive-web-sourcemaps.ts',
     'scripts/precompress-dist.ts',
     'scripts/write-web-build-stamp.ts',
-    'scripts/web-bundle-budget.ts',
+    'scripts/web-bundle-correctness.ts',
+    'scripts/web-bundle-duplicates.ts',
     'apps/web/test/web-bundle-boundaries.ts',
   ],
   'apps/mobile': ['scripts/precompress-dist.ts', 'scripts/write-web-build-stamp.ts'],

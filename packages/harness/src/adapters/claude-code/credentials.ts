@@ -9,13 +9,14 @@
  * 4). The inventory mechanism resolves, reads, writes and guards through
  * these declarations without naming the harness.
  */
+
+import { type HarnessCredentials, supported } from '../../manifest.js'
 import { fingerprintForLoginIdentity } from '../shared/login-identity.js'
 import {
   compareClaudeCredentialFreshness,
   hasValidClaudeCredential,
   readClaudeCredentialFreshness,
 } from './credential-freshness.js'
-import { supported, type HarnessCredentials } from '../../manifest.js'
 import { ClaudeKeychainCredentialStore } from './keychain-credential-store.js'
 import type { ClaudeStorageLockFactory } from './keychain-lock.js'
 import type { SecurityRunner } from './keychain-security.js'
@@ -76,6 +77,10 @@ export const claudeCredentials: HarnessCredentials = {
       kind: 'claude-code-state',
       dirName: '',
       fileName: '.claude.json',
+      // With CLAUDE_CONFIG_DIR set, Claude reads its state file in that
+      // directory, not in HOME (measured, POD-6893 S2): a Podium home's
+      // identity is the one signed in there.
+      homeEnvVar: 'CLAUDE_CONFIG_DIR',
       propagatable: false,
       mergeInstall: true,
       validate: () => true,
@@ -109,9 +114,7 @@ export const claudeCredentials: HarnessCredentials = {
         ...(ctx.versions.get('claude-code') !== undefined
           ? { resolvedClaudeVersion: ctx.versions.get('claude-code') as string }
           : {}),
-        ...(claudeKeychainSeams.runner !== undefined
-          ? { runner: claudeKeychainSeams.runner }
-          : {}),
+        ...(claudeKeychainSeams.runner !== undefined ? { runner: claudeKeychainSeams.runner } : {}),
         ...(claudeKeychainSeams.lockFactory !== undefined
           ? { lockFactory: claudeKeychainSeams.lockFactory }
           : {}),

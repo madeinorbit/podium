@@ -1,4 +1,6 @@
-import { asMachineId, asRepoId, type MachineId } from '@podium/model'
+import { asMachineId, asRepoId, asUserId, type MachineId } from '@podium/model'
+
+const OWNER = asUserId('mem_workspace_test_owner')
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { Session } from './session'
@@ -34,6 +36,7 @@ describe('prepareTarget reconnect inventory', () => {
       agentKind: 'claude-code',
       cwd: '/repo',
       machineId: asMachineId('machine-b'),
+      owner: OWNER,
     })
 
     expect(waitForInventory).toHaveBeenCalledWith('machine-b')
@@ -58,6 +61,7 @@ describe('prepareTarget reconnect inventory', () => {
         agentKind: 'shell',
         cwd: '/repo',
         machineId: asMachineId('machine-b'),
+        owner: OWNER,
       }),
     ).resolves.toEqual({ cwd: '/repo', machineId: 'machine-b' })
     expect(waitForInventory).not.toHaveBeenCalled()
@@ -216,7 +220,7 @@ it.each([
     machines: { resolveMachineForAgent: async () => targetMachine },
     store: { repos: { listRepos: async (machineId?: MachineId) => rows.filter(r => !machineId || r.machineId === machineId) } },
   } as unknown as SessionWorkspacePorts)
-  expect(await workspace.prepareTarget({ agentKind: 'shell', cwd, machineId: targetMachine })).toEqual({ cwd: expected, machineId: targetMachine })
+  expect(await workspace.prepareTarget({ agentKind: 'shell', cwd, machineId: targetMachine, owner: OWNER })).toEqual({ cwd: expected, machineId: targetMachine })
   expect(await workspace.resolveRepoOnMachine(cwd, targetMachine)).toBe(target)
   expect(await workspace.findRepoOnMachine(root, targetMachine)).toBe(target)
 })
@@ -237,4 +241,30 @@ it.each(['/home/me', String.raw`C:\Users\Me`])('machine paths: clones into the t
   } as unknown as SessionWorkspacePorts)
   expect((await workspace.ensureTargetRepo(source, targetMachine)).path).toBe(expected)
   expect(repoOp).toHaveBeenCalledWith('clone', home, { originUrl: source.originUrl, path: expected }, targetMachine)
+})
+
+it('registers a handoff clone through the repo write funnel, so its record is published (POD-6770)', async () => {
+  const source = { machineId: asMachineId('source'), path: '/src/podium', repoId: asRepoId('repo-12345678'), originUrl: 'https://example.test/podium.git', prefix: null }
+  const targetMachine = asMachineId('target')
+  const rows = [source]
+  // The funnel as the server wires it: the registry write runs inside it.
+  const order: string[] = []
+  const commitRepoWrite = vi.fn(async <T>(write: () => Promise<T>) => {
+    order.push('commit opens')
+    const result = await write()
+    order.push('commit closes')
+    return result
+  })
+  const workspace = new SessionWorkspace({
+    rpc: { browseDirs: async () => ({ listing: { homePath: '/home/me' } }), repoOp: async () => ({ ok: true, output: '' }) },
+    store: { repos: {
+      listRepos: async (machineId?: MachineId) => rows.filter(r => !machineId || r.machineId === machineId),
+      addRepo: async (path: string, machineId: MachineId) => { order.push('row written'); rows.push({ ...source, path, machineId }) },
+    } },
+    onWorktreesChanged: vi.fn(),
+    commitRepoWrite,
+  } as unknown as SessionWorkspacePorts)
+  await workspace.ensureTargetRepo(source, targetMachine)
+  expect(commitRepoWrite).toHaveBeenCalledTimes(1)
+  expect(order).toEqual(['commit opens', 'row written', 'commit closes'])
 })

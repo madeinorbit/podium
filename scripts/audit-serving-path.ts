@@ -68,7 +68,7 @@ const FULL_LIST_ALLOWED: readonly string[] = []
 /** Authorized feed producers, not alternate repository projections. HTTP delta
  * uses Authority.changesRange; HTTP bootstrap relays opaque worker bytes. The
  * worker applies the same scopeBootstrap decisions (GrantEdgeVisibilityPolicy)
- * to the same change_latest world in one read snapshot. The route owns no store
+ * to records built from the model tables in one read snapshot. The route owns no store
  * reads. This list deliberately does NOT exempt legacy full-list messages. */
 const SYNC_FEED_PRODUCERS = [
   'apps/server/src/sync/routes.ts',
@@ -259,7 +259,7 @@ export function runChecks(input: AuditInput): Finding[] {
         check: 'bootstrap-producers-allowlisted',
         where: path,
         detail:
-          'Bootstrap frames must serve the same scoped change_latest world through the feed edge or authorized sync producer.',
+          'Bootstrap frames must serve scoped records built from model tables through the feed edge or authorized sync producer.',
       })
     }
   }

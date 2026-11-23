@@ -1,6 +1,6 @@
 import { readFileSync, renameSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { MachineId, UserId } from '@podium/model'
+import type { MachineId, UserId, WorkspaceId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 const VERSION = 1
@@ -103,8 +103,14 @@ function latestState(snapshot: ValidatedLedgerSnapshot): Map<string, { serial: n
 
 /** Apply a validated snapshot atomically. Rows absent from the database are
  * deliberately ignored: the machine must pair again, so no credential is
- * invented. The caller owns the exclusive upgrade lane. */
-export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boolean {
+ * invented. The caller owns the exclusive upgrade lane, and names the workspace
+ * the ledger's machines belong to (a self-hosted install's, POD-7010): the
+ * import re-mints that workspace's feed epoch. */
+export function importEnrollmentLedger(
+  db: SqlDatabase,
+  stateDir: string,
+  workspaceId: WorkspaceId,
+): boolean {
   const marker = db.prepare('SELECT value FROM meta WHERE key = ?').get(LEDGER_IMPORT_MARKER) as { value: string } | undefined
   if (marker) return false
   const path = join(stateDir, 'enrollment.ledger')
@@ -113,8 +119,9 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
     return false
   }
   const snapshot = readValidatedEnrollmentLedger(path)
-  const mapping = (db.prepare('SELECT value FROM meta WHERE key = ?').get(RETIRED_MEMBER_MAPPING) as { value: string } | undefined)?.value
-  const users = new Set((db.prepare('SELECT id FROM users').all() as { id: string }[]).map((row) => row.id))
+  // The retired member is the workspace's (`workspace_meta`, POD-7013); the marker stays the install's.
+  const mapping = (db.prepare('SELECT value FROM workspace_meta WHERE workspace_id = ? AND key = ?').get(workspaceId, RETIRED_MEMBER_MAPPING) as { value: string } | undefined)?.value
+  const users = new Set((db.prepare('SELECT id FROM users WHERE workspace_id = ?').all(workspaceId) as { id: string }[]).map((row) => row.id))
   const states = latestState(snapshot)
   for (const state of states.values()) {
     if (state.owner === 'user:sole') { if (mapping === undefined) throw new Error(`enrollment ledger requires ${RETIRED_MEMBER_MAPPING}`); state.owner = mapping }
@@ -126,43 +133,43 @@ export function importEnrollmentLedger(db: SqlDatabase, stateDir: string): boole
   try {
     for (const [machineId, state] of states) {
       if (state.revoked) {
-        db.prepare('DELETE FROM grants WHERE resource_kind = ? AND resource_id = ?').run('machine', machineId)
-        db.prepare('DELETE FROM machines WHERE id = ?').run(machineId)
+        db.prepare('DELETE FROM grants WHERE workspace_id = ? AND resource_kind = ? AND resource_id = ?').run(workspaceId, 'machine', machineId)
+        db.prepare('DELETE FROM machines WHERE workspace_id = ? AND id = ?').run(workspaceId, machineId)
       } else if (state.owner !== undefined) {
         // A ledger-only id has no row to hold custody: the old column update was a no-op
         // for it, and a grant edge without a machine would be an orphan.
-        const exists = db.prepare('SELECT 1 AS one FROM machines WHERE id = ?').get(machineId)
+        const exists = db.prepare('SELECT 1 AS one FROM machines WHERE workspace_id = ? AND id = ?').get(workspaceId, machineId)
         if (!exists) continue
         // Custody is a personal grant edge (S5, POD-4151): the manage edge with custody=1
         // plus a use edge, written exactly as 20260917212210_machine-custody-grant-edges
         // wrote them from the old owner column. The previous custodian, if any, loses
         // both edges; shares held by others stay as records.
         const previous = db.prepare(
-          'SELECT grantee FROM grants WHERE resource_kind = ? AND resource_id = ? AND custody = 1',
-        ).get('machine', machineId) as { grantee: string } | undefined
+          'SELECT grantee FROM grants WHERE workspace_id = ? AND resource_kind = ? AND resource_id = ? AND custody = 1',
+        ).get(workspaceId, 'machine', machineId) as { grantee: string } | undefined
         if (previous && previous.grantee !== state.owner) {
-          db.prepare("DELETE FROM grants WHERE resource_kind = ? AND resource_id = ? AND grantee = ? AND verb IN ('use', 'manage')")
-            .run('machine', machineId, previous.grantee)
+          db.prepare("DELETE FROM grants WHERE workspace_id = ? AND resource_kind = ? AND resource_id = ? AND grantee = ? AND verb IN ('use', 'manage')")
+            .run(workspaceId, 'machine', machineId, previous.grantee)
         }
         if (state.owner === null) {
-          if (previous) db.prepare("DELETE FROM grants WHERE resource_kind = ? AND resource_id = ? AND grantee = ? AND verb IN ('use', 'manage')")
-            .run('machine', machineId, previous.grantee)
+          if (previous) db.prepare("DELETE FROM grants WHERE workspace_id = ? AND resource_kind = ? AND resource_id = ? AND grantee = ? AND verb IN ('use', 'manage')")
+            .run(workspaceId, 'machine', machineId, previous.grantee)
         } else {
           const createdAt = new Date().toISOString()
           for (const verb of ['use', 'manage'] as const) {
             db.prepare(
-              'INSERT INTO grants (resource_kind, resource_id, grantee, verb, owner, visibility, created_at, actor_kind, actor_id, on_behalf_of, custody) ' +
-              'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
-              'ON CONFLICT(resource_kind, resource_id, grantee, verb) DO UPDATE SET custody = excluded.custody',
-            ).run('machine', machineId, state.owner, verb, state.owner, 'owned-compute', createdAt, 'user', state.owner, state.owner, verb === 'manage' ? 1 : 0)
+              'INSERT INTO grants (workspace_id, resource_kind, resource_id, grantee, verb, owner, visibility, created_at, actor_kind, actor_id, on_behalf_of, custody) ' +
+              'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+              'ON CONFLICT(workspace_id, resource_kind, resource_id, grantee, verb) DO UPDATE SET custody = excluded.custody',
+            ).run(workspaceId, 'machine', machineId, state.owner, verb, state.owner, 'owned-compute', createdAt, 'user', state.owner, state.owner, verb === 'manage' ? 1 : 0)
           }
           db.prepare(
-            'INSERT INTO grant_audiences (resource_kind, resource_id, grantee) VALUES (?, ?, ?) ON CONFLICT(resource_kind, resource_id, grantee) DO NOTHING',
-          ).run('machine', machineId, state.owner)
+            'INSERT INTO grant_audiences (workspace_id, resource_kind, resource_id, grantee) VALUES (?, ?, ?, ?) ON CONFLICT(workspace_id, resource_kind, resource_id, grantee) DO NOTHING',
+          ).run(workspaceId, 'machine', machineId, state.owner)
         }
       }
     }
-    db.prepare('UPDATE feed_identity SET epoch = ? WHERE singleton = 1').run(`ledger-import-${Date.now()}`)
+    db.prepare('UPDATE sync_feed SET epoch = ? WHERE workspace_id = ?').run(`ledger-import-${Date.now()}`, workspaceId)
     db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(LEDGER_IMPORT_MARKER, new Date().toISOString())
     db.exec('COMMIT')
   } catch (error) {

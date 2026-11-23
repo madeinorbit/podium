@@ -335,6 +335,7 @@ describe('claudeRecordToItems', () => {
         ts: undefined,
         text: '',
         toolResult: 'ok',
+        toolExecution: { output: { capture: 'complete' } },
         toolUseId: 'toolu_1',
       },
     ])
@@ -1051,6 +1052,7 @@ describe('one shape for a tool item, live and on reload (POD-3050)', () => {
       id: 'toolu_live',
       toolName: 'Bash',
       input: INPUT,
+      batchId: 'rec-1',
       ts: '2026-08-28T00:00:00.000Z',
       toolUseId: 'toolu_live',
     })
@@ -1114,9 +1116,20 @@ describe('retained shell commands', () => {
     if (!claude || !codex) throw new Error('Missing command item')
     const live = claudeToolCallItem({ id: 'call', toolName: 'Bash', input })
     expect(live.toolInputJson).toBe(claude.toolInputJson)
-    // Codex already retains cmd verbatim; it needs no duplicate payload.
+    // The compatibility field is a preview; the typed input owns retained text.
     expect(codex.toolInputJson).toBeUndefined()
-    if (command) expect(codex.toolInput).toBe(command)
+    expect(codex.toolInput?.length ?? 0).toBeLessThanOrEqual(160)
+    const retained = codex.toolExecution?.inputs?.[0]
+    expect(retained).toBeDefined()
+    expect(command.startsWith(retained?.text ?? '')).toBe(true)
+    expect(retained?.text.length).toBeLessThanOrEqual(TOOL_INPUT_MAX)
+    if (command.length > TOOL_INPUT_MAX) {
+      expect(retained?.capture).toBe('truncated')
+      expect(retained?.text.length).toBeGreaterThan(160)
+    } else {
+      expect(retained?.text === command).toBe(true)
+      expect(retained?.capture).toBe('complete')
+    }
     return claude
   }
 
@@ -1165,13 +1178,31 @@ describe('retained shell commands', () => {
   })
 })
 
-
-it.each(['/uploads/shot.png', 'C:\\uploads\\shot.png', 'c:/uploads/shot.png'])('machine paths: Claude file and image labels for %s', path => {
+it.each([
+  '/uploads/shot.png',
+  'C:\\uploads\\shot.png',
+  'c:/uploads/shot.png',
+])('machine paths: Claude file and image labels for %s', (path) => {
   const records = [
     { type: 'attachment', attachment: { type: 'file', filename: path } },
     { type: 'user', isMeta: true, message: { content: `[Image: source: ${path}]` } },
-    { type: 'user', message: { content: [{ type: 'image', source: { type: 'base64' } }, { type: 'text', text: `[Image: source: ${path}]` }] } },
-    { type: 'attachment', attachment: { type: 'queued_command', commandMode: 'prompt', prompt: `look\n[Image: source: ${path}]` } },
+    {
+      type: 'user',
+      message: {
+        content: [
+          { type: 'image', source: { type: 'base64' } },
+          { type: 'text', text: `[Image: source: ${path}]` },
+        ],
+      },
+    },
+    {
+      type: 'attachment',
+      attachment: {
+        type: 'queued_command',
+        commandMode: 'prompt',
+        prompt: `look\n[Image: source: ${path}]`,
+      },
+    },
   ]
   for (const record of records) {
     const items = claudeRecordToItems(record)

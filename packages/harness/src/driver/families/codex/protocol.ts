@@ -416,7 +416,9 @@ export const CodexNotification = z.discriminatedUnion('method', [
   }),
   z.object({
     method: z.literal('error'),
-    params: z.object({ message: z.string() }).passthrough(),
+    // `willRetry: true` is Codex announcing a retry (five on a 401), not a
+    // failed turn.
+    params: z.object({ message: z.string(), willRetry: z.boolean().optional() }).passthrough(),
   }),
 ])
 export type CodexNotification = z.infer<typeof CodexNotification>

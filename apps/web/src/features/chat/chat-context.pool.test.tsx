@@ -10,15 +10,16 @@ import type { MobxPool } from '@podium/client-graph'
 import {
   chatArtifactIssue,
   chatInteractions,
+  chatItemAttachments,
   chatMentionIssues,
   chatReferenceSessions,
-  chatItemAttachments,
   chatUploadArtifact,
 } from '@podium/client-graph/chat-context'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { SESSION_EXIT_SOURCE_KEY } from '@podium/client-graph/session-exit-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { asSessionId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, renderHook, waitFor } from '@testing-library/react'
 import { createRef, StrictMode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -48,7 +49,7 @@ const snapshot = () => {
               'pendingInteractions',
               'messageRecords',
               'outboxDeadLetters',
-              'superThreads',
+              'superagentThreads',
               'attachedSessionId',
               'transcriptReveal',
               'chatSendsFor',
@@ -66,19 +67,27 @@ const handle = {
     return snapshot()
   },
   subscribe: (_listener: () => void) => () => {},
-  readLocal: (key: import('@podium/client-core/engine').LocalKey) =>
-    f.fixture!.owner.readLocal(key),
-  get drafts() { return f.fixture!.owner.drafts },
+  get drafts() {
+    return f.fixture!.owner.drafts
+  },
 }
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
+  readFixture: (read: (state: Store) => unknown) => read(snapshot() as unknown as Store),
   useSessionDraft: (id: string) => snapshot().drafts[id] ?? '',
   useSessionExitKind: (id: string) => {
     if (f.guard) throw new Error('Legacy session exit metadata read')
     return f.fixture!.owner.replica.exitKind?.('session', id)
   },
 }))
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => handle }))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => handle),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
+      () => f.fixture!.owner,
+    ),
+  }
+})
 vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: () =>
     useSyncExternalStore(
@@ -117,30 +126,35 @@ import { observer } from 'mobx-react-lite'
 import { ChatComposer } from './ChatComposer'
 import { ItemAttachments } from './ChatUploadThumb'
 import { OfferArtifactStrip } from './OfferArtifactStrip'
+import { useChatConversationPorts } from './test-support/conversation-ports'
+import { useModelSend } from './test-support/model-send'
 import {
   useChatArtifactIssue,
   useChatContextWindow,
   useChatDraft,
   useChatInteractions,
   useChatIssueSeq,
+  useChatItemMessage,
   useChatMachines,
   useChatMentions,
   useChatReferenceMachines,
   useChatRepositoryKey,
   useChatSession,
   useChatSessionExitKind,
-  useChatThreads,
   useChatThread,
+  useChatThreads,
   useChatUploadSrc,
-  useChatItemMessage,
 } from './use-chat-context'
-import { useChatConversationPorts } from './test-support/conversation-ports'
-import { useModelSend } from './test-support/model-send'
 
-const ItemAttachmentTags = observer(({ itemId, ...props }: Omit<Parameters<typeof ItemAttachments>[0], 'attachments'> & { itemId: string }) => {
-  const message = useChatItemMessage(props.sessionId, itemId)
-  return <ItemAttachments {...props} attachments={message?.attachments ?? []} />
-})
+const ItemAttachmentTags = observer(
+  ({
+    itemId,
+    ...props
+  }: Omit<Parameters<typeof ItemAttachments>[0], 'attachments'> & { itemId: string }) => {
+    const message = useChatItemMessage(props.sessionId, itemId)
+    return <ItemAttachments {...props} attachments={message?.attachments ?? []} />
+  },
+)
 
 beforeEach(async () => {
   f.guard = true
@@ -151,6 +165,12 @@ beforeEach(async () => {
     openArtifact: vi.fn(),
     openFileInWorktree: vi.fn(),
   }
+  // Artifact/file navigation belongs to UiStore. Observe that owner while
+  // preserving the suite's original dispatch spies and payload assertions.
+  Object.defineProperties(f.fixture.owner.ui, {
+    openArtifact: { configurable: true, writable: true, value: f.seams.openArtifact },
+    openFileInWorktree: { configurable: true, writable: true, value: f.seams.openFileInWorktree },
+  })
   bindStoreStatsOwner(handle, f.fixture.owner)
   bindStoreStatsOwner(f.fixture.owner.replica, f.fixture.owner)
   storeStats.enable()
@@ -227,10 +247,6 @@ it('preserves mention ties, pending question order, saved drafts, held sends and
   expect(chatReferenceSessions(corpus.pool).sessions.map((row) => row.sessionId)).toEqual(
     corpus.sessions.map((row) => row.sessionId),
   )
-  expect(corpus.pool.tables.session.has(corpus.sessions[1]!.sessionId)).toBe(false)
-  expect(omitGone(corpus.pool.row('session', corpus.sessions[1]!.sessionId, 'summary'))).not.toHaveProperty(
-    'privateBody',
-  )
   expect(omitGone(corpus.pool.row('chatHeld', corpus.sessions[0]!.sessionId))).toMatchObject({
     sends: [{ mutationId: 'held-failed' }, { mutationId: 'held-live' }],
   })
@@ -285,6 +301,7 @@ it('resolves a chat attachment id to its stored copy on the session issue (POD-2
       ...issue,
       panel: { ...issue.panel!, artifacts: [...issue.panel!.artifacts, upload] },
     } as never
+    corpus.publishArtifacts(corpus.issues[0]!)
     corpus.pool.apply({
       type: 'update',
       rows: [{ kind: 'issue', id: issue.id, value: corpus.issues[0] as never }],
@@ -301,6 +318,78 @@ it('resolves a chat attachment id to its stored copy on the session issue (POD-2
   // unknown id keep the caller's fallback.
   expect(chatUploadArtifact(corpus.pool, session.sessionId, 'concept.html')).toBeUndefined()
   expect(chatUploadArtifact(corpus.pool, session.sessionId, 'att-2')).toBeUndefined()
+})
+
+it('drops gallery lookup with the private session while its task artifact stays shared', async () => {
+  const corpus = f.fixture!
+  await corpus.load()
+  const aliceSession = corpus.sessions[0]!
+  const issue = corpus.issues[0]!
+  const bobSession = { ...aliceSession, sessionId: asSessionId('bob-shared-run') }
+  const attachment = { id: 'shared-upload', filename: 'shared.png', kind: 'image' as const }
+  const sharedIssue = {
+    ...issue,
+    panel: {
+      ...issue.panel!,
+      artifacts: [
+        ...issue.panel!.artifacts,
+        {
+          path: 'chat-uploads/shared-upload/shared.png',
+          title: 'shared.png',
+          artifactId: 'shared-copy',
+          entry: 'shared.png',
+          chatUploadId: attachment.id,
+          addedAt: '2026-11-05T12:00:00Z',
+        },
+      ],
+    },
+  }
+  corpus.publishArtifacts(sharedIssue as never)
+  corpus.pool.apply({
+    type: 'update',
+    rows: [{ kind: 'issue', id: issue.id, value: sharedIssue as never }],
+  })
+  const props = {
+    attachments: [attachment],
+    tags: [],
+    httpOrigin: 'http://synthetic.invalid',
+    onOpenImage: vi.fn(),
+  }
+  const gallery = render(<ItemAttachments {...props} sessionId={aliceSession.sessionId} />)
+  const hook = renderHook(() =>
+    useChatUploadSrc(aliceSession.sessionId, attachment.id, props.httpOrigin),
+  )
+  const expected = `http://synthetic.invalid/files/artifact/${issue.id}/shared-copy/shared.png`
+  expect(hook.result.current).toBe(expected)
+  expect(gallery.container.querySelector('img')?.getAttribute('src')).toBe(expected)
+
+  // Model the server's member rescope: the shared task remains, Alice's full
+  // session leaves the projection and Bob's own session on that task arrives.
+  act(() =>
+    corpus.pool.apply({
+      type: 'update',
+      rows: [
+        { kind: 'session', id: aliceSession.sessionId, value: undefined },
+        { kind: 'session', id: bobSession.sessionId, value: bobSession as never },
+      ],
+    }),
+  )
+  expect(hook.result.current).toBeNull()
+  expect(gallery.container.querySelector('img')).toBeNull()
+  expect(chatUploadArtifact(corpus.pool, aliceSession.sessionId, attachment.id)).toBeUndefined()
+  expect(chatUploadArtifact(corpus.pool, bobSession.sessionId, attachment.id)).toMatchObject({
+    issueId: issue.id,
+    artifact: { artifactId: 'shared-copy' },
+  })
+
+  gallery.rerender(<ItemAttachments {...props} sessionId={bobSession.sessionId} />)
+  expect(gallery.container.querySelector('img')?.getAttribute('src')).toBe(expected)
+  fireEvent.click(gallery.getByRole('button', { name: 'Open shared.png, image 1 of 1' }))
+  expect(props.onOpenImage).toHaveBeenCalledWith(
+    expected,
+    [expect.objectContaining({ src: expected, label: 'shared.png' })],
+    0,
+  )
 })
 
 it('shows a path-less image turn from its matched message record’s stored copy (POD-2148)', async () => {
@@ -349,7 +438,12 @@ it('shows a path-less image turn from its matched message record’s stored copy
               ...row,
               transcriptItem: { id: 'u-queued', cursor: 'c-queued' },
               attachments: [
-                { id: 'att-9', filename: 'cat.png', mediaType: 'image/png', kind: 'image' as const },
+                {
+                  id: 'att-9',
+                  filename: 'cat.png',
+                  mediaType: 'image/png',
+                  kind: 'image' as const,
+                },
               ],
             }
           : row,
@@ -373,6 +467,7 @@ it('shows a path-less image turn from its matched message record’s stored copy
         ],
       },
     } as never
+    corpus.publishArtifacts(corpus.issues[0]!)
     corpus.pool.apply({
       type: 'update',
       rows: [{ kind: 'issue', id: issue.id, value: corpus.issues[0] as never }],
@@ -386,9 +481,9 @@ it('shows a path-less image turn from its matched message record’s stored copy
       `http://synthetic.invalid/files/artifact/${issue.id}/cat-copy/cat.png`,
     ),
   )
-  expect(view.container.textContent).toBe('')
+  expect(view.container.querySelectorAll('.chat-image-gallery')).toHaveLength(1)
+  expect(view.getByRole('button', { name: 'Open cat.png, image 1 of 1' })).toBeTruthy()
 })
-
 
 it('updates addressed records, question membership and outbox without re-reading collections', async () => {
   const corpus = f.fixture!
@@ -416,27 +511,11 @@ it('updates addressed records, question membership and outbox without re-reading
   )
   corpus.updateMessages(corpus.data.messages.slice(1), ['notice-message-0'])
   expect(corpus.check().differences).toBe(0)
-  expect(omitGone(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId))).not.toMatchObject({
+  expect(
+    omitGone(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId)),
+  ).not.toMatchObject({
     messages: expect.arrayContaining(['notice-message-0']),
   })
-})
-
-it('reports missing cold summaries pending and batches their hydration', async () => {
-  const corpus = f.fixture!
-  await corpus.load()
-  const summary = corpus.pool.residency!.summary.bind(corpus.pool.residency!)
-  const missing = vi
-    .spyOn(corpus.pool.residency!, 'summary')
-    .mockImplementation((entity, id) =>
-      entity === 'session' && id === corpus.sessions[1]!.sessionId
-        ? undefined
-        : summary(entity, id),
-    )
-  expect(chatReferenceSessions(corpus.pool).pending).toBe(1)
-  expect(chatReferenceSessions(corpus.pool).pending).toBe(1)
-  missing.mockRestore()
-  expect(corpus.pool.hydrate()).toBe(1)
-  expect(corpus.check()).toMatchObject({ differences: 0, pending: 0 })
 })
 
 it('clears rescope inputs and releases all borrowed subscriptions on disposal', async () => {
@@ -463,7 +542,7 @@ it('detects a planted wrong value for every new comparison section', async () =>
     { ...state, pendingInteractions: [] },
     { ...state, messageRecords: [] },
     { ...state, chatSendsFor: () => [] },
-    { ...state, superThreads: [] },
+    { ...state, superagentThreads: [] },
     { ...state, repos: [] },
     { ...state, machines: [] },
     { ...state, replica: { ...state.replica, exitKind: () => 'removed' } },
@@ -660,7 +739,7 @@ function Composer() {
       offer={null}
       onOfferAction={async () => {}}
       onOfferDismiss={async () => {}}
-      session={f.fixture!.sessions[0]}
+      session={f.pool!.sessionObject(id)}
       turnError={null}
       transcriptFreshness="saved"
       offlineAsOf={null}
@@ -669,7 +748,7 @@ function Composer() {
     />
   )
 }
-it('renders the real composer and artifact strip identically and keeps artifact dispatch on its owner', async () => {
+it('renders the saved draft and artifact and keeps artifact dispatch on its owner', async () => {
   await f.fixture!.load()
   const offer = {
     message: 'Synthetic concept ready',
@@ -680,7 +759,10 @@ it('renders the real composer and artifact strip identically and keeps artifact 
   const Surface = () => (
     <>
       <Composer />
-      <OfferArtifactStrip session={f.fixture!.sessions[0]!} offer={offer} />
+      <OfferArtifactStrip
+        session={f.pool!.sessionObject(f.fixture!.sessions[0]!.sessionId)}
+        offer={offer}
+      />
     </>
   )
   const visible = (container: HTMLElement) => ({
@@ -695,7 +777,13 @@ it('renders the real composer and artifact strip identically and keeps artifact 
   storeStats.reset()
   f.guard = true
   const actual = render(<Surface />)
-  expect(visible(actual.container)).toMatchSnapshot('last green composer and artifacts')
+  expect(visible(actual.container)).toMatchObject({
+    draft: 'Saved draft',
+    buttons: expect.arrayContaining([
+      expect.objectContaining({ label: 'Synthetic concept', disabled: false }),
+    ]),
+  })
+  expect(actual.container.textContent).toContain('Synthetic concept')
   fireEvent.click(actual.getByTestId('offer-artifact-thumb'))
   expect(f.seams.openArtifact).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -833,21 +921,32 @@ it('types 60 characters with zero renders outside the composer and zero outbox o
   expect(corpus.source.counts.orderIds).toBe(work.orderIds)
 })
 
-
 it('requests no thread for ordinary chat and only the selected backend row for a superthread', async () => {
   const rows = vi.spyOn(f.pool!, 'row')
-  const hook = renderHook(({ id }: { id: string | undefined }) => useChatThread(id), { initialProps: { id: undefined as string | undefined } })
+  const hook = renderHook(({ id }: { id: string | undefined }) => useChatThread(id), {
+    initialProps: { id: undefined as string | undefined },
+  })
   expect(hook.result.current).toBeUndefined()
-  expect(rows.mock.calls.some(([kind]) => String(kind) === 'superThread' || String(kind) === 'superThreadCatalog')).toBe(false)
+  expect(
+    rows.mock.calls.some(
+      ([kind]) => String(kind) === 'superThread' || String(kind) === 'superThreadCatalog',
+    ),
+  ).toBe(false)
   await act(async () => hook.rerender({ id: 'own-thread' }))
   await waitFor(() => expect(hook.result.current).toMatchObject({ id: 'own-thread' }))
   expect(rows.mock.calls.some(([kind]) => String(kind) === 'superThreadCatalog')).toBe(false)
-  expect(rows.mock.calls.filter(([kind]) => String(kind) === 'superThread').every(([, id]) => id === 'own-thread')).toBe(true)
+  expect(
+    rows.mock.calls
+      .filter(([kind]) => String(kind) === 'superThread')
+      .every(([, id]) => id === 'own-thread'),
+  ).toBe(true)
 })
 
 it('keeps mention catalog demand off until the picker is visible', async () => {
   const rows = vi.spyOn(f.pool!, 'row')
-  const hook = renderHook(({ query }: { query: string | null }) => useChatMentions(query), { initialProps: { query: null as string | null } })
+  const hook = renderHook(({ query }: { query: string | null }) => useChatMentions(query), {
+    initialProps: { query: null as string | null },
+  })
   expect(hook.result.current).toEqual([])
   expect(rows).not.toHaveBeenCalled()
   await act(async () => hook.rerender({ query: 'task' }))

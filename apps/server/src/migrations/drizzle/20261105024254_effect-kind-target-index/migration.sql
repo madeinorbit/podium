@@ -1,0 +1,1 @@
+CREATE INDEX `idx_effects_kind_target` ON `effects` (`kind`,`target_kind`,`target_id`,`created_at`);

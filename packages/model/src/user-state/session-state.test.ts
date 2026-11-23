@@ -178,15 +178,16 @@ describe('the members’ own semantics', () => {
     expect(PinState.safeParse({ ...base, kind: 'session' }).success).toBe(false)
   })
 
-  it('the three issue markers are one row, and all three are independently nullable', () => {
+  it('the two issue markers are one row, and both are independently nullable', () => {
     const key = { userId: 'u1', entityId: 'i1' }
-    expect(
-      IssueUserState.safeParse({ ...key, readAt: null, tuckedAt: null, pinnedAt: null }).success,
-    ).toBe(true)
+    expect(IssueUserState.safeParse({ ...key, readAt: null, tuckedAt: null }).success).toBe(true)
     // A row missing one marker is not a valid row: three spellings of "not done"
     // (null, absent, and a default) is how a per-user table acquires a second
     // meaning nobody documented.
-    expect(IssueUserState.safeParse({ ...key, readAt: null, tuckedAt: null }).success).toBe(false)
+    expect(IssueUserState.safeParse({ ...key, readAt: null }).success).toBe(false)
+    // A pin is not a marker on this row: it is the person's own pin record
+    // (POD-6692), so the row has no `pinnedAt` to set.
+    expect(IssueUserState.shape).not.toHaveProperty('pinnedAt')
   })
 
   it('two users’ rows for the SAME entity are two distinct keys', () => {
@@ -206,15 +207,7 @@ describe('the projection overlays', () => {
     // one wire value, or a client would render a tucked-away issue differently
     // depending on whether a row was ever written and then cleared.
     expect(issueOverlayOf(undefined)).toEqual(NO_ISSUE_USER_STATE)
-    expect(issueOverlayOf({ readAt: null, tuckedAt: null, pinnedAt: null })).toEqual(
-      NO_ISSUE_USER_STATE,
-    )
-  })
-
-  it('`pinned` is derived from pinnedAt in exactly one place', () => {
-    expect(
-      issueOverlayOf({ readAt: null, tuckedAt: null, pinnedAt: '2026-01-01T00:00:00.000Z' }),
-    ).toEqual({ readAt: null, tuckedAt: null, pinned: true })
+    expect(issueOverlayOf({ readAt: null, tuckedAt: null })).toEqual(NO_ISSUE_USER_STATE)
   })
 
   it('the empty session overlay is never-opened and never-snoozed, and they differ', () => {
@@ -235,7 +228,7 @@ describe('the fragment factory is reused, not re-implemented', () => {
 })
 
 describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
-  it('admits dynamic section keys, and refuses the LEGACY spelling of an admitted key', () => {
+  it('admits dynamic section keys and maps renamed legacy spellings to one canonical row', () => {
     // `for (const key of LAYOUT_EXACT_KEYS) expect(isLayoutKey(key)).toBe(true)`
     // used to stand here and was deleted, not amended: `isLayoutKey` tests
     // membership of a set BUILT FROM `LAYOUT_EXACT_KEYS`, so it cannot fail for
@@ -244,13 +237,16 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
     // every exact key and every prefix reaches a declared home — lives with the
     // routing table, in `packages/client-core/src/ui-state.audit.test.ts`.
     //
-    // What is asserted here is the part that CAN fail: the canonical vocabulary
-    // is disjoint from the legacy storage spellings that map onto it. Admitting
+    // Renamed storage spellings must not acquire their own rows. An unchanged
+    // canonical spelling remains valid across the migration. Admitting
     // `podium.dockTab` as a layout key would give one setting two rows.
     expect(isLayoutKey('sidebar.section.closed')).toBe(true)
-    for (const legacy of Object.keys(LAYOUT_KEY_FROM_LEGACY)) {
-      expect(isLayoutKey(legacy), legacy).toBe(false)
+    for (const [legacy, canonical] of Object.entries(LAYOUT_KEY_FROM_LEGACY)) {
+      expect(layoutKeyFromLegacy(legacy), legacy).toBe(canonical)
+      if (legacy !== canonical) expect(isLayoutKey(legacy), legacy).toBe(false)
     }
+    expect(layoutKeyFromLegacy('tips.enabled')).toBe('tips.enabled')
+    expect(isLayoutKey('tips.enabled')).toBe(true)
   })
 
   it('refuses free-form keys, bare prefixes, retired dock sections, and device-local geometry', () => {
@@ -270,7 +266,8 @@ describe('layout key routing (POD-1350 / POD-403 shared vocabulary)', () => {
     expect(layoutKeyFromLegacy('podium.dock.section.mail')).toBeNull()
     // panelMode keys map without restating the storage-key literal in layout-state.
     expect(layoutKeyFromLegacy('podium.' + 'panelMode')).toBe('panelMode')
-    expect(layoutKeyFromLegacy('podium.' + 'panelModeDefault')).toBe('panelModeDefault')
+    expect(layoutKeyFromLegacy('podium.' + 'panelModeDefault')).toBeNull()
+    expect(isLayoutKey('panelModeDefault')).toBe(true)
     // Device-local: never become layout rows.
     for (const key of DEVICE_LOCAL_UI_KEYS) {
       expect(layoutKeyFromLegacy(key), key).toBeNull()

@@ -28,7 +28,7 @@ it('preserves joined labels when an explicit personal cursor replaces the read c
   const painted = sessionView(view, { userState: { readAt: null, snoozedUntil: active } })
   expect(sessionValues(painted)).toMatchObject({ readAt: null, unread: true, snoozedUntil: active,
     displayRef: 'POD-42-B', machineName: 'Host', handoffTarget: 'Target' })
-  const patch = { key: 'rename', entity: 'sessions', id: raw.sessionId, op: 'patch', patch: { name: 'Pending' }, coveredBy: () => false } as const
+  const patch = { key: 'rename', entity: 'sessions', id: raw.sessionId, op: 'patch', patch: { name: 'Pending' } } as const
   const copy = foldRowOverlays(view, [patch])!
   expect(sessionValues(copy)).toEqual(sessionValues(view))
   expect(sessionValues(JSON.parse(JSON.stringify(copy)))).toEqual(sessionValues(view))
@@ -38,6 +38,13 @@ it('derives draft refs and harness logout condition from explicit homes', () => 
   expect(sessionValues({ ...raw, refSeq: undefined, refLetter: undefined, refDraft: 3 }, homes).displayRef).toBe('POD-DRAFT-3')
   expect(sessionValues(raw, { ...homes, machine: { name: 'Host', loggedOutHarnesses: ['codex'] } }).condition).toBe('logged-out')
   expect(sessionValues(raw, { ...homes, machine: { name: 'Host', loggedOutHarnesses: ['claude-code'] } }).condition).toBeUndefined()
+})
+
+it('reads the machine login only for a session on its harness login (POD-7062)', () => {
+  const loggedOut = { ...homes, machine: { name: 'Host', loggedOutHarnesses: ['codex'] } }
+  for (const onCredential of [{ credentialId: 'cred_api-key' }, { credentialId: 'cred_subscription-home' }, { credentialId: 'cred_another-member' }, { accountId: 'acct_legacy' }])
+    expect(sessionValues({ ...raw, ...onCredential }, loggedOut).condition).toBeUndefined()
+  expect(sessionValues({ ...raw, credentialId: null }, loggedOut).condition).toBe('logged-out')
 })
 
 it('uses the loaded personal companion boundary for unread values', () => {

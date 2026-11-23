@@ -33,14 +33,14 @@ async function fixture() {
     getSettings: async () => normalizeSettings({ sessionDefaults: { agent: 'codex' } }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'fixture' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing(),
+    ...issueTestPlumbing(undefined, { store }),
   })
   const create = async (
     title: string,
     parentId?: IssueId,
     type: 'task' | 'phase' | 'decision' = 'task',
   ) =>
-    await svc.crud.create({
+    await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/repo',
       title,
       type,
@@ -56,12 +56,8 @@ async function fixture() {
       cwd: '/repo',
       machineId: store.hostMachineId,
       status: 'live',
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
-      createdAt: '2026-10-15T00:00:00Z',
-      lastActiveAt: '2026-10-15T00:00:00Z',
+      createdAt: '2026-10-15T00:00:00.000Z',
+      lastActiveAt: '2026-10-15T00:00:00.000Z',
       origin: { kind: 'spawn' },
       archived: false,
       ...patch,
@@ -77,7 +73,7 @@ const agentState = (
   phase: NonNullable<SessionMeta['agentState']>['phase'],
 ): NonNullable<SessionMeta['agentState']> => ({
   phase,
-  since: '2026-10-15T00:00:00Z',
+  since: '2026-10-15T00:00:00.000Z',
   nativeSubagentCount: 0,
 })
 
@@ -86,18 +82,18 @@ it('orders nested phases, rolls up shared words and counts leaves without phase 
   const root = await create('Mission')
   const later = await create('Later', root.id, 'phase')
   const first = await create('Build', root.id, 'phase')
-  await svc.crud.move(first.id, { before: later.id })
+  await svc.crud.move(svc.reports.store.serverWriter, first.id, { before: later.id })
   const parent = await create('Parent task', first.id)
   const nested = await create('Nested phase', parent.id, 'phase')
   const crashed = await create('Crashed task', nested.id)
   const decision = await create('Choose approach', nested.id, 'decision')
   const closed = await create('Cancelled task', later.id)
-  await svc.crud.close(closed.id, 'cancelled')
+  await svc.crud.close(svc.reports.store.serverWriter, closed.id, 'cancelled')
   const blocked = await create('External wait', root.id)
   const external = await create('External task')
-  await svc.crud.move(blocked.id, { after: later.id })
-  await svc.hierarchy.addDep(blocked.id, external.id)
-  await svc.hierarchy.addDep(decision.id, closed.id)
+  await svc.crud.move(svc.reports.store.serverWriter, blocked.id, { after: later.id })
+  await svc.hierarchy.addDep(svc.reports.store.serverWriter, blocked.id, external.id)
+  await svc.hierarchy.addDep(svc.reports.store.serverWriter, decision.id, closed.id)
   seat('working', crashed.id, { agentState: agentState('working') })
   seat('crash', crashed.id, { status: 'exited', stopReason: 'oom', exitCode: 137 })
   const deck = await svc.reports.deck(root.id)
@@ -120,11 +116,11 @@ it('reads a phase Done once its tasks are closed, though nobody closed the phase
   const empty = await create('Release', root.id, 'phase')
   const a = await create('Server part', build.id)
   const b = await create('Web part', build.id)
-  await svc.crud.close(a.id, 'completed')
+  await svc.crud.close(svc.reports.store.serverWriter, a.id, 'completed')
   const word = async (id: IssueId) =>
     flatten((await svc.reports.deck(root.id)).root).find((row) => row.id === id)?.word
   expect(await word(build.id)).toBe('idle')
-  await svc.crud.close(b.id, 'completed')
+  await svc.crud.close(svc.reports.store.serverWriter, b.id, 'completed')
   expect(await word(build.id)).toBe('done')
   expect(await word(empty.id)).toBe('not-started')
   expect((await svc.crud.store.rowOrThrow(build.id)).stage).not.toBe('done')
@@ -143,7 +139,7 @@ it('shows marker-derived seats and shared session words, excluding non-roster se
     observedModel: 'actual',
   })
   seat('helper', task.id, {
-    offer: { message: 'Review ready', actions: [], createdAt: '2026-10-15T00:00:00Z' },
+    offer: { message: 'Review ready', actions: [], createdAt: '2026-10-15T00:00:00.000Z' },
   })
   seat('archived', task.id, { archived: true, agentState: agentState('errored') })
   seat('headless', task.id, { headless: true })
@@ -152,11 +148,11 @@ it('shows marker-derived seats and shared session words, excluding non-roster se
     status: 'hibernated' as const,
     resume: { kind: 'codex' as const, value: 'same' },
   }
-  seat('old', task.id, { ...parked, lastActiveAt: '2026-10-14T00:00:00Z' })
+  seat('old', task.id, { ...parked, lastActiveAt: '2026-10-14T00:00:00.000Z' })
   seat('new', task.id, parked)
-  await svc.crud.setCoordinator(root.id, coordinator.sessionId)
-  await svc.crud.setCoordinator(phase.id, lead.sessionId)
-  await svc.crud.setCoordinator(task.id, worker.sessionId)
+  await svc.crud.setCoordinator(svc.reports.store.serverWriter, root.id, coordinator.sessionId)
+  await svc.crud.setCoordinator(svc.reports.store.serverWriter, phase.id, lead.sessionId)
+  await svc.crud.setCoordinator(svc.reports.store.serverWriter, task.id, worker.sessionId)
   const deck = await svc.reports.deck(root.id)
   expect(deck.root.sessions[0]).toMatchObject({ seat: 'coordinator', word: 'idle' })
   expect(deck.root.children[0]?.sessions[0]).toMatchObject({ seat: 'phase-lead', word: 'idle' })
@@ -187,7 +183,7 @@ it('asks only through a live coordinator, and escalates delegate exceptions (POD
   const asking = seat('asking', reviewed.id, {
     agentState: { ...agentState('idle'), idle: { kind: 'question' } },
   })
-  await svc.crud.setCoordinator(root.id, coordinator.sessionId)
+  await svc.crud.setCoordinator(svc.reports.store.serverWriter, root.id, coordinator.sessionId)
   const words = async () => {
     const deck = await svc.reports.deck(root.id)
     const nodes = new Map(flatten(deck.root).map((row) => [row.id, row.word]))
@@ -199,7 +195,7 @@ it('asks only through a live coordinator, and escalates delegate exceptions (POD
   asking.agentState = agentState('errored')
   expect(await words()).toEqual({ root: 'error', reviewed: 'error' })
   asking.agentState = { ...agentState('idle'), idle: { kind: 'question' } }
-  coordinator.offer = { message: 'Ready', actions: [], createdAt: '2026-10-15T00:00:00Z' }
+  coordinator.offer = { message: 'Ready', actions: [], createdAt: '2026-10-15T00:00:00.000Z' }
   expect((await words()).root).toBe('needs-you')
   coordinator.offer = undefined
   coordinator.status = 'exited'
@@ -211,15 +207,15 @@ it('lists formal and provenance proposals with author and placement, excluding d
   const { svc, create, seat } = await fixture()
   const root = await create('Mission')
   const author = seat('author', root.id, { refIssueId: root.id, refLetter: 'A' })
-  const proposal = await svc.crud.create({
+  const proposal = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
     title: 'Own proposal',
     stage: 'proposed',
     startedBySession: author.sessionId,
     startNow: false,
   })
-  await svc.hierarchy.addDep(proposal.id, root.id, 'discovered-from')
-  const formal = await svc.crud.create({
+  await svc.hierarchy.addDep(svc.reports.store.serverWriter, proposal.id, root.id, 'discovered-from')
+  const formal = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
     title: 'Here proposal',
     parentId: root.id,
@@ -229,14 +225,14 @@ it('lists formal and provenance proposals with author and placement, excluding d
   })
   const proposedChild = await create('Proposed subtree', formal.id, 'decision')
   const accepted = await create('Accepted task', root.id)
-  const active = await svc.crud.create({
+  const active = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
     title: 'Started discovery',
     startedBySession: author.sessionId,
     startNow: false,
   })
-  await svc.hierarchy.addDep(active.id, root.id, 'discovered-from')
-  await svc.crud.update(active.id, { stage: 'in_progress' })
+  await svc.hierarchy.addDep(svc.reports.store.serverWriter, active.id, root.id, 'discovered-from')
+  await svc.crud.update(svc.reports.store.serverWriter, active.id, { stage: 'in_progress' })
   const deck = await svc.reports.deck(root.id)
   expect(deck.root.children.map((row) => row.id)).toEqual([accepted.id])
   expect(deck.counts).toMatchObject({ total: 1, 'not-started': 1, 'needs-you': 0 })
@@ -259,13 +255,13 @@ it('filters hidden issues, dependency targets and sessions before deriving state
   const root = await create('Visible mission')
   const hidden = await create('Private child', root.id, 'decision')
   const visible = await create('Visible task', root.id)
-  await svc.hierarchy.addDep(visible.id, hidden.id)
+  await svc.hierarchy.addDep(svc.reports.store.serverWriter, visible.id, hidden.id)
   seat('private-session', hidden.id, { agentState: agentState('errored') })
-  const deck = await svc.reports.deck(root.id, { readableBy: () => null, mayRead: (id) => id !== hidden.id })
+  const deck = await svc.reports.deck(root.id, { viewer: () => null, mayRead: (id) => id !== hidden.id })
   expect(deck.counts).toMatchObject({ total: 1, 'not-started': 1, error: 0, blocked: 0 })
   expect(JSON.stringify(deck)).not.toContain('Private')
   expect(JSON.stringify(deck)).not.toContain('private-session')
-  await expect(svc.reports.deck(root.id, { readableBy: () => null, mayRead: () => false })).rejects.toThrow()
+  await expect(svc.reports.deck(root.id, { viewer: () => null, mayRead: () => false })).rejects.toThrow()
 })
 
 it('includes pending permission asks in session and task words', async () => {
@@ -280,7 +276,7 @@ it('includes pending permission asks in session and task words', async () => {
     source: 'protocol',
     answerable: 'structured',
     fingerprint: 'ask',
-    askedAt: '2026-10-15T00:00:00Z',
+    askedAt: '2026-10-15T00:00:00.000Z',
   })
   const deck = await svc.reports.deck(root.id)
   expect(deck.root.word).toBe('needs-you')
@@ -292,7 +288,7 @@ it('cannot expose a private session through a seat, word, or provenance proposal
   const root = await create('Mission')
   const privateSession = seat('private', root.id, { agentState: agentState('errored') })
   hiddenSessions.add(privateSession.sessionId)
-  await svc.crud.create({
+  await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
     title: 'Private discovery',
     stage: 'proposed',
@@ -315,10 +311,10 @@ it('collapses parked twins across deck boundaries without letting a private twin
     resume,
     refIssueId: root.id,
     refLetter: 'A',
-    lastActiveAt: '2026-10-14T00:00:00Z',
+    lastActiveAt: '2026-10-14T00:00:00.000Z',
   })
   const current = seat('current', elsewhere.id, { status: 'hibernated', resume })
-  await svc.crud.create({
+  await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
     title: 'Formal proposal',
     stage: 'proposed',

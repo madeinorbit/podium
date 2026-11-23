@@ -45,7 +45,8 @@ interface ReadCall {
 }
 
 const reads: ReadCall[] = []
-const answerMutate = vi.fn(async (_input: unknown) => ({ ok: true }))
+// An answer is a `session.answer` record (POD-6415): the store's answerSession.
+const answerMutate = vi.fn(async (_sessionId: unknown, _answer: unknown) => 'eff_answer')
 const fakeTrpc = {
   sessions: {
     transcriptRead: {
@@ -62,7 +63,6 @@ const fakeTrpc = {
         ): Promise<{ ok: boolean; disposition?: string; position?: number }> => ({ ok: true }),
       ),
     },
-    answerAskUserQuestion: { mutate: answerMutate },
     uploadImage: { mutate: vi.fn(async () => ({ path: '/x' })) },
   },
 }
@@ -74,8 +74,6 @@ const fakeReplica = {
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
 }
 
 let storeSessions: SessionMeta[] = []
@@ -99,6 +97,7 @@ vi.mock('@/app/store', () => {
     setPanelMode: vi.fn(),
     openFile: vi.fn(),
     httpOrigin: 'http://x',
+    answerSession: answerMutate,
   })
   return {
     useStore,
@@ -106,10 +105,18 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
+// The answer is a `session.answer` record created through the sessions command
+// module (POD-6415); the store mock above no longer reaches that path.
+vi.mock('./answer-session', () => ({
+  useAnswerSession: () => async (sessionId: unknown, answer: unknown) => {
+    await answerMutate(sessionId, answer)
+    return { ok: true }
+  },
+}))
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
@@ -140,10 +147,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -407,12 +410,10 @@ describe('a pending question the transcript does not carry', () => {
     ])
     await act(async () => optionButtons()[0]?.click())
     await flush()
-    expect(answerMutate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        interactionId: 'new-interaction',
-        choices: [{ optionIndices: [1] }],
-      }),
-    )
+    expect(answerMutate.mock.calls[0]?.[1]).toMatchObject({
+      interactionId: 'new-interaction',
+      choices: [{ optionIndices: [1] }],
+    })
   })
   it('draws the card from agent state when the feed has nothing', async () => {
     await show(waiting(), [])
@@ -431,7 +432,10 @@ describe('a pending question the transcript does not carry', () => {
     })
     await flush()
     expect(answerMutate).toHaveBeenCalledTimes(1)
-    expect(answerMutate.mock.calls[0]?.[0]).toMatchObject({ choices: [{ optionIndices: [1] }] })
+    expect(answerMutate.mock.calls[0]?.[1]).toMatchObject({
+      via: 'menu',
+      choices: [{ optionIndices: [1] }],
+    })
   })
 
   it('hands the question back when the transcript item lands, not showing it twice', async () => {

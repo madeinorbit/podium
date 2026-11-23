@@ -20,11 +20,14 @@ const fixture = vi.hoisted(() => ({
 }))
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (state: unknown) => unknown) =>
+  readFixture: (select: (state: unknown) => unknown) =>
     select({ issues: fixture.issues, sessions: [], repos: [], machines: [] }),
 }))
 
-vi.mock('@podium/client-core/react', () => ({ useStoreHandle: () => fixture }))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return { ...fixtureRuntimeHooks(() => fixture) }
+})
 
 function LivenessBeforeHost(): JSX.Element {
   const [host, setHost] = useState<HTMLDivElement | null>(null)

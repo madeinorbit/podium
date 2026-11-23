@@ -1,11 +1,29 @@
 // apps/server/src/file-asset-route.ts
 
-import { asMachineId, asSessionId, isAbsoluteMachinePath, isValidMachinePath, type MachineId, normalizeMachinePath, type SessionId } from '@podium/model'
+import {
+  asMachineId,
+  asSessionId,
+  isAbsoluteMachinePath,
+  isValidMachinePath,
+  type MachineId,
+  normalizeMachinePath,
+  type SessionId,
+} from '@podium/model'
 import type { Hono } from 'hono'
 import { parseByteRange, type ResolvedByteRange, resolveByteRange } from './http-byte-range'
 import { downloadName, rawFileHeaders } from './raw-file-headers'
 
 export interface AssetReader {
+  /**
+   * THE PRIVATE CLASS (POD-6284, design gap 4): may THIS request's caller read
+   * the addressed bytes? A session's files are its owner's alone; a checkout's
+   * are readable by whoever holds `use` on its machine. Admins and task readers
+   * get nothing. Asked before anything reaches the daemon.
+   */
+  mayRead(
+    request: Request,
+    target: { sessionId: SessionId } | { machineId?: MachineId },
+  ): Promise<boolean>
   /** Worktree asset URLs carry their root over HTTP, so the route must verify
    *  that the root belongs to the addressed machine before forwarding it. */
   allowsRoot(root: string, machineId?: MachineId): Promise<boolean> | boolean
@@ -26,10 +44,12 @@ export interface AssetReader {
 const MAX_RANGE_BYTES = 10 * 1024 * 1024
 
 /** Serve a checkout file as raw bytes: the markdown preview's images, and the file
- *  viewer's Open in browser, which points a real browser tab here. Auth model matches the rest
- *  of the HTTP surface: the session must exist (readAsset returns ok:false otherwise);
- *  the daemon enforces the path sandbox. Worktree variant (`root` [+ `machineId`]
- *  instead of `sessionId`) serves issue-panel artifacts from a worktree checkout. */
+ *  viewer's Open in browser, which points a real browser tab here. The session must
+ *  be the caller's own, and a refusal answers exactly like a missing session (404
+ *  `no session`, the daemon RPC's own words); the daemon enforces the path sandbox.
+ *  Worktree variant (`root` [+ `machineId`] instead of `sessionId`) serves
+ *  issue-panel artifacts from a worktree checkout, to people who may run on that
+ *  machine. */
 export function registerAssetRoute(app: Hono, registry: AssetReader): void {
   app.get('/files/asset', async (c) => {
     const sessionId = c.req.query('sessionId')
@@ -38,6 +58,15 @@ export function registerAssetRoute(app: Hono, registry: AssetReader): void {
     const path = c.req.query('path')
     if ((!sessionId && !root) || !path) return c.text('bad request', 400)
     const parsedMachineId = machineId ? asMachineId(machineId) : undefined
+    if (sessionId) {
+      if (!(await registry.mayRead(c.req.raw, { sessionId: asSessionId(sessionId) }))) {
+        return c.text('no session', 404)
+      }
+    } else if (
+      !(await registry.mayRead(c.req.raw, parsedMachineId ? { machineId: parsedMachineId } : {}))
+    ) {
+      return c.text('not found', 404)
+    }
     // `allowsRoot` prefix-matches against the registered repo roots, and that
     // comparison is lexical: `/repo/../../etc` starts with `/repo/` and would pass
     // while the daemon resolves it to `/etc`. Collapse `..` FIRST and forward the

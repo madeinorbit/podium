@@ -24,16 +24,15 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { Authority } from './authority'
-import type { ChangeLogReadRow, ScopedChange, StagedChangeSpec } from './change-lifecycle'
 import type { ChangeLogStore } from '../change-log'
+import { ModelAuthority as Authority } from '../conformance/model-records'
+import type { EntityRef, FeedVisibilityPolicy, VisibilityAnchorPort } from '../feed/visibility'
 import {
+  DEVICE_GRADE_PRINCIPAL,
   DeviceGradeNoAnchors,
   DeviceGradeUnscopedPolicy,
-  DEVICE_GRADE_PRINCIPAL,
 } from '../feed/visibility'
-import type { EntityRef, FeedVisibilityPolicy, VisibilityAnchorPort } from '../feed/visibility'
-import { installedWorldOver } from '../conformance/installed-reads'
+import type { ChangeLogReadRow, ScopedChange, StagedChangeSpec } from './change-lifecycle'
 
 /** The in-memory log of `authority.test.ts`, narrowed to what these cases need:
  *  they are about the BROADCAST side of a commit, so the transaction is a
@@ -58,7 +57,6 @@ function memoryStore() {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    ...installedWorldOver(async () => rows),
   }
   return store
 }
@@ -198,9 +196,7 @@ describe('a failing finalization surfaces instead of vanishing', () => {
     const seen: ScopedChange[][] = []
     collect(authority, seen)
 
-    await expect(
-      authority.commit({ write: async () => 'ok', changes: () => [upsert('s1')] }),
-    ).rejects.toThrow(PREPARATION_FAILED)
+    await expect(authority.save([upsert('s1')])).rejects.toThrow(PREPARATION_FAILED)
     expect(seen, 'no subscriber may be told from a pass that could not be prepared').toEqual([])
   })
 
@@ -208,7 +204,7 @@ describe('a failing finalization surfaces instead of vanishing', () => {
     // `capture` and `reconcile` reach `finalize` by their own routes; the
     // guarantee is the path's, not one entry point's.
     const authority = build({ anchors: new UnreachableAnchors() })
-    await expect(authority.capture([upsert('s1')])).rejects.toThrow(PREPARATION_FAILED)
+    await expect(authority.save([upsert('s1')])).rejects.toThrow(PREPARATION_FAILED)
   })
 
   it('surfaces through the drain when one is wired', async () => {
@@ -218,13 +214,10 @@ describe('a failing finalization surfaces instead of vanishing', () => {
     const drain = followUpDrain()
     const authority = build({ anchors: new UnreachableAnchors(), postCommit: drain.port })
 
-    const outcome = await authority.commit({
-      write: async () => 'ok',
-      changes: () => [upsert('s1')],
-    })
+    const outcome = await authority.save([upsert('s1')])
 
     // The write DID commit — the rows are durable and this is not a rollback.
-    expect(outcome.outcome).toBe('committed')
+    expect(outcome).toHaveLength(1)
     expect(drain.labels()).toEqual(['authority-broadcast'])
     await expect(drain.drain()).rejects.toThrow(PREPARATION_FAILED)
   })
@@ -237,8 +230,8 @@ describe('a failing finalization surfaces instead of vanishing', () => {
     const seen: ScopedChange[][] = []
     collect(authority, seen)
 
-    await expect(authority.capture([upsert('s1')])).rejects.toThrow(PREPARATION_FAILED)
-    await authority.capture([upsert('s2')])
+    await expect(authority.save([upsert('s1')])).rejects.toThrow(PREPARATION_FAILED)
+    await authority.save([upsert('s2')])
 
     expect(seen.map((batch) => batch.map((c) => c.entityId))).toEqual([['s2']])
   })
@@ -291,9 +284,9 @@ describe('the visibility snapshot never outlives its pass', () => {
     const seen: ScopedChange[][] = []
     collect(authority, seen)
 
-    await authority.capture([upsert('s1')])
+    await authority.save([upsert('s1')])
     policy.revoke()
-    await authority.capture([upsert('s2')])
+    await authority.save([upsert('s2')])
 
     expect(policy.prepared, 'one preparation per pass, neither shared nor skipped').toEqual([1, 1])
     expect(seen.map((batch) => batch.map((c) => c.entityId))).toEqual([['s1'], []])
@@ -309,7 +302,7 @@ describe('the visibility snapshot never outlives its pass', () => {
     collect(authority, first)
     collect(authority, second)
 
-    await expect(authority.capture([upsert('s1')])).rejects.toThrow(PREPARATION_FAILED)
+    await expect(authority.save([upsert('s1')])).rejects.toThrow(PREPARATION_FAILED)
 
     expect(first).toEqual([])
     expect(second).toEqual([])
@@ -339,8 +332,12 @@ describe('the broadcast tail keeps passes in append order', () => {
     const seen: ScopedChange[][] = []
     collect(authority, seen)
 
-    const first = authority.capture([upsert('s1')])
-    const second = authority.capture([upsert('s2')])
+    const first = authority.save([upsert('s1')])
+    // The first span commits and its pass waits at the gate before the second
+    // write starts: a database runs the two spans one after the other, and
+    // the in-memory capture here is shared (POD-6920).
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const second = authority.save([upsert('s2')])
     gate.release()
     await Promise.all([first, second])
 

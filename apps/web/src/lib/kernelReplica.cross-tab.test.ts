@@ -224,6 +224,7 @@ function syncResponse(
   const values = [
     {
       type: 'syncMeta',
+      kindTokens: {},
       formatVersion: 1,
       mode,
       transferId: 'test',

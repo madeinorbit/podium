@@ -21,11 +21,12 @@ import type { AgentSessionHandle } from '@podium/harness/driver/host'
 import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { sessionHandlers, stopSessionProcess } from '../control/session'
+import { testSessions } from '../session/testing.js'
 import { runtimeHandlers } from './handlers'
 import { beginServerDriverReap, type ServerReapIo } from './server-reap'
-import { testSessions } from '../session/testing.js'
 import {
   SERVER_GRACEFUL_EXIT_MS,
   SERVER_HANDLE_VERB_TIMEOUT_MS,
@@ -165,6 +166,7 @@ function fakeCtx(
     // size from it (POD-4723). A server-family adopt has none, so it binds bare.
     sessions: testSessions(),
     send: (msg: DaemonMessage) => void sent.push(msg),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, journalCleared }
 }
@@ -948,6 +950,7 @@ describe('the choke point: every teardown frame lands in stopSessionProcess', ()
       },
       ...(sessionBinding ? { sessionBinding } : {}),
       send: (msg: DaemonMessage) => void sent.push(msg),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     return { ctx, sent }
   }
@@ -1065,6 +1068,7 @@ describe('retirement evidence', () => {
     const ctx = {
       agentRuntime: { handleFor: () => ({ binding: { family: 'terminal' }, stop: () => stop }) },
       send: (message: DaemonMessage) => { sent.push(message) },
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     runtimeHandlers.runtimeLifecycleRequest(ctx, { type: 'runtimeLifecycleRequest', requestId: 'stop', sessionId: SESSION, verb: 'stop' })
     await Promise.resolve()
@@ -1095,6 +1099,7 @@ describe('retirement evidence', () => {
       },
       instanceUuid: undefined,
       send: (msg: DaemonMessage) => void sent.push(msg),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     // The kill threw AND the follow-up probe threw: nothing was measured, so
     // the receipt must not claim the process is gone.

@@ -3,6 +3,36 @@
   "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
   "cases": [
     {
+      "schema": "AppliedMutationsPruneObservation",
+      "variant": "minimal",
+      "wire": {
+        "maxAgeMs": 1,
+        "cutoffAppliedAt": 1,
+        "batchSize": 1,
+        "fromAppliedAt": 1,
+        "batch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"maxAgeMs\":1,\"cutoffAppliedAt\":1,\"batchSize\":1,\"fromAppliedAt\":1,\"batch\":1}"
+    },
+    {
+      "schema": "AppliedMutationsPruneObservation",
+      "variant": "full",
+      "wire": {
+        "maxAgeMs": 1,
+        "cutoffAppliedAt": 1,
+        "batchSize": 1,
+        "fromAppliedAt": 1,
+        "batch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"maxAgeMs\":1,\"cutoffAppliedAt\":1,\"batchSize\":1,\"fromAppliedAt\":1,\"batch\":1}"
+    },
+    {
       "schema": "AutomationFireObservation",
       "variant": "minimal",
       "wire": {
@@ -38,6 +68,7 @@
       "schema": "ChangeLogPruneObservation",
       "variant": "minimal",
       "wire": {
+        "tenantId": "tenantId",
         "keepRows": 1,
         "maxAgeMs": 1,
         "thresholdSeq": 1,
@@ -47,12 +78,13 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"keepRows\":1,\"maxAgeMs\":1,\"thresholdSeq\":1,\"batchSize\":1,\"fromSeq\":1}"
+      "encoded": "{\"tenantId\":\"tenantId\",\"keepRows\":1,\"maxAgeMs\":1,\"thresholdSeq\":1,\"batchSize\":1,\"fromSeq\":1}"
     },
     {
       "schema": "ChangeLogPruneObservation",
       "variant": "full",
       "wire": {
+        "tenantId": "tenantId",
         "keepRows": 1,
         "maxAgeMs": 1,
         "thresholdSeq": 1,
@@ -62,7 +94,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"keepRows\":1,\"maxAgeMs\":1,\"thresholdSeq\":1,\"batchSize\":1,\"fromSeq\":1}"
+      "encoded": "{\"tenantId\":\"tenantId\",\"keepRows\":1,\"maxAgeMs\":1,\"thresholdSeq\":1,\"batchSize\":1,\"fromSeq\":1}"
     },
     {
       "schema": "ConnectScanObservation",
@@ -231,6 +263,7 @@
         "runKey": "runKey",
         "fencingToken": 3,
         "observed": {
+          "tenantId": "observed.tenantId",
           "keepRows": 3,
           "maxAgeMs": 3,
           "thresholdSeq": 3,
@@ -241,7 +274,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"protocolVersion\":3,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"change-log-prune\",\"runKey\":\"runKey\",\"fencingToken\":3,\"observed\":{\"keepRows\":3,\"maxAgeMs\":3,\"thresholdSeq\":3,\"batchSize\":3,\"fromSeq\":3}}"
+      "encoded": "{\"protocolVersion\":3,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"change-log-prune\",\"runKey\":\"runKey\",\"fencingToken\":3,\"observed\":{\"tenantId\":\"observed.tenantId\",\"keepRows\":3,\"maxAgeMs\":3,\"thresholdSeq\":3,\"batchSize\":3,\"fromSeq\":3}}"
     },
     {
       "schema": "MaintenanceCommand",
@@ -270,9 +303,52 @@
       "wire": {
         "protocolVersion": 5,
         "schemaVersion": "schemaVersion",
-        "jobKind": "issue-auto-archive",
+        "jobKind": "applied-mutations-prune",
         "runKey": "runKey",
         "fencingToken": 5,
+        "observed": {
+          "maxAgeMs": 5,
+          "cutoffAppliedAt": 5,
+          "batchSize": 5,
+          "fromAppliedAt": 5,
+          "batch": 5
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"protocolVersion\":5,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"applied-mutations-prune\",\"runKey\":\"runKey\",\"fencingToken\":5,\"observed\":{\"maxAgeMs\":5,\"cutoffAppliedAt\":5,\"batchSize\":5,\"fromAppliedAt\":5,\"batch\":5}}"
+    },
+    {
+      "schema": "MaintenanceCommand",
+      "variant": "full/arm5",
+      "wire": {
+        "protocolVersion": 6,
+        "schemaVersion": "schemaVersion",
+        "jobKind": "queued-messages-expiry",
+        "runKey": "runKey",
+        "fencingToken": 6,
+        "observed": {
+          "sessionId": "observed.sessionId",
+          "maxAgeMs": 6,
+          "throughQueuedAt": 6,
+          "rows": 6
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"protocolVersion\":6,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"queued-messages-expiry\",\"runKey\":\"runKey\",\"fencingToken\":6,\"observed\":{\"sessionId\":\"observed.sessionId\",\"maxAgeMs\":6,\"throughQueuedAt\":6,\"rows\":6}}"
+    },
+    {
+      "schema": "MaintenanceCommand",
+      "variant": "full/arm6",
+      "wire": {
+        "protocolVersion": 7,
+        "schemaVersion": "schemaVersion",
+        "jobKind": "issue-auto-archive",
+        "runKey": "runKey",
+        "fencingToken": 7,
         "observed": {
           "issueId": "observed.issueId",
           "stage": "observed.stage",
@@ -285,17 +361,17 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"protocolVersion\":5,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"issue-auto-archive\",\"runKey\":\"runKey\",\"fencingToken\":5,\"observed\":{\"issueId\":\"observed.issueId\",\"stage\":\"observed.stage\",\"closedReason\":\"observed.closedReason\",\"readerUserId\":\"observed.readerUserId\",\"archived\":false,\"deletedAt\":null}}"
+      "encoded": "{\"protocolVersion\":7,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"issue-auto-archive\",\"runKey\":\"runKey\",\"fencingToken\":7,\"observed\":{\"issueId\":\"observed.issueId\",\"stage\":\"observed.stage\",\"closedReason\":\"observed.closedReason\",\"readerUserId\":\"observed.readerUserId\",\"archived\":false,\"deletedAt\":null}}"
     },
     {
       "schema": "MaintenanceCommand",
-      "variant": "full/arm5",
+      "variant": "full/arm7",
       "wire": {
-        "protocolVersion": 6,
+        "protocolVersion": 8,
         "schemaVersion": "schemaVersion",
         "jobKind": "session-auto-archive",
         "runKey": "runKey",
-        "fencingToken": 6,
+        "fencingToken": 8,
         "observed": {
           "sessionId": "observed.sessionId",
           "issueId": "observed.issueId",
@@ -307,49 +383,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"protocolVersion\":6,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"session-auto-archive\",\"runKey\":\"runKey\",\"fencingToken\":6,\"observed\":{\"sessionId\":\"observed.sessionId\",\"issueId\":\"observed.issueId\",\"stoppedAt\":\"2026-01-02T03:04:05.000Z\",\"readerUserId\":\"observed.readerUserId\",\"archived\":false}}"
-    },
-    {
-      "schema": "MaintenanceCommand",
-      "variant": "full/arm6",
-      "wire": {
-        "protocolVersion": 7,
-        "schemaVersion": "schemaVersion",
-        "jobKind": "automation-fire",
-        "runKey": "runKey",
-        "fencingToken": 7,
-        "observed": {
-          "automationId": "observed.automationId",
-          "enabled": true,
-          "nextRunAt": "2026-01-02T03:04:05.000Z",
-          "scheduleKind": "once",
-          "cron": "observed.cron",
-          "lastSessionId": "observed.lastSessionId"
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"protocolVersion\":7,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"automation-fire\",\"runKey\":\"runKey\",\"fencingToken\":7,\"observed\":{\"automationId\":\"observed.automationId\",\"enabled\":true,\"nextRunAt\":\"2026-01-02T03:04:05.000Z\",\"scheduleKind\":\"once\",\"cron\":\"observed.cron\",\"lastSessionId\":\"observed.lastSessionId\"}}"
-    },
-    {
-      "schema": "MaintenanceCommand",
-      "variant": "full/arm7",
-      "wire": {
-        "protocolVersion": 8,
-        "schemaVersion": "schemaVersion",
-        "jobKind": "steward-poll",
-        "runKey": "runKey",
-        "fencingToken": 8,
-        "observed": {
-          "fromCursor": 8,
-          "toEventId": 8
-        }
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"protocolVersion\":8,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"steward-poll\",\"runKey\":\"runKey\",\"fencingToken\":8,\"observed\":{\"fromCursor\":8,\"toEventId\":8}}"
+      "encoded": "{\"protocolVersion\":8,\"schemaVersion\":\"schemaVersion\",\"jobKind\":\"session-auto-archive\",\"runKey\":\"runKey\",\"fencingToken\":8,\"observed\":{\"sessionId\":\"observed.sessionId\",\"issueId\":\"observed.issueId\",\"stoppedAt\":\"2026-01-02T03:04:05.000Z\",\"readerUserId\":\"observed.readerUserId\",\"archived\":false}}"
     },
     {
       "schema": "MaintenanceCommandReply",
@@ -474,13 +508,15 @@
         "changeKeepRows": 1,
         "changeMaxAgeMs": 1,
         "maintenanceCommandMaxAgeMs": 1,
+        "appliedMutationMaxAgeMs": 1,
+        "queuedMessageMaxAgeMs": 1,
         "worktreeGcMode": "off",
         "worktreeGcAfterDays": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"status\":\"ready\",\"fencingToken\":1,\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"messageWaitTtlMs\":1,\"autoArchiveReadWindowMs\":1,\"eventRetentionMaxAgeDays\":1,\"eventRetentionMaxRows\":1,\"changeKeepRows\":1,\"changeMaxAgeMs\":1,\"maintenanceCommandMaxAgeMs\":1,\"worktreeGcMode\":\"off\",\"worktreeGcAfterDays\":1}"
+      "encoded": "{\"status\":\"ready\",\"fencingToken\":1,\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"messageWaitTtlMs\":1,\"autoArchiveReadWindowMs\":1,\"eventRetentionMaxAgeDays\":1,\"eventRetentionMaxRows\":1,\"changeKeepRows\":1,\"changeMaxAgeMs\":1,\"maintenanceCommandMaxAgeMs\":1,\"appliedMutationMaxAgeMs\":1,\"queuedMessageMaxAgeMs\":1,\"worktreeGcMode\":\"off\",\"worktreeGcAfterDays\":1}"
     },
     {
       "schema": "MaintenanceHandshakeReply",
@@ -496,13 +532,15 @@
         "changeKeepRows": 1,
         "changeMaxAgeMs": 1,
         "maintenanceCommandMaxAgeMs": 1,
+        "appliedMutationMaxAgeMs": 1,
+        "queuedMessageMaxAgeMs": 1,
         "worktreeGcMode": "off",
         "worktreeGcAfterDays": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"status\":\"ready\",\"fencingToken\":1,\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"messageWaitTtlMs\":1,\"autoArchiveReadWindowMs\":1,\"eventRetentionMaxAgeDays\":1,\"eventRetentionMaxRows\":1,\"changeKeepRows\":1,\"changeMaxAgeMs\":1,\"maintenanceCommandMaxAgeMs\":1,\"worktreeGcMode\":\"off\",\"worktreeGcAfterDays\":1}"
+      "encoded": "{\"status\":\"ready\",\"fencingToken\":1,\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"messageWaitTtlMs\":1,\"autoArchiveReadWindowMs\":1,\"eventRetentionMaxAgeDays\":1,\"eventRetentionMaxRows\":1,\"changeKeepRows\":1,\"changeMaxAgeMs\":1,\"maintenanceCommandMaxAgeMs\":1,\"appliedMutationMaxAgeMs\":1,\"queuedMessageMaxAgeMs\":1,\"worktreeGcMode\":\"off\",\"worktreeGcAfterDays\":1}"
     },
     {
       "schema": "MaintenanceHandshakeReply",
@@ -594,6 +632,34 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"messageId\":\"messageId\",\"deliveryStatus\":\"stored\",\"lifecycle\":\"wait\",\"createdAt\":\"2026-01-02T03:04:05.000Z\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "QueuedMessagesExpiryObservation",
+      "variant": "minimal",
+      "wire": {
+        "sessionId": "sessionId",
+        "maxAgeMs": 1,
+        "throughQueuedAt": 1,
+        "rows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"maxAgeMs\":1,\"throughQueuedAt\":1,\"rows\":1}"
+    },
+    {
+      "schema": "QueuedMessagesExpiryObservation",
+      "variant": "full",
+      "wire": {
+        "sessionId": "sessionId",
+        "maxAgeMs": 1,
+        "throughQueuedAt": 1,
+        "rows": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"maxAgeMs\":1,\"throughQueuedAt\":1,\"rows\":1}"
     },
     {
       "schema": "SessionAutoArchiveObservation",

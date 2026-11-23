@@ -27,6 +27,23 @@ export function probeTimeoutDescription(error?: AgentProbeError): string {
   return `timed out after ${seconds}s`
 }
 
+/** `USE` — the login in one harness home on a machine (credential management
+ *  §10). `homeId` is `default` for the harness's own directory, else the Podium
+ *  home `<credentialId>:<harness>`. */
+export const HomeLogin = z.object({
+  homeId: z.string().min(1),
+  state: z.enum(['in', 'out', 'unknown']),
+  identity: z
+    .object({
+      fingerprint: z.string().min(1),
+      email: z.string().optional(),
+      providerAccountId: ProviderAccountIdField,
+    })
+    .optional(),
+  freshness: z.number().optional(),
+})
+export type HomeLogin = z.infer<typeof HomeLogin>
+
 /** `USE` — one agent CLI's install + login status on the daemon's machine.
  *  Use-gated: `login.account` names a person, and the install set describes what
  *  the owner's hardware can run. */
@@ -54,6 +71,12 @@ export const AgentInventory = z.object({
       .optional(),
     freshness: z.number().optional(),
   }),
+  /**
+   * One entry per home of this harness on the machine (credential management
+   * §10): `default` for the harness's own directory (the same answer as
+   * `login`), then each home Podium created. Absent from daemons without homes.
+   */
+  logins: z.array(HomeLogin).optional(),
 })
 export type AgentInventory = z.infer<typeof AgentInventory>
 
@@ -534,8 +557,8 @@ export type UsageBucketWire = z.infer<typeof UsageBucketWire>
  * window and is what the usage sheet's by-task section reads; `models` covers the
  * whole file and is what the durable per-session row stores, because "what did
  * this task cost" outlives any window. Sending the underlying hour buckets
- * instead would be the same data an order of magnitude larger, and no reader
- * wants a per-task figure resolved to the hour.
+ * is additionally needed to isolate usage by run owner on shared machines.
+ * Those buckets stay server-side until their transcript has an owner.
  */
 export const UsageModelTotalWire = z.object({
   model: z.string(),
@@ -562,6 +585,10 @@ export const UsageSourceWire = z.object({
   models: z.array(UsageModelTotalWire),
   /** The subset at or after the scan's `sinceMs`, folded by model. */
   windowModels: z.array(UsageModelTotalWire),
+  /** Per-file hourly buckets let the server filter by the run's human before
+   * merging. Optional for old daemons; their aggregate cannot be disclosed on
+   * a multi-member instance without this attribution. */
+  windowBuckets: z.array(UsageBucketWire).optional(),
 })
 export type UsageSourceWire = z.infer<typeof UsageSourceWire>
 
@@ -593,6 +620,9 @@ export type QuotaWindowWire = z.infer<typeof QuotaWindowWire>
  *  on this schema; it is a per-feature call, not settled here. */
 export const AgentQuotaWire = z.object({
   agent: AgentKind,
+  /** The Podium home this quota is for (credential management §10); absent
+   *  for the harness's own directory. */
+  homeId: z.string().optional(),
   status: z.enum(['ok', 'unauthenticated', 'expired', 'error']),
   account: z.object({ email: z.string().optional(), plan: z.string().optional() }).optional(),
   windows: z.array(QuotaWindowWire),

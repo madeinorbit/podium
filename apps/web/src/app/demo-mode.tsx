@@ -15,20 +15,18 @@
 import {
   createDemoReplica,
   DEMO_PRINCIPAL,
-  DEMO_SUPER_SESSION,
   DEMO_TRANSCRIPTS,
   demoEnabled,
   publishDemoSlice,
 } from '@podium/client-core/demo'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import type { SessionId } from '@podium/model'
-import { TooltipProvider } from '@/components/ui/tooltip'
-import { Toaster } from '@/components/ui/sonner'
-import { ConfirmProvider } from '@/lib/hooks/use-confirm'
-import { useFeature } from '@/lib/use-feature'
-import { WebSyncProgressStore } from '@/lib/sync-progress'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { WebSyncProgressStore } from '@/lib/sync-progress'
 import { AppBody } from './AppShell'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -77,8 +75,7 @@ export function demoTrpc(): Trpc {
       // the default with undefined and the work list would crash reading it).
       get: {
         query: async () => ({
-          sessionDefaults: { agent: 'codex' },
-          sidebar: { repoSort: 'lastUsed', repoOrder: [], groupByRepo: false },
+          sidebar: { repoSort: 'lastUsed', repoOrder: [] },
         }),
       },
     },
@@ -91,13 +88,7 @@ export function demoTrpc(): Trpc {
       summary: { query: async () => ({ hostname: 'demo', buckets: [] }) },
     },
     superagent: {
-      // The screen reads this thread's session transcript, so the demo thread
-      // must name a session DEMO_TRANSCRIPTS has rows for (POD-344).
-      listThreads: {
-        query: async () => [
-          { id: 'global', kind: 'global' as const, podiumSessionId: DEMO_SUPER_SESSION },
-        ],
-      },
+      // The demo thread is a record of the demo replica (POD-6675).
       sendTurn: { mutate: async () => ({ threadId: 'global' }) },
       interruptTurn: { mutate: noop },
       clear: { mutate: noop },
@@ -128,11 +119,6 @@ export function demoTrpc(): Trpc {
   } as unknown as Trpc
 }
 
-function DemoDensityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const densityEnabled = useFeature('shell-density')
-  return <DensityProvider densityEnabled={densityEnabled}>{children}</DensityProvider>
-}
-
 /**
  * The demo shell: the same `AppBody` the product renders, over demo rows.
  * Skips the login, setup and replica gates — there is no server to ask — and
@@ -143,11 +129,11 @@ export function WebDemoApp(): JSX.Element {
     <TooltipProvider>
       <ErrorBoundary resetKey="demo" onRetry={() => {}}>
         <WebDemoProvider>
-          <DemoDensityProvider>
+          <DensityProvider>
             <ToolbarSlotProvider>
               <DemoBody />
             </ToolbarSlotProvider>
-          </DemoDensityProvider>
+          </DensityProvider>
         </WebDemoProvider>
       </ErrorBoundary>
       <Toaster
@@ -173,11 +159,7 @@ function DemoBody(): JSX.Element {
  * presence means its row source has subscribed, so the install's replace
  * batch is observed and the event-fed question indexes fill.
  */
-function DemoSlicePublisher({
-  replica,
-}: {
-  replica: ReturnType<typeof createDemoReplica>
-}): null {
+function DemoSlicePublisher({ replica }: { replica: ReturnType<typeof createDemoReplica> }): null {
   const pool = useWorklistPool()
   const published = useRef(false)
   useEffect(() => {

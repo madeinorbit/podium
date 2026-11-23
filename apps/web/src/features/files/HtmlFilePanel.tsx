@@ -1,5 +1,5 @@
 import type { EditorView } from '@codemirror/view'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useCommands, useDeviceState, useHttpOrigin } from '@podium/client-core/react'
 import {
   HTML_MODE_MAP_KEY,
   readFilePanelMode,
@@ -36,7 +36,9 @@ export function HtmlFilePanel({
   path: string
   onClose: () => void
 }): JSX.Element {
-  const { httpOrigin, readFileScoped, uiState } = useStoreHandle<Trpc>().access
+  const httpOrigin = useHttpOrigin(),
+    { read: readFileScoped } = useCommands<Trpc>().files,
+    uiState = useDeviceState()
   const doc = useFileDocument(scope, path)
   const saveFeedbackId = useId()
   const mobile = useIsMobile()

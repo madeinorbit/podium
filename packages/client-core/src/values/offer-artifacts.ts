@@ -1,6 +1,6 @@
 import { machinePathHasSuffix } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
-import type { IssueViewModel } from '../replica'
+import type { IssueWithBodies } from '../replica'
 
 /**
  * Offer→artifact resolution [POD-120]: which of the issue's published artifacts
@@ -17,8 +17,8 @@ import type { IssueViewModel } from '../replica'
  */
 export function resolveOfferArtifacts(args: {
   offer: SessionOffer
-  issue: IssueViewModel | undefined
-  /** ISO time of the session's last human input (SessionMeta.lastInputAt). */
+  issue: IssueWithBodies | undefined
+  /** ISO time of the session model's live last human input. */
   lastInputAt?: string
 }): IssuePanelArtifact[] {
   const published = args.issue?.panel?.artifacts ?? []

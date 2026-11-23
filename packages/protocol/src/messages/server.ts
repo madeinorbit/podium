@@ -5,7 +5,12 @@ import {
   PresenceRoomDeltaMessage,
   PresenceRoomStateMessage,
 } from '../planes/presence-rooms'
-import { ApprovalsChangedMessage } from './approvals'
+import {
+  TopicClosedMessage,
+  TopicEventMessage,
+  TopicSnapshotMessage,
+  TopicUpdateMessage,
+} from '../planes/topics'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
 import {
   FeedDeltaMessage,
@@ -17,8 +22,6 @@ import { HeadlessActivityMessage } from './headless'
 import {
   AttentionEventMessage,
   HostMetricsChangedMessage,
-  MachinesChangedMessage,
-  WorktreesChangedMessage,
 } from './host'
 import { SetLogLevelMessage } from './logs'
 import { ServerRelocationMessage } from './server-transfer'
@@ -61,13 +64,10 @@ export const ServerMessage = z.discriminatedUnion('type', [
   AgentExitMessage,
   SessionDraftChangedMessage,
   HostMetricsChangedMessage,
-  MachinesChangedMessage,
-  WorktreesChangedMessage,
   PongMessage,
   AttentionEventMessage,
   TranscriptDeltaMessage,
   TurnPreviewMessage,
-  ApprovalsChangedMessage,
   MetadataDeltaMessage,
   FeedDeltaMessage,
   FeedRescopeMessage,
@@ -80,5 +80,9 @@ export const ServerMessage = z.discriminatedUnion('type', [
   PresenceRoomClosedMessage,
   SetLogLevelMessage,
   ServerRelocationMessage,
+  TopicSnapshotMessage,
+  TopicUpdateMessage,
+  TopicEventMessage,
+  TopicClosedMessage,
 ])
 export type ServerMessage = z.infer<typeof ServerMessage>

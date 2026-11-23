@@ -23,10 +23,10 @@ function fixture<T extends Before | After>(presentation: T, items: TranscriptIte
   const log = new TranscriptLog({
     sessionId: asSessionId('reader'),
     source: { read: async () => ({ items, hasMore: false }), subscribe: () => () => {} },
-    cache: { read: () => ({ items, savedAt: 1 }), write: () => {} },
     retainHistory: () => presentation.retainHistory,
     onChange: (change) => presentation.changed(change),
   })
+  log.merge(items)
   presentation.bind(log)
   return { presentation, log }
 }

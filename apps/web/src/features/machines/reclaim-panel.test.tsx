@@ -15,6 +15,7 @@
 import { asMachineId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { processesTopicFixture } from '@/test-support/processes-topic'
 import { HostInfoView } from './HostMemoryView'
 
 const stop = vi.fn()
@@ -80,6 +81,17 @@ const inventory = () => ({
   },
 })
 
+let processTopic = processesTopicFixture(async () => ({
+  breakdown: await memoryBreakdown(),
+  reclaim: await reclaimInventory(),
+}))
+// My access rows (POD-6644): none here, so no machine hosts the server.
+const noAccessRows = { rows: () => [], subscribeAddressedBatch: () => () => {} }
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return { ...fixtureRuntimeHooks(() => ({ hub: processTopic.hub, replica: noAccessRows })) }
+})
+
 vi.mock('@/app/store', () => {
   const useStore = () => ({
     hostMetrics: [
@@ -99,7 +111,6 @@ vi.mock('@/app/store', () => {
     setView: vi.fn(),
     setSettingsTab: vi.fn(),
     trpc: {
-      issues: { stop: { mutate: stop } },
       hosts: {
         memoryBreakdown: { mutate: memoryBreakdown },
         reclaimInventory: { mutate: reclaimInventory },
@@ -110,9 +121,31 @@ vi.mock('@/app/store', () => {
   return {
     useStore,
     useHostMetrics: () => useStore().hostMetrics,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
+// The lifecycle settings are a pool read; this panel only names the GC policy.
+vi.mock('./host-lifecycle-settings', () => {
+  const lifecycle = {
+    hibernation: {
+      enabled: true,
+      memoryPct: 80,
+      idleMinutes: 30,
+      loadPerCore: 1.5,
+      maxIdleSessions: 8,
+    },
+    worktreeGc: { mode: 'propose' as const, afterDays: 14 },
+  }
+  return {
+    useHostLifecycleSettings: () => lifecycle,
+    useHibernationSetting: () => lifecycle.hibernation,
+  }
+})
+// The free is an `issue.stop` record (POD-6526); the hook answers with its
+// record's result, which is the old command's answer.
+vi.mock('@/features/issues/issue-action-ending', () => ({
+  useIssueActionOutcome: () => (issueId: string) => stop({ id: issueId }),
+}))
 
 // Same substitution NewIssueDialog.agent-start.test.tsx makes: the base-ui
 // checkbox does not answer a synthetic click under happy-dom, and what is under
@@ -136,10 +169,13 @@ vi.mock('@/components/ui/checkbox', () => ({
 }))
 
 vi.mock('./ConnectionIndicator', () => ({
-  useStableConnection: () => ({ health: { status: 'ok', rttMs: 10 }, visible: false }),
-  useConnectionHealth: () => ({ status: 'ok', rttMs: 10 }),
+  useStableConnection: () => ({
+    health: { state: 'online', pingMs: 10, since: 0 },
+    visible: false,
+  }),
+  useConnectionHealth: () => ({ state: 'online', pingMs: 10, since: 0 }),
+  connectionSeverity: () => 'ok',
   describeHealth: () => ({ headline: 'Connected', detail: '' }),
-  ConnectionIndicator: () => null,
 }))
 
 const freed = { ok: true, stopped: ['s1'], worktreeFreed: true }
@@ -165,6 +201,10 @@ const tick = (title: string): void => {
 const confirmDialog = async (): Promise<HTMLElement> => await screen.findByRole('alertdialog')
 
 beforeEach(() => {
+  processTopic = processesTopicFixture(async () => ({
+    breakdown: await memoryBreakdown(),
+    reclaim: await reclaimInventory(),
+  }))
   vi.clearAllMocks()
   stop.mockResolvedValue(freed)
   reclaimInventory.mockResolvedValue(inventory())

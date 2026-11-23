@@ -42,7 +42,11 @@ export function issueInput(
     ...own,
     readAt: userState?.readAt ?? null,
     tuckedAt: userState?.tuckedAt ?? null,
-    pinned: userState?.pinned ?? false,
+    // The viewer's personal records (POD-6290); absent = none.
+    joinedAt: userState?.joinedAt ?? null,
+    joinedVia: userState?.joinedVia ?? null,
+    assignedAt: userState?.assignedAt ?? null,
+    assignedBy: userState?.assignedBy ?? null,
     gitState: git,
     deps,
     blocked,

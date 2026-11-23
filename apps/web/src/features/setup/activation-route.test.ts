@@ -3,6 +3,7 @@ import {
   activationUrl,
   DEFAULT_ACTIVATION_STATE,
   hasActivationState,
+  hasStaleActivation,
   isActivationEligible,
   projectIntakeReturnRoute,
   readActivationState,
@@ -11,6 +12,56 @@ import {
 } from './activation-route'
 
 describe('activation route persistence', () => {
+  it('matches both former count-based answers on the same complete fixtures, and catches a wrong server answer', () => {
+    const compare = (answer: (sessions: number) => boolean) => {
+      for (let bits = 0; bits < 128; bits++) {
+        const old = {
+          loaded: Boolean(bits & 1),
+          setsUpServer: Boolean(bits & 2),
+          repoCount: bits & 4 ? 2 : 0,
+          sessionCount: bits & 8 ? 40 : 0,
+          setupInProgress: Boolean(bits & 16),
+          hasActivationCheckpoint: Boolean(bits & 32),
+          hasVpsCheckpoint: Boolean(bits & 64),
+        }
+        const { sessionCount, ...facts } = old
+        const next = { ...facts, setupFinished: answer(sessionCount) }
+        const eligible =
+          old.loaded &&
+          old.setsUpServer &&
+          ((old.repoCount === 0 && sessionCount === 0) ||
+            (old.setupInProgress && sessionCount === 0) ||
+            old.hasActivationCheckpoint ||
+            old.hasVpsCheckpoint)
+        const stale =
+          old.loaded &&
+          (!old.setsUpServer
+            ? old.setupInProgress || old.hasActivationCheckpoint
+            : sessionCount > 0 && old.setupInProgress && !old.hasActivationCheckpoint)
+        expect(isActivationEligible(next)).toBe(eligible)
+        expect(hasStaleActivation(next)).toBe(stale)
+      }
+    }
+    compare((sessions) => sessions > 0)
+    expect(() => compare(() => false)).toThrow()
+  })
+
+  it('leaves setup after explicit completion even with no sessions or repositories on the device', () => {
+    const fresh = {
+      loaded: true,
+      setsUpServer: true,
+      setupFinished: false,
+      repoCount: 0,
+      setupInProgress: true,
+      hasActivationCheckpoint: false,
+      hasVpsCheckpoint: false,
+    }
+    expect(isActivationEligible(fresh)).toBe(true)
+    const finished = { ...fresh, setupFinished: true }
+    expect(isActivationEligible(finished)).toBe(false)
+    expect(hasStaleActivation(finished)).toBe(true)
+  })
+
   it('defaults missing or unknown state to the welcome route', () => {
     expect(readActivationState('')).toEqual(DEFAULT_ACTIVATION_STATE)
     expect(readActivationState('?activation=future-step')).toEqual(DEFAULT_ACTIVATION_STATE)
@@ -89,16 +140,41 @@ describe('activation route persistence', () => {
   it('keeps a durable VPS handoff resumable after a restart has created work', () => {
     const settled = {
       loaded: true,
+      setsUpServer: true,
       repoCount: 1,
       setupInProgress: false,
       hasActivationCheckpoint: false,
       hasVpsCheckpoint: false,
     }
-    expect(isActivationEligible({ ...settled, sessionCount: 2, hasVpsCheckpoint: true })).toBe(true)
-    expect(isActivationEligible({ ...settled, sessionCount: 0 })).toBe(false)
+    expect(isActivationEligible({ ...settled, setupFinished: true, hasVpsCheckpoint: true })).toBe(
+      true,
+    )
+    expect(isActivationEligible({ ...settled, setupFinished: false })).toBe(false)
     expect(
-      isActivationEligible({ ...settled, sessionCount: 1, hasActivationCheckpoint: true }),
+      isActivationEligible({ ...settled, setupFinished: true, hasActivationCheckpoint: true }),
     ).toBe(true)
+  })
+
+  it('lets a stale setup flag go when the server says setup is finished, and retires it', () => {
+    // Seen 2026-11-09: a broken build read placeholder zero counts, opened setup
+    // and saved the flag; every later load of a populated instance stayed in setup.
+    const populated = {
+      loaded: true,
+      setsUpServer: true,
+      repoCount: 52,
+      setupFinished: true,
+      setupInProgress: true,
+      hasActivationCheckpoint: false,
+      hasVpsCheckpoint: false,
+    }
+    expect(isActivationEligible(populated)).toBe(false)
+    expect(hasStaleActivation(populated)).toBe(true)
+    // A URL step is authoritative (the first-task step has a session).
+    expect(isActivationEligible({ ...populated, hasActivationCheckpoint: true })).toBe(true)
+    expect(hasStaleActivation({ ...populated, hasActivationCheckpoint: true })).toBe(false)
+    // While the server says unfinished the flag still holds setup (POD-1200).
+    expect(isActivationEligible({ ...populated, setupFinished: false })).toBe(true)
+    expect(hasStaleActivation({ ...populated, setupFinished: false })).toBe(false)
   })
 
   it('keeps unfinished setup on screen once its first step has created a repo', () => {
@@ -107,8 +183,9 @@ describe('activation route persistence', () => {
     // hands the shell over.
     const midSetup = {
       loaded: true,
+      setsUpServer: true,
       repoCount: 1,
-      sessionCount: 0,
+      setupFinished: false,
       setupInProgress: true,
       hasActivationCheckpoint: false,
       hasVpsCheckpoint: false,
@@ -119,17 +196,54 @@ describe('activation route persistence', () => {
     expect(isActivationEligible({ ...midSetup, loaded: false })).toBe(false)
   })
 
+  // POD-6882: per-member visibility makes "no repos, no sessions" every newly
+  // joined member's first view. Whether setup is theirs is the server's answer.
+  it('captures only the person who sets the server up, never a member who joined', () => {
+    const shared = {
+      loaded: true,
+      setupInProgress: false,
+      hasActivationCheckpoint: false,
+      hasVpsCheckpoint: false,
+    }
+    // Alice installed the server and added a repo on its machine.
+    const alice = { ...shared, setsUpServer: true, repoCount: 1, setupFinished: false }
+    // Bob accepted Alice's invitation; none of her work is visible to him.
+    const bob = { ...shared, setsUpServer: false, repoCount: 0, setupFinished: false }
+    expect(isActivationEligible(alice)).toBe(false)
+    expect(isActivationEligible(bob)).toBe(false)
+    // Not even a setup step he was sent to, or a flag an earlier build saved…
+    expect(isActivationEligible({ ...bob, hasActivationCheckpoint: true })).toBe(false)
+    expect(isActivationEligible({ ...bob, setupInProgress: true })).toBe(false)
+    expect(isActivationEligible({ ...bob, hasVpsCheckpoint: true })).toBe(false)
+    // …and those are retired, so his device heals itself.
+    expect(hasStaleActivation({ ...bob, hasActivationCheckpoint: true })).toBe(true)
+    expect(hasStaleActivation({ ...bob, setupInProgress: true })).toBe(true)
+    expect(hasStaleActivation(bob)).toBe(false)
+    // No setup route is started for him on a fresh browser or desktop client.
+    const fresh = { ...bob, route: 'welcome' as const }
+    expect(shouldStartBrowserAtProjectIntake({ ...fresh, nativeShell: false })).toBe(false)
+    expect(shouldStartRemoteClientAtHandoff({ ...fresh, launchMode: 'client' })).toBe(false)
+    // A one-person server is unchanged: its owner, with nothing yet, gets setup.
+    const owner = { ...shared, setsUpServer: true, repoCount: 0, setupFinished: false }
+    expect(isActivationEligible(owner)).toBe(true)
+    expect(
+      shouldStartBrowserAtProjectIntake({ ...owner, nativeShell: false, route: 'welcome' }),
+    ).toBe(true)
+  })
+
   it('continues a fresh native client at the connection it just made', () => {
     const freshClient = {
       launchMode: 'client',
       loaded: true,
+      setsUpServer: true,
       repoCount: 0,
-      sessionCount: 0,
+      setupFinished: false,
       route: 'welcome' as const,
       hasActivationCheckpoint: false,
       hasVpsCheckpoint: false,
     }
     expect(shouldStartRemoteClientAtHandoff(freshClient)).toBe(true)
+    expect(shouldStartRemoteClientAtHandoff({ ...freshClient, setupFinished: true })).toBe(false)
     expect(shouldStartRemoteClientAtHandoff({ ...freshClient, launchMode: 'all-in-one' })).toBe(
       false,
     )
@@ -146,13 +260,15 @@ describe('activation route persistence', () => {
     const freshTab = {
       nativeShell: false,
       loaded: true,
+      setsUpServer: true,
       repoCount: 0,
-      sessionCount: 0,
+      setupFinished: false,
       route: 'welcome' as const,
       hasActivationCheckpoint: false,
       hasVpsCheckpoint: false,
     }
     expect(shouldStartBrowserAtProjectIntake(freshTab)).toBe(true)
+    expect(shouldStartBrowserAtProjectIntake({ ...freshTab, setupFinished: true })).toBe(false)
     expect(shouldStartBrowserAtProjectIntake({ ...freshTab, nativeShell: true })).toBe(false)
     expect(shouldStartBrowserAtProjectIntake({ ...freshTab, loaded: false })).toBe(false)
     // Back to welcome writes a checkpoint: the user chose to see it, so it stays.

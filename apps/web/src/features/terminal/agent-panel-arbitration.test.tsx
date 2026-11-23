@@ -1,13 +1,13 @@
 import { ConversationService } from '@podium/client-core/conversation'
-import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
-import { useRuntimeSelector } from '@/app/store'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
-import { asSessionId } from '@podium/model'
+import { type AccessRefusal, asSessionId, type CredentialView } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
+import { credentialView } from '@/test-support/credential-view'
+import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
+import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 // ---------------------------------------------------------------------------
@@ -52,6 +52,8 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
 
 // The presence seam [POD-1535]: the header's watcher strip reads the hub off
 // the client-core StoreProvider, which these focused renders don't mount.
+// My startScreen is my synced settings record (POD-6673).
+vi.mock('@/lib/my-preferences', () => ({ useMyStartScreen: () => 'native' }))
 vi.mock('@podium/client-core/react', async () =>
   (await import('./test-support/presence-mock')).presenceSeamStub(paneFixture.owner as never),
 )
@@ -64,9 +66,36 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
   useSessionGuard: () => ({ guardedDelete: vi.fn(), guardedEnd: vi.fn(), guardedArchive: vi.fn() }),
 }))
 
+// The pane's first live size reading (the session.terminalState topic,
+// POD-6764), which the terminal mount waits for before building its buffer.
+vi.mock('./use-session-pane-inputs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./use-session-pane-inputs')>()),
+  usePaneGeometry: () => ({ cols: 80, rows: 24 }),
+}))
+
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
+
+// My credentials list (the request boundary of the session's credential
+// controls). Undefined: not read yet, as in a suite that never opens one.
+let credentialViews: CredentialView[] | undefined
+vi.mock('@/features/credentials/session/use-session-credentials', async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import('@/features/credentials/session/use-session-credentials')
+  >()),
+  useSessionCredentials: () => ({
+    views: credentialViews,
+    defaults: {},
+    custodianOf: () => 'fixture-user',
+    reload: () => {},
+  }),
+  // The refusal a failed launch record names, by session (the record itself is
+  // the pool's effect model, which this fixture does not carry).
+  usePaneLaunchRefusal: (sessionId: string | undefined) =>
+    sessionId ? launchRefusals[sessionId] : undefined,
+}))
+let launchRefusals: Record<string, AccessRefusal> = {}
 
 let storeSessions: SessionView[] = []
 let storeMachines: Array<{ id: string; name: string; hostname: string; online: boolean }> = []
@@ -92,7 +121,7 @@ const fakeTrpc = {
     sendText: { mutate: vi.fn(async () => {}) },
     transcriptRead: { query: transcriptRead },
   },
-  accounts: {
+  credentials: {
     login: { mutate: accountsLogin },
   },
 }
@@ -137,11 +166,11 @@ vi.mock('@/app/store', () => {
     // before the hook existed. A concrete kind here would change what AgentPanel
     // renders; ChatView also requires this scoped subscription seam.
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
-const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+const paneFixture = createPanePoolFixture(() => readFixture((state) => state) as never)
 vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
 
 function renderPanel(...args: Parameters<Root['render']>) {
@@ -164,10 +193,6 @@ function meta(over: Partial<SessionViewInput>): SessionView {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -184,6 +209,8 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  credentialViews = undefined
+  launchRefusals = {}
   storeSessions = [meta({})]
   storeMachines = []
   storePanelMode = { s1: 'native' }
@@ -272,6 +299,110 @@ describe('AgentPanel panel-mode persistence', () => {
   })
 })
 
+// The "isn't logged in" bar speaks for the machine's own login (POD-7062).
+// Every session here is on a machine whose Claude Code login is OUT; the
+// fixture turns `condition: 'logged-out'` into that machine record, and the
+// pool derives each session's condition from it.
+describe('AgentPanel login bar and the session credential', () => {
+  const apiKey = credentialView({ label: 'Team key', type: 'anthropic.api-key' })
+  const subscription = credentialView({
+    label: 'Work Max',
+    type: 'anthropic.claude-login',
+    homes: [{ machineId: 'machine-1', homeId: 'h:claude-code', state: 'in' }],
+  })
+  const sick = credentialView({
+    label: 'CI token',
+    type: 'anthropic.claude-token',
+    status: 'attention',
+    statusReason: 'It expired on Nov 10.',
+  })
+  const loggedOutOn = (credentialId?: string) =>
+    meta({
+      condition: 'logged-out',
+      machineId: 'machine-1',
+      ...(credentialId ? { credentialId } : {}),
+    } as Partial<SessionViewInput>)
+  const statusText = () =>
+    [...container.querySelectorAll('[role="status"]')].map((node) => node.textContent ?? '')
+
+  it.each([
+    ['an API key', apiKey.id],
+    ['a subscription home', subscription.id],
+    ['another member’s credential', 'cred_00000000-0000-4000-8000-0000000000ff'],
+  ])('acceptance 1: a session on %s never shows the machine login bar', async (_name, id) => {
+    credentialViews = [apiKey, subscription]
+    storePanelMode = { s1: 'chat' }
+    storeSessions = [loggedOutOn(id)]
+    await render({ active: true })
+    expect(statusText().join(' ')).not.toContain("isn't logged in")
+    // Nor is it pulled to the terminal to sign in: the chat preference holds.
+    expect(container.querySelector('[data-testid="mode-chat"]')).toBeTruthy()
+  })
+
+  it('acceptance 2: a session on its harness login that is signed out still shows the bar', async () => {
+    credentialViews = [apiKey, subscription]
+    storeSessions = [loggedOutOn()]
+    await render({ active: true })
+    expect(statusText().join(' ')).toContain("isn't logged in")
+  })
+
+  it('acceptance 3: a session on a credential that needs attention shows its notice instead', async () => {
+    credentialViews = [apiKey, sick]
+    storeSessions = [loggedOutOn(sick.id)]
+    await render({ active: true })
+    const text = statusText()
+    expect(text.join(' ')).not.toContain("isn't logged in")
+    expect(text).toContainEqual(
+      expect.stringContaining('CI token needs attention: It expired on Nov 10.'),
+    )
+    expect([...container.querySelectorAll('button')].map((b) => b.textContent)).toContain('Renew')
+  })
+})
+
+// A start refused for its credential never ran, and no session row landed for
+// it (POD-7067): the pane reads the painted session alone, on a machine whose
+// own Claude login is out. It never says the session runs on its own login,
+// and never asks for that login.
+describe('AgentPanel on a start refused for its credential (POD-7067)', () => {
+  const token = credentialView({ label: 'Placeholder token', type: 'anthropic.claude-token' })
+  const refusedOn = (credentialId?: string) =>
+    meta({
+      status: 'exited',
+      spawnFailure: 'not encrypted',
+      condition: 'logged-out',
+      machineId: 'machine-1',
+      ...(credentialId ? { credentialId } : {}),
+    } as Partial<SessionViewInput>)
+  const statusText = () =>
+    [...container.querySelectorAll('[role="status"]')].map((node) => node.textContent ?? '')
+  const chip = () =>
+    container.querySelector(
+      '[aria-label^="Credential"], [data-testid="session-credential-readout"]',
+    )
+
+  it('shows no login bar and no "Its own login" chip when no credential was named', async () => {
+    credentialViews = [token]
+    launchRefusals = { s1: 'connection-not-encrypted' }
+    storeSessions = [refusedOn()]
+    await render({ active: true })
+    const text = statusText().join(' ')
+    expect(text).toContain('This session did not start.')
+    expect(text).not.toContain("isn't logged in")
+    expect(chip()).toBeNull()
+    expect(container.textContent).not.toContain('Its own login')
+  })
+
+  it('names the credential chosen, as a readout with nothing to switch', async () => {
+    credentialViews = [token]
+    launchRefusals = { s1: 'connection-not-encrypted' }
+    storeSessions = [refusedOn(token.id)]
+    await render({ active: true })
+    expect(statusText().join(' ')).not.toContain("isn't logged in")
+    expect(chip()?.textContent).toContain('Placeholder token')
+    expect(chip()?.tagName).not.toBe('BUTTON')
+  })
+})
+
 describe('AgentPanel never sizes the PTY itself (one writer, POD-3239)', () => {
   // Pinning the surface for the dock changes the BOX; the mount's ResizeObserver
   // asks for the size from there, gated on the mount's own eligibility. The
@@ -342,7 +473,7 @@ describe('AgentPanel lifecycle actions', () => {
   })
 
   it('wakes a parked session from the banner and stays retryable when refused', async () => {
-    storeSessions = [meta({ status: 'hibernated', controllerId: null })]
+    storeSessions = [meta({ status: 'hibernated' })]
     stableStoreFns.resurrectSession.mockRejectedValueOnce(new Error('wake rejected'))
     await render({ active: true })
     const button = container.querySelector<HTMLButtonElement>('[data-testid="lifecycle-resume"]')
@@ -382,7 +513,7 @@ describe('AgentPanel header triage controls follow the surface', () => {
   })
 
   it('withholds snooze from a parked or ended session — there is nothing to defer', async () => {
-    storeSessions = [meta({ status: 'hibernated', controllerId: null, agentState: idle })]
+    storeSessions = [meta({ status: 'hibernated', agentState: idle })]
     await render({ active: true })
     expect(snooze()).toBeNull()
     storeSessions = [meta({ status: 'exited', agentState: idle })]
@@ -603,7 +734,13 @@ describe('AgentPanel on a server-family client terminal', () => {
 // tests could not catch it: nothing in them renders. This one does.
 // ---------------------------------------------------------------------------
 describe('AgentPanel while the machine is away (POD-2290)', () => {
-  const away = () => meta({ agentKind: 'opencode', status: 'reconnecting' })
+  // Reconnecting is the machine's condition (ADR 12 D1): a live row on a
+  // machine the LiveStore reads as offline.
+  const awayMachine = { id: 'm-away', name: 'away', hostname: 'away', online: false }
+  const away = () => {
+    storeMachines = [awayMachine]
+    return meta({ agentKind: 'opencode', status: 'live', machineId: 'm-away' } as never)
+  }
 
   async function tickPast(ms: number): Promise<void> {
     await act(async () => {
@@ -649,8 +786,14 @@ describe('AgentPanel while the machine is away (POD-2290)', () => {
     // row that reconnects takes the ordinary attach-side wording instead — the
     // point is that the machine is never named for a row that told us what it
     // is.
+    storeMachines = [awayMachine]
     storeSessions = [
-      meta({ agentKind: 'opencode', status: 'reconnecting', driverFamily: 'terminal' }),
+      meta({
+        agentKind: 'opencode',
+        status: 'live',
+        driverFamily: 'terminal',
+        machineId: 'm-away',
+      } as never),
     ]
     await render({ active: true })
     await tickPast(60_000)
@@ -669,12 +812,12 @@ describe('AgentPanel while the machine is away (POD-2290)', () => {
 // ---------------------------------------------------------------------------
 describe('AgentPanel on a session whose machine is offline (POD-4629)', () => {
   const offline = { id: 'm-lud', name: 'ludovico', hostname: 'ludovico', online: false }
-  const onMachine = (status: 'live' | 'reconnecting') =>
+  const onMachine = (status: 'live') =>
     meta({ status, driverFamily: 'terminal', machineId: 'm-lud', machineName: 'ludovico' } as never)
 
   it('names the offline machine over the CLI of a reconnecting session', async () => {
     storeMachines = [offline]
-    storeSessions = [onMachine('reconnecting')]
+    storeSessions = [onMachine('live')]
     await render({ active: true })
     const bar = container.querySelector('[data-testid="machine-offline-bar"]')
     expect(bar?.classList.contains('pane-state-bar')).toBe(true)
@@ -694,14 +837,14 @@ describe('AgentPanel on a session whose machine is offline (POD-4629)', () => {
 
   it('says nothing about a machine that is online', async () => {
     storeMachines = [{ ...offline, online: true }]
-    storeSessions = [onMachine('reconnecting')]
+    storeSessions = [onMachine('live')]
     await render({ active: true })
     expect(container.querySelector('[data-testid="machine-offline-bar"]')).toBeNull()
   })
 
   it('leaves the chat view to its composer, which already says the session is not running', async () => {
     storeMachines = [offline]
-    storeSessions = [onMachine('reconnecting')]
+    storeSessions = [onMachine('live')]
     storePanelMode = { s1: 'chat' }
     await render({ active: true })
     expect(container.querySelector('[data-testid="machine-offline-bar"]')).toBeNull()

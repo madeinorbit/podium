@@ -8,6 +8,7 @@ import type { HarnessRuntimeObservation } from '../../transcript-types.js'
 // replaces them with cursors. The leaf is mechanism-free — importing it is not
 // importing the Store. No reader behaviour is imported.
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
+import { commandExecution, executionOutput, executionText } from '../shared/execution.js'
 import { safeToolCommandJson } from '../shared/tool-command.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 import { claudeToolEffects } from '../shared/tool-effects.js'
@@ -546,6 +547,7 @@ function userItems(
           // React keys when their originating calls scrolled out of the buffer.
           id: toolUseId ? `${uuid ?? 'r'}-result-${toolUseId}` : '',
           output: b.content,
+          ...(typeof b.is_error === 'boolean' ? { isError: b.is_error } : {}),
           ...(ts ? { ts } : {}),
           ...(toolUseId ? { toolUseId } : {}),
         }),
@@ -666,6 +668,11 @@ function assistantItems(
           id: toolUseId ?? '',
           toolName: b.name,
           input: b.input,
+          ...(typeof message.id === 'string' && message.id
+            ? { batchId: message.id }
+            : uuid
+              ? { batchId: uuid }
+              : {}),
           ...(ts ? { ts } : {}),
           ...(toolUseId ? { toolUseId } : {}),
         }),
@@ -680,11 +687,15 @@ function assistantItems(
     // the parent message's stop_reason on each, so this is reliable per text block.
     const sr = message.stop_reason
     const isAnswer = sr === 'end_turn' || sr === 'stop_sequence'
+    // The API message id: what the live stream of this text was keyed by
+    // (POD-6280), so the record retires its own preview.
+    const streamId = typeof message.id === 'string' && message.id ? message.id : undefined
     items.unshift({
       id: uuid ?? '',
       role: 'assistant',
       ts,
       text,
+      ...(streamId ? { streamId } : {}),
       ...(isAnswer ? { answer: true as const } : {}),
     })
   }
@@ -711,6 +722,7 @@ export function claudeToolCallItem(input: {
   input: unknown
   ts?: string
   toolUseId?: string
+  batchId?: string
 }): TranscriptItem {
   // AskUserQuestion is the agent asking the human — carry the full structured
   // input so the chat renders an interactive question card instead of a
@@ -718,6 +730,14 @@ export function claudeToolCallItem(input: {
   const isAsk = input.toolName === 'AskUserQuestion'
   const paths = toolPathsFromInput(input.input)
   const title = isAsk ? undefined : toolTitleFromInput(input.input)
+  const command =
+    input.toolName === 'Bash' &&
+    input.input &&
+    typeof input.input === 'object' &&
+    'command' in input.input &&
+    typeof input.input.command === 'string'
+      ? input.input.command
+      : undefined
   const toolInputJson = isAsk
     ? safeAskQuestionInputJson(input.input)
     : (safeToolCommandJson(input.toolName, input.input) ??
@@ -728,6 +748,8 @@ export function claudeToolCallItem(input: {
     ...(input.ts ? { ts: input.ts } : {}),
     text: '',
     toolName: input.toolName,
+    ...(command !== undefined ? { toolExecution: commandExecution(command, title) } : {}),
+    ...(input.batchId ? { toolBatch: { id: input.batchId, kind: 'message' as const } } : {}),
     toolInput: isAsk ? askQuestionPreview(input.input) : toolInputPreview(input.input),
     ...(title ? { toolTitle: title } : {}),
     ...(toolInputJson ? { toolInputJson } : {}),
@@ -742,12 +764,13 @@ export function claudeToolCallItem(input: {
  *
  * `toolResult` is ALWAYS set, empty string included. A tool that printed nothing
  * still returned, and the renderer reads the presence of this item — not its
- * length — as "the call finished". Absent content and empty content are the same
- * fact here and both arrive as `''`.
+ * length — as "the call returned". Capture metadata distinguishes empty text
+ * from absent or non-text content.
  */
 export function claudeToolResultItem(input: {
   id: string
   output: unknown
+  isError?: boolean
   ts?: string
   toolUseId?: string
 }): TranscriptItem {
@@ -756,7 +779,9 @@ export function claudeToolResultItem(input: {
     role: 'tool',
     ...(input.ts ? { ts: input.ts } : {}),
     text: '',
-    toolResult: truncate(blockContentToText(input.output), 2000),
+    ...executionOutput(executionText(input.output), {
+      ...(input.isError !== undefined ? { status: input.isError ? 'failed' : 'completed' } : {}),
+    }),
     ...(input.toolUseId ? { toolUseId: input.toolUseId } : {}),
   }
 }
@@ -910,16 +935,29 @@ function truncate(s: string, max: number): string {
 }
 
 /**
- * Claude Code: model and effort ride the assistant record. Declared as this
- * harness's `recordRuntime` in its transcript section.
+ * Claude Code: model and effort ride the assistant record; the permission
+ * mode in force is its own `permission-mode` record, written when a session
+ * starts and whenever the mode changes. Declared as this harness's
+ * `recordRuntime` in its transcript section.
  */
 export function claudeRuntime(record: unknown): HarnessRuntimeObservation {
   const model = claudeRecordModel(record)
   const effort = claudeRecordEffort(record)
+  const mode = claudeRecordPermissionMode(record)
   return {
     ...(model ? { model } : {}),
     ...(effort ? { effort } : {}),
+    ...(mode ? { mode } : {}),
   }
+}
+
+/** `{"type":"permission-mode","permissionMode":"auto"}`: the mode Claude Code
+ *  reports it is in (POD-6858 Task 11). */
+function claudeRecordPermissionMode(record: unknown): string | undefined {
+  if (typeof record !== 'object' || record === null) return undefined
+  const r = record as { type?: unknown; permissionMode?: unknown }
+  if (r.type !== 'permission-mode' || typeof r.permissionMode !== 'string') return undefined
+  return r.permissionMode.trim() || undefined
 }
 
 // The ONE authoritative transcript definition for this harness (spec §4):
@@ -938,7 +976,8 @@ export async function claudeChainPaths(input: TranscriptSourceInput): Promise<st
     cwd: input.cwd,
     resumeValue: input.resumeValue,
     ...(input.pathHint ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    homeDir: input.account.home,
+    env: input.account.env,
   })
   return path ? [path] : []
 }

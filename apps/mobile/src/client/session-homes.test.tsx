@@ -10,7 +10,8 @@ import {
   stripSessionLegacy,
 } from '../../../../tests/worklist/harness/src/fixture/session-homes'
 import { poolRouteFixture } from '../../test/pool-routes'
-import { useSession, useSessions } from './hooks'
+import { useSession } from './hooks'
+import { useSessions } from '../../test/roster-hooks'
 import { renderWithMobileStore } from './test-support'
 
 afterEach(cleanup)
@@ -24,10 +25,6 @@ const raw: SessionView = {
   title: 'Agent',
   status: 'live',
   archived: false,
-  controllerId: null,
-  geometry: { cols: 80, rows: 24 },
-  epoch: 0,
-  clientCount: 0,
   createdAt: active,
   origin: { kind: 'spawn' },
   lastActiveAt: active,

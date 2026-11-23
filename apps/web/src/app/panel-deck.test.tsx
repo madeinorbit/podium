@@ -66,8 +66,8 @@ const FULL_BOX = { paneId: 'p1', left: 0, top: 0, width: 1, height: 1 }
  * could plausibly have broken.
  *
  * Do not "fix" a suspension here by importing `AgentPanel` directly again: that
- * puts 1.2 MB back on the first paint. See DEFERRED_FIRST_PAINT_MODULES in
- * scripts/web-bundle-budget.ts, which fails the build if it happens.
+ * puts 1.2 MB back on the first paint, and no build check catches that any more
+ * (the size budget was removed in POD-6423).
  */
 async function renderDeck(opts: {
   tabs: DeckTab[]

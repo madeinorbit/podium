@@ -27,6 +27,7 @@ import {
   withStateChannel,
   withStateChannelEvent,
 } from '../../agent-state/types.js'
+import type { HarnessAccountScope } from '../../manifest.js'
 import { carryAcrossRebuild, reduceAgentState } from '../../observer.js'
 import {
   classifyClaudeTranscriptState,
@@ -75,7 +76,7 @@ export const claudeCodeStateProvider: AgentStateProvider = {
       },
     }
   },
-  translate: (payload) => claudeCodeInstrumentation.payloadCodec.decode(payload),
+  translate: (payload, account) => claudeCodeInstrumentation.payloadCodec.decode(payload, account),
   screen: classifyClaudeScreen,
   bootEvents: async (opts) => withStateChannel(await claudeBootEvents(opts), 'classifier'),
 }
@@ -87,7 +88,7 @@ export async function claudeBootEvents(opts: {
   cwd: string
   resumeValue?: string
   pathHint?: string
-  homeDir?: string
+  account: HarnessAccountScope
 }): Promise<AgentStateEvent[]> {
   if (opts.resumeValue) {
     // Locator, not derivation: after a worktree move the transcript lives in the
@@ -97,7 +98,7 @@ export async function claudeBootEvents(opts: {
       cwd: opts.cwd,
       resumeValue: opts.resumeValue,
       ...(opts.pathHint ? { pathHint: opts.pathHint } : {}),
-      ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+      homeDir: opts.account.home,
     })
     if (!transcript) return [{ kind: 'session_started' }]
     try {

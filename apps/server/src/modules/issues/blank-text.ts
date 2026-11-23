@@ -88,6 +88,7 @@ export const BLANK_TO_NULL_COLUMNS = [
   'deferUntil',
   'closedReason',
   'closedAt',
+  'closedByUserId',
   'landedAt',
   'landedSha',
   'supersededBy',

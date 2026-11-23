@@ -10,12 +10,25 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::{RemoteRelease, Update, UpdaterExt};
 
-pub type UpdateOwnership = Arc<AtomicBool>;
+/// Tauri keys managed state by concrete type. Keep page ownership distinct from
+/// the shell's `Arc<AtomicBool>` shutdown signal.
+#[derive(Clone, Default)]
+pub struct UpdateOwnership(Arc<AtomicBool>);
 
-const STABLE_ENDPOINT: &str =
-    "https://github.com/madeinorbit/podium/releases/latest/download/latest.json";
-const EDGE_ENDPOINT: &str =
-    "https://github.com/madeinorbit/podium/releases/download/edge/latest.json";
+impl UpdateOwnership {
+    pub fn claim(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    pub fn is_claimed(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+}
+
+// The native adapter reads the runtime module's canonical JSON policy.
+#[path = "../../../../packages/runtime/src/release-origins.rs"]
+mod release_origins;
+
 const UPDATE_PROGRESS_EVENT: &str = "podium://update-progress";
 const PROGRESS_INTERVAL_MS: u64 = 2_000;
 const PROGRESS_PERCENT_STEP: u8 = 5;
@@ -271,8 +284,10 @@ pub fn endpoint_for_channel(
             .filter(|endpoint| !endpoint.is_empty())
             .map(str::to_string)
             .ok_or_else(UpdateError::updater_unavailable),
-        UpdateChannel::Stable => Ok(STABLE_ENDPOINT.to_string()),
-        UpdateChannel::Edge => Ok(EDGE_ENDPOINT.to_string()),
+        UpdateChannel::Stable | UpdateChannel::Edge => release_origins::endpoints(channel.as_str())
+            .into_iter()
+            .next()
+            .ok_or_else(UpdateError::updater_unavailable),
     }
 }
 
@@ -413,11 +428,31 @@ fn updater_for_channel(
     channel: UpdateChannel,
 ) -> Result<tauri_plugin_updater::Updater, UpdateError> {
     let config = read_config();
-    let endpoint = endpoint_for_channel(channel, config.update_feed_endpoint.as_deref())?;
-    let endpoint = parse_updater_endpoint(&endpoint)?;
+    let endpoints = if channel == UpdateChannel::Dev {
+        vec![endpoint_for_channel(
+            channel,
+            config.update_feed_endpoint.as_deref(),
+        )?]
+    } else {
+        release_origins::endpoints(channel.as_str())
+    };
+    let endpoints = endpoints
+        .iter()
+        .map(|endpoint| parse_updater_endpoint(endpoint))
+        .collect::<Result<Vec<_>, _>>()?;
     app.updater_builder()
         .version_comparator(native_version_is_newer)
-        .endpoints(vec![endpoint])
+        .timeout(Duration::from_secs(5))
+        .manifest_transform(|endpoint, raw| {
+            release_origins::bind_manifest(endpoint, raw).map_err(|message| {
+                tauri_plugin_updater::Error::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    message,
+                ))
+            })
+        })
+        .configure_client(|client| client.redirect(release_origins::redirect_policy()))
+        .endpoints(endpoints)
         .and_then(|builder| builder.build())
         .map_err(|error| {
             log::error!("updater unavailable: {error}");
@@ -1146,7 +1181,7 @@ pub fn is_critical_update(raw: &serde_json::Value, _body: Option<&str>) -> bool 
 /// fallback timer reads the same flag and never needs the page to perform an update.
 #[tauri::command]
 pub fn claim_update_ownership(ownership: State<'_, UpdateOwnership>) -> Result<(), String> {
-    ownership.store(true, Ordering::Release);
+    ownership.claim();
     Ok(())
 }
 
@@ -1322,6 +1357,94 @@ pub async fn check_and_prompt_update(app: AppHandle, persisted_channel: Option<U
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_update_claim_does_not_signal_shutdown() {
+        let app = tauri::test::mock_builder()
+            .invoke_handler(tauri::generate_handler![claim_update_ownership])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .expect("build the Tauri test app");
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        assert!(app.manage(shutting_down.clone()));
+        // Match production registration order: shutdown first, page ownership second.
+        let ownership_registered = app.manage(UpdateOwnership::default());
+        let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .expect("build the test webview");
+
+        tauri::test::assert_ipc_response(
+            &window,
+            tauri::webview::InvokeRequest {
+                cmd: "claim_update_ownership".into(),
+                callback: tauri::ipc::CallbackFn(0),
+                error: tauri::ipc::CallbackFn(1),
+                url: if cfg!(windows) {
+                    "http://tauri.localhost"
+                } else {
+                    "tauri://localhost"
+                }
+                .parse()
+                .unwrap(),
+                body: tauri::ipc::InvokeBody::default(),
+                headers: Default::default(),
+                invoke_key: tauri::test::INVOKE_KEY.to_string(),
+            },
+            Ok::<(), ()>(()),
+        );
+
+        assert!(
+            !shutting_down.load(Ordering::Acquire),
+            "claiming the page update dialog must not signal shell shutdown"
+        );
+        assert!(
+            ownership_registered,
+            "shutdown and update ownership must both be managed"
+        );
+    }
+
+    #[test]
+    fn managed_update_claim_suppresses_native_dialogs_through_the_window_clone() {
+        let app = tauri::test::mock_app();
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        let ownership = UpdateOwnership::default();
+        // The window timer receives its clone before the page mounts.
+        let window_ownership = ownership.clone();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(ownership));
+        assert!(should_show_native_dialog(
+            window_ownership.is_claimed(),
+            OWNERSHIP_GRACE_MS + 1,
+            OWNERSHIP_GRACE_MS,
+        ));
+
+        // Remounts can claim again, and both claims belong to the same UI owner.
+        for _ in 0..2 {
+            claim_update_ownership(app.state()).expect("claim the page update dialog");
+            assert!(window_ownership.is_claimed());
+            assert!(!shutting_down.load(Ordering::Acquire));
+            assert!(!should_show_native_dialog(
+                window_ownership.is_claimed(),
+                OWNERSHIP_GRACE_MS + 1,
+                OWNERSHIP_GRACE_MS,
+            ));
+        }
+    }
+
+    #[test]
+    fn managed_shell_shutdown_does_not_claim_update_ownership() {
+        let app = tauri::test::mock_app();
+        let shutting_down = Arc::new(AtomicBool::new(false));
+        let ownership = UpdateOwnership::default();
+        assert!(app.manage(shutting_down.clone()));
+        assert!(app.manage(ownership.clone()));
+
+        // Keep the existing quit API: shutdown is still the raw shared atomic.
+        app.state::<Arc<AtomicBool>>()
+            .store(true, Ordering::Release);
+
+        assert!(shutting_down.load(Ordering::Acquire));
+        assert!(!ownership.is_claimed());
+    }
 
     fn recovery_state(phase: &str) -> serde_json::Value {
         serde_json::json!({ "phase": phase, "grant": {
@@ -1590,11 +1713,11 @@ mod tests {
     fn every_configured_channel_has_a_usable_secure_manifest() {
         assert_eq!(
             endpoint_for_channel(UpdateChannel::Stable, None),
-            Ok(STABLE_ENDPOINT.to_string())
+            Ok(release_origins::endpoints("stable")[0].clone())
         );
         assert_eq!(
             endpoint_for_channel(UpdateChannel::Edge, None),
-            Ok(EDGE_ENDPOINT.to_string())
+            Ok(release_origins::endpoints("edge")[0].clone())
         );
         assert_eq!(
             endpoint_for_channel(
@@ -1604,11 +1727,11 @@ mod tests {
             Ok("https://podium.test/updates/feed/dev/latest.json".to_string())
         );
         for endpoint in [
-            STABLE_ENDPOINT,
-            EDGE_ENDPOINT,
-            "https://podium.test/updates/feed/dev/latest.json",
+            release_origins::endpoints("stable")[0].clone(),
+            release_origins::endpoints("edge")[0].clone(),
+            "https://podium.test/updates/feed/dev/latest.json".to_string(),
         ] {
-            let parsed = tauri::Url::parse(endpoint).expect("configured endpoint must be a URL");
+            let parsed = tauri::Url::parse(&endpoint).expect("configured endpoint must be a URL");
             assert_eq!(parsed.scheme(), "https");
         }
         assert_eq!(
@@ -1756,6 +1879,14 @@ mod tests {
 
     #[test]
     fn check_failures_map_to_distinct_codes_and_messages() {
+        let origin_refusal = tauri_plugin_updater::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "artifact is served from outside the release feed",
+        ));
+        assert_eq!(
+            check_error(&origin_refusal, UpdateChannel::Stable).code,
+            UpdateErrorCode::UpdateCheckFailed
+        );
         assert_eq!(
             check_error(
                 &tauri_plugin_updater::Error::ReleaseNotFound,

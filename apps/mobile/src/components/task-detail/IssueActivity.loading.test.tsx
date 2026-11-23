@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import type { IssueEvent } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph/pool'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -72,7 +72,7 @@ function setup() {
   } as unknown as MobileTrpc
   render(
     <PhoneTimeline
-      issue={pool.issueObject('task') as unknown as IssueViewModel}
+      issue={pool.issueObject('task') as unknown as IssueWithBodies}
       busy={false}
       commands={{} as never}
     />,

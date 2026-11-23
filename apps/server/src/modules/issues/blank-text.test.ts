@@ -24,14 +24,13 @@ async function harness() {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: 'main',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(() => {}),
+    ...issueTestPlumbing(() => {}, { store }),
     setSessionArchived: vi.fn(),
     now: () => '2026-06-30T00:00:00.000Z',
   }
@@ -39,31 +38,32 @@ async function harness() {
 }
 
 describe('blank issue text normalizes to null', () => {
-  it('collapses an empty assignee written through update()', async () => {
+  it('collapses an empty acceptance written through update()', async () => {
     const { store, svc } = await harness()
-    const created = await svc.crud.create({ repoPath: '/repo', title: 'T', startNow: false })
-    await svc.crud.update(created.id, { assignee: '' as UserId })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'T', startNow: false })
+    await svc.crud.update(svc.reports.store.serverWriter, created.id, { acceptance: '' })
 
     // Read back through the STORE, not the wire: the wire's truthiness omission
     // renders both spellings identically, which is why this was invisible.
-    expect((await store.issues.getIssue(created.id))?.assignee).toBeNull()
+    // (`assignee`, the column this used to write, takes no writes since POD-6287.)
+    expect((await store.issues.getIssue(created.id))?.acceptance).toBeNull()
   })
 
   it('leaves a non-empty value and a legitimately empty description alone', async () => {
     const { store, svc } = await harness()
-    const created = await svc.crud.create({ repoPath: '/repo', title: 'T', description: '', startNow: false })
-    await svc.crud.update(created.id, { assignee: firstAdminMemberId() })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'T', description: '', startNow: false })
+    await svc.crud.update(svc.reports.store.serverWriter, created.id, { acceptance: 'it works' })
 
     const row = await store.issues.getIssue(created.id)
-    expect(row?.assignee).toBe(firstAdminMemberId())
+    expect(row?.acceptance).toBe('it works')
     // NOT NULL with a legitimate '' value — the rule is scoped to nullable text.
     expect(row?.description).toBe('')
   })
 
   it('applies to the whole nullable-text class, not just the measured column', async () => {
     const { store, svc } = await harness()
-    const created = await svc.crud.create({ repoPath: '/repo', title: 'T', startNow: false })
-    await svc.crud.update(created.id, { acceptance: '', branch: '', closedReason: '' })
+    const created = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'T', startNow: false })
+    await svc.crud.update(svc.reports.store.serverWriter, created.id, { acceptance: '', branch: '', closedReason: '' })
 
     const row = await store.issues.getIssue(created.id)
     expect(row?.acceptance).toBeNull()

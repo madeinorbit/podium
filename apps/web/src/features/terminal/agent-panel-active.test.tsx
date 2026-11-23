@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
+
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useRuntimeSelector } from '@/app/store'
 import { makeIssue } from '@/lib/test-issue'
+import { fixtureSnapshot as readFixture } from '@/test-support/fixture-snapshot'
 import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 
@@ -19,6 +21,9 @@ const setActive = vi.fn()
 const dispose = vi.fn()
 const requestControl = vi.fn()
 const terminalFocus = vi.fn()
+const terminalResize = vi.fn()
+const terminalRepaint = vi.fn()
+let attachedGeometry: { cols: number; rows: number } | undefined
 const desktopHooks = globalThis as {
   __PODIUM_FOCUS_SESSION_PROMPT__?: () => void
   __PODIUM_TOGGLE_SESSION_VIEW__?: () => void
@@ -26,7 +31,7 @@ const desktopHooks = globalThis as {
 // Loosely typed args (el, opts) so the captured opts.active is inspectable.
 const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
   connection: {
-    state: () => ({ role: 'controller' }),
+    state: () => ({ role: 'controller', ...attachedGeometry }),
     sendInput: vi.fn(),
     requestControl,
   },
@@ -37,6 +42,8 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
     onScroll: () => () => {},
     atBottom: () => true,
     focus: terminalFocus,
+    resize: terminalResize,
+    forceRepaint: terminalRepaint,
     screenText: () => '',
     scrollToBottom: vi.fn(),
     requestPaste: vi.fn(),
@@ -65,6 +72,8 @@ vi.mock('@podium/client-core/react', async () =>
 )
 
 // Voice touches browser speech APIs that are flaky under happy-dom — stub it.
+// My startScreen is my synced settings record (POD-6673).
+vi.mock('@/lib/my-preferences', () => ({ useMyStartScreen: () => storeStartScreen }))
 vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
@@ -131,6 +140,7 @@ vi.mock('@/app/store', () => {
       pendingSpawnPrompts: new Map<string, string>(),
       repos: [],
       trpc: fakeTrpc,
+      httpOrigin: 'http://fixture.invalid',
       drafts: {},
       panelMode: storePanelMode,
       issues: storeIssues,
@@ -144,15 +154,24 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
-const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+const paneFixture = createPanePoolFixture(() => readFixture((state) => state) as never)
 vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
+const readPanePool = paneFixture.hooks.useWorklistPool
 
 function renderPanel(...args: Parameters<Root['render']>) {
   paneFixture.sync()
+  // The general lifecycle cases start with a held topic. The first-open cases
+  // render the root directly so no earlier known reading can be carried stale.
+  const pool = readPanePool()
+  if (!pool) throw new Error('Missing pane fixture pool')
+  liveFixture(pool).sessionTerminalState('s1', {
+    controller: null,
+    geometry: { cols: 80, rows: 24 },
+  })
   root.render(...args)
 }
 
@@ -165,10 +184,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -193,6 +208,9 @@ beforeEach(() => {
   setActive.mockClear()
   dispose.mockClear()
   terminalFocus.mockClear()
+  terminalResize.mockClear()
+  terminalRepaint.mockClear()
+  attachedGeometry = undefined
   mountSessionMock.mockClear()
   subscribeTranscript.mockClear()
   unsubscribeTranscript.mockClear()
@@ -201,6 +219,7 @@ beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
+  paneFixture.sync()
 })
 
 afterEach(() => {
@@ -208,6 +227,7 @@ afterEach(() => {
   container.remove()
   paneFixture.dispose()
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 async function flush(): Promise<void> {
@@ -218,6 +238,112 @@ async function flush(): Promise<void> {
 }
 
 describe('AgentPanel active wiring', () => {
+  it('waits for the first live size after render before constructing the terminal', async () => {
+    vi.useFakeTimers()
+    const pool = paneFixture.hooks.useWorklistPool()!
+    liveFixture(pool).sessionTerminalState('s1', undefined)
+    const geometry = { cols: 132, rows: 43 }
+    expect(pool.row('session', 's1')).not.toHaveProperty('geometry')
+
+    await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
+    await flush()
+    await act(async () => vi.advanceTimersByTimeAsync(100))
+    expect(mountSessionMock).not.toHaveBeenCalled()
+
+    await act(async () => {
+      liveFixture(pool).sessionTerminalState('s1', { controller: null, geometry })
+    })
+    await flush()
+
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(mountSessionMock.mock.calls[0]?.[1]).toMatchObject({ initialGeometry: geometry })
+    await act(async () => vi.advanceTimersByTimeAsync(500))
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    false,
+    true,
+  ])('bounds the size wait and accepts a late size before attach=%s', async (attached) => {
+    vi.useFakeTimers()
+    const pool = paneFixture.hooks.useWorklistPool()!
+    liveFixture(pool).sessionTerminalState('s1', undefined)
+    await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
+    await flush()
+    await act(async () => vi.advanceTimersByTimeAsync(499))
+    expect(mountSessionMock).not.toHaveBeenCalled()
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    await flush()
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(mountSessionMock.mock.calls[0]?.[1]).not.toHaveProperty('initialGeometry')
+
+    // An attach is authoritative even if the topic reading arrives after it.
+    if (attached) attachedGeometry = { cols: 140, rows: 45 }
+    await act(async () => {
+      liveFixture(pool).sessionTerminalState('s1', {
+        controller: null,
+        geometry: { cols: 132, rows: 43 },
+      })
+    })
+    await flush()
+    expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(terminalResize.mock.calls).toEqual(attached ? [] : [[132, 43]])
+    expect(terminalRepaint).toHaveBeenCalledTimes(attached ? 0 : 1)
+  })
+
+  it('shows new-file evidence in the native offer dock when the live last input arrives', async () => {
+    storeIssues = [
+      makeIssue({
+        id: 'iss-evidence',
+        repoPath: '/w',
+        worktreePath: '/w',
+        panel: {
+          todos: [],
+          deferred: [],
+          artifacts: [{ path: 'first-frame.png', addedAt: '2026-06-03T00:02:00.000Z' }],
+        },
+      }),
+    ]
+    storeSessions = [
+      meta({
+        issueId: storeIssues[0]!.id,
+        offer: { message: 'Terminal ready', actions: [], createdAt: '2026-06-03T00:03:00.000Z' },
+      }),
+    ]
+    paneFixture.sync()
+    const pool = paneFixture.hooks.useWorklistPool()!
+    paneFixture.replica.applySnapshot('issuePanelArtifacts', [
+      {
+        id: 'first-frame-artifact',
+        issueId: 'iss-evidence',
+        position: 0,
+        path: 'first-frame.png',
+        addedAt: '2026-06-03T00:02:00.000Z',
+      } as never,
+    ])
+    await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
+    await flush()
+    expect(
+      pool.issueObject('iss-evidence').panelArtifacts.map((artifact) => artifact.path),
+    ).toEqual(['first-frame.png'])
+    expect(pool.row('session', 's1')).not.toHaveProperty('lastInputAt')
+    const dock = container.querySelector('[data-testid="native-offer-dock"]')
+    expect(dock).not.toBeNull()
+    expect(dock?.querySelector('[data-testid="offer-artifact-thumb"]')).toBeNull()
+
+    await act(async () =>
+      liveFixture(pool).sessionCondition('s1', {
+        busy: false,
+        requestsGated: 0,
+        lastInputAt: '2026-06-03T00:01:00.000Z',
+      }),
+    )
+
+    expect(dock?.querySelector('[data-testid="offer-artifact-thumb"]')?.textContent).toContain(
+      'first-frame.png',
+    )
+  })
+
   it('renders issue git chrome from a normalized-only replica', async () => {
     storeIssues = [
       makeIssue({
@@ -296,7 +422,7 @@ describe('AgentPanel active wiring', () => {
   })
 
   it('makes a rejected hibernated resume retryable', async () => {
-    storeSessions = [meta({ status: 'hibernated', controllerId: null })]
+    storeSessions = [meta({ status: 'hibernated' })]
     stableStoreFns.resurrectSession.mockRejectedValueOnce(new Error('wake rejected'))
     await act(async () => {
       renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
@@ -416,10 +542,34 @@ describe('AgentPanel active wiring', () => {
     })
     await flush()
     expect(mountSessionMock).not.toHaveBeenCalled()
-    expect(stableStoreFns.setPanelMode).toHaveBeenCalledWith(asSessionId('s1'), 'chat')
-    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalledWith(asSessionId('s1'), 'native')
+    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalled()
     expect(
       container.querySelector('[data-testid="mode-chat"]')?.getAttribute('aria-selected'),
+    ).toBe('true')
+  })
+
+  it('follows a changed Agents default reactively until the session has its own choice', async () => {
+    storePanelMode = {}
+    await act(async () => {
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    storeStartScreen = 'chat'
+    await act(async () => {
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    expect(
+      container.querySelector('[data-testid="mode-chat"]')?.getAttribute('aria-selected'),
+    ).toBe('true')
+    expect(stableStoreFns.setPanelMode).not.toHaveBeenCalled()
+    storePanelMode = { s1: 'native' }
+    await act(async () => {
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
+    })
+    await flush()
+    expect(
+      container.querySelector('[data-testid="mode-native"]')?.getAttribute('aria-selected'),
     ).toBe('true')
   })
 
@@ -502,7 +652,10 @@ describe('AgentPanel active wiring', () => {
 
     // The principal's warm cache outlives a pane; disposing that owner releases
     // the final transcript lease as well as the panel's terminal resources.
-    act(() => { root.unmount(); paneFixture.dispose() })
+    act(() => {
+      root.unmount()
+      paneFixture.dispose()
+    })
     expect(dispose).toHaveBeenCalledTimes(mountSessionMock.mock.calls.length)
     expect(unsubscribeTranscript).toHaveBeenCalledTimes(subscribeTranscript.mock.calls.length)
     // Keep the shared afterEach cleanup valid after the explicit lifecycle assertion.

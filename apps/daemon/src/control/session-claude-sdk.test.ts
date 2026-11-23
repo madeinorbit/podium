@@ -1,11 +1,12 @@
 import type { AgentSessionHandle, SessionSpec } from '@podium/harness/driver/host'
+import { configureFieldsForDriver } from '@podium/harness/driver/host'
 import { asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
-import { configureFieldsForDriver } from '@podium/harness/driver/host'
+import { testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { launchServerDriverSession, sessionHandlers, stopSessionProcess } from './session'
-import { testSessions } from '../session/testing.js'
 
 const SESSION_ID = asSessionId('claude-reattach-session')
 const RESUME: ResumeRef = { kind: 'claude-session', value: 'claude-reattach-ref' }
@@ -81,6 +82,7 @@ function world(input: {
       adopt,
       resume,
     },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, adoptJournalled, adopt, resume }
 }
@@ -205,6 +207,7 @@ describe('Claude SDK server-family teardown', () => {
       },
       instanceUuid: undefined,
       send: (message: DaemonMessage) => sent.push(message),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
 
     await expect(stopSessionProcess(ctx, { sessionId: SESSION_ID })).resolves.toBe(true)
@@ -247,6 +250,7 @@ describe('Claude stream engine spawn selection', () => {
         resume,
         handleFor: vi.fn(() => undefined),
       },
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const message = {
       type: 'spawn',
@@ -282,6 +286,7 @@ describe('Claude stream engine spawn selection', () => {
         resume: vi.fn(),
         handleFor: vi.fn(() => undefined),
       },
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const instructions = [{ source: 'podium:issues', content: 'Run `podium issue prime`.' }]
     const message = {
@@ -321,6 +326,7 @@ describe('Claude stream engine spawn selection', () => {
         resume: vi.fn(),
         handleFor: vi.fn(() => undefined),
       },
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const message = {
       type: 'spawn',
@@ -362,6 +368,7 @@ describe('Claude SDK spawn resume control', () => {
         resume,
         handleFor: vi.fn(() => undefined),
       },
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const message = {
       type: 'spawn',

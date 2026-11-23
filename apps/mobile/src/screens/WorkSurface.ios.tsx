@@ -63,11 +63,11 @@ import type {
 import { issueStatusValue, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
-import { Stack } from 'expo-router'
+import { Stack, useRouter } from 'expo-router'
 import { type ComponentProps, Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { StyleSheet, useWindowDimensions, View } from 'react-native'
 import { useMobilePoolProjection } from '../client/mobile-pool'
-import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
+import { UPDATING_SUBTITLE, useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { ContextMenu } from '../components/ContextMenu.ios'
 import { IssueRowMenuItems } from '../components/IssueRowMenuItems.ios'
 import { ListNotices } from '../components/list-notices.ios'
@@ -80,6 +80,7 @@ import {
 import { ListSearchBar, useSearchLaunchTransition } from '../components/list-search-bar.ios'
 import { NativeGroupHeader } from '../components/NativeGroupHeader.ios'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { useUnreadNotices } from '../components/NoticeBell'
 import { RevealSwipeActions } from '../components/RevealSwipeActions.ios'
 import { WorkingMark } from '../components/WorkingMark'
 import { useAgeNow } from '../lib/clock-hooks'
@@ -129,6 +130,25 @@ const noteRow = [
   listRowInsets({ leading: CARD_INSET, trailing: CARD_INSET, top: 8, bottom: 8 }),
 ]
 
+/** My notices (POD-6881): a bell on the right of the Work bar that opens the
+ *  inbox, `bell.badge` while anything is unread. Merged in from upstream
+ *  (POD-2656); remove its one use above to drop the toolbar item. */
+const NoticeBellToolbarItem = observer(function NoticeBellToolbarItem() {
+  const router = useRouter()
+  const unreadNotices = useUnreadNotices()
+  return (
+    <Stack.Toolbar placement="right">
+      <Stack.Toolbar.Button
+        icon={unreadNotices > 0 ? 'bell.badge' : 'bell'}
+        accessibilityLabel={unreadNotices > 0 ? `Inbox, ${unreadNotices} unread` : 'Inbox'}
+        onPress={() => router.push('/inbox')}
+      >
+        Inbox
+      </Stack.Toolbar.Button>
+    </Stack.Toolbar>
+  )
+})
+
 /** A real SwiftUI plain list. UIKit owns the stack, search, toolbar and tab bar. */
 export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps) {
   startupTiming.mark('work.surface-render')
@@ -157,7 +177,9 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
   const needYou = useMobilePoolProjection(readNeedYouCount, 0)
   const working = useMobilePoolProjection(readWorkingCount, 0)
   const refreshSubtitle = useWorkspaceRefreshSubtitle()
-  const subtitle = refreshSubtitle ?? workSubtitle(needYou, working)
+  // The worklist reloading rows it already shows reads as the same caption.
+  const subtitle =
+    refreshSubtitle ?? (phone.refreshing ? UPDATING_SUBTITLE : workSubtitle(needYou, working))
   // W8: one launcher for every project header's +, opened with that project picked.
   const openProjectWork = useRef<((repoPath: string) => void) | null>(null)
   const onNewInProject = useCallback((repoPath: string) => {
@@ -183,6 +205,8 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
           ...headerSubtitleOptions(nativeSubtitleAvailable ? subtitle : undefined, { large: true }),
         }}
       />
+      {/* Upstream's notices inbox (POD-6881) on the iOS Work bar: this one line adds it. */}
+      <NoticeBellToolbarItem />
       <NewWorkButton
         renderTrigger={(open) => (
           <Stack.Toolbar placement="right">
@@ -304,6 +328,19 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
               <Section modifiers={COMPACT_SECTION}>
                 <NativeQuietRow phone={phone} />
               </Section>
+            ) : null}
+            {/* At the end of a search, ask the server for its next page of hits. */}
+            {phone.searchMore ? (
+              <Text
+                modifiers={[
+                  ...noteRow,
+                  onAppear(() => phone.moreSearch()),
+                  font({ textStyle: 'footnote' }),
+                  foregroundStyle(paper.secondary),
+                ]}
+              >
+                Loading more tasks…
+              </Text>
             ) : null}
             {!props.loading && !sections.length ? (
               <VStack

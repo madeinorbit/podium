@@ -3,6 +3,7 @@ import { formatPodiumLink, PODIUM_SCHEME } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { accountCapabilities } from '../test-support/auth-capabilities'
 import type { ServerProfileContextValue } from './server-profile-context'
 import type { ServerProfileState } from './server-profiles'
 
@@ -162,6 +163,8 @@ vi.mock('./connected-devices', () => ({ useConnectedDevices: () => null }))
 vi.mock('../screens/settings-readers', () => ({
   useSettingsData: () => null,
   useSettingsMachineStatus: () => null,
+  // Nothing unsynced: sign-out proceeds without the confirmation (POD-6292).
+  useSettingsUnsyncedChangeCount: () => 0,
 }))
 vi.mock('../components/Screen', () => ({
   Screen: ({ children }: { children: ReactNode }) => children,
@@ -950,6 +953,7 @@ describe('pairing supersedes handoff intent', () => {
       captureMobileHandoffUrl(handoffLink('https://a.example', 'instance-a'))
     })
     const handoffId = pendingMobileHandoffSnapshot().id
+    seams.router.replace.mockClear()
 
     act(() => {
       seams.linkListener?.({ url: PAIRING_LINK })
@@ -961,6 +965,9 @@ describe('pairing supersedes handoff intent', () => {
       profileSelected: false,
     })
     expect(pendingMobileHandoffSnapshot().id).toBeGreaterThan(handoffId)
+    // The router never held the pairing link (app/+native-intent.ts), and a
+    // root replace would remount this gate and lose the pairing (POD-6913).
+    expect(seams.router.replace).not.toHaveBeenCalled()
     expect(seams.parsePairing).toHaveBeenCalledWith(PAIRING_LINK)
     // The router never routes a pairing link (+native-intent), and navigating
     // here remounted the root layout and wiped the gate's pairing state.
@@ -1015,7 +1022,7 @@ describe('pairing supersedes handoff intent', () => {
     expect(seams.logout).toHaveBeenCalledWith('https://pair.example', 'token-c', undefined)
     expect(seams.alert).toHaveBeenCalledWith(
       'Phone session still active',
-      'A superseded phone session could not be revoked. Revoke it from Settings → Connected devices on the server.',
+      'A superseded phone session could not be revoked. Revoke it from Settings → Account on the server.',
     )
     expect(JSON.stringify(seams.alert.mock.calls)).not.toContain('token-c')
     expect(pendingMobileHandoffSnapshot()).toMatchObject({
@@ -1864,9 +1871,8 @@ describe('hosted sign-in profile activation', () => {
       authed: false,
       needsAuth: true,
       userId: null,
-      mode: 'cloud',
-      providerSignedIn: true,
-      deniedReason: 'not a member of this workspace',
+      capabilities: accountCapabilities,
+      denied: 'not_workspace_member',
     })
     seams.getInitialUrl.mockResolvedValue(link)
     render(
@@ -1874,7 +1880,7 @@ describe('hosted sign-in profile activation', () => {
         <ProfileProbe />
       </ServerProfileGate>,
     )
-    await screen.findByText('not a member of this workspace')
+    await screen.findByText('This account is not a member of this workspace.')
     expect(screen.queryByText('Could not finish sign-in. Start sign-in again.')).toBeNull()
     expect(screen.getByRole('button', { name: 'Use another account' })).toBeTruthy()
     expect(seams.setCredential).not.toHaveBeenCalled()
@@ -2031,5 +2037,36 @@ describe('non-pairing app links (POD-2364)', () => {
     expect(seams.parsePairing).not.toHaveBeenCalled()
     expect(screen.queryByLabelText('Enter server address')).toBeNull()
     expect(screen.queryByLabelText('Scan pairing code')).toBeNull()
+  })
+})
+
+/**
+ * A replace at the root remounts the root layout, this gate included: on the
+ * Android emulator a cold pairing link opened setup and lost it 50 ms later,
+ * and no pairing request reached the server (POD-6913). The router never holds
+ * a pairing link (app/+native-intent.ts), so the gate must not move it.
+ */
+describe('a pairing link leaves the router alone (POD-6913)', () => {
+  it('opens setup from a cold pairing link without a router replace', async () => {
+    seams.router.replace.mockClear()
+    seams.getInitialUrl.mockResolvedValue(PAIRING_LINK)
+    render(
+      <ServerProfileGate>
+        <ProfileProbe />
+      </ServerProfileGate>,
+    )
+    await screen.findByLabelText('Cancel server setup')
+    expect(seams.parsePairing).toHaveBeenCalledWith(PAIRING_LINK)
+    expect(seams.router.replace).not.toHaveBeenCalled()
+  })
+
+  it('opens setup from a warm pairing link without a router replace', async () => {
+    await mountActiveProfileA()
+    seams.router.replace.mockClear()
+    act(() => {
+      seams.linkListener?.({ url: PAIRING_LINK })
+    })
+    await screen.findByLabelText('Cancel server setup')
+    expect(seams.router.replace).not.toHaveBeenCalled()
   })
 })

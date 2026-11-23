@@ -1,4 +1,3 @@
-import { issueObserver as observer } from './issue-observer'
 /**
  * THE PARENT ROW — REPARENT IS A PERMISSION-AFFECTING OPERATION (POD-646).
  *
@@ -42,6 +41,7 @@ import { Button } from '@/components/ui/button'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import { edgeIssue, IssueEdgeLink } from './issue-edges'
+import { issueObserver as observer } from './issue-observer'
 import { PropertyRow } from './property-chrome'
 
 /** The standing note in the parent menu. Exported so the test asserts the copy
@@ -83,6 +83,8 @@ export const IssueParentRow = observer(function IssueParentRow({
   mateOptions,
   matesById,
   onOptionsOpenChange,
+  searchQuery,
+  onSearchQueryChange,
   onSetParent,
   onNavigate,
 }: {
@@ -97,6 +99,8 @@ export const IssueParentRow = observer(function IssueParentRow({
    *  target's owner for the boundary check. */
   matesById: Map<string, IssueViewModel>
   onOptionsOpenChange?: (open: boolean) => void
+  searchQuery?: string
+  onSearchQueryChange?: (query: string) => void
   onSetParent: (id: IssueId | null) => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
@@ -135,6 +139,8 @@ export const IssueParentRow = observer(function IssueParentRow({
           )}
           <PropertyMenu
             onOpenChange={onOptionsOpenChange}
+            query={searchQuery}
+            onQueryChange={onSearchQueryChange}
             selectedValue={issue.parentId ?? '__none__'}
             options={[{ value: '__none__', label: 'No parent' }, ...mateOptions]}
             placeholder="Set parent…"

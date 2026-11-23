@@ -7,7 +7,7 @@ import { hostAgentsView, hostAgentsViewFromCounts, idleSessionSplit, residencyBr
 
 const ids = [asMachineId('a'), asMachineId('b'), undefined]
 const fixture = () => Array.from({ length: 4304 }, (_, i) => ({
-  machineId: ids[i % 3], status: ['live', 'starting', 'reconnecting', 'exited'][i % 4],
+  machineId: ids[i % 3], status: ['live', 'starting', 'hibernated', 'exited'][i % 4],
   cwd: `/repo/${i % 20}`, archived: i % 7 === 0, resumable: i % 2 === 0,
   agentState: { phase: ['working', 'compacting', 'idle', 'ended', 'needs_user', 'unknown'][i % 6] },
 }) as SessionView)

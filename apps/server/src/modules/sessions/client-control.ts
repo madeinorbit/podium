@@ -8,9 +8,9 @@ import { userCommandPrincipal } from '../../command-principal'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
+import { mayReachPrivate } from '../../issue-authz'
 import { feedPrincipalOf } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
-import type { MachineListing } from '../machines/service'
 import { perfPrincipal } from '../perf/principal'
 import { perf } from '../perf/registry'
 import type { SessionInbox } from './inbox'
@@ -39,7 +39,6 @@ export interface SessionClientControlPorts {
   ensureTranscript?(session: Session): Promise<void>
   state: SessionStateService
   inbox: SessionInbox
-  machinesForPrincipal(principal: ClientPrincipal): Promise<MachineListing[]>
   browserOpen: BrowserOpenGateway
   mutate(sessionId: SessionId, change: (session: Session) => void, issueRelevant?: boolean): void
   broadcastSessions(): void
@@ -47,7 +46,7 @@ export interface SessionClientControlPorts {
   setDraft(principal: ClientPrincipal, clientId: string, sessionId: SessionId, text: string): Promise<void>
   editDraft(message: DraftEditMessage, clientId: string): Promise<void>
   /**
-   * Session ownership + grants (from store). Undefined ⇒ session does not exist
+   * Session owner (from store). Undefined ⇒ session does not exist
    * (or is invisible — same answer per the consistent-error rule).
    *
    * REQUIRED, and that is the point (POD-333). It and `machineUseFor` were
@@ -60,7 +59,7 @@ export interface SessionClientControlPorts {
    * away from being an unwired one. A fixture that does not care now says so
    * explicitly — see the test helpers in session-control-identity.test.ts.
    */
-  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId; grants: string[] } | undefined>
+  sessionOwner(sessionId: SessionId): Promise<{ owner: UserId } | undefined>
   /**
    * Machine `use` for this principal on the session's host. REQUIRED — see
    * `sessionOwner` above. `MachineUseDecision` deliberately has no `'unknown'`
@@ -71,11 +70,6 @@ export interface SessionClientControlPorts {
     principal: ClientPrincipal,
     sessionId: SessionId,
   ): Promise<SessionControlContext['machineUse']>
-  /**
-   * Room occupancy count for a session (presence plane). When provided,
-   * `clientCount` is derived from it rather than from the attach-set size.
-   */
-  sessionOccupancyCount?(sessionId: SessionId): number | undefined
   /** Join/leave session presence room with PTY attach (POD-1081 §5). */
   sessionRoomJoin?(client: ClientConn, sessionId: SessionId): Promise<boolean>
   sessionRoomLeave?(client: ClientConn, sessionId: SessionId): void
@@ -96,18 +90,9 @@ const RELEASING_FRAMES: ReadonlySet<string> = new Set(['detach', 'transcriptUnsu
 export class SessionClientControl {
   constructor(private readonly ports: SessionClientControlPorts) {}
 
-  async prepareMachines(principal: ClientPrincipal): Promise<MachineListing[]> {
-    try {
-      return await this.ports.machinesForPrincipal(principal)
-    } catch {
-      return []
-    }
-  }
-
   async onAttached(
     principal: ClientPrincipal,
     client: ClientConn,
-    machines: readonly MachineListing[] = [],
   ): Promise<void> {
     await this.ports.state.replayDrafts(
       sessionStatePrincipalFor(
@@ -116,10 +101,6 @@ export class SessionClientControl {
       ),
       client.send,
     )
-    client.send({
-      type: 'machinesChanged',
-      machines: [...machines],
-    })
   }
 
   async onDetached(_principal: ClientPrincipal, client: ClientConn): Promise<void> {
@@ -186,7 +167,7 @@ export class SessionClientControl {
             ? 'terminal.output.capability.binary'
             : 'terminal.output.capability.base64',
           0,
-          perfPrincipal(feedPrincipalOf(client.principal)),
+          perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal)),
         )
         // The client's self-description, kept so an operator can address this
         perf.record(
@@ -195,7 +176,7 @@ export class SessionClientControl {
             ? 'terminal.input.client.capability.binary'
             : 'terminal.input.client.capability.base64',
           0,
-          perfPrincipal(feedPrincipalOf(client.principal)),
+          perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal)),
         )
         // connection by the same role/machine it files its log records under
         // (POD-1920). Stored, never consulted for authorization.
@@ -243,7 +224,7 @@ export class SessionClientControl {
           'phase',
           'ws.attach',
           performance.now() - startedAt,
-          perfPrincipal(feedPrincipalOf(client.principal)),
+          perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal)),
         )
         break
       }
@@ -265,7 +246,7 @@ export class SessionClientControl {
           'phase',
           'ws.detach',
           performance.now() - startedAt,
-          perfPrincipal(feedPrincipalOf(client.principal)),
+          perfPrincipal(client.workspaceId, feedPrincipalOf(client.principal)),
         )
         break
       }
@@ -338,6 +319,9 @@ export class SessionClientControl {
         break
       }
       case 'transcriptSubscribe':
+        // Reading a session's transcript is reading the session: its owner only
+        // (design §2.3, POD-6283). Unknown and denied share one silence.
+        if (!(await this.mayRead(principal, message.sessionId))) break
         client.transcriptSubs.add(message.sessionId)
         this.ports.sessions
           .get(message.sessionId)
@@ -414,7 +398,13 @@ export class SessionClientControl {
     return mayWatch(controlSubjectFromClient(principal), ctx) === true
   }
 
-  /** Drive rights for requestControl — owner / write grantee / admin + machine use. */
+  /** Read rights on a session's content: its owner, nobody else (POD-6283). */
+  private async mayRead(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean> {
+    const owner = await this.ports.sessionOwner(sessionId)
+    return owner !== undefined && mayReachPrivate(principal.user, { id: sessionId, owner: owner.owner })
+  }
+
+  /** Drive rights for requestControl — the owner only (POD-6283) + machine use. */
   async authorizeDrive(principal: ClientPrincipal, sessionId: SessionId): Promise<boolean> {
     const owner = await this.ports.sessionOwner(sessionId)
     if (!owner) return false

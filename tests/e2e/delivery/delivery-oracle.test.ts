@@ -312,9 +312,15 @@ describe('pushed device conversation records', () => {
       ],
       2,
     )
-    expect(port.getSnapshot()).toEqual([mine])
+    expect(port.getSnapshot()).toHaveLength(1)
+    expect(port.getSnapshot()[0]).toBe(view.messageRecords.read(mine.id))
+    expect(port.getSnapshot()[0]).toMatchObject(mine)
     expect(port.getSnapshot()).toBe(port.getSnapshot())
-    expect(view.all()).toEqual([mine, other])
+    expect(view.all()).toEqual([
+      view.messageRecords.read(mine.id),
+      view.messageRecords.read(other.id),
+    ])
+    expect(view.all()).toMatchObject([mine, other])
     expect(wake).toHaveBeenCalledTimes(1)
     off()
     view.apply([{ seq: 3, entity: 'message', id: mine.id, op: 'delete' }], 3)
@@ -332,6 +338,8 @@ describe('pushed device conversation records', () => {
     view.apply([{ seq: 1, entity: 'message', entityId: mine.id, op: 'upsert', value: mine }], 2)
     expect(port.getSnapshot()).toEqual([])
     view.apply([{ seq: 3, entity: 'message', entityId: mine.id, op: 'upsert', value: mine }], 3)
-    expect(port.getSnapshot()).toEqual([mine])
+    expect(port.getSnapshot()).toHaveLength(1)
+    expect(port.getSnapshot()[0]).toBe(view.messageRecords.read(mine.id))
+    expect(port.getSnapshot()[0]).toMatchObject(mine)
   })
 })

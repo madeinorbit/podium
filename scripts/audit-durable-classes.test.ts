@@ -14,6 +14,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { OWNERSHIP_MATRIX_INDEX } from '../packages/model/src/annotations/matrix'
+import { ALL_TABLES } from '../packages/sync/src/adapters/mobile-sqlite/schema'
 import {
   auditRepo,
   checkDrizzleTables,
@@ -107,10 +108,26 @@ describe('the gate reports POD-385’s finding when it is restored', () => {
 // ---------------------------------------------------------------------------
 
 describe('the runtime-table scanner reads the forms the repo actually uses', () => {
-  it('reads the `${CONST}` form the mobile replica writes all four of its tables in', () => {
+  it('reads the mobile replica tables named by its physical migration roster', () => {
     const source = readSources(['packages/sync/src/adapters/mobile-sqlite/schema.ts'])[0]
       ?.source as string
-    expect(runtimeTables(source).sort()).toEqual(['entities', 'meta', 'outbox', 'schema_version'])
+    expect(runtimeTables(source).sort()).toEqual([...ALL_TABLES].sort())
+  })
+
+  it('limits a fixture runtime-table declaration to its exact creator', () => {
+    const store: DurableStore = {
+      store: 'notes',
+      kind: 'runtime-table',
+      row: null,
+      notEntityState:
+        'Disposable fixture data in this one conformance harness, never a product record.',
+      creatorSites: ['fixture.ts'],
+    }
+    const source = "db.exec('CREATE TABLE notes (id TEXT)')"
+    expect(checkRuntimeTables([{ file: 'fixture.ts', source }], [store])).toEqual([])
+    expect(checkRuntimeTables([{ file: 'product.ts', source }], [store])).toMatchObject([
+      { check: 'runtime-table-undeclared', where: 'product.ts → notes' },
+    ])
   })
 
   it('reads the FTS form, and does not mistake a SQL keyword for a table name', () => {
@@ -131,7 +148,9 @@ describe('the runtime-table scanner reads the forms the repo actually uses', () 
     // Both halves matter, and the second is the one that keeps this honest: a
     // stripper that ate too much would silently stop seeing real create sites, and
     // this whole gate would go quiet while reporting success.
-    expect(runtimeTables('/* the tempting fix — CREATE TABLE IF NOT EXISTS feed_identity — */')).toEqual([])
+    expect(
+      runtimeTables('/* the tempting fix — CREATE TABLE IF NOT EXISTS feed_identity — */'),
+    ).toEqual([])
     expect(runtimeTables('// CREATE TABLE commented_out (x)')).toEqual([])
     expect(
       runtimeTables("/* explains CREATE TABLE decoy */\ndb.exec('CREATE TABLE real_one (x)')"),

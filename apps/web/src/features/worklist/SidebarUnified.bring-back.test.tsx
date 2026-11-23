@@ -149,12 +149,12 @@ vi.mock('@/app/store', () => {
     deleteIssue: vi.fn(async () => {}),
     setIssueTucked,
     undeferIssue,
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
   })
   return {
     useStore,
-    useRuntimeSelector: (selector: (state: unknown) => unknown) => selector(useStore() as never),
+    readFixture: (selector: (state: unknown) => unknown) => selector(useStore() as never),
   }
 })
 

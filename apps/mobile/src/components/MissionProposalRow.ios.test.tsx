@@ -310,9 +310,9 @@ async function mount(count = 1, reduceMotion = false, accepted = 0) {
   } as IssueViewModel
   const commands = {
     issues: {
-      start: { mutate: vi.fn(async () => {}) },
-      promote: { mutate: vi.fn(async () => {}) },
-      close: { mutate: vi.fn(async () => {}) },
+      start: { mutate: vi.fn(async (_input: unknown) => {}) },
+      promote: { mutate: vi.fn(async (_input: unknown) => {}) },
+      close: { mutate: vi.fn(async (_input: unknown) => {}) },
     },
   }
   const onPress = vi.fn()
@@ -341,7 +341,39 @@ async function mount(count = 1, reduceMotion = false, accepted = 0) {
               },
         ),
       ],
-      api: commands,
+      api: {
+        ...commands,
+        // Start is the task's `issue.begin` effect record (POD-6526) and
+        // promote a synced write, both through sync.submit; this seam answers
+        // them as the desktop actions the assertions name.
+        sync: {
+          submit: {
+            mutate: async (envelope: {
+              command: string
+              mutationId?: string
+              input: { kind?: string; target?: { id?: string } }
+            }) => {
+              if (envelope.command === 'effects.create')
+                await commands.issues.start.mutate({
+                  id: envelope.input.target?.id,
+                  mutationId: envelope.mutationId ?? 'effect',
+                } as never)
+              // The synced promote write lands on the same desktop action.
+              if (envelope.command === 'issues.promote')
+                await commands.issues.promote.mutate({
+                  mutationId: envelope.mutationId ?? 'promote',
+                  ...(envelope.input as object),
+                } as never)
+              return {
+                outcome: 'applied',
+                result: {},
+                receipt: { feedId: 'f', epoch: 'e', seq: 0 },
+                replayed: false,
+              }
+            },
+          },
+        },
+      },
     },
   )
   return { ...view, commands, onPress }

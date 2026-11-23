@@ -4,6 +4,7 @@ import {
   PresenceUnsubscribeMessage,
   PresenceUpdateMessage,
 } from '../planes/presence-rooms'
+import { TopicSubscribeMessage, TopicUnsubscribeMessage } from '../planes/topics'
 import { SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from './browser-open'
 import {
   AttachMessage,
@@ -46,5 +47,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   PresenceSubscribeMessage,
   PresenceUnsubscribeMessage,
   PresenceUpdateMessage,
+  TopicSubscribeMessage,
+  TopicUnsubscribeMessage,
 ])
 export type ClientMessage = z.infer<typeof ClientMessage>

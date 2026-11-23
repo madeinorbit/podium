@@ -4,6 +4,7 @@ import type {
   AgentRuntimeState,
   SessionId,
 } from '@podium/model'
+import type { HarnessAccountScope } from '../manifest.js'
 
 /** State-channel provenance. Confidence orders competing observations; source never names a person. */
 export type AgentStateEventSource = 'hook' | 'poll' | 'classifier'
@@ -20,71 +21,72 @@ export interface AgentStateEventProvenance {
  * folds them into AgentRuntimeState. A provider that can only emit a subset
  * degrades to coarser states instead of breaking the model.
  */
-export type AgentStateEvent = (
+export type AgentStateEvent =
   /** Already folded driver state. Admission/fencing belongs to the runtime stream. */
-  | { kind: 'state_snapshot'; state: AgentRuntimeState }
-  | { kind: 'session_started' }
-  /** The harness explicitly disabled a channel Podium normally observes. */
-  | {
-      kind: 'observation_gap'
-      reason: 'transcript_disabled'
-    }
-  | { kind: 'prompt_submitted' }
-  /** Liveness heartbeat (tool use etc.) — anything that proves the agent is computing. */
-  | { kind: 'activity' }
-  /** `ask` is the permission subject (tool + what it would do), carried only by a
-   *  provider whose permission channel reports it — Claude Code's
-   *  `PermissionRequest` hook does; its `Notification` fallback does not.
-   *
-   *  `subjectless` marks an event that proves the agent is waiting but names
-   *  nothing it is waiting ON — Claude Code's dialog-host Notification fires for
-   *  every modal kind under one boilerplate title. The reducer lets such an event
-   *  OPEN a wait (some dialogs announce themselves nowhere else) but never
-   *  REPLACE one a better-informed channel already described. */
-  | {
-      kind: 'needs_user'
-      need: 'question' | 'permission'
-      summary?: string
-      ask?: AgentPermissionAsk
-      /** The interview subject (every question and option), carried only by a
-       *  provider whose channel reports the tool input. Present for
-       *  `need: 'question'`; it is what the chat draws a live card from while
-       *  the transcript still has nothing to show. */
-      interview?: AgentInterview
-      subjectless?: true
-    }
-  /** Turn ended cleanly. The verdict is the PROVIDER's — only an adapter that
-   *  actually observed the agent's task list may report 'open_todos' (Claude
-   *  Code's classifier does, off TaskCreate/TaskUpdate and legacy TodoWrite;
-   *  POD-415). The reducer never invents it: nativeSubagentCount is live
-   *  subagents, not todos. */
-  | {
-      kind: 'turn_completed'
-      verdict?: {
-        kind: 'done' | 'question' | 'approval' | 'interrupted' | 'open_todos'
-        summary?: string
+  (
+    | { kind: 'state_snapshot'; state: AgentRuntimeState }
+    | { kind: 'session_started' }
+    /** The harness explicitly disabled a channel Podium normally observes. */
+    | {
+        kind: 'observation_gap'
+        reason: 'transcript_disabled'
       }
-    }
-  | { kind: 'turn_failed'; errorClass: string; retryable: boolean; detail?: string }
-  | { kind: 'compaction'; phase: 'start' | 'end' }
-  /** Live native-subagent count change. Optional agentId/agentType carry the
-   *  harness identity (Claude SubagentStart/Stop `agent_id`/`agent_type`) so
-   *  the reducer can name active subagents, not only count them. */
-  | { kind: 'task_delta'; delta: 1 | -1; agentId?: string; agentType?: string }
-  | { kind: 'session_ended' }
-) & {
-  /** Event-time (ISO 8601) of the source record/hook, when the provider can supply
-   *  it (a transcript record's `timestamp`, a rollout file's mtime). The reducer
-   *  uses it as the phase `since`, so recency tracks when the agent actually acted —
-   *  not when the daemon observed it. This is what keeps a reattach (which replays
-   *  the recent transcript tail) from restamping every session to "now". Absent →
-   *  the reducer falls back to wall-clock `now` (fine for real-time hooks). */
-  at?: string
-  /** Required at provider boundaries; optional only for bare reducer-unit inputs. */
-  source?: AgentStateEventSource
-  confidence?: number
-  observedAt?: string
-}
+    | { kind: 'prompt_submitted' }
+    /** Liveness heartbeat (tool use etc.) — anything that proves the agent is computing. */
+    | { kind: 'activity' }
+    /** `ask` is the permission subject (tool + what it would do), carried only by a
+     *  provider whose permission channel reports it — Claude Code's
+     *  `PermissionRequest` hook does; its `Notification` fallback does not.
+     *
+     *  `subjectless` marks an event that proves the agent is waiting but names
+     *  nothing it is waiting ON — Claude Code's dialog-host Notification fires for
+     *  every modal kind under one boilerplate title. The reducer lets such an event
+     *  OPEN a wait (some dialogs announce themselves nowhere else) but never
+     *  REPLACE one a better-informed channel already described. */
+    | {
+        kind: 'needs_user'
+        need: 'question' | 'permission'
+        summary?: string
+        ask?: AgentPermissionAsk
+        /** The interview subject (every question and option), carried only by a
+         *  provider whose channel reports the tool input. Present for
+         *  `need: 'question'`; it is what the chat draws a live card from while
+         *  the transcript still has nothing to show. */
+        interview?: AgentInterview
+        subjectless?: true
+      }
+    /** Turn ended cleanly. The verdict is the PROVIDER's — only an adapter that
+     *  actually observed the agent's task list may report 'open_todos' (Claude
+     *  Code's classifier does, off TaskCreate/TaskUpdate and legacy TodoWrite;
+     *  POD-415). The reducer never invents it: nativeSubagentCount is live
+     *  subagents, not todos. */
+    | {
+        kind: 'turn_completed'
+        verdict?: {
+          kind: 'done' | 'question' | 'approval' | 'interrupted' | 'open_todos'
+          summary?: string
+        }
+      }
+    | { kind: 'turn_failed'; errorClass: string; retryable: boolean; detail?: string }
+    | { kind: 'compaction'; phase: 'start' | 'end' }
+    /** Live native-subagent count change. Optional agentId/agentType carry the
+     *  harness identity (Claude SubagentStart/Stop `agent_id`/`agent_type`) so
+     *  the reducer can name active subagents, not only count them. */
+    | { kind: 'task_delta'; delta: 1 | -1; agentId?: string; agentType?: string }
+    | { kind: 'session_ended' }
+  ) & {
+    /** Event-time (ISO 8601) of the source record/hook, when the provider can supply
+     *  it (a transcript record's `timestamp`, a rollout file's mtime). The reducer
+     *  uses it as the phase `since`, so recency tracks when the agent actually acted —
+     *  not when the daemon observed it. This is what keeps a reattach (which replays
+     *  the recent transcript tail) from restamping every session to "now". Absent →
+     *  the reducer falls back to wall-clock `now` (fine for real-time hooks). */
+    at?: string
+    /** Required at provider boundaries; optional only for bare reducer-unit inputs. */
+    source?: AgentStateEventSource
+    confidence?: number
+    observedAt?: string
+  }
 
 export type ProviderAgentStateEvent = AgentStateEvent & AgentStateEventProvenance
 
@@ -167,7 +169,9 @@ export interface AgentStateProvider {
   }): AgentInstrumentation
   /** Translate one harness-native payload into zero or more normalized events.
    *  Async because some translations read the transcript (idle classification). */
-  translate(payload: unknown): Promise<ProviderAgentStateEvent[]>
+  /** `account`: the session's account (POD-6536), for a payload that names
+   *  a session file by id only (Grok's Stop hook). */
+  translate(payload: unknown, account: HarnessAccountScope): Promise<ProviderAgentStateEvent[]>
   /**
    * Classify one rendered terminal screen. This is event-driven: the daemon
    * invokes it after changed PTY output, never on a timer. A provider may omit
@@ -189,8 +193,9 @@ export interface AgentStateProvider {
     /** Recorded segment evidence: absolute transcript path, tried before any
      *  cwd-derived location (conversation registry §3.3). */
     pathHint?: string
-    /** Test hook; defaults to os.homedir(). */
-    homeDir?: string
+    /** The account the session runs under (POD-6536): its home, env and
+     *  folders. Never `homedir()`. */
+    account: HarnessAccountScope
   }): Promise<ProviderAgentStateEvent[]>
 }
 

@@ -63,8 +63,6 @@ async function fleet(
     store,
     hostMachineId: store.hostMachineId,
 
-    clients: () => [],
-    machinesForPrincipal: async () => [],
     ...deps,
   } as MachinesDeps)
   for (const id of ids) await svc.attach(id, () => {})

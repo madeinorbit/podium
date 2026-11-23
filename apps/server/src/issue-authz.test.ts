@@ -5,10 +5,12 @@ import { issueRegistry } from './modules/issues/registry'
 import { OPERATOR } from './test-support/capabilities'
 
 describe('OPERATOR', () => {
-  it('is an unconstrained admin over all issues', () => {
+  // POD-6288: the first admin as production mints it — the member scope plus
+  // the admin role, which still manages every task.
+  it('is the first admin: the member scope, managing every task by role', () => {
     expect(OPERATOR).toEqual({
       role: 'admin',
-      scope: { kind: 'all' },
+      scope: { kind: 'owned', userId: firstAdminMemberId() },
       actorUser: firstAdminMemberId(),
       onBehalfOf: firstAdminMemberId(),
     })
@@ -19,8 +21,8 @@ describe('OPERATOR', () => {
 // The old PROC_ACTION string map is gone (#248): the action lives ON each
 // registry definition. These pins keep the classification itself stable.
 describe('registry action classification', () => {
-  it('classifies destructive commands as manage', () => {
-    for (const p of ['delete', 'setLabels'] as const) {
+  it('classifies task deletion as manage', () => {
+    for (const p of ['delete'] as const) {
       expect(issueRegistry.defs[p].action).toBe('manage')
     }
   })
@@ -28,6 +30,7 @@ describe('registry action classification', () => {
     for (const p of [
       'create',
       'update',
+      'setLabels', // Replacing labels is an ordinary shared-task edit.
       'claim',
       'addComment',
       'close',

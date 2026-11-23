@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 /**
  * THE CALM SIDEBAR'S FOLDERS (POD-2074, design 4a / 7a / 7b).
  *
@@ -8,13 +9,14 @@
  * (drag grip, ⋯ options, +) appear only on hover, so the resting column is
  * names and rows.
  */
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { mergeVisibleProjectOrder } from '@podium/client-core/values'
+import { myPreferences } from '@podium/client-graph/per-user-records'
 import { Archive, ChevronRight, Ellipsis, GripVertical, Pin, Plus } from 'lucide-react'
 import type { JSX, PointerEvent as ReactPointerEvent } from 'react'
-import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { Suspense, useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
-import { useRuntimeSelector } from '@/app/store'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import { cssEase, EASE_OUT, MOTION_S } from './worklist-motion-tokens'
@@ -400,24 +403,22 @@ export interface OrderedProject {
  * setting, merged so projects not on screen keep their saved slots.
  */
 export function useProjectOrderWriter(): (projects: readonly OrderedProject[]) => Promise<void> {
-  const { setSidebarSettings, savedOrder } = useRuntimeSelector(
-    (state) => ({
-      setSidebarSettings: state.setSidebarSettings,
-      savedOrder: state.sidebarSettings.repoOrder,
-    }),
-    shallowEqual,
-  )
+  const setPreferences = useCommands<Trpc>().preferences.setPreferences
+  const pool = useWorklistPool()
   return useCallback(
     async (projects) => {
-      await setSidebarSettings({
-        repoSort: 'custom',
-        repoOrder: mergeVisibleProjectOrder(
+      // My saved order, read at the moment of the write (POD-6673: my synced
+      // preferences), so projects not on screen keep their saved slots.
+      const savedOrder = (pool ? myPreferences(pool)?.repoOrder : undefined) ?? []
+      await setPreferences({
+        'sidebar.repoSort': 'custom',
+        'sidebar.repoOrder': mergeVisibleProjectOrder(
           projects.map((project) => ({ ...project, aliases: [...project.aliases] })),
-          savedOrder ?? [],
+          [...savedOrder],
         ),
       })
     },
-    [setSidebarSettings, savedOrder],
+    [setPreferences, pool],
   )
 }
 

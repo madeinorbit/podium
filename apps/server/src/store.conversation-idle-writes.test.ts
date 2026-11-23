@@ -1,7 +1,8 @@
 import { asMachineId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
-import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { updateCounter } from './test-support/store-sql'
 
 /**
  * A RE-DISCOVERY THAT CHANGES NOTHING MUST WRITE NOTHING [POD-1931].
@@ -15,25 +16,8 @@ import { openTestStore } from './test-support/open-test-store'
  *
  * The conserved quantity is the NUMBER OF ROW WRITES, not a duration — these
  * assert it with the same mechanism whose cost is being avoided, a trigger that
- * records every UPDATE that actually fires.
+ * records every UPDATE that actually fires (`updateCounter`, on either engine).
  */
-const writeProbe = (store: SessionStore, table: string): (() => number) => {
-  const db = (
-    store as unknown as {
-      db: { exec(sql: string): void; prepare(sql: string): { get(): unknown } }
-    }
-  ).db
-  db.exec(`CREATE TABLE IF NOT EXISTS _write_probe (t TEXT);
-    CREATE TRIGGER probe_${table} AFTER UPDATE ON ${table}
-    BEGIN INSERT INTO _write_probe VALUES('${table}'); END;`)
-  return () =>
-    (
-      (db.prepare(`SELECT COUNT(*) AS n FROM _write_probe WHERE t = '${table}'`).get() as {
-        n: number
-      }) ?? { n: 0 }
-    ).n
-}
-
 const row = (over: Record<string, unknown> = {}) => ({
   id: 'native-a',
   agentKind: 'claude-code',
@@ -48,29 +32,29 @@ const row = (over: Record<string, unknown> = {}) => ({
 describe('idle re-discovery writes', () => {
   it('re-upserting an identical conversation row does not rewrite it', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([row()])
-    const writes = writeProbe(store, 'conversations')
-    expect(writes()).toBe(0)
+    await store.conversations.index.upsert(fixtureWriteScope(), [row()])
+    const writes = await updateCounter(store, ['conversations'])
+    expect(await writes()).toBe(0)
 
-    await store.conversations.index.upsert([row()])
-    await store.conversations.index.upsert([row()])
-    expect(writes()).toBe(0)
+    await store.conversations.index.upsert(fixtureWriteScope(), [row()])
+    await store.conversations.index.upsert(fixtureWriteScope(), [row()])
+    expect(await writes()).toBe(0)
 
     // A real change still lands — the guard elides no-ops, not updates.
-    await store.conversations.index.upsert([row({ title: 'Renamed' })])
-    expect(writes()).toBe(1)
+    await store.conversations.index.upsert(fixtureWriteScope(), [row({ title: 'Renamed' })])
+    expect(await writes()).toBe(1)
     const found = await store.conversations.index.search({})
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('Renamed')
   })
 
   it('an omitted field is not a change — COALESCE keeps the stored value', async () => {
     const store = await openTestStore(':memory:')
-    await store.conversations.index.upsert([row()])
-    const writes = writeProbe(store, 'conversations')
+    await store.conversations.index.upsert(fixtureWriteScope(), [row()])
+    const writes = await updateCounter(store, ['conversations'])
 
     const { title: _title, projectPath: _projectPath, ...withoutOptionals } = row()
-    await store.conversations.index.upsert([withoutOptionals])
-    expect(writes()).toBe(0)
+    await store.conversations.index.upsert(fixtureWriteScope(), [withoutOptionals])
+    expect(await writes()).toBe(0)
     const found = await store.conversations.index.search({})
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('A conversation')
   })
@@ -85,15 +69,17 @@ describe('idle re-discovery writes', () => {
       sizeBytes: 4096,
     }
     const podiumId = await store.conversations.registry.ensure(opts)
-    const writes = writeProbe(store, 'conversation_segments')
+    const writes = await updateCounter(store, ['conversation_segments'])
 
     expect(await store.conversations.registry.ensure(opts)).toBe(podiumId)
     expect(await store.conversations.registry.ensure(opts)).toBe(podiumId)
-    expect(writes()).toBe(0)
+    expect(await writes()).toBe(0)
 
     // A grown transcript is a real change and still lands.
     expect(await store.conversations.registry.ensure({ ...opts, sizeBytes: 8192 })).toBe(podiumId)
-    expect(writes()).toBe(1)
-    expect(await store.conversations.registry.segmentPath(asMachineId('m1'), 'native-a')).toBe(opts.path)
+    expect(await writes()).toBe(1)
+    expect(await store.conversations.registry.segmentPath(asMachineId('m1'), 'native-a')).toBe(
+      opts.path,
+    )
   })
 })

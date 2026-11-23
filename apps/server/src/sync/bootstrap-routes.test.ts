@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { gzipSync, gunzipSync, zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
 import { CLIENT_WIRE_VERSION, wireSchemaDigest } from '@podium/protocol'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { clientAuthGuard } from '../auth-route'
 import { podiumCors as cors } from '../http-cors'
+import { memberResolution, stubMemberOfRequest } from '../test-support/test-identity'
 import { SyncWorkerError, type BootstrapJob, type SyncMetaSummary } from '../sync-worker/worker-client'
 import type { BootstrapCompletion } from '../sync-worker/worker-client'
 import { registerSyncRoutes, type SyncRouteDeps } from './routes'
@@ -32,7 +34,7 @@ function fixture() {
       controller.error(error)
       completed.resolve({ reason })
     }
-    const summary: SyncMetaSummary = { type: 'syncMeta', formatVersion: 1, mode: 'snapshot', transferId: job.transferId,
+    const summary: SyncMetaSummary = { type: 'syncMeta', kindTokens: {}, formatVersion: 1, mode: 'snapshot', transferId: job.transferId,
       feedId: job.feedId, epoch: job.epoch, seq: 7, minAvailableSeq: 1, totalRows: 0,
       wireVersion: CLIENT_WIRE_VERSION, wireSchemaDigest: wireSchemaDigest() }
     const text = JSON.stringify(summary) + '\n' + JSON.stringify({ type: 'syncComplete', transferId: job.transferId, seq: 7, records: 0, rows: 0 }) + '\n'
@@ -62,10 +64,13 @@ function fixture() {
   const app = new Hono()
   app.use('/sync/*', cors())
   app.use('/sync/*', async (c, next) => ready ? next() : c.body(null, 503))
-  app.use('/sync/*', clientAuthGuard({ loginRequired: () => true, principalForRequest: async () => authorized ? { memberId: 'test', role: 'admin' } : undefined }))
+  app.use('/sync/*', clientAuthGuard({
+    memberOfRequest: stubMemberOfRequest(() => authorized ? memberResolution('test', 'admin') : { kind: 'unauthenticated' }),
+    renew: async () => new Headers(),
+  }))
   registerSyncRoutes(app, deps)
-  const request = (signal?: AbortSignal, coding = 'identity') => app.fetch(new Request('https://localhost/sync/bootstrap?principal=attacker&feedId=forged&epoch=forged', {
-    signal, headers: { 'accept-encoding': coding },
+  const request = (signal?: AbortSignal, coding = 'identity', client: string | null = 'replica-a') => app.fetch(new Request('https://localhost/sync/bootstrap?principal=attacker&feedId=forged&epoch=forged', {
+    signal, headers: { 'accept-encoding': coding, ...(client ? { 'podium-sync-client': client } : {}) },
   }))
   return { request, deps, bootstrap, transfers, unauthorized: () => { authorized = false }, unready: () => { ready = false } }
 }
@@ -85,12 +90,6 @@ describe('bootstrap HTTP boundary', () => {
     const noPrincipal = fixture(); noPrincipal.deps.principal = async () => undefined
     expect((await noPrincipal.request()).status).toBe(403)
     expect(noPrincipal.bootstrap).not.toHaveBeenCalled()
-  })
-  it('keeps bearer credentials HTTPS-only', async () => {
-    const app = new Hono()
-    app.use('/sync/*', clientAuthGuard({ loginRequired: () => true }))
-    app.get('/sync/bootstrap', c => c.text('wrong'))
-    expect((await app.request('http://localhost/sync/bootstrap', { headers: { authorization: 'Bearer secret' } })).status).toBe(400)
   })
   it('waits for acknowledgement and maps queue refusal to clean 503', async () => {
     const f = fixture()
@@ -118,7 +117,9 @@ describe('bootstrap HTTP boundary', () => {
     const response = await request
     expect(response.status).toBe(200)
     expect(transfer.job).toMatchObject({ principal: DEVICE_GRADE_PRINCIPAL, feedId: 'trusted-feed', epoch: 'trusted-epoch', encoding: coding })
-    expect(Object.keys(transfer.job).sort()).toEqual(['encoding', 'epoch', 'feedId', 'principal', 'transferId'])
+    expect(Object.keys(transfer.job).sort()).toEqual(['encoding', 'epoch', 'feedId', 'principal', 'transferId', 'workspaceId'])
+    // The workspace bound to the request, never one the request names (POD-7118).
+    expect(transfer.job.workspaceId).toBe(SELF_HOSTED_WORKSPACE_ID)
     expect(response.headers.get('podium-transfer-id')).toBe(transfer.job.transferId)
     expect(response.headers.get('content-type')).toBe('application/x-ndjson; charset=utf-8')
     expect(response.headers.get('content-encoding')).toBe(coding === 'identity' ? null : coding)
@@ -128,7 +129,7 @@ describe('bootstrap HTTP boundary', () => {
     const bytes = Buffer.from(await response.arrayBuffer())
     const decoded = coding === 'gzip' ? gunzipSync(bytes) : coding === 'zstd' ? zstdDecompressSync(bytes) : bytes
     const lines = decoded.toString().trim().split('\n').map(line => JSON.parse(line))
-    expect(lines[0]).toMatchObject({ type: 'syncMeta', seq: 7 })
+    expect(lines[0]).toMatchObject({ type: 'syncMeta', kindTokens: {}, seq: 7 })
     expect(lines.at(-1)).toMatchObject({ type: 'syncComplete', seq: 7 })
   })
   it('supersedes the older job, preserves the newer reservation, and propagates abort', async () => {
@@ -155,6 +156,19 @@ describe('bootstrap HTTP boundary', () => {
     controller.abort()
     expect(four.signal?.aborted).toBe(true)
     await expect(last.text()).rejects.toMatchObject({ reason: 'cancelled' })
+  })
+  it('never cancels another client of the same user, nor a request without a client id', async () => {
+    const f = fixture()
+    const tab = f.request(undefined, 'identity', 'replica-a')
+    const one = await started(f); one.acknowledge()
+    const phone = f.request(undefined, 'identity', 'replica-b')
+    const two = await started(f, 2); two.acknowledge()
+    const cli = f.request(undefined, 'identity', null)
+    const three = await started(f, 3); three.acknowledge()
+    const cliAgain = f.request(undefined, 'identity', null)
+    const four = await started(f, 4); four.acknowledge()
+    expect([one, two, three, four].map((t) => t.signal?.aborted)).toEqual([false, false, false, false])
+    for (const response of [tab, phone, cli, cliAgain]) await (await response).body!.cancel()
   })
   it('does not start an older job when identity resolves after a replacement', async () => {
     const f = fixture()

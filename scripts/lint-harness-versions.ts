@@ -8,6 +8,12 @@ import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../packages/harness/src/version-
 
 type Harness = keyof typeof HARNESS_VERSION_POLICIES
 
+function definedEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
+  return out
+}
+
 const fixtureDirectories: Record<Harness, string> = {
   codex: 'codex',
   opencode: 'opencode',
@@ -19,7 +25,9 @@ export async function lintHarnessVersions(
   probe: (
     command: string,
     timeoutMs: number,
-  ) => VersionProbeOutput | Promise<VersionProbeOutput> = execVersionProbe,
+  ) => VersionProbeOutput | Promise<VersionProbeOutput> = (command, timeoutMs) =>
+    // Developer tooling: asks the developer's own shell environment.
+    execVersionProbe(command, timeoutMs, definedEnv(process.env)),
   warn: (message: string) => void = console.warn,
 ): Promise<0> {
   await Promise.all(

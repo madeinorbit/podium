@@ -1,11 +1,14 @@
-import { asMachineId, firstAdminMemberId, structuralRejection } from '@podium/model'
+import { asMachineId, asUserId, firstAdminMemberId, structuralRejection } from '@podium/model'
 import type { MachineServiceAssignment } from '@podium/model'
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { describe, expect, it, vi } from 'vitest'
 import { systemPrincipal } from './command-principal'
 import { machineVerbsFor, ownershipSnapshotFromMachines } from './machine-access'
 import { MachinesService } from './modules/machines/service'
 import { openTestStore } from './test-support/open-test-store'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { memberFacts } from './store/fixtures/test-support'
+import { testStoreEngine } from './test-support/pg-test-database'
 
 const combinations: MachineServiceAssignment[] = [
   { server: false, agentExecution: false }, { server: true, agentExecution: false },
@@ -18,7 +21,7 @@ async function fixture(assignment: MachineServiceAssignment) {
     ownerUserId: firstAdminMemberId(), assignment,
     assignmentEvidence: { version: 1, source: 'test-enrollment', requestId: 'enroll-1' } })
   const service = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'test',
-    clients: () => [], machinesForPrincipal: async () => [] })
+    })
   return { store, service }
 }
 
@@ -55,21 +58,31 @@ describe('desired assignment and observed availability', () => {
   for (const assignment of [combinations[0]!, combinations[1]!]) {
     it(`supervisor enrollment preserves ${JSON.stringify(assignment)} without offering a task target`, async () => {
       const store = await openTestStore(':memory:')
+      const ownerUserId = asUserId('component-owner')
+      await memberFacts(store).create({ id: ownerUserId, displayName: 'Component owner', role: 'admin',
+        createdAt: '2026-01-01T00:00:00.000Z', disabledAt: null }, 'fixture-hash')
+      const installationId = 'component-installation'
+      const publicKey = publicKeyWire(mintSigningKeyPair())
       const service = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'test',
-        pairing: { mint: () => 'valid', redeem: () => ({ ownerUserId: firstAdminMemberId() }) },
-        clients: () => [], machinesForPrincipal: async () => [] })
+        installationId,
+        pairing: { mint: () => 'valid', redeem: () => ({ ownerUserId, installationId }) },
+        })
       try {
         expect((await service.authenticateDaemon({ type: 'pair', code: 'valid', machineId: id,
-          hostname: 'host', assignment }, { source: 'supervisor' })).ok).toBe(true)
+          hostname: 'host', assignment, publicKey }, { source: 'supervisor' })).ok).toBe(true)
+        expect(await store.machines.credentialIncarnation(id)).toBe(publicKey)
+        expect(await store.machines.custodian(id)).toBe(ownerUserId)
         const send = vi.fn()
         await service.attachSupervisor(id, send, {}, [])
         expect((await store.machines.getMachine(id))?.serviceAssignment).toEqual(assignment)
         expect((await service.listMachines())[0]?.availability).toMatchObject({ daemon: false, supervisor: true })
-        const principal = { kind: 'user' as const, user: firstAdminMemberId(),
+        const principal = { kind: 'user' as const, user: ownerUserId,
           capability: { role: 'admin' as const, scope: { kind: 'all' as const } } }
         const verbs = machineVerbsFor(principal, id, await ownershipSnapshotFromMachines(service))
         expect(verbs.has('manage')).toBe(true)
-        expect(verbs.has('use')).toBe(false)
+        // Execution consent survives an unassigned daemon; placement still refuses it.
+        expect(verbs.has('use')).toBe(true)
+        expect(structuralRejection((await service.listMachines())[0]!)).toBe('no-daemon')
         await expect(service.resolveMachineForAgent(undefined, '/repo', 'codex')).rejects.toThrow()
         await service.detachSupervisor(id, send)
         expect((await store.machines.getMachine(id))?.availability?.supervisor).toBe(false)
@@ -95,7 +108,7 @@ describe('desired assignment and observed availability', () => {
     await service.attach(id, () => {})
     service.dispose()
     const fresh = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'test',
-      clients: () => [], machinesForPrincipal: async () => [] })
+      })
     try {
       expect((await store.machines.getMachine(id))?.availability?.daemon).toBe(true)
       expect((await fresh.listMachines())[0]?.availability?.daemon).toBe(false)
@@ -128,7 +141,9 @@ describe('desired assignment and observed availability', () => {
     } finally { service.dispose(); await store.close() }
   })
 
-  it('malformed assignment and observation fail closed', async () => {
+  // A json column on Postgres refuses malformed text at the write, so a corrupt stored
+  // document is SQLite's case only (POD-6958 design 2.3, rule 8; POD-6994).
+  it.runIf(testStoreEngine() !== 'pg')('malformed assignment and observation fail closed', async () => {
     const { store, service } = await fixture(combinations[2]!)
     try {
       // @ts-expect-error private database: corrupt persisted input deliberately

@@ -1,16 +1,17 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { SessionSpec } from '@podium/harness/driver/host'
-import { asSessionId } from '@podium/model'
-import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as codexHooks from '@podium/harness/adapters/codex/instrumentation'
-import { terminalInstrumentationSectionsFor, terminalProfileFor } from './registry'
+import type { SessionSpec } from '@podium/harness/driver/host'
 import {
   installTerminalInstrumentation,
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
 } from '@podium/harness/driver/host'
+import { testHarnessContext, testSessionTerms } from '@podium/harness/driver/testing'
+import { asSessionId, type BuiltinHarnessKind } from '@podium/model'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { terminalInstrumentationSectionsFor, terminalProfileFor } from './registry'
 
 const directories: string[] = []
 async function directory() {
@@ -20,11 +21,18 @@ async function directory() {
 }
 afterEach(async () => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
-function spec(harness: string, endpointUrl = 'http://127.0.0.1:1234/hooks/session'): SessionSpec {
+function spec(
+  harness: BuiltinHarnessKind,
+  endpointUrl = 'http://127.0.0.1:1234/hooks/session',
+  context: { home?: string; version?: string } = {},
+): SessionSpec {
   return {
     harness,
+    ...testSessionTerms(),
+    harnessContext: testHarnessContext({ kind: harness, ...context }),
     selection: { auth: 'unknown', platform: 'linux', available: [] },
     workdir: '/project',
     model: {},
@@ -35,6 +43,75 @@ function spec(harness: string, endpointUrl = 'http://127.0.0.1:1234/hooks/sessio
 }
 
 describe('terminal instrumentation installation', () => {
+  it('installs Codex hooks from the selected version under a restricted PATH, without trusting them', async () => {
+    vi.stubEnv('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')
+    const homeDir = await directory()
+    await mkdir(join(homeDir, '.codex'))
+    const hooksPath = join(homeDir, '.codex', 'hooks.json')
+    const foreign = { type: 'command', command: 'orca-handler' }
+    await writeFile(hooksPath, JSON.stringify({ hooks: { Stop: [{ hooks: [foreign] }] } }))
+    await writeFile(join(homeDir, '.codex', 'config.toml'), '# retain trust state\n')
+    const selected = spec('codex', undefined, { home: homeDir, version: 'codex-cli 0.162.0' })
+    selected.env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' }
+    const wiring = await installTerminalInstrumentation({
+      sessionId: asSessionId('selected-codex'),
+      harness: 'codex',
+      spec: selected,
+      sections: terminalInstrumentationSectionsFor('codex'),
+      settingsDir: join(homeDir, 'settings'),
+    })
+    // POD-6999: the launch trusts Podium's own handlers itself, so the session
+    // is not degraded; the foreign handler gets no entry and stays Codex's to review.
+    expect(wiring).toMatchObject({
+      env: { PODIUM_CODEX_HOOK_URL: selected.instrumentation!.endpointUrl },
+    })
+    expect(wiring.degradedKind).toBeUndefined()
+    const override = wiring.args[wiring.args.indexOf('-c') + 1] ?? ''
+    expect(override.startsWith('hooks.state={')).toBe(true)
+    expect(override.match(/trusted_hash=/g)).toHaveLength(6)
+    expect(override).toContain(`"${hooksPath}:stop:1:0"`)
+    expect(override).not.toContain(`"${hooksPath}:stop:0:0"`)
+    const hooks = JSON.parse(await readFile(hooksPath, 'utf8'))
+    expect(hooks.hooks.Stop[0].hooks).toContainEqual(foreign)
+    expect(Object.keys(hooks.hooks)).toHaveLength(6)
+    expect(await readFile(join(homeDir, '.codex', 'config.toml'), 'utf8')).toBe(
+      '# retain trust state\n',
+    )
+  })
+
+  it('below the measured minimum passes no hook trust and degrades untrusted, as before', async () => {
+    const homeDir = await directory()
+    await mkdir(join(homeDir, '.codex'))
+    const wiring = await installTerminalInstrumentation({
+      sessionId: asSessionId('old-codex'),
+      harness: 'codex',
+      spec: spec('codex', undefined, { home: homeDir, version: 'codex-cli 0.146.0' }),
+      sections: terminalInstrumentationSectionsFor('codex'),
+      settingsDir: join(homeDir, 'settings'),
+    })
+    expect(wiring.degradedKind).toBe('untrusted')
+    expect(wiring.args.some((arg) => arg.startsWith('hooks.state='))).toBe(false)
+  })
+
+  it('degrades missing selected-version context without a bare Codex lookup or config writes', async () => {
+    const homeDir = await directory()
+    await mkdir(join(homeDir, '.codex'))
+    const wiring = await installTerminalInstrumentation({
+      sessionId: asSessionId('no-selected-codex'),
+      harness: 'codex',
+      spec: spec('codex', undefined, { home: homeDir }),
+      sections: terminalInstrumentationSectionsFor('codex'),
+      settingsDir: join(homeDir, 'settings'),
+    })
+    expect(wiring).toMatchObject({
+      degradedKind: 'unsupported-version',
+      degradedReason: expect.stringContaining('selected installation version missing'),
+    })
+    await expect(readFile(join(homeDir, '.codex', 'hooks.json'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+  })
+
   it('requires instrumentation for every hook-installing manifest', () => {
     for (const harness of ['claude-code', 'codex', 'grok'] as const) {
       expect(terminalProfileFor(harness)?.instrumentationRequired).toBe(true)
@@ -160,9 +237,8 @@ describe('terminal instrumentation installation', () => {
         installTerminalInstrumentation({
           sessionId: asSessionId(name),
           harness: 'grok',
-          spec: spec('grok', `http://localhost/hooks/${name}`),
+          spec: spec('grok', `http://localhost/hooks/${name}`, { home: homeDir }),
           sections: terminalInstrumentationSectionsFor('grok'),
-          homeDir,
           settingsDir: join(homeDir, 'settings'),
         }),
       ),
@@ -183,9 +259,8 @@ describe('terminal instrumentation installation', () => {
       installTerminalInstrumentation({
         sessionId: asSessionId('broken'),
         harness: 'grok',
-        spec: spec('grok'),
+        spec: spec('grok', undefined, { home: homeDir }),
         sections: terminalInstrumentationSectionsFor('grok'),
-        homeDir,
         settingsDir: join(homeDir, 'settings'),
       }),
     ).resolves.toMatchObject({
@@ -197,6 +272,10 @@ describe('terminal instrumentation installation', () => {
 
   it('uses the instance Codex home over inherited or session overrides and returns degradation', async () => {
     const homeDir = await directory()
+    const overridden: SessionSpec = {
+      ...spec('codex', undefined, { home: homeDir }),
+      env: { CODEX_HOME: '/foreign/codex' },
+    }
     const install = vi.spyOn(codexHooks.codexInstrumentation, 'install').mockResolvedValue({
       args: [],
       env: { PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1234/hooks/codex' },
@@ -207,18 +286,22 @@ describe('terminal instrumentation installation', () => {
       installTerminalInstrumentation({
         sessionId: asSessionId('codex'),
         harness: 'codex',
-        spec: { ...spec('codex'), env: { CODEX_HOME: '/foreign/codex' } },
+        spec: overridden,
         sections: terminalInstrumentationSectionsFor('codex'),
-        homeDir,
         settingsDir: join(homeDir, 'settings'),
       }),
     ).resolves.toMatchObject({
       degradedReason: 'unsupported codex version',
       env: expect.any(Object),
     })
-    // The instance home (not the session's CODEX_HOME override) reaches the section.
+    // The instance home (not the session's CODEX_HOME override) reaches the
+    // section, as the session context's state root.
     expect(install).toHaveBeenCalledWith(
-      expect.objectContaining({ harnessHome: join(homeDir, '.codex') }),
+      expect.objectContaining({
+        harnessContext: expect.objectContaining({
+          roots: expect.objectContaining({ state: join(homeDir, '.codex') }),
+        }),
+      }),
     )
   })
 
@@ -236,9 +319,8 @@ describe('terminal instrumentation installation', () => {
     const result = await installTerminalInstrumentation({
       sessionId: asSessionId('codex-untrusted'),
       harness: 'codex',
-      spec: spec('codex'),
+      spec: spec('codex', undefined, { home: homeDir }),
       sections: terminalInstrumentationSectionsFor('codex'),
-      homeDir,
       settingsDir: join(homeDir, 'settings'),
     })
     expect(result).toMatchObject({
@@ -272,9 +354,8 @@ describe('terminal instrumentation installation', () => {
     const result = await installTerminalInstrumentation({
       sessionId: asSessionId('codex-trusted'),
       harness: 'codex',
-      spec: spec('codex'),
+      spec: spec('codex', undefined, { home: homeDir }),
       sections: terminalInstrumentationSectionsFor('codex'),
-      homeDir,
       settingsDir: join(homeDir, 'settings'),
     })
     expect(result.degradedReason).toBeUndefined()

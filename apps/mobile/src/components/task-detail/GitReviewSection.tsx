@@ -1,8 +1,9 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useCommands, useReplica, useSocketHub } from '@podium/client-core/react'
+import { checkoutRefresh, replicaAnswerMachines } from '@podium/client-graph/answer-refresh'
 import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
 import type { MachineId } from '@podium/model'
 import { memo, useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, StyleSheet, View } from 'react-native'
+import { ActivityIndicator, AppState, StyleSheet, View } from 'react-native'
 import { issueObserver as observer } from '../../client/issue-observer'
 import {
   type DiffRow,
@@ -33,13 +34,29 @@ export const GitReviewSection = observer(function GitReviewSection({
   headless?: boolean
 }) {
   const size = useDetailSize()
-  const { gitStatus, readFileScoped, gitDiffFile } = useStoreHandle().access
+  const hub = useSocketHub()
+  const { status: gitStatus, read: readFileScoped, diff: gitDiffFile } = useCommands().files
+
+  const replica = useReplica()
+  const refreshSignal = useMemo(
+    () => (changed: () => void) => {
+      const stop = checkoutRefresh(hub, replicaAnswerMachines(replica), machineId, root)(changed)
+      const state = AppState.addEventListener('change', (next) => {
+        if (next === 'active') changed()
+      })
+      return () => {
+        stop()
+        state.remove()
+      }
+    },
+    [hub, replica, machineId, root],
+  )
   const view = useMemo(
-    () => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile }),
-    [root, machineId, gitStatus, readFileScoped, gitDiffFile],
+    () => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile, refreshSignal }),
+    [root, machineId, gitStatus, readFileScoped, gitDiffFile, refreshSignal],
   )
   useEffect(() => {
-    void view.refresh()
+    view.open()
     return () => view.close()
   }, [view])
   const header = view.reviewStatus?.header

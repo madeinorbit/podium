@@ -5,10 +5,11 @@ import { join } from 'node:path'
 import { asMachineId, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
-import { mintPairingToken, openEnrollmentLedger, verifyPairingToken, type EnrollmentLedger } from './enrollment-ledger'
+import { type EnrollmentLedger, mintPairingToken, openEnrollmentLedger, verifyPairingToken } from './enrollment-ledger'
 import { canSeeMachine, checkMachineUse, checkMachineVerb, machineVerbsFor, ownershipSnapshotFromMachines } from './machine-access'
 import { MachinesService, sha256 } from './modules/machines/service'
 import type { SessionStore } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 
 const OWNER = asUserId('user:enrollment-admin')
@@ -30,7 +31,7 @@ function service(store: SessionStore, hostMachineId = store.hostMachineId) {
   return new MachinesService({
     instanceId: 'default', store, hostMachineId,
     userExists: async (id) => await store.users.get(id) !== undefined,
-     clients: () => [], machinesForPrincipal: async () => [],
+    
   })
 }
 
@@ -38,7 +39,7 @@ async function makeWorld(stateDir: string) {
   const store = await openTestStore(':memory:')
   stores.push(store)
   for (const [id, role] of [[OWNER, 'admin'], [OTHER, 'member']] as const) {
-    await store.users.create({ id, displayName: id, role, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    await memberFacts(store).create({ id, displayName: id, role, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
   }
   // Historical disk data is fixture evidence only, never a runtime dependency.
   const enrollment = openEnrollmentLedger(stateDir)
@@ -203,7 +204,10 @@ describe('database-authoritative legacy bearer lifecycle', () => {
     const before = readFileSync(w.enrollment.path, 'utf8')
     await w.machines.revokeMachine(asMachineId(machineId), { by: OWNER })
     const row = await w.store.machines.getMachine(machineId)
-    expect(row).toMatchObject({ id: machineId, ownerUserId: OWNER, revokedAt: expect.any(String) })
+    expect(row).toMatchObject({ id: machineId, revokedAt: expect.any(String) })
+    // Custody is a grant edge, not a machine column (POD-4151); revocation retains it
+    // for audit and replacement authorization (`removeAllForResource(..., true)`).
+    expect(await w.store.machines.custodian(machineId)).toBe(OWNER)
     expect(readFileSync(w.enrollment.path, 'utf8')).toBe(before)
     expect(await hello(w.machines, machineId, token)).toEqual(DENIED)
     expect(await hello(service(w.store), machineId, token)).toEqual(DENIED)

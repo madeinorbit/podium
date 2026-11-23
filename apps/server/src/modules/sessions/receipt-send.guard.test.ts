@@ -26,6 +26,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { messageTestWriter } from '../../test-support/message-writer'
 import { ReceiptSender } from './receipt-send'
 
 const SRC = join(import.meta.dirname, '..', '..')
@@ -47,6 +48,10 @@ const ALLOWED = new Map<string, string>([
     'binds the verbs onto the service, and the durable-FIFO port',
   ],
   ['modules/messages/service.ts', 'C1’s flag-off branch in injectAndMark / deliverBatch'],
+  [
+    'modules/messages/message-writers.typecheck.ts',
+    'a type fixture, never executed: it proves the verbs refuse a send without its writer (POD-6602)',
+  ],
   ['gateway/ws-server.ts', 'a WebSocket frame write — a different sendText entirely'],
 ])
 
@@ -143,7 +148,9 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
   it('stores every via as one row, and only interrupt as an interrupt', async () => {
     const { s, rows, legacy } = sender(true)
     for (const via of ['now', 'queue', 'wake', 'interrupt'] as const) {
-      expect(await s.send(via, { sessionId: asSessionId('s1'), text: via })).toEqual({
+      expect(
+        await s.send(via, { writer: messageTestWriter(), sessionId: asSessionId('s1'), text: via }),
+      ).toEqual({
         ok: true,
         queued: true,
         position: rows.length,
@@ -165,7 +172,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     const receipts: string[] = []
     await s.send(
       'interrupt',
-      { sessionId: asSessionId('s1'), text: 'stop and do this' },
+      { writer: messageTestWriter(), sessionId: asSessionId('s1'), text: 'stop and do this' },
       (receipt) => {
         receipts.push(receipt.outcome)
       },
@@ -180,7 +187,13 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
   ])('refuses an archived session before the contract=%s send seam', async (onContract) => {
     const { s, rows, legacy } = sender(onContract, { archive: 'session is archived' })
     for (const via of ['now', 'queue', 'interrupt', 'wake'] as const) {
-      expect(await s.send(via, { sessionId: asSessionId('s1'), text: 'do not revive' })).toEqual({
+      expect(
+        await s.send(via, {
+          writer: messageTestWriter(),
+          sessionId: asSessionId('s1'),
+          text: 'do not revive',
+        }),
+      ).toEqual({
         ok: false,
         reason: 'session is archived',
       })
@@ -197,6 +210,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     const { s, rows } = sender(true)
     expect(
       await s.send(via, {
+        writer: messageTestWriter(),
         sessionId: asSessionId('s1'),
         text: 'describe it',
         attachments: [attachment],
@@ -213,7 +227,12 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     expect(
       await offContract.s.send(
         'now',
-        { sessionId: asSessionId('s1'), text: 'describe it', attachments: [attachment] },
+        {
+          writer: messageTestWriter(),
+          sessionId: asSessionId('s1'),
+          text: 'describe it',
+          attachments: [attachment],
+        },
         (receipt) =>
           receipts.push(receipt.outcome === 'refused' ? receipt.refusal.reason : receipt.outcome),
       ),
@@ -239,6 +258,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     const live = sender(true, {}, new Map([['up-1', 'user:alice']]))
     expect(
       await live.s.send('queue', {
+        writer: messageTestWriter(),
         sessionId: asSessionId('s1'),
         text: 'look',
         attachments: [held],
@@ -249,11 +269,15 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
 
     // Another reader of the same issue naming Alice's id — by chat or by mail
     // straight to the session — and a sender with no person behind it.
-    const refused = { ok: false, reason: 'file attachment reference was not staged for this session' }
+    const refused = {
+      ok: false,
+      reason: 'file attachment reference was not staged for this session',
+    }
     for (const principal of [as('user:bob'), undefined]) {
       const other = sender(true, {}, new Map([['up-1', 'user:alice']]))
       expect(
         await other.s.send('queue', {
+          writer: messageTestWriter(),
           sessionId: asSessionId('s1'),
           text: 'look',
           attachments: [held],
@@ -269,6 +293,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     const bob = sender(true, {}, new Map([['up-1', 'user:alice']]))
     expect(
       await bob.s.send('queue', {
+        writer: messageTestWriter(),
         sessionId: asSessionId('s1'),
         text: 'look',
         attachments: [staged],
@@ -279,6 +304,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     const alice = sender(true, {}, new Map([['up-1', 'user:alice']]))
     expect(
       await alice.s.send('queue', {
+        writer: messageTestWriter(),
         sessionId: asSessionId('s1'),
         text: 'look',
         attachments: [staged],
@@ -290,6 +316,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     const elsewhere = sender(true)
     expect(
       await elsewhere.s.send('queue', {
+        writer: messageTestWriter(),
         sessionId: asSessionId('s1'),
         text: 'look',
         attachments: [{ ...held, id: 'up-2' }],
@@ -306,6 +333,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
       await live.s.send(
         'interrupt',
         {
+          writer: messageTestWriter(),
           sessionId: asSessionId('s1'),
           text: 'exfiltrate this',
           attachments: [
@@ -339,6 +367,7 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
     const { s, rows } = sender(true)
     for (const via of ['queue', 'interrupt'] as const) {
       await s.send(via, {
+        writer: messageTestWriter(),
         sessionId: asSessionId('s1'),
         text: 'nudge',
         mutationId: `fact-key-${via}` as never,
@@ -356,8 +385,16 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
 
   it('touches no row for a session with no driver behind it', async () => {
     const { s, rows, legacy } = sender(false)
-    await s.send('now', { sessionId: asSessionId('s1'), text: 'legacy' })
-    await s.send('interrupt', { sessionId: asSessionId('s1'), text: 'legacy' })
+    await s.send('now', {
+      writer: messageTestWriter(),
+      sessionId: asSessionId('s1'),
+      text: 'legacy',
+    })
+    await s.send('interrupt', {
+      writer: messageTestWriter(),
+      sessionId: asSessionId('s1'),
+      text: 'legacy',
+    })
     // Shells go to the legacy verbs and nowhere near the durable contract rows.
     expect(rows).toEqual([])
     expect(legacy).toEqual(['now', 'interrupt'])

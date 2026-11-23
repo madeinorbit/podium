@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
+import {
+  UPDATE_STEP_DEADLINES,
+  UPDATE_STEP_MACHINES,
+} from '../apps/server/src/modules/updates/operation'
 
 // POD-2747: two assertions in this gate carried expectations that had quietly
 // stopped being true, and neither could be caught by running the gate, because
@@ -106,7 +110,12 @@ describe('the HEAD/version identity contract', () => {
   it('refuses an abbreviation longer than seven characters', async () => {
     // `git rev-parse --short=7` returns MORE than seven characters when the
     // prefix is ambiguous. The old truncating slice would have matched anyway.
-    expect(await identity({ headSha: 'cf7dcafa', version: '0.1.2-dev.2+cf7dcafa', state: 'pending' }, 'cf7dcafa')).toBe('refused')
+    expect(
+      await identity(
+        { headSha: 'cf7dcafa', version: '0.1.2-dev.2+cf7dcafa', state: 'pending' },
+        'cf7dcafa',
+      ),
+    ).toBe('refused')
   })
 
   it('refuses dev.0, a release version, and a proposal already consumed', async () => {
@@ -145,15 +154,18 @@ describe('the rollback row reads the outcome code, not the prose', () => {
     // machine-artifact-rejected is tampered-refusal's outcome. If this row ever
     // ends that way the crash artifact was not served intact, and it must not
     // read as a passing rollback.
-    expect(await rollbackOutcome({ ...REAL, error: { ...REAL.error, code: 'machine-artifact-rejected' } })).toBe(
-      'refused',
-    )
+    expect(
+      await rollbackOutcome({
+        ...REAL,
+        error: { ...REAL.error, code: 'machine-artifact-rejected' },
+      }),
+    ).toBe('refused')
   })
 
   it('refuses a delivery failure, a missing error, and an operation that succeeded', async () => {
-    expect(await rollbackOutcome({ ...REAL, error: { ...REAL.error, code: 'machine-delivery-failed' } })).toBe(
-      'refused',
-    )
+    expect(
+      await rollbackOutcome({ ...REAL, error: { ...REAL.error, code: 'machine-delivery-failed' } }),
+    ).toBe('refused')
     expect(await rollbackOutcome({ state: 'failed', error: null })).toBe('refused')
     expect(await rollbackOutcome({ ...REAL, state: 'done' })).toBe('refused')
   })
@@ -167,27 +179,31 @@ describe('a timeout says it stopped watching before the product stopped trying',
   // because the stall deadline retried has failed — but the timeout never said
   // so, and "did not reach a terminal state within 300s" reads as "the wave is
   // dead". These pin the note, not the timeouts.
+  const machinesDeadline = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]
+  if (!machinesDeadline?.silenceMs)
+    throw new Error('machines step must declare its silence deadline')
+  const silenceSeconds = machinesDeadline.silenceMs / 1000
   async function note(waited: number): Promise<string> {
     const run = await bash(`say_watch_budget ${waited}`)
     return run.stderr.trim()
   }
 
   it('speaks when the wait ended inside the budget', async () => {
-    expect(await note(300)).toContain('INSIDE')
-    expect(await note(150)).toContain('INSIDE')
+    expect(await note(silenceSeconds - 1)).toContain('INSIDE')
+    expect(await note(0)).toContain('INSIDE')
   })
 
   it('stays silent at and past the budget, where the red is unambiguous', async () => {
     // Past the budget the product HAS had its retry, so there is nothing to
     // disambiguate and the note would be noise on a true failure.
-    expect(await note(420)).toBe('')
-    expect(await note(600)).toBe('')
+    expect(await note(silenceSeconds)).toBe('')
+    expect(await note(silenceSeconds + 1)).toBe('')
   })
 
   it('names the retry, not just the window', async () => {
     // "inside its recovery window" understates it: the product actively tries
     // again. A reader who does not know that will read the red as terminal.
-    const text = await note(300)
+    const text = await note(silenceSeconds - 1)
     expect(text).toContain('REISSUES GRANTS')
     expect(text).toMatch(/do not lengthen this wait/i)
   })
@@ -196,16 +212,10 @@ describe('a timeout says it stopped watching before the product stopped trying',
     // The whole defect class this issue fixed was a harness number pinned to a
     // product fact that later moved. This reads both halves from the product and
     // fails if the harness constant drifts from them.
-    const delivery = readFileSync(join(ROOT, 'packages/runtime/src/update-delivery.ts'), 'utf8')
-    const operation = readFileSync(join(ROOT, 'apps/server/src/modules/updates/operation.ts'), 'utf8')
-    const download = /DEFAULT_DOWNLOAD_TIMEOUT_MS = (\d+) \* 60_000/.exec(delivery)
-    const margin = /machineSilenceMarginMs: (\d+) \* 60_000/.exec(operation)
-    // If either stops matching, this must fail rather than silently pass.
-    expect(download?.[1], 'DEFAULT_DOWNLOAD_TIMEOUT_MS not found').toBeDefined()
-    expect(margin?.[1], 'machineSilenceMarginMs not found').toBeDefined()
-    const expected = (Number(download?.[1]) + Number(margin?.[1])) * 60
+    const expected = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs
+    expect(expected).toBeGreaterThan(0)
     const run = await bash('printf %s "$UPDATE_MACHINES_SILENCE_BUDGET_S"')
-    expect(Number(run.stdout)).toBe(expected)
+    expect(Number(run.stdout) * 1000).toBe(expected)
   })
 })
 
@@ -241,8 +251,16 @@ describe('the decided-red row explains itself in the matrix', () => {
 })
 
 describe('the coordinator came back as an installed build', () => {
-  const BOOTSTRAP = { instanceId: 'update-e2e', appVersion: '0.1.1-edge.2', installKind: 'installed' }
-  const ROLLED_OUT = { instanceId: 'update-e2e', appVersion: '0.1.2-dev.1+316f98f', installKind: 'installed' }
+  const BOOTSTRAP = {
+    instanceId: 'update-e2e',
+    appVersion: '0.1.1-edge.2',
+    installKind: 'installed',
+  }
+  const ROLLED_OUT = {
+    instanceId: 'update-e2e',
+    appVersion: '0.1.2-dev.1+316f98f',
+    installKind: 'installed',
+  }
 
   it('accepts the bootstrap build when no version is named', async () => {
     expect(await installedBuild(BOOTSTRAP)).toBe('ok')

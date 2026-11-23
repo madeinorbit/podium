@@ -14,7 +14,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 import { writeTestBackup } from '../test-support/write-test-backup'
@@ -32,7 +32,10 @@ const tempDirs: string[] = []
  * READ path's cost, and a store that could spawn a real scanner mid-assertion
  * would be measuring the harness rather than the boundary.
  */
-async function tmpStore(runChild?: SnapshotVerifierDeps['runChild']): Promise<{
+async function tmpStore(
+  runChild?: SnapshotVerifierDeps['runChild'],
+  schedule?: SnapshotVerifierDeps['schedule'],
+): Promise<{
   store: SessionStore
   dbPath: string
   dir: string
@@ -41,6 +44,7 @@ async function tmpStore(runChild?: SnapshotVerifierDeps['runChild']): Promise<{
   tempDirs.push(dir)
   const dbPath = join(dir, 'podium.db')
   const deps: SnapshotVerifierDeps = {
+    schedule,
     runChild:
       runChild ?? (async () => ({ failure: { code: 'crashed', detail: 'no child in this test' } })),
   }
@@ -79,12 +83,16 @@ describe('planning reads never scan the retained backups', () => {
     // every one of them; after it, nothing must discover them at request time
     // and boot must still find them.
     const runs: string[] = []
-    const { store, dbPath } = await tmpStore(async (request) => {
-      runs.push(request.path)
-      return {
-        result: { ok: true, correlationId: request.correlationId, bytes: 1, durationMs: 1 },
-      }
-    })
+    const scheduled: (() => void)[] = []
+    const { store, dbPath } = await tmpStore(
+      async (request) => {
+        runs.push(request.path)
+        return {
+          result: { ok: true, correlationId: request.correlationId, bytes: 1, durationMs: 1 },
+        }
+      },
+      (start) => { scheduled.push(start) },
+    )
     const legacy = writeTestBackup(dbPath, 'drizzle-1')
     // Erase the catalogue: this instance now looks exactly like one that was
     // running before the verifier existed.
@@ -96,7 +104,10 @@ describe('planning reads never scan the retained backups', () => {
 
     // Boot is what reconciles the catalogue with the directory.
     expect(store.discoverDatabaseSnapshots()).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(scheduled).toHaveLength(1)
+    expect(runs).toEqual([])
+    scheduled[0]!()
+    await vi.waitFor(() => expect(store.latestDatabaseSnapshot()).toBe(legacy))
 
     expect(runs).toEqual([legacy])
     expect(store.latestDatabaseSnapshot()).toBe(legacy)

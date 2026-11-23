@@ -180,6 +180,32 @@ export class TransferJournal {
     return next
   }
 
+  /**
+   * Abort from `committing`, which no other path may do. Only for a promote the
+   * target REFUSED while its stage was still `validated` (a wrong vault check
+   * value, epic Task 22): the target changed nothing, so the commit never began
+   * and the source may become writable again.
+   */
+  abortRefusedPromotion(
+    error: { code: string; message: string },
+    cleanup: { result: 'cleaned' | 'pending'; detail?: string },
+  ): TransferJournalEntry {
+    const current = this.required()
+    if (current.state !== 'committing') {
+      throw new Error(`cannot abort a refused promotion from ${current.state}`)
+    }
+    const next = {
+      ...current,
+      state: 'aborted' as const,
+      error,
+      record: { ...current.record, phase: 'aborted' as const },
+      cleanup,
+      updatedAt: this.now().toISOString(),
+    }
+    writeAtomic(this.dir, next)
+    return next
+  }
+
   commit(
     record: TransferRecord,
     cleanup?: { result: 'cleaned' | 'pending'; detail?: string },

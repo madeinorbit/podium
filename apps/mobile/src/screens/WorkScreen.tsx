@@ -1,6 +1,7 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { discoveredPlacement } from '@podium/client-core/values'
-import { omitGone } from '@podium/client-graph/lookup'
+import { myPreferences, pinnedIds } from '@podium/client-graph/per-user-records'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { observer, useWorklistModel, WorklistProvider } from '@podium/client-graph/react'
 import { PhoneWorkFilters } from '@podium/client-graph/worklist/phone'
@@ -9,8 +10,9 @@ import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { parseIssueStatusValue, type SessionId } from '@podium/model'
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useStoreActions } from '../client/hooks'
+import { useMobileMemberRoster } from '../client/member-roster'
 import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { useSessionContextBooting } from '../client/use-session-context'
 import { WorkSkeleton } from '../components/LaunchPlaceholders'
@@ -40,16 +42,12 @@ const EMPTY_LAYOUT: SidebarState = Object.freeze({
   pinnedRepos: [],
   pinnedWorktrees: [],
 })
-const readLayout = (pool: MobxPool): SidebarState => {
-  const window = omitGone(pool.row('commandWindow', 'window'))
-  return window && typeof window !== 'symbol'
-    ? {
-        projectOrder: window.sidebarSettings.repoOrder,
-        pinnedRepos: window.pins.repos,
-        pinnedWorktrees: window.pins.worktrees,
-      }
-    : EMPTY_LAYOUT
-}
+/** My project order and pins, from my synced records (POD-6673). */
+const readLayout = (pool: MobxPool): SidebarState => ({
+  projectOrder: myPreferences(pool)?.repoOrder ?? EMPTY_LAYOUT.projectOrder,
+  pinnedRepos: pinnedIds(pool, 'repo'),
+  pinnedWorktrees: pinnedIds(pool, 'worktree'),
+})
 const foldKey = (key: string) =>
   key === 'pinned' ? 'podium:sidebar:pinned-fold' : `podium:sidebar:project-fold:${key}`
 
@@ -72,12 +70,15 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
   const scrollOffset = useRef(position.offset)
   const pool = useMobilePool()
   const model = useWorklistModel()
-  const store = useStoreActions()
+  const store = useCommands<MobileTrpc>()
   const booting = useSessionContextBooting()
   const refresh = useRefreshableTab('work')
   const bottomInset = useContentBottomInset()
   const hasCloseBlockers = useIssueCloseGuard()
   const layout = useMobilePoolProjection(readLayout, EMPTY_LAYOUT)
+  // Work is the phone's sidebar, and it is personal on a shared instance
+  // (POD-6294, POD-6297): the roster it loads is what turns that rule on.
+  useMobileMemberRoster()
   useEffect(() => {
     model?.setLayout(layout)
   }, [model, layout])
@@ -167,16 +168,16 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
       if (row?.ready !== 'ready') return
       const issue = row.issue as unknown as IssueNavigationModel
       if (action === 'read')
-        void (issue.unread ? store.markIssueRead(id) : store.markIssueUnread(id))
-      else if (action === 'undefer') void store.undeferIssue(id)
+        void (issue.unread ? store.issues.markRead(id) : store.issues.markUnread(id))
+      else if (action === 'undefer') void store.issues.undefer(id)
       else if (action === 'tuck') {
-        if (row.canTuck) void store.setIssueTucked(id, true)
+        if (row.canTuck) void store.issues.setTucked(id, true)
       } else if (action === 'bringBack') {
-        if (row.canBringBack) void store.setIssueTucked(id, false)
+        if (row.canBringBack) void store.issues.setTucked(id, false)
       } else if (action === 'placement') {
         const placement = discoveredPlacement(issue)
         if (placement?.originId)
-          void store.setIssuePlacement(
+          void store.issues.setPlacement(
             id,
             placement.placement === 'mission' ? 'own' : 'mission',
             placement.originId,
@@ -190,17 +191,17 @@ const PoolWorkScreen = observer(function PoolWorkScreen() {
       const intent = parseIssueStatusValue(value),
         row = model?.knownRow(id)
       if (!intent || row?.ready !== 'ready') return
-      if (intent.kind === 'stage') void store.updateIssue(id, { stage: intent.stage })
+      if (intent.kind === 'stage') void store.issues.update(id, { stage: intent.stage })
       else if (hasCloseBlockers(id))
         openMenu(row.issue as unknown as IssueNavigationModel, 'live', {
           kind: 'confirm-close',
           reason: intent.reason,
         })
-      else void store.closeIssue(id, intent.reason)
+      else void store.issues.close(id, intent.reason)
     },
     [hasCloseBlockers, model, openMenu, store],
   )
-  const tuck = useCallback((id: string) => void store.setIssueTucked(id, true), [store])
+  const tuck = useCallback((id: string) => void store.issues.setTucked(id, true), [store])
 
   if (!phone)
     return (

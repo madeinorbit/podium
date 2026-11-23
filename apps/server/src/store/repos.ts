@@ -1,5 +1,11 @@
+// workspace-scoped (POD-6959)
 import { createLogger } from '@podium/logger'
-import { isMachinePathWithinRoot, machinePathKey, machinePathSeparator, normalizeMachinePath } from '@podium/model'
+import {
+  isMachinePathWithinRoot,
+  machinePathKey,
+  machinePathSeparator,
+  normalizeMachinePath,
+} from '@podium/model'
 /**
  * Repos aggregate — owns the `repos` table (registered repo roots per machine,
  * origin URLs and the stable repo_id identity, #74).
@@ -11,11 +17,29 @@ import { isMachinePathWithinRoot, machinePathKey, machinePathSeparator, normaliz
 
 import { type MachineId, machinePathBasename, type RepoId } from '@podium/model'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
-import { and, count, countDistinct, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
-import { repoDraftSeq, repoPrefixes, repos } from '../migrations/schema'
+import {
+  and,
+  asc,
+  count,
+  countDistinct,
+  eq,
+  isNotNull,
+  isNull,
+  notExists,
+  notInArray,
+  sql,
+} from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
-import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
-import { executeRaw, param, prepared } from './executor/sync-drizzle'
+import { captureWrite } from '../sync/capture-pg'
+import { dialectOf } from './executor/dialect-prepared'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 import { prefixUpperBound } from './prefix-range'
 import type { TableWrites } from './table-writes'
 
@@ -47,116 +71,159 @@ function rootContains(root: string, path: string): boolean {
 // placement, not in kind: they are prepared inside their own method (see
 // `repoWrites`).
 
-/** ROWID ORDER IS THE CONTRACT, not an incidental ordering: repo discovery
- *  documents that it depends on the insertion order this gives. */
-const registryRows = prepared((db: StoreDrizzle) =>
+/** INSERTION ORDER IS THE CONTRACT, not an incidental ordering: repo discovery
+ *  documents that it depends on it (`resolveRepoOnMachine` takes the first row).
+ *  SQLite reads it as `rowid`, which existing installs' rows were ordered by.
+ *  Postgres keeps no insertion order, so there it is `added_at`, the instant the
+ *  row was inserted (a rename keeps it, as it keeps the rowid), and the primary
+ *  key breaks a tie within one millisecond. */
+const registryRows = prepared((db, t) =>
   db
     .select({
-      machineId: repos.machineId,
-      path: repos.path,
-      originUrl: repos.originUrl,
-      repoId: repos.repoId,
+      machineId: t.repos.machineId,
+      path: t.repos.path,
+      originUrl: t.repos.originUrl,
+      repoId: t.repos.repoId,
     })
-    .from(repos)
-    .orderBy(sql`rowid ASC`)
+    .from(t.repos)
+    .where(inWorkspace(t.repos))
+    .orderBy(
+      ...(dialectOf(db) === 'pg'
+        ? [asc(t.repos.addedAt), asc(t.repos.machineId), asc(t.repos.path)]
+        : [sql`rowid ASC`]),
+    )
     .prepare(),
 )
 
-const registryPrefixes = prepared((db: StoreDrizzle) =>
+const registryPrefixes = prepared((db, t) =>
   db
     .select({
-      repoId: repoPrefixes.repoId,
-      prefix: repoPrefixes.prefix,
-      defaultParentBranch: repoPrefixes.defaultParentBranch,
+      repoId: t.repoPrefixes.repoId,
+      prefix: t.repoPrefixes.prefix,
+      defaultParentBranch: t.repoPrefixes.defaultParentBranch,
     })
-    .from(repoPrefixes)
+    .from(t.repoPrefixes)
+    .where(inWorkspace(t.repoPrefixes))
     .prepare(),
 )
 
-const allPrefixes = prepared((db: StoreDrizzle) =>
-  db.select({ prefix: repoPrefixes.prefix }).from(repoPrefixes).prepare(),
-)
-
-const prefixOwner = prepared((db: StoreDrizzle) =>
+const allPrefixes = prepared((db, t) =>
   db
-    .select({ repoId: repoPrefixes.repoId })
-    .from(repoPrefixes)
-    .where(eq(repoPrefixes.prefix, param(repoPrefixes.prefix, 'prefix')))
+    .select({ prefix: t.repoPrefixes.prefix })
+    .from(t.repoPrefixes)
+    .where(inWorkspace(t.repoPrefixes))
     .prepare(),
 )
 
-const onePathOfRepo = prepared((db: StoreDrizzle) =>
+const prefixOwner = prepared((db, t) =>
   db
-    .select({ path: repos.path })
-    .from(repos)
-    .where(eq(repos.repoId, param(repos.repoId, 'repoId')))
+    .select({ repoId: t.repoPrefixes.repoId })
+    .from(t.repoPrefixes)
+    .where(
+      inWorkspace(
+        t.repoPrefixes,
+        eq(t.repoPrefixes.prefix, param(t.repoPrefixes.prefix, 'prefix')),
+      ),
+    )
+    .prepare(),
+)
+
+const onePathOfRepo = prepared((db, t) =>
+  db
+    .select({ path: t.repos.path })
+    .from(t.repos)
+    .where(inWorkspace(t.repos, eq(t.repos.repoId, param(t.repos.repoId, 'repoId'))))
     .limit(1)
     .prepare(),
 )
 
-const draftSeqOf = prepared((db: StoreDrizzle) =>
+const draftSeqOf = prepared((db, t) =>
   db
-    .select({ nextSeq: repoDraftSeq.nextSeq })
-    .from(repoDraftSeq)
-    .where(eq(repoDraftSeq.repoId, param(repoDraftSeq.repoId, 'repoId')))
-    .prepare(),
-)
-
-const upsertDraftSeq = prepared((db: StoreDrizzle) =>
-  db
-    .insert(repoDraftSeq)
-    .values({ repoId: sql.placeholder('repoId'), nextSeq: sql.placeholder('nextSeq') })
-    .onConflictDoUpdate({ target: repoDraftSeq.repoId, set: { nextSeq: sql.placeholder('nextSeq') } })
-    .prepare(),
-)
-
-const repoPathsAndIdsOnMachine = prepared((db: StoreDrizzle) =>
-  db
-    .select({ path: repos.path, repoId: repos.repoId })
-    .from(repos)
-    .where(eq(repos.machineId, param(repos.machineId, 'machineId')))
-    .prepare(),
-)
-
-const repoPathsOnMachine = prepared((db: StoreDrizzle) =>
-  db
-    .select({ path: repos.path })
-    .from(repos)
-    .where(eq(repos.machineId, param(repos.machineId, 'machineId')))
-    .prepare(),
-)
-
-const reposMissingRepoId = prepared((db: StoreDrizzle) =>
-  db.select({ c: count() }).from(repos).where(isNull(repos.repoId)).prepare(),
-)
-
-const reposMissingPrefix = prepared((db: StoreDrizzle) =>
-  db
-    .select({ c: countDistinct(repos.repoId) })
-    .from(repos)
+    .select({ nextSeq: t.repoDraftSeq.nextSeq })
+    .from(t.repoDraftSeq)
     .where(
-      and(
-        isNotNull(repos.repoId),
-        notInArray(repos.repoId, db.select({ repoId: repoPrefixes.repoId }).from(repoPrefixes)),
+      inWorkspace(
+        t.repoDraftSeq,
+        eq(t.repoDraftSeq.repoId, param(t.repoDraftSeq.repoId, 'repoId')),
+      ),
+    )
+    .prepare(),
+)
+
+const upsertDraftSeq = prepared((db, t) =>
+  db
+    .insert(t.repoDraftSeq)
+    .values({
+      workspaceId: WORKSPACE,
+      repoId: sql.placeholder('repoId'),
+      nextSeq: sql.placeholder('nextSeq'),
+    })
+    .onConflictDoUpdate({
+      target: [t.repoDraftSeq.workspaceId, t.repoDraftSeq.repoId],
+      set: { nextSeq: sql.placeholder('nextSeq') },
+    })
+    .prepare(),
+)
+
+const repoPathsAndIdsOnMachine = prepared((db, t) =>
+  db
+    .select({ path: t.repos.path, repoId: t.repos.repoId })
+    .from(t.repos)
+    .where(inWorkspace(t.repos, eq(t.repos.machineId, param(t.repos.machineId, 'machineId'))))
+    .prepare(),
+)
+
+const repoPathsOnMachine = prepared((db, t) =>
+  db
+    .select({ path: t.repos.path })
+    .from(t.repos)
+    .where(inWorkspace(t.repos, eq(t.repos.machineId, param(t.repos.machineId, 'machineId'))))
+    .prepare(),
+)
+
+const reposMissingRepoId = prepared((db, t) =>
+  db
+    .select({ c: count() })
+    .from(t.repos)
+    .where(inWorkspace(t.repos, isNull(t.repos.repoId)))
+    .prepare(),
+)
+
+const reposMissingPrefix = prepared((db, t) =>
+  db
+    .select({ c: countDistinct(t.repos.repoId) })
+    .from(t.repos)
+    .where(
+      inWorkspace(
+        t.repos,
+        isNotNull(t.repos.repoId),
+        notInArray(
+          t.repos.repoId,
+          db
+            .select({ repoId: t.repoPrefixes.repoId })
+            .from(t.repoPrefixes)
+            .where(inWorkspace(t.repoPrefixes)),
+        ),
       ),
     )
     .prepare(),
 )
 
 /** One repo row, by its primary key: placeholders `machineId` and `path`. */
-function repoRowAt() {
-  return and(
-    eq(repos.machineId, param(repos.machineId, 'machineId')),
-    eq(repos.path, param(repos.path, 'path')),
+function repoRowAt(t: StoreTables) {
+  return inWorkspace(
+    t.repos,
+    eq(t.repos.machineId, param(t.repos.machineId, 'machineId')),
+    eq(t.repos.path, param(t.repos.path, 'path')),
   )
 }
 
-/** A prepared builder write on `repos` / `repo_prefixes`. */
-type RepoWrite = (db: StoreDrizzle) => { run(values: Record<string, unknown>): Promise<unknown> }
+/** A prepared builder write on `repos` / `repo_prefixes`, bound to the workspace. */
+type RepoWrite = (db: WorkspaceDb) => { run(values: Record<string, unknown>): Promise<unknown> }
 /** A prepared write that returns the rows it changed. */
-type RepoReturningWrite = (db: StoreDrizzle) => { all(values: Record<string, unknown>): Promise<unknown[]> }
-/** A prepared whole raw statement (`UPDATE OR IGNORE`, POD-3406). */
-type RepoRawWrite = (db: StoreDrizzle) => ReturnType<StoreDrizzle['run']>
+type RepoReturningWrite = (db: WorkspaceDb) => {
+  all(values: Record<string, unknown>): Promise<unknown[]>
+}
 
 /** The four columns the held registry read materializes, as drizzle returns them. */
 interface RegistryRow {
@@ -167,6 +234,9 @@ interface RegistryRow {
 }
 
 export class ReposRepository {
+  /** Registry roots change the repo identity a session's permanent draft ref
+   *  carries: a registry write runs as a change-log commit (POD-6920). */
+  sessionRecordWrite?: <T>(write: () => Promise<T>) => Promise<T>
   /**
    * The registry read, held for the duration of a pass (POD-1638).
    *
@@ -218,7 +288,7 @@ export class ReposRepository {
     prefixes: Map<string, string>
     baseBranches: Map<string, string>
   } | null = null
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /**
@@ -239,23 +309,23 @@ export class ReposRepository {
     insertPrefixIfAbsent?: RepoWrite
     upsertPrefix?: RepoWrite
     insertRepoIfAbsent?: RepoWrite
-    renamePath?: RepoRawWrite
+    renamePath?: RepoWrite
     deleteRow?: RepoWrite
     setOrigin?: RepoWrite
-    rekeyPrefix?: RepoRawWrite
+    rekeyPrefix?: RepoWrite
     setBaseBranch?: RepoWrite
     carryBaseBranch?: RepoReturningWrite
   } = {}
 
   constructor(
-    queries: StoreQueries,
+    queries: WorkspaceQueries,
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
     private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
     /** The store's per-table write announcement, for the writers that never reach
      *  this class. */
     tableWrites: TableWrites,
   ) {
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
     for (const table of ['repos', 'repo_prefixes'])
       tableWrites.subscribe(table, async () => await this.invalidateRegistry())
@@ -273,8 +343,8 @@ export class ReposRepository {
    * assigned once in a constructor cannot. B1 changes the line inside this getter
    * and nothing below it.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -314,28 +384,32 @@ export class ReposRepository {
     baseBranches: Map<string, string>
   }> {
     if (this.cached) return this.cached
-    // ROWID ORDER IS THE CONTRACT (see registryRows).
+    // INSERTION ORDER IS THE CONTRACT (see registryRows).
     const rows = await registryRows(this.db).all()
     const prefixRows = await registryPrefixes(this.db).all()
     const prefixes = new Map(prefixRows.map((r) => [r.repoId, r.prefix] as const))
     const baseBranches = new Map(
-      prefixRows.flatMap((r) => (r.defaultParentBranch ? [[r.repoId, r.defaultParentBranch] as const] : [])),
+      prefixRows.flatMap((r) =>
+        r.defaultParentBranch ? [[r.repoId, r.defaultParentBranch] as const] : [],
+      ),
     )
     this.cached = { rows, prefixes, baseBranches }
     return this.cached
   }
 
   /** Full repo rows including machineId, originUrl, repoId and prefix (#474). */
-  async listRepos(machineId?: MachineId): Promise<{
-    machineId: MachineId
-    path: string
-    originUrl: string | null
-    repoId: RepoId | null
-    prefix: string | null
-    defaultParentBranch: string | null
-  }[]> {
+  async listRepos(machineId?: MachineId): Promise<
+    {
+      machineId: MachineId
+      path: string
+      originUrl: string | null
+      repoId: RepoId | null
+      prefix: string | null
+      defaultParentBranch: string | null
+    }[]
+  > {
     const { rows: allRows, prefixes, baseBranches } = await this.registry()
-    // Same rows, same `ORDER BY rowid ASC` order, filtered in memory: the
+    // Same rows, same insertion order (see registryRows), filtered in memory: the
     // machine-scoped statement this replaces read the same table with the same
     // ordering, and repo-discovery documents that it depends on that order.
     const rows = machineId ? allRows.filter((r) => r.machineId === machineId) : allRows
@@ -392,9 +466,9 @@ export class ReposRepository {
   async prefixResolver(): Promise<(path: string) => string | null> {
     const resolve = await this.repoIdResolver()
     const prefixes = (await this.registry()).prefixes
-    return path => {
+    return (path) => {
       const id = resolve(path)
-      return id ? prefixes.get(id) ?? null : null
+      return id ? (prefixes.get(id) ?? null) : null
     }
   }
 
@@ -422,15 +496,20 @@ export class ReposRepository {
     //     derived by `derivePrefixFor` here and validated by `isValidPrefix` on
     //     the other path, so neither can be null by the time it arrives.
     //   CHECK: none on this table. Foreign keys: none, and they would not count.
-    const insertPrefix = (this.repoWrites.insertPrefixIfAbsent ??= prepared((db: StoreDrizzle) =>
-      db
-        .insert(repoPrefixes)
-        .values({ repoId: sql.placeholder('repoId'), prefix: sql.placeholder('prefix') })
-        .onConflictDoNothing()
-        .prepare(),
+    const insertPrefix = (this.repoWrites.insertPrefixIfAbsent ??= prepared((db, t) =>
+      captureWrite(
+        db
+          .insert(t.repoPrefixes)
+          .values({
+            workspaceId: WORKSPACE,
+            repoId: sql.placeholder('repoId'),
+            prefix: sql.placeholder('prefix'),
+          })
+          .onConflictDoNothing(),
+      ).prepare(),
     ))
     await insertPrefix(this.db).run({ repoId, prefix })
-    return await this.prefixForRepoId(repoId) ?? prefix
+    return (await this.prefixForRepoId(repoId)) ?? prefix
   }
 
   /**
@@ -449,12 +528,20 @@ export class ReposRepository {
       throw new Error(`prefix ${prefix} is already used by another repo`)
     }
     await this.invalidateRegistry()
-    const upsertPrefix = (this.repoWrites.upsertPrefix ??= prepared((db: StoreDrizzle) =>
-      db
-        .insert(repoPrefixes)
-        .values({ repoId: sql.placeholder('repoId'), prefix: sql.placeholder('prefix') })
-        .onConflictDoUpdate({ target: repoPrefixes.repoId, set: { prefix: sql`excluded.prefix` } })
-        .prepare(),
+    const upsertPrefix = (this.repoWrites.upsertPrefix ??= prepared((db, t) =>
+      captureWrite(
+        db
+          .insert(t.repoPrefixes)
+          .values({
+            workspaceId: WORKSPACE,
+            repoId: sql.placeholder('repoId'),
+            prefix: sql.placeholder('prefix'),
+          })
+          .onConflictDoUpdate({
+            target: [t.repoPrefixes.workspaceId, t.repoPrefixes.repoId],
+            set: { prefix: sql`excluded.prefix` },
+          }),
+      ).prepare(),
     ))
     await upsertPrefix(this.db).run({ repoId, prefix })
   }
@@ -492,7 +579,10 @@ export class ReposRepository {
   /** The base branch for the repo an ISSUE in `repoPath` belongs to (or null),
    *  resolved the way the issue's own repo_id is ({@link issueRepoIdResolver}).
    *  A registry read only — it never touches git. */
-  async defaultParentBranchForIssueRepo(repoPath: string, machineId?: MachineId | null): Promise<string | null> {
+  async defaultParentBranchForIssueRepo(
+    repoPath: string,
+    machineId?: MachineId | null,
+  ): Promise<string | null> {
     const id = (await this.issueRepoIdResolver())(repoPath, machineId)
     return id ? await this.defaultParentBranchForRepoId(id) : null
   }
@@ -502,21 +592,34 @@ export class ReposRepository {
    * like the prefix. The caller checks the branch exists; this only stores it, and
    * existing issues keep the parent they were created with.
    */
-  async setRepoDefaultParentBranch(machineId: MachineId, path: string, branch: string | null): Promise<void> {
+  async setRepoDefaultParentBranch(
+    machineId: MachineId,
+    path: string,
+    branch: string | null,
+  ): Promise<void> {
     const normalizedPath = normalizeRepoPath(path)
     const repoId = await this.resolveRepoIdForPath(normalizedPath, machineId)
     // The row is the prefix row, which registration mints; a repo registered
     // before prefixes existed gets one here rather than losing the write.
-    if (branch !== null && await this.prefixForRepoId(repoId) === null) {
-      await this.ensurePrefixForRepoId(repoId, machinePathBasename(normalizedPath) || normalizedPath)
+    if (branch !== null && (await this.prefixForRepoId(repoId)) === null) {
+      await this.ensurePrefixForRepoId(
+        repoId,
+        machinePathBasename(normalizedPath) || normalizedPath,
+      )
     }
     await this.invalidateRegistry()
-    const setBaseBranch = (this.repoWrites.setBaseBranch ??= prepared((db: StoreDrizzle) =>
-      db
-        .update(repoPrefixes)
-        .set({ defaultParentBranch: sql.placeholder('branch') })
-        .where(eq(repoPrefixes.repoId, param(repoPrefixes.repoId, 'repoId')))
-        .prepare(),
+    const setBaseBranch = (this.repoWrites.setBaseBranch ??= prepared((db, t) =>
+      captureWrite(
+        db
+          .update(t.repoPrefixes)
+          .set({ defaultParentBranch: sql.placeholder('branch') })
+          .where(
+            inWorkspace(
+              t.repoPrefixes,
+              eq(t.repoPrefixes.repoId, param(t.repoPrefixes.repoId, 'repoId')),
+            ),
+          ),
+      ).prepare(),
     ))
     await setBaseBranch(this.db).run({ branch, repoId })
   }
@@ -541,11 +644,30 @@ export class ReposRepository {
   // readLocalOriginUrl is a no-op (null) for paths that don't exist on this host, so remote-machine
   // repos simply get the path-fallback id until a scan reports their origin (updateRepoOrigin then
   // upgrades it). An explicit `prefix` overrides derivation (validated + uniqueness-checked, #474).
-  async addRepo(path: string, machineId: MachineId, originUrl?: string, prefix?: string): Promise<void> {
+  async addRepo(
+    path: string,
+    machineId: MachineId,
+    originUrl?: string,
+    prefix?: string,
+  ): Promise<void> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(() => this.addRepoRows(path, machineId, originUrl, prefix))
+      : await this.addRepoRows(path, machineId, originUrl, prefix)
+  }
+
+  private async addRepoRows(
+    path: string,
+    machineId: MachineId,
+    originUrl?: string,
+    prefix?: string,
+  ): Promise<void> {
     const requestedPath = normalizeRepoPath(path)
-    const normalizedPath = machinePathSeparator(requestedPath) === '\\'
-      ? (await this.listRepos(machineId)).find(row => machinePathKey(normalizeRepoPath(row.path)) === machinePathKey(requestedPath))?.path ?? requestedPath
-      : requestedPath
+    const normalizedPath =
+      machinePathSeparator(requestedPath) === '\\'
+        ? ((await this.listRepos(machineId)).find(
+            (row) => machinePathKey(normalizeRepoPath(row.path)) === machinePathKey(requestedPath),
+          )?.path ?? requestedPath)
+        : requestedPath
     const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
     // The repo's machine may be Windows while this server is not: its path's own separator.
     const repoName = machinePathBasename(path.trim()) || null
@@ -562,19 +684,21 @@ export class ReposRepository {
     //   Foreign keys: none, and they would not count in any case.
     // What stays reachable is the (machine_id, path) primary-key conflict, which
     // is the reason the statement is OR IGNORE and which both forms swallow.
-    const insertRepo = (this.repoWrites.insertRepoIfAbsent ??= prepared((db: StoreDrizzle) =>
-      db
-        .insert(repos)
-        .values({
-          machineId: sql.placeholder('machineId'),
-          path: sql.placeholder('path'),
-          originUrl: sql.placeholder('originUrl'),
-          repoName: sql.placeholder('repoName'),
-          repoId: sql.placeholder('repoId'),
-          addedAt: sql.placeholder('addedAt'),
-        })
-        .onConflictDoNothing()
-        .prepare(),
+    const insertRepo = (this.repoWrites.insertRepoIfAbsent ??= prepared((db, t) =>
+      captureWrite(
+        db
+          .insert(t.repos)
+          .values({
+            workspaceId: WORKSPACE,
+            machineId: sql.placeholder('machineId'),
+            path: sql.placeholder('path'),
+            originUrl: sql.placeholder('originUrl'),
+            repoName: sql.placeholder('repoName'),
+            repoId: sql.placeholder('repoId'),
+            addedAt: sql.placeholder('addedAt'),
+          })
+          .onConflictDoNothing(),
+      ).prepare(),
     ))
     await insertRepo(this.db).run({
       machineId,
@@ -587,7 +711,7 @@ export class ReposRepository {
     // Assign the human-facing prefix for this logical repo (#474). An explicit,
     // validated override wins over derivation; a sibling checkout already sharing
     // this repo_id keeps its prefix.
-    if (await this.prefixForRepoId(repoId) === null) {
+    if ((await this.prefixForRepoId(repoId)) === null) {
       if (prefix !== undefined) {
         if (!isValidPrefix(prefix)) {
           throw new Error(`invalid repo prefix ${JSON.stringify(prefix)} — must match ^[A-Z]{2,5}$`)
@@ -596,12 +720,17 @@ export class ReposRepository {
         await this.invalidateRegistry()
         // Same statement and the same enumeration as `ensurePrefixForRepoId`;
         // `prefix` reached here through `isValidPrefix` above.
-        const insertPrefix = (this.repoWrites.insertPrefixIfAbsent ??= prepared((db: StoreDrizzle) =>
-          db
-            .insert(repoPrefixes)
-            .values({ repoId: sql.placeholder('repoId'), prefix: sql.placeholder('prefix') })
-            .onConflictDoNothing()
-            .prepare(),
+        const insertPrefix = (this.repoWrites.insertPrefixIfAbsent ??= prepared((db, t) =>
+          captureWrite(
+            db
+              .insert(t.repoPrefixes)
+              .values({
+                workspaceId: WORKSPACE,
+                repoId: sql.placeholder('repoId'),
+                prefix: sql.placeholder('prefix'),
+              })
+              .onConflictDoNothing(),
+          ).prepare(),
         ))
         await insertPrefix(this.db).run({ repoId, prefix })
       } else {
@@ -617,11 +746,24 @@ export class ReposRepository {
    * already origin-derived, so identities stay stable if the remote moves.
    */
   async updateRepoOrigin(machineId: MachineId, path: string, originUrl: string): Promise<void> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(() => this.updateRepoOriginRows(machineId, path, originUrl))
+      : await this.updateRepoOriginRows(machineId, path, originUrl)
+  }
+
+  private async updateRepoOriginRows(
+    machineId: MachineId,
+    path: string,
+    originUrl: string,
+  ): Promise<void> {
     const requestedPath = normalizeRepoPath(path)
     const rows = await repoPathsAndIdsOnMachine(this.db).all({ machineId })
-    const row = rows.find((r) => machinePathKey(normalizeRepoPath(r.path)) === machinePathKey(requestedPath))
+    const row = rows.find(
+      (r) => machinePathKey(normalizeRepoPath(r.path)) === machinePathKey(requestedPath),
+    )
     if (!row) return
-    const normalizedPath = machinePathSeparator(requestedPath) === '\\' ? normalizeRepoPath(row.path) : requestedPath
+    const normalizedPath =
+      machinePathSeparator(requestedPath) === '\\' ? normalizeRepoPath(row.path) : requestedPath
     // Ahead of the branches rather than in each: this method writes `repos` on
     // every path below it, and the read it invalidates is one this method's own
     // `prefixForRepoId` call takes back afterwards.
@@ -633,29 +775,53 @@ export class ReposRepository {
       isPathFallbackRepoId(row.repoId, machineId, normalizedPath)
     const repoId = upgrade ? newId : row.repoId
 
-    const deleteRow = (this.repoWrites.deleteRow ??= prepared((db: StoreDrizzle) =>
-      db.delete(repos).where(repoRowAt()).prepare(),
+    const deleteRow = (this.repoWrites.deleteRow ??= prepared((db, t) =>
+      captureWrite(db.delete(t.repos).where(repoRowAt(t))).prepare(),
     ))
     let targetPath = row.path
     if (row.path !== normalizedPath) {
-      // OR IGNORE, because the destination path may already have a row: the
-      // rename then does nothing and the duplicate is deleted below instead —
-      // the `changes === 0` branch under this one is that case. drizzle's UPDATE
-      // builder carries no conflict clause (only INSERT does), so this is the
-      // most literal form available. Rule 1 keeps it as one atomic statement;
-      // a pre-read would become a race when the query layer turns async.
-      const renamePath = (this.repoWrites.renamePath ??= prepared((db: StoreDrizzle) =>
-        db.run(
-          // UPDATE-CONFLICT STATEMENT POD-3406
-          sql`UPDATE OR IGNORE repos SET path = ${sql.placeholder('toPath')} WHERE machine_id = ${sql.placeholder('machineId')} AND path = ${sql.placeholder('fromPath')}`,
-        ),
-      ))
-      const result = await executeRaw(renamePath(this.db), {
+      // Nothing, when the destination path already has a row: the rename then
+      // changes no row and the duplicate is deleted below instead — the
+      // `changes === 0` branch under this one is that case. One statement whose
+      // own NOT EXISTS is the conflict test, as SQLite's `UPDATE OR IGNORE` was
+      // (POD-3406), which Postgres has no form of; a pre-read in another
+      // statement would leave a window between the test and the write.
+      const renamePath = (this.repoWrites.renamePath ??= prepared((db, t) => {
+        const taken = alias(t.repos, 'taken')
+        return captureWrite(
+          db
+            .update(t.repos)
+            .set({ path: sql.placeholder('toPath') })
+            .where(
+              and(
+                inWorkspace(
+                  t.repos,
+                  eq(t.repos.machineId, param(t.repos.machineId, 'machineId')),
+                  eq(t.repos.path, param(t.repos.path, 'fromPath')),
+                ),
+                notExists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(taken)
+                    .where(
+                      inWorkspace(
+                        taken,
+                        eq(taken.machineId, param(taken.machineId, 'machineId')),
+                        eq(taken.path, param(taken.path, 'toPath')),
+                      ),
+                    ),
+                ),
+              ),
+            ),
+        ).prepare()
+      }))
+      // The run result counts the rows written, on both engines.
+      const result = (await renamePath(this.db).run({
         toPath: normalizedPath,
         machineId,
         fromPath: row.path,
-      })
-      if (Number(result.changes ?? 0) > 0) {
+      })) as { changes: number | bigint }
+      if (Number(result.changes) > 0) {
         targetPath = normalizedPath
       } else {
         await deleteRow(this.db).run({ machineId, path: row.path })
@@ -663,16 +829,20 @@ export class ReposRepository {
       }
     }
 
-    const setOrigin = (this.repoWrites.setOrigin ??= prepared((db: StoreDrizzle) =>
-      db
-        .update(repos)
-        .set({ originUrl: sql.placeholder('originUrl'), repoId: sql.placeholder('repoId') })
-        .where(repoRowAt())
-        .prepare(),
+    const setOrigin = (this.repoWrites.setOrigin ??= prepared((db, t) =>
+      captureWrite(
+        db
+          .update(t.repos)
+          .set({ originUrl: sql.placeholder('originUrl'), repoId: sql.placeholder('repoId') })
+          .where(repoRowAt(t)),
+      ).prepare(),
     ))
     await setOrigin(this.db).run({ originUrl, repoId, machineId, path: targetPath })
     for (const duplicate of rows) {
-      if (duplicate.path !== targetPath && machinePathKey(normalizeRepoPath(duplicate.path)) === machinePathKey(normalizedPath)) {
+      if (
+        duplicate.path !== targetPath &&
+        machinePathKey(normalizeRepoPath(duplicate.path)) === machinePathKey(normalizedPath)
+      ) {
         await deleteRow(this.db).run({ machineId, path: duplicate.path })
       }
     }
@@ -681,22 +851,38 @@ export class ReposRepository {
         this.assignRepoIdToIssuesUnder(newId, repoPath)
       // Re-key the human-facing prefix from the path-fallback id onto the stable
       // origin-derived id (#474), unless the target already owns one.
-      if (row.repoId && row.repoId !== newId && await this.prefixForRepoId(newId) === null) {
+      if (row.repoId && row.repoId !== newId && (await this.prefixForRepoId(newId)) === null) {
         // Again, because the condition above READ the prefix map and so re-held it:
         // the drop at the top of this method is already spent by the time this
         // statement runs. Invalidating before every write is not enough on its own —
         // it has to be before every write with no cached read taken since.
         await this.invalidateRegistry()
-        // Same OR IGNORE as above and the same settled rule: the target may already
-        // own a prefix row, and then this re-key must do nothing rather than
-        // throw. Rule 1's UPDATE-conflict exception preserves that behavior.
-        const rekeyPrefix = (this.repoWrites.rekeyPrefix ??= prepared((db: StoreDrizzle) =>
-          db.run(
-            // UPDATE-CONFLICT STATEMENT POD-3406
-            sql`UPDATE OR IGNORE repo_prefixes SET repo_id = ${sql.placeholder('newId')} WHERE repo_id = ${sql.placeholder('oldId')}`,
-          ),
-        ))
-        await executeRaw(rekeyPrefix(this.db), { newId, oldId: row.repoId })
+        // The same rule as the rename above: the target may already own a prefix
+        // row, and then this re-key must do nothing rather than throw, so its own
+        // NOT EXISTS is the conflict test.
+        const rekeyPrefix = (this.repoWrites.rekeyPrefix ??= prepared((db, t) => {
+          const taken = alias(t.repoPrefixes, 'taken')
+          return captureWrite(
+            db
+              .update(t.repoPrefixes)
+              .set({ repoId: sql.placeholder('newId') })
+              .where(
+                and(
+                  inWorkspace(
+                    t.repoPrefixes,
+                    eq(t.repoPrefixes.repoId, param(t.repoPrefixes.repoId, 'oldId')),
+                  ),
+                  notExists(
+                    db
+                      .select({ one: sql`1` })
+                      .from(taken)
+                      .where(inWorkspace(taken, eq(taken.repoId, param(taken.repoId, 'newId')))),
+                  ),
+                ),
+              ),
+          ).prepare()
+        }))
+        await rekeyPrefix(this.db).run({ newId, oldId: row.repoId })
       } else if (row.repoId && row.repoId !== newId) {
         await this.carryBaseBranch(row.repoId, newId)
       }
@@ -721,21 +907,25 @@ export class ReposRepository {
     const source = (await this.registry()).baseBranches.get(from)
     if (!source) return
     await this.invalidateRegistry()
-    const carry = (this.repoWrites.carryBaseBranch ??= prepared((db: StoreDrizzle) =>
-      db
-        .update(repoPrefixes)
-        .set({ defaultParentBranch: sql.placeholder('branch') })
-        .where(and(
-          eq(repoPrefixes.repoId, param(repoPrefixes.repoId, 'repoId')),
-          isNull(repoPrefixes.defaultParentBranch),
-        ))
-        .returning({ repoId: repoPrefixes.repoId })
-        .prepare(),
+    const carry = (this.repoWrites.carryBaseBranch ??= prepared((db, t) =>
+      captureWrite(
+        db
+          .update(t.repoPrefixes)
+          .set({ defaultParentBranch: sql.placeholder('branch') })
+          .where(
+            inWorkspace(
+              t.repoPrefixes,
+              eq(t.repoPrefixes.repoId, param(t.repoPrefixes.repoId, 'repoId')),
+              isNull(t.repoPrefixes.defaultParentBranch),
+            ),
+          )
+          .returning({ repoId: t.repoPrefixes.repoId }),
+      ).prepare(),
     ))
     if ((await carry(this.db).all({ branch: source, repoId: to })).length > 0) return
     const kept = await this.defaultParentBranchForRepoId(to)
     if (kept && kept !== source) {
-      log.warn('repo identity converged with two base branches; keeping the destination\'s', {
+      log.warn("repo identity converged with two base branches; keeping the destination's", {
         from,
         to,
         kept,
@@ -747,7 +937,10 @@ export class ReposRepository {
   /** Resolve a reported repo, or derive only under a machine explicitly named by the caller. */
   async resolveRepoIdForPath(repoPath: string, machineId?: MachineId | null): Promise<RepoId> {
     const id = (await this.repoIdResolver())(repoPath, machineId)
-    if (!id) throw new Error(`no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`)
+    if (!id)
+      throw new Error(
+        `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
+      )
     return id
   }
 
@@ -775,14 +968,20 @@ export class ReposRepository {
    * answering from the pre-write registry. Take it inside the pass that uses it —
    * which is every caller today, all of them read-only loops.
    */
-  async repoIdResolver(): Promise<(repoPath: string, machineId?: MachineId | null) => RepoId | null> {
+  async repoIdResolver(): Promise<
+    (repoPath: string, machineId?: MachineId | null) => RepoId | null
+  > {
     const roots = await this.sortedRoots()
     return (repoPath: string, machineId?: MachineId | null): RepoId | null => {
       const normalizedRepoPath = machinePathKey(normalizeRepoPath(repoPath))
       const match = roots.find(
-        (r) => (machineId == null || r.machineId === machineId) && rootContains(r.path, normalizedRepoPath),
+        (r) =>
+          (machineId == null || r.machineId === machineId) &&
+          rootContains(r.path, normalizedRepoPath),
       )
-      return match?.repoId ?? (machineId ? deriveRepoId({ machineId, path: normalizedRepoPath }) : null)
+      return (
+        match?.repoId ?? (machineId ? deriveRepoId({ machineId, path: normalizedRepoPath }) : null)
+      )
     }
   }
 
@@ -804,7 +1003,9 @@ export class ReposRepository {
    *  3. else derive under the pin, the only machine the caller named (2b803efb5);
    *  4. no pin and no report: null — nothing may derive under the server's host.
    */
-  async issueRepoIdResolver(): Promise<(repoPath: string, machineId?: MachineId | null) => RepoId | null> {
+  async issueRepoIdResolver(): Promise<
+    (repoPath: string, machineId?: MachineId | null) => RepoId | null
+  > {
     const roots = await this.sortedRoots()
     return (repoPath: string, machineId?: MachineId | null): RepoId | null => {
       const normalizedRepoPath = machinePathKey(normalizeRepoPath(repoPath))
@@ -816,7 +1017,10 @@ export class ReposRepository {
       if (own) return own.repoId ?? derived
       // Longest-first, so equal-length containing roots are the SAME root string.
       const longest = containing[0]
-      if (longest?.repoId && containing.every((r) => r.path !== longest.path || r.repoId === longest.repoId)) {
+      if (
+        longest?.repoId &&
+        containing.every((r) => r.path !== longest.path || r.repoId === longest.repoId)
+      ) {
         return longest.repoId
       }
       return derived
@@ -834,7 +1038,10 @@ export class ReposRepository {
   /** {@link issueRepoIdResolver} for one issue path; throws where it answers null. */
   async resolveIssueRepoId(repoPath: string, machineId?: MachineId | null): Promise<RepoId> {
     const id = (await this.issueRepoIdResolver())(repoPath, machineId)
-    if (!id) throw new Error(`no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`)
+    if (!id)
+      throw new Error(
+        `no reporting machine for repo path ${repoPath}; choose a machine or wait for discovery`,
+      )
     return id
   }
 
@@ -867,9 +1074,16 @@ export class ReposRepository {
     const posixMachines = new Set<MachineId>()
     for (const root of await this.listRepos()) {
       explained.add(deriveRepoId({ machineId: root.machineId, path: root.path }))
-      if (root.originUrl) explained.add(deriveRepoId({ originUrl: root.originUrl, machineId: root.machineId, path: root.path }))
+      if (root.originUrl)
+        explained.add(
+          deriveRepoId({ originUrl: root.originUrl, machineId: root.machineId, path: root.path }),
+        )
       const key = machinePathKey(normalizeRepoPath(root.path))
-      if (machinePathSeparator(key) === '\\' || !key.startsWith('/') || !(key.charCodeAt(key.length - 1) < 0x7f)) {
+      if (
+        machinePathSeparator(key) === '\\' ||
+        !key.startsWith('/') ||
+        !(key.charCodeAt(key.length - 1) < 0x7f)
+      ) {
         wholeMachines.add(root.machineId)
         continue
       }
@@ -888,18 +1102,30 @@ export class ReposRepository {
   }
 
   /** Registered roots, normalized and longest-first — the one snapshot both resolvers read. */
-  private async sortedRoots(): Promise<Array<{ repoId: RepoId | null; machineId: MachineId; path: string }>> {
+  private async sortedRoots(): Promise<
+    Array<{ repoId: RepoId | null; machineId: MachineId; path: string }>
+  > {
     return (await this.listRepos())
-      .map((r) => ({ repoId: r.repoId, machineId: r.machineId, path: machinePathKey(normalizeRepoPath(r.path)) }))
+      .map((r) => ({
+        repoId: r.repoId,
+        machineId: r.machineId,
+        path: machinePathKey(normalizeRepoPath(r.path)),
+      }))
       .sort((a, b) => b.path.length - a.path.length)
   }
 
   async removeRepo(path: string, machineId: MachineId): Promise<void> {
+    return this.sessionRecordWrite
+      ? await this.sessionRecordWrite(() => this.removeRepoRows(path, machineId))
+      : await this.removeRepoRows(path, machineId)
+  }
+
+  private async removeRepoRows(path: string, machineId: MachineId): Promise<void> {
     const normalizedPath = normalizeRepoPath(path)
     const rows = await repoPathsOnMachine(this.db).all({ machineId })
     await this.invalidateRegistry()
-    const deleteRow = (this.repoWrites.deleteRow ??= prepared((db: StoreDrizzle) =>
-      db.delete(repos).where(repoRowAt()).prepare(),
+    const deleteRow = (this.repoWrites.deleteRow ??= prepared((db, t) =>
+      captureWrite(db.delete(t.repos).where(repoRowAt(t))).prepare(),
     ))
     for (const row of rows) {
       if (machinePathKey(normalizeRepoPath(row.path)) === machinePathKey(normalizedPath)) {

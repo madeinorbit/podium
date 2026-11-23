@@ -134,11 +134,7 @@ export function attentionGroup(
     return session.status === 'exited' || session.status === 'hibernated' ? 'idle' : 'working'
   }
   if (session.agentKind === 'shell') return busy(session) ? 'working' : 'idle'
-  return session.status === 'live' ||
-    session.status === 'starting' ||
-    session.status === 'reconnecting'
-    ? 'working'
-    : 'idle'
+  return session.status === 'live' || session.status === 'starting' ? 'working' : 'idle'
 }
 
 /** `agentBadge(meta).tone` on an unfinished issue (`session-status.ts:154-230`). */
@@ -170,7 +166,7 @@ function badgeTone(session: SliceSession): string | null {
 /** `isSessionWorking` = `sessionDotTone(s) === 'working'` (`session-status.ts:361-386, 428`). */
 export function isSessionWorking(session: SliceSession): boolean {
   if (session.status === 'exited') return false
-  if (session.status === 'starting' || session.status === 'reconnecting') return false
+  if (session.status === 'starting') return false
   const tone = badgeTone(session)
   if (tone !== null) return tone === 'working' && session.status !== 'hibernated'
   return session.agentKind === 'shell' && busy(session)
@@ -272,11 +268,13 @@ export function seatVerdictOf(
   session: SliceSession,
   interactions: SeatInteractions = NO_INTERACTIONS,
   taskOpen = true,
+  /** Derived from the machine's LiveStore condition by the caller; rows never carry it. */
+  reconnecting = false,
 ): SeatVerdict {
   const working = isSessionWorking(session)
   const stateSince = Date.parse(stateOf(session)?.since ?? session.lastActiveAt)
   const role = (name: SeatRole): RoleVerdict =>
-    roleVerdictOf(coordinatedSeat(session as SeatSessionFacts, name, interactions, taskOpen), stateSince)
+    roleVerdictOf(coordinatedSeat(session as SeatSessionFacts, name, interactions, taskOpen, reconnecting), stateSince)
   const roles = { coordinator: role('coordinator'), delegate: role('delegate') }
   return {
     open: motionPhase(session, false),
@@ -1457,15 +1455,52 @@ export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAt
   }
 }
 
-export function aggregateFields(input: RollupInputs, id: string, self: RollupSelf): Aggregate {
+/**
+ * POD-7173 — the nest children's aggregates in nest order, walked once per
+ * burst: a live row hands out the same aggregate view on every read, so the
+ * caller's shallow comparison holds while the children stay the children.
+ * Each narrow field then reads its own field of each child, and no other.
+ */
+export function childAggregatesOf(input: RollupInputs, id: string, self: Pick<RollupSelf, 'ownAttention'>): Aggregate[] {
+  const children: Aggregate[] = []
+  if (self.ownAttention.cold) return children
+  for (const childId of input.nested(id)) {
+    const child = input.rollupNode(childId)
+    if (child !== undefined) children.push(child.aggregate)
+  }
+  return children
+}
+
+/** The same children in sidebar order (`aggregatePartOf`'s sort): sorted once per burst, not once per field. */
+export function inNestOrder(children: readonly Aggregate[]): Aggregate[] {
+  return [...children].sort(byNestOrder)
+}
+
+function byNestOrder(a: Pick<Aggregate, 'order'>, b: Pick<Aggregate, 'order'>): number {
+  const x = a.order, y = b.order
+  if (x === undefined || y === undefined) return 0
+  const keyed = Number(!x.sortKey) - Number(!y.sortKey)
+  if (keyed) return keyed
+  if (x.sortKey && y.sortKey && x.sortKey !== y.sortKey) return x.sortKey < y.sortKey ? -1 : 1
+  return (Date.parse(y.createdAt) || 0) - (Date.parse(x.createdAt) || 0) ||
+    y.seq - x.seq || x.id.localeCompare(y.id)
+}
+
+/**
+ * The visible-subtree aggregate's fields, each composed when it is read: the
+ * own part and the nest children (`childAggregatesOf`, and `inNestOrder` for
+ * the ordered fields), each shown `asDelegated` under a live coordinator.
+ */
+export function aggregateFieldsOver(
+  self: Pick<RollupSelf, 'ownAttention'>,
+  children: () => readonly Aggregate[],
+  ordered: () => readonly Aggregate[],
+): Aggregate {
   function* parts(): Iterable<Aggregate> {
     yield self.ownAttention
     if (self.ownAttention.cold) return
     const coordinated = self.ownAttention.coordinated
-    for (const childId of input.nested(id)) {
-      const child = input.rollupNode(childId)
-      if (child !== undefined) yield coordinated ? asDelegated(child.aggregate) : child.aggregate
-    }
+    for (const child of children()) yield coordinated ? asDelegated(child) : child
   }
   const any = (key: 'working' | 'deciding' | 'seated') => {
     for (const part of parts()) if (part[key]) return true
@@ -1482,17 +1517,11 @@ export function aggregateFields(input: RollupInputs, id: string, self: RollupSel
     return total
   }
   const orderedParts = (): Aggregate[] => {
-    const [own, ...children] = parts()
-    children.sort((a, b) => {
-      const x = a.order, y = b.order
-      if (x === undefined || y === undefined) return 0
-      const keyed = Number(!x.sortKey) - Number(!y.sortKey)
-      if (keyed) return keyed
-      if (x.sortKey && y.sortKey && x.sortKey !== y.sortKey) return x.sortKey < y.sortKey ? -1 : 1
-      return (Date.parse(y.createdAt) || 0) - (Date.parse(x.createdAt) || 0) ||
-        y.seq - x.seq || x.id.localeCompare(y.id)
-    })
-    return [own!, ...children]
+    const own = self.ownAttention
+    if (own.cold) return [own]
+    const coordinated = own.coordinated, parts: Aggregate[] = [own]
+    for (const child of ordered()) parts.push(coordinated ? asDelegated(child) : child)
+    return parts
   }
   return {
     get working() { return any('working') },
@@ -1566,94 +1595,170 @@ export function unitOwnFields(
 
 type UnitChild = { readonly own: UnitOwn; readonly below: Units }
 
-function unitsFields(children: () => Iterable<UnitChild>): Units {
-  const count = (key: 'members' | 'units' | 'done') => {
-    const ownKey = key === 'members' ? 'member' : key === 'units' ? 'unit' : 'done'
-    let total = 0
-    for (const { own, below } of children())
-      if (!own.cold) total += (own[ownKey] && (key === 'members' || below.members === 0) ? 1 : 0) + below[key]
-    return total
-  }
+// ------------------------------------------------------------ what a parent folds (POD-7173)
+
+/*
+ * POD-7173 — ONE PASS PER BURST. The operator's large deck is one root with
+ * 969 children, and every burst of a large answer moves some of them. Each
+ * narrow roll-up field of the root used to walk every child and read its
+ * fields one at a time: about thirty walks of the whole tree per burst. Now
+ * each live row keeps its part in its parent's roll-ups as a few plain
+ * records, re-run only when that row's own answers move, and the parent
+ * folds them once per burst; its narrow fields read the fold. The groups
+ * stay apart where a reader asks less: counts never read staffing or seat
+ * presence, and the filing roll-up never reads the session lists.
+ */
+
+/** One formal child's counts in its parent's closure: `unitsOf`'s counts for that child alone. */
+export interface UnitCounts {
+  readonly members: number
+  readonly units: number
+  readonly done: number
+  readonly pending: number
+}
+
+const NO_UNIT_COUNTS: UnitCounts = { members: 0, units: 0, done: 0, pending: 0 }
+/** A cold child: only its pending marker. */
+const COLD_UNIT_COUNTS: UnitCounts = { ...NO_UNIT_COUNTS, pending: 1 }
+
+/** One formal child's tasks by state in its parent's closure. */
+export type UnitProgress = Readonly<Record<UnitState, number>>
+
+const NO_PROGRESS: UnitProgress = { done: 0, working: 0, waiting: 0, todo: 0 }
+
+/** A child's counts from its own unit and its own closure (read only when it is not cold). */
+export function unitCountsOf(own: UnitOwn, below: () => Units): UnitCounts {
+  if (own.cold) return COLD_UNIT_COUNTS
+  const closure = below()
+  const leaf = closure.members === 0
   return {
-    get members() { return count('members') },
-    get units() { return count('units') },
-    get done() { return count('done') },
-    get pending() {
-      let total = 0
-      for (const { own, below } of children()) total += own.cold ? 1 : below.pending
-      return total
-    },
-    get staffed() {
-      for (const { own, below } of children())
-        if (!own.cold && (own.staffed === true || below.staffed === true)) return true
-      return false
-    },
-    get progress() {
-      const progress = { done: 0, working: 0, waiting: 0, todo: 0 }
-      for (const { own, below } of children()) {
-        if (own.cold) continue
-        if (own.unit && below.members === 0) progress[own.state ?? (own.done ? 'done' : 'todo')]++
-        const nested = below.progress
-        for (const state of Object.keys(progress) as (keyof typeof progress)[])
-          progress[state] += nested?.[state] ?? 0
-      }
-      return progress
-    },
+    members: (own.member ? 1 : 0) + closure.members,
+    units: (own.unit && leaf ? 1 : 0) + closure.units,
+    done: (own.done && leaf ? 1 : 0) + closure.done,
+    pending: closure.pending,
   }
 }
 
-export function unitsBelowFields(input: RollupInputs, id: string): Units {
-  function* children(): Iterable<UnitChild> {
-    const ids = [...input.formalChildren(id)]
-    const cycle = ids.length > 0 ? formalCycleOf(input, id) : undefined
-    if (cycle !== undefined) {
-      // The same once-per-member closure as the eager oracle. Only staffing
-      // asks for cycle-wide staffing; plain counts never acquire those seats.
-      const members: { id: string; node: RollupParts }[] = []
-      const branches: UnitChild[] = []
-      const seen = new Set<string>([id]), pending = [...ids]
-      while (pending.length > 0) {
-        const childId = pending.pop()!
-        if (seen.has(childId)) continue
-        seen.add(childId)
-        const child = input.rollupNode(childId)
-        if (child === undefined) continue
-        if (!cycle.has(childId)) {
-          branches.push({ own: child.unitOwn, get below() { return child.unitOwn.cold ? NO_UNITS : child.unitsBelow } })
-          continue
-        }
-        const issue = input.loadedIssue(childId)
-        if (issue === LOADING) { branches.push({ own: PENDING_UNIT, below: NO_UNITS }); continue }
-        if (issue === undefined) continue
-        members.push({ id: childId, node: child })
-        pending.push(...input.formalChildren(childId))
-      }
-      const staffing: Units = {
-        ...NO_UNITS,
-        get staffed() {
-          if (input.rollupNode(id)?.openOwn) return true
-          for (const member of members) if (member.node.openOwn) return true
-          for (const { own, below } of branches)
-            if (!own.cold && (own.staffed === true || below.staffed === true)) return true
-          return false
-        },
-      }
-      yield* branches
-      for (const member of members) yield {
-        own: unitOwnFields(input, member.id, {
-          get openOwn() { return member.node.openOwn },
-          get ownFacts() { return member.node.ownFacts }, unitsBelow: staffing,
-        }), below: NO_UNITS,
-      }
-      return
-    }
-    for (const childId of ids) {
-      const child = input.rollupNode(childId)
-      if (child !== undefined) yield {
-        own: child.unitOwn,
-        get below() { return child.unitOwn.cold ? NO_UNITS : child.unitsBelow },
-      }
-    }
+/** A child's tasks by state: its own unit when it has no members below, plus its closure's. */
+export function unitProgressOf(own: UnitOwn, below: () => Units): UnitProgress {
+  if (own.cold) return NO_PROGRESS
+  const closure = below()
+  const progress = { ...NO_PROGRESS }
+  if (own.unit && closure.members === 0) progress[own.state ?? (own.done ? 'done' : 'todo')] += 1
+  const nested = closure.progress
+  if (nested !== undefined)
+    for (const state of Object.keys(progress) as UnitState[]) progress[state] += nested[state] ?? 0
+  return progress
+}
+
+/** Whether a child, or anything in its closure, is staffed. */
+export function unitStaffedOf(own: UnitOwn, below: () => Units): boolean {
+  return !own.cold && (own.staffed === true || below().staffed === true)
+}
+
+/** A formal child's three records, as its parent folds them. */
+export interface UnitParts {
+  readonly unitCounts: UnitCounts
+  readonly unitProgress: UnitProgress
+  readonly unitStaffed: boolean
+}
+
+/** A node's records: the live row keeps them cached; plain data composes them on the spot. */
+function unitPartsOf(child: UnitChild | (RollupParts & Partial<UnitParts>)): UnitParts {
+  if ('unitCounts' in child && child.unitCounts !== undefined) return child as UnitParts
+  const own = () => ('unitOwn' in child ? child.unitOwn : child.own)
+  const below = () => ('unitOwn' in child ? child.unitsBelow : child.below)
+  return {
+    get unitCounts() { return unitCountsOf(own(), below) },
+    get unitProgress() { return unitProgressOf(own(), below) },
+    get unitStaffed() { return unitStaffedOf(own(), below) },
   }
-  return unitsFields(children)
+}
+
+/**
+ * The formal children whose parts a closure folds: each known child's node,
+ * or within a parent cycle the legacy once-per-member closure (the eager
+ * oracle's, `cyclicUnitsBelowOf`). `childIds` is the row's own formal
+ * children, read once per burst.
+ */
+function* unitChildrenOf(
+  input: RollupInputs,
+  id: string,
+  childIds: readonly string[],
+): Iterable<UnitChild | (RollupParts & Partial<UnitParts>)> {
+  const cycle = childIds.length > 0 ? formalCycleOf(input, id) : undefined
+  if (cycle === undefined) {
+    for (const childId of childIds) {
+      const child = input.rollupNode(childId)
+      if (child !== undefined) yield child
+    }
+    return
+  }
+  // The same once-per-member closure as the eager oracle. Only staffing
+  // asks for cycle-wide staffing; plain counts never acquire those seats.
+  const members: { id: string; node: RollupParts }[] = []
+  const branches: UnitChild[] = []
+  const seen = new Set<string>([id]), pending = [...childIds]
+  while (pending.length > 0) {
+    const childId = pending.pop()!
+    if (seen.has(childId)) continue
+    seen.add(childId)
+    const child = input.rollupNode(childId)
+    if (child === undefined) continue
+    if (!cycle.has(childId)) {
+      branches.push({ own: child.unitOwn, get below() { return child.unitOwn.cold ? NO_UNITS : child.unitsBelow } })
+      continue
+    }
+    const issue = input.loadedIssue(childId)
+    if (issue === LOADING) { branches.push({ own: PENDING_UNIT, below: NO_UNITS }); continue }
+    if (issue === undefined) continue
+    members.push({ id: childId, node: child })
+    pending.push(...input.formalChildren(childId))
+  }
+  const staffing: Units = {
+    ...NO_UNITS,
+    get staffed() {
+      if (input.rollupNode(id)?.openOwn) return true
+      for (const member of members) if (member.node.openOwn) return true
+      for (const { own, below } of branches)
+        if (!own.cold && (own.staffed === true || below.staffed === true)) return true
+      return false
+    },
+  }
+  yield* branches
+  for (const member of members) yield {
+    own: unitOwnFields(input, member.id, {
+      get openOwn() { return member.node.openOwn },
+      get ownFacts() { return member.node.ownFacts }, unitsBelow: staffing,
+    }), below: NO_UNITS,
+  }
+}
+
+/** The formal closure's counts: one pass over the children's count records. */
+export function unitCountsBelow(input: RollupInputs, id: string, childIds: readonly string[]): UnitCounts {
+  let members = 0, units = 0, done = 0, pending = 0
+  for (const child of unitChildrenOf(input, id, childIds)) {
+    const counts = unitPartsOf(child).unitCounts
+    members += counts.members
+    units += counts.units
+    done += counts.done
+    pending += counts.pending
+  }
+  return { members, units, done, pending }
+}
+
+/** The formal closure's tasks by state: one pass over the children's progress records. */
+export function unitProgressBelow(input: RollupInputs, id: string, childIds: readonly string[]): UnitProgress {
+  const progress = { ...NO_PROGRESS }
+  for (const child of unitChildrenOf(input, id, childIds)) {
+    const part = unitPartsOf(child).unitProgress
+    for (const state of Object.keys(progress) as UnitState[]) progress[state] += part[state]
+  }
+  return progress
+}
+
+/** Whether anything in the formal closure is staffed: the first staffed child's record ends the pass. */
+export function unitStaffedBelow(input: RollupInputs, id: string, childIds: readonly string[]): boolean {
+  for (const child of unitChildrenOf(input, id, childIds)) if (unitPartsOf(child).unitStaffed) return true
+  return false
 }

@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Automations aggregate (#470) [spec:SP-17db] — owns the `automations` and
  * `automation_runs` tables (timestamped automations migrations). Pure persistence: the schedule
@@ -16,10 +17,29 @@ import type {
   SessionId,
   UserId,
 } from '@podium/model'
-import { and, asc, desc, eq, isNull, sql, type SQL } from 'drizzle-orm'
-import { automationRuns, automations } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, param, prepared, preparedFamily } from './executor/sync-drizzle'
+import type { WriteScope } from '@podium/sync'
+import { and, asc, desc, eq, isNull, type SQL, sql } from 'drizzle-orm'
+import type { automationRuns, automations } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
+import { dialectOf } from './executor/dialect-prepared'
+import type {
+  StoreDrizzle,
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  param,
+  prepared,
+  preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
+} from './executor/sync-drizzle'
 
 export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire & {
@@ -97,52 +117,102 @@ function rowToRun(r: AutomationRunSelect): AutomationRunRow {
 // Every query this repository runs, prepared once per store [POD-6147].
 
 const P = (name: string) => sql.placeholder(name)
-const automationIdIs = () => eq(automations.id, param(automations.id, 'id'))
-const runIdIs = () => eq(automationRuns.id, param(automationRuns.id, 'id'))
+const automationIdIs = (t: StoreTables) => eq(t.automations.id, param(t.automations.id, 'id'))
+const runIdIs = (t: StoreTables) => eq(t.automationRuns.id, param(t.automationRuns.id, 'id'))
 
-const liveAutomations = prepared((db: StoreDrizzle) =>
-  db.select().from(automations).where(isNull(automations.deletedAt)).orderBy(asc(automations.createdAt)).prepare(),
+const liveAutomations = prepared((db, t) =>
+  db
+    .select()
+    .from(t.automations)
+    .where(inWorkspace(t.automations, isNull(t.automations.deletedAt)))
+    .orderBy(asc(t.automations.createdAt))
+    .prepare(),
 )
 
-const liveAutomationById = prepared((db: StoreDrizzle) =>
-  db.select().from(automations).where(and(automationIdIs(), isNull(automations.deletedAt))).prepare(),
+const liveAutomationById = prepared((db, t) =>
+  db
+    .select()
+    .from(t.automations)
+    .where(inWorkspace(t.automations, automationIdIs(t), isNull(t.automations.deletedAt)))
+    .prepare(),
 )
 
 // THE ABSENT `isNull(deletedAt)` IS THE POINT (see `ownerOf`).
-const automationOwner = prepared((db: StoreDrizzle) =>
-  db.select({ ownerUserId: automations.ownerUserId }).from(automations).where(automationIdIs()).prepare(),
+const automationOwner = prepared((db, t) =>
+  db
+    .select({ ownerUserId: t.automations.ownerUserId })
+    .from(t.automations)
+    .where(inWorkspace(t.automations, automationIdIs(t)))
+    .prepare(),
 )
 
-const runOwner = prepared((db: StoreDrizzle) =>
+const runOwner = prepared((db, t) =>
   db
-    .select({ ownerUserId: automations.ownerUserId })
-    .from(automationRuns)
-    .innerJoin(automations, eq(automations.id, automationRuns.automationId))
-    .where(runIdIs())
+    .select({ ownerUserId: t.automations.ownerUserId })
+    .from(t.automationRuns)
+    .innerJoin(
+      t.automations,
+      and(
+        sameWorkspace(t.automations, t.automationRuns),
+        eq(t.automations.id, t.automationRuns.automationId),
+      ),
+    )
+    .where(inWorkspace(t.automationRuns, runIdIs(t)))
     .prepare(),
 )
 
 // The batched forms of `automationOwner` / `runOwner` [POD-6149]: the same
 // unfiltered reads, keyed by id, one statement per IN-list chunk.
-const automationOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const automationOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: automations.id, ownerUserId: automations.ownerUserId })
-    .from(automations)
-    .where(inListOf(automations.id, size))
+    .select({ id: t.automations.id, ownerUserId: t.automations.ownerUserId })
+    .from(t.automations)
+    .where(inWorkspace(t.automations, inListOf(t.automations.id, size)))
     .prepare(),
 )
 
-const runOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const runOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: automationRuns.id, ownerUserId: automations.ownerUserId })
-    .from(automationRuns)
-    .innerJoin(automations, eq(automations.id, automationRuns.automationId))
-    .where(inListOf(automationRuns.id, size))
+    .select({ id: t.automationRuns.id, ownerUserId: t.automations.ownerUserId })
+    .from(t.automationRuns)
+    .innerJoin(
+      t.automations,
+      and(
+        sameWorkspace(t.automations, t.automationRuns),
+        eq(t.automations.id, t.automationRuns.automationId),
+      ),
+    )
+    .where(inWorkspace(t.automationRuns, inListOf(t.automationRuns.id, size)))
     .prepare(),
 )
 
 /** Under SQLite's bound-parameter limit, like the other batched readers. */
 const OWNER_CHUNK = 500
+
+/** Live automations and live runs by id, for building records by id (POD-6763). */
+const liveAutomationsOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select()
+    .from(t.automations)
+    .where(
+      inWorkspace(t.automations, inListOf(t.automations.id, size), isNull(t.automations.deletedAt)),
+    )
+    .prepare(),
+)
+
+const liveRunsOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select()
+    .from(t.automationRuns)
+    .where(
+      inWorkspace(
+        t.automationRuns,
+        inListOf(t.automationRuns.id, size),
+        isNull(t.automationRuns.deletedAt),
+      ),
+    )
+    .prepare(),
+)
 
 const automationColumns = {
   name: P('name'),
@@ -161,46 +231,57 @@ const automationColumns = {
   lastRunAt: P('lastRunAt'),
 }
 
-const insertAutomation = prepared((db: StoreDrizzle) =>
-  db
-    .insert(automations)
-    .values({
+const insertAutomation = prepared((db, t) =>
+  captureWrite(
+    db.insert(t.automations).values({
+      workspaceId: WORKSPACE,
       id: P('id'),
       ...automationColumns,
       createdAt: P('createdAt'),
       ownerUserId: P('ownerUserId'),
       createdByActor: P('createdByActor'),
       createdByOnBehalfOf: P('createdByOnBehalfOf'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
-const updateAutomation = prepared((db: StoreDrizzle) =>
-  db.update(automations).set(automationColumns).where(automationIdIs()).prepare(),
+const updateAutomation = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.automations)
+      .set(automationColumns)
+      .where(inWorkspace(t.automations, automationIdIs(t))),
+  ).prepare(),
 )
 
-const tombstoneAutomation = prepared((db: StoreDrizzle) =>
-  db.update(automations).set({ deletedAt: P('deletedAt') })
-    .where(and(automationIdIs(), isNull(automations.deletedAt))).prepare(),
+const tombstoneAutomation = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.automations)
+      .set({ deletedAt: P('deletedAt') })
+      .where(inWorkspace(t.automations, automationIdIs(t), isNull(t.automations.deletedAt))),
+  ).prepare(),
 )
 
-const tombstoneRunsOf = prepared((db: StoreDrizzle) =>
-  db
-    .update(automationRuns)
-    .set({ deletedAt: P('deletedAt') })
-    .where(
-      and(
-        eq(automationRuns.automationId, param(automationRuns.automationId, 'id')),
-        isNull(automationRuns.deletedAt),
+const tombstoneRunsOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.automationRuns)
+      .set({ deletedAt: P('deletedAt') })
+      .where(
+        inWorkspace(
+          t.automationRuns,
+          eq(t.automationRuns.automationId, param(t.automationRuns.automationId, 'id')),
+          isNull(t.automationRuns.deletedAt),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
-const insertRun = prepared((db: StoreDrizzle) =>
-  db
-    .insert(automationRuns)
-    .values({
+const insertRun = prepared((db, t) =>
+  captureWrite(
+    db.insert(t.automationRuns).values({
+      workspaceId: WORKSPACE,
       id: P('id'),
       automationId: P('automationId'),
       firedAt: P('firedAt'),
@@ -209,88 +290,139 @@ const insertRun = prepared((db: StoreDrizzle) =>
       detail: P('detail'),
       actor: P('actor'),
       onBehalfOf: P('onBehalfOf'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
-const liveRunById = prepared((db: StoreDrizzle) =>
-  db.select().from(automationRuns).where(and(runIdIs(), isNull(automationRuns.deletedAt))).prepare(),
-)
-
-const finalizeRun = prepared((db: StoreDrizzle) =>
-  db
-    .update(automationRuns)
-    .set({ sessionId: P('sessionId'), outcome: P('outcome'), detail: P('detail') })
-    .where(and(runIdIs(), isNull(automationRuns.deletedAt)))
-    .prepare(),
-)
-
-const runsOfAutomation = prepared((db: StoreDrizzle) =>
+const liveRunById = prepared((db, t) =>
   db
     .select()
-    .from(automationRuns)
-    .where(and(
-      eq(automationRuns.automationId, param(automationRuns.automationId, 'automationId')),
-      isNull(automationRuns.deletedAt),
-    ))
-    // The rowid tie-break makes the order TOTAL: two fires can share a
+    .from(t.automationRuns)
+    .where(inWorkspace(t.automationRuns, runIdIs(t), isNull(t.automationRuns.deletedAt)))
+    .prepare(),
+)
+
+const finalizeRun = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.automationRuns)
+      .set({ sessionId: P('sessionId'), outcome: P('outcome'), detail: P('detail') })
+      .where(inWorkspace(t.automationRuns, runIdIs(t), isNull(t.automationRuns.deletedAt))),
+  ).prepare(),
+)
+
+// INSERTION ORDER, PER ENGINE. SQLite breaks a `fired_at` tie by rowid and names the
+// latest spawned run by MAX(rowid): insertion order, which is the truth about which
+// ran last when two fires share a timestamp or one is recorded out of order (see
+// `lastSpawnedSessions`). Postgres has no rowid and the table no insertion counter,
+// so its forms order by `fired_at` and break a tie by the primary key: the same
+// answer whenever the runs were recorded in the order they fired.
+const runTieBreak = (db: StoreDrizzle, t: StoreTables): SQL =>
+  dialectOf(db) === 'pg' ? sql`${t.automationRuns.id}` : sql`rowid`
+
+const runsOfAutomation = prepared((db, t) =>
+  db
+    .select()
+    .from(t.automationRuns)
+    .where(
+      inWorkspace(
+        t.automationRuns,
+        eq(t.automationRuns.automationId, param(t.automationRuns.automationId, 'automationId')),
+        isNull(t.automationRuns.deletedAt),
+      ),
+    )
+    // The tie-break makes the order TOTAL: two fires can share a
     // timestamp, and without it the page is whatever the engine returns.
-    .orderBy(desc(automationRuns.firedAt), desc(sql`rowid`))
+    .orderBy(desc(t.automationRuns.firedAt), desc(runTieBreak(db, t)))
     .limit(P('limit'))
     .prepare(),
 )
 
-const allLiveRuns = prepared((db: StoreDrizzle) =>
+const allLiveRuns = prepared((db, t) =>
   db
     .select()
-    .from(automationRuns)
-    .where(isNull(automationRuns.deletedAt))
-    .orderBy(asc(automationRuns.firedAt), asc(sql`rowid`))
+    .from(t.automationRuns)
+    .where(inWorkspace(t.automationRuns, isNull(t.automationRuns.deletedAt)))
+    .orderBy(asc(t.automationRuns.firedAt), asc(runTieBreak(db, t)))
     .prepare(),
 )
 
 /** The live run ids of one automation, through its index (POD-6172). */
-const liveRunIdsOf = prepared((db: StoreDrizzle) =>
+const liveRunIdsOf = prepared((db, t) =>
   db
-    .select({ id: automationRuns.id })
-    .from(automationRuns)
-    .where(and(
-      eq(automationRuns.automationId, param(automationRuns.automationId, 'automationId')),
-      isNull(automationRuns.deletedAt),
-    ))
+    .select({ id: t.automationRuns.id })
+    .from(t.automationRuns)
+    .where(
+      inWorkspace(
+        t.automationRuns,
+        eq(t.automationRuns.automationId, param(t.automationRuns.automationId, 'automationId')),
+        isNull(t.automationRuns.deletedAt),
+      ),
+    )
     .prepare(),
 )
 
-// THE LATEST SPAWNED RUN OF AN AUTOMATION: a correlated `MAX(rowid)` over its
-// runs, which the builder has no vocabulary for, so it stays a `sql` fragment
-// inside the builder query (rule 1). `rowid` and not `MAX(fired_at)`: see
-// `lastSpawnedSessions`. The subquery seeks `idx_automation_runs_automation`.
-const latestSpawnedRowid = (automationId: SQL) => sql`(
-    SELECT MAX(x.rowid) FROM automation_runs x
-    WHERE x.automation_id = ${automationId}
+// THE LATEST SPAWNED RUN OF AN AUTOMATION: a correlated subquery over its runs,
+// which the builder has no vocabulary for, so it stays a `sql` fragment inside the
+// builder query (rule 1). The subquery seeks `idx_automation_runs_automation`.
+// `workspace` holds `x` to the caller's workspace in the subquery's own scope:
+// the placeholder, or the correlated automation's own column (POD-6959).
+//
+// On SQLite `MAX(rowid)`, not `MAX(fired_at)`: see `lastSpawnedSessions`. On
+// Postgres the newest by `fired_at`, a tie broken by the primary key (above).
+const isLatestSpawnedRun = (
+  db: StoreDrizzle,
+  t: StoreTables,
+  automationId: SQL,
+  workspace: SQL,
+): SQL => {
+  const spawned = sql`x.workspace_id = ${workspace}
+      AND x.automation_id = ${automationId}
       AND x.outcome = 'spawned' AND x.session_id IS NOT NULL
-      AND x.deleted_at IS NULL
+      AND x.deleted_at IS NULL`
+  return dialectOf(db) === 'pg'
+    ? sql`${t.automationRuns.id} = (
+    SELECT x.id FROM automation_runs x
+    WHERE ${spawned}
+    ORDER BY x.fired_at DESC, x.id DESC LIMIT 1
   )`
+    : sql`${t.automationRuns}.rowid = (
+    SELECT MAX(x.rowid) FROM automation_runs x
+    WHERE ${spawned}
+  )`
+}
 
 // Driven from `automations` (a small table) rather than from every run
 // (POD-6172): one index seek per automation instead of a read of every run.
 // Every run names an existing automation (the foreign key), so no run is missed.
-const lastSpawnedRuns = prepared((db: StoreDrizzle) =>
+const lastSpawnedRuns = prepared((db, t) =>
   db
     .select({
-      automationId: automationRuns.automationId,
-      sessionId: automationRuns.sessionId,
+      automationId: t.automationRuns.automationId,
+      sessionId: t.automationRuns.sessionId,
     })
-    .from(automations)
-    .innerJoin(automationRuns, sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${automations.id}`)}`)
+    .from(t.automations)
+    .innerJoin(
+      t.automationRuns,
+      and(
+        sameWorkspace(t.automationRuns, t.automations),
+        isLatestSpawnedRun(db, t, sql`${t.automations.id}`, sql`${t.automations.workspaceId}`),
+      ),
+    )
+    .where(inWorkspace(t.automations))
     .prepare(),
 )
 
-const lastSpawnedRunOf = prepared((db: StoreDrizzle) =>
+const lastSpawnedRunOf = prepared((db, t) =>
   db
-    .select({ sessionId: automationRuns.sessionId })
-    .from(automationRuns)
-    .where(sql`${automationRuns}.rowid = ${latestSpawnedRowid(sql`${sql.placeholder('automationId')}`)}`)
+    .select({ sessionId: t.automationRuns.sessionId })
+    .from(t.automationRuns)
+    .where(
+      inWorkspace(
+        t.automationRuns,
+        isLatestSpawnedRun(db, t, sql`${sql.placeholder('automationId')}`, sql`${WORKSPACE}`),
+      ),
+    )
     .prepare(),
 )
 
@@ -317,11 +449,11 @@ function automationValues(a: AutomationRow) {
 }
 
 export class AutomationsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -333,8 +465,8 @@ export class AutomationsRepository {
    * access, and a field frozen at construction never could. B1 changes this one
    * line; no call site moves.
    */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   async list(): Promise<AutomationRow[]> {
@@ -404,7 +536,33 @@ export class AutomationsRepository {
     return out
   }
 
-  async insert(a: AutomationRow): Promise<void> {
+  /** {@link get} for many ids, one read per 500; an absent id has no live row. */
+  async getMany(ids: readonly string[]): Promise<AutomationRow[]> {
+    const out: AutomationRow[] = []
+    const unique = [...new Set(ids)]
+    for (let at = 0; at < unique.length; at += OWNER_CHUNK) {
+      const chunk = unique.slice(at, at + OWNER_CHUNK)
+      const size = inListSize(chunk.length)
+      for (const row of await liveAutomationsOfIds(this.db, size).all(inListValues(chunk, size)))
+        out.push(rowToAutomation(row))
+    }
+    return out
+  }
+
+  /** {@link getRun} for many ids, one read per 500; same contract as {@link getMany}. */
+  async getRuns(ids: readonly string[]): Promise<AutomationRunRow[]> {
+    const out: AutomationRunRow[] = []
+    const unique = [...new Set(ids)]
+    for (let at = 0; at < unique.length; at += OWNER_CHUNK) {
+      const chunk = unique.slice(at, at + OWNER_CHUNK)
+      const size = inListSize(chunk.length)
+      for (const row of await liveRunsOfIds(this.db, size).all(inListValues(chunk, size)))
+        out.push(rowToRun(row))
+    }
+    return out
+  }
+
+  async insert(_scope: WriteScope, a: AutomationRow): Promise<void> {
     await insertAutomation(this.db).run({
       id: a.id,
       ...automationValues(a),
@@ -416,7 +574,7 @@ export class AutomationsRepository {
   }
 
   /** Whole-row update (the service reads, patches, writes back). */
-  async update(a: AutomationRow): Promise<void> {
+  async update(_scope: WriteScope, a: AutomationRow): Promise<void> {
     await updateAutomation(this.db).run({ id: a.id, ...automationValues(a) })
   }
 
@@ -434,7 +592,7 @@ export class AutomationsRepository {
    * fires now that the parent row stays; a cascade that silently stopped
    * happening would leave every run of a deleted automation live and listable.
    */
-  async remove(id: string, deletedAt: string): Promise<boolean> {
+  async remove(_scope: WriteScope, id: string, deletedAt: string): Promise<boolean> {
     const removed =
       Number(
         (await tombstoneAutomation(this.db).run({ id: id as AutomationId, deletedAt })).changes,
@@ -447,7 +605,7 @@ export class AutomationsRepository {
 
   // ---- runs ----
 
-  async addRun(run: AutomationRunRow): Promise<void> {
+  async addRun(_scope: WriteScope, run: AutomationRunRow): Promise<void> {
     await insertRun(this.db).run({
       id: run.id,
       automationId: run.automationId,
@@ -468,6 +626,7 @@ export class AutomationsRepository {
   /** Finalize a reserved occurrence after side effects [POD-925]. A tombstoned
    *  run is not finalizable: its automation is gone and the row is history. */
   async updateRun(
+    _scope: WriteScope,
     id: string,
     patch: { sessionId: SessionId | null; outcome: AutomationRunOutcome; detail: string | null },
   ): Promise<void> {
@@ -481,10 +640,7 @@ export class AutomationsRepository {
 
   /** Most recent runs first — the tab's "Recent runs" list. */
   async listRuns(automationId: AutomationId, limit = 20): Promise<AutomationRunRow[]> {
-    return (
-      (await runsOfAutomation(this.db).all({ automationId, limit }))
-        .map(rowToRun)
-    )
+    return (await runsOfAutomation(this.db).all({ automationId, limit })).map(rowToRun)
   }
 
   /** Full run truth for durable snapshots and boot reconciliation. */
@@ -494,9 +650,10 @@ export class AutomationsRepository {
 
   /** The session id of the LATEST spawned run, per automation — the overlap check's
    *  input ("is the previous run's session still live?"). Automations that never
-   *  spawned are absent from the map. Latest = highest rowid (insertion order), not
-   *  MAX(fired_at): two fires can share a timestamp, and insertion order is the
-   *  truth about which ran last. */
+   *  spawned are absent from the map. On SQLite latest = highest rowid (insertion
+   *  order), not MAX(fired_at): two fires can share a timestamp, and insertion order
+   *  is the truth about which ran last. On Postgres, which keeps no insertion order,
+   *  latest = newest `fired_at`, a tie broken by the run id. */
   async lastSpawnedSessions(): Promise<Map<AutomationId, SessionId>> {
     const rows = await lastSpawnedRuns(this.db).all()
     return new Map(

@@ -10,63 +10,87 @@
  * is allowed to.
  */
 
+import { applySettingsPatch, changedSettingsLeaves } from '@podium/commands/settings-write-plan'
 import { DEFAULT_SETTINGS, normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
-import { refusalMessage, saveSettingsAsCommands } from './save-settings'
+import { refusalMessage, saveSettingsAsCommands, settingsChange } from './save-settings'
 
 function fakeTrpc() {
-  const updatePersonal = vi.fn(async ({ values }: { values: Record<string, unknown> }) =>
-    normalizeSettings({ sidebar: { repoSort: values['sidebar.repoSort'] ?? 'lastUsed' } }),
-  )
-  const updateInstance = vi.fn(async () => normalizeSettings({}))
+  // My personal leaves are an edit of my `userPreferences` record (POD-6673),
+  // handed to the save as its `personal` writer.
+  const updatePersonal = vi.fn(async (_input: { values: Record<string, unknown> }) => {})
+  // The instance leaves are an edit of the `instancePreferences` record
+  // (POD-6677), handed to the save as its `instance` writer.
+  const updateInstance = vi.fn(async (_input: { values: Record<string, unknown> }) => {})
   const setSecret = vi.fn(async () => ({
-    key: 'apiKeys.openai',
+    key: 'integrations.linearApiKey',
     present: true,
     fingerprint: 'deadbeefdeadbeef',
     updatedAt: '2026-07-30T00:00:00.000Z',
   }))
   const clearSecret = vi.fn(async () => ({
-    key: 'apiKeys.openai',
+    key: 'integrations.linearApiKey',
     present: false,
     fingerprint: null,
     updatedAt: null,
   }))
   const trpc = {
     settings: {
-      updatePersonal: { mutate: updatePersonal },
-      updateInstance: { mutate: updateInstance },
       setSecret: { mutate: setSecret },
       clearSecret: { mutate: clearSecret },
     },
   } as unknown as Trpc
+  PERSONAL.set(trpc, async (values) => await updatePersonal({ values: { ...values } }))
+  INSTANCE.set(trpc, async (values) => await updateInstance({ values: { ...values } }))
   return { trpc, updatePersonal, updateInstance, setSecret, clearSecret }
 }
+
+const PERSONAL = new WeakMap<Trpc, (values: Readonly<Record<string, unknown>>) => Promise<void>>()
+const INSTANCE = new WeakMap<Trpc, (values: Readonly<Record<string, unknown>>) => Promise<void>>()
+/** The save as the settings screen calls it: with the two records' writers. */
+const save = (
+  trpc: Trpc,
+  previous: Parameters<typeof saveSettingsAsCommands>[1],
+  next: Parameters<typeof saveSettingsAsCommands>[2],
+  options: { online: boolean },
+) =>
+  saveSettingsAsCommands(trpc, previous, next, {
+    ...options,
+    personal: PERSONAL.get(trpc),
+    instance: INSTANCE.get(trpc),
+  })
 
 const base = normalizeSettings({})
 
 describe('resetting absent-default instance settings', () => {
-  it('sends every optional instance clear through updateInstance and advances the saved baseline', async () => {
+  it('sends every optional instance clear as a reset of the instance record and advances the saved baseline', async () => {
     const { trpc, updatePersonal, updateInstance, setSecret, clearSecret } = fakeTrpc()
     const previous = normalizeSettings({
       transcripts: { mirror: false },
       deployment: {
-        authOpenMode: true, updateChannel: 'dev', connectEnabled: false,
-        telemetryUsage: 'off', telemetryCrash: 'on',
-        telemetryInstallId: 'saved-install', telemetrySince: 0,
+        authOpenMode: true,
+        updateChannel: 'dev',
+        connectEnabled: false,
+        telemetryUsage: 'off',
+        telemetryCrash: 'on',
+        telemetryInstallId: 'saved-install',
+        telemetrySince: 0,
       },
     })
-    const result = await saveSettingsAsCommands(trpc, previous, DEFAULT_SETTINGS, { online: true })
-    expect(updateInstance).toHaveBeenCalledExactlyOnceWith({ values: {
-      'transcripts.mirror': null,
-      'deployment.authOpenMode': null,
-      'deployment.updateChannel': null,
-      'deployment.connectEnabled': null,
-      'deployment.telemetryUsage': null,
-      'deployment.telemetryCrash': null,
-      'deployment.telemetryInstallId': null,
-      'deployment.telemetrySince': null,
-    } })
+    const result = await save(trpc, previous, DEFAULT_SETTINGS, { online: true })
+    expect(updateInstance).toHaveBeenCalledExactlyOnceWith({
+      values: {
+        'transcripts.mirror': undefined,
+        'deployment.authOpenMode': undefined,
+        'deployment.updateChannel': undefined,
+        'deployment.connectEnabled': undefined,
+        'deployment.telemetryUsage': undefined,
+        'deployment.telemetryCrash': undefined,
+        'deployment.telemetryInstallId': undefined,
+        'deployment.telemetrySince': undefined,
+      },
+    })
     expect(updatePersonal).not.toHaveBeenCalled()
     expect(setSecret).not.toHaveBeenCalled()
     expect(clearSecret).not.toHaveBeenCalled()
@@ -78,14 +102,14 @@ describe('resetting absent-default instance settings', () => {
 describe('offline, a secret never leaves the machine', () => {
   it('does NOT call setSecret, and reports the refusal', async () => {
     const { trpc, setSecret, clearSecret } = fakeTrpc()
-    const next = { ...base, apiKeys: { ...base.apiKeys, openai: 'sk-live-new' } }
-    const result = await saveSettingsAsCommands(trpc, base, next, { online: false })
+    const next = { ...base, integrations: { ...base.integrations, linearApiKey: 'sk-live-new' } }
+    const result = await save(trpc, base, next, { online: false })
     expect(setSecret).not.toHaveBeenCalled()
     expect(clearSecret).not.toHaveBeenCalled()
-    expect(result.refusals.map((r) => r.path)).toEqual(['apiKeys.openai'])
+    expect(result.refusals.map((r) => r.path)).toEqual(['integrations.linearApiKey'])
     // The baseline does NOT advance past the refused field, so the form stays
     // dirty and the user's typed value is not silently treated as saved.
-    expect(result.saved.apiKeys.openai).toBe('')
+    expect(result.saved.integrations.linearApiKey).toBe('')
   })
 
   it('… while a preference in the same save IS written', async () => {
@@ -95,9 +119,9 @@ describe('offline, a secret never leaves the machine', () => {
     const next = {
       ...base,
       sidebar: { ...base.sidebar, repoSort: 'alphabetical' as const },
-      apiKeys: { ...base.apiKeys, openai: 'sk-live-new' },
+      integrations: { ...base.integrations, linearApiKey: 'sk-live-new' },
     }
-    const result = await saveSettingsAsCommands(trpc, base, next, { online: false })
+    const result = await save(trpc, base, next, { online: false })
     expect(updatePersonal).toHaveBeenCalledWith({ values: { 'sidebar.repoSort': 'alphabetical' } })
     expect(setSecret).not.toHaveBeenCalled()
     expect(result.refusals).toHaveLength(1)
@@ -106,12 +130,12 @@ describe('offline, a secret never leaves the machine', () => {
   it('the refusal message names the field and says why', () => {
     const message = refusalMessage([
       {
-        path: 'apiKeys.openai',
+        path: 'integrations.linearApiKey',
         reason: 'requires-connection',
         message: 'irrelevant — the bar composes its own line',
       },
     ])
-    expect(message).toContain('apiKeys.openai')
+    expect(message).toContain('integrations.linearApiKey')
     expect(message).toContain('offline')
     expect(message).toContain('never queued')
   })
@@ -124,23 +148,26 @@ describe('offline, a secret never leaves the machine', () => {
 describe('online, the commands are issued — one per tier, one per secret', () => {
   it('calls setSecret with the material and folds it into the baseline', async () => {
     const { trpc, setSecret } = fakeTrpc()
-    const next = { ...base, apiKeys: { ...base.apiKeys, openai: 'sk-live-new' } }
-    const result = await saveSettingsAsCommands(trpc, base, next, { online: true })
-    expect(setSecret).toHaveBeenCalledWith({ key: 'apiKeys.openai', value: 'sk-live-new' })
+    const next = { ...base, integrations: { ...base.integrations, linearApiKey: 'sk-live-new' } }
+    const result = await save(trpc, base, next, { online: true })
+    expect(setSecret).toHaveBeenCalledWith({
+      key: 'integrations.linearApiKey',
+      value: 'sk-live-new',
+    })
     expect(result.refusals).toEqual([])
     // The secret command answers with a PRESENCE projection and never the
     // material, so the baseline is brought forward from what was sent — without
     // this the form would stay permanently dirty after a successful save.
-    expect(result.saved.apiKeys.openai).toBe('sk-live-new')
+    expect(result.saved.integrations.linearApiKey).toBe('sk-live-new')
   })
 
   it('an EMPTIED secret calls clearSecret, never setSecret with an empty value', async () => {
     const { trpc, setSecret, clearSecret } = fakeTrpc()
-    const configured = { ...base, apiKeys: { ...base.apiKeys, openai: 'sk-old' } }
-    const result = await saveSettingsAsCommands(trpc, configured, base, { online: true })
-    expect(clearSecret).toHaveBeenCalledWith({ key: 'apiKeys.openai' })
+    const configured = { ...base, integrations: { ...base.integrations, linearApiKey: 'sk-old' } }
+    const result = await save(trpc, configured, base, { online: true })
+    expect(clearSecret).toHaveBeenCalledWith({ key: 'integrations.linearApiKey' })
     expect(setSecret).not.toHaveBeenCalled()
-    expect(result.saved.apiKeys.openai).toBe('')
+    expect(result.saved.integrations.linearApiKey).toBe('')
   })
 
   it('splits a mixed edit across the two preference commands', async () => {
@@ -148,16 +175,18 @@ describe('online, the commands are issued — one per tier, one per secret', () 
     const next = {
       ...base,
       sidebar: { ...base.sidebar, repoSort: 'alphabetical' as const },
-      gitWorkflow: { ...base.gitWorkflow, mergeStyle: 'pr' as const },
+      gitWorkflow: { ...base.gitWorkflow, defaultParentBranch: 'release' },
     }
-    await saveSettingsAsCommands(trpc, base, next, { online: true })
+    await save(trpc, base, next, { online: true })
     expect(updatePersonal).toHaveBeenCalledWith({ values: { 'sidebar.repoSort': 'alphabetical' } })
-    expect(updateInstance).toHaveBeenCalledWith({ values: { 'gitWorkflow.mergeStyle': 'pr' } })
+    expect(updateInstance).toHaveBeenCalledWith({
+      values: { 'gitWorkflow.defaultParentBranch': 'release' },
+    })
   })
 
   it('sends NOTHING when nothing changed', async () => {
     const { trpc, updatePersonal, updateInstance, setSecret, clearSecret } = fakeTrpc()
-    const result = await saveSettingsAsCommands(trpc, base, { ...base }, { online: true })
+    const result = await save(trpc, base, { ...base }, { online: true })
     for (const spy of [updatePersonal, updateInstance, setSecret, clearSecret]) {
       expect(spy).not.toHaveBeenCalled()
     }
@@ -171,18 +200,94 @@ describe('online, the commands are issued — one per tier, one per secret', () 
     const next = {
       ...base,
       sidebar: { ...base.sidebar, repoSort: 'alphabetical' as const },
-      apiKeys: { ...base.apiKeys, openai: 'sk-live-new' },
+      notifications: { ...base.notifications, telegramBotToken: 'sk-live-new' },
       integrations: { ...base.integrations, linearApiKey: 'lin_api_x' },
     }
-    await saveSettingsAsCommands(trpc, base, next, { online: true })
+    await save(trpc, base, next, { online: true })
     for (const spy of [updatePersonal, updateInstance]) {
       for (const call of spy.mock.calls) {
         expect(JSON.stringify(call)).not.toContain('sk-live-new')
         expect(JSON.stringify(call)).not.toContain('lin_api_x')
-        expect(JSON.stringify(call)).not.toContain('apiKeys')
+        expect(JSON.stringify(call)).not.toContain('telegramBotToken')
       }
     }
     // …and the spies were actually called, so the loop above is not empty.
     expect(updatePersonal).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('one control and its inverse', () => {
+  const permitted = {
+    'records.userPreferences.edit': true,
+    'records.instancePreferences.edit': true,
+  }
+  it('plans the same leaves as the former form diff, without staging', async () => {
+    const { trpc, updateInstance } = fakeTrpc()
+    const patch = { hibernation: { ...base.hibernation, enabled: false } }
+    const change = settingsChange(base, patch)
+    expect(change.paths).toEqual(
+      changedSettingsLeaves(base, { ...base, ...patch }).map((leaf) => leaf.path),
+    )
+    await change.save(trpc, () => base, { instance: INSTANCE.get(trpc) }, permitted)
+    expect(updateInstance).toHaveBeenCalledExactlyOnceWith({
+      values: { 'hibernation.enabled': false },
+    })
+  })
+  it('undoes only this control and keeps concurrent changes from another device', async () => {
+    const { trpc } = fakeTrpc()
+    let record = normalizeSettings({})
+    const personal = vi.fn(async (values: Readonly<Record<string, unknown>>) => {
+      record = applySettingsPatch(record, values)
+    })
+    const undo = await settingsChange(record, {
+      notifications: { ...record.notifications, ntfyTopic: 'new-topic' },
+    }).save(trpc, () => record, { personal }, permitted)
+    record = applySettingsPatch(record, { 'notifications.web': false, 'hibernation.memoryPct': 90 })
+    await undo()
+    expect(personal).toHaveBeenLastCalledWith({ 'notifications.ntfyTopic': '' })
+    expect(record.notifications.web).toBe(false)
+    expect(record.hibernation.memoryPct).toBe(90)
+  })
+  it('resets an optional instance leaf when Undo returns it to its absent default', async () => {
+    const { trpc } = fakeTrpc()
+    let record = normalizeSettings({})
+    const instance = vi.fn(async (values: Readonly<Record<string, unknown>>) => {
+      record = applySettingsPatch(record, values)
+    })
+    const undo = await settingsChange(record, { transcripts: { mirror: false } }).save(
+      trpc,
+      () => record,
+      { instance },
+      permitted,
+    )
+    expect(instance).toHaveBeenCalledWith({ 'transcripts.mirror': false })
+    await undo()
+    expect(instance).toHaveBeenLastCalledWith({ 'transcripts.mirror': undefined })
+  })
+  it('never issues a record write the viewer cannot use', async () => {
+    const { trpc, updateInstance } = fakeTrpc()
+    await expect(
+      settingsChange(base, { hibernation: { ...base.hibernation, enabled: false } }).save(
+        trpc,
+        () => base,
+        { instance: INSTANCE.get(trpc) },
+        {},
+      ),
+    ).rejects.toThrow('permission')
+    expect(updateInstance).not.toHaveBeenCalled()
+  })
+  it('propagates a refused write instead of producing an Undo action', async () => {
+    const { trpc } = fakeTrpc()
+    const instance = vi.fn(async () => {
+      throw new Error('locked by the deployment')
+    })
+    await expect(
+      settingsChange(base, { transcripts: { mirror: false } }).save(
+        trpc,
+        () => base,
+        { instance },
+        permitted,
+      ),
+    ).rejects.toThrow('locked by the deployment')
   })
 })

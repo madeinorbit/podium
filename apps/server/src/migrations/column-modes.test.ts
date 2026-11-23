@@ -33,6 +33,16 @@ import * as schema from './schema'
 /** The 0/1 integer columns, `<table>.<column>`. */
 const BOOLEAN_COLUMNS = [
   'automations.enabled',
+  // A checkout's flags and a lost checkout's kind (POD-6644).
+  'checkout_lost.root',
+  'checkouts.locked',
+  'checkouts.prunable',
+  'effects.cancel_requested',
+  'grants.custody',
+  // The identity tables come from the shared identity package (POD-6744).
+  'identity_session.fixed_expiry',
+  'identity_user.email_verified',
+  'issue_panel_todos.done',
   'issues.archived',
   'issues.draft',
   'issues.needs_human',
@@ -40,12 +50,17 @@ const BOOLEAN_COLUMNS = [
   'messages.expects_response',
   'quota_windows.partial',
   'sessions.archived',
+  // The materialized asking flag is maintained by the offer/checkpoint triggers.
+  'sessions.asks_user',
+  'sessions.desired_force',
+  'sessions.draft_sync_engine',
   'sessions.headless',
   'subscriptions.deliver_notify',
   'subscriptions.deliver_nudge',
   'subscriptions.enabled',
   'superagent_pending_turns.first_turn',
   'superagent_threads.archived',
+  'superagent_threads.turn_running',
 ].sort()
 
 interface DeclaredColumn {

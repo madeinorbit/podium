@@ -14,10 +14,13 @@
  * daemon agent relay (PODIUM_AGENT_RELAY), never by a flag — so this command is
  * only meaningful from inside a Podium-managed agent session.
  *
- * Speaks to the `offer` relay router (composed in apps/server/src/relay.ts).
+ * Sends `offer.set` / `offer.clear` on the sync write entry point through the
+ * relay (`sync.submit`, POD-6419). LEGACY(remove-after: 2027-03): an older server
+ * has no `sync.submit`, and takes the `offer` relay router's own procedures.
  */
 
 import { makeRelayIssueClient } from '@podium/issue-client'
+import { type SyncSubmitTransport, submitNow } from '@podium/protocol'
 import { resolveAgentRelay } from '@podium/runtime/config'
 import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 
@@ -26,7 +29,7 @@ type OfferProc = {
   query(input?: unknown): Promise<unknown>
 }
 
-export interface OfferClient {
+export interface OfferClient extends SyncSubmitTransport {
   offer: {
     set: OfferProc
     clear: OfferProc
@@ -185,7 +188,15 @@ export async function runOfferCli(argv: string[], client: OfferClient): Promise<
   if (command === 'help') return helpText()
 
   if (command === 'clear') {
-    const r = await client.offer.clear.mutate({})
+    const r = await submitNow(
+      client,
+      'offer.clear',
+      {},
+      {
+        action: 'clear the offer',
+        legacy: async () => await client.offer.clear.mutate({}),
+      },
+    )
     return done('offer cleared', r)
   }
 
@@ -207,10 +218,14 @@ export async function runOfferCli(argv: string[], client: OfferClient): Promise<
     return path
   })
   const parsed = actions.map((a) => parseAction(a.token, a.input))
-  const r = (await client.offer.set.mutate({
+  const input = {
     message: expandMessageNewlines(message).trim(),
     actions: parsed,
     ...(artifactPaths.length > 0 ? { artifacts: artifactPaths } : {}),
+  }
+  const r = (await submitNow(client, 'offer.set', input, {
+    action: 'set the offer',
+    legacy: async () => await client.offer.set.mutate(input),
   })) as {
     ok: boolean
     reason?: string

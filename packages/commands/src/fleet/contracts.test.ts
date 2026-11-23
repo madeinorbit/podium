@@ -28,10 +28,8 @@ import {
 // first assertion below — which is the point: a new fleet command must be
 // declared somewhere a reviewer reads, not merely somewhere the compiler does.
 const DECLARED: readonly FleetContractName[] = [
-  'machines.rename',
   'machines.setAssignment',
   'machines.applyUpdate',
-  'machines.setUpdateChannel',
   'machines.share',
   'machines.unshare',
   'machines.transferOwnership',
@@ -134,10 +132,8 @@ describe('the fleet contracts', () => {
     // `scanFolder`, disclose) state — a derivation would have skipped exactly
     // the ones whose class was the hard call.
     const writesInto: Record<FleetContractName, string> = {
-      'machines.rename': 'machine',
       'machines.setAssignment': 'machine',
       'machines.applyUpdate': 'machine',
-      'machines.setUpdateChannel': 'machine',
       'machines.share': 'machine',
       'machines.transferOwnership': 'machine',
       'machines.adopt': 'machine',
@@ -177,7 +173,7 @@ describe('the fleet contracts', () => {
    */
   it('does not classify the pairing mint like its neighbours', () => {
     expect(FLEET_CONTRACTS['machines.pairingCode'].visibility).toBe('secret')
-    expect(FLEET_CONTRACTS['machines.rename'].visibility).toBe('owned-compute')
+    expect(FLEET_CONTRACTS['machines.revoke'].visibility).toBe('owned-compute')
     expect(visibilityClassOf('pairing-token')).not.toBe(visibilityClassOf('machine'))
     // And the class it is NOT: `personal` is what a copied session contract
     // would have made every one of these.
@@ -192,10 +188,8 @@ describe('the fleet contracts', () => {
       contracts().map((c) => [c.name, c.policy.machineVerb ?? null]),
     )
     expect(byVerb).toEqual({
-      'machines.rename': 'manage',
       'machines.setAssignment': 'manage',
       'machines.applyUpdate': 'manage',
-      'machines.setUpdateChannel': 'manage',
       'machines.share': 'manage',
       'machines.transferOwnership': 'manage',
       'machines.moveServer': 'manage',
@@ -263,10 +257,8 @@ describe('the fleet contracts', () => {
       Object.entries(FLEET_CONTRACTS).map(([n, c]) => [n, c.serverRole]),
     )
     expect(byRole).toEqual({
-      'machines.rename': 'hub',
       'machines.setAssignment': 'hub',
       'machines.applyUpdate': 'hub',
-      'machines.setUpdateChannel': 'hub',
       'machines.share': 'hub',
       'machines.transferOwnership': 'hub',
       'machines.moveServer': 'hub',
@@ -291,7 +283,7 @@ describe('the fleet contracts', () => {
   })
 
   it('resolves an unknown name to the SMALLER surface, not to core', () => {
-    expect(fleetServerRoleOf('machines.rename')).toBe('hub')
+    expect(fleetServerRoleOf('machines.revoke')).toBe('hub')
     expect(fleetServerRoleOf('repos.add')).toBe('core')
     // Default-closed: a typo must not silently widen where a command is served.
     expect(fleetServerRoleOf('machines.renam')).toBe('hub')
@@ -313,7 +305,7 @@ describe('the fleet contracts', () => {
     ])
     // The counterfactual: a fleet write that carries no credential redacts
     // nothing, so `reviewed: true` is doing work rather than rubber-stamping.
-    expect(FLEET_CONTRACTS['machines.rename'].redaction.outputPaths).toEqual([])
+    expect(FLEET_CONTRACTS['machines.revoke'].redaction.outputPaths).toEqual([])
   })
 
   it('records an offline class per contract with its reasoning', () => {
@@ -331,11 +323,26 @@ describe('the fleet contracts', () => {
   })
 
   it('declares owner-or-admin custody without widening use', () => {
-    for (const name of ['machines.share', 'machines.unshare', 'machines.transferOwnership'] as const) {
-      expect(FLEET_CONTRACTS[name].policy).toMatchObject({ roleFloor: 'member', machineVerb: 'manage', machineSharingAuthority: 'owner-or-admin' })
+    for (const name of [
+      'machines.share',
+      'machines.unshare',
+      'machines.transferOwnership',
+    ] as const) {
+      expect(FLEET_CONTRACTS[name].policy).toMatchObject({
+        roleFloor: 'member',
+        machineVerb: 'manage',
+        machineSharingAuthority: 'owner-or-admin',
+      })
     }
-    expect(FLEET_CONTRACTS['machines.adopt'].policy).toMatchObject({ roleFloor: 'admin', machineVerb: 'manage', machineOwnerPrecondition: 'unowned' })
-    expect(FLEET_CONTRACTS['machines.moveServer'].policy).toMatchObject({ roleFloor: 'admin', machineVerb: 'manage' })
+    expect(FLEET_CONTRACTS['machines.adopt'].policy).toMatchObject({
+      roleFloor: 'admin',
+      machineVerb: 'manage',
+      machineOwnerPrecondition: 'unowned',
+    })
+    expect(FLEET_CONTRACTS['machines.moveServer'].policy).toMatchObject({
+      roleFloor: 'admin',
+      machineVerb: 'manage',
+    })
     expect(FLEET_CONTRACTS['discovery.scanMachine'].policy.machineVerb).toBe('use')
   })
 
@@ -357,7 +364,12 @@ describe('the fleet contracts', () => {
     //
     // Everywhere else there IS an owner, and a floor of `admin` would make ADR 9
     // D6 M1's "Owner + admins" unreachable for the owner themselves.
-    const ADMIN_FLOOR = ['machines.setAssignment', 'machines.adopt', 'machines.supersede', 'machines.moveServer']
+    const ADMIN_FLOOR = [
+      'machines.setAssignment',
+      'machines.adopt',
+      'machines.supersede',
+      'machines.moveServer',
+    ]
     for (const name of ADMIN_FLOOR) expect([name, byFloor[name]]).toEqual([name, 'admin'])
     for (const name of DECLARED.filter((n) => !ADMIN_FLOOR.includes(n))) {
       expect([name, byFloor[name]]).toEqual([name, 'member'])
@@ -369,18 +381,6 @@ describe('the fleet contracts', () => {
   })
 
   it('validates through the SAME schema the shipped procedure validated with', () => {
-    // A rename over 80 chars was refused before this migration and must still
-    // be: the input schemas are a move, not a re-specification.
-    expect(FLEET_CONTRACTS['machines.rename'].input.safeParse({ id: 'm1', name: '' }).success).toBe(
-      false,
-    )
-    expect(
-      FLEET_CONTRACTS['machines.rename'].input.safeParse({ id: 'm1', name: 'x'.repeat(81) })
-        .success,
-    ).toBe(false)
-    expect(
-      FLEET_CONTRACTS['machines.rename'].input.safeParse({ id: 'm1', name: 'laptop' }).success,
-    ).toBe(true)
     // The pairing mint's input is optional at the top level, exactly as shipped.
     expect(FLEET_CONTRACTS['machines.pairingCode'].input.safeParse(undefined).success).toBe(true)
     expect(
@@ -391,6 +391,24 @@ describe('the fleet contracts', () => {
     // would mean "inspect in place" and is `refreshRepos`'s job.
     expect(
       FLEET_CONTRACTS['discovery.scanFolder'].input.safeParse({ path: '/a', maxDepth: 0 }).success,
+    ).toBe(false)
+  })
+})
+
+describe('client registration pairing intent', () => {
+  it('accepts one retained identity request and refuses an independent replacement selector', () => {
+    const input = FLEET_CONTRACTS['machines.pairingCode'].input
+    expect(
+      input.safeParse({
+        clientRegistration: { machineId: 'retained-client', publicKey: 'public-key' },
+        copyAgentCredentials: false,
+      }).success,
+    ).toBe(true)
+    expect(
+      input.safeParse({
+        clientRegistration: { machineId: 'retained-client' },
+        replaceMachineId: 'other-client',
+      }).success,
     ).toBe(false)
   })
 })

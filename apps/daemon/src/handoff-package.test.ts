@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { claudeProjectSlug } from '@podium/harness'
 import {
+  asAgentIdentityId,
   asIssueId,
   asMachineId,
   asRepoId,
@@ -291,7 +292,7 @@ describe('handoff package', () => {
     const bindingsB = await BindingStore.open({ dir: join(homeB, '.podium', 'bindings') })
     const requireBinding = (outcome: SessionBindingTransitionOutcome) => {
       if (outcome.status !== 'applied' && outcome.status !== 'unchanged') {
-        throw new Error(`binding transition failed: ${outcome.status}`)
+        throw new Error(`binding transition failed: ${JSON.stringify(outcome)}`)
       }
       return outcome.binding
     }
@@ -306,6 +307,13 @@ describe('handoff package', () => {
         principal: { kind: 'user', userId: asUserId('user:alice') },
         issueId: asIssueId('issue-1013'),
         attemptId: 'attempt-a-1',
+        delegation: {
+          actor: asAgentIdentityId('roundtrip-agent'),
+          onBehalfOf: asUserId('user:alice'),
+          grantedScope: { kind: 'subtree', rootId: asIssueId('issue-1013') },
+          parentBindingId: null,
+          revision: 1,
+        },
       }),
     )
     const delegation = bindingsA.currentDelegation(born)
@@ -369,6 +377,7 @@ describe('handoff package', () => {
           agentKind: 'claude-code',
           observationGeneration: 2,
           delegation: carriedDelegation,
+          serverDelegation: { ...carriedDelegation, revision: 1 },
           observations: [
             {
               channel: 'resume-ref',
@@ -465,6 +474,7 @@ describe('handoff package', () => {
           agentKind: 'claude-code',
           observationGeneration: 3,
           delegation: carriedDelegation,
+          serverDelegation: { ...carriedDelegation, revision: 1 },
           observations: [
             {
               channel: 'resume-ref',

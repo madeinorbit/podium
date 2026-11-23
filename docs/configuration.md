@@ -27,7 +27,7 @@ The server supplies the existing `meta['settings']` row for instance choices:
 `updateChannel`, `transcriptLake`, `connectEnabled`, `telemetryUsage`,
 `telemetryCrash`, and file-only `authOpenMode`, `telemetryInstallId`, and `telemetrySince`. Environment and file overrides
 both lock their Settings controls. Settings writes the database; operator and
-installer flows own the file. Settings → Network is read-only.
+installer flows own the file. Settings → Access shows the current address and offers Change…; it uses the setup command to update the deployment.
 
 `LAYERED_SCOPES` inventories every layered key. Ports, agent home, mode and server/app
 URLs are bootstrap. Feed, origin allowlists, auth mode/sign-in URL, update scope and
@@ -48,6 +48,7 @@ file keys; later file values are operator overrides and are never re-imported.
 | `PODIUM_AGENT_HOME` | `agentHome` | `$HOME` (named instances isolate) | `resolveAgentHomeDir()` |
 | `PODIUM_UPDATE_CHANNEL` | `updateChannel` | `stable` | `resolveUpdateChannel()` |
 | `PODIUM_UPDATE_FEED` | `updateFeed` | GitHub Releases | `resolveUpdateFeed()` |
+| `PODIUM_UPDATE_FEED_POLLING` | `updateFeedPolling` | `on` | `resolveUpdateFeedPolling()` |
 | `PODIUM_AUTH_MODE` | `auth.mode` | `local` | `resolveAuthMode()` |
 | `PODIUM_AUTH_SIGN_IN_URL` | `auth.signInUrl` | unset (same-origin `/account/sign-in`) | `resolveAuthSignInUrl()` |
 | `PODIUM_MODE` | `mode` | unset (needs setup) | `resolveMode()` |
@@ -62,6 +63,18 @@ file keys; later file values are operator overrides and are never re-imported.
 
 Every one is optional. With none set, an install behaves exactly as it did
 before any of them existed.
+
+### `PODIUM_UPDATE_FEED_POLLING`
+
+Set `off`, or set `"updateFeedPolling": false` in this instance's `config.json`, to
+stop release feed checks at boot, on the daily clock, and through Check now.
+Normal installations default to `on`. This is an operator setting; Podium does
+not infer test status from instance names, ports, or runtime mode.
+
+A source publisher may still resolve its own local development feed when it
+publishes a target. Validation and multi-instance tooling explicitly set `off`;
+tests that exercise a feed can opt in with `on`. Docker update fixtures enable
+polling only after wiring their local release host.
 
 ### `PODIUM_MODE`
 
@@ -88,6 +101,17 @@ of them with no way back. `podium setup` asks for a confirmation word before
 replacing a URL that is already set, and `--confirm-url-change` answers that
 ahead of time for a run that cannot show a prompt. Re-saving the *same* URL is
 idempotent and is never questioned.
+
+**Daemons on other computers need `wss` or a trusted network.** The daemon's connection
+follows the same rule as this URL. The server judges each daemon connection from how the
+request reached it (the scheme, and `trustedProxyHops` for a proxy it was told to trust), never
+from what the daemon says: `wss` is encrypted, a daemon on the server's own computer is local,
+an address inside the instance setting `daemonLink.trustedNetworks` is trusted, and anything
+else is plain. A plain connection from another computer receives no credentials and is
+accepted only until February 2027 (`LEGACY(remove-after: 2027-02)`); after that it is refused
+at connect. `daemonLink.trustedNetworks` is a list of IPv4 and IPv6 ranges (`100.64.0.0/10`,
+`fd7a:115c:a1e0::/48`) that only an admin person may set, in **Settings → Machines → Trusted
+networks**; a change applies to machines that are already connected.
 
 ### `PODIUM_APP_URL`
 
@@ -158,6 +182,28 @@ either layer, the toggle renders locked **at the value the deployment chose**,
 naming the layer: a disabled control that is also wrong would be worse than no
 control at all.
 
+### `PODIUM_FILE_STORAGE_*`
+
+Where user files live: issue artifacts, uploads and the transcript lake. Not a
+layered key (it has no Settings control); `resolveFileStorage()` applies the same
+order, **env → `config.fileStorage` → `local`**, once at server boot.
+
+| Variable | Config key | What it sets |
+|---|---|---|
+| `PODIUM_FILE_STORAGE_BACKEND` | `fileStorage.backend` | `local` (default): under the state directory. `s3`: one S3-compatible bucket, a prefix per workspace |
+| `PODIUM_FILE_STORAGE_ENDPOINT` | `fileStorage.endpoint` | the provider's bare https origin (http only on loopback) |
+| `PODIUM_FILE_STORAGE_BUCKET` | `fileStorage.bucket` | the bucket name |
+| `PODIUM_FILE_STORAGE_REGION` | `fileStorage.region` | the region; `auto` on Cloudflare R2 |
+| `PODIUM_FILE_STORAGE_ACCESS_KEY_ID` | — (env only) | the bucket's access key id |
+| `PODIUM_FILE_STORAGE_SECRET_ACCESS_KEY` | — (env only) | the bucket's secret key |
+
+The key pair has no file layer, so a secret is never written to `config.json`.
+Every problem fails the server's start with a message naming the variable or key
+to fix: an `s3` backend without its endpoint, bucket, region or key pair, and also
+any bucket field or key set while the backend resolves to `local`, which is a
+deployment that meant `s3` and would otherwise keep files on a disk it does not
+keep. A self-hosted operator may choose `s3` too; it is supported, not advertised.
+
 ### `PODIUM_CONNECT`, `PODIUM_CONNECT_URL`, `PODIUM_CONNECT_PROBE_KEYS`
 
 Podium Connect is the small service at `connect.podium.do` that lets a client
@@ -215,6 +261,20 @@ One turns off authentication and the other runs code that is otherwise not
 reachable. Neither should be settable from a process environment that a
 supervisor, a container platform, or a stray `.env` file can populate by
 accident. They are file-and-command only.
+
+## `PODIUM_VAULT_KEY_FILE` — a path, never the key
+
+The vault that encrypts stored secrets is unlocked by a key file kept outside the
+state directory (see [data-and-upgrades.md](data-and-upgrades.md#the-vault-key)).
+`PODIUM_VAULT_KEY_FILE` names that file, for a container or a service manager that
+mounts the key as a secret; without it the server uses
+`$XDG_CONFIG_HOME/podium/vault-<instance>.key`, else
+`~/.config/podium/vault-<instance>.key`. It is not a layered key: there is no
+`config.json` or settings value, and the key itself is never read from an
+environment variable. The file must be readable by its owner only. One that group
+or others can read is refused, with a message naming it; the server still starts,
+with the vault unable to store or open secrets until the mode is `0600`.
+`podium vault status` shows the path and the state.
 
 ## `PODIUM_LOOP_PROFILE` — layered, but not a layered key
 

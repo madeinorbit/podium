@@ -1,8 +1,8 @@
+import { useDeviceState } from '@podium/client-core/react'
 // apps/web/src/MarkdownFilePanel.tsx
 
 import type { EditorView } from '@codemirror/view'
 import { EditorView as CMView } from '@codemirror/view'
-import { useStoreHandle } from '@podium/client-core/react'
 import {
   MD_MODE_MAP_KEY,
   readFilePanelMode,
@@ -47,7 +47,7 @@ export function MarkdownFilePanel({
       ? { root: scope.root, ...(scope.machineId ? { machineId: scope.machineId } : {}) }
       : undefined
   const saveFeedbackId = useId()
-  const { uiState } = useStoreHandle().access
+  const uiState = useDeviceState()
   const md = isMarkdownPath(path)
   const mobile = useIsMobile()
   const [calmReading, setCalmReading] = useState(false)

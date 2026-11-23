@@ -1,6 +1,6 @@
-import { referenceView } from '@podium/client-graph/issue-reference'
 import { recordChipWork } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
+import { referenceView } from '@podium/client-graph/issue-reference'
 import { reaction } from 'mobx'
 import type { JSX } from 'react'
 import { useLayoutEffect } from 'react'
@@ -20,7 +20,7 @@ export function IssueChipLiveness({ root }: { root: HTMLElement | null }): JSX.E
 
 function PoolIssueChipLiveness({ root }: { root: HTMLElement | null }): null {
   const pool = useWorklistPool()
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   useLayoutEffect(() => {
     if (!pool || !root) return
     const stop = bindIssueRefAnchors(root, {

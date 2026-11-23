@@ -5,9 +5,18 @@ export interface RuntimePoolFixture {
   state(): { replicas: number; attachments: number; pool: boolean; failures: string[] }
   survivors(): string[]
   mountReference(): void
-  referenceState(): { online: boolean; cold: boolean; resident: boolean; issueId: string | undefined; serverCalls: number }
+  renameReference(title: string): void
+  referenceState(): {
+    online: boolean
+    resident: boolean
+    title: string | undefined
+    issueId: string | undefined
+    serverCalls: number
+  }
 }
 
 declare global {
-  interface Window { __poolFixture: RuntimePoolFixture }
+  interface Window {
+    __poolFixture: RuntimePoolFixture
+  }
 }

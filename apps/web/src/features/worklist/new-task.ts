@@ -1,3 +1,4 @@
+import { useDeviceState, useUiValue } from '@podium/client-core/react'
 /**
  * STARTING A TASK IS ONE ACTION, AND IT IS NOT A SPAWN (POD-1469).
  *
@@ -24,11 +25,9 @@
  * which project the composer opens on.
  */
 
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { machinePathsEqual } from '@podium/model/browser'
 import { useEffect, useRef } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import {
   EMPTY_FIRST_TASK_DRAFT,
   persistFirstTaskDraft,
@@ -52,15 +51,12 @@ export function useNewTask(
    */
   { bindChord = false }: { bindChord?: boolean } = {},
 ): NewTask {
-  const { uiState, view, selectedIssueId, setView } = useRuntimeSelector(
-    (store) => ({
-      uiState: store.uiState,
-      view: store.view,
-      selectedIssueId: store.selectedIssueId,
-      setView: store.setView,
-    }),
-    shallowEqual,
-  )
+  const { uiState, view, selectedIssueId, setView } = {
+    uiState: useDeviceState(),
+    view: useUiValue('view'),
+    selectedIssueId: useUiValue('selectedIssueId'),
+    setView: useUiValue('setView'),
+  }
 
   const startNewTask = (repoPath?: string): void => {
     // THE PROMPT SURVIVES A CANCEL (POD-2082). Esc and Cancel close the overlay

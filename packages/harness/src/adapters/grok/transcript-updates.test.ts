@@ -13,13 +13,15 @@
  * Grok wrote, not to a hand-made shape.
  */
 
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { TranscriptItem } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import { testAccount } from '../../driver/testing/harness-context.js'
 import { declaredValue } from '../../manifest.js'
+import { fileByteSource } from '../../store/byte-source.js'
 import { decodeCursor } from '../../store/cursor-codec.js'
 import { fileIdFor } from '../../store/file-chain.js'
 import { readFileItems } from '../../store/slice.js'
@@ -37,7 +39,7 @@ const CHAT_HISTORY = join(RUN, 'chat_history.final.jsonl')
 const SESSION = '01a0edee-690d-73c0-bba4-6a60e8bc0ebb'
 
 async function read(path: string): Promise<TranscriptItem[]> {
-  return readFileItems(path, fileIdFor(SESSION), grokRecordToItems)
+  return readFileItems(fileByteSource(path), fileIdFor(SESSION), grokRecordToItems)
 }
 
 const users = (items: TranscriptItem[]) => items.filter((item) => item.role === 'user')
@@ -124,7 +126,19 @@ describe('the Grok terminal transcript, read from updates.jsonl', () => {
       toolTitle: 'wait eight seconds',
     })
     const result = items.find((item) => item.toolUseId === 'call_fake8' && item.toolResult)
-    expect(result).toMatchObject({ id: 'call_fake8:out', role: 'tool', toolResult: 'exit: 0' })
+    const completed = (await readFile(UPDATES, 'utf8'))
+      .trimEnd()
+      .split('\n')
+      .map((line) => JSON.parse(line).params.update)
+      .find((update) => update.toolCallId === 'call_fake8' && update.status === 'completed')
+    // Preserve the tool's model-facing output verbatim, including its line
+    // endings; the human display summary is a different field.
+    expect(completed.rawOutput.output_for_prompt).toContain('exit: 0')
+    expect(result).toMatchObject({
+      id: 'call_fake8:out',
+      role: 'tool',
+      toolResult: completed.rawOutput.output_for_prompt,
+    })
     // Grok's reasoning, hooks, turn ends and background-task bookkeeping are
     // not part of the conversation view.
     expect(items.every((item) => ['user', 'assistant', 'tool'].includes(item.role))).toBe(true)
@@ -248,7 +262,13 @@ describe('which Grok reply is the answer (POD-4936)', () => {
       ['Fixed: the guard was inverted.', true],
     ])
     // Re-marked in place: same row, same id and cursor, nothing added.
-    expect(items.map((item) => item.role)).toEqual(['user', 'assistant', 'tool', 'tool', 'assistant'])
+    expect(items.map((item) => item.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'tool',
+      'assistant',
+    ])
   })
 
   it('a turn that ended any other way answered nothing', async () => {
@@ -282,10 +302,15 @@ describe('which Grok reply is the answer (POD-4936)', () => {
     await writeFile(path, `${lines.join('\n')}\n`)
     const whole = await read(path)
     const replyOffset = decodeCursor(whole[1]?.cursor ?? '')?.offset ?? -1
-    const window = await readFileItems(path, fileIdFor(SESSION), grokRecordToItems, {
-      start: replyOffset - 1,
-      end: (await stat(path)).size,
-    })
+    const window = await readFileItems(
+      fileByteSource(path),
+      fileIdFor(SESSION),
+      grokRecordToItems,
+      {
+        start: replyOffset - 1,
+        end: (await stat(path)).size,
+      },
+    )
     expect(window.map((item) => [item.id, item.answer])).toEqual([[whole[1]?.id, true]])
   })
 })
@@ -303,9 +328,13 @@ describe('where the Grok terminal transcript lives', () => {
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'chat_history.jsonl'), '{"type":"user","content":"x"}\n')
     await writeFile(join(dir, 'updates.jsonl'), '')
-    expect(await grokChainPaths({ cwd: '/repo', resumeValue: SESSION, homeDir: home })).toEqual([
-      join(dir, 'updates.jsonl'),
-    ])
+    expect(
+      await grokChainPaths({
+        cwd: '/repo',
+        resumeValue: SESSION,
+        account: testAccount('grok', home),
+      }),
+    ).toEqual([join(dir, 'updates.jsonl')])
   })
 
   it('says updates.jsonl dates its entries to the millisecond', () => {

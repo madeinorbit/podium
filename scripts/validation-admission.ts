@@ -435,7 +435,11 @@ async function runWithSlot(
 function spawnProcess(command: string[], options: ValidationProcessOptions) {
   return Bun.spawn(command, {
     cwd: options.cwd,
-    env: options.env,
+    env: {
+      ...(options.env ?? process.env),
+      // Validation-created servers never poll public feeds unless a test opts in.
+      PODIUM_UPDATE_FEED_POLLING: options.env?.PODIUM_UPDATE_FEED_POLLING ?? 'off',
+    },
     stdio: ['inherit', 'inherit', 'inherit'],
   })
 }

@@ -1,44 +1,51 @@
 import '../../test/opening-pool-fixture'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { createSubscriptionStore } from '@podium/client-core/test-support/local-store'
 import type { IssueNavigationModel } from '@podium/client-core/values'
+import { liveFixture } from '@podium/client-graph/live-fixture'
+import { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { asIssueId, asSessionId, asUserId, type TaskCostWire } from '@podium/model/browser'
 import { act, cleanup, render, renderHook } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { UsageView } from '@/features/usage/UsageView'
 import { resetUsageCache } from '@/features/usage/useUsageFeed'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
-import { useWaterfallActivity } from './waterfall-activity'
-import { MissionCostChip } from './MissionCostChip'
 import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+import { MissionCostChip } from './MissionCostChip'
+import { useWaterfallActivity } from './waterfall-activity'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
+
+import { fakeTranscriptCache } from '@podium/client-core/test-support/transcript-cache'
 import type { Trpc } from './trpc'
 
 // Keep the real provider, hooks, subscription store and counters. Only runtime
 // construction is replaced; a planted legacy selector therefore really subscribes.
-const fixture = vi.hoisted(() => ({ handle: null as unknown }))
-vi.mock('../../../../packages/client-core/src/engine/runtime', () => ({
+const fixture = vi.hoisted(() => ({ handle: null as unknown, pool: null as MobxPool | null }))
+vi.mock('../../../../packages/client-core/src/runtime-root/root', () => ({
   createClientRuntime: () => fixture.handle,
 }))
-vi.mock('./store', async () => {
-  const core = await import('@podium/client-core/react')
-  return { useRuntimeSelector: core.useRuntimeSelector }
-})
-
 vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPool: () => ({}),
+  useWorklistPool: () => fixture.pool,
+  useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
+    const projection = useMemo(() => createPoolProjection(fixture.pool!, read), [read])
+    return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
+  },
 }))
 
 afterEach(() => {
   cleanup()
+  fixture.pool?.dispose()
+  fixture.pool = null
   resetUsageCache()
   resetPolledQueryCache()
   storeStats.enable(false)
@@ -68,6 +75,7 @@ const issue = {
 } as unknown as IssueNavigationModel
 
 function setup() {
+  fixture.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const reads = {
     usage: vi.fn(async () => ({ hostname: 'synthetic', buckets: [] })),
     quota: vi.fn(async () => []),
@@ -101,7 +109,7 @@ function setup() {
       activityHistory: { query: reads.history },
     },
   } as unknown as Trpc
-  const replica = { transcriptWindow: () => undefined, putTranscriptWindow: vi.fn() }
+  const replica = { transcripts: fakeTranscriptCache() }
   const owner = { start() {}, dispose() {}, destroy() {} }
   const snapshot = { trpc, replica, coarseNow: 0 } as unknown as Store
   const store = createSubscriptionStore(snapshot, undefined, owner)
@@ -148,12 +156,14 @@ function setup() {
   return { reads, Wrapper, prove }
 }
 
-it('UsageView acquires the existing runtime API without a snapshot subscription', async () => {
+it('UsageView consumes pushed account usage and requests its ledger without a snapshot subscription', async () => {
   const ctx = setup()
+  const live = liveFixture(fixture.pool!)
   const view = render(<UsageView onClose={() => {}} />, { wrapper: ctx.Wrapper })
+  act(() => live.usage({ hostname: 'synthetic', sampledAt: '2026-11-01T00:00:00Z', buckets: [] }))
   await ctx.prove()
   expect(view.getByTestId('usage-sheet').textContent).toContain('No token usage recorded yet.')
-  expect(ctx.reads.usage).toHaveBeenCalledTimes(1)
+  expect(ctx.reads.usage).not.toHaveBeenCalled()
   expect(ctx.reads.quota).toHaveBeenCalledExactlyOnceWith({})
   expect(ctx.reads.tasks).toHaveBeenCalledTimes(1)
 })

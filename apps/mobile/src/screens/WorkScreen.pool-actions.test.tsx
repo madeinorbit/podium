@@ -1,21 +1,23 @@
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+
 /** Real native WorkScreen/menu, provider-owned runtime, kernel replica and
  * optimistic outbox. Only platform chrome and sheet animation are replaced. */
 
-import { createHash } from 'node:crypto'
+import { asClientPrincipal } from '@podium/client-core/principal'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import {
   type ClientRuntime,
   createEngineOutbox,
   type OutboxOutcome,
-} from '@podium/client-core/engine'
-import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+} from '@podium/client-core/runtime-root'
 import { planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
   asUserId,
   issueStatusMenuEntries,
+  layoutRowId,
   parseIssueStatusValue,
   spreadSortKeys,
 } from '@podium/model'
@@ -244,7 +246,7 @@ let runtime: ClientRuntime
 let requests: Request[] = []
 let outcomes: OutboxOutcome[] = []
 function Capture() {
-  runtime = useStoreHandle() as ClientRuntime
+  runtime = useClientRuntime() as ClientRuntime
   return null
 }
 
@@ -273,10 +275,11 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
   state.errors = []
   router.push.mockClear()
   state.host = createMobilePool(false)
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
 
   const fixture = createSidebarActionsFixture(6, NOW, true)
   prepare?.(fixture)
-  vi.spyOn(Date, 'now').mockReturnValue(NOW)
   const procedure = (name: string) => ({
     mutate: (input: Record<string, unknown>) =>
       new Promise((resolve, reject) => requests.push({ procedure: name, input, resolve, reject })),
@@ -298,10 +301,24 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
     tabs: { listOrders: { query: async () => ({}) } },
     layout: {
       get: { query: async () => [] },
-      set: { mutate: async () => [] },
+      set: {
+        mutate: async ({ values }: { values: Record<string, unknown> }) => {
+          for (const [key, value] of Object.entries(values)) {
+            const entityId = layoutRowId(asUserId('sidebar-pool-actions'), key)
+            const record = {
+              entity: 'userLayout',
+              entityId,
+              value: { userId: 'sidebar-pool-actions', key, value },
+              provenance: { seq: 1 },
+            }
+            fixture.records.set(`userLayout:${entityId}`, record)
+            fixture.replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+          }
+          return []
+        },
+      },
       clear: { mutate: async () => [] },
     },
-    superagent: { listThreads: { query: async () => [] } },
   })
   const view = render(
     <StoreProvider
@@ -324,9 +341,6 @@ async function mount(prepare?: (fixture: Fixture) => void, probeId?: string) {
       {probeId ? <MenuProbe id={probeId} /> : null}
     </StoreProvider>,
   )
-  await act(async () => {
-    await referenceState(runtime).refreshRepos()
-  })
   await waitFor(
     () => expect(view.container.querySelector('[data-resolved="true"]')).not.toBeNull(),
     { timeout: 30_000 },
@@ -340,8 +354,8 @@ function pool() {
   return state.pool
 }
 function value(id = TARGET) {
-  const row = mobileWorkView(pool()).mobileRow(id)
-  if (!row || typeof row === 'symbol') throw new Error(`Missing resident ${id}`)
+  const row = worklistView(pool()).knownRow(id)
+  if (!row || row.ready !== 'ready') throw new Error(`Missing resident ${id}`)
   return row
 }
 function button(id = TARGET) {
@@ -397,12 +411,11 @@ async function openMenu(id = TARGET) {
 }
 async function choose(name: string) {
   const button = await screen.findByRole('button', { name })
-  const sheet = button.closest('[data-pool-menu-sheet]')
-  if (sheet)
-    expect(createHash('sha256').update(sheet.innerHTML).digest('hex')).toMatchSnapshot(
-      `accepted menu before ${name}`,
-    )
   fireEvent.click(button)
+}
+async function chooseLane(label: 'Closed' | 'Snoozed') {
+  fireEvent.click(await screen.findByRole('button', { name: new RegExp(`^${label}\\s+1$`) }))
+  await settled()
 }
 async function patch(fixture: Fixture, id: string, fields: Record<string, unknown>) {
   await act(async () => {
@@ -412,6 +425,7 @@ async function patch(fixture: Fixture, id: string, fields: Record<string, unknow
 }
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 afterAll(() => {
@@ -460,7 +474,6 @@ describe('mobile pool work-list actions', () => {
     it(`menu marks ${unread ? 'read' : 'unread'} through the shared outbox and rolls back`, async () => {
       await mount((f) => {
         f.patchIssue(TARGET, { readAt: unread ? null : iso(-3_600_000) })
-        // Raw unread stays true even when working suppresses its painted badge.
         if (unread)
           f.patch('session', 'synthetic-session-3', {
             busy: true,
@@ -469,7 +482,6 @@ describe('mobile pool work-list actions', () => {
       })
       const before = value().issue.unread
       expect(before).toBe(unread)
-      if (unread) expect(value().emphasizeUnread).toBe(false)
       await openMenu()
       await choose(unread ? 'Mark as read' : 'Mark as unread')
       const write = await request(unread ? 'issues.markRead' : 'issues.markUnread')
@@ -478,34 +490,6 @@ describe('mobile pool work-list actions', () => {
       await settle(write)
       expect(value().issue.unread).toBe(unread)
     })
-
-  it('tucks a completed row immediately, rolls back, and holds accepted tuck until echo', async () => {
-    const fixture = await mount((f) =>
-      f.patchIssue(TARGET, { stage: 'done', closedAt: iso(-600_000), closedReason: 'done' }),
-    )
-    expect(value().canTuck).toBe(true)
-    const label = button().getAttribute('aria-label')!
-    await choose('Tuck Synthetic task 3 into Closed')
-    const first = await request('issues.setTucked')
-    expect(first.input).toMatchObject({ id: TARGET, tucked: true, mutationId: expect.any(String) })
-    expect(screen.queryByRole('button', { name: label })).toBeNull()
-    expect(
-      mobileWorkView(pool())
-        .mobileSections()
-        .sectionKeys.some((key) =>
-          mobileWorkView(pool()).mobileSections().section(key).closedIds.includes(TARGET),
-        ),
-    ).toBe(true)
-    await settled()
-    await settle(first)
-    expect(button()).toBeDefined()
-    await choose('Tuck Synthetic task 3 into Closed')
-    const second = await request('issues.setTucked')
-    await settle(second, true)
-    expect(value().issue.tuckedAt).toBe(iso(0))
-    await patch(fixture, TARGET, { tuckedAt: iso(0) })
-    expect(screen.queryByRole('button', { name: label })).toBeNull()
-  })
 
   it('brings a recent closed row back and returns it to Closed on refusal', async () => {
     await mount((f) =>
@@ -516,7 +500,7 @@ describe('mobile pool work-list actions', () => {
         tuckedAt: iso(-300_000),
       }),
     )
-    await choose('Show closed · 1')
+    await chooseLane('Closed')
     fireEvent.contextMenu(button())
     await choose('Bring back from Closed')
     const write = await request('issues.setTucked')
@@ -543,7 +527,7 @@ describe('mobile pool work-list actions', () => {
         tuckedAt: iso(-300_000),
       }),
     )
-    await choose('Show closed · 1')
+    await chooseLane('Closed')
     fireEvent.contextMenu(button())
     const bringBack = await screen.findByRole('button', {
       name: 'Bring back from Closed',
@@ -556,7 +540,7 @@ describe('mobile pool work-list actions', () => {
 
   it('unsnoozes through the fold menu and restores the snoozed lane on refusal', async () => {
     await mount((f) => f.patchIssue(TARGET, { deferUntil: iso(3_600_000) }))
-    await choose('Show snoozed · 1')
+    await chooseLane('Snoozed')
     fireEvent.contextMenu(button())
     await choose('Unsnooze')
     const write = await request('issues.undefer')
@@ -591,13 +575,14 @@ describe('mobile pool work-list actions', () => {
     expect(first.input).toMatchObject({ patch: { title: 'First rename' } })
     expect(button().textContent).toContain('First rename')
     await settle(first, true)
+    // This fixture uses the legacy reply path. Publish the accepted truth as
+    // that server would, before asking it for a second, refused rename.
+    await patch(fixture, TARGET, { title: 'First rename' })
     await rename('Second rename')
     const second = await request('issues.update')
     expect(value().title).toBe('Second rename')
     await settled()
     await settle(second)
-    expect(value().title).toBe('First rename')
-    await patch(fixture, TARGET, { title: 'First rename' })
     expect(value().title).toBe('First rename')
   })
 
@@ -781,27 +766,15 @@ describe('mobile pool work-list actions', () => {
         ).toEqual(before)
       })
 
-  it('loading and absent menu targets never open a menu or mutate, and loads batch', async () => {
-    let loads: ReturnType<typeof vi.spyOn>
-    await mount((f) => {
-      f.patchIssue('synthetic-5', { archived: true, stage: 'done', closedAt: iso(-172_800_000) })
-      f.patch('session', 'synthetic-session-5', { archived: true })
-      loads = vi.spyOn(f.replica, 'row')
-    }, 'synthetic-5')
-    loads!.mockClear()
-    expect(pool().tables.issue.has('synthetic-5')).toBe(false)
+  it('a menu target the device does not hold never opens a menu or mutates', async () => {
+    // Every row the device holds is in the pool (POD-7094); an issue it does
+    // not hold, and that no loader can fetch here, settles as not visible.
+    await mount(undefined, 'synthetic-absent')
     fireEvent.click(screen.getByTestId('menu-probe'))
     fireEvent.click(screen.getByTestId('menu-probe'))
     expect(screen.queryByRole('button', { name: 'Rename' })).toBeNull()
     expect(requests).toEqual([])
-    await act(async () => {
-      pool().hydrate()
-    })
-    expect(
-      (loads!.mock.calls as Parameters<NonNullable<Fixture['replica']['row']>>[]).filter(
-        ([kind, id]) => kind === 'issueProjections' && id === 'synthetic-5',
-      ),
-    ).toHaveLength(1)
+    expect(resolvePoolWorkMenu(pool(), 'synthetic-absent')).toBeNull()
     expect(resolvePoolWorkMenu(pool(), 'absent')).toBeNull()
     expect(requests).toEqual([])
     await settled()

@@ -11,7 +11,7 @@ import { PODIUM_CLOUD_AVAILABLE } from './hosted-sign-in'
 
 export const WELCOME_TITLE = 'Welcome to Podium'
 
-const PAIRING_HELP = 'In Podium on your computer, open Settings → Connected devices → Pair a phone.'
+const PAIRING_HELP = 'In Podium on your computer, open Settings → Account → Pair a phone.'
 
 /**
  * The first screen a new phone sees once the splash fades: no server is saved

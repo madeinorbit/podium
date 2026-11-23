@@ -1,3 +1,4 @@
+import { childProgressOf } from '@podium/client-graph/lookup'
 import {
   ISSUE_STAGE_LABELS,
   rankedTaskStateSlots,
@@ -31,6 +32,7 @@ export function issueCardModel(issue: IssueViewModel): {
   dueLabel?: string
   estimateLabel?: string
 } {
+  const children = childProgressOf(issue)
   const dueLabel = issue.dueAt
     ? new Date(issue.dueAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : undefined
@@ -41,8 +43,8 @@ export function issueCardModel(issue: IssueViewModel): {
     needsHuman: issue.needsHuman,
     seqLabel: issueDisplayRef(issue),
     ...(issue.assignee ? { assignee: issue.assignee } : {}),
-    ...(issue.childCount > 0
-      ? { subProgress: { done: issue.childDoneCount, total: issue.childCount } }
+    ...(children && children.childCount > 0
+      ? { subProgress: { done: children.childDoneCount, total: children.childCount } }
       : {}),
     isBlocked: issue.blocked,
     isBlocking: issue.dependents.some((d) => d.type === 'blocked-by'),

@@ -15,6 +15,19 @@
  * issue turns on and it is invisible from a passing count (spec §6 rule 14).
  */
 
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import {
+  drainHeavyStatementReads,
+  HEAVY_READ_BYTES,
+  queryDefinitionName,
+  queryKey,
+  READ_SAMPLE_ARM_MS,
+  recordQuery,
+  setQueryDefinitionNaming,
+  setThreadReadMeter,
+} from '@podium/runtime/query-attribution'
 import {
   attributeQueries,
   openDatabase,
@@ -22,16 +35,25 @@ import {
   resetQueryAttribution,
   type SqlDatabase,
 } from '@podium/runtime/sqlite'
+import { eq } from 'drizzle-orm'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBunSqliteDriver } from './bun-driver'
 import type { DriverSession, Statement, StoreDriver } from './driver'
-import { NO_BUSY_RETRY, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
+import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 import {
   instrumentDriver,
   queryAttributionProbe,
   type StatementObservation,
   StatementProbeHub,
 } from './statement-probe'
+import {
+  param,
+  prepared,
+  preparedFamily,
+  type StoreDrizzle,
+  storeQueriesOver,
+} from './sync-drizzle'
 
 let db: SqlDatabase
 let open: SqlDatabase[]
@@ -442,5 +464,151 @@ describe('the hub', () => {
     await session.execute({ sql: 'SELECT 1', params: [], method: 'all', intent: 'read' })
     await session.close()
     expect(seen).toEqual([])
+  })
+})
+
+/**
+ * POD-7037: what a statement READ, measured at this seam. The driver's SQLite
+ * work is the synchronous body of `execute`, so the thread's read counter taken
+ * around the call is that statement's and no other's.
+ */
+describe('bytes read at the driver seam', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-read-bytes-'))
+  })
+  afterEach(() => {
+    setThreadReadMeter(undefined)
+    drainHeavyStatementReads()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  /** 16 MB of rows on disk, so a scan reads well past SQLite's 2 MB page cache. */
+  const bigTable = (): SqlDatabase => {
+    const handle = openDatabase(join(dir, 'walk.db'))
+    open.push(handle)
+    handle.exec('CREATE TABLE big (id INTEGER PRIMARY KEY, body TEXT NOT NULL)')
+    handle.exec('BEGIN')
+    const insert = handle.prepare('INSERT INTO big (body) VALUES (?)')
+    for (let i = 0; i < 4000; i++) insert.run(`${i}:${'x'.repeat(4000)}`)
+    handle.exec('COMMIT')
+    return handle
+  }
+
+  const walk: Statement = {
+    sql: "SELECT id FROM big WHERE body = 'nope'",
+    params: [],
+    method: 'all',
+    intent: 'read',
+  }
+  const point: Statement = {
+    sql: 'SELECT id FROM big WHERE id = ?',
+    params: [7],
+    method: 'get',
+    intent: 'read',
+  }
+
+  // The real counter: this is the mechanism, so it is not faked here.
+  it.runIf(process.platform === 'linux')(
+    'measures a walk that returns nothing, once, and queues it as heavy',
+    async () => {
+      setThreadReadMeter(undefined)
+      const handle = attributeQueries(bigTable(), true)
+      recordQuery(walk.sql, READ_SAMPLE_ARM_MS, 0)
+      recordQuery(point.sql, READ_SAMPLE_ARM_MS, 0)
+      resetQueryAttribution()
+      drainHeavyStatementReads()
+      const hub = new StatementProbeHub()
+      hub.attach(queryAttributionProbe)
+      const driver = instrumentDriver(createBunSqliteDriver({ database: handle }), hub)
+      const session = await driver.open('read')
+      await session.execute(walk)
+      await session.execute(point)
+      await session.close()
+
+      const walked = queryAttributionSnapshot().get(walk.sql)
+      // Both instruments saw it; the seam measured it and the wrapper stood down.
+      expect(walked).toMatchObject({ count: 1, rows: 0, readSamples: 1 })
+      expect(walked?.readBytes).toBeGreaterThan(HEAVY_READ_BYTES)
+      const looked = queryAttributionSnapshot().get(point.sql)
+      expect(looked?.readSamples).toBe(1)
+      expect(looked?.readBytes).toBeLessThan(64 * 1024)
+      expect(drainHeavyStatementReads().map((read) => read.key)).toEqual([walk.sql])
+    },
+  )
+
+  it('does not sample a statement that never ran slow', async () => {
+    let calls = 0
+    setThreadReadMeter(() => {
+      calls += 1
+      return 0
+    })
+    await throughDriver(fresh(), {
+      sql: 'SELECT v FROM t WHERE id = ?',
+      params: [1],
+      method: 'get',
+      intent: 'read',
+    })
+    expect(calls).toBe(0)
+    expect(
+      queryAttributionSnapshot().get('SELECT v FROM t WHERE id = ?')?.readSamples,
+    ).toBeUndefined()
+  })
+})
+
+const named = sqliteTable('named_notes', {
+  id: integer('id').primaryKey(),
+  body: text('body').notNull(),
+})
+
+// Module-level, like a repository's: the definition site is THIS line.
+const noteById = prepared((db: StoreDrizzle) =>
+  db
+    .select()
+    .from(named)
+    .where(eq(named.id, param(named.id, 'id')))
+    .prepare(),
+)
+const notesByBody = preparedFamily((db: StoreDrizzle, _t, shape: 'exact' | 'any') =>
+  shape === 'exact'
+    ? db
+        .select()
+        .from(named)
+        .where(eq(named.body, param(named.body, 'body')))
+        .prepare()
+    : db.select().from(named).prepare(),
+)
+
+/**
+ * POD-7037: a digest that says `#b1660a94` sends the operator to a plan audit to
+ * find out what that is. Each definition hands its site to the profiler when it
+ * builds, so the name is there for every statement that ran.
+ */
+describe('definition names through real drizzle', () => {
+  afterEach(() => setQueryDefinitionNaming(false))
+
+  it('names a prepared statement and a family shape by the file that defined them', async () => {
+    setQueryDefinitionNaming(true)
+    const handle = fresh()
+    handle.exec('CREATE TABLE named_notes (id INTEGER PRIMARY KEY, body TEXT NOT NULL)')
+    const hub = new StatementProbeHub()
+    hub.attach(queryAttributionProbe)
+    const driver = instrumentDriver(createBunSqliteDriver({ database: handle }), hub)
+    const session = await driver.open('write')
+    const client = queryClientOver(
+      async (statement) => await session.execute(statement),
+      async (batch) => await session.executeBatch(batch),
+    )
+    const db = storeQueriesOver(client, async (fn) => await fn()).rootDb
+    resetQueryAttribution()
+    await noteById(db).get({ id: 1 })
+    await notesByBody(db, 'exact').all({ body: 'x' })
+    await session.close()
+
+    const names = [...queryAttributionSnapshot().keys()].map((key) => queryDefinitionName(key))
+    expect(names).toHaveLength(2)
+    expect(names[0]).toMatch(/^apps\/server\/src\/store\/executor\/statement-probe\.test\.ts:\d+$/)
+    expect(names[1]).toMatch(/statement-probe\.test\.ts:\d+ exact$/)
+    expect(queryDefinitionName(queryKey('SELECT 1'))).toBeUndefined()
   })
 })

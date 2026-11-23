@@ -52,12 +52,22 @@
  * unexplained failure would be worse product for no security gain.
  */
 
-import { type AnyCommandContract, SETTINGS_CONTRACTS } from '@podium/commands'
-import { isAdminGrade, type UserRole } from '@podium/model'
+import {
+  type AnyCommandContract,
+  INSTANCE_PREFERENCES_RECORD,
+  recordContracts,
+  SETTINGS_CONTRACTS,
+  USER_PREFERENCES_RECORD,
+} from '@podium/commands'
+import { isAdminGrade, spawnedByParentSessionId, type UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
-import { spawnedByParentSessionId } from '@podium/model'
+import {
+  type CommandPrincipal,
+  onBehalfOfUser,
+  resolvePrincipalAsync,
+} from '../../command-principal'
 import { type Context, mods } from '../../trpc'
+import { coarselyPermitted, contractFrontDoor } from '../front-door'
 import { isSettingsCommand, type SettingsCommandName } from './registry'
 
 /**
@@ -109,10 +119,7 @@ const contractFor = (name: SettingsCommandName): AnyCommandContract =>
  * router's own key set), and if it ever did, "I could not find the rule" must
  * not be spelled the same way as "the rule permitted it".
  */
-export function settingsAuthzFailure(
-  name: string,
-  deps: SettingsAuthzDeps,
-): TRPCError | undefined {
+export function settingsAuthzFailure(name: string, deps: SettingsAuthzDeps): TRPCError | undefined {
   if (!isSettingsCommand(name)) {
     return new TRPCError({
       code: 'FORBIDDEN',
@@ -190,10 +197,25 @@ export async function settingsAuthzDeps(ctx: Context): Promise<SettingsAuthzDeps
  * copy is a RENDERING HINT with no authority — which is the distinction POD-352's
  * exit item is about.
  */
+// Compile the two record contracts once, using the declarations that register
+// their real writes. They no longer belong to SETTINGS_CONTRACTS (POD-5620).
+const PREFERENCE_EDITS = [USER_PREFERENCES_RECORD, INSTANCE_PREFERENCES_RECORD].flatMap((kind) => {
+  const edit = recordContracts(kind).edit
+  return edit ? [edit] : []
+})
+
 export function settingsCommandsPermitted(deps: SettingsAuthzDeps): Record<string, boolean> {
   const out: Record<string, boolean> = {}
   for (const name of Object.keys(SETTINGS_CONTRACTS)) {
     out[name] = settingsAuthzFailure(name, deps) === undefined
+  }
+  // These controls address my own personal row or the one instance row. Reuse
+  // the record front door and its declared floor, including the live account
+  // check the adapters perform. Field/target checks still run when applied.
+  for (const edit of PREFERENCE_EDITS) {
+    out[edit.name] =
+      coarselyPermitted(contractFrontDoor(edit), deps.principal, 'trpc') &&
+      settingsRoleSatisfiesFloor(deps.role, edit.policy.roleFloor)
   }
   return out
 }

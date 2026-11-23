@@ -112,13 +112,11 @@ about needing 68 bytes.
 
 ## Building it
 
-`bun run --cwd apps/desktop stage` is the documented path and it runs `package:headless`,
-which currently **fails on the web bundle-size budget** before staging anything. That gate
-runs *after* Vite emits, so `apps/web/dist` is already on disk when it fails — build the
-pieces directly instead:
+`bun run --cwd apps/desktop stage` is the documented path; it runs `package:headless`.
+To build the pieces directly instead:
 
 ```bash
-bun run --filter @podium/web build   # ignore the budget failure; dist/ is written
+bun run --filter @podium/web build   # writes apps/web/dist
 bun scripts/build-bun.ts             # -> dist-bun/podium  (~1 min; the tarball step after it is not needed)
 cp dist-bun/podium apps/desktop/src-tauri/resources/podium && chmod 755 $_
 cp -r apps/web/dist apps/desktop/src-tauri/resources/web

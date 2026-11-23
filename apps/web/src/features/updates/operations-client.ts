@@ -78,36 +78,6 @@ export function errorCode(error: unknown): string | undefined {
   return undefined
 }
 
-/** The active operation, parsed through the ONE parser. `null` is ordinary. */
-export async function readActiveOperation(trpc: Trpc): Promise<Operation | null> {
-  const raw = await trpc.operations.active.query({ group: 'lifecycle' })
-  return parseOperation(raw)
-}
-
-/**
- * THE MOST RECENT OPERATION, TERMINAL INCLUDED — and why the panel needs it.
- *
- * `operations.active` deliberately excludes terminal states (the store filters
- * on `isTerminalOperationState`), because "active" is what single-flight and
- * adoption are keyed on. But two of the panel's states are terminal: §6.2.4's
- * "Podium is on 0.4.3 everywhere" and §6.2.5's failure, which the spec says is
- * "never a dead end and never a toast that evaporates". Read only `active` and
- * both would blink out of existence at the exact moment they became true — a
- * failed update would leave the user with an empty corner, which is the old
- * behaviour this whole issue exists to end.
- *
- * So the outcome comes from `history`, which serves the same stored bytes. The
- * caller decides whether a given terminal operation is still worth showing
- * (`use-update-state.ts`); this function only fetches it.
- */
-export async function readLatestOperation(
-  trpc: Trpc,
-  kind: string,
-): Promise<Operation | null> {
-  const rows = await trpc.operations.history.query({ kind, limit: 1 })
-  return parseOperation(rows[0])
-}
-
 /**
  * Start the one update operation. Single-flight lives on the SERVER (P6): a
  * second tab pressing this gets the running operation back (`alreadyRunning`),
@@ -146,8 +116,8 @@ function startOutcome(answer: unknown): StartUpdateOutcome {
  * left the button saying "Trying again…" forever. Starting an operation is a
  * few reads and one write, so thirty seconds without an answer means the answer
  * is lost, not slow. The caller then treats it like any other lost answer: it
- * polls for the operation the server may already have created, and only after
- * that says the update could not be confirmed.
+ * polls for the operation the server may already have created, and says so
+ * when the server stays silent (POD-7154).
  */
 export const UPDATE_REQUEST_TIMEOUT_MS = 30_000
 

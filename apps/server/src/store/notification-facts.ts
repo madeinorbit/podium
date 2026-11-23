@@ -1,8 +1,13 @@
+// workspace-scoped (POD-6959)
 import type { IssueId } from '@podium/model'
 import { and, eq, gte, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
-import { notificationFacts } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import type {
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 import { prefixUpperBound } from './prefix-range'
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
@@ -24,10 +29,11 @@ interface FactClaim {
 // may read write intent off the method. `.returning()` on an insert IS the
 // declaration (spec rule 27a), and the terminal `.get()` only says how many
 // rows come back.
-const claimFact = prepared((db: StoreDrizzle) =>
+const claimFact = prepared((db, t) =>
   db
-    .insert(notificationFacts)
+    .insert(t.notificationFacts)
     .values({
+      workspaceId: WORKSPACE,
       factKey: sql.placeholder('factKey'),
       target: sql.placeholder('target'),
       source: sql.placeholder('source'),
@@ -37,7 +43,11 @@ const claimFact = prepared((db: StoreDrizzle) =>
       consumedAt: null,
     })
     .onConflictDoUpdate({
-      target: [notificationFacts.factKey, notificationFacts.target],
+      target: [
+        t.notificationFacts.workspaceId,
+        t.notificationFacts.factKey,
+        t.notificationFacts.target,
+      ],
       set: {
         source: sql`excluded.source`,
         issueId: sql`excluded.issue_id`,
@@ -48,93 +58,110 @@ const claimFact = prepared((db: StoreDrizzle) =>
       // The conflict guard is part of the single write statement, so
       // concurrent producers cannot both win.
       setWhere: or(
-        isNotNull(notificationFacts.consumedAt),
+        isNotNull(t.notificationFacts.consumedAt),
         and(
-          isNotNull(notificationFacts.expiresAt),
-          sql`${notificationFacts.expiresAt} < excluded.created_at`,
+          isNotNull(t.notificationFacts.expiresAt),
+          sql`${t.notificationFacts.expiresAt} < excluded.created_at`,
         ),
       ),
     })
-    .returning({ factKey: notificationFacts.factKey })
+    .returning({ factKey: t.notificationFacts.factKey })
     .prepare(),
 )
 
-const factKeyIs = () => eq(notificationFacts.factKey, param(notificationFacts.factKey, 'factKey'))
-const targetIs = () => eq(notificationFacts.target, param(notificationFacts.target, 'target'))
+const factKeyIs = (t: StoreTables) =>
+  eq(t.notificationFacts.factKey, param(t.notificationFacts.factKey, 'factKey'))
+const targetIs = (t: StoreTables) =>
+  eq(t.notificationFacts.target, param(t.notificationFacts.target, 'target'))
 
-const activeFact = prepared((db: StoreDrizzle) =>
+const activeFact = prepared((db, t) =>
   db
     .select({ one: sql<number>`1` })
-    .from(notificationFacts)
+    .from(t.notificationFacts)
     .where(
-      and(
-        factKeyIs(),
-        targetIs(),
-        isNull(notificationFacts.consumedAt),
+      inWorkspace(
+        t.notificationFacts,
+        factKeyIs(t),
+        targetIs(t),
+        isNull(t.notificationFacts.consumedAt),
         or(
-          isNull(notificationFacts.expiresAt),
-          gte(notificationFacts.expiresAt, param(notificationFacts.expiresAt, 'now')),
+          isNull(t.notificationFacts.expiresAt),
+          gte(t.notificationFacts.expiresAt, param(t.notificationFacts.expiresAt, 'now')),
         ),
       ),
     )
     .prepare(),
 )
 
-const retireFact = prepared((db: StoreDrizzle) =>
+const retireFact = prepared((db, t) =>
   db
-    .update(notificationFacts)
-    .set({ consumedAt: sql.placeholder('consumedAt') })
-    .where(and(factKeyIs(), targetIs(), isNull(notificationFacts.consumedAt)))
-    .prepare(),
-)
-
-const retireFactsOfKey = prepared((db: StoreDrizzle) =>
-  db
-    .update(notificationFacts)
-    .set({ consumedAt: sql.placeholder('consumedAt') })
-    .where(and(factKeyIs(), isNull(notificationFacts.consumedAt)))
-    .prepare(),
-)
-
-const retireFactsOfKeyPrefix = prepared((db: StoreDrizzle) =>
-  db
-    .update(notificationFacts)
+    .update(t.notificationFacts)
     .set({ consumedAt: sql.placeholder('consumedAt') })
     .where(
-      and(
-        gte(notificationFacts.factKey, param(notificationFacts.factKey, 'from')),
-        lt(notificationFacts.factKey, param(notificationFacts.factKey, 'below')),
-        isNull(notificationFacts.consumedAt),
+      inWorkspace(
+        t.notificationFacts,
+        factKeyIs(t),
+        targetIs(t),
+        isNull(t.notificationFacts.consumedAt),
       ),
     )
     .prepare(),
 )
 
-const deleteFactsOfIssue = prepared((db: StoreDrizzle) =>
+const retireFactsOfKey = prepared((db, t) =>
   db
-    .delete(notificationFacts)
-    .where(eq(notificationFacts.issueId, param(notificationFacts.issueId, 'issueId')))
+    .update(t.notificationFacts)
+    .set({ consumedAt: sql.placeholder('consumedAt') })
+    .where(inWorkspace(t.notificationFacts, factKeyIs(t), isNull(t.notificationFacts.consumedAt)))
     .prepare(),
 )
 
-const deleteExpiredFacts = prepared((db: StoreDrizzle) =>
+const retireFactsOfKeyPrefix = prepared((db, t) =>
   db
-    .delete(notificationFacts)
+    .update(t.notificationFacts)
+    .set({ consumedAt: sql.placeholder('consumedAt') })
     .where(
-      and(
-        isNotNull(notificationFacts.expiresAt),
-        lt(notificationFacts.expiresAt, param(notificationFacts.expiresAt, 'now')),
+      inWorkspace(
+        t.notificationFacts,
+        gte(t.notificationFacts.factKey, param(t.notificationFacts.factKey, 'from')),
+        lt(t.notificationFacts.factKey, param(t.notificationFacts.factKey, 'below')),
+        isNull(t.notificationFacts.consumedAt),
+      ),
+    )
+    .prepare(),
+)
+
+const deleteFactsOfIssue = prepared((db, t) =>
+  db
+    .delete(t.notificationFacts)
+    .where(
+      inWorkspace(
+        t.notificationFacts,
+        eq(t.notificationFacts.issueId, param(t.notificationFacts.issueId, 'issueId')),
+      ),
+    )
+    .prepare(),
+)
+
+const deleteExpiredFacts = prepared((db, t) =>
+  db
+    .delete(t.notificationFacts)
+    .where(
+      inWorkspace(
+        t.notificationFacts,
+        isNotNull(t.notificationFacts.expiresAt),
+        lt(t.notificationFacts.expiresAt, param(t.notificationFacts.expiresAt, 'now')),
       ),
     )
     .prepare(),
 )
 
 export class NotificationFactsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -145,8 +172,8 @@ export class NotificationFactsRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**

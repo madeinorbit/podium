@@ -19,11 +19,9 @@ const GIT_WATCH_INTERVAL_MS = 30_000
  * Deliberately a LOCAL timer, unlike the auto-archive it is shaped after — that
  * one moved to the fenced janitor at POD-925 and this one does not. The fence
  * exists to keep exactly ONE writer against DURABLE state across server
- * generations. This sweep writes no durable state at all: it re-probes git and
- * updates the per-process, ephemeral `gitStates` map (see `IssueStore`). Two
- * generations running it concurrently would each read git and each cache the
- * same answer — there is no mutation to double-apply, so there is nothing to
- * fence, and routing it through the janitor's protocol would buy only ceremony.
+ * generations. This sweep observes git; its guarded status upsert and sync
+ * append share a transaction. Identical observations write nothing twice,
+ * and the stored row remains the last changed observation across restart.
  */
 export class IssueGitWatch {
   private bootTimer: ReturnType<typeof setTimeout> | undefined

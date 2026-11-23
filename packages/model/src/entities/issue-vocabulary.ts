@@ -27,7 +27,7 @@
  */
 
 import { z } from 'zod'
-import { ArtifactIdField, IssueIdField } from '../ids'
+import { ArtifactIdField, IssueIdField, IssuePanelItemIdField } from '../ids'
 import { LABEL_COLOR_SLOTS } from './label-color'
 
 // ---------------------------------------------------------------------------
@@ -172,18 +172,34 @@ export type IssueDepWire = z.infer<typeof IssueDepWire>
 
 export const IssueComment = z.object({
   id: z.string(),
+  /** Display name the comment was written under. Never changes. */
   author: z.string(),
   body: z.string(),
   createdAt: z.string(),
+  /** The member the comment belongs to (POD-6289): its author, or an agent's
+   *  human. Only this member edits or deletes it. Absent on comments written
+   *  before attribution was recorded. */
+  authorId: z.string().optional(),
+  /** Last edit, and the member who made it. `editedBy` differs from
+   *  `authorId` exactly when an admin moderated the comment. */
+  editedAt: z.string().optional(),
+  editedBy: z.string().optional(),
+  /** The comment is the reader's own (POD-6295): the task page offers its
+   *  edit control. Computed per reader by `issues.comments`; an admin's
+   *  moderation stays a command and is not offered here. */
+  mayEdit: z.boolean().optional(),
 })
 export type IssueComment = z.infer<typeof IssueComment>
 
 /** Agent-published, human-facing issue panel (right-sidebar "Issue" tab).
  *  Distinct from the agent's internal todo list: agents intentionally update
  *  this so the HUMAN can see what's left, review artifacts, decide deferrals. */
-export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean() })
+/** Command/report DTOs retain item identity. Synced kinds require it. */
+export const IssuePanelItemIdentity = z.object({ id: IssuePanelItemIdField, issueId: IssueIdField, position: z.number().int().nonnegative() })
+export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean(), ...IssuePanelItemIdentity.partial().shape })
 export type IssuePanelTodo = z.infer<typeof IssuePanelTodo>
 export const IssuePanelArtifact = z.object({
+  ...IssuePanelItemIdentity.partial().shape,
   /** Stable attachment name. Daemon snapshots retain their source-relative
    * path; direct uploads choose a name independent of the source filesystem. */
   path: z.string(),
@@ -222,7 +238,7 @@ export const IssuePanelArtifact = z.object({
   untrackedPaths: z.array(z.string()).optional(),
 })
 export type IssuePanelArtifact = z.infer<typeof IssuePanelArtifact>
-export const IssuePanelDeferred = z.object({ text: z.string(), addedAt: z.string() })
+export const IssuePanelDeferred = z.object({ text: z.string(), addedAt: z.string(), ...IssuePanelItemIdentity.partial().shape })
 export type IssuePanelDeferred = z.infer<typeof IssuePanelDeferred>
 export const IssuePanel = z.object({
   todos: z.array(IssuePanelTodo).default([]),
@@ -238,7 +254,7 @@ export type IssuePanel = z.infer<typeof IssuePanel>
  *  counters on a shared checkout like main or a long-lived project branch).
  *  Tolerant so payloads from newer peers parse rather than failing the issue. */
 export const IssueGitState = z.object({
-  /** ISO time of the last completed probe. */
+  /** ISO time when the observed git facts last changed; unchanged checks keep it. */
   updatedAt: z.string(),
   /** A probe is in flight — clients render the stamp's loading shimmer. */
   computing: z.boolean().optional(),

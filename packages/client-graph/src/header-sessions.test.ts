@@ -1,6 +1,8 @@
 import { omitGone } from './lookup'
+import { attachHeaderRequests, type HeaderRequestsApi } from './header-requests'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
+import { liveFixture } from './live-fixture'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createHostSessionAggregatesSelector } from '@podium/client-core/values'
 import {
@@ -14,7 +16,8 @@ import { insideReader, measureWork } from '../../../tests/worklist/harness/src/w
 import { EMPTY_HOST_AGGREGATE } from './header-session'
 import { HeaderSessions } from './header-sessions'
 import { MobxPool } from './pool'
-import { LOADING } from './worklist/rollup'
+import { historyLoader } from '../../../tests/worklist/shared/src/history-loader'
+const NO_REQUESTS = { settings: { get: { query: async () => ({}) } } } as unknown as HeaderRequestsApi
 
 const NOW = Date.parse('2026-10-03T00:00:00Z')
 const HOSTS = ['header-host-a', 'header-host-b'] as MachineId[]
@@ -45,21 +48,29 @@ function session(id: string, patch: Partial<SessionView> = {}): SessionView {
   } as SessionView
 }
 
-function fixture(coldCount = 0) {
+/**
+ * `offDevice`: the `coldCount` stopped sessions are history the device does
+ * not hold (POD-7059), behind the one loader, instead of device rows.
+ */
+function fixture(coldCount = 0, options: { offDevice?: boolean } = {}) {
   const rows = new Map<string, SessionView>()
+  const past: SessionView[] = []
   for (let index = 0; index < 32; index++) {
     const id = `resident-${index}`
     rows.set(id, session(id))
   }
   for (let index = 0; index < coldCount; index++) {
     const id = `cold-${index}`
-    rows.set(id, session(id, { status: 'exited', stoppedAt: stamp(NOW - 30 * 86_400_000) }))
+    const value = session(id, { status: 'exited', stoppedAt: stamp(NOW - 30 * 86_400_000) })
+    if (options.offDevice) past.push(value)
+    else rows.set(id, value)
   }
+  const history = historyLoader(past.map((value) => ({ kind: 'session' as const, id: value.sessionId, value: value as never })))
   const load = vi.fn((_entity: string, id: string) => rows.get(id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW }, undefined, {
-    header: true,
     load,
     schedule: () => () => {},
+    ...(options.offDevice ? { loader: () => history.port } : {}),
   })
   const apply = (id: string, value: SessionView | undefined) => {
     if (value) rows.set(id, value)
@@ -74,9 +85,8 @@ function fixture(coldCount = 0) {
     ],
   })
   replace()
-  expect(pool.tables.session.size).toBe(32)
-  // POD-5407: the pool keeps no list of its cold rows; the index knows them.
-  expect(pool.coldIndex().count('session') - pool.tables.session.size).toBe(coldCount)
+  // POD-7094: every session the device holds is in the pool.
+  expect(pool.tables.session.size).toBe(32 + (options.offDevice ? 0 : coldCount))
   // The old aggregate uses the header source's resident-only machine edges.
   const stopEdges = observe(pool.tables.session, (change) =>
     headerEntities(pool).change(
@@ -103,6 +113,7 @@ function fixture(coldCount = 0) {
   return {
     pool,
     rows,
+    history,
     load,
     apply,
     paint,
@@ -148,7 +159,6 @@ describe('incremental header sessions', () => {
     const f = fixture(1)
     f.change('cold-0', { status: 'live', agentState: state('working') })
     expect(f.pool.queries.ids({ kind: 'headerSessions' })).toContain('cold-0')
-    expect(f.pool.tables.session.has('cold-0')).toBe(false)
     let references: (string | undefined)[] = []
     const stop = autorun(() => { references = headerView(f.pool).working().map(value => value.displayRef) })
     try {
@@ -156,7 +166,6 @@ describe('incremental header sessions', () => {
       f.pool.apply({ type: 'update', rows: [{ kind: 'repo', id: REF_REPO,
         value: { id: REF_REPO, prefix: 'NEXT', repoPath: '/synthetic/header' } as never }] })
       expect(references).toEqual(['NEXT-1-A'])
-      expect(f.pool.tables.session.has('cold-0')).toBe(false)
       expect(f.load).not.toHaveBeenCalled()
     } finally { stop(); f.dispose() }
   })
@@ -164,27 +173,27 @@ describe('incremental header sessions', () => {
   it('counts working sessions and adjusts history without visiting the roster at 1x/4x', async () => {
     const samples = []
     for (const scale of [1, 4] as const) {
-      const f = fixture(128 * scale)
-      for (const id of f.rows.keys()) f.change(id, { status: 'live', agentState: state('working') })
-      headerEntities(f.pool).apply([
-        {
-          kind: 'history',
-          id: 'fleet',
-          value: {
-            sampledAt: stamp(),
-            bucketMs: 1800000,
-            peak: 0,
-            buckets: Array.from({ length: 24 }, (_, index) => ({
-              start: stamp(NOW - index * 1800000),
-              count: 0,
-            })),
-          },
-        },
-      ])
+      // POD-7112: the 32 live sessions work; the 128 x scale stopped sessions
+      // are history, off the device behind the loader (POD-7059). Every row
+      // the device holds is in the pool (POD-7094), so history must cost the
+      // count nothing and never be asked for.
+      const f = fixture(128 * scale, { offDevice: true })
+      for (let index = 0; index < 32; index++)
+        f.change(`resident-${index}`, { status: 'live', agentState: state('working') })
+      // The concurrency history is a request answer (POD-5798).
+      attachHeaderRequests(f.pool, NO_REQUESTS).setHistory({
+        sampledAt: stamp(),
+        bucketMs: 1800000,
+        peak: 0,
+        buckets: Array.from({ length: 24 }, (_, index) => ({
+          start: stamp(NOW - index * 1800000),
+          count: 0,
+        })),
+      } as never)
       // Establish header demand outside the measurement. A count reads
-      // resident flags and cold deadline totals, never the roster values.
+      // the working flags, never the roster values.
       const warm = autorun(() => { headerView(f.pool).workingCount() })
-      expect(headerView(f.pool).workingCount()).toBe(32 + 128 * scale)
+      expect(headerView(f.pool).workingCount()).toBe(32)
       const roster = vi.spyOn(HeaderSessions.prototype, 'working')
       let count = 0,
         paints = 0,
@@ -212,7 +221,7 @@ describe('incremental header sessions', () => {
         const removed = await measure('working phase ended', () =>
           f.change('resident-0', { agentState: state('idle') }),
         )
-        expect(count).toBe(31 + 128 * scale)
+        expect(count).toBe(31)
         expect(paints).toBe(beforeRename + 1)
         expect(roster).not.toHaveBeenCalled()
         stop()
@@ -223,10 +232,11 @@ describe('incremental header sessions', () => {
         expect(paints).toBe(beforeRename + 1)
         expect(roster).not.toHaveBeenCalled()
         const control = await measure('whole roster count control', () => {
-          expect(headerView(f.pool).working().length).toBe(30 + 128 * scale)
+          expect(headerView(f.pool).working().length).toBe(30)
         })
         expect(roster).toHaveBeenCalledOnce()
-        expect(control.work.elements).toBeGreaterThanOrEqual(128 * scale)
+        expect(control.work.elements).toBeGreaterThanOrEqual(30)
+        expect(f.history.asked).toEqual([])
         samples.push({
           scale,
           first: first.work,
@@ -247,7 +257,6 @@ describe('incremental header sessions', () => {
     for (const name of ['first', 'repeat', 'renamed', 'removed', 'closed'] as const)
       for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
         expect(samples[1]![name][counter], `${name}:${counter}`).toBe(samples[0]![name][counter])
-    expect(samples[1]!.control.elements).toBeGreaterThan(samples[0]!.control.elements)
   })
 
   it('reads resident and cold contributions inside the applying action', () => {
@@ -264,7 +273,6 @@ describe('incremental header sessions', () => {
         expect(headerView(f.pool).working().map((row) => row.sessionId)).toEqual(['resident-0'])
         expect(headerView(f.pool).aggregate(HOSTS[0]).phases.working).toBe(1)
         f.change('cold-0', { status: 'live', agentState: state('working') })
-        expect(f.pool.tables.session.has('cold-0')).toBe(false)
         expect(headerView(f.pool).workingCount()).toBe(2)
         expect(headerView(f.pool).working().map((row) => row.sessionId)).toEqual(['cold-0', 'resident-0'])
         expect(headerView(f.pool).aggregate(HOSTS[0]).phases.working).toBe(2)
@@ -272,10 +280,34 @@ describe('incremental header sessions', () => {
     } finally { stop(); f.dispose() }
   })
 
+  it('stops counting a working session while its machine is read offline, resident or cold (ADR 12 D1)', () => {
+    const f = fixture(1)
+    const live = liveFixture(f.pool, () => NOW)
+    const stop = autorun(() => { headerView(f.pool).workingCount() })
+    try {
+      runInAction(() => {
+        f.change('resident-0', { agentState: state('working') })
+        f.change('cold-0', { status: 'live', agentState: state('working') })
+      })
+      expect(headerView(f.pool).workingCount()).toBe(2)
+      // Unknown is not offline: an app that has no reading yet counts as before.
+      live.online(HOSTS[0]!, undefined)
+      expect(headerView(f.pool).workingCount()).toBe(2)
+      // The machine's link drops. No session row changes: the count follows the
+      // LiveStore condition alone.
+      live.online(HOSTS[0]!, false)
+      expect(f.pool.sessionObject('resident-0').reconnecting).toBe(true)
+      expect(f.pool.sessionObject('resident-0').status).toBe('live')
+      expect(headerView(f.pool).workingCount()).toBe(0)
+      live.online(HOSTS[0]!, true)
+      expect(f.pool.sessionObject('resident-0').reconnecting).toBe(false)
+      expect(headerView(f.pool).workingCount()).toBe(2)
+    } finally { stop(); f.dispose() }
+  })
+
   it('releases header demand at the last reader and leaves untracked reads unsubscribed', () => {
     const f = fixture(1)
     const dispose = vi.spyOn(HeaderSessions.prototype, 'dispose')
-    const cold = vi.spyOn(HeaderSessions.prototype as unknown as { cold(id: string): void }, 'cold')
     try {
       expect(headerView(f.pool).workingCount()).toBe(0)
       expect(dispose).toHaveBeenCalledTimes(1)
@@ -285,66 +317,13 @@ describe('incremental header sessions', () => {
       expect(dispose).toHaveBeenCalledTimes(1)
       second()
       expect(dispose).toHaveBeenCalledTimes(2)
-      cold.mockClear()
       f.change('cold-0', { status: 'live', agentState: state('working') })
       f.change('resident-0', { agentState: state('working') })
       f.pool.clock.advance(NOW + 1000)
-      expect(cold).not.toHaveBeenCalled()
       const stop = autorun(() => { expect(headerView(f.pool).workingCount()).toBe(2) })
       stop()
       expect(dispose).toHaveBeenCalledTimes(3)
-    } finally { cold.mockRestore(); dispose.mockRestore(); f.dispose() }
-  })
-
-  it('reads painted fields of a working cold session without hydrating it', () => {
-    const f = fixture(1)
-    f.change('cold-0', { status: 'live', agentState: state('working') })
-    let working: ReturnType<ReturnType<typeof headerView>['working']> = []
-    const stop = autorun(() => {
-      working = headerView(f.pool).working()
-    })
-    try {
-      f.paint('cold-0', { title: 'Pending title', name: 'Pending name' })
-      expect(working).toEqual([
-        expect.objectContaining({
-          sessionId: 'cold-0',
-          title: 'Pending title',
-          name: 'Pending name',
-        }),
-      ])
-      f.paint('cold-0', { archived: true })
-      expect(working).toEqual([])
-      f.rebase('cold-0')
-      expect(working).toEqual([expect.objectContaining({ sessionId: 'cold-0', title: 'cold-0' })])
-      expect(f.pool.tables.session.has('cold-0')).toBe(false)
-      expect(f.pool.hydrate()).toBe(0)
-      expect(f.load).not.toHaveBeenCalled()
-    } finally {
-      stop()
-      f.dispose()
-    }
-  })
-
-  it('queues a missing cold header summary once and restores the roster on hydration', () => {
-    const f = fixture(1)
-    f.change('cold-0', { status: 'live', agentState: state('working') })
-    const missing = vi.spyOn(f.pool.residency!, 'summary').mockReturnValue(undefined)
-    let working: string[] = []
-    const stop = autorun(() => {
-      working = headerView(f.pool).working().map((row) => row.sessionId)
-    })
-    try {
-      expect(working).toEqual([])
-      expect(f.load).not.toHaveBeenCalled()
-      expect(f.pool.hydrate()).toBe(1)
-      expect(f.load).toHaveBeenCalledExactlyOnceWith('session', 'cold-0')
-      expect(working).toEqual(['cold-0'])
-      expect(f.pool.hydrate()).toBe(0)
-    } finally {
-      missing.mockRestore()
-      stop()
-      f.dispose()
-    }
+    } finally { dispose.mockRestore(); f.dispose() }
   })
 
   it.each([
@@ -366,13 +345,8 @@ describe('incremental header sessions', () => {
       check('resident-0', () => f.change('resident-0', { agentState: state('working') }))
       expect(working).toEqual(['resident-0'])
       check('cold-0', () => f.change('cold-0', { status: 'live', agentState: state('compacting') }))
-      expect(f.pool.residency!.isCold('session', 'cold-0')).toBe(true)
       expect(working).toEqual(['cold-0', 'resident-0'])
       expect(f.load).not.toHaveBeenCalled()
-      check('cold-0', () => {
-        expect(omitGone(f.pool.row('session', 'cold-0'))).toBe(LOADING)
-        expect(f.pool.hydrate()).toBe(1)
-      })
       expect(working).toEqual(['cold-0', 'resident-0'])
       check('resident-0', () => f.change('resident-0', { archived: true }))
       expect(working).toEqual(['cold-0'])
@@ -417,10 +391,6 @@ describe('incremental header sessions', () => {
       check('cold-0', () => f.change('cold-0', { machineId: HOSTS[1] }))
       expect(first.count).toBe(32)
       expect(second).toMatchObject({ count: 1, idleSplit: { protected: 1 } })
-      check('cold-0', () => {
-        omitGone(f.pool.row('session', 'cold-0'))
-        f.pool.hydrate()
-      })
       expect(second.count).toBe(1)
       check('resident-0', () => f.change('resident-0', { archived: true }))
       expect(first.count).toBe(31)
@@ -468,7 +438,7 @@ describe('incremental header sessions', () => {
         f.change('resident-0', { agentState: state(phase) })
         parity()
       }
-      for (const status of ['starting', 'reconnecting', 'hibernated', 'exited', 'live'] as const) {
+      for (const status of ['starting', 'hibernated', 'exited', 'live'] as const) {
         f.change('resident-0', { status, agentState: state('working') })
         parity()
       }
@@ -489,14 +459,13 @@ describe('incremental header sessions', () => {
       parity()
       f.apply('resident-0', undefined)
       parity()
-      // A resident eviction followed by a returning cold summary must replace,
-      // rather than duplicate, its earlier contribution.
+      // A removal followed by the session's return must replace, rather than
+      // duplicate, its earlier contribution.
       const returned = f.rows.get('cold-0')!
       f.apply('cold-0', undefined)
       parity()
       f.apply('cold-0', returned)
       parity()
-      expect(f.pool.residency!.isCold('session', 'cold-0')).toBe(true)
       f.rows.clear()
       f.rows.set('z', session('z', { agentState: state('working') }))
       f.rows.set('a', session('a', { agentState: state('compacting') }))

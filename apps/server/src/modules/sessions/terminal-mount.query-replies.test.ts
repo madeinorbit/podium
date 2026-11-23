@@ -14,6 +14,7 @@ import {
   type ServerMessage,
 } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { userClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { SessionTerminal } from './terminal'
@@ -78,6 +79,7 @@ function fixture(withDesktop = true) {
       id,
       principal: userClientPrincipal(id, asUserId('phone-query-owner'), 'admin'),
       send: (msg) => socket.deliver(msg),
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
       viewports: new Map(),
       attached: new Set(),
       caps: new Set(),
@@ -108,7 +110,7 @@ function fixture(withDesktop = true) {
     cleanups.push(() => hub.dispose())
     hub.connect()
     socket.onopen?.({})
-    socket.deliver({ type: 'welcome', clientId: id } as ServerMessage)
+    socket.deliver({ type: 'welcome', kindTokens: {}, clientId: id } as ServerMessage)
 
     const viewport = document.createElement('div')
     viewport.style.cssText = `width:${width}px;height:480px;overflow:auto`

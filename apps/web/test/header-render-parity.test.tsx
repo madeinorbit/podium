@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
@@ -42,7 +43,7 @@ function renderedHeader(element: Element): unknown {
 }
 
 async function mount(roster = false) {
-  const fixture = createHeaderFixture(6, 6)
+  const fixture = createHeaderFixture(6, 6, 'header-pool-regression')
   const failures: string[] = []
   let ready = false
   let runtime: ClientRuntime | undefined
@@ -51,7 +52,7 @@ async function mount(roster = false) {
     return <AgentConcurrencyHistory working={workingCount} />
   }
   function Header() {
-    const owner = useStoreHandle() as ClientRuntime
+    const owner = useClientRuntime() as ClientRuntime
     const pool = useWorklistPool()
     useEffect(() => {
       runtime = owner
@@ -73,8 +74,7 @@ async function mount(roster = false) {
       networkEnabled={false}
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
-        fixture.bindHub(owner.hub)
-        fixture.bindHeaderInputs(owner)
+        fixture.bindHub(owner.services.connection.hub, owner.live)
         fixture.publishMachines()
         fixture.publishMetrics(0)
         return attachWorklistPool(owner, (error) => failures.push(error.message))
@@ -180,7 +180,7 @@ describe('old and pool header rendering', () => {
     expect(chip.getAttribute('aria-label')).toContain('disk')
 
     await act(async () => {
-      const metrics = header.runtime.hostMetrics.getSnapshot()
+      const metrics = header.fixture.inputs().metrics
       const { disk: _disk, ...unknown } = metrics[0]!
       header.fixture.publishHostMetrics([unknown, ...metrics.slice(1)])
     })
@@ -188,7 +188,7 @@ describe('old and pool header rendering', () => {
     expect(disk().querySelector('.header-meter > span')).toBeNull()
     expect(chip.getAttribute('aria-label')).toContain('disk usage unavailable')
     await act(async () => {
-      const metrics = header.runtime.hostMetrics.getSnapshot()
+      const metrics = header.fixture.inputs().metrics
       header.fixture.publishHostMetrics([
         {
           ...metrics[0]!,

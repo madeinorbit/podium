@@ -122,7 +122,7 @@ export interface AccountQuotaGroup {
  *  - prefer a healthy read: if one machine can read the account and another can't,
  *    the card shows the readable windows.
  */
-export function groupQuotaByAccount(machines: MachineQuotaWire[]): AccountQuotaGroup[] {
+export function groupQuotaByAccount(machines: readonly MachineQuotaWire[]): AccountQuotaGroup[] {
   const groups = new Map<string, AccountQuotaGroup>()
   for (const machine of machines) {
     for (const agent of machine.agents) {

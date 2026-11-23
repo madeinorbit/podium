@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
+import { accountCapabilities, passwordCapabilities } from '../test-support/auth-capabilities'
+
 const mocks = vi.hoisted(() => ({
   begin: vi.fn(),
   logout: vi.fn().mockResolvedValue(undefined),
@@ -29,10 +31,16 @@ vi.mock('../components/KeyboardAvoidingRoot', () => ({
   KeyboardAvoidingRoot: ({ children }: any) => children,
 }))
 vi.mock('../components/PressableScale', () => ({
-  PressableScale: ({ children, onPress }: any) => <button onClick={onPress}>{children}</button>,
+  PressableScale: ({ children, onPress }: any) => (
+    <button type="button" onClick={onPress}>
+      {children}
+    </button>
+  ),
 }))
+
 import { AuthGate } from './AuthGate'
 import { hostedBrowserSignInUrl } from './hosted-browser-sign-in'
+
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -47,12 +55,12 @@ it('navigates a logged-out browser to account sign-in and opens the gate on cook
   let cookie = false
   const fetcher = vi.fn(async (_url: string, init: RequestInit) =>
     Response.json({
-      mode: 'cloud',
+      capabilities: { ...accountCapabilities, accountUrl: 'https://app.example/account' },
+      prompt: 'email-password',
       needsAuth: true,
       authed: cookie && init.credentials === 'include',
       userId: cookie ? 'mem_browser' : null,
       ...(cookie ? { memberId: 'mem_browser', syncBoundaryId: 'installation-browser' } : {}),
-      signInUrl: 'https://app.example/account/sign-in',
     }),
   )
   vi.stubGlobal('fetch', fetcher)
@@ -61,8 +69,8 @@ it('navigates a logged-out browser to account sign-in and opens the gate on cook
       <div>Workspace</div>
     </AuthGate>,
   )
-  fireEvent.click(await screen.findByRole('button', { name: 'Continue with Podium Cloud' }))
-  expect(screen.queryByLabelText('Password')).toBeNull()
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }))
+  expect(screen.getByLabelText('Password')).toBeTruthy()
   expect(screen.queryByText('Workspace')).toBeNull()
   expect(assign).toHaveBeenCalledWith(
     'https://app.example/account/sign-in?returnTo=%2Fmobile%2Fsession%2F123%3Ftab%3Dfiles%23recent&switchAccount=1',
@@ -112,13 +120,13 @@ it('shows the workspace refusal instead of a repeat-sign-in loop', async () => {
     'fetch',
     vi.fn(async () =>
       Response.json({
-        mode: 'cloud',
+        capabilities: { ...accountCapabilities, accountUrl: 'https://app.example/account' },
+        prompt: 'email-password',
         needsAuth: true,
         authed: false,
         userId: null,
-        signInUrl: 'https://app.example/account/sign-in',
-        providerSignedIn: true,
-        deniedReason: 'not a member of this workspace',
+
+        denied: 'not_workspace_member',
       }),
     ),
   )
@@ -127,11 +135,43 @@ it('shows the workspace refusal instead of a repeat-sign-in loop', async () => {
       <div>Workspace</div>
     </AuthGate>,
   )
-  expect((await screen.findByRole('alert')).textContent).toBe('not a member of this workspace')
+  expect((await screen.findByRole('alert')).textContent).toBe(
+    'This account is not a member of this workspace.',
+  )
   expect(screen.getByRole('button', { name: 'Use another account' })).toBeTruthy()
-  expect(screen.queryByRole('button', { name: 'Continue with Podium Cloud' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Continue with Google' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Use another account' }))
   await waitFor(() => expect(assign).toHaveBeenCalled())
   expect(mocks.logout).toHaveBeenCalledWith('https://api.example', null, undefined)
   expect(mocks.removeProfile).toHaveBeenCalledWith('browser')
+})
+
+it('opens an invitation in the shared web screen before checking an existing browser sign-in', async () => {
+  window.history.replaceState(null, '', '/mobile/#invite=invitation-secret')
+  const replace = vi.spyOn(window.location, 'replace').mockImplementation(() => {})
+  const fetcher = vi.fn(async () =>
+    Response.json({
+      needsAuth: true,
+      authed: true,
+      userId: 'alice',
+      memberId: 'alice',
+      syncBoundaryId: 'server',
+      capabilities: accountCapabilities,
+      prompt: 'email-password',
+    }),
+  )
+  vi.stubGlobal('fetch', fetcher)
+  render(
+    <AuthGate>
+      <div>Workspace</div>
+    </AuthGate>,
+  )
+  await waitFor(() => expect(replace).toHaveBeenCalled())
+  const target = new URL(replace.mock.calls[0]![0])
+  expect(target.pathname).toBe('/')
+  expect(target.searchParams.has('desktop')).toBe(true)
+  expect(target.hash).toBe('#invite=invitation-secret')
+  expect(fetcher).not.toHaveBeenCalled()
+  expect(screen.queryByText('Workspace')).toBeNull()
+  window.history.replaceState(null, '', '/')
 })

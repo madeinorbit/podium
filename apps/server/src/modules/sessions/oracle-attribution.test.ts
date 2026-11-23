@@ -15,7 +15,7 @@
 
 import { firstAdminMemberId, type SessionId } from '@podium/model'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { attachTestClient } from '../../test-support/client-transport'
 import {
   disposeOracles,
@@ -133,8 +133,14 @@ describe('oracle: who created this session', () => {
   it(`${MUST_NOT_CHANGE}: an agent-spawned child is stamped 'session:<parent>' — the actor half already exists, from the capability`, async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
+      worktreePath: '/r/.worktrees/a',
+    })
     const parent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
@@ -160,8 +166,14 @@ describe('oracle: who named this session', () => {
   it(`${NO_PERSON}: nameSource records the CLASS of writer ('user' | 'agent'), never which user or which agent`, async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
+      worktreePath: '/r/.worktrees/a',
+    })
     const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
@@ -231,6 +243,17 @@ describe('oracle: who typed into this session', () => {
     // is pinned here, where the bytes still exist. The property is unchanged:
     // direct keystrokes stamp human, chat sends stamp controller.
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    // A chat send waits for the shell's real PTY bind; creating its row alone
+    // cannot make raw bytes deliverable. Establish that transport fact before
+    // comparing direct and controller input attribution.
+    await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'bash',
+      cwd: '/p',
+      agentKind: 'shell',
+      geometry: { cols: 80, rows: 24 },
+    })
     const clientId = attachTestClient(o.reg.clientGateway, () => {})
     await o.reg.clientGateway.routeClientFrame(clientId, {
       type: 'hello',
@@ -253,11 +276,14 @@ describe('oracle: who typed into this session', () => {
     // from controller-mediated user input. Agent/system delivery remains 'mail'.
     // EXACT sequence, not a substring: one human keystroke, one bracketed-paste
     // controller frame carrying the text and nothing else, plus its submit CR.
-    expect(ptyFrames(o.daemon)).toEqual([
-      { inputOrigin: 'human', data: 'x' },
-      { inputOrigin: 'controller', data: `${PASTE_START}via the substrate${PASTE_END}` },
-      { inputOrigin: 'controller', data: '\r' },
-    ])
+    // The send is typed once its write commits (POD-6349/POD-6350).
+    await vi.waitFor(() =>
+      expect(ptyFrames(o.daemon)).toEqual([
+        { inputOrigin: 'human', data: 'x' },
+        { inputOrigin: 'controller', data: `${PASTE_START}via the substrate${PASTE_END}` },
+        { inputOrigin: 'controller', data: '\r' },
+      ]),
+    )
   })
 })
 
@@ -265,8 +291,14 @@ describe('oracle: who asked the human a question', () => {
   it(`${NO_PERSON}: humanQuestionAskedBy is stamped from the transport principal, and an agent cannot attribute a question to another session`, async () => {
     const o = await makeOracle()
     await provisionHost(o)
-    const issue = await o.reg.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await o.reg.issues.crud.update(issue.id, { worktreePath: '/r/.worktrees/a' })
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, issue.id, {
+      worktreePath: '/r/.worktrees/a',
+    })
     const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
@@ -284,7 +316,9 @@ describe('oracle: who asked the human a question', () => {
 
     // Stamped from the capability's actorSessionId — a bare session id, and the
     // only attribution the answer-routing path has to work with.
-    expect((await o.reg.issues.reports.getMeta(issue.id))?.humanQuestionAskedBy).toBe(agent.sessionId)
+    expect((await o.reg.issues.reports.getMeta(issue.id))?.humanQuestionAskedBy).toBe(
+      agent.sessionId,
+    )
 
     // Payload identity is inert (ADR 3 D7): claiming to be someone else is refused.
     const spoofed = await o.relay({

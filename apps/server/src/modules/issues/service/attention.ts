@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
-import type { IssueId, IssueProjection, MachineId, SessionId, UserId } from '@podium/model'
+import type {
+  IssueId,
+  IssueJoinVia,
+  IssueProjection,
+  MachineId,
+  SessionId,
+  UserId,
+} from '@podium/model'
 import { DRAFT_ISSUE_TITLE } from '@podium/model'
 import {
   attributionOf,
@@ -13,11 +20,11 @@ import { isMemberCwd } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
 import type { SubscriptionPageCursor } from '../../../store/events'
 import { afterCommit } from '../../../store/executor/executor'
-import type { IssueStore } from './core'
+import type { IssueCollaborator, IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
 import { IssueRefusal } from './refusal'
-import { AUTO_ARCHIVE_READ_WINDOW_MS } from './types'
+import { AUTO_ARCHIVE_READ_WINDOW_MS, type IssueWriter, type WriterRest } from './types'
 
 const log = createLogger('server:issues')
 
@@ -54,52 +61,121 @@ export class IssueAttentionModule {
       | 'setIssueTucked'
     >,
     private readonly hierarchy: () => {
-      addDep(fromRef: string, toRef: string, type?: string): Promise<IssueProjection>
+      addDep(
+        writer: IssueWriter,
+        fromRef: string,
+        toRef: string,
+        type?: string,
+      ): Promise<IssueProjection>
     },
     private readonly reports: () => Pick<IssueReportsModule, 'niceRef'>,
     private readonly gitWorkflow: () => IssueAttentionWorktreePort,
   ) {}
 
   async defer(
-    ...args: Parameters<IssueCrudModule['defer']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['defer']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['defer']>>> {
-    return await this.crud().defer(...args)
+    return await this.crud().defer(writer, ...args)
   }
 
   async undefer(
-    ...args: Parameters<IssueCrudModule['undefer']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['undefer']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['undefer']>>> {
-    return await this.crud().undefer(...args)
+    return await this.crud().undefer(writer, ...args)
   }
 
   async setNeedsHuman(
-    ...args: Parameters<IssueCrudModule['setNeedsHuman']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['setNeedsHuman']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['setNeedsHuman']>>> {
-    return await this.crud().setNeedsHuman(...args)
+    return await this.crud().setNeedsHuman(writer, ...args)
   }
 
   async clearNeedsHuman(
-    ...args: Parameters<IssueCrudModule['clearNeedsHuman']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['clearNeedsHuman']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['clearNeedsHuman']>>> {
-    return await this.crud().clearNeedsHuman(...args)
+    return await this.crud().clearNeedsHuman(writer, ...args)
   }
 
   async markIssueRead(
-    ...args: Parameters<IssueCrudModule['markIssueRead']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['markIssueRead']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['markIssueRead']>>> {
-    return await this.crud().markIssueRead(...args)
+    return await this.crud().markIssueRead(writer, ...args)
   }
 
   async markIssueUnread(
-    ...args: Parameters<IssueCrudModule['markIssueUnread']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['markIssueUnread']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['markIssueUnread']>>> {
-    return await this.crud().markIssueUnread(...args)
+    return await this.crud().markIssueUnread(writer, ...args)
   }
 
   async setIssueTucked(
-    ...args: Parameters<IssueCrudModule['setIssueTucked']>
+    writer: IssueWriter,
+    ...args: WriterRest<IssueCrudModule['setIssueTucked']>
   ): Promise<Awaited<ReturnType<IssueCrudModule['setIssueTucked']>>> {
-    return await this.crud().setIssueTucked(...args)
+    return await this.crud().setIssueTucked(writer, ...args)
+  }
+
+  /**
+   * A member pinned or unpinned the task (POD-6692): the pin itself is their
+   * `pin` record, written by the generic edit, which calls this only when the
+   * pin changed. It records `issue.pinned` on the task's activity, naming the
+   * member, so the shared activity shows it to nobody else (POD-6291).
+   */
+  async recordIssuePin(issueId: string, member: UserId, pinned: boolean): Promise<void> {
+    const row = await this.store.row(issueId)
+    if (!row) return
+    await this.store.emitEvent('issue.pinned', row.id, { seq: row.seq, pinned, userId: member })
+  }
+
+  /**
+   * PERSONAL RECORDS (POD-6290; design §2.2, §4.4). `member` started work on
+   * the task, their agent did, or they joined it: the task enters their
+   * personal set. The first record is kept. Takes a resolved id: its callers
+   * (a session start or attach) already hold the task.
+   */
+  async recordParticipation(
+    writer: IssueWriter,
+    issueId: IssueId,
+    member: UserId,
+    via: IssueJoinVia,
+  ): Promise<void> {
+    await this.store.recordParticipation(writer, issueId, member, via)
+  }
+
+  /** An explicit join (`issues.join`): `member`'s join record, or their agent's
+   *  when an agent joins for them. Answers the task's collaborators. */
+  async joinIssue(
+    writer: IssueWriter,
+    id: string,
+    member: UserId,
+    via: Extract<IssueJoinVia, 'join' | 'agent'>,
+  ): Promise<IssueCollaborator[]> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    await this.store.recordParticipation(writer, row.id, member, via)
+    return await this.store.collaborators(row.id)
+  }
+
+  /** Remove `member`'s "assigned to you by X" row and nothing else. */
+  async dismissAssignment(
+    writer: IssueWriter,
+    id: string,
+    member: UserId,
+  ): Promise<{ dismissed: boolean }> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    return { dismissed: await this.store.dismissAssignment(writer, row.id, member) }
+  }
+
+  /** The task's collaborators: members with a start or join record. No access
+   *  follows from being one. */
+  async collaborators(id: string): Promise<IssueCollaborator[]> {
+    const row = await this.store.rowOrThrow(await this.store.resolveRef(id))
+    return await this.store.collaborators(row.id)
   }
   /** Re-home a session onto another issue (agent self-organization).
    *  - `newSubissue`: create a child issue first (parent = the session's current
@@ -111,14 +187,17 @@ export class IssueAttentionModule {
    *  - else attach to `targetId` (self-attach is a no-op).
    *  After the move, an abandoned EMPTY draft (no attached sessions, no worktree,
    *  no children) is deleted. */
-  async attachSession(opts: {
-    sessionId: SessionId
-    targetId?: string
-    newSubissue?: { title: string; origin: 'human' | 'agent' }
-    newSpinoff?: { title: string; origin: 'human' | 'agent' }
-    confirmRehome?: boolean
-    principal?: Exclude<CommandPrincipal, { kind: 'system' }>
-  }): Promise<IssueProjection> {
+  async attachSession(
+    writer: IssueWriter,
+    opts: {
+      sessionId: SessionId
+      targetId?: string
+      newSubissue?: { title: string; origin: 'human' | 'agent' }
+      newSpinoff?: { title: string; origin: 'human' | 'agent' }
+      confirmRehome?: boolean
+      principal?: Exclude<CommandPrincipal, { kind: 'system' }>
+    },
+  ): Promise<IssueProjection> {
     const { readSessionIssueId, setSessionIssueId } = this.store.deps
     if (!readSessionIssueId || !setSessionIssueId) {
       throw new Error('attachSession unavailable: session registry hooks not injected')
@@ -150,9 +229,7 @@ export class IssueAttentionModule {
           (session) =>
             session.sessionId !== opts.sessionId &&
             !session.archived &&
-            (session.status === 'live' ||
-              session.status === 'starting' ||
-              session.status === 'reconnecting'),
+            (session.status === 'live' || session.status === 'starting'),
         )
         if (others.length > 0) await this.assertReplacementCoordination(prev, opts.sessionId)
       }
@@ -185,7 +262,7 @@ export class IssueAttentionModule {
         const inheritsBase = [repo, instance, 'main', 'master']
           .filter(Boolean)
           .includes(anchor.parentBranch)
-        const wire = await this.crud().create({
+        const wire = await this.crud().create(writer, {
           repoPath: anchor.repoPath,
           title,
           startNow: false,
@@ -208,7 +285,7 @@ export class IssueAttentionModule {
             : {}),
         })
         if (opts.newSpinoff) {
-          await this.hierarchy().addDep(wire.id, anchorId, 'discovered-from')
+          await this.hierarchy().addDep(writer, wire.id, anchorId, 'discovered-from')
         }
         target = await this.store.rowOrThrow(wire.id)
       }
@@ -231,7 +308,7 @@ export class IssueAttentionModule {
       }
     }
     if (prevId === target.id) return await this.store.projection(target) // self-attach: no-op
-    await setSessionIssueId(opts.sessionId, target.id)
+    await setSessionIssueId(writer, opts.sessionId, target.id)
     await this.store.emitEvent('issue.session_attached', target.id, {
       seq: target.seq,
       sessionId: opts.sessionId,
@@ -281,9 +358,7 @@ export class IssueAttentionModule {
             (session) =>
               session.sessionId === coordinatorId &&
               !session.archived &&
-              (session.status === 'live' ||
-                session.status === 'starting' ||
-                session.status === 'reconnecting') &&
+              (session.status === 'live' || session.status === 'starting') &&
               row.worktreePath != null &&
               isMemberCwd(row.worktreePath, session.cwd),
           )
@@ -318,7 +393,14 @@ export class IssueAttentionModule {
     const candidates = (
       anchor.repoId
         ? await this.store.deps.store.issues.listIssueRowsWhere(
-            { repo: true, readable: false, live: true, unarchived: true, state: 'open', topLevel: true, order: 'seq' },
+            {
+              repo: true,
+              live: true,
+              unarchived: true,
+              state: 'open',
+              topLevel: true,
+              order: 'seq',
+            },
             { repoId: anchor.repoId },
           )
         : []
@@ -326,11 +408,14 @@ export class IssueAttentionModule {
     // Provenance can be removed, so retaining a positive across attaches would
     // permit unrelated reuse. Resolve anew for this attach; missing evidence denies.
     // One read of every candidate's dependencies.
-    const dependencies = await this.store.deps.store.issues.depsFromIssues(candidates.map((row) => row.id))
+    const dependencies = await this.store.deps.store.issues.depsFromIssues(
+      candidates.map((row) => row.id),
+    )
     return candidates
       .filter((row) =>
         dependencies.some(
-          (dep) => dep.fromId === row.id && dep.toId === anchor.id && dep.type === 'discovered-from',
+          (dep) =>
+            dep.fromId === row.id && dep.toId === anchor.id && dep.type === 'discovered-from',
         ),
       )
       .sort((a, b) => a.seq - b.seq)[0]
@@ -389,8 +474,8 @@ export class IssueAttentionModule {
     target.machineId = worktreeMachineId
     origin.worktreePath = null
     origin.branch = null
-    await this.store.persistRow(origin)
-    await this.store.persistRow(target)
+    await this.store.persistRow(this.store.serverWriter, origin)
+    await this.store.persistRow(this.store.serverWriter, target)
 
     if (origin.repoPath)
       this.store.d.onWorktreesChanged?.(origin.repoPath, target.machineId ?? undefined)
@@ -400,7 +485,7 @@ export class IssueAttentionModule {
     origin: IssueRow,
     worktreeMachineId: MachineId,
   ): Promise<boolean> {
-    const cached = this.store.gitStates.get(origin.id)
+    const cached = await this.store.gitState(origin.id)
     if (cached) {
       if (cached.dirtyFiles > 0) return true
       if ((cached.ahead ?? 0) > 0) return true
@@ -461,13 +546,14 @@ export class IssueAttentionModule {
    *  backlog issue with a placeholder title. The spawn flow stamps its id onto the
    *  new session. */
   async createDraftFor(
+    writer: IssueWriter,
     repoPath: string,
     agentKind?: string,
     id?: IssueId,
     ownership?: { ownerUserId: UserId; createdByActor: string; createdByOnBehalfOf: UserId },
     machineId?: MachineId,
   ): Promise<IssueProjection> {
-    return await this.crud().create({
+    return await this.crud().create(writer, {
       repoPath,
       ...(machineId ? { machineId } : {}),
       title: DRAFT_ISSUE_TITLE,
@@ -487,16 +573,19 @@ export class IssueAttentionModule {
    *  it enabled. `sourceRef` for an issue/session source is stored as given — an
    *  issue ref is resolved to its internal id so relationship/subject matching is
    *  stable across #seq churn. */
-  async subscriptionAdd(input: {
-    subscriberKind: Subscription['subscriberKind']
-    subscriberId: string
-    event: string
-    sourceKind: Subscription['sourceKind']
-    sourceRef: string
-    deliverNudge?: boolean
-    deliverNotify?: boolean
-    origin?: Subscription['origin']
-  }): Promise<Subscription> {
+  async subscriptionAdd(
+    writer: IssueWriter,
+    input: {
+      subscriberKind: Subscription['subscriberKind']
+      subscriberId: string
+      event: string
+      sourceKind: Subscription['sourceKind']
+      sourceRef: string
+      deliverNudge?: boolean
+      deliverNotify?: boolean
+      origin?: Subscription['origin']
+    },
+  ): Promise<Subscription> {
     const sub: Subscription = {
       id: `sub_${randomUUID()}`,
       subscriberKind: input.subscriberKind,
@@ -513,18 +602,22 @@ export class IssueAttentionModule {
       enabled: true,
       createdAt: this.store.now(),
     }
-    await this.store.deps.funnel.run({
+    // The row and its change entry commit together (POD-6676): the Authority
+    // builds the named record before and after the write (POD-6769).
+    await writer.commit({
       write: async () => await this.store.deps.store.events.addSubscription(sub),
     })
     return sub
   }
 
-  async subscriptionRemove(id: string): Promise<{ removed: boolean }> {
-    const existed = (await this.store.deps.store.events.getSubscription(id)) !== undefined
-    await this.store.deps.funnel.run({
+  /** `records.subscription.remove` (POD-6676): the row and its removal entry. */
+  async subscriptionRemove(writer: IssueWriter, id: string): Promise<{ removed: boolean }> {
+    const existing = await this.store.deps.store.events.getSubscription(id)
+    if (existing === undefined) return { removed: false }
+    await writer.commit({
       write: async () => await this.store.deps.store.events.removeSubscription(id),
     })
-    return { removed: existed }
+    return { removed: true }
   }
 
   async subscriptionList(filter: { subscriberId: string }): Promise<Subscription[]> {
@@ -540,23 +633,41 @@ export class IssueAttentionModule {
     return await this.store.deps.store.events.listSubscriptionsPage(page)
   }
 
+  /** One keyset page of ONE MEMBER'S subscriptions (POD-6288): those whose
+   *  subscriber is a session they own or a task assigned to them. */
+  async subscriptionOwnPage(
+    userId: string,
+    page: { after?: SubscriptionPageCursor; limit?: number },
+  ): Promise<Subscription[]> {
+    return await this.store.deps.store.events.listOwnSubscriptionsPage(userId, page)
+  }
+
   /** Toggle a subscription on/off (Automations UI). Custom subscriptions only affect
    *  the additive dispatcher pass, so disabling one never touches the built-in
    *  handlers — it is safe and reversible. */
-  async subscriptionSetEnabled(id: string, enabled: boolean): Promise<{ updated: boolean }> {
-    return await this.store.deps.funnel.run({
-      write: async () => ({
-        updated: await this.store.deps.store.events.setSubscriptionEnabled(id, enabled),
-      }),
+  async subscriptionSetEnabled(
+    writer: IssueWriter,
+    id: string,
+    enabled: boolean,
+  ): Promise<{ updated: boolean }> {
+    const events = this.store.deps.store.events
+    const { result } = await writer.commit({
+      write: async () =>
+        (await events.setSubscriptionEnabled(id, enabled))
+          ? await events.getSubscription(id)
+          : undefined,
     })
+    return { updated: result !== undefined }
   }
 
   async subscriptionGet(id: string): Promise<Subscription | undefined> {
     return await this.store.deps.store.events.getSubscription(id)
   }
 
-  async archive(id: string): Promise<IssueProjection> {
-    return await this.crud().update(id, { archived: true })
+  /** `caller` is the human archiving (POD-6368): only their sessions on the
+   *  task are archived with it. */
+  async archive(writer: IssueWriter, id: string, caller?: UserId): Promise<IssueProjection> {
+    return await this.crud().update(writer, id, { archived: true }, caller ? { caller } : undefined)
   }
 
   /**
@@ -583,29 +694,42 @@ export class IssueAttentionModule {
   ): Promise<IssueProjection[]> {
     const cutoffReadMs = nowMs - AUTO_ARCHIVE_READ_WINDOW_MS
     const out: IssueProjection[] = []
-    // The closed, live, unarchived top-level issues in one SQL listing, and the
-    // viewer's markers for them in one read (POD-6193); they used to be found by
-    // scanning the issue map with one marker read per closed issue.
+    // The closed, live, unarchived top-level issues in one SQL listing, and each
+    // one's assignee's markers in one read (POD-6193, POD-6291); they used to be
+    // found by scanning the issue map with one marker read per closed issue.
     const closed = await this.store.deps.store.issues.listIssueRowsWhere({
-      repo: false, readable: false, live: true, unarchived: true, state: 'closed', topLevel: true, order: 'path-seq',
+      repo: false,
+      live: true,
+      unarchived: true,
+      state: 'closed',
+      topLevel: true,
+      order: 'path-seq',
     })
     const markers = await this.store.issueUserStates(closed.map((row) => row.id))
+    const due: { row: IssueRow; viewerReadAt: string }[] = []
     for (const row of closed) {
       if (row.archived || row.deletedAt) continue // idempotent: never re-archive deleted work
       if (!this.store.isClosed(row) || row.parentId) continue // only closed top-level work ages out [spec:SP-6144]
-      // "Read" is now a fact about a READER, so the sweep asks the broadcast
-      // viewer (POD-1076). Behaviour is unchanged on a one-person instance; the
-      // open question "auto-archived because WHO read it?" is POD-1136's, and it
-      // is now askable because the value has an owner.
+      // "Read" is a fact about a READER (POD-1076). `archived` is shared, so one
+      // reader gates it: the task's assignee, the person accountable for it
+      // (POD-6291). On a one-member instance that is the only member, as before;
+      // another member's read never archives somebody else's finished work.
       const viewerReadAt = markers.get(row.id)?.readAt
       if (viewerReadAt == null) continue // never read → still unread, leave it
       const readMs = Date.parse(viewerReadAt)
       if (!Number.isFinite(readMs) || readMs > cutoffReadMs) continue // read too recently
-      // Post-read activity re-marks the issue unread (the operator hasn't seen it):
-      // honour that here so a re-touched done issue isn't archived out from under them.
-      // Only a row that clears the cheap gates asks for its sessions (POD-6160).
-      const sessions = await this.store.deps.readSessionFactsByIssue(row.worktreePath, row.id)
-      if (this.store.computeUnread(row, sessions, viewerReadAt)) continue
+      due.push({ row, viewerReadAt })
+    }
+    // Post-read activity re-marks the issue unread (the operator hasn't seen it):
+    // honour that here so a re-touched done issue isn't archived out from under them.
+    // Only a row that clears the cheap gates asks for its sessions (POD-6160), and
+    // they ask together (POD-7036): one at a time, every such issue restored its
+    // own sessions with single-id reads of each satellite table, every hour.
+    const members = await this.store.deps.readSessionFactsByIssues(
+      due.map(({ row }) => ({ worktreePath: row.worktreePath, issueId: row.id })),
+    )
+    for (const { row, viewerReadAt } of due) {
+      if (this.store.computeUnread(row, members.get(row.id) ?? [], viewerReadAt)) continue
       out.push(await this.autoArchive(row, principal))
     }
     return out
@@ -636,14 +760,12 @@ export class IssueAttentionModule {
       return 'precondition'
     }
     // WHOSE read (POD-1229). `archived` is a SHARED column, so exactly one
-    // reader may gate it — the viewer this service archives for. A proposal
-    // naming anyone else is REFUSED rather than quietly evaluated against the
-    // wrong person: that refusal is what makes "the janitor and the server must
-    // ask the same principal" a checked fact instead of two constants that
-    // happen to match. When `archived` becomes per-user (POD-1077), this
-    // comparison becomes "the principal whose flag you are setting" and the
-    // observation already carries it.
-    if (observed.readerUserId !== (await this.store.broadcastViewer())) return 'precondition'
+    // reader may gate it — the task's assignee (POD-6291). A proposal naming
+    // anyone else is REFUSED rather than quietly evaluated against the wrong
+    // person: that refusal is what makes "the janitor and the server must ask
+    // the same principal" a checked fact instead of two constants that happen
+    // to match.
+    if (observed.readerUserId !== row.ownerUserId) return 'precondition'
     const viewerReadAt = (
       await this.store.deps.store.issues.getIssueUserState(observed.readerUserId, row.id)
     )?.readAt
@@ -679,7 +801,7 @@ export class IssueAttentionModule {
     // archives, so the row it hands over is the map's own object [POD-3259].
     const draft = this.store.draftOf(row)
     draft.archived = true
-    const wire = await this.store.persist(draft)
+    const wire = await this.store.persist(this.store.serverWriter, draft)
     await this.store.emitEvent('issue.auto_archived', draft.id, {
       seq: draft.seq,
       readAt: (await this.store.issueOverlay(draft.id)).readAt,
@@ -687,7 +809,11 @@ export class IssueAttentionModule {
     })
     // Same teardown as the manual archive path — the sweep must not leave a
     // session-less worktree row (issue #133) or a checkout (POD-567) behind.
-    await this.onIssueArchived(draft)
+    // The sweep fires only on the assignee's read (POD-6291), so it archives
+    // for the assignee: their sessions go with the task, nobody else's
+    // (POD-6368). Another member's stopped sessions are archived on their own
+    // owner's read (POD-6285).
+    await this.onIssueArchived(this.store.serverWriter, draft, draft.ownerUserId ?? undefined)
     return wire
   }
 
@@ -715,8 +841,12 @@ export class IssueAttentionModule {
    * the worktree simply stays, exactly as it did before this existed, and the GC
    * sweep (POD-564) will offer it again.
    */
-  public async onIssueArchived(row: IssueRow): Promise<void> {
-    await this.cascadeArchiveSessions(row)
+  public async onIssueArchived(
+    writer: IssueWriter,
+    row: IssueRow,
+    archivedBy?: UserId,
+  ): Promise<void> {
+    await this.cascadeArchiveSessions(writer, row, archivedBy)
     // THE FREE IS AN EXTERNAL EFFECT and waits for the commit [POD-3260, spec
     // §3.3 mechanism 3]. The auto-archive sweep reaches this from inside
     // `MaintenanceService`'s span (its `write()` wraps every pure job in
@@ -747,13 +877,28 @@ export class IssueAttentionModule {
    *  sessions. Reuses the session registry's own archive path (setSessionArchived →
    *  relay.setArchived) so each archived session persists + broadcasts. Skips
    *  already-archived sessions so a re-archive is a no-op with no redundant
-   *  broadcast. */
-  public async cascadeArchiveSessions(row: IssueRow): Promise<void> {
+   *  broadcast.
+   *
+   *  ONLY THE ARCHIVER'S OWN SESSIONS (POD-6368, design §2.3), as a close stops
+   *  only the closer's (POD-6287). Archiving a shared task is the archiver
+   *  putting away their own work on it; another member's sessions there stay
+   *  as they were and show the task as archived. The read-gated sweep acts
+   *  for the assignee, whose read it fires on. A server write with no human
+   *  behind it, and a session that records no human (older rows), archive
+   *  as before. */
+  public async cascadeArchiveSessions(
+    writer: IssueWriter,
+    row: IssueRow,
+    archivedBy?: UserId,
+  ): Promise<void> {
     const setArchived = this.store.deps.setSessionArchived
     if (!setArchived) return
     for (const s of await this.store.sessionsFor(row)) {
       if (s.archived) continue
-      await setArchived(s.sessionId, true)
+      // The human the session acts for, as the server wrote it at start: no read.
+      const owner = s.delegation?.onBehalfOf ?? s.createdBy?.onBehalfOf
+      if (archivedBy && owner != null && owner !== archivedBy) continue
+      await setArchived(writer, s.sessionId, true)
     }
   }
 
@@ -764,12 +909,12 @@ export class IssueAttentionModule {
    *  the explicit "work is finished" flip — clear standing offers so finished
    *  work cannot keep demanding attention. No-ops when the clear hook is absent
    *  (test deps) or a session has no offer. */
-  public async retireIssueOffers(row: IssueRow): Promise<void> {
+  public async retireIssueOffers(writer: IssueWriter, row: IssueRow): Promise<void> {
     const clearOffer = this.store.deps.clearSessionOffer
     if (!clearOffer) return
     for (const s of await this.store.sessionsFor(row)) {
       if (!s.offer) continue
-      await clearOffer(s.sessionId)
+      await clearOffer(writer, s.sessionId)
     }
   }
 }

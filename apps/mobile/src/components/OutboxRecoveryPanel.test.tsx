@@ -22,7 +22,7 @@ vi.mock('../client/use-pool-notices', () => ({
 }))
 
 vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ get access() { return mobile.state } }),
+  useOutboxRecovery: () => mobile.state.recoverOutbox,
 }))
 
 import { OutboxRecoveryPanel } from './OutboxRecoveryPanel'
@@ -63,7 +63,9 @@ describe('mobile parked-write recovery', () => {
     mobile.state.outboxDeadLetters = [change]
     render(<OutboxRecoveryPanel />)
     fireEvent.click(screen.getByTestId('outbox-copy'))
-    await waitFor(() => expect(Clipboard.setStringAsync).toHaveBeenCalledWith('  careful words\nsecond line  '))
+    await waitFor(() =>
+      expect(Clipboard.setStringAsync).toHaveBeenCalledWith('  careful words\nsecond line  '),
+    )
     expect(screen.getByText('careful words second line')).toBeTruthy()
   })
 

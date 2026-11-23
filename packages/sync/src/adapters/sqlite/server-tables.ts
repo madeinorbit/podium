@@ -32,6 +32,7 @@ import type { AnySQLiteColumn, SQLiteColumn, SQLiteTable } from 'drizzle-orm/sql
 
 /** `queued_messages` — the session inbox (spec docs/spec/outbox-write-path.md). */
 export type QueuedMessagesTable = SQLiteTable & {
+  readonly workspaceId: SQLiteColumn
   readonly id: SQLiteColumn
   readonly sessionId: AnySQLiteColumn<{ data: SessionId; notNull: true }>
   readonly text: SQLiteColumn
@@ -49,18 +50,34 @@ export type QueuedMessagesTable = SQLiteTable & {
   readonly delivery: SQLiteColumn
   readonly attachmentsJson: SQLiteColumn
   readonly retractRequestedAt: SQLiteColumn
+  readonly queueOrder: SQLiteColumn
 }
 
 /** `upstream_outbox` — ARCHIVED at POD-309; this adapter has the one surviving
  *  reader (`SyncRepository.listParkedUpstreamMutations`). */
 export type UpstreamOutboxTable = SQLiteTable & {
+  readonly workspaceId: SQLiteColumn
   readonly mutationId: AnySQLiteColumn<{ data: MutationId; notNull: true }>
   readonly proc: SQLiteColumn
   readonly queuedAt: SQLiteColumn
+  readonly queueOrder: SQLiteColumn
 }
+
+/**
+ * The server's change-capture wrapper for a write on a source table
+ * (`apps/server/src/sync/capture-pg.ts`, POD-6982): it returns the drizzle insert,
+ * update or delete builder it is handed, unchanged on SQLite (the triggers capture)
+ * and rendering its capture form on Postgres. `queued_messages` is a source of the
+ * session record, so the adapter's inbox writes go through it (POD-6989).
+ *
+ * INJECTED FOR THE SAME REASON AS THE TABLES: the capture forms are generated from
+ * the server's record sources, which a package may not import.
+ */
+export type CaptureWrite = <B>(write: B) => B
 
 /** What the composition root hands {@link SyncRepository} alongside the connection. */
 export interface SyncServerTables {
   readonly queuedMessages: QueuedMessagesTable
   readonly upstreamOutbox: UpstreamOutboxTable
+  readonly captureWrite: CaptureWrite
 }

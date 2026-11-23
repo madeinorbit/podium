@@ -26,7 +26,7 @@ export interface SessionBroadcastPorts {
   scheduleVolatileCapture(): void
   drainVolatileSlice(): Promise<{ remaining: number }>
   flushVolatileCaptures(): Promise<unknown>
-  flushDeltas(): void
+  flushDeltas(): void | Promise<void>
 }
 
 /** Coalesces model-view publication independently of lifecycle transitions. */
@@ -93,7 +93,7 @@ export class SessionBroadcastCoordinator {
           const { remaining } = await this.ports.drainVolatileSlice()
           if (remaining > 0) this.ports.scheduleVolatileCapture()
         }
-        this.ports.flushDeltas()
+        await this.ports.flushDeltas()
       } finally {
         this.running = null
         perf.record('phase', 'sessionsBroadcast.total', performance.now() - startedAt, DEPLOYMENT)

@@ -9,13 +9,12 @@ import {
 } from './issue-state'
 
 describe('issue user-state feed projection', () => {
-  it('keeps the shared keyed shape and projects only the pin timestamp to a flag', () => {
+  it('keeps the shared keyed shape and carries no pin', () => {
     const row = IssueUserState.parse({
       userId: 'user:a',
       entityId: 'issue:a',
       readAt: 'read',
       tuckedAt: null,
-      pinnedAt: 'pin',
     })
     expect(IssueUserStateWire.shape.userId).toBe(IssueUserState.shape.userId)
     expect(IssueUserStateWire.shape.entityId).toBe(IssueUserState.shape.entityId)
@@ -24,9 +23,11 @@ describe('issue user-state feed projection', () => {
       entityId: 'issue:a',
       readAt: 'read',
       tuckedAt: null,
-      pinned: true,
     })
-    expect(issueUserStateToWire({ ...row, pinnedAt: null }).pinned).toBe(false)
+    // An issue pin is a `pin` record (POD-6692): this row and its wire carry none.
+    expect(issueUserStateToWire(row)).not.toHaveProperty('pinned')
+    expect(IssueUserStateWire.shape).not.toHaveProperty('pinned')
+    expect(IssueUserStateWire.shape).not.toHaveProperty('pinnedAt')
   })
 
   it('round-trips hostile key parts without aliases and rejects another entity kind', () => {

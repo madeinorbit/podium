@@ -9,7 +9,6 @@ import {
   type WorktreeGcObservation,
   worktreeGcRunKey,
 } from '@podium/protocol'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 
 /**
  * A member id, as a FIXTURE (A2). These tests open no instance, so
@@ -18,19 +17,54 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
  * and naming one locally says so.
  */
 const A_MEMBER = asUserId('mem_0ujtsYcgvSTl8PAuAdqWYSMnLOv')
+
 import { describe, expect, it, vi } from 'vitest'
 import {
+  AppliedMutationsPrunePlanner,
   ChangeLogPrunePlanner,
   ConnectScanReader,
   createMaintenanceHttpClient,
   EventLogPrunePlanner,
+  type ExpiryRow,
   handleTickError,
+  type JanitorReadSource,
+  type JanitorReads,
   JanitorService,
   MaintenanceCompatibilityError,
   MessageExpiryReader,
+  QueuedMessagesExpiryReader,
+  type RetentionJob,
   WorktreeGcReader,
-  type WorktreeGcReadInput,
 } from './janitor'
+
+/**
+ * The read port with only the reads a case needs [POD-6993]. The SQL behind each read
+ * is the server's (`apps/server/src/store/janitor-reads.ts`) and is tested there on
+ * both engines; these cases test what the janitor does with the rows. Each scan counts.
+ */
+function portOf(reads: Partial<JanitorReads>): JanitorReadSource & { scans: number } {
+  const port = {
+    scans: 0,
+    scan: async <T>(fn: (r: JanitorReads) => Promise<T>): Promise<T> => {
+      port.scans += 1
+      return await fn(reads as JanitorReads)
+    },
+  }
+  return port
+}
+
+/** Keyset pages over sorted rows, as the server's walks return them. */
+function pagesOver<Row, Key>(
+  rows: Row[],
+  keyOf: (row: Row) => Key,
+  compare: (a: Key, b: Key) => number,
+) {
+  const sorted = [...rows].sort((a, b) => compare(keyOf(a), keyOf(b)))
+  return (limit: number, after?: Key): Row[] =>
+    sorted.filter((row) => after === undefined || compare(keyOf(row), after) > 0).slice(0, limit)
+}
+
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 const readyLease = (
   over: Partial<{
@@ -47,9 +81,11 @@ const readyLease = (
   autoArchiveReadWindowMs: 7 * 24 * 60 * 60 * 1000,
   eventRetentionMaxAgeDays: 14,
   eventRetentionMaxRows: 50_000,
-  changeKeepRows: 20_000,
-  changeMaxAgeMs: 3 * 24 * 60 * 60 * 1000,
+  changeKeepRows: 500_000,
+  changeMaxAgeMs: 30 * 24 * 60 * 60 * 1000,
   maintenanceCommandMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
+  appliedMutationMaxAgeMs: 30 * 24 * 60 * 60 * 1000,
+  queuedMessageMaxAgeMs: 14 * 24 * 60 * 60 * 1000,
   worktreeGcMode: over.worktreeGcMode ?? 'propose',
   worktreeGcAfterDays: over.worktreeGcAfterDays ?? 14,
 })
@@ -243,99 +279,61 @@ describe('JanitorService [spec:SP-c29e]', () => {
     expect(handshakes).toBe(2)
   })
 
-  it('reads only durable due facts in bounded pages without consulting runtime state', async () => {
-    const db = openDatabase(':memory:')
-    try {
-      db.exec(`CREATE TABLE messages (
-        id TEXT PRIMARY KEY,
-        delivery_status TEXT NOT NULL DEFAULT 'stored',
-        lifecycle TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        expires_at TEXT
-      );
-      CREATE INDEX idx_messages_delivery_expiry_explicit
-        ON messages(delivery_status, expires_at, id);
-      CREATE INDEX idx_messages_delivery_expiry_implicit
-        ON messages(delivery_status, lifecycle, expires_at, created_at, id);`)
-      const insertAs = db.prepare(
-        'INSERT INTO messages (id, delivery_status, lifecycle, created_at, expires_at) VALUES (?, ?, ?, ?, ?)',
-      )
-      // Every seeded row is one the server still holds unless it says otherwise.
-      const insert = {
-        run: (id: string, lifecycle: string, createdAt: string, expiresAt: string | null) =>
-          insertAs.run(id, 'stored', lifecycle, createdAt, expiresAt),
-      }
-      // HANDED ON, and older than every due row: the machine may still type
-      // these, so they can never expire — and must not fill the head of a page.
-      insertAs.run('msg_dispatched_wait', 'dispatched', 'wait', '2026-06-01T00:00:00.000Z', null)
-      insertAs.run(
-        'msg_dispatched_explicit',
-        'dispatched',
-        'wake',
-        '2026-06-01T00:00:00.000Z',
-        '2026-06-02T00:00:00.000Z',
-      )
-      insert.run('msg_explicit', 'wake', '2026-07-17T00:00:00.000Z', '2026-07-18T00:00:00.000Z')
-      insert.run('msg_wait', 'wait', '2026-07-01T00:00:00.000Z', null)
-      insert.run('msg_wake', 'wake', '2026-07-01T00:00:00.000Z', null)
-      insert.run('msg_future', 'wait', '2026-07-17T00:00:00.000Z', '2026-07-19T00:00:00.000Z')
-
-      const reader = new MessageExpiryReader(db)
-      const prepare = vi.spyOn(db, 'prepare')
-      const rows = await reader.read({
-        now: '2026-07-18T00:00:00.000Z',
-        waitImplicitCutoff: '2026-07-11T00:00:00.000Z',
-        limit: 100,
+  it('reads both expiry walks in bounded, interleaved pages inside one scan', async () => {
+    const implicit: ExpiryRow[] = []
+    const explicit: ExpiryRow[] = []
+    for (let index = 0; index < 31; index += 1) {
+      const suffix = index.toString().padStart(2, '0')
+      implicit.push({
+        id: `msg_wait_${suffix}`,
+        lifecycle: 'wait',
+        createdAt: '2026-07-01T00:00:00.000Z',
+        expiresAt: null,
       })
-      expect(rows.map((row) => row.messageId)).toEqual(['msg_wait', 'msg_explicit'])
-
-      for (let index = 0; index < 30; index += 1) {
-        const suffix = index.toString().padStart(2, '0')
-        insert.run(`msg_wait_${suffix}`, 'wait', '2026-07-01T00:00:00.000Z', null)
-        insert.run(
-          `msg_explicit_${suffix}`,
-          'wake',
-          '2026-07-17T00:00:00.000Z',
-          '2026-07-18T00:00:00.000Z',
-        )
-      }
-      const paged = await reader.read({
-        now: '2026-07-18T00:00:00.000Z',
-        waitImplicitCutoff: '2026-07-11T00:00:00.000Z',
-        limit: 100,
+      explicit.push({
+        id: `msg_explicit_${suffix}`,
+        lifecycle: 'wake',
+        createdAt: '2026-07-17T00:00:00.000Z',
+        expiresAt: '2026-07-18T00:00:00.000Z',
       })
-      expect(paged).toHaveLength(62)
-      expect(new Set(paged.map((row) => row.messageId)).size).toBe(62)
-
-      const bounded = await reader.read({
-        now: '2026-07-18T00:00:00.000Z',
-        waitImplicitCutoff: '2026-07-11T00:00:00.000Z',
-        limit: 1,
-      })
-      expect(bounded).toHaveLength(1)
-      const queries = prepare.mock.calls.map(([sql]) => sql).join('\n')
-      expect(queries).toContain('INDEXED BY idx_messages_delivery_expiry_explicit')
-      expect(queries).toContain('INDEXED BY idx_messages_delivery_expiry_implicit')
-      const planDetails = (sql: string, ...params: Array<string | number>): string =>
-        (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as Array<{ detail: string }>)
-          .map((row) => row.detail)
-          .join('\n')
-      const implicitSql = prepare.mock.calls
-        .map(([sql]) => sql)
-        .find((sql) => sql.includes('idx_messages_delivery_expiry_implicit'))
-      const explicitSql = prepare.mock.calls
-        .map(([sql]) => sql)
-        .find((sql) => sql.includes('idx_messages_delivery_expiry_explicit'))
-      if (!implicitSql || !explicitSql) throw new Error('expected both indexed expiry queries')
-      expect(planDetails(implicitSql, '2026-07-11T00:00:00.000Z', 25)).toContain(
-        'SEARCH messages USING COVERING INDEX idx_messages_delivery_expiry_implicit',
-      )
-      expect(planDetails(explicitSql, '2026-07-18T00:00:00.000Z', 25)).toContain(
-        'SEARCH messages USING INDEX idx_messages_delivery_expiry_explicit',
-      )
-    } finally {
-      db.close()
     }
+    const implicitPages = pagesOver(implicit, (row) => `${row.createdAt}|${row.id}`, byText)
+    const explicitPages = pagesOver(explicit, (row) => `${row.expiresAt}|${row.id}`, byText)
+    const pageCalls: string[] = []
+    const port = portOf({
+      implicitExpiryPage: async ({ cutoff, limit, after }) => {
+        expect(cutoff).toBe('2026-07-11T00:00:00.000Z')
+        pageCalls.push(`implicit:${limit}`)
+        return implicitPages(limit, after && `${after.createdAt}|${after.id}`)
+      },
+      explicitExpiryPage: async ({ now, limit, after }) => {
+        expect(now).toBe('2026-07-18T00:00:00.000Z')
+        pageCalls.push(`explicit:${limit}`)
+        return explicitPages(limit, after && `${after.expiresAt}|${after.id}`)
+      },
+    })
+    const reader = new MessageExpiryReader(port)
+    const input = {
+      now: '2026-07-18T00:00:00.000Z',
+      waitImplicitCutoff: '2026-07-11T00:00:00.000Z',
+      limit: 100,
+    }
+    const paged = await reader.read(input)
+    expect(paged).toHaveLength(62)
+    expect(new Set(paged.map((row) => row.messageId)).size).toBe(62)
+    // Pages of 25 at most, the two walks taking turns.
+    expect(pageCalls.slice(0, 4)).toEqual([
+      'implicit:25',
+      'explicit:25',
+      'implicit:25',
+      'explicit:25',
+    ])
+    expect(paged.every((row) => row.deliveryStatus === 'stored')).toBe(true)
+    // One read session for the whole walk.
+    expect(port.scans).toBe(1)
+
+    const bounded = await reader.read({ ...input, limit: 1 })
+    expect(bounded).toHaveLength(1)
   })
 
   it('[POD-925] runs housekeeping planners and applies fenced batch commands once', async () => {
@@ -357,8 +355,9 @@ describe('JanitorService [spec:SP-c29e]', () => {
       ],
       planChangeLogPrune: async () => [
         {
-          keepRows: 20_000,
-          maxAgeMs: 3 * 24 * 60 * 60 * 1000,
+          tenantId: 'local',
+          keepRows: 500_000,
+          maxAgeMs: 30 * 24 * 60 * 60 * 1000,
           thresholdSeq: 9,
           batchSize: 100,
           fromSeq: 1,
@@ -439,198 +438,295 @@ describe('JanitorService [spec:SP-c29e]', () => {
   })
 
   it('[POD-925] EventLogPrunePlanner emits one observation per bounded batch', async () => {
-    const db = openDatabase(':memory:')
-    try {
-      db.exec(`CREATE TABLE podium_events (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        subject TEXT NOT NULL,
-        repo_path TEXT,
-        payload TEXT
-      )`)
-      const insert = db.prepare(
-        'INSERT INTO podium_events (ts, kind, subject, payload) VALUES (?, ?, ?, ?)',
-      )
-      for (let i = 0; i < 5; i++) {
-        insert.run('2026-06-01T00:00:00.000Z', 'old', `s${i}`, '{}')
-      }
-      const planner = new EventLogPrunePlanner(db)
-      const batches = await planner.plan({
-        maxAgeDays: 14,
-        maxRows: 50_000,
-        batchSize: 2,
-        nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
-      })
-      expect(batches).toHaveLength(3)
-      expect(batches.map((b) => b.fromId)).toEqual([1, 3, 5])
-      expect(new Set(batches.map((b) => b.cutoff)).size).toBe(1)
-    } finally {
-      db.close()
-    }
+    const port = portOf({
+      eventCapThroughId: async (maxRows) => {
+        expect(maxRows).toBe(50_000)
+        return undefined
+      },
+      eventPruneHead: async ({ cutoff, capThroughId }) => {
+        expect(cutoff).toBe('2026-07-04T00:00:00.000Z')
+        expect(capThroughId).toBe(0)
+        return 1
+      },
+      eventPruneCount: async () => 5,
+    })
+    const batches = await new EventLogPrunePlanner(port).plan({
+      maxAgeDays: 14,
+      maxRows: 50_000,
+      batchSize: 2,
+      nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
+    })
+    expect(batches).toHaveLength(3)
+    expect(batches.map((b) => b.fromId)).toEqual([1, 3, 5])
+    expect(new Set(batches.map((b) => b.cutoff)).size).toBe(1)
+    // The cap and the head come from one snapshot.
+    expect(port.scans).toBe(1)
   })
 
-  it('[POD-925 B2] ConnectScanReader keeps candidates after 5m (delay-not-lose)', async () => {
-    const db = openDatabase(':memory:')
-    try {
-      db.exec(`CREATE TABLE machines (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        hostname TEXT,
-        token_hash TEXT,
-        created_at TEXT,
-        last_seen_at TEXT,
-        inventory_json TEXT
-      )`)
-      db.prepare(
-        `INSERT INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      ).run('remote', 'r', 'r', 't', '2026-07-18T00:00:00.000Z', '2026-07-18T00:00:00.000Z')
-      const reader = new ConnectScanReader(db)
-      // Recovered 6 minutes later — still a candidate (lastSeenAt is durable handshake fact).
-      const candidates = reader.read('2026-07-18T00:06:00.000Z', 'local')
-      expect(candidates).toEqual([
-        { machineId: 'remote', lastSeenAt: '2026-07-18T00:00:00.000Z', deep: false },
-      ])
-    } finally {
-      db.close()
-    }
+  it('EventLogPrunePlanner plans nothing when no row is prunable', async () => {
+    const port = portOf({
+      eventCapThroughId: async () => 7,
+      eventPruneHead: async () => null,
+      eventPruneCount: async () => {
+        throw new Error('no head: the count is not read')
+      },
+    })
+    expect(
+      await new EventLogPrunePlanner(port).plan({
+        maxAgeDays: 14,
+        maxRows: 1,
+        batchSize: 2,
+        nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
+      }),
+    ).toEqual([])
+  })
+
+  it('[POD-925 B2] ConnectScanReader proposes a shallow scan per remote machine', async () => {
+    const port = portOf({
+      remoteMachines: async ({ localMachineId }) => {
+        expect(localMachineId).toBe('local')
+        return [{ id: 'remote', lastSeenAt: '2026-07-18T00:00:00.000Z' }]
+      },
+    })
+    // Recovered 6 minutes later: still a candidate (lastSeenAt is the durable handshake fact).
+    expect(await new ConnectScanReader(port).read('2026-07-18T00:06:00.000Z', 'local')).toEqual([
+      { machineId: 'remote', lastSeenAt: '2026-07-18T00:00:00.000Z', deep: false },
+    ])
   })
 
   it('[POD-925 review] ChangeLogPrunePlanner advances fromSeq so recovery cannot starve', async () => {
-    const db = openDatabase(':memory:')
-    try {
-      db.exec(`CREATE TABLE changes (
-        seq INTEGER PRIMARY KEY AUTOINCREMENT,
-        entity TEXT,
-        entity_id TEXT,
-        op TEXT,
-        payload TEXT,
-        event_time INTEGER
-      )`)
-      const insert = db.prepare(
-        'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
-      )
-      // 250 aged rows; batchSize 100 → first plan 3 batches; after deleting 200, replan continues.
-      const aged = Date.parse('2026-07-01T00:00:00.000Z')
-      for (let i = 0; i < 250; i++) {
-        insert.run('issue', `i${i}`, 'upsert', '{}', aged)
-      }
-      const planner = new ChangeLogPrunePlanner(db)
-      const first = await planner.plan({
-        keepRows: 0,
-        maxAgeMs: 1,
-        batchSize: 100,
-        nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
-      })
-      expect(first.length).toBeGreaterThanOrEqual(2)
-      expect(first[0]?.fromSeq).toBe(1)
-      expect(first[1]?.fromSeq).toBe(101)
-      // Simulate a capped first tick deleting the first 200 rows (2 batches).
-      db.prepare('DELETE FROM changes WHERE seq <= 200').run()
-      const second = await planner.plan({
-        keepRows: 0,
-        maxAgeMs: 1,
-        batchSize: 100,
-        nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
-      })
-      expect(second[0]?.fromSeq).toBe(201)
-      expect(second[0]?.fromSeq).not.toBe(first[0]?.fromSeq)
-    } finally {
-      db.close()
+    let feed = { headSeq: 250, floorSeq: 1, agedSeq: 250 as number | null }
+    const planner = new ChangeLogPrunePlanner(portOf({ changeFeed: async () => feed }), 'local')
+    const input = {
+      keepRows: 0,
+      maxAgeMs: 1,
+      batchSize: 100,
+      nowMs: Date.parse('2026-07-18T00:00:00.000Z'),
     }
+    const first = await planner.plan(input)
+    expect(first.map((b) => b.fromSeq)).toEqual([1, 101, 201])
+    expect(first.every((b) => b.tenantId === 'local')).toBe(true)
+    // A capped first tick deleted the first 200 rows (2 batches) and moved the floor.
+    feed = { headSeq: 250, floorSeq: 201, agedSeq: 250 }
+    const second = await planner.plan(input)
+    expect(second[0]?.fromSeq).toBe(201)
+    expect(second[0]?.fromSeq).not.toBe(first[0]?.fromSeq)
   })
 })
 
 /**
- * The tail that archive cannot reach (POD-564).
- *
- * Every case here is a durable-snapshot question. Whether the tree is clean and
- * whether an agent is standing in the directory right now are NOT — the server
- * re-reads both inside the mutation, and the SQL below only keeps the janitor
- * from proposing work that is obviously already refused.
+ * The tail that archive cannot reach (POD-564). Which checkouts qualify is the
+ * server's SQL (`janitor-reads.test.ts`, both engines); this is what the janitor
+ * makes of them.
  */
-describe('WorktreeGcReader proposes reclaimable checkouts [POD-564]', () => {
-  const CLOSED = '2026-07-01T00:00:00.000Z'
-  const CUTOFF = '2026-07-15T00:00:00.000Z'
+describe('[POD-7035] retention jobs', () => {
+  const HOUR = 60 * 60 * 1000
+  const DAY = 24 * HOUR
+  const NOW = Date.parse('2026-07-18T00:30:00.000Z')
 
-  const withDb = async (
-    seed: (insertIssue: (row: Record<string, unknown>) => void, db: SqlDatabase) => void,
-    input: Partial<WorktreeGcReadInput> = {},
-  ) => {
-    const db = openDatabase(':memory:')
-    try {
-      db.exec(`CREATE TABLE issues (
-        id TEXT PRIMARY KEY,
-        parent_id TEXT,
-        stage TEXT,
-        closed_reason TEXT,
-        closed_at TEXT,
-        worktree_path TEXT,
-        deleted_at TEXT
-      )`)
-      db.exec(`CREATE TABLE sessions (
-        id TEXT PRIMARY KEY,
-        cwd TEXT NOT NULL,
-        status TEXT NOT NULL
-      )`)
-      // POSITIONAL, not `@name`. This lane runs vitest under Bun, and bun:sqlite
-      // binds an object with BARE keys as nothing at all — every column arrives
-      // NULL and the reader correctly proposes nothing, so the suite fails with
-      // no error to read. A driver that accepts the same object is why the named
-      // form used to pass elsewhere and only died in the real lane.
-      const insert = db.prepare(
-        `INSERT INTO issues (id, parent_id, stage, closed_reason, closed_at, worktree_path, deleted_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      seed((row) => {
-        const full = {
-          parent_id: null,
-          stage: 'done',
-          closed_reason: null,
-          closed_at: CLOSED,
-          deleted_at: null,
-          ...row,
-        } as Record<string, string | null>
-        insert.run(
-          full.id ?? null,
-          full.parent_id ?? null,
-          full.stage ?? null,
-          full.closed_reason ?? null,
-          full.closed_at ?? null,
-          full.worktree_path ?? null,
-          full.deleted_at ?? null,
-        )
-      }, db)
-      return await new WorktreeGcReader(db).read({
-        cutoffClosedAt: CUTOFF,
-        mode: 'propose',
-        afterDays: 14,
-        limit: 100,
-        ...input,
-      })
-    } finally {
-      db.close()
-    }
-  }
-
-  it('proposes a SUB-ISSUE’s checkout — the hole the archive sweep can never reach', async () => {
-    // `sweepAutoArchive` gates on `parent_id IS NULL`, so a sub-issue's worktree
-    // is outside the archive door permanently. If this reader ever grows that
-    // same gate, the sweep silently stops reclaiming most of what is on disk.
-    const found = await withDb((issue) => {
-      issue({ id: 'iss_parent', worktree_path: '/r/.worktrees/parent' })
-      issue({ id: 'iss_child', parent_id: 'iss_parent', worktree_path: '/r/.worktrees/child' })
+  // The row cap's seek across missing ids, and the grouping of queued rows by
+  // session, are the server's SQL: `apps/server/src/store/janitor-reads.test.ts`
+  // holds them on both engines. These are what the planners make of the rows.
+  it('EventLogPrunePlanner counts its backlog by the cap the reads give', async () => {
+    const asked: unknown[] = []
+    const port = portOf({
+      eventCapThroughId: async (maxRows) => (maxRows === 20 ? 7 : undefined),
+      eventPruneCount: async (input) => {
+        asked.push(input)
+        return 4
+      },
     })
-    // Ordered oldest-close first, then by id — both closed at the same instant here.
-    expect(found.map((c) => c.issueId)).toEqual(['iss_child', 'iss_parent'])
+    const planner = new EventLogPrunePlanner(port)
+    expect(await planner.backlog({ maxAgeDays: 14, maxRows: 20, nowMs: NOW })).toBe(4)
+    expect(asked).toEqual([{ cutoff: new Date(NOW - 14 * DAY).toISOString(), capThroughId: 7 }])
+    expect(port.scans).toBe(1)
   })
 
-  it('carries the policy it was proposed under, so the server can refuse a disagreement', async () => {
-    const [found] = await withDb(
-      (issue) => issue({ id: 'iss_1', worktree_path: '/r/.worktrees/one' }),
-      { mode: 'auto', afterDays: 30 },
+  it('AppliedMutationsPrunePlanner batches the receipts past an hour-rounded cutoff', async () => {
+    const maxAgeMs = 30 * DAY
+    const cutoff = Math.floor((NOW - maxAgeMs) / HOUR) * HOUR
+    const cutoffs: number[] = []
+    const port = portOf({
+      receiptPruneHead: async (at) => {
+        cutoffs.push(at)
+        return cutoff - 1_004
+      },
+      receiptPruneCount: async (at) => {
+        cutoffs.push(at)
+        return 5
+      },
+    })
+    const planner = new AppliedMutationsPrunePlanner(port)
+    const batches = await planner.plan({ maxAgeMs, batchSize: 2, nowMs: NOW })
+    expect(batches).toEqual(
+      [0, 1, 2].map((batch) => ({
+        maxAgeMs,
+        cutoffAppliedAt: cutoff,
+        batchSize: 2,
+        fromAppliedAt: cutoff - 1_004,
+        batch,
+      })),
     )
+    // A tick later in the same hour plans the same occurrences.
+    expect(await planner.plan({ maxAgeMs, batchSize: 2, nowMs: NOW + 60_000 })).toEqual(batches)
+    expect(await planner.backlog({ maxAgeMs, nowMs: NOW })).toBe(5)
+    expect(new Set(cutoffs)).toEqual(new Set([cutoff]))
+    // Nothing past the cutoff plans nothing, and counts nothing.
+    const empty = portOf({ receiptPruneHead: async () => null })
+    expect(
+      await new AppliedMutationsPrunePlanner(empty).plan({ maxAgeMs, batchSize: 2, nowMs: NOW }),
+    ).toEqual([])
+  })
+
+  it('QueuedMessagesExpiryReader names each session the reads give, with the horizon', async () => {
+    const maxAgeMs = 14 * DAY
+    const horizon = NOW - maxAgeMs
+    const throughs: unknown[] = []
+    const port = portOf({
+      queuedExpiryPage: async (input) => {
+        throughs.push(input)
+        return [
+          { sessionId: 'ses_b', through: horizon - 9_000, rows: 1 },
+          { sessionId: 'ses_a', through: horizon - 1_000, rows: 2 },
+        ]
+      },
+      queuedExpiryCount: async (through) => {
+        throughs.push(through)
+        return 3
+      },
+    })
+    const reader = new QueuedMessagesExpiryReader(port)
+    expect(await reader.read({ maxAgeMs, nowMs: NOW, limit: 100 })).toEqual([
+      { sessionId: asSessionId('ses_b'), maxAgeMs, throughQueuedAt: horizon - 9_000, rows: 1 },
+      { sessionId: asSessionId('ses_a'), maxAgeMs, throughQueuedAt: horizon - 1_000, rows: 2 },
+    ])
+    expect(await reader.backlog({ maxAgeMs, nowMs: NOW })).toBe(3)
+    expect(throughs).toEqual([{ through: horizon, limit: 100 }, horizon])
+  })
+
+  it("applies the receipt prune and queue expiry, and reports each job's backlog after it runs", async () => {
+    const applies: MaintenanceCommand[] = []
+    const backlogReads: RetentionJob[] = []
+    const service = new JanitorService({
+      generationId: 'gen_retention',
+      now: () => NOW,
+      handshake: async () => readyLease({ fencingToken: 2 }),
+      readExpiryCandidates: () => [],
+      planAppliedMutationsPrune: async (input) => [
+        {
+          maxAgeMs: input.maxAgeMs,
+          cutoffAppliedAt: 1,
+          batchSize: input.batchSize,
+          fromAppliedAt: 0,
+          batch: 0,
+        },
+      ],
+      readQueuedMessagesExpiry: async (input) => [
+        { sessionId: asSessionId('ses_a'), maxAgeMs: input.maxAgeMs, throughQueuedAt: 5, rows: 2 },
+      ],
+      retentionBacklog: (job) => {
+        backlogReads.push(job)
+        return job === 'applied-mutations-prune' ? 7 : 0
+      },
+      apply: async (request) => {
+        applies.push(request)
+        return { status: 'applied', jobKind: request.jobKind, runKey: request.runKey, deleted: 1 }
+      },
+    })
+    await service.tick()
+    expect(applies.map((command) => command.jobKind)).toEqual([
+      'applied-mutations-prune',
+      'queued-messages-expiry',
+    ])
+    expect(applies[0]).toMatchObject({
+      observed: { maxAgeMs: 30 * DAY, batchSize: 100 },
+      fencingToken: 2,
+    })
+    expect(applies[1]).toMatchObject({ observed: { maxAgeMs: 14 * DAY } })
+    expect(backlogReads).toEqual(['applied-mutations-prune', 'queued-messages-expiry'])
+    expect(service.snapshotCounters().retentionBacklog).toEqual({
+      'applied-mutations-prune': 7,
+      'queued-messages-expiry': 0,
+    })
+  })
+
+  it('marks a job stalled when its backlog has not shrunk across three runs', async () => {
+    const backlogs = [10, 9, 9, 9, 12, 0]
+    let run = 0
+    const service = new JanitorService({
+      generationId: 'gen_stall',
+      now: () => NOW,
+      handshake: async () => readyLease({ fencingToken: 1, expiresAt: '2099-01-01T00:00:00.000Z' }),
+      readExpiryCandidates: () => [],
+      planMaintenanceCommandsPrune: async () => [],
+      retentionBacklog: () => backlogs[run]!,
+      apply: async (request) => ({
+        status: 'applied',
+        jobKind: request.jobKind,
+        runKey: request.runKey,
+      }),
+    })
+    const stalledAfterEachRun: boolean[] = []
+    for (run = 0; run < backlogs.length; run += 1) {
+      await service.tick()
+      stalledAfterEachRun.push(
+        service.snapshotCounters().retentionStalled.includes('maintenance-commands-prune'),
+      )
+    }
+    // 10, 9: shrinking. 9, 9, 9: three runs without shrinking. 12: still not.
+    // 0: drained.
+    expect(stalledAfterEachRun).toEqual([false, false, false, true, true, false])
+  })
+
+  it('a failed backlog read is skipped and never stops the tick', async () => {
+    const applies: string[] = []
+    const service = new JanitorService({
+      generationId: 'gen_backlog_fail',
+      now: () => NOW,
+      handshake: async () => readyLease(),
+      readExpiryCandidates: () => [],
+      planAppliedMutationsPrune: async () => [],
+      readQueuedMessagesExpiry: async () => [
+        { sessionId: asSessionId('ses_a'), maxAgeMs: 14 * DAY, throughQueuedAt: 5, rows: 1 },
+      ],
+      retentionBacklog: () => {
+        throw new Error('database is locked')
+      },
+      apply: async (request) => {
+        applies.push(request.jobKind)
+        return { status: 'applied', jobKind: request.jobKind, runKey: request.runKey }
+      },
+    })
+    await service.tick()
+    expect(applies).toEqual(['queued-messages-expiry'])
+    expect(service.snapshotCounters().retentionBacklog).toEqual({})
+  })
+})
+
+describe('WorktreeGcReader proposes reclaimable checkouts [POD-564]', () => {
+  const CLOSED = '2026-07-01T00:00:00.000Z'
+
+  it('carries the policy it was proposed under, so the server can refuse a disagreement', async () => {
+    const port = portOf({
+      worktreeGcPage: async ({ cutoffClosedAt }) => {
+        expect(cutoffClosedAt).toBe('2026-07-15T00:00:00.000Z')
+        return [
+          {
+            id: 'iss_1',
+            worktreePath: '/r/.worktrees/one',
+            stage: 'done',
+            closedReason: null,
+            closedAt: CLOSED,
+          },
+        ]
+      },
+    })
+    const [found] = await new WorktreeGcReader(port).read({
+      cutoffClosedAt: '2026-07-15T00:00:00.000Z',
+      mode: 'auto',
+      afterDays: 30,
+      limit: 100,
+    })
     expect(found).toEqual({
       issueId: 'iss_1',
       worktreePath: '/r/.worktrees/one',
@@ -643,41 +739,28 @@ describe('WorktreeGcReader proposes reclaimable checkouts [POD-564]', () => {
     })
   })
 
-  it('skips open work, deleted rows, checkouts already freed, and closes inside the window', async () => {
-    const found = await withDb((issue) => {
-      issue({ id: 'iss_open', stage: 'in_progress', closed_at: null, worktree_path: '/r/w/open' })
-      issue({ id: 'iss_deleted', worktree_path: '/r/w/del', deleted_at: CLOSED })
-      issue({ id: 'iss_freed', worktree_path: null })
-      issue({ id: 'iss_young', closed_at: '2026-07-16T00:00:00.000Z', worktree_path: '/r/w/young' })
-      issue({ id: 'iss_ok', worktree_path: '/r/w/ok' })
+  it('walks the candidates in pages up to the limit', async () => {
+    const rows = Array.from({ length: 40 }, (_, index) => ({
+      id: `iss_${index.toString().padStart(2, '0')}`,
+      worktreePath: `/r/w/${index}`,
+      stage: 'done',
+      closedReason: null,
+      closedAt: CLOSED,
+    }))
+    const pages = pagesOver(rows, (row) => `${row.closedAt}|${row.id}`, byText)
+    const port = portOf({
+      worktreeGcPage: async ({ limit, after }) =>
+        pages(limit, after && `${after.closedAt}|${after.id}`),
     })
-    expect(found.map((c) => c.issueId)).toEqual(['iss_ok'])
-  })
-
-  it('counts a close REASON as closed, not only the done stage', async () => {
-    const found = await withDb((issue) =>
-      issue({
-        id: 'iss_dup',
-        stage: 'in_progress',
-        closed_reason: 'duplicate',
-        worktree_path: '/r/w/dup',
-      }),
-    )
-    expect(found.map((c) => c.issueId)).toEqual(['iss_dup'])
-  })
-
-  it('leaves a directory an agent is still standing in — including one from another issue', async () => {
-    const found = await withDb((issue, db) => {
-      issue({ id: 'iss_busy', worktree_path: '/r/.worktrees/busy' })
-      issue({ id: 'iss_idle', worktree_path: '/r/.worktrees/idle' })
-      const session = db.prepare('INSERT INTO sessions (id, cwd, status) VALUES (?, ?, ?)')
-      // A subdirectory of the worktree, and a session that belongs to nobody
-      // here: the match is on the PATH, the way the server's guard makes it.
-      session.run('ses_1', '/r/.worktrees/busy/packages/web', 'live')
-      // An exited session is not standing in anything.
-      session.run('ses_2', '/r/.worktrees/idle', 'exited')
-    })
-    expect(found.map((c) => c.issueId)).toEqual(['iss_idle'])
+    const read = (limit: number) =>
+      new WorktreeGcReader(port).read({
+        cutoffClosedAt: CLOSED,
+        mode: 'propose',
+        afterDays: 14,
+        limit,
+      })
+    expect((await read(100)).map((c) => c.issueId)).toEqual(rows.map((row) => row.id))
+    expect(await read(30)).toHaveLength(30)
   })
 })
 

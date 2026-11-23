@@ -2,7 +2,10 @@ import { reaction } from 'mobx'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
-import { REPLICA_TRANSCRIPT_ITEM_CAP } from '../replica/contract'
+import {
+  fakeTranscriptCache,
+  storedReadSettled,
+} from '@podium/client-core/test-support/transcript-cache'
 import type { TranscriptPage } from '../transcript/contracts'
 import { TranscriptLog, type TranscriptChange } from './transcript-log'
 
@@ -21,7 +24,7 @@ it('bounds stream, append, retained read and prepend producer work at 1x/4x hist
     const log = new TranscriptLog({
       sessionId: asSessionId('incremental-work'),
       source: { read: async () => page, subscribe: () => () => {} },
-      cache: { maxItems: REPLICA_TRANSCRIPT_ITEM_CAP, read: () => undefined, write },
+      cache: { ...fakeTranscriptCache(), write },
       retainHistory: () => true,
       onChange: change => changes.push(change),
     })
@@ -50,7 +53,9 @@ it('bounds stream, append, retained read and prepend producer work at 1x/4x hist
         { changed: 1, added: 0, rebuild: false, orderChanged: false },
         { changed: 2, added: 2, rebuild: false, orderChanged: true },
       ])
-      for (const [, cached] of write.mock.calls) expect(cached).toHaveLength(REPLICA_TRANSCRIPT_ITEM_CAP)
+      // The device store reads the window lazily, when its coalesced write lands:
+      // no streamed frame pays for copying the window.
+      expect(write).toHaveBeenCalled()
       samples.push({ scale, history: items.length, stream, incoming, read, older })
     } finally { log.dispose() }
   }
@@ -66,9 +71,10 @@ it('keeps old snapshots immutable and preserves keyed facts across prefix and cu
   const log = new TranscriptLog({
     sessionId: asSessionId('incremental-snapshots'),
     source: { read: async () => page, subscribe: () => () => {} },
-    cache: { read: () => ({ items: [item(0, 'user'), item(2)], savedAt: 1 }), write: () => {} },
+    cache: fakeTranscriptCache({ items: [item(0, 'user'), item(2)], savedAt: 1 }),
     retainHistory: () => true,
   })
+  await storedReadSettled()
   const initial = log.items
   const idsChanged = vi.fn()
   const stop = reaction(() => log.ids.slice(), idsChanged)
@@ -96,21 +102,20 @@ it('keeps old snapshots immutable and preserves keyed facts across prefix and cu
   } finally { stop(); log.dispose() }
 })
 
-it('retains the full cache contract by default and supports an explicitly empty cache window', () => {
-  for (const maxItems of [undefined, 0, 2]) {
-    const write = vi.fn()
-    const log = new TranscriptLog({
-      sessionId: asSessionId('cache-contract'),
-      source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} },
-      cache: { maxItems, read: () => ({ items: [item(0), item(1)], savedAt: 1 }), write },
-      retainHistory: () => true,
-    })
-    try {
-      log.merge([item(2)])
-      expect(write.mock.calls[0]?.[1]).toEqual(
-        maxItems === undefined ? [item(0), item(1), item(2)] : maxItems === 0 ? [] : [item(1), item(2)],
-      )
-      expect(log.items).toEqual([item(0), item(1), item(2)])
-    } finally { log.dispose() }
-  }
+it('hands the device store the whole held window, read when the write lands', async () => {
+  const cache = fakeTranscriptCache({ items: [item(0), item(1)], savedAt: 1 })
+  const windows: (() => readonly TranscriptItem[])[] = []
+  const log = new TranscriptLog({
+    sessionId: asSessionId('cache-contract'),
+    source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} },
+    cache: { ...cache, write: (_id, window) => void windows.push(window) },
+    retainHistory: () => true,
+  })
+  try {
+    await storedReadSettled()
+    log.merge([item(2)])
+    log.merge([item(3)])
+    expect(windows.at(-1)!()).toEqual([item(0), item(1), item(2), item(3)])
+    expect(log.items).toEqual([item(0), item(1), item(2), item(3)])
+  } finally { log.dispose() }
 })

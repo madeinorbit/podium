@@ -26,6 +26,8 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { InteractionAnswer, PendingInteraction } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { legacyWorkspaceQueries } from '../../store/executor/sync-drizzle'
 import { InteractionsRepository } from '../../store/interactions'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { stageASeam } from '../../test-support/stage-a-seam'
@@ -59,7 +61,12 @@ function harness(
     structured?: boolean
     structuredFails?: boolean
     /** The driver's typed refusal, when the test is about which one it is. */
-    refusal?: 'already-answered' | 'expired' | 'unknown-interaction' | 'not-yet-supported' | 'partial-delivery'
+    refusal?:
+      | 'already-answered'
+      | 'expired'
+      | 'unknown-interaction'
+      | 'not-yet-supported'
+      | 'partial-delivery'
   } = {},
 ): Harness {
   const delivered: Harness['delivered'] = []
@@ -69,7 +76,9 @@ function harness(
     // A REAL migrated database, like every sibling suite: the aggregate's
     // idempotence comes from the row's own `status = 'asked'` guard, and a fake
     // store would prove the test's guard rather than the aggregate's.
-    store: new InteractionsRepository(stageASeam(openMigratedTestDatabase())),
+    store: new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    ),
     now: () => '2026-08-14T00:00:01.000Z',
     publish: async (row) => {
       published.push(row.id)
@@ -132,12 +141,7 @@ describe('a protocol ask entering the aggregate', () => {
     // because their text matched would lose one of them permanently.
     await h.service.ask({ interaction: protocolAsk('per_a') })
     await h.service.ask({ interaction: protocolAsk('per_b') })
-    expect(
-      (await h.service
-        .listOpen(SESSION))
-        .map((r) => r.id)
-        .sort(),
-    ).toEqual(['per_a', 'per_b'])
+    expect((await h.service.listOpen(SESSION)).map((r) => r.id).sort()).toEqual(['per_a', 'per_b'])
   })
 })
 
@@ -309,14 +313,20 @@ describe('the refusal predicate', () => {
   })
 })
 
-
 it('keeps partial delivery unverified and refuses a second application', async () => {
   const h = harness({ refusal: 'partial-delivery' })
   await h.service.ask({ interaction: protocolAsk() })
-  const input = { id: 'per_live_1', answer: { kind: 'permission' as const, decision: 'allow-once' as const },
-    answeredBy: 'human' as const, principal: SYSTEM_INBOX_PRINCIPAL }
+  const input = {
+    id: 'per_live_1',
+    answer: { kind: 'permission' as const, decision: 'allow-once' as const },
+    answeredBy: 'human' as const,
+    principal: SYSTEM_INBOX_PRINCIPAL,
+  }
   expect(await h.service.answer(input)).toMatchObject({ ok: false, reason: 'partial-delivery' })
-  expect(await h.service.get(input.id)).toMatchObject({ status: 'answered', deliveredVia: 'unverified' })
+  expect(await h.service.get(input.id)).toMatchObject({
+    status: 'answered',
+    deliveredVia: 'unverified',
+  })
   expect(await h.service.answer(input)).toEqual({ ok: false, reason: 'already-answered' })
   expect(h.delivered).toHaveLength(1)
   expect(h.keystrokes).toHaveLength(0)

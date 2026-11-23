@@ -1,10 +1,9 @@
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { createDemandAtoms } from '@podium/mobx-helpers'
-import { runInAction, untracked } from 'mobx'
+import { keyedComputed } from '@podium/mobx-helpers'
 import type { MobxPool } from './pool'
 import { declarePreference, type PreferenceRow } from './preference-schema'
 import { defineSource } from './source-registry'
-import { LOADING, type Loaded } from './worklist/rollup'
+import type { Loaded } from './worklist/rollup'
 
 declare module './source-registry' {
   interface PoolSourceRows {
@@ -12,150 +11,42 @@ declare module './source-registry' {
   }
 }
 
-/** Read-only pool storage. Only MobxPool.row calls read; the runtime's routed UI
- * port retains hydration, optimism, rollback, rescope and write ownership. */
+/** A read port, never a second row of preference values. Synced values are
+ * read from the pool's userLayout model; local values from device storage. */
 export class PreferenceSource {
-  private readonly rows = new Map<string, PreferenceRow>()
-  private readonly atoms = createDemandAtoms<string>((key) => `preference:${key}`, {
-    onUnobserved: (key) => {
-      this.rows.delete(key)
-      this.homes.delete(key)
-      this.pending.delete(key)
-    },
-  })
-  private readonly pending = new Set<string>()
-  private readonly refreshing = new Set<string>()
-  private readonly homes = new Map<string, PreferenceRow['home']>()
   private readonly source = defineSource({
-    readById: this.readById.bind(this),
-    refresh: this.refresh.bind(this),
-    release: this.release.bind(this),
+    readById: (key) => this.readById(String(key)),
+    release: () => {},
   })
-  private get disposed(): boolean {
-    return this.source.disposed
-  }
-  private readonly unsubscribe: () => void
+  private readonly rows = keyedComputed('PreferenceReadPort', (key: string) => {
+    const home = declarePreference(key),
+      ui = this.ui
+    return {
+      key,
+      home,
+      get value() {
+        return ui.get(key)
+      },
+    }
+  })
   readonly counts = { batches: 0, loaded: 0, notifications: 0 }
-
-  constructor(private readonly ui: RoutedUiState) {
-    this.unsubscribe = ui.subscribe((keys) => {
-      if (this.disposed) return
-      this.counts.notifications++
-      for (const key of keys) {
-        if (!this.homes.has(key) || this.refreshing.has(key)) continue
-        this.pending.add(key)
-      }
-      this.schedule()
-    })
-  }
-
+  constructor(private readonly ui: RoutedUiState) {}
   read(key: string): Loaded<PreferenceRow>
   read(entity: 'preference', key: string): Loaded<PreferenceRow>
   read(keyOrEntity: string, key?: string): Loaded<PreferenceRow> {
     return this.source.read(key ?? keyOrEntity) as Loaded<PreferenceRow>
   }
-
-  private readById(key: string): Loaded<PreferenceRow> {
-    // Validate the routing home before either observing or reading the owner.
-    let home = this.homes.get(key)
-    if (home === undefined) {
-      home = declarePreference(key)
-      this.homes.set(key, home)
-    }
-    this.atoms.observe(key)
-    const row = this.rows.get(key)
-    if (row !== undefined) return row
-    // The owner already has persisted layout on boot. Seed this same row on
-    // first demand so a screen never paints its default over an installed value.
-    // peek is pure: get can migrate legacy state, so it stays in the existing
-    // deferred refresh. Seeding a plain map needs no action or notification.
-    // untracked-read: preference-boot-seed
-    const value = untracked(() => this.ui.peek?.(key))
-    const seed = value == null ? undefined : { key, home, value }
-    if (seed) this.rows.set(key, seed)
-    this.pending.add(key)
-    this.schedule()
-    return seed ?? LOADING
+  private readById(key: string): PreferenceRow {
+    return this.rows(key)
   }
-
   keys(): readonly string[] {
-    return [...this.homes.keys()]
+    return [...this.rows.keys()]
   }
-
-  /** A form's owner has already accepted its local write. Publish that one
-   * addressed row before React restores controlled input from its old props.
-   * Other notifications and first-read hydration still use the coalesced batch.
-   */
-  refreshKey(key: string): void {
-    if (this.disposed || !this.homes.has(key) || this.refreshing.has(key)) return
-    this.pending.delete(key)
-    const row = this.load(key)
-    if (!row) return
-    this.counts.batches++
-    this.publish([row])
-  }
-
-  private load(key: string): PreferenceRow | undefined {
-    const home = this.homes.get(key)
-    if (home === undefined || this.disposed) return undefined
-    this.refreshing.add(key)
-    let value: string | null
-    try {
-      value = this.ui.get(key)
-    } finally {
-      this.refreshing.delete(key)
-    }
-    this.counts.loaded++
-    return { key, home, value }
-  }
-
-  private publish(loaded: readonly PreferenceRow[]): void {
-    runInAction(() => {
-      for (const row of loaded) {
-        const previous = this.rows.get(row.key)
-        if (previous && previous.value === row.value) continue
-        this.rows.set(row.key, row)
-        this.atoms.get(row.key)?.reportChanged()
-      }
-    })
-  }
-
-  private schedule(): void {
-    if (!this.pending.size) return
-    this.source.schedule()
-  }
-
-  private refresh(): void {
-    const keys = [...this.pending]
-    this.pending.clear()
-    if (!keys.length) return
-    this.counts.batches++
-    // ui.get may finish the owner's one-shot legacy key migration and notify.
-    // Keep that write in the existing owner, outside the MobX publish action.
-    this.publish(keys.flatMap((key) => this.load(key) ?? []))
-  }
-
   dispose(): void {
     this.source.dispose()
-  }
-
-  private release(): void {
-    this.unsubscribe()
-    this.pending.clear()
-    this.homes.clear()
     this.rows.clear()
-    // Principal teardown can run inside StoreProvider's render. Detach and
-    // refuse reads immediately, then notify obsolete projections after render.
-    queueMicrotask(() =>
-      runInAction(() => {
-        for (const atom of this.atoms.values()) atom.reportChanged()
-        this.atoms.clear()
-      }),
-    )
   }
 }
-
-/** UI routing and preference source lifetime stay with the preference module. */
 export function attachPreferenceSource(pool: MobxPool, ui: RoutedUiState): void {
   if (preferenceSource(pool)) throw new Error('Preferences already attached to this pool')
   const source = new PreferenceSource(ui)

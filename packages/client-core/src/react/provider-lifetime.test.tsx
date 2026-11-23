@@ -1,34 +1,38 @@
-import { withKeyedInputs } from '../../test-support/keyed-inputs'
-
 // @vitest-environment happy-dom
 import { asUserId } from '@podium/model'
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { useCallback, useEffect, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import type { PodiumClientApi } from '../api'
-import type { StoreServerConfig } from '../engine/types'
-import type { Store } from '../engine/types'
-import { asClientPrincipal, type ClientPrincipal } from '../principal'
+import { withKeyedInputs } from '../../test-support/keyed-inputs'
 import { createSubscriptionStore } from '../../test-support/local-store'
-import { StoreProvider, useCurrentPrincipal, useStoreHandle, useRuntimeSelector } from './provider'
+import type { PodiumClientApi } from '../api'
+import { asClientPrincipal, type ClientPrincipal } from '../principal'
+import type { ServerOrigin } from '../runtime-root/types'
+import type { ScreenState } from '../ui/state'
+import { StoreProvider, useClientRuntime, useCurrentPrincipal, useUi } from './provider'
 
 const fixture = vi.hoisted(() => ({ handle: null as unknown }))
-vi.mock('../engine/runtime', () => ({ createClientRuntime: () => fixture.handle }))
+vi.mock('../runtime-root/root', () => ({ createClientRuntime: () => fixture.handle }))
 afterEach(cleanup)
 
 function runtime() {
   const action = vi.fn()
-  const owner = { start: vi.fn(), dispose: vi.fn(), destroy: vi.fn() }
-  return withKeyedInputs(Object.assign(
-    owner,
-    createSubscriptionStore({ closeFileTab: action } as unknown as Store, undefined, owner),
-    { action },
-  ))
+  const owner = { start: vi.fn(), stop: vi.fn(), dispose: vi.fn(), isDisposed: false }
+  owner.dispose.mockImplementation(() => {
+    owner.isDisposed = true
+  })
+  return withKeyedInputs(
+    Object.assign(
+      owner,
+      createSubscriptionStore({ closeFileTab: action } as unknown as ScreenState, undefined, owner),
+      { action },
+    ),
+  )
 }
 
 it('retires account-owned callbacks and state on principal changes while preserving same-account rebuilds', async () => {
   const api = {} as PodiumClientApi
-  const config: StoreServerConfig = {
+  const config: ServerOrigin = {
     httpOrigin: 'http://offline.invalid',
     wsClientUrl: 'ws://offline.invalid',
   }
@@ -36,9 +40,9 @@ it('retires account-owned callbacks and state on principal changes while preserv
     unmounts: string[] = []
   const blur = vi.fn()
   function Reader() {
-    const owner = useStoreHandle()
+    const owner = useClientRuntime()
     const principal = useCurrentPrincipal()!
-    const close = useRuntimeSelector((s) => s.closeFileTab)
+    const close = useUi().closeFileTab
     const [draft, setDraft] = useState('')
     // These callbacks deliberately have mount lifetime, like UI gesture hooks.
     // They must see the current account even when their scalar inputs stay equal.
@@ -100,7 +104,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
   view.rerender(frame({ ...alice }))
   expect(draftInput().value).toBe('Alice draft')
   expect(mounts).toEqual(['alice'])
-  expect(previous.destroy).not.toHaveBeenCalled()
+  expect(previous.dispose).not.toHaveBeenCalled()
   expect(view.container.querySelector('output')?.textContent).toBe('alice:current')
 
   for (const name of ['bob', 'alice']) {
@@ -110,7 +114,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
     fixture.handle = next
     view.rerender(frame(asClientPrincipal(asUserId(name))))
     await Promise.resolve()
-    expect(previous.destroy).toHaveBeenCalledOnce()
+    expect(previous.dispose).toHaveBeenCalledOnce()
     expect(draftInput().value).toBe('')
     expect(document.activeElement).not.toBe(view.getByLabelText('draft'))
     expect(view.container.querySelector('output')?.textContent).toBe(`${name}:current`)
@@ -135,7 +139,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
     const replacement = runtime()
     fixture.handle = replacement
     view.rerender(tree)
-    expect(previous.destroy).toHaveBeenCalledOnce()
+    expect(previous.dispose).toHaveBeenCalledOnce()
     expect(draftInput().value).toBe('new draft')
     expect(document.activeElement).toBe(focused)
     expect(blur).toHaveBeenCalledTimes(2)
@@ -146,7 +150,7 @@ it('retires account-owned callbacks and state on principal changes while preserv
   // A server-issued rescope changes the account's storage identity.
   fixture.handle = runtime()
   view.rerender(frame(asClientPrincipal(alice.userId, 'replacement-boundary')))
-  expect(previous.destroy).toHaveBeenCalledOnce()
+  expect(previous.dispose).toHaveBeenCalledOnce()
   expect(draftInput().value).toBe('')
   view.rerender(frame(null))
   expect(view.container.textContent).toBe('')

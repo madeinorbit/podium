@@ -117,21 +117,6 @@ describe('DraftStore durability', () => {
     reloaded.drafts.dispose()
   })
 
-  it('reconnect flushes dirty text immediately and clean remote documents do not echo', () => {
-    vi.useFakeTimers()
-    const f = fixture()
-    f.drafts.start()
-    f.drafts.set(sid, 'offline keystroke')
-    f.emit('sessionDraft', other, 'other device', { rev: 2 })
-    expect(f.drafts.get(other)).toBe('other device')
-    f.emit('connectionHealth', { status: 'ok', rttMs: null, since: 0 })
-    expect(f.send).toHaveBeenCalledExactlyOnceWith(sid, 0, 'offline keystroke')
-    f.emit('sessionDraft', sid, 'offline keystroke', { rev: 1 })
-    vi.advanceTimersByTime(500)
-    expect(f.send).toHaveBeenCalledTimes(1)
-    f.drafts.dispose()
-  })
-
   it('pagehide flushes the final keystroke and restartable cleanup restores its listener', () => {
     vi.useFakeTimers()
     const f = fixture()

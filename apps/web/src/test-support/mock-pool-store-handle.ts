@@ -1,9 +1,11 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
-import { workspaceKeyForState } from '@podium/client-core/engine'
+import { workspaceKeyForState } from '@podium/client-core/ui'
 import { vi } from 'vitest'
-import { useRuntimeSelector as selectLocals } from '@/app/store'
+import { fixtureSnapshot as selectLocals } from '@/test-support/fixture-snapshot'
+import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
+
 const selectMockSnapshot = selectLocals as unknown as <T>(read: (state: ReferenceState) => T) => T
+
 import { fixtureStoreSnapshot } from './fixture-store'
 import { syncPoolFixture } from './pool-fixture'
 
@@ -11,6 +13,8 @@ import { syncPoolFixture } from './pool-fixture'
 // must reach the SAME fake owner as the suite's reactive selectors. Keeping this
 // out of global setup leaves real-provider and missing-provider checks intact.
 vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
   const actual = await importOriginal<typeof import('@podium/client-core/react')>()
   const owner = withKeyedInputs({
     getSnapshot: () => {
@@ -23,12 +27,24 @@ vi.mock('@podium/client-core/react', async (importOriginal) => {
           ),
       )
       if (typeof state.workspaceKey !== 'function')
-        state.workspaceKey = () => workspaceKeyForState(state)
+        Object.defineProperty(state, 'workspaceKey', {
+          value: () => workspaceKeyForState(state),
+          configurable: true,
+        })
       return state
     },
     services: {},
     subscribe: (notify: () => void) =>
       selectMockSnapshot((state) => state.uiState)?.subscribe(notify) ?? (() => {}),
   })
-  return { ...actual, useStoreHandle: () => owner, useHarnessDescriptors: () => ({ served: [] }) }
+  Object.defineProperties(owner, {
+    hub: { get: () => selectMockSnapshot((state) => state.hub) },
+    replica: { get: () => selectMockSnapshot((state) => state.replica) },
+  })
+  return {
+    ...actual,
+    ...fixtureRuntimeHooks(() => owner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+    useHarnessDescriptors: () => ({ served: [] }),
+  }
 })

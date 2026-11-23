@@ -5,7 +5,7 @@ import {
   issueClosedFoldAt,
 } from '@podium/client-core/values'
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
-import { issueDisplayRef } from '@podium/protocol'
+import { issueDisplayRef, issueRefText } from '@podium/protocol'
 import { observer } from '@podium/client-graph/react'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { Archive } from 'lucide-react'
@@ -294,7 +294,7 @@ function FoldedWorkRowInner({
           </span>
           <span className="work-row-ref flex-none font-mono tabular-nums text-text-faint">
             <span className="sr-only">{issueDisplayRef(issue)}</span>
-            <span aria-hidden="true">#{issue.seq}</span>
+            <span aria-hidden="true">{issueRefText(issue.seq)}</span>
           </span>
         </span>
       </button>

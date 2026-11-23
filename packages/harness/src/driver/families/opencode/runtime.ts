@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
+import type { OpencodeExecutionBatches } from '../../../adapters/opencode/transcript.js'
 import { withDeliveryQueue } from '../../delivery-queue.js'
+
 /**
  * THE opencode SERVER DRIVER (POD-1761 W5 — the epic's goal; spec §2, §3, §6).
  *
@@ -40,8 +42,6 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * That refusal is a conformance property, not a comment.
  */
 
-import { type AgentStateEvent } from '../../../agent-state/types.js'
-import { reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
   HarnessRef,
@@ -51,14 +51,23 @@ import type {
   TranscriptItemRef,
 } from '@podium/model'
 import { transcriptItemRefOf } from '@podium/model'
-import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
-import type { OpencodeMessagePartRow } from '../../../transcript-types.js'
-import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import {
+  DEFAULT_SESSION_POSTURE,
+  type ObservationProvenance,
+  type ProviderCursor,
+  type SessionPosture,
+} from '@podium/protocol'
 import type {
   QueueDrainAbandonedReason,
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
+import { reduceAgentState } from '../../../observer.js'
+import type { PodiumGrants } from '../../../posture-types.js'
+import { stampOpencodeItems } from '../../../store/sources/sqlite.js'
+import type { OpencodeMessagePartRow } from '../../../transcript-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -89,27 +98,32 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
+import {
+  type EngineSessionSpec,
+  instructionsText,
+  type ModelPolicy,
+  type SessionSpec,
+} from '../../session-spec.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
   type Refusal,
   type SendOptions,
   splitAttachments,
-  textWithAttachmentPaths,
   type TurnInput,
   type TurnReceipt,
+  textWithAttachmentPaths,
 } from '../../turns.js'
-import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import { type AskUserGate, askUserRefusal } from '../ask-user-gate.js'
-import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
+import type { SessionDriverSlots } from '../session-slots.js'
+import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import { opencodeServerCapabilities } from './capabilities.js'
 import {
+  createOpencodeClient,
   type OpencodeClient,
   type OpencodeClientConfig,
   OpencodeHttpError,
-  createOpencodeClient,
 } from './client.js'
 import {
   answerAction,
@@ -121,13 +135,13 @@ import {
   statusToStateEvent,
 } from './map.js'
 import {
+  eventSessionId,
+  eventTimeMs,
   type OpencodeEvent,
   type OpencodeMessageInfo,
   type OpencodePromptAdmission,
   type OpencodeQuestionInfo,
   type OpencodeSessionId,
-  eventSessionId,
-  eventTimeMs,
 } from './protocol.js'
 
 /**
@@ -188,8 +202,12 @@ export interface OpencodeServerEndpoint {
   databasePath?: string
   /** Complete local v1 history, after the host observed EXITED. An unreadable
    * or unidentified store is undefined, never an empty history. */
-  readHistoryAfterExit?(sessionId: OpencodeSessionId):
-    readonly OpencodeMessagePartRow[] | undefined | Promise<readonly OpencodeMessagePartRow[] | undefined>
+  readHistoryAfterExit?(
+    sessionId: OpencodeSessionId,
+  ):
+    | readonly OpencodeMessagePartRow[]
+    | undefined
+    | Promise<readonly OpencodeMessagePartRow[] | undefined>
 }
 
 /** What the driver needs from whoever owns processes and disks. */
@@ -212,8 +230,27 @@ export interface OpencodeRuntimeHost {
      *  so a host cannot accidentally reuse one across sessions. */
     secret: string
     username: string
+    /** The session's pinned harness context (POD-6546): the server runs its
+     *  installation and starts from its environment. */
+    harnessContext: HarnessContext
+    /** The session's posture (POD-6858); a wake or adopt with no spec in hand
+     *  runs on the default. */
+    posture: SessionPosture
+    /** Podium's grants: the spec's on create and resume, from
+     *  {@link podiumGrantsFor} on wake. */
+    grants: PodiumGrants
     env?: Readonly<Record<string, string>>
   }): Promise<OpencodeServerEndpoint>
+  /**
+   * THE CONTEXT A SESSION RUNS UNDER WHEN NO SPEC IS IN HAND (POD-6546): a
+   * wake that restarts a parked server. The one the session was spawned with
+   * while this host holds it; after a supervisor restart, one rebuilt from
+   * the current inventory (design §3.3).
+   */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's standing facts for a session with no spec in hand (POD-6858),
+   *  beside {@link harnessContextFor}. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
 
   stageAttachment: AttachmentStager
 
@@ -455,7 +492,7 @@ interface PromptRecordWaiter {
 
 interface DriverSession {
   sessionId: SessionId
-  spec: SessionSpec
+  spec: EngineSessionSpec
   endpoint: OpencodeServerEndpoint
   promptRecords: Set<PromptRecordWaiter>
   promptFingerprints: Map<string, PromptFingerprint>
@@ -490,6 +527,7 @@ interface DriverSession {
   /** Message info by id, so an orphaned `message.part.updated` can be mapped.
    *  Bounded by the session's message count, which is what the transcript is. */
   messages: Map<string, OpencodeMessageInfo>
+  executionBatches: OpencodeExecutionBatches
   queue: QueuedTurn[]
   /**
    * THREE PROBES PROVED THE SERVER GONE, AND NOTHING WILL DRAIN THIS AGAIN
@@ -702,10 +740,20 @@ export function createOpencodeRuntime(
         // than a missing one. The message.updated that carries it always
         // arrives; when it does, the part's next update maps.
         if (!info) break
-        const items = partToItems(session.opencodeSessionId, info, event.properties.part)
+        const items = partToItems(
+          session.opencodeSessionId,
+          info,
+          event.properties.part,
+          session.executionBatches,
+        )
         for (const item of items) emit(session, { t: 'item', item: { kind: 'complete', item } }, at)
         if (event.properties.part.type === 'text')
-          creditPromptRecord(session, event.properties.part.messageID, event.properties.part.id, items)
+          creditPromptRecord(
+            session,
+            event.properties.part.messageID,
+            event.properties.part.id,
+            items,
+          )
         break
       }
       case 'message.part.delta': {
@@ -821,10 +869,16 @@ export function createOpencodeRuntime(
         // The question is answered with the refusal, which names where to ask;
         // a reject would end the turn and drop the text (RUN 1.18.35).
         const { id, questions } = event.properties
-        void askUserRefusal(host.askUserGate, session.sessionId).then(async (reason) => {
-          if (reason === null) open()
-          else await session.client.replyQuestion(id, questions.map(() => [reason]))
-        }).catch(() => open())
+        void askUserRefusal(host.askUserGate, session.sessionId)
+          .then(async (reason) => {
+            if (reason === null) open()
+            else
+              await session.client.replyQuestion(
+                id,
+                questions.map(() => [reason]),
+              )
+          })
+          .catch(() => open())
         break
       }
       case 'permission.replied':
@@ -1104,7 +1158,12 @@ export function createOpencodeRuntime(
     onProof: SendOptions['onLateProof'],
     signal?: AbortSignal,
   ): void {
-    if ((!onProof && !waiter.onUnrecorded) || waiter.unrecorded || session.disposed || signal?.aborted) {
+    if (
+      (!onProof && !waiter.onUnrecorded) ||
+      waiter.unrecorded ||
+      session.disposed ||
+      signal?.aborted
+    ) {
       session.promptRecords.delete(waiter)
       return
     }
@@ -1180,14 +1239,18 @@ export function createOpencodeRuntime(
         ])
         if (session.disposed) return
         for (const message of messages) {
-          if (message.info.role !== 'user' || message.info.sessionID !== session.opencodeSessionId) continue
+          if (message.info.role !== 'user' || message.info.sessionID !== session.opencodeSessionId)
+            continue
           session.messages.set(message.info.id, message.info)
           for (const part of message.parts) {
             if (
               part.type !== 'text' ||
               part.messageID !== message.info.id ||
               ![...session.promptRecords].some(
-                (waiter) => !waiter.seen && waiter.messageID === message.info.id && waiter.textPartId === part.id,
+                (waiter) =>
+                  !waiter.seen &&
+                  waiter.messageID === message.info.id &&
+                  waiter.textPartId === part.id,
               )
             )
               continue
@@ -1224,7 +1287,9 @@ export function createOpencodeRuntime(
     for (const row of rows) {
       if (
         row.sessionId !== session.opencodeSessionId ||
-        !open.some((waiter) => waiter.messageID === row.messageId && waiter.textPartId === row.partId)
+        !open.some(
+          (waiter) => waiter.messageID === row.messageId && waiter.textPartId === row.partId,
+        )
       )
         continue
       // The shared mapper emits a user prompt only for a stored text part.
@@ -1564,11 +1629,15 @@ export function createOpencodeRuntime(
           const messages = await session.client.messages(session.opencodeSessionId)
           const recorded = messages.find((message) => message.info.id === ids.messageID)
           if (recorded) {
-            const part = recorded.parts.find((part) => part.id === ids.textPartId && part.type === 'text')
+            const part = recorded.parts.find(
+              (part) => part.id === ids.textPartId && part.type === 'text',
+            )
             if (!part || part.type !== 'text' || part.text !== input.text) {
               session.promptFingerprints.delete(ids.messageID)
               persist(session)
-              throw new UnsafeOpencodeResendError('OpenCode v1 recovery requires the same message id, part id and same text')
+              throw new UnsafeOpencodeResendError(
+                'OpenCode v1 recovery requires the same message id, part id and same text',
+              )
             }
           }
         }
@@ -1691,14 +1760,22 @@ export function createOpencodeRuntime(
   function assertPromptIdentity(session: DriverSession, input: TurnInput, ids: PromptIds): void {
     if (session.client.pendingPrompts) return
     if (input.deliveryRecovery && input.id === undefined)
-      throw new UnsafeOpencodeResendError('OpenCode v1 recovery requires a stable message id and part id')
+      throw new UnsafeOpencodeResendError(
+        'OpenCode v1 recovery requires a stable message id and part id',
+      )
     for (const other of sessions.values()) {
       if (other !== session && other.promptFingerprints.has(ids.messageID))
         throw new UnsafeOpencodeResendError('OpenCode v1 resend requires the same session')
     }
     const original = session.promptFingerprints.get(ids.messageID)
-    if (original && (original.textPartId !== ids.textPartId || original.textHash !== promptFingerprint(input, ids).textHash))
-      throw new UnsafeOpencodeResendError('OpenCode v1 resend requires the same message id, part id and same text')
+    if (
+      original &&
+      (original.textPartId !== ids.textPartId ||
+        original.textHash !== promptFingerprint(input, ids).textHash)
+    )
+      throw new UnsafeOpencodeResendError(
+        'OpenCode v1 resend requires the same message id, part id and same text',
+      )
   }
 
   /**
@@ -1708,7 +1785,7 @@ export function createOpencodeRuntime(
    * asymmetric here and a 400 from getting it wrong names neither field.
    */
   function modelFor(
-    spec: SessionSpec,
+    spec: EngineSessionSpec,
     input: TurnInput,
   ): { providerID: string; modelID: string } | undefined {
     const override = input.overrides?.supported ? input.overrides.value.model : undefined
@@ -1732,7 +1809,7 @@ export function createOpencodeRuntime(
    * `auto` means opencode's own default, so it sends no `variant` at all rather
    * than a variant literally named "auto".
    */
-  function effortFor(spec: SessionSpec, input: TurnInput): string | undefined {
+  function effortFor(spec: EngineSessionSpec, input: TurnInput): string | undefined {
     const override = input.overrides?.supported ? input.overrides.value.effort : undefined
     const raw = override ?? spec.model.effort
     return raw && raw !== 'auto' ? raw : undefined
@@ -1864,7 +1941,13 @@ export function createOpencodeRuntime(
       const ids = promptIdsFor(next.input, session)
       const record = armPromptRecord(session, ids, next.options)
       try {
-        const admission = await deliver(session, next.input, ids, next.options.origin, next.options.onTypingStarted)
+        const admission = await deliver(
+          session,
+          next.input,
+          ids,
+          next.options.origin,
+          next.options.onTypingStarted,
+        )
         if (!session.client.pendingPrompts) {
           const item = await waitForPromptRecord(session, record, next.options.signal)
           if (item) {
@@ -1874,9 +1957,10 @@ export function createOpencodeRuntime(
             watchLatePromptRecord(
               session,
               record,
-              next.options.onLateProof ?? (({ transcriptItem, harnessRef }) => {
-                if (transcriptItem) next.options.onTranscriptItem?.(transcriptItem, harnessRef)
-              }),
+              next.options.onLateProof ??
+                (({ transcriptItem, harnessRef }) => {
+                  if (transcriptItem) next.options.onTranscriptItem?.(transcriptItem, harnessRef)
+                }),
               next.options.signal,
             )
           }
@@ -2161,7 +2245,7 @@ export function createOpencodeRuntime(
         }
         const transcriptItem = session.client.pendingPrompts
           ? settlePromptRecord(session, record, admission, options.onTranscriptItem)
-          : (await waitForPromptRecord(session, record, options.signal)) ?? record.seen
+          : ((await waitForPromptRecord(session, record, options.signal)) ?? record.seen)
         if (!session.client.pendingPrompts) {
           if (transcriptItem) session.promptRecords.delete(record)
           else {
@@ -2601,12 +2685,16 @@ export function createOpencodeRuntime(
       workdir: entry.workdir,
       secret: host.randomSecret(),
       username: entry.username,
+      harnessContext: await host.harnessContextFor(entry.sessionId),
+      // The journal records no posture: a relaunched server runs on the default.
+      posture: DEFAULT_SESSION_POSTURE,
+      grants: await host.podiumGrantsFor(entry.sessionId),
     })
   }
 
   async function attachSession(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     endpoint: OpencodeServerEndpoint
     opencodeSessionId: OpencodeSessionId
     bindingVersion: number
@@ -2652,8 +2740,11 @@ export function createOpencodeRuntime(
       interactions: new Map(),
       answered: new Set(),
       messages: new Map(),
+      executionBatches: { steps: new Map(), parts: new Map() },
       promptRecords: new Set(),
-      promptFingerprints: new Map((journalled?.promptFingerprints ?? []).map((entry) => [entry.messageID, entry])),
+      promptFingerprints: new Map(
+        (journalled?.promptFingerprints ?? []).map((entry) => [entry.messageID, entry]),
+      ),
       promptValidations: new Map(),
       queue: [],
       serverGone: false,
@@ -2716,6 +2807,9 @@ export function createOpencodeRuntime(
       workdir: spec.workdir,
       secret,
       username,
+      harnessContext: spec.harnessContext,
+      posture: spec.posture,
+      grants: spec.grants,
       ...(spec.env ? { env: spec.env } : {}),
     })
     const make = host.makeClient ?? createOpencodeClient
@@ -2780,6 +2874,9 @@ export function createOpencodeRuntime(
         workdir: spec.workdir,
         secret,
         username: 'podium',
+        harnessContext: spec.harnessContext,
+        posture: spec.posture,
+        grants: spec.grants,
         ...(spec.env ? { env: spec.env } : {}),
       })
       return attachSession({
@@ -2840,6 +2937,8 @@ export function createOpencodeRuntime(
           harness: 'opencode',
           selection: { auth: 'api-key', platform: 'linux', available: [driverId] },
           workdir: journalled.workdir,
+          // An adopted session's posture is not journalled: it runs on the default.
+          posture: DEFAULT_SESSION_POSTURE,
           // NOT `{}` — see {@link OpencodeJournalEntry.model}.
           model: journalled.model ?? {},
           instructions: { supported: false, reason: 'adopted session carries its own context' },

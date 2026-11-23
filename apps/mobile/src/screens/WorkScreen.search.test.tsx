@@ -29,7 +29,10 @@ vi.mock('../client/mobile-pool', () => ({
   useMobilePool: () => state.pool,
   useMobilePoolProjection: (_read: unknown, fallback: unknown) => fallback,
 }))
-vi.mock('../client/hooks', () => ({ useStoreActions: () => ({}) }))
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useCommands: () => ({ issues: {}, sessions: {}, preferences: {} }),
+}))
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
 vi.mock('../client/use-session-context', () => ({ useSessionContextBooting: () => false }))
 vi.mock('../hooks/useCollapsedSet', () => ({

@@ -1,28 +1,19 @@
 import {
-  AutomationRunWire,
-  AutomationWire,
-  ChangeCursorSeqField,
-  ConversationDiagnosticWire,
-  ConversationSummaryWire,
   GlobalChangeOpField,
   IssueDepProjection,
   IssueEventWire,
   IssueGitStateProjection,
   IssueProjection,
   IssueUserStateWire,
-  LayoutWire,
   MachineProjection,
-  MessageRecordWire,
-  ReadPositionWire,
+  RECORD_KINDS,
+  RECORDS,
   RepoProjection,
-  type SessionId,
-  SessionMeta,
   SessionUserStateWire,
 } from '@podium/model'
 import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
-import { PendingInteractionWire } from './runtime-interactions'
 
 /**
  * Re-exported from `@podium/model` [POD-796, POD-822].
@@ -137,138 +128,38 @@ const FeedIdShape = {
   minAvailableSeq: z.number().int().positive().optional(),
 } as const
 
-export const MetadataChange = z.discriminatedUnion('entity', [
-  metadataChangeArm(z.literal('session'), SessionMeta),
+/** The arm {@link metadataChangeArm} builds for one declared record type. */
+type MetadataChangeArmOf<D extends (typeof RECORDS)[number]> = ReturnType<
+  typeof metadataChangeArm<z.ZodLiteral<D['kind']>, D['schema']>
+>
+type MetadataChangeArms<T extends readonly (typeof RECORDS)[number][]> = {
+  -readonly [I in keyof T]: T[I] extends infer D extends (typeof RECORDS)[number]
+    ? MetadataChangeArmOf<D>
+    : never
+}
 
-  metadataChangeArm(z.literal('issueProjection'), IssueProjection),
-  /** An issue dependency EDGE [POD-822, ADR 4 D7.1] — `issue_deps` rows as
-   *  first-class entities, keyed by their own primary key (`issueDepId`).
-   *
-   *  The relation the feed never carried. `IssueProjection` cannot hold `deps`
-   *  without re-acquiring the cross-entity coupling it exists to shed (an edge
-   *  belongs to two issues; see model's `fields/issue-dep.ts`), so the edge is
-   *  its own kind and the replica joins it. That is what makes `depAdd` cost
-   *  O(1) server-side and still move `blocked` on both endpoints.
-   *
-   *  Same additive contract as issueProjection: emitted unconditionally and
-   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
-   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
-   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('issueDep'), IssueDepProjection),
-  /** A logical repo [POD-822] — today just `(repoId, prefix)`, the join input
-   *  for `displayRef`.
-   *
-   *  `prefix` is a function of the REPO, so materializing it onto every issue
-   *  would make a prefix change rewrite every issue in the repo on the write
-   *  path (D7.2). One repo row instead; the replica joins `issue.repoId →
-   *  repo.prefix` and every `POD-13` in the repo moves at once. Same additive
-   *  contract as the two kinds above. */
-  metadataChangeArm(z.literal('repo'), RepoProjection),
-  metadataChangeArm(z.literal('shipOrder'), ShipOrderProjection),
-  /** One delivery lane's queue in the scheduler's order (POD-4974 O2, ADR 4
-   *  D7.4), keyed by `shipLaneId(repoId, canonical destination)`. The server
-   *  recomputes it only for the lanes a shipping commit touches, so a ship order
-   *  no longer needs every order ever stored to know its rank. Same additive
-   *  contract as the kinds above: an older build parses these rows as
-   *  {@link UnknownMetadataChange}, ignores them and advances its cursor.
-   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('shipLane'), ShipLaneProjection),
-  metadataChangeArm(z.literal('conversation'), ConversationSummaryWire),
-  metadataChangeArm(z.literal('automation'), AutomationWire),
-  metadataChangeArm(z.literal('automationRun'), AutomationRunWire),
-  /** Per-user sidebar/tab layout row (POD-1350) — keyed `(userId, key)` on the
-   *  change id via `layoutRowId`. Visibility class `per-user-state`: only the
-   *  owning human's principals see the row (ADR 9 D3 rule 4). Additive on the
-   *  wire (same contract as issueProjection): older clients ignore via
-   *  UnknownMetadataChange and advance the cursor. */
-  metadataChangeArm(z.literal('userLayout'), LayoutWire),
-  /** Per-user event-stream read position (POD-1380) — keyed `(userId, feedId)` on
-   *  the change id via `readPositionRowId`. Visibility class `per-user-state`, the
-   *  same as `userLayout` and for a sharper reason: a read cursor delivered to
-   *  the wrong principal is a privacy defect that looks exactly like a working
-   *  cursor. Additive on the wire; older clients ignore it via
-   *  UnknownMetadataChange and advance the cursor. */
-  metadataChangeArm(z.literal('userReadPosition'), ReadPositionWire),
-  /** One curated issue event (POD-1772) — `podium_events` rows as first-class
-   *  entities, keyed by `issueEventRowId(eventId, subject)`.
-   *
-   *  The chat feed's content, moved off a 15 s RPC timer and onto the one data
-   *  path the rest of the app uses. Visibility class `personal`, decided by the
-   *  SUBJECT issue: an event is readable by whoever may read the issue it is
-   *  about, which is why the subject rides the row id.
-   *
-   *  The log is unbounded and the replica is not, so the publisher holds a
-   *  bounded WINDOW: an event entering the window is an upsert, an event leaving
-   *  it is a `delete`. Bootstrap therefore carries a capped tail, not the whole
-   *  history of the installation.
-   *
-   *  Same additive contract as the kinds above: emitted unconditionally and
-   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
-   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
-   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('issueEvent'), IssueEventWire),
-  /** One blocking ask (POD-2020, spec §4) — the PendingInteraction aggregate on
-   *  the feed, so "answering from any surface resolves it everywhere" is a
-   *  property of the data path rather than of four clients agreeing.
-   *
-   *  Keyed by `interactionRowId(sessionId, id)`: the SUBJECT SESSION rides the
-   *  change id, the same device `issueEvent` uses and for the same two reasons —
-   *  `mayRead` answers from the id alone (no read of a row that a `delete` has
-   *  already removed), and a bootstrap prefetches every subject session in one
-   *  batched read instead of one `SELECT` per ask.
-   *
-   *  Its wire type is the ONE arm here that does not come from `@podium/model`:
-   *  `PendingInteractionWire` is the agent-runtime contract's `PendingInteraction`
-   *  plus the server aggregate's lifecycle, and it lives beside the contract type
-   *  it extends rather than being half-restated up here. See `./runtime.ts`.
-   *
-   *  Same additive contract as the kinds above: emitted unconditionally and
-   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
-   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
-   *  `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('pendingInteraction'), PendingInteractionWire),
-  /** A chat message a person sent into a session (POD-4764) — its record and
-   *  delivery status, so every device shows the same status by id and the chat
-   *  matches it to the agent's history by the entry id the machine named,
-   *  never by text.
-   *
-   *  Keyed by `messageRecordRowId(sessionId, senderUserId, id)`: both people who
-   *  may read it ride the change id, the same device `pendingInteraction` uses,
-   *  so `mayRead` answers from the id alone and a bootstrap prefetches every
-   *  subject session in one batched read.
-   *
-   *  The feed carries messages on their way, failed or lost-track ones until the
-   *  sender dismisses them, and a bounded window of recently confirmed ones;
-   *  the transcript is the history. Same additive contract as the kinds above:
-   *  an older build parses these rows as {@link UnknownMetadataChange}, ignores
-   *  them and advances its cursor. `CLIENT_WIRE_VERSION` stays 1 (ADR 2 D4). */
-  metadataChangeArm(z.literal('message'), MessageRecordWire),
-  metadataChangeArm(z.literal('issueUserState'), IssueUserStateWire),
-  metadataChangeArm(z.literal('sessionUserState'), SessionUserStateWire),
-  metadataChangeArm(z.literal('machine'), MachineProjection),
-  metadataChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
-])
+/**
+ * One change row of each synced record type, GENERATED from the record
+ * declarations in `@podium/model` (`records/declarations.ts`, POD-7084): one
+ * arm per declared type, in declaration order, its value the type's wire
+ * schema. Until POD-7084 this list was written out here by hand, beside a
+ * second hand-written list of the kind names; `record-list.test.ts` holds the
+ * generated list to that last hand-written one.
+ *
+ * Every kind is additive on the wire: a build whose list predates a kind
+ * parses its rows as {@link UnknownMetadataChange}, ignores them and advances
+ * its cursor (ADR 2 D4). Why each kind exists, and how its rows are keyed, is
+ * written on its declaration.
+ */
+export const MetadataChange = z.discriminatedUnion(
+  'entity',
+  RECORDS.map((record) =>
+    metadataChangeArm(z.literal(record.kind), record.schema),
+  ) as unknown as MetadataChangeArms<typeof RECORDS>,
+)
 export type MetadataChange = z.infer<typeof MetadataChange>
-export const MetadataEntityKind = z.enum([
-  'session',
-  'issueProjection',
-  'issueDep',
-  'repo',
-  'shipOrder',
-  'shipLane',
-  'conversation',
-  'automation',
-  'automationRun',
-  'userLayout',
-  'userReadPosition',
-  'issueEvent',
-  'pendingInteraction',
-  'message',
-  'issueUserState',
-  'sessionUserState',
-  'machine',
-  'issueGitState',
-])
+/** The synced record kinds, in declaration order: generated, like {@link MetadataChange}. */
+export const MetadataEntityKind = z.enum(RECORD_KINDS)
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 
 // ---- Kind-tolerant (lenient) consumer parsing ([spec:SP-3fe2] #258) ----
@@ -329,184 +220,3 @@ export const MetadataDeltaMessageLenient = z.object({
   ...FeedIdShape,
 })
 export type MetadataDeltaMessageLenient = z.infer<typeof MetadataDeltaMessageLenient>
-
-// Result of the `sync.changesSince` catch-up query (defined here so the web app and
-// SocketHub share one type without importing server internals). `snapshot` is
-// returned for a null cursor (bootstrap) or a cursor older than the retained log
-// (compaction) — it carries the full durable-entity state plus the cursor AS OF the
-// read, taken in the same tick, so no change falls between snapshot and stream.
-/**
- * The delta arm, parameterized by how strictly its elements parse (POD-305).
- *
- * The strict and lenient results used to restate this arm and the whole snapshot
- * arm side by side, which is how they drifted: the lenient copy already listed its
- * keys in a different order from the strict one. One factory per arm means the two
- * results differ in exactly the one thing they are supposed to differ in — element
- * strictness — and in nothing else.
- *
- * FEED IDENTITY (ADR 2 D1/D5) rides BOTH arms, unconditionally: unlike the WS
- * delta frame there is no hello here and therefore no caps to gate on, and
- * stamping it is additive — an older client's zod parse STRIPS the unknown keys.
- * Carried INSIDE the two factories rather than at the four former restatement
- * sites, which is what makes "both arms, both results" true by construction.
- */
-const changesSinceDeltaArm = <C extends z.ZodTypeAny>(change: C) =>
-  z.object({
-    kind: z.literal('delta'),
-    fromExclusive: ChangeCursorSeqField.optional(),
-    changes: z.array(change),
-    cursor: ChangeCursorSeqField,
-    ...FeedIdShape,
-  })
-
-/** The snapshot arm. Identical in both results — it is full durable state, and
- *  there is no lenient reading of an entity list this build must render.
- *
- *  It needs feed identity MOST: a re-bootstrap is exactly where a replica learns
- *  which generation it is now on (ADR 2 D7 rungs 2-6 all terminate here). */
-const changesSinceSnapshotArm = () =>
-  z.object({
-    kind: z.literal('snapshot'),
-    sessions: z.array(SessionMeta),
-    sessionUserStates: z.array(SessionUserStateWire).optional(),
-    machines: z.array(MachineProjection).optional(),
-    issues: z.array(z.never()),
-    issueProjections: z.array(IssueProjection).optional(),
-    issueUserStates: z.array(IssueUserStateWire).optional(),
-    issueGitStates: z.array(IssueGitStateProjection).optional(),
-    issueDeps: z.array(IssueDepProjection).optional(),
-    repos: z.array(RepoProjection).optional(),
-    shipOrders: z.array(ShipOrderProjection).optional(),
-    shipLanes: z.array(ShipLaneProjection).optional(),
-    conversations: z.array(ConversationSummaryWire),
-    diagnostics: z.array(ConversationDiagnosticWire),
-    automations: z.array(AutomationWire).optional(),
-    automationRuns: z.array(AutomationRunWire).optional(),
-    cursor: ChangeCursorSeqField,
-    ...FeedIdShape,
-  })
-
-export const SyncChangesSinceResult = z.discriminatedUnion('kind', [
-  changesSinceDeltaArm(MetadataChange),
-  changesSinceSnapshotArm(),
-])
-export type SyncChangesSinceResult = z.infer<typeof SyncChangesSinceResult>
-
-/** {@link SyncChangesSinceResult} as CONSUMERS type it (kind-tolerant): the
- *  delta arm's changes may contain unknown entity kinds from a newer server.
- *  The strict result is assignable to it, so producers/tests need no changes.
- *  Consumers must not trust the transport's compile-time type alone — validate
- *  the fetched value through {@link parseChangesSinceResult}. */
-export type SyncChangesSinceResultLenient =
-  | {
-      kind: 'delta'
-      changes: MetadataChangeLenient[]
-      fromExclusive?: number
-      cursor: number
-      feedId?: string
-      epoch?: string
-      minAvailableSeq?: number
-    }
-  | Extract<SyncChangesSinceResult, { kind: 'snapshot' }>
-
-/** Runtime schema for {@link SyncChangesSinceResultLenient} ([spec:SP-3fe2]
- *  #247). The delta arm validates element-wise through MetadataChangeLenient:
- *  the strict known-kind arms validate VALUES, and the catch-all admits only
- *  UNKNOWN kinds — so a known-kind row with a malformed value fails the whole
- *  parse (it must never install, and the cursor must never advance past it
- *  silently). The snapshot arm is strict. */
-export const SyncChangesSinceResultLenientSchema = z.discriminatedUnion('kind', [
-  changesSinceDeltaArm(MetadataChangeLenient),
-  changesSinceSnapshotArm(),
-])
-
-/**
- * Validate a fetched `sync.changesSince` result ([spec:SP-3fe2] #247). The WS
- * delta frames already parse leniently (codec.ts), but the HTTP heal result
- * used to be consumed on trust: a known-kind row with a malformed value slid
- * past `isKnownMetadataChange` (an entity-string check) into mirrors/UI, and
- * the cursor skipped it permanently. Returns null when the result is
- * malformed — a delta carrying an invalid KNOWN-kind element, or an invalid
- * snapshot. Callers must treat null as a failed heal and escalate to a
- * snapshot heal (null-cursor refetch — the same fallback the server uses for
- * a corrupt log row), never install, never advance the cursor past it.
- */
-export function parseChangesSinceResult(
-  input: unknown,
-  opts?: {
-    /** The cursor the caller requested changes SINCE. When a number and the
-     *  delta is non-empty, the first change must be exactly fromCursor + 1 —
-     *  the server's contiguity contract; anything else is a hole the caller
-     *  would silently skip by advancing to the result cursor. When EXPLICITLY
-     *  null (bootstrap — distinguished from omitted via `'fromCursor' in
-     *  opts`), only a snapshot is acceptable: the contract says a null cursor
-     *  yields the full state, and a delta here has nothing to be relative to. */
-    fromCursor?: number | null
-  },
-): SyncChangesSinceResultLenient | null {
-  const parsed = SyncChangesSinceResultLenientSchema.safeParse(input)
-  if (!parsed.success) return null
-  const result = parsed.data
-  if (result.kind !== 'delta') return result
-  // Explicit-null cursor ([spec:SP-3fe2] #247 round 3): the caller asked for a
-  // BOOTSTRAP snapshot — accepting a delta would install changes relative to
-  // state the client doesn't have and stamp its cursor as if it did.
-  const hasFrom = opts !== undefined && 'fromCursor' in opts
-  if (hasFrom && opts.fromCursor === null) return null
-  // A scoped producer names the complete GLOBAL source range explicitly. Rows
-  // omitted inside it are hidden by authority, so gaps and an empty visible set
-  // are valid; the range itself is what authorizes cursor advancement.
-  if (result.fromExclusive !== undefined) {
-    if (
-      result.fromExclusive > result.cursor ||
-      (hasFrom && typeof opts.fromCursor === 'number' && result.fromExclusive !== opts.fromCursor)
-    ) {
-      return null
-    }
-    let previous = result.fromExclusive
-    for (const change of result.changes) {
-      if (change.seq <= previous || change.seq > result.cursor) return null
-      previous = change.seq
-      if (!isKnownMetadataChange(change) || change.op !== 'upsert' || change.value === undefined) {
-        continue
-      }
-      const embeddedId =
-        change.entity === 'session'
-          ? (change.value as { sessionId: SessionId }).sessionId
-          : (change.value as { id: string }).id
-      if (embeddedId !== change.id) return null
-    }
-    return result
-  }
-
-  // An EMPTY delta must not move the cursor (#247 round 3): its cursor must
-  // equal the requested fromCursor — anything later silently skips the changes
-  // between them forever (both consumers persist the advanced cursor).
-  if (hasFrom && typeof opts.fromCursor === 'number' && result.changes.length === 0) {
-    return result.cursor === opts.fromCursor ? result : null
-  }
-  // Semantic validation beyond shapes ([spec:SP-3fe2] #247 round 2): a
-  // shape-valid delta can still lie — an embedded wire id disagreeing with the
-  // change id would install an entity under the wrong identity (a later remove
-  // of the change id could never remove it), and a seq sequence that skips or
-  // stops short of the result cursor is a permanent gap once the caller
-  // advances. Reject → the caller escalates to a snapshot heal.
-  let prevSeq = opts?.fromCursor ?? null
-  for (const change of result.changes) {
-    if (prevSeq !== null && change.seq !== prevSeq + 1) return null
-    prevSeq = change.seq
-    if (!isKnownMetadataChange(change) || change.op !== 'upsert' || change.value === undefined) {
-      continue
-    }
-    const embeddedId =
-      change.entity === 'session'
-        ? (change.value as { sessionId: SessionId }).sessionId
-        : (change.value as { id: string }).id
-    if (embeddedId !== change.id) return null
-  }
-  if (result.changes.length > 0) {
-    const last = result.changes[result.changes.length - 1]
-    if (last !== undefined && last.seq !== result.cursor) return null
-  }
-  return result
-}

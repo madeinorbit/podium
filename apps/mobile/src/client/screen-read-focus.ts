@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import type { IssueId, SessionId } from '@podium/model'
 import { NavigationContext } from 'expo-router/build/react-navigation/core/NavigationContext'
 import { useContext, useLayoutEffect } from 'react'
@@ -15,7 +15,7 @@ export function useScreenReadFocus(
   sessionId?: SessionId,
   mode: 'chat' | 'native' = 'chat',
 ): void {
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const navigation = useContext(NavigationContext)
   const focused = useProjectionFocus()
   useLayoutEffect(() => {

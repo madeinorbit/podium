@@ -1,21 +1,20 @@
-import { execFile } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { promisify } from 'node:util'
 import {
-  timeReleaseBuildTask,
   type ReleaseBuildTimingDeps,
+  timeReleaseBuildTask,
 } from '@podium/runtime/release-build-timing'
+import { buildCleanup, buildTask } from './build-attempt'
+import { runBuildCommand } from './build-process'
 import { devBuildCommand } from './build-scope'
 
-const execFileAsync = promisify(execFile)
-
 async function git(root: string, args: readonly string[]): Promise<string> {
-  const { stdout } = await execFileAsync('git', [...args], {
+  const { stdout } = await runBuildCommand('git', args, {
     cwd: root,
-    encoding: 'utf8',
     env: { ...process.env },
+    stdio: 'pipe',
+    label: `Development build git ${args[0] ?? ''}`,
   })
   return stdout
 }
@@ -44,9 +43,11 @@ async function assertSnapshotIdentity(root: string, approvedSha: string): Promis
 export type BunInstall = (snapshotRoot: string, args: readonly string[]) => Promise<void>
 
 const runBunInstall: BunInstall = async (snapshotRoot, args) => {
-  await execFileAsync(devBuildCommand(process.env), [...args], {
+  await runBuildCommand(devBuildCommand(process.env), args, {
     cwd: snapshotRoot,
     env: { ...process.env },
+    stdio: 'pipe',
+    label: 'Development build dependency install',
   })
 }
 
@@ -105,8 +106,11 @@ export async function withDevBuildSnapshot<T>(
 ): Promise<T> {
   const parent = await mkdtemp(join(tmpdir(), 'podium-dev-release-'))
   const snapshotRoot = join(parent, 'checkout')
-  let attached = false
+  let checkoutAttempted = false
   let failed = false
+  const timing = input.timing
+    ? { ...input.timing, context: { ...input.timing.context } }
+    : undefined
   const timed = async <T>(phase: string, task: string, run: () => Promise<T> | T): Promise<T> =>
     await timeReleaseBuildTask(
       {
@@ -116,49 +120,68 @@ export async function withDevBuildSnapshot<T>(
         ...(input.releaseVersion ? { version: input.releaseVersion } : {}),
         sourceSha: input.approvedSha,
       },
-      run,
-      input.timing,
+      () => buildTask(run),
+      timing,
     )
   try {
-    await timed('checkout', 'detached-worktree', async () =>
-      await git(input.sourceRoot, [
-        'worktree',
-        'add',
-        '--detach',
-        '--force',
-        snapshotRoot,
-        input.approvedSha,
-      ]),
+    checkoutAttempted = true
+    await timed(
+      'checkout',
+      'detached-worktree',
+      async () =>
+        await git(input.sourceRoot, [
+          'worktree',
+          'add',
+          '--detach',
+          '--force',
+          snapshotRoot,
+          input.approvedSha,
+        ]),
     )
-    attached = true
-    await timed('validation', 'initial-source-identity', async () =>
-      await assertSnapshotIdentity(snapshotRoot, input.approvedSha),
+    await timed(
+      'validation',
+      'initial-source-identity',
+      async () => await assertSnapshotIdentity(snapshotRoot, input.approvedSha),
     )
     await timed('dependency-preparation', 'bun-install', async () => {
       await (input.install ?? installSnapshotDependencies)(snapshotRoot)
     })
-    const result = await build(snapshotRoot)
-    await timed('validation', 'final-source-identity', async () =>
-      await assertSnapshotIdentity(snapshotRoot, input.approvedSha),
+    const result = await buildTask(() => build(snapshotRoot))
+    await timed(
+      'validation',
+      'final-source-identity',
+      async () => await assertSnapshotIdentity(snapshotRoot, input.approvedSha),
     )
     return result
   } catch (error) {
     failed = true
     throw error
   } finally {
-    if (attached) {
+    // The overall caller has a bounded result even if filesystem cleanup needs
+    // longer. Always remove the snapshot, including an interrupted git attach.
+    await buildCleanup(async () => {
       try {
-        await timed('checkout', 'remove-detached-worktree', async () =>
-          await git(input.sourceRoot, ['worktree', 'remove', '--force', snapshotRoot]),
+        if (checkoutAttempted) {
+          try {
+            await timed(
+              'checkout',
+              'remove-detached-worktree',
+              async () =>
+                await git(input.sourceRoot, ['worktree', 'remove', '--force', snapshotRoot]),
+            )
+          } catch (error) {
+            await rm(snapshotRoot, { recursive: true, force: true })
+            await git(input.sourceRoot, ['worktree', 'prune']).catch(() => {})
+            if (!failed) throw error
+          }
+        }
+      } finally {
+        await timed(
+          'checkout',
+          'snapshot-teardown',
+          async () => await rm(parent, { recursive: true, force: true }),
         )
-      } catch (error) {
-        await rm(snapshotRoot, { recursive: true, force: true })
-        await git(input.sourceRoot, ['worktree', 'prune']).catch(() => {})
-        if (!failed) throw error
       }
-    }
-    // The worktree removal above is timed; the temp PARENT it lived in is a separate
-    // recursive delete, and an untimed one made the envelope look larger than its phases.
-    await timed('checkout', 'snapshot-teardown', async () => await rm(parent, { recursive: true, force: true }))
+    })
   }
 }

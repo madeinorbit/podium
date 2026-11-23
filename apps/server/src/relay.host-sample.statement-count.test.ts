@@ -9,14 +9,21 @@
  * query), a machine row, and a target's pending-mail count; at the backstop
  * also the retired session's grant edges and its machine and mail reads.
  */
+
 import { asIssueId, asMachineId, type SessionId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { issueRowFixture } from './test-support/issue-row'
 import { openTestStore } from './test-support/open-test-store'
-import { expectConstantStatements, quietShipping, type StatementPin } from './test-support/statement-count'
+import { seedRows } from './test-support/seed-rows'
+import {
+  expectConstantStatements,
+  quietShipping,
+  type StatementPin,
+} from './test-support/statement-count'
 
 interface Fixture {
   store: SessionStore
@@ -80,6 +87,8 @@ async function fixture(size: number, quiet: boolean): Promise<Fixture> {
   // depending on how fast setup ran, which made 8 and 49 below include setup.
   for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
   await new Promise((resolve) => setTimeout(resolve, 50))
+  // The setup's own deliveries run before the count, not inside it (POD-7068).
+  await reg.changeLedger.authority.settled()
   return { store, reg, ids }
 }
 
@@ -103,7 +112,14 @@ const pin = (
   name,
   setup: async (size) => await fixture(size, quiet),
   target: (f) => f.store,
-  run: async (f) => await f.reg.modules.hosts.onHostMetrics(f.store.hostMachineId, sample()),
+  run: async (f) => {
+    const result = await f.reg.modules.hosts.onHostMetrics(f.store.hostMachineId, sample())
+    // The sample's own delivery runs inside the count, whole (POD-7068): it trails
+    // the commit unawaited, so a window that ended when the sample returned held as
+    // many of its reads as had started by then.
+    await f.reg.changeLedger.authority.settled()
+    return result
+  },
   check: async (_result, f) => await check(f),
   teardown: async (f) => {
     await f.reg.dispose()
@@ -151,11 +167,17 @@ const pin = (
 // `session.phase_sample` rows ("ended", from the activity history's exit
 // listener) were two autocommit inserts inside the window; they are now one
 // grouped transaction that lands after the sample returns: 43 -> 41.
+// RE-PINNED FOR POD-6341, measured on the polaris VM (statement lists diffed
+// against the integration branch's base): sessions are private to their owner
+// (design §2.3, POD-6283), so the two retirements' access checks no longer read
+// the sessions' grants (#92da1c94): 41 -> 39.
 describe('host sample: pinned statement counts at 5 and 200 live shells', () => {
   it('a sample with nothing to retire', async () => {
     await expectConstantStatements(
       pin('host sample (steady)', false, async (f) => {
-        expect((await f.store.sessions.loadSessions()).map((s) => s.id).sort()).toEqual([...f.ids].sort())
+        expect((await f.store.sessions.loadSessions()).map((s) => s.id).sort()).toEqual(
+          [...f.ids].sort(),
+        )
       }),
       6,
     )
@@ -173,11 +195,21 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
           for (let i = 0; i < size; i++) {
             // Worktrees outside every shell's folder. The folder-owner query's
             // own cost is pinned in folder-owner-parity.test.ts.
-            await f.store.issues.upsertIssue({
-              ...issueRowFixture({ id: asIssueId(`iss_sample_${i}`), repoPath: '/w', seq: i + 1 }),
-              repoId: undefined, machineId: f.store.hostMachineId, parentId: null,
-              worktreePath: `/elsewhere/${i}`,
-            } as never)
+            await seedRows(
+              f.store,
+              async () =>
+                await f.store.issues.upsertIssue(fixtureWriteScope(), {
+                  ...issueRowFixture({
+                    id: asIssueId(`iss_sample_${i}`),
+                    repoPath: '/w',
+                    seq: i + 1,
+                  }),
+                  repoId: undefined,
+                  machineId: f.store.hostMachineId,
+                  parentId: null,
+                  worktreePath: `/elsewhere/${i}`,
+                } as never),
+            )
           }
           return f
         },
@@ -191,10 +223,13 @@ describe('host sample: pinned statement counts at 5 and 200 live shells', () => 
       pin('host sample (backstop)', true, async (f) => {
         // The oldest quiet shell is retired, the rest are left for later samples.
         await expect
-          .poll(async () => (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)))
+          .poll(async () =>
+            (await f.store.sessions.loadSessions()).some((s) => s.id === f.ids.at(-1)),
+          )
           .toBe(false)
       }),
-      41,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 39 -> 46.
+      46,
     )
   })
 })

@@ -5,8 +5,9 @@ import type { AgentSessionHandle, SessionBinding, SessionSpec } from '@podium/ha
 import { type AgentKind, asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
-import type { DaemonContext } from './context'
 import { attachTestTerminal, stubDurable, testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
+import type { DaemonContext } from './context'
 
 /** Keep any launch artifacts inside a disposable test directory. */
 const settingsDir = mkdtempSync(join(tmpdir(), 'podium-plain-terminal-'))
@@ -18,7 +19,10 @@ vi.mock('../runtime/server-reap', () => ({ beginServerDriverReap: vi.fn(async ()
 vi.mock('../runtime/instance-process-reaper', () => ({
   reapInstanceSessionProcesses: vi.fn(async () => ({ examined: 0, remaining: 0 })),
 }))
-vi.mock('../session-uploads', () => ({ removeSessionUploads: vi.fn() }))
+vi.mock('../session-uploads', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../session-uploads')>()),
+  removeSessionUploads: vi.fn(),
+}))
 
 vi.mock('../runtime/registry', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../runtime/registry')>()
@@ -67,11 +71,16 @@ function contextForSpawn(): DaemonContext {
     sessionBinding: { transition: async () => ({ status: 'applied' }) },
     composerEngine: { attach: () => false, onData: () => {}, detach: () => {}, has: () => false },
     outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 1 },
-    observers: { initSessionObservers: () => {}, clearSession: () => {}, trackedState: () => undefined },
+    observers: {
+      initSessionObservers: () => {},
+      clearSession: () => {},
+      trackedState: () => undefined,
+    },
     tailSeedGate: () => {},
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 }
 
@@ -138,14 +147,18 @@ it('refuses a non-shell kind with no manifest instead of opening an undrivable s
   } as unknown as Parameters<typeof launchSpawn>[1])
   expect(captured).toBeUndefined()
   expect(create).not.toHaveBeenCalled()
-  expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-    type: 'spawnError',
-    message: expect.stringContaining('not-a-harness'),
-  }))
+  expect(ctx.send).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'spawnError',
+      message: expect.stringContaining('not-a-harness'),
+    }),
+  )
   expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
 })
 
-function spawnMessage(agentKind: 'codex' | 'claude-code' | 'grok' | 'opencode' | 'cursor' = 'codex') {
+function spawnMessage(
+  agentKind: 'codex' | 'claude-code' | 'grok' | 'opencode' | 'cursor' = 'codex',
+) {
   return {
     type: 'spawn' as const,
     sessionId: asSessionId(`admission-${agentKind}`),
@@ -163,20 +176,25 @@ function spawnMessage(agentKind: 'codex' | 'claude-code' | 'grok' | 'opencode' |
  */
 function installRuntime(ctx: DaemonContext, failure?: 'throw' | 'no-handle' | 'wrong-driver') {
   const handles = new Map<string, AgentSessionHandle>()
-  const register = vi.fn((registration: { sessionId: string; agentKind: string; rebind?: boolean }, driverId: string) => {
-    if (failure === 'throw') throw new Error('driver binding failed')
-    if (failure === 'no-handle') return undefined
-    const handle = {
-      binding: {
-        sessionId: registration.sessionId,
-        harness: registration.agentKind,
-        family: 'terminal',
-        driver: failure === 'wrong-driver' ? 'codex-app-server' : driverId,
-      },
-    } as AgentSessionHandle
-    handles.set(registration.sessionId, handle)
-    return handle
-  })
+  const register = vi.fn(
+    (
+      registration: { sessionId: string; agentKind: string; rebind?: boolean },
+      driverId: string,
+    ) => {
+      if (failure === 'throw') throw new Error('driver binding failed')
+      if (failure === 'no-handle') return undefined
+      const handle = {
+        binding: {
+          sessionId: registration.sessionId,
+          harness: registration.agentKind,
+          family: 'terminal',
+          driver: failure === 'wrong-driver' ? 'codex-app-server' : driverId,
+        },
+      } as AgentSessionHandle
+      handles.set(registration.sessionId, handle)
+      return handle
+    },
+  )
   const launchAndRegister = async (sessionId: SessionId, spec: SessionSpec, resume?: ResumeRef) => {
     const launched = await launchTerminalProcess(ctx, {
       sessionId,
@@ -188,7 +206,9 @@ function installRuntime(ctx: DaemonContext, failure?: 'throw' | 'no-handle' | 'w
     launched.announce()
     return handle
   }
-  const create = vi.fn(async (spec: SessionSpec, sessionId: SessionId) => launchAndRegister(sessionId, spec))
+  const create = vi.fn(async (spec: SessionSpec, sessionId: SessionId) =>
+    launchAndRegister(sessionId, spec),
+  )
   const resume = vi.fn(async (ref: ResumeRef, spec: SessionSpec, sessionId: SessionId) =>
     launchAndRegister(sessionId, spec, ref),
   )
@@ -201,7 +221,10 @@ function installRuntime(ctx: DaemonContext, failure?: 'throw' | 'no-handle' | 'w
       workdir: binding.workdir,
       lease: {},
     })
-    const handle = register({ sessionId: binding.sessionId, agentKind: binding.harness, rebind: true }, binding.driver)
+    const handle = register(
+      { sessionId: binding.sessionId, agentKind: binding.harness, rebind: true },
+      binding.driver,
+    )
     recovered?.announce()
     return handle
   })
@@ -218,98 +241,113 @@ function installRuntime(ctx: DaemonContext, failure?: 'throw' | 'no-handle' | 'w
   return { create, register, handles }
 }
 
-it.each(['codex', 'claude-code', 'grok', 'opencode', 'cursor'] as const)(
-  'admits omitted-request %s with a verified headed handle and no env set',
-  async (agentKind) => {
-    const ctx = contextForSpawn()
-    const { create, register } = installRuntime(ctx)
-    const msg = spawnMessage(agentKind)
-    await launchTerminalSpawn(ctx, msg)
-    expect(create).toHaveBeenCalledOnce()
-    expect(register).toHaveBeenCalledOnce()
-    const bind = vi.mocked(ctx.send).mock.calls.map(([m]) => m).find((m) => m.type === 'bind')
-    expect(bind).toMatchObject({ driverId: terminalProfileFor(agentKind)!.driverId })
-    // driverId presence is the driven signal.
-    expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
-  },
-)
+it.each([
+  'codex',
+  'claude-code',
+  'grok',
+  'opencode',
+  'cursor',
+] as const)('admits omitted-request %s with a verified headed handle and no env set', async (agentKind) => {
+  const ctx = contextForSpawn()
+  const { create, register } = installRuntime(ctx)
+  const msg = spawnMessage(agentKind)
+  await launchTerminalSpawn(ctx, msg)
+  expect(create, JSON.stringify(vi.mocked(ctx.send).mock.calls)).toHaveBeenCalledOnce()
+  expect(register).toHaveBeenCalledOnce()
+  const bind = vi
+    .mocked(ctx.send)
+    .mock.calls.map(([m]) => m)
+    .find((m) => m.type === 'bind')
+  expect(bind).toMatchObject({ driverId: terminalProfileFor(agentKind)!.driverId })
+  // driverId presence is the driven signal.
+  expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
+})
 
 // Admission after `create` returns, independently of the gate inside the
 // announcement. A factory resolving is not proof of a valid handle.
-it.each(['no-handle', 'sessionId', 'harness', 'family', 'driver'] as const)(
-  'rejects create returning with %s handle corruption',
-  async (corruption) => {
-    const ctx = contextForSpawn()
-    const { create, handles } = installRuntime(ctx)
-    const msg = spawnMessage()
-    const driverId = terminalProfileFor(msg.agentKind)!.driverId
-    create.mockImplementationOnce(async (_spec, id) => {
-      if (corruption === 'no-handle') return undefined as unknown as AgentSessionHandle
-      const binding = {
-        sessionId: id,
-        harness: msg.agentKind,
-        family: 'terminal',
-        driver: driverId,
-        [corruption]: {
-          sessionId: 'another-session',
-          harness: 'claude-code',
-          family: 'server',
-          driver: 'codex-app-server',
-        }[corruption],
-      }
-      // Deliberately malformed registry output at the runtime boundary.
-      const handle = { binding } as unknown as AgentSessionHandle
-      handles.set(id, handle)
-      return handle
-    })
+it.each([
+  'no-handle',
+  'sessionId',
+  'harness',
+  'family',
+  'driver',
+] as const)('rejects create returning with %s handle corruption', async (corruption) => {
+  const ctx = contextForSpawn()
+  const { create, handles } = installRuntime(ctx)
+  const msg = spawnMessage()
+  const driverId = terminalProfileFor(msg.agentKind)!.driverId
+  create.mockImplementationOnce(async (_spec, id) => {
+    if (corruption === 'no-handle') return undefined as unknown as AgentSessionHandle
+    const binding = {
+      sessionId: id,
+      harness: msg.agentKind,
+      family: 'terminal',
+      driver: driverId,
+      [corruption]: {
+        sessionId: 'another-session',
+        harness: 'claude-code',
+        family: 'server',
+        driver: 'codex-app-server',
+      }[corruption],
+    }
+    // Deliberately malformed registry output at the runtime boundary.
+    const handle = { binding } as unknown as AgentSessionHandle
+    handles.set(id, handle)
+    return handle
+  })
 
-    await launchTerminalSpawn(ctx, msg)
-    expect(create).toHaveBeenCalledOnce()
-    expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
+  await launchTerminalSpawn(ctx, msg)
+  expect(create, JSON.stringify(vi.mocked(ctx.send).mock.calls)).toHaveBeenCalledOnce()
+  expect(ctx.send).toHaveBeenCalledWith(
+    expect.objectContaining({
       type: 'spawnError',
       message: expect.stringContaining(`terminal driver '${driverId}' did not establish a handle`),
-    }))
-    expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
-  },
-)
+    }),
+  )
+  expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
+})
 
-it.each(['plain', 'agent'] as const)(
-  'launches a %s spawn under the durable label its frame names',
-  async (path) => {
-    const ctx = contextForSpawn()
-    installRuntime(ctx)
-    const msg = { ...spawnMessage(), durableLabel: 'podium-named-label' }
-    if (path === 'plain') await launchSpawn(ctx, { ...msg, agentKind: 'shell' } as never)
-    else await launchTerminalSpawn(ctx, msg)
-    expect((captured as { label?: string } | undefined)?.label).toBe('podium-named-label')
-    expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
-  },
-)
+it.each([
+  'plain',
+  'agent',
+] as const)('launches a %s spawn under the durable label its frame names', async (path) => {
+  const ctx = contextForSpawn()
+  installRuntime(ctx)
+  const msg = { ...spawnMessage(), durableLabel: 'podium-named-label' }
+  if (path === 'plain') await launchSpawn(ctx, { ...msg, agentKind: 'shell' } as never)
+  else await launchTerminalSpawn(ctx, msg)
+  expect((captured as { label?: string } | undefined)?.label).toBe('podium-named-label')
+  expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
+})
 
 it('refuses an agent before starting its process when the runtime is missing', async () => {
   const ctx = contextForSpawn()
   ctx.send = vi.fn()
   await launchTerminalSpawn(ctx, spawnMessage())
   expect(captured).toBeUndefined()
-  expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-    type: 'spawnError', message: expect.stringContaining('agent runtime is unavailable'),
-  }))
+  expect(ctx.send).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'spawnError',
+      message: expect.stringContaining('agent runtime is unavailable'),
+    }),
+  )
 })
 
-it.each(['throw', 'no-handle', 'wrong-driver'] as const)(
-  'reaps the started process and reports %s admission failure without a success bind',
-  async (failure) => {
-    const ctx = contextForSpawn()
-    installRuntime(ctx, failure)
-    const msg = spawnMessage()
-    await launchTerminalSpawn(ctx, msg)
-    expect(captured).toBeDefined()
-    expect(dispose).toHaveBeenCalledOnce()
-    expect((ctx.sessions.get(msg.sessionId)?.attached ?? false)).toBe(false)
-    expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
-    expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
-  },
-)
+it.each([
+  'throw',
+  'no-handle',
+  'wrong-driver',
+] as const)('reaps the started process and reports %s admission failure without a success bind', async (failure) => {
+  const ctx = contextForSpawn()
+  installRuntime(ctx, failure)
+  const msg = spawnMessage()
+  await launchTerminalSpawn(ctx, msg)
+  expect(captured).toBeDefined()
+  expect(dispose).toHaveBeenCalledOnce()
+  expect(ctx.sessions.get(msg.sessionId)?.attached ?? false).toBe(false)
+  expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({ type: 'spawnError' }))
+  expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
+})
 
 function reconnectMessage() {
   return {
@@ -326,31 +364,40 @@ function reconnectMessage() {
   } as Parameters<typeof sessionHandlers.reattach>[1]
 }
 
-it.each([undefined, 'generic-pty', 'claude-pty'] as const)(
-  'reconnects an old or terminal-selected row (%s) with a verified handle',
-  async (requestedDriverId) => {
-    const ctx = contextForSpawn()
-    const { register } = installRuntime(ctx)
-    const msg = reconnectMessage()
-    ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
-    attachTestTerminal(ctx, msg.sessionId, {
-      pid: 4242,
-      onFrame: () => () => {},
-      onTitle: () => () => {},
-      onExit: () => () => {},
-      write: () => {},
-      writeBytes: () => {},
-      resize: () => {},
-      dispose,
-    } as never)
-    sessionHandlers.reattach(ctx, { ...msg, ...(requestedDriverId ? { requestedDriverId } : {}) })
-    await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-      type: 'bind', driverId: terminalProfileFor('codex')!.driverId,
-    })))
-    expect(register).toHaveBeenCalledWith(expect.objectContaining({ rebind: true }), expect.anything())
-    expect(dispose).not.toHaveBeenCalled()
-  },
-)
+it.each([
+  undefined,
+  'generic-pty',
+  'claude-pty',
+] as const)('reconnects an old or terminal-selected row (%s) with a verified handle', async (requestedDriverId) => {
+  const ctx = contextForSpawn()
+  const { register } = installRuntime(ctx)
+  const msg = reconnectMessage()
+  ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
+  attachTestTerminal(ctx, msg.sessionId, {
+    pid: 4242,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: () => {},
+    writeBytes: () => {},
+    resize: () => {},
+    dispose,
+  } as never)
+  sessionHandlers.reattach(ctx, { ...msg, ...(requestedDriverId ? { requestedDriverId } : {}) })
+  await vi.waitFor(() =>
+    expect(ctx.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'bind',
+        driverId: terminalProfileFor('codex')!.driverId,
+      }),
+    ),
+  )
+  expect(register).toHaveBeenCalledWith(
+    expect.objectContaining({ rebind: true }),
+    expect.anything(),
+  )
+  expect(dispose).not.toHaveBeenCalled()
+})
 
 it('reports and reaps a reconnect whose handle cannot be constructed', async () => {
   const ctx = contextForSpawn()
@@ -358,42 +405,55 @@ it('reports and reaps a reconnect whose handle cannot be constructed', async () 
   const msg = reconnectMessage()
   ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
   attachTestTerminal(ctx, msg.sessionId, {
-      pid: 4242,
-      onFrame: () => () => {},
-      onTitle: () => () => {},
-      onExit: () => () => {},
-      write: () => {},
-      writeBytes: () => {},
-      resize: () => {},
-      dispose,
-    } as never)
+    pid: 4242,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: () => {},
+    writeBytes: () => {},
+    resize: () => {},
+    dispose,
+  } as never)
   sessionHandlers.reattach(ctx, msg)
-  await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-    type: 'reattachFailed', reason: 'driver binding failed',
-  })))
+  await vi.waitFor(() =>
+    expect(ctx.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'reattachFailed',
+        reason: 'driver binding failed',
+      }),
+    ),
+  )
   expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
   expect(dispose).toHaveBeenCalledOnce()
 })
 
-it.each(['codex-app-server', 'codex-pty', 'unknown-driver'])(
-  'refuses unavailable explicit reconnect driver %s instead of binding a PTY', async (driver) => {
+it.each([
+  'codex-app-server',
+  'codex-pty',
+  'unknown-driver',
+])('refuses unavailable explicit reconnect driver %s instead of binding a PTY', async (driver) => {
   const ctx = contextForSpawn()
   const { register } = installRuntime(ctx)
   ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
   attachTestTerminal(ctx, reconnectMessage().sessionId, {
-      pid: 4242,
-      onFrame: () => () => {},
-      onTitle: () => () => {},
-      onExit: () => () => {},
-      write: () => {},
-      writeBytes: () => {},
-      resize: () => {},
-      dispose,
-    } as never)
+    pid: 4242,
+    onFrame: () => () => {},
+    onTitle: () => () => {},
+    onExit: () => () => {},
+    write: () => {},
+    writeBytes: () => {},
+    resize: () => {},
+    dispose,
+  } as never)
   sessionHandlers.reattach(ctx, { ...reconnectMessage(), requestedDriverId: driver })
-  await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-    type: 'reattachFailed', reason: expect.stringContaining(driver),
-  })))
+  await vi.waitFor(() =>
+    expect(ctx.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'reattachFailed',
+        reason: expect.stringContaining(driver),
+      }),
+    ),
+  )
   expect(register).not.toHaveBeenCalled()
 })
 
@@ -403,9 +463,14 @@ it('refuses a reattach for a non-shell kind with no manifest', async () => {
   const msg = reconnectMessage()
   ctx.sessionBinding.transition = vi.fn(async () => ({ status: 'unchanged' })) as never
   sessionHandlers.reattach(ctx, { ...msg, agentKind: 'not-a-harness' } as never)
-  await vi.waitFor(() => expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-    type: 'reattachFailed', reason: expect.stringContaining('not-a-harness'),
-  })))
+  await vi.waitFor(() =>
+    expect(ctx.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'reattachFailed',
+        reason: expect.stringContaining('not-a-harness'),
+      }),
+    ),
+  )
   expect(ctx.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'bind' }))
 })
 
@@ -415,7 +480,10 @@ it('keeps omitted launch intent headed with no machine default to consult', asyn
   const probe = vi.fn()
   expect(await launchServerDriverSession(ctx, spawnMessage(), probe)).toEqual({ handled: false })
   expect(probe).not.toHaveBeenCalled()
-  expect(ctx.send).toHaveBeenCalledWith(expect.objectContaining({
-    type: 'driverSelected', driverId: terminalProfileFor('codex')!.driverId,
-  }))
+  expect(ctx.send).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: 'driverSelected',
+      driverId: terminalProfileFor('codex')!.driverId,
+    }),
+  )
 })

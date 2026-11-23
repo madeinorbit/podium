@@ -7,7 +7,7 @@ import {
   type WorkCounts,
 } from '../../../tests/worklist/harness/src/work-meter'
 import { attachMobileScreens } from './mobile-screens'
-import { MOBILE_SCREEN_SUMMARIES, type MobileTasksOptions } from './mobile-screens-schema'
+import type { MobileTasksOptions } from './mobile-screens-schema'
 import { MOBILE_TASK_WINDOW_SIZE, MobileTasksBoard } from './mobile-tasks'
 import { ProposalScreening } from './mobile-triage'
 import { MobxPool } from './pool'
@@ -63,7 +63,6 @@ async function setup(rows: ReturnType<typeof issue>[], seats: ReturnType<typeof 
   )
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
-    summaries: MOBILE_SCREEN_SUMMARIES,
     schedule: () => () => {},
   })
   pool.apply({
@@ -115,20 +114,23 @@ it('uses Work child-search results to annotate collapsed Tasks matches without c
   expect(board.task('root').childHit).toBe('child')
 })
 
-it('borrows cold board summaries for ID membership without loading rich rows or sessions', async () => {
-  const { pool, load } = await setup([
-    issue('root'),
-    issue('cold', { archived: true, stage: 'done' }),
-  ])
-  const board = new MobileTasksBoard(pool, { ...options, filter: { archived: true } })
-  disposals.push(autorun(() => board.sections))
-  expect(layout(board)).toMatchObject([
-    { stage: 'in_progress', rows: [{ id: 'root', depth: 0 }] },
-    { stage: 'done', rows: [{ id: 'cold', depth: 0 }] },
-  ])
-  expect(pool.tables.issue.has('cold')).toBe(false)
-  expect(pool.hydrate()).toBe(0)
-  expect(load).not.toHaveBeenCalled()
+it('resolves an observed phone board when its screen source attaches after mount', async () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
+  pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'root', value: issue('root') }] })
+  const board = new MobileTasksBoard(pool, options)
+  let sections: typeof board.sections = LOADING
+  const stop = autorun(() => {
+    sections = board.sections
+  })
+  disposals.push(() => {
+    stop()
+    board.dispose()
+    pool.dispose()
+  })
+  expect(sections).toBe(LOADING)
+  await attachMobileScreens(pool)
+  expect(sections).not.toBe(LOADING)
+  expect(layout(board).flatMap((lane) => lane.rows.map((row) => row.id))).toEqual(['root'])
 })
 
 it('keeps list membership, peer rows and proposals quiet when one drawn issue changes', async () => {
@@ -227,7 +229,7 @@ async function workAt(scale: number, plant = false) {
         model.confirmedWorkingAgents
         model.taskProgress
         board.task('root').progress
-        if (plant) [...pool.queries.ids({ kind: 'boardCatalog' })]
+        if (plant) [...pool.queries.ids({ kind: 'pageIssues' })]
       }),
     ),
   )
@@ -266,7 +268,8 @@ function assertPhoneWork(one: WorkCounts, four: WorkCounts) {
     for (const reader of readers) {
       // POD-5561 owns the shared title/ref pass. Per-reader counts keep a row
       // scan visible even when both readers visit the same catalog identities.
-      if (kind === 'elementsBy' && reader === 'IssueBoard.textIds') continue
+      // This same shared search pass moved from textIds to textSearch.
+      if (kind === 'elementsBy' && reader === 'IssueBoard.textSearch') continue
       expect(four[kind]?.[reader] ?? 0, `${kind} ${reader}`).toBeLessThanOrEqual(
         one[kind]?.[reader] ?? 0,
       )
@@ -287,6 +290,27 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
   expect(() => assertPhoneWork(planted1[3]!, planted4[3]!)).toThrow()
+})
+
+it('narrows the phone Tasks board to the resolved Assigned to member, and lists everyone without one (POD-6297)', async () => {
+  const { pool } = await setup([
+    issue('root', { assignee: 'alice' }),
+    issue('bobs', { assignee: 'bob', seq: 2 }),
+  ])
+  const board = new MobileTasksBoard(pool, options)
+  disposals.push(autorun(() => board.sections))
+  const ids = () => layout(board).flatMap((section) => section.rows.map((row) => row.id))
+  // Me, resolved by the screen to the viewer.
+  board.showDisplay({ ordering: 'priority', showAgentTasks: false, assignee: 'alice' })
+  expect(ids()).toEqual(['root'])
+  // A member by name.
+  board.showDisplay({ ordering: 'priority', showAgentTasks: false, assignee: 'bob' })
+  expect(ids()).toEqual(['bobs'])
+  // All users, or a one-member instance: nothing narrows.
+  board.showDisplay({ ordering: 'priority', showAgentTasks: false })
+  expect(ids().sort()).toEqual(['bobs', 'root'])
+  // Assigned to is not a sheet chip.
+  expect(board.chips).toEqual([])
 })
 
 it('draws Proposed as the screening group and counts each lane for the subtitle', async () => {
@@ -422,7 +446,7 @@ it('releases offscreen row observers while scrolling forward and back through a 
   expect(lane.window.visibleRows).toHaveLength(MOBILE_TASK_WINDOW_SIZE)
 })
 
-it('reads glyphs from cold session summaries without loading archived history', async () => {
+it('reads glyphs from unarchived seats without reading archived history', async () => {
   const offer = { createdAt: '2026-01-01T00:00:00Z', message: 'Review', actions: [] }
   const history = Array.from({ length: 400 }, (_, i) =>
     seat(`history-${i}`, { archived: true, status: 'exited', offer }),
@@ -435,7 +459,6 @@ it('reads glyphs from cold session summaries without loading archived history', 
   })
   const { pool, load } = await setup([issue('root', { archived: true })], [...history, cold])
   const board = new MobileTasksBoard(pool, options)
-  expect(pool.tables.session.size).toBe(0)
   const marks: string[] = []
   const reads = vi.spyOn(pool, 'row')
   disposals.push(autorun(() => marks.push(board.task('root').mark)))
@@ -608,4 +631,25 @@ it('holds search groups open and ignores header taps without changing saved fold
   board.toggleFold(toggleSaved)
   expect(toggleSaved).toHaveBeenCalledTimes(2)
   expect(board.isFolded(saved)).toBe(true)
+})
+
+it('reads the saved Tasks order from the synced layout on its first frame, even when built before focus (POD-2470)', async () => {
+  const { pool } = await setup([
+    issue('older', { seq: 1, updatedAt: '2026-01-01T00:00:00Z' }),
+    issue('newer', { seq: 2, updatedAt: '2026-02-01T00:00:00Z' }),
+  ])
+  const saved = { value: { layout: 'board', ordering: 'updated' } as unknown }
+  runInAction(() =>
+    pool.bindLayout({
+      read: (key) => (key === 'issues.display' ? saved.value : undefined),
+      write: () => {},
+    }),
+  )
+  // The hidden screen built the board from its default display.
+  const board = new MobileTasksBoard(pool, { ...options, expanded: [], ordering: 'priority' })
+  const frames: string[] = []
+  disposals.push(autorun(() => frames.push(board.ordering)))
+  expect(frames).toEqual(['updated'])
+  const ids = () => layout(board).flatMap((section) => section.rows.map((row) => row.id))
+  expect(ids()).toEqual(['newer', 'older'])
 })

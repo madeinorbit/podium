@@ -1,4 +1,5 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import { useChatSends, useCommands } from '@podium/client-core/react'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { issueRepoName } from '@podium/client-core/values'
 import { issueActivity } from '@podium/client-graph/issue-activity'
@@ -15,12 +16,14 @@ import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { StyleSheet, View } from 'react-native'
-import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
+import { ScrollView, StyleSheet, View } from 'react-native'
+import { useConnected, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
 import { IssueOpening, useIssueOpening } from '../client/issue-opening'
+import { useMobileMemberRoster } from '../client/member-roster'
 import { useMobilePool } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
+import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import {
   resolveEdgeFromPool,
@@ -68,8 +71,9 @@ import {
   PhoneTimeline,
 } from '../components/task-detail/IssueModelSections'
 import { PropertyBar } from '../components/task-detail/IssueProperties'
+import { IssueSharedSection } from '../components/task-detail/IssueSharedSection'
 import { IssueStartAction } from '../components/task-detail/IssueStartAction'
-import { IssueSubIssuesSection } from '../components/task-detail/IssueSubIssues'
+import { IssueSubIssues, IssueSubIssuesSection } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
 import { TaskOfferSummary } from '../components/task-detail/TaskOfferSummary'
 import { ArtifactStrip, FoldedSection } from '../components/task-detail/TaskOverview'
@@ -186,7 +190,7 @@ const IssueContent = observer(function IssueContent({
   onBack,
   dismiss,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   onBack: () => void
   dismiss: boolean
 }) {
@@ -194,10 +198,15 @@ const IssueContent = observer(function IssueContent({
   const trpc = useTrpc()
   // The picked action set doubles as the page's IssueWriteActions — every
   // field is identity-stable, so this subscription never re-renders the page.
-  const actions = useStoreActions()
+  const actions = useCommands<MobileTrpc>()
+  const conversationSends = useChatSends()
+
   const hasCloseBlockers = useIssueCloseGuard()
-  const { sendChat } = actions
+  const sendChat = conversationSends.sendChat
   const pool = useMobilePool()
+  // The task page owns the roster's demand while shown: on a shared instance
+  // it names the assignee and other members' sessions (POD-6297).
+  const roster = useMobileMemberRoster()
   const views = useIssueOpening()
   const detail = views?.row(issue.id)
 
@@ -245,7 +254,19 @@ const IssueContent = observer(function IssueContent({
     issue,
     hasCloseBlockers,
     run,
-    actions,
+    actions: {
+      updateIssue: actions.issues.update,
+      setPinned: actions.preferences.setPinned,
+      deleteIssue: actions.issues.delete,
+      closeIssue: actions.issues.close,
+      deferIssue: actions.issues.defer,
+      undeferIssue: actions.issues.undefer,
+      setIssueLabels: actions.issues.setLabels,
+      restoreIssue: actions.issues.restore,
+      startIssueSession: actions.sessions.startIssueSession,
+      issueAction: actions.sessions.issueAction,
+    },
+    pool,
     // Only reached when the shared derivation found something to say; a clean
     // close never gets this far (POD-1129).
     requestClose: (reason) => setSheet({ kind: 'confirm-close', reason }),
@@ -334,6 +355,7 @@ const IssueContent = observer(function IssueContent({
       // insets itself below it.
       underHeader
       title={issueDisplayRef(issue)}
+      refreshing={detail?.refreshing ?? false}
       // The desktop header's breadcrumb, at phone width: repo, then the parent's
       // ref when there is one. A nested task whose only mention of its parent
       // was inside a collapsed fold read as top-level work — the same confusion
@@ -364,6 +386,12 @@ const IssueContent = observer(function IssueContent({
                   priority: (priority) => commands.update({ priority }),
                   type: (type) => commands.update({ type }),
                 }}
+              />
+              <IssueSharedSection
+                issue={issue}
+                roster={roster}
+                busy={busy}
+                onReassign={(assignee) => commands.update({ assignee })}
               />
             </View>
           </DetailContent>
@@ -632,7 +660,7 @@ const IssueContent = observer(function IssueContent({
         busy={busy}
         onConfirm={(reason) => {
           if (sheet?.kind === 'confirm-child-close') {
-            void run(() => actions.closeIssue(sheet.child.id, reason))
+            void run(() => actions.issues.close(sheet.child.id, reason))
             setSheet(null)
             return
           }
@@ -663,14 +691,14 @@ const IssueContent = observer(function IssueContent({
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'stage') {
-      void run(() => actions.updateIssue(child.id, { stage: intent.stage }))
+      void run(() => actions.issues.update(child.id, { stage: intent.stage }))
       return
     }
     if (hasCloseBlockers(child.id)) {
       setSheet({ kind: 'confirm-child-close', child, reason: intent.reason })
       return
     }
-    void run(() => actions.closeIssue(child.id, intent.reason))
+    void run(() => actions.issues.close(child.id, intent.reason))
   }
 })
 

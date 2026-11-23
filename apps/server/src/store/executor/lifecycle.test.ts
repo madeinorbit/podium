@@ -1,24 +1,64 @@
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
+import {
+  clonePgTestDatabase,
+  connectPgTest,
+  testStoreEngine,
+} from '../../test-support/pg-test-database'
 import { createBunSqliteDriver } from './bun-driver'
+import type { QueryClient, StoreDriver } from './driver'
 import { SchedulerClosedError, StaleTransactionError } from './errors'
 import { createStoreExecutor, postCommit } from './executor'
 import { asyncFakeDriver, barrier, settle } from './harness'
+import { createPgStoreDriver } from './pg-driver'
 
-function fixture() {
-  const database = openDatabase(':memory:')
-  database.exec('CREATE TABLE notes (body TEXT)')
+/**
+ * THE ENGINE comes from the leg [POD-6979]: bun:sqlite on the store shard, the
+ * Postgres driver on `server-store-pg`. Each statement is written once per engine;
+ * only the placeholders differ. The fake-driver cases test the scheduler alone and
+ * run the same on both legs.
+ */
+const engine = testStoreEngine()
+const NOTES = {
+  sqlite: {
+    create: 'CREATE TABLE notes (seq INTEGER PRIMARY KEY, body TEXT)',
+    insert: 'INSERT INTO notes (body) VALUES (?)',
+  },
+  pg: {
+    create: 'CREATE TABLE notes (seq bigserial PRIMARY KEY, body text)',
+    insert: 'INSERT INTO notes (body) VALUES ($1)',
+  },
+}[engine]
+const INSERT_NOTE = NOTES.insert
+const BODIES = 'SELECT body FROM notes ORDER BY seq'
+
+async function fixtureDriver(): Promise<StoreDriver<QueryClient>> {
+  if (engine === 'sqlite') {
+    const database = openDatabase(':memory:')
+    database.exec(NOTES.create)
+    return createBunSqliteDriver({ database })
+  }
+  const { url } = await clonePgTestDatabase()
+  const admin = connectPgTest(url)
+  await admin.unsafe(NOTES.create)
+  await admin.close({ timeout: 5 })
+  return createPgStoreDriver({ url })
+}
+
+async function fixture() {
   return createStoreExecutor({
-    driver: createBunSqliteDriver({ database }),
+    driver: await fixtureDriver(),
     startOpen: true,
-    drainGraceMs: 10,
-    effectDrainGraceMs: 20,
+    // A Postgres write is round trips, not microseconds: on a loaded host 10 ms can
+    // pass before a released holder commits, and the drain would revoke it.
+    drainGraceMs: engine === 'pg' ? 1_000 : 10,
+    effectDrainGraceMs: engine === 'pg' ? 2_000 : 20,
   })
 }
 
 describe('ordered scheduler lifecycle', () => {
   it('opens, accepts, drains admitted work and persistence, then closes', async () => {
-    const store = fixture()
+    const store = await fixture()
     expect(store.scheduler.state).toBe('open')
     const held = barrier()
     const entered = barrier()
@@ -26,15 +66,15 @@ describe('ordered scheduler lifecycle', () => {
     const write = store.transact(async (tx) => {
       entered.release()
       await held.wait()
-      await tx.drizzle.run('INSERT INTO notes VALUES (?)', 'first')
+      await tx.drizzle.run(INSERT_NOTE, 'first')
       order.push('commit')
     })
     await entered.wait()
     expect(store.scheduler.state).toBe('accepting')
-    const queued = store.drizzle.run('INSERT INTO notes VALUES (?)', 'queued')
+    const queued = store.drizzle.run(INSERT_NOTE, 'queued')
     const closing = store.close(async () => {
-      await store.drizzle.run('INSERT INTO notes VALUES (?)', 'persisted')
-      expect(await store.drizzle.all('SELECT body FROM notes')).toEqual([
+      await store.drizzle.run(INSERT_NOTE, 'persisted')
+      expect(await store.drizzle.all(BODIES)).toEqual([
         { body: 'first' },
         { body: 'queued' },
         { body: 'persisted' },
@@ -42,7 +82,7 @@ describe('ordered scheduler lifecycle', () => {
       order.push('persisted')
     })
     expect(store.scheduler.state).toBe('draining')
-    await expect(store.drizzle.run('INSERT INTO notes VALUES (?)', 'late')).rejects.toBeInstanceOf(
+    await expect(store.drizzle.run(INSERT_NOTE, 'late')).rejects.toBeInstanceOf(
       SchedulerClosedError,
     )
     held.release()
@@ -52,17 +92,17 @@ describe('ordered scheduler lifecycle', () => {
   })
 
   it('rolls back a parked holder, drains persistence and rejects its leaked token', async () => {
-    const store = fixture()
+    const store = await fixture()
     const held = barrier()
     const entered = barrier()
     const resumed = barrier()
     let stale: unknown
     const write = store.transact(async (tx) => {
-      await tx.drizzle.run('INSERT INTO notes VALUES (?)', 'rolled back')
+      await tx.drizzle.run(INSERT_NOTE, 'rolled back')
       entered.release()
       await held.wait()
       try {
-        await tx.drizzle.run('INSERT INTO notes VALUES (?)', 'too late')
+        await tx.drizzle.run(INSERT_NOTE, 'too late')
       } catch (error) {
         stale = error
       }
@@ -71,8 +111,8 @@ describe('ordered scheduler lifecycle', () => {
     const refused = expect(write).rejects.toBeInstanceOf(StaleTransactionError)
     await entered.wait()
     await store.close(async () => {
-      await store.drizzle.run('INSERT INTO notes VALUES (?)', 'persisted')
-      expect(await store.drizzle.all('SELECT body FROM notes')).toEqual([{ body: 'persisted' }])
+      await store.drizzle.run(INSERT_NOTE, 'persisted')
+      expect(await store.drizzle.all(BODIES)).toEqual([{ body: 'persisted' }])
     })
     await refused
     held.release()
@@ -108,13 +148,13 @@ describe('ordered scheduler lifecycle', () => {
   })
 
   it('lets retained effects finish root writes without holding their original lease', async () => {
-    const store = fixture()
+    const store = await fixture()
     const held = barrier()
     let finished = false
     await store.transact(async () => {
       postCommit().effect(async () => {
         await held.wait()
-        await store.drizzle.run('INSERT INTO notes VALUES (?)', 'effect')
+        await store.drizzle.run(INSERT_NOTE, 'effect')
         finished = true
       }, 'retained write')
     })
@@ -152,7 +192,7 @@ describe('ordered scheduler lifecycle', () => {
 })
 
 it('does not resume a parked post-commit queue after its lease was revoked', async () => {
-  const store = fixture()
+  const store = await fixture()
   const held = barrier()
   const entered = barrier()
   let later = false

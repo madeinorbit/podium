@@ -1,24 +1,19 @@
-import { asSessionId } from '@podium/model'
 import type {
   ConversationDiagnosticWire,
+  ConversationDiscoveryWire,
   ConversationId,
-  ConversationSummaryWire,
+  ConversationRecordWire,
   MachineId,
   SessionId,
 } from '@podium/model'
+import { asSessionId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
-import {
-  type BaselineFoldPort,
-  type EntityChangeSpec,
-  type LedgerCommitOp,
-  type LedgerCommitResult,
-  StagedProjection,
-} from '@podium/sync'
+import type { LedgerCommitOp, LedgerCommitResult, LedgerWriter } from '@podium/sync'
+import { transcriptRecordMapperFor } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { ConversationPageCursor } from '../../store/conversations/index'
 import type { DaemonRequestPort } from '../daemon-request'
-import { transcriptRecordMapperFor } from '../../harness-manifest'
-import { type LakeReadSession, TranscriptLake } from './lake'
+import { type LakeReadSession, TranscriptLake, type TranscriptLakeStorage } from './lake'
 import { MemorySearchService } from './search'
 import type { MemoryReader } from './types'
 import { MemoryVisibilityPolicy } from './visibility'
@@ -26,12 +21,24 @@ import { MemoryVisibilityPolicy } from './visibility'
 export type { LakeReadSession } from './lake'
 export type { MemoryReader } from './types'
 
+/** A conversation the reader cannot see, or that does not exist: deliberately
+ *  one answer. Named so a transport can tell it from a failure (POD-6412). */
+export class ConversationNotFound extends Error {
+  constructor() {
+    super('conversation not found')
+    this.name = 'ConversationNotFound'
+  }
+}
+
+/** What a conversation command writes through: the command's own writer. */
+export type ConversationCommandWriter = Pick<LedgerWriter, 'commit'>
+
+/**
+ * The memory service's own writer, a `server` origin (`conversations.discovery`):
+ * a daemon's discovery report, its list reconcile. Never a command's.
+ */
 export interface MemoryLedger {
   commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T> | Promise<LedgerCommitResult<T>>
-  reconcile(
-    entity: 'conversation',
-    rows: { id: string; value: unknown }[],
-  ): MetadataChange[] | Promise<MetadataChange[]>
 }
 
 export interface MemoryServiceDeps {
@@ -39,15 +46,6 @@ export interface MemoryServiceDeps {
   now(): number
   ledger: MemoryLedger
   onDiagnosticsChanged(diagnostics: readonly ConversationDiagnosticWire[]): void
-  /**
-   * Where the conversation list waits for the OUTERMOST commit [POD-3366].
-   *
-   * The list is process-owned memory installed on the success path of a
-   * `ledger.commit` that may be a SAVEPOINT inside a caller's wider span, and a
-   * savepoint release is not a commit. Unset means every install is immediate,
-   * which is what a unit test with a pass-through `transact` wants.
-   */
-  applyCommit?: BaselineFoldPort
   /** The ONE daemon-RPC correlator (POD-318) — the broker's exported port,
    *  passed straight through to the lake's ranged reads. */
   daemonRequest: DaemonRequestPort
@@ -58,38 +56,18 @@ export interface MemoryServiceDeps {
  * transcript index, subagent evidence repair, and visibility-scoped omni-search.
  */
 export class MemoryService {
-  /**
-   * THE CONVERSATION LIST SERVED TO CLIENTS, installed only once the commit
-   * behind it is durable [POD-3366].
-   *
-   * A `StagedProjection` rather than a bare field because this list has
-   * IN-WINDOW READERS and they are not hypothetical: `setConversationMeta`
-   * reads it as its own precondition, so two meta writes inside one enclosing
-   * span would lose the first if the install were merely deferred, and
-   * `reconcileConversationList` diffs full truth against it. The staged layer
-   * is what lets those reads see this span's own work while the committed slot
-   * still holds only what the database kept.
-   */
-  private readonly latestConversations: StagedProjection<ConversationSummaryWire[]>
   private latestDiagnostics: ConversationDiagnosticWire[] = []
-  private readonly machineByConversation = new Map<string, MachineId>()
   private lastDiagnosticsBroadcast = JSON.stringify([])
   private readonly visibility: MemoryVisibilityPolicy
   private readonly searcher: MemorySearchService
   private readonly lake: TranscriptLake
 
   /** Whether the boot repair is permitted; a query-only recovery assembly opts out. */
-  private readonly repairsSubagentEvidence: boolean
 
   constructor(
     private readonly deps: MemoryServiceDeps,
-    options: { mirrorLakeDir?: string; repairSubagentSegmentPaths?: boolean } = {},
+    options: { transcriptLake?: TranscriptLakeStorage } = {},
   ) {
-    this.latestConversations = new StagedProjection<ConversationSummaryWire[]>(
-      [],
-      deps.applyCommit,
-      'memory-conversation-list',
-    )
     this.visibility = new MemoryVisibilityPolicy(deps.store)
     this.searcher = new MemorySearchService(deps.store, this.visibility)
     this.lake = new TranscriptLake(
@@ -101,39 +79,30 @@ export class MemoryService {
         // here at the composition root; the lake parses only through the Store.
         parseForAgentKind: (agentKind) => transcriptRecordMapperFor(agentKind),
         findSessionByNativeId: async (_machineId, nativeId) => {
-          const row = (await deps.store.sessions.findSessionsByResumeValues([nativeId])).get(nativeId)
+          const row = (await deps.store.sessions.findSessionsByResumeValues([nativeId])).get(
+            nativeId,
+          )
           return row ? { agentKind: row.agentKind as LakeReadSession['agentKind'] } : undefined
         },
       },
       options,
     )
-    this.repairsSubagentEvidence = options.repairSubagentSegmentPaths !== false
-  }
-
-  /**
-   * THE ONE WRITE THIS SERVICE OWNS AT BOOT — the subagent evidence repair,
-   * memory-owned rather than a SessionStore boot side effect.
-   *
-   * It is a boot STEP rather than a line in the constructor (POD-3256): the
-   * composition root runs it after the object exists, so constructing a memory
-   * service never touches the database. The order the root calls it in is the
-   * order the constructor established.
-   *
-   * Recovery-only assembly holds a query-only connection, so its composition
-   * root explicitly disables this boot writer; every writable boot keeps the
-   * default and repairs before serving conversation reads.
-   */
-  async repairSubagentEvidence(): Promise<void> {
-    if (!this.repairsSubagentEvidence) return
-    await this.deps.store.conversations.registry.repairSubagentSegmentPaths()
   }
 
   forReader(reader: MemoryReader): MemoryReaderView {
     return new MemoryReaderView(this, reader)
   }
 
-  allConversations(): ConversationSummaryWire[] {
-    return this.latestConversations.read()
+  /** A reader's view that may also write, through the writer of the command
+   *  that asked (ADR 12 D9, POD-6594). */
+  forCommand(reader: MemoryReader, writer: ConversationCommandWriter): MemoryCommandView {
+    return new MemoryCommandView(this, reader, writer)
+  }
+
+  async allConversations(): Promise<ConversationRecordWire[]> {
+    const rows: ConversationRecordWire[] = []
+    for await (const page of this.deps.store.conversations.index.recordPages()) rows.push(...page)
+    return rows
   }
 
   diagnostics(): ConversationDiagnosticWire[] {
@@ -142,74 +111,73 @@ export class MemoryService {
 
   async onDiscovery(
     machineId: MachineId,
-    conversations: ConversationSummaryWire[],
+    conversations: ConversationDiscoveryWire[],
     diagnostics: ConversationDiagnosticWire[],
     removed: string[] = [],
   ): Promise<void> {
-    for (const conversation of conversations)
-      this.machineByConversation.set(conversation.id, machineId)
-    for (const id of removed)
-      if (this.machineByConversation.get(id) === machineId) this.machineByConversation.delete(id)
-    this.latestConversations.install(await this.indexConversations(conversations, machineId, removed))
+    await this.indexConversations(conversations, machineId, removed)
     this.latestDiagnostics = diagnostics
     this.broadcastDiagnostics()
   }
 
   private async indexConversations(
-    conversations: ConversationSummaryWire[],
+    conversations: ConversationDiscoveryWire[],
     machineId: MachineId,
     removed: string[],
-  ): Promise<ConversationSummaryWire[]> {
+  ): Promise<void> {
     // Three batches, in the order the parent links need [POD-6227]: the
     // top-level conversations, then any parent a child names that the report
     // left out, then the children with their parents' ids. Each is a fixed
     // number of statements, whatever the size of the report.
-    const registry = this.deps.store.conversations.registry
-    const fileOf = (conversation: ConversationSummaryWire) => ({
-      ...(conversation.path ? { path: conversation.path } : {}),
-      ...(conversation.sizeBytes !== undefined ? { sizeBytes: conversation.sizeBytes } : {}),
-    })
-    const roots = conversations.filter((conversation) => !conversation.parentConversationId)
-    const children = conversations.filter((conversation) => conversation.parentConversationId)
-    const podiumIds = await registry.ensureMany(
-      machineId,
-      roots.map((conversation) => ({ nativeId: conversation.id, providerId: conversation.providerId, ...fileOf(conversation) })),
-    )
-    const unreported = children.filter((conversation) => !podiumIds.has(conversation.parentConversationId!))
-    if (unreported.length > 0) {
-      const parents = await registry.ensureMany(
-        machineId,
-        unreported.map((conversation) => ({
-          nativeId: conversation.parentConversationId!,
-          providerId: conversation.providerId,
-        })),
-      )
-      for (const [nativeId, podiumId] of parents) podiumIds.set(nativeId, podiumId)
-    }
-    if (children.length > 0) {
-      const ids = await registry.ensureMany(
-        machineId,
-        children.map((conversation) => ({
-          nativeId: conversation.id,
-          providerId: conversation.providerId,
-          parentPodiumId: podiumIds.get(conversation.parentConversationId!)!,
-          ...fileOf(conversation),
-        })),
-      )
-      for (const conversation of children) podiumIds.set(conversation.id, ids.get(conversation.id)!)
-    }
-
-    const curated = await this.deps.store.conversations.index.curatedMetaOf(conversations.map((conversation) => conversation.id))
-    const enriched = conversations.map((conversation) => ({
-      ...conversation,
-      ...(podiumIds.get(conversation.id)
-        ? { podiumId: podiumIds.get(conversation.id) as ConversationId }
-        : {}),
-      ...(curated.get(conversation.id) ?? {}),
-    }))
+    // One commit for the identities, segments and rows (POD-6920): the
+    // registry's writes join it, so each conversation the scan changed is
+    // appended once, and the ones the scan no longer lists leave with it.
     await this.deps.ledger.commit({
-      write: async () => {
+      write: async (scope) => {
+        const registry = this.deps.store.conversations.registry
+        const fileOf = (conversation: ConversationDiscoveryWire) => ({
+          ...(conversation.path ? { path: conversation.path } : {}),
+          ...(conversation.sizeBytes !== undefined ? { sizeBytes: conversation.sizeBytes } : {}),
+        })
+        const roots = conversations.filter((conversation) => !conversation.parentConversationId)
+        const children = conversations.filter((conversation) => conversation.parentConversationId)
+        const podiumIds = await registry.ensureMany(
+          machineId,
+          roots.map((conversation) => ({
+            nativeId: conversation.id,
+            providerId: conversation.providerId,
+            ...fileOf(conversation),
+          })),
+        )
+        const unreported = children.filter(
+          (conversation) => !podiumIds.has(conversation.parentConversationId!),
+        )
+        if (unreported.length > 0) {
+          const parents = await registry.ensureMany(
+            machineId,
+            unreported.map((conversation) => ({
+              nativeId: conversation.parentConversationId!,
+              providerId: conversation.providerId,
+            })),
+          )
+          for (const [nativeId, podiumId] of parents) podiumIds.set(nativeId, podiumId)
+        }
+        if (children.length > 0) {
+          const ids = await registry.ensureMany(
+            machineId,
+            children.map((conversation) => ({
+              nativeId: conversation.id,
+              providerId: conversation.providerId,
+              parentPodiumId: podiumIds.get(conversation.parentConversationId!)!,
+              ...fileOf(conversation),
+            })),
+          )
+          for (const conversation of children)
+            podiumIds.set(conversation.id, ids.get(conversation.id)!)
+        }
+
         await this.deps.store.conversations.index.upsert(
+          scope,
           conversations.map((conversation) => ({
             id: conversation.id,
             agentKind: conversation.agentKind,
@@ -232,39 +200,10 @@ export class MemoryService {
               : {}),
           })),
         )
-        return await this.deps.store.conversations.index.delete(machineId, removed)
+        await this.deps.store.conversations.index.delete(scope, machineId, removed)
       },
-      changes: (deleted) => [
-        ...enriched.map(
-          (conversation): EntityChangeSpec => ({
-            entity: 'conversation',
-            id: conversation.id,
-            op: 'upsert',
-            value: conversation,
-          }),
-        ),
-        ...deleted.map(
-          (id): EntityChangeSpec => ({
-            entity: 'conversation',
-            id,
-            op: 'remove',
-          }),
-        ),
-      ],
     })
     await this.triggerLakeSweep(machineId)
-    return enriched
-  }
-
-  async reconcileConversationList(): Promise<void> {
-    await this.deps.ledger.reconcile(
-      'conversation',
-      this.latestConversations.read().map((conversation) => ({
-        id: conversation.id,
-        value: conversation,
-      })),
-    )
-    this.broadcastDiagnostics()
   }
 
   private broadcastDiagnostics(): void {
@@ -286,50 +225,30 @@ export class MemoryService {
   }
 
   async setConversationMeta(
+    writer: ConversationCommandWriter,
     reader: MemoryReader,
     input: { id: string; name?: string; summary?: string },
   ): Promise<void> {
-    const current = this.latestConversations
-      .read()
-      .find((conversation) => conversation.id === input.id)
-    // Both come from the same `onDiscovery` push (POD-318): there is no
-    // placeholder machine to fall back to any more, so a conversation with no
-    // known machine is as unreadable as one that does not exist.
-    const machineId = this.machineByConversation.get(input.id)
+    const entry = (await this.deps.store.conversations.index.recordEntries([input.id]))[0]
+    const current = entry?.value
+    const machineId = entry?.machineId
     if (
       !current ||
       !machineId ||
-      !await this.visibility.mayRead(reader, {
+      !(await this.visibility.mayRead(reader, {
         class: 'conversation',
         machineId,
         nativeId: input.id,
-      })
+      }))
     ) {
       // Invisible and nonexistent are deliberately identical.
-      throw new Error('conversation not found')
+      throw new ConversationNotFound()
     }
-    const next = {
-      ...current,
-      ...(input.name !== undefined ? { name: input.name } : {}),
-      ...(input.summary !== undefined ? { summary: input.summary } : {}),
-    }
-    await this.deps.ledger.commit({
-      write: async () => await this.deps.store.conversations.index.setMeta(input.id, input),
-      changes: () => [
-        {
-          entity: 'conversation',
-          id: input.id,
-          op: 'upsert',
-          value: next,
-        },
-      ],
+    await writer.commit({
+      write: async (scope) => {
+        await this.deps.store.conversations.index.setMeta(scope, input.id, input)
+      },
     })
-    // Installed through the projection, not assigned: with an enclosing span
-    // open the row this describes is not durable yet, and the assignment that
-    // used to sit here claimed it was.
-    this.latestConversations.update((list) =>
-      list.map((conversation) => (conversation.id === input.id ? next : conversation)),
-    )
   }
 
   async ensureConversationIdentity(
@@ -349,7 +268,7 @@ export class MemoryService {
     machineId: MachineId,
     nativeId: string,
   ): Promise<ConversationId | undefined> {
-    if (!await this.visibility.mayRead(reader, { class: 'conversation', machineId, nativeId })) {
+    if (!(await this.visibility.mayRead(reader, { class: 'conversation', machineId, nativeId }))) {
       return undefined
     }
     return await this.deps.store.conversations.registry.podiumId(machineId, nativeId)
@@ -363,7 +282,7 @@ export class MemoryService {
     reader: MemoryReader,
     session: { id: string; machineId: MachineId; resume?: { value: string } },
   ): Promise<{ pathHint: string } | undefined> {
-    if (!await this.canReadSession(reader, asSessionId(session.id))) return undefined
+    if (!(await this.canReadSession(reader, asSessionId(session.id)))) return undefined
     const nativeId = session.resume?.value
     return nativeId ? await this.lake.pathHint(session.machineId, nativeId) : undefined
   }
@@ -445,8 +364,20 @@ export class MemoryReaderView {
   async search(opts: { text: string; limit?: number; now?: () => number }) {
     return await this.memory.search(this.reader, opts)
   }
+}
+
+/** A reader's view with the writer of one command: the only way a conversation
+ *  command writes (ADR 12 D9, POD-6594). */
+export class MemoryCommandView extends MemoryReaderView {
+  constructor(
+    private readonly service: MemoryService,
+    reader: MemoryReader,
+    private readonly writer: ConversationCommandWriter,
+  ) {
+    super(service, reader)
+  }
 
   async setConversationMeta(input: { id: string; name?: string; summary?: string }): Promise<void> {
-    await this.memory.setConversationMeta(this.reader, input)
+    await this.service.setConversationMeta(this.writer, this.reader, input)
   }
 }

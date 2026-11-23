@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { lazy } from '@podium/mobx-helpers'
 import type { MessageLedgerWire } from '@podium/model'
 import { type MessageRecordWire, messageRecordRowId, readDeliveryStatus } from '@podium/model'
@@ -164,10 +164,6 @@ const schema = {
       ),
     },
     relations: {},
-    cold: {
-      kind: 'never',
-      why: 'Synced working set and requested ledger records use existing resident tables.',
-    },
   },
   pendingInteraction: {
     key: 'id',
@@ -219,7 +215,6 @@ const schema = {
       ),
     },
     relations: {},
-    cold: { kind: 'never', why: 'The synced pending ask set stays resident.' },
   },
 } satisfies Pick<ModelSchema, 'messageRecord' | 'pendingInteraction'>
 registerModels(schema, { messageRecord: MessageModel, pendingInteraction: InteractionModel })

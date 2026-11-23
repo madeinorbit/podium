@@ -38,8 +38,10 @@ export function createSidebarActionsFixture(count = 12, now = Date.now(), simple
   return Object.assign(fixture, {
     patchIssue(id: string, patch: Record<string, unknown>) {
       const markers = Object.fromEntries(
-        Object.entries(patch).filter(([field]) => ['readAt', 'tuckedAt', 'pinned'].includes(field)),
+        Object.entries(patch).filter(([field]) => ['readAt', 'tuckedAt'].includes(field)),
       )
+      // A pin is the task's `pin` record (POD-6692), not a marker.
+      if (typeof patch.pinned === 'boolean') fixture.pinIssue(id, patch.pinned)
       if (Object.keys(markers).length)
         fixture.patch(
           'issueUserState',

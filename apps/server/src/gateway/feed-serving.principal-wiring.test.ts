@@ -66,7 +66,9 @@ import {
   NoDelegationsGranted,
   type VisibilityStatePort,
 } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { attachTestClient } from '../test-support/client-transport'
 import { ClientMux } from './client-mux'
 import type { ClientFeaturePorts } from './client-ports'
@@ -74,6 +76,7 @@ import { feedPrincipalOf } from './client-principal'
 import { type ClientConn, ClientRegistry } from './client-registry'
 import { feedTestPlumbing } from './feed-test-plumbing'
 import type { PresenceRouting } from './presence-routing'
+import type { TopicRouting } from './topic-routing'
 
 const ALICE = asUserId('user-alice')
 const BOB = asUserId('user-bob')
@@ -129,6 +132,8 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
     },
   }
   const mux = new ClientMux({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    syncKindTokens: async () => ({ session: 'shape:0' }),
     registry,
     ports,
     feed: plumbing.serving,
@@ -137,6 +142,7 @@ async function gateway(owners: Map<string, UserId>, grants: Map<string, UserId[]
       setVisible: vi.fn(),
       disconnect: vi.fn(),
     } as unknown as PresenceRouting,
+    topics: { route: vi.fn(), disconnect: vi.fn() } as unknown as TopicRouting,
     bootstrap: vi.fn(async () => {}),
   })
 
@@ -187,10 +193,12 @@ const commitIssue = (
   value: unknown,
   op: 'upsert' | 'remove' = 'upsert',
 ) =>
-  plumbing.ledger.commit({
-    write: async () => {},
-    changes: () => [{ entity: 'issueProjection', id, op, ...(op === 'upsert' ? { value } : {}) }],
-  })
+  testLedgerWriter(plumbing.ledger).commit(
+    plumbing.ledger.modelOperation({
+      write: async () => {},
+      rows: () => [{ entity: 'issueProjection', id, op, ...(op === 'upsert' ? { value } : {}) }],
+    }),
+  )
 
 /** Wait for admission and for every live socket to certify the committed head.
  * A single microtask cannot drain the asynchronous store reads and fan-out.

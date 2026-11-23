@@ -1,6 +1,8 @@
-import { spawnIssueAgent } from '@podium/client-core/values'
+import { issueWrites } from '@podium/commands/issues-synced'
+import type { StartIssueSession } from '@podium/client-core/spawn-agent'
 import type { IssueUpdatePatch } from '@podium/commands'
 import {
+  asIssueId,
   asMachineId,
   DEFER_NEXT_MESSAGE,
   type IssueCloseReason,
@@ -25,6 +27,8 @@ export interface IssueMenuCommandDeps {
    *  toggle sends: the stage, priority and colour entries below are the same
    *  command and now ride this action too. */
   updateIssue: (id: string, patch: IssueUpdatePatch) => Promise<unknown>
+  /** Pin or unpin it for me: my `pin` record (POD-6692), queued and painted at once. */
+  setPinned: (kind: 'issue', id: string, pinned: boolean) => Promise<unknown>
   /** Optimistic + outboxed (POD-781): tombstones the issue AND its sessions. */
   deleteIssue: (id: string) => Promise<unknown>
   /** The four curation commands that are NOT `issues.update`, each optimistic +
@@ -37,6 +41,9 @@ export interface IssueMenuCommandDeps {
   /** Optimistic + outboxed (POD-781): the undo of a delete. A delete still in the
    *  queue collapses against it rather than round-tripping out and back. */
   restoreIssue: (id: string) => Promise<unknown>
+  /** Start a session on the issue as its effect record (POD-6526): painted on
+   *  the press, told once if it fails. Resolves once it is durably queued. */
+  startIssueSession: StartIssueSession
   setOpenIssueId: (id: string) => void
   setView: (view: 'issues') => void
   handoff?: (machineId: MachineId) => void
@@ -72,7 +79,7 @@ export function runIssueMenuCommand(
         deps.setView('issues')
         return
       case 'start':
-        return deps.trpc.issues.start.mutate({ id })
+        return deps.startIssueSession({ issueId: asIssueId(id), mode: 'begin' }).settled
       case 'rename':
         return
       case 'markUnread':
@@ -80,7 +87,7 @@ export function runIssueMenuCommand(
       case 'markRead':
         return deps.markIssueRead(id)
       case 'pin':
-        return deps.updateIssue(id, { pinned: !data.first.pinned })
+        return deps.setPinned('issue', id, !data.first.pinned)
       case 'archive': {
         // THE TOGGLE, not the dismiss (POD-781). `issues.archive` is one-way, so
         // the menu's archive/unarchive pair has always gone through the patch —
@@ -145,7 +152,11 @@ export function runIssueMenuCommand(
       return Promise.all(data.issues.map((issue) => deps.updateIssue(issue.id, { priority })))
     }
     case 'agent':
-      return spawnIssueAgent(deps.trpc.issues, value ? { id, agentKind: value } : { id })
+      // One more agent, or the first when the issue was never started.
+      return deps.startIssueSession({
+        issueId: asIssueId(id),
+        ...(value ? { agentKind: value } : {}),
+      }).settled
     case 'labels':
       return Promise.all(
         toggleLabelAcross(data.issues, value).map((patch) =>
@@ -163,6 +174,6 @@ export function runIssueMenuCommand(
       if (value === 'undefer') return deps.undeferIssue(id)
       return
     case 'duplicate':
-      return deps.trpc.issues.duplicate.mutate({ id, canonicalId: value })
+      return issueWrites(deps.trpc).duplicate.mutate({ id, canonicalId: value })
   }
 }

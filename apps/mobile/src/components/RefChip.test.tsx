@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { poolRouteFixture } from '../../test/pool-routes'
 
 let issues: IssueViewModel[] = []
-vi.mock('../client/use-inbox-data', () => ({
+vi.mock('../client/use-pool-links', () => ({
   usePoolRefChip: (token: string, kind: 'issue' | 'session', prefix: string) => {
     const fixture = poolRouteFixture({ issues, sessions: [] })
     try {

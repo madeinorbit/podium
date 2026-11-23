@@ -8,23 +8,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-it('signs out a browser through the Better Auth session endpoint', async () => {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValueOnce(
-      Response.json({ needsAuth: true, authed: true, userId: 'member', mode: 'cloud' }),
-    )
-    .mockResolvedValue(Response.json({ ok: true }))
+it('signs out a browser through the shared session endpoint', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true }))
   vi.stubGlobal('fetch', fetchMock)
-
-  await logout('https://api.podium.do')
-
-  expect(fetchMock).toHaveBeenCalledWith(
-    'https://api.podium.do/platform/auth/sign-out',
-    expect.objectContaining({
-      method: 'POST',
-      credentials: 'include',
-      body: '{}',
-    }),
+  await logout('https://workspace.example')
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+    'https://workspace.example/auth/logout',
+    expect.objectContaining({ method: 'POST', credentials: 'include' }),
   )
 })

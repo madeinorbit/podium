@@ -26,6 +26,8 @@
  */
 
 import { firstAdminMemberId, type MachineId } from '@podium/model'
+import { CAP_SESSION_ACCESS } from '@podium/protocol'
+import { type DaemonLink, IN_PROCESS_DAEMON_LINK } from '../gateway/daemon-link-kind'
 import type { ControlSend, DaemonControlPeer } from '../gateway/daemon-ports'
 import type { SessionRegistry } from '../relay'
 import type { SessionStore } from '../store'
@@ -47,7 +49,15 @@ export async function assignHostMachine(store: SessionStore): Promise<void> {
 export async function attachHostDaemon(
   registry: SessionRegistry,
   transport: DaemonControlPeer = () => {},
-  opts: { repos?: readonly string[]; confirmRetirement?: boolean } = {},
+  opts: {
+    repos?: readonly string[]
+    confirmRetirement?: boolean
+    /** What this daemon negotiated. Default: a daemon of this build, which
+     *  takes a session's credential (`CAP_SESSION_ACCESS`). `[]`: an older one. */
+    caps?: readonly string[]
+    /** How the server judged its connection. Default: never leaves the computer. */
+    link?: DaemonLink
+  } = {},
 ): Promise<void> {
   const store = registry.sessionStore
   const machineId = store.hostMachineId
@@ -57,7 +67,9 @@ export async function attachHostDaemon(
     opts.confirmRetirement === false
       ? transport
       : confirmingRetirement(registry, machineId, transport)
-  await registry.gateway.attachDaemon(machineId, peer)
+  // The socket accept path records the link before the attach; so does this.
+  registry.daemonLinks.connected(machineId, opts.link ?? IN_PROCESS_DAEMON_LINK, peer)
+  await registry.gateway.attachDaemon(machineId, peer, opts.caps ?? [CAP_SESSION_ACCESS])
 }
 
 /**

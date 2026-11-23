@@ -1,7 +1,7 @@
-import type { MachineId } from '@podium/model'
 import type { agentLaunchCommand } from '@podium/harness'
-import type { LocalDaemonLink, ServerTransferServingProof } from '@podium/protocol'
+import type { MachineId } from '@podium/model'
 import type { DurableProcess } from '@podium/process/durable'
+import type { LocalDaemonLink, ServerTransferServingProof } from '@podium/protocol'
 import type { DurableBackend } from './control/context'
 import type { DiscoveryWorkerClient } from './worker-client'
 
@@ -55,7 +55,12 @@ export interface DaemonOptions {
   pairCode?: string
   name?: string
   onBlocked?: (info: { type: string; reason: string }) => void
+  /** Publish startup migrations only after the server admits this daemon. */
+  onAdmitted?: () => void
   identityDir?: string
+  /** Where Podium's harness homes live (credential management §10); default
+   *  `<stateDir>/homes`. Tests point it at a scratch directory. */
+  homesDir?: string
   /** Parent supplied the credential; daemon must never persist or rotate it. */
   identityReadOnly?: boolean
   machineId?: MachineId
@@ -89,7 +94,11 @@ export interface DaemonOptions {
    *  daemon — unless nothing would restart it, see {@link exitStopsServer}. */
   restartAfterUpdate?: () => void
   /** Starts the promoted role and echoes the expected proof only after it is serving. */
-  promoteMachineAssignment?: (input: { sourceMachineId: string; targetMachineId: string; requestId: string }) => Promise<void>
+  promoteMachineAssignment?: (input: {
+    sourceMachineId: string
+    targetMachineId: string
+    requestId: string
+  }) => Promise<void>
   restartAfterTransfer?: (
     expected: ServerTransferServingProof,
   ) => Promise<ServerTransferServingProof> | ServerTransferServingProof

@@ -1,9 +1,11 @@
 import { asIssueId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../apps/server/src/relay'
 import type { IssueRow } from '../apps/server/src/store'
+import { attachHostDaemon } from '../apps/server/src/test-support/host-daemon'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 
 const SESSION_COUNT = 588
@@ -80,10 +82,13 @@ async function until(check: () => boolean, timeoutMs = 5_000): Promise<void> {
 describe('loop split representative load [spec:SP-c29e]', () => {
   it('holds publication interaction and event-loop targets at 588 sessions / 800 issues', async () => {
     const store = await openTestStore(':memory:')
+    await store.repos.addRepo('/representative-load', store.hostMachineId)
     await store.transact(async () => {
-      for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) await store.issues.upsertIssue(issueRow(seq))
+      for (let seq = 1; seq <= ISSUE_COUNT; seq += 1)
+        await store.issues.upsertIssue(fixtureWriteScope(), issueRow(seq))
     })
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
+    await attachHostDaemon(registry)
     const sessionIds: SessionId[] = []
     let loop: ReturnType<typeof startLoopMetrics> | undefined
     try {
@@ -104,11 +109,13 @@ describe('loop split representative load [spec:SP-c29e]', () => {
       const clients: Array<{
         id: string
         publications: string[]
+        attached: string[]
         allowedSessionIds: SessionId[]
       }> = []
       const sessionsPerWorld = Math.ceil(SESSION_COUNT / 4)
       for (let clientIndex = 0; clientIndex < CLIENT_COUNT; clientIndex += 1) {
-        const publications: string[] = []
+        const publications: string[] = [],
+          attached: string[] = []
         // Two live transports for the same scoped operator model concurrent
         // browser tabs and exercise view-key coalescing. Differing-world and
         // revocation correctness is pinned separately in the focused suite.
@@ -119,6 +126,7 @@ describe('loop split representative load [spec:SP-c29e]', () => {
         })
         const id = registry.clientGateway.attachClient({
           send: (message) => {
+            if (message.type === 'attached') attached.push(message.sessionId)
             if (message.type === 'feedResume' || message.type === 'feedDelta') {
               publications.push(JSON.stringify(message))
             }
@@ -126,8 +134,8 @@ describe('loop split representative load [spec:SP-c29e]', () => {
           userId: firstAdminMemberId(),
           userRole: 'admin',
         })
-        clients.push({ id, publications, allowedSessionIds })
-        registry.clientGateway.routeClientFrame(id, {
+        clients.push({ id, publications, attached, allowedSessionIds })
+        await registry.clientGateway.routeClientFrame(id, {
           type: 'hello',
           clientId: '',
           viewport: { cols: 80, rows: 24, dpr: 1 },
@@ -160,11 +168,21 @@ describe('loop split representative load [spec:SP-c29e]', () => {
         const targetSession = client.allowedSessionIds[cycle % client.allowedSessionIds.length]
         if (!targetSession) throw new Error('representative scoped world is empty')
         for (const type of ['attach', 'detach'] as const) {
-          const publicationBefore = client.publications.length
+          const attachedBefore = client.attached.length
           const startedAt = performance.now()
-          registry.clientGateway.routeClientFrame(client.id, { type, sessionId: targetSession })
-          registry.modules.sessions.flushBroadcasts()
-          await until(() => client.publications.length > publicationBefore)
+          // The gateway's async handler is the completion boundary. A terminal
+          // attach replies with `attached`; detach has no wire acknowledgement.
+          // Neither changes a durable record, so neither owes a feed delta.
+          await registry.clientGateway.routeClientFrame(client.id, {
+            type,
+            sessionId: targetSession,
+          })
+          await registry.modules.sessions.flushBroadcasts()
+          if (type === 'attach') {
+            expect(client.attached.length).toBe(attachedBefore + 1)
+            expect(client.attached.at(-1)).toBe(targetSession)
+          }
+          expect(registry.modules.perf.snapshot().phases[`ws.${type}`]?.count).toBe(cycle + 1)
           interactionMs.push(performance.now() - startedAt)
         }
         // Representative interaction cadence; do not turn this into a worker

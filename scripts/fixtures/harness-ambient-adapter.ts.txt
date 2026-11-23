@@ -1,0 +1,39 @@
+// Fixture adapter for the harness-ambient-access rule (POD-6545). Read by
+// scripts/harness-ambient-access.test.ts as if it lived at
+// packages/harness/src/adapters/probe/index.ts. A .txt file, so neither the
+// typecheck nor the boundary walker ever sees it as real source.
+//
+// Counted: one child_process import, one Bun.spawn, two homedir uses, one
+// process.env read. Prose like homedir() or process.env in this comment, the
+// type-only import, the `opts.homedir` field and the string below are not.
+import type { ChildProcess } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
+export interface ProbeOptions {
+  homedir?: string
+  homeDir?: string
+}
+
+export const help = 'set process.env.PROBE_HOME or call homedir() yourself'
+
+export function probeHome(opts: ProbeOptions): string {
+  return join(opts.homeDir ?? opts.homedir ?? homedir(), '.probe')
+}
+
+export function probeSessions(opts: ProbeOptions): string {
+  return join(opts.homeDir ?? homedir(), '.probe', 'sessions')
+}
+
+export function probeSelector(): string | undefined {
+  return process.env.PROBE_HOME
+}
+
+export function probeVersion(bin: string): ChildProcess {
+  return execFile(bin, ['--version'])
+}
+
+export function probeSpawn(bin: string): void {
+  Bun.spawn([bin, '--help'])
+}

@@ -5,7 +5,9 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { asThreadId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
+import { janitorWorkerTarget } from '../apps/server/src/janitor-worker-embed'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
 import type { MessageRow } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
@@ -29,9 +31,9 @@ function messageStatus(dbPath: string): string | undefined {
   const db = openDatabase(dbPath, { readOnly: true })
   try {
     return (
-      db.prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_worker_due'").get() as
-        | { status: string }
-        | undefined
+      db
+        .prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_worker_due'")
+        .get() as { status: string } | undefined
     )?.status
   } finally {
     db.close()
@@ -94,7 +96,7 @@ describe('server-owned janitor worker', () => {
         factTarget: null,
         expectsResponse: false,
       }
-      await seed.messages.addMessage(message)
+      await seed.messages.addMessage(fixtureWriteScope(), message)
       await seed.close()
 
       server = await startServer({
@@ -103,6 +105,7 @@ describe('server-owned janitor worker', () => {
           worker = new JanitorWorkerClient(
             { ...options, dbPath, tickMs: 100 },
             {
+              target: janitorWorkerTarget(),
               monitorMs: 25,
               wedgedMs: 1_500,
               log: (entry) => workerLogs.push(entry),
@@ -195,7 +198,7 @@ describe('server-owned janitor worker', () => {
           '--compile',
           '--conditions=@podium/source',
           'scripts/janitor-worker-smoke.ts',
-          'packages/janitor/src/janitor-worker.ts',
+          'apps/server/src/janitor-worker.ts',
           '--outfile',
           binary,
         ],

@@ -11,9 +11,16 @@
  * exists unarchived — so a coordinator that is gone never leaves a session blocked
  * with nobody to ask. The walk skips the session's OWN marker: a phase lead asks the
  * coordinator above it, and the top coordinator asks nobody.
+ *
+ * ONE HUMAN PER CHAIN (POD-6296, design §2.3). "The user" is the session's own
+ * human: the person it belongs to. A coordinator counts only while it acts for that
+ * same human, so Bob's worker under a task Alice's agent coordinates skips Alice's
+ * coordinator and asks the nearest of Bob's, or Bob. A top coordinator of Bob's on
+ * Alice's task asks Bob, never the task's assignee. On a one-member instance every
+ * session has the same human and nothing is skipped.
  */
 
-import type { IssueId, SessionId } from '@podium/model'
+import type { IssueId, SessionId, UserId } from '@podium/model'
 import type { IssueRow } from '../../../store/types'
 
 export interface SeatCoordinator {
@@ -28,7 +35,13 @@ export type SessionSeat =
   /** No coordinator above: this session talks to the user. `claimable` is the
    *  ref of its own issue when nobody coordinates it, so the seat line can say
    *  the role is open rather than read as settled (POD-2062). */
-  | { kind: 'top'; coordinates: boolean; claimable?: string }
+  | {
+      kind: 'top'
+      coordinates: boolean
+      claimable?: string
+      /** The session's own human by name, when the instance is shared (POD-6296). */
+      human?: string
+    }
   /** Below a coordinator: ask it, never the user. */
   | { kind: 'below'; coordinates: boolean; coordinator: SeatCoordinator }
 
@@ -39,6 +52,8 @@ export interface SeatFacts {
   /** The session still exists and is not archived; read by id since POD-6160. */
   sessionLive(sessionId: SessionId): boolean | Promise<boolean>
   ref(row: IssueRow): Promise<string>
+  /** The human a session acts for: its owner (POD-6283). Undefined when unknown. */
+  sessionHuman(sessionId: SessionId): UserId | undefined | Promise<UserId | undefined>
 }
 
 export async function resolveSeat(
@@ -48,6 +63,7 @@ export async function resolveSeat(
 ): Promise<SessionSeat> {
   const own = issueId ? await facts.row(issueId) : undefined
   const coordinates = own?.coordinatorSessionId === sessionId
+  const human = await facts.sessionHuman(sessionId)
   const seen = new Set<string>()
   for (
     let row = own;
@@ -58,6 +74,8 @@ export async function resolveSeat(
     const marker = row.coordinatorSessionId
     if (!marker || marker === sessionId) continue
     if (facts.isClosed(row) || !(await facts.sessionLive(marker))) continue
+    // Another human's coordinator is never this session's to ask.
+    if (human !== undefined && (await facts.sessionHuman(marker)) !== human) continue
     return {
       kind: 'below',
       coordinates,
@@ -89,7 +107,8 @@ export function seatText(seat: SessionSeat): string {
     const open = seat.claimable
       ? ` This issue has no active coordinator. If the user named you coordinator or you orchestrate other agent sessions, claim it: \`podium issue coordinator ${seat.claimable} --claim\`.`
       : ''
-    return `Your seat: no coordinator sits above you, so you talk to the user directly (questions, \`podium offer\`).${leads}${open}`
+    const user = seat.human ? ` (${seat.human}, the person you act for)` : ''
+    return `Your seat: no coordinator sits above you, so you talk to the user${user} directly (questions, \`podium offer\`).${leads}${open}`
   }
   const c = seat.coordinator
   return (

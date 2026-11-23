@@ -13,10 +13,14 @@ import {
   type ShipOrder,
   shipLaneId,
 } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
-import { afterEach, describe, expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import {
+  openShippingStoreSlice,
+  primeShippingFixtureAdmin,
+  type ShippingStoreSlice,
+} from '../test-support/shipping-store-slice'
 import { ACTIVE_SHIP_ORDER_TERM } from './shipping'
 
 const VALIDATION_PROFILE = {
@@ -27,7 +31,9 @@ const VALIDATION_PROFILE = {
   resourceLocks: [] as string[],
 }
 
-const stores: SessionStore[] = []
+const stores: ShippingStoreSlice[] = []
+// The fixtures name the first admin before a test opens its store.
+beforeAll(primeShippingFixtureAdmin)
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close()
 })
@@ -75,8 +81,8 @@ const issue = (id: string, seq: number) => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: '2026-08-12T09:00:00.000Z',
+  updatedAt: '2026-08-12T09:00:00.000Z',
   archived: false,
 })
 
@@ -109,12 +115,12 @@ const shipOrder = (id: string, minute: number, overrides: Partial<ShipOrder> = {
     ...overrides,
   }) as ShipOrder
 
-async function seeded(orders: readonly ShipOrder[]): Promise<SessionStore> {
-  const s = await openTestStore(':memory:')
+async function seeded(orders: readonly ShipOrder[]): Promise<ShippingStoreSlice> {
+  const s = await openShippingStoreSlice()
   stores.push(s)
   for (const [index, order] of orders.entries()) {
-    await s.issues.upsertIssue(issue(order.issueId, index + 1))
-    await s.shipping.createOrder(order)
+    await s.issues.upsertIssue(fixtureWriteScope(), issue(order.issueId, index + 1))
+    await s.shipping.createOrder(fixtureWriteScope(), order)
   }
   return s
 }
@@ -132,7 +138,13 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
       shipOrder('other-destination', 5, { destination: 'git:origin/main' }),
       shipOrder('other-repo', 6, { repoId: asRepoId('repo-2') }),
     ])
-    await s.shipping.transitionOrder('started', 'queued', 'preflight', '2026-08-12T11:00:00.000Z')
+    await s.shipping.transitionOrder(
+      fixtureWriteScope(),
+      'started',
+      'queued',
+      'preflight',
+      '2026-08-12T11:00:00.000Z',
+    )
     const lane = await s.shipping.queuedLaneOrders(asRepoId('repo-1'), 'local:main')
     expect(lane.map((order) => order.id)).toEqual([
       'spelled-ref',
@@ -156,7 +168,13 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
       shipOrder('cancelled', 3, { deliveryDependsOn: [asShipOrderId('dependency')] }),
       shipOrder('unrelated', 4, { deliveryDependsOn: [asShipOrderId('elsewhere')] }),
     ])
-    await s.shipping.transitionOrder('cancelled', 'queued', 'cancelled', '2026-08-12T11:00:00.000Z')
+    await s.shipping.transitionOrder(
+      fixtureWriteScope(),
+      'cancelled',
+      'queued',
+      'cancelled',
+      '2026-08-12T11:00:00.000Z',
+    )
     expect((await s.shipping.queuedDependentsOf(['dependency'])).map((order) => order.id)).toEqual([
       'same-lane',
       'cross-lane',
@@ -165,7 +183,10 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
 
     // The term is the partial index's own WHERE, and SQLite takes that index for
     // it: the scan is over active orders, never over shipped or cancelled history.
-    const db = (s.shipping as unknown as { db: { all: (query: unknown) => Promise<unknown[]> } }).db
+    // SQLite's plan only: Postgres plans the same partial index from the same term,
+    // and costs it by its statistics, which an empty test database does not have.
+    if (s.engine !== 'sqlite') return
+    const db = { all: async (query: ReturnType<typeof sql.raw>) => await s.all(query) }
     const index = (await db.all(
       sql.raw(`SELECT sql FROM sqlite_master WHERE name = 'idx_ship_orders_one_active_issue'`),
     )) as { sql: string }[]
@@ -174,7 +195,8 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
       // CONSTANT-IDENTIFIER STATEMENT POD-5612 — the probe interpolates the
       // constant the assertion above verified against sqlite_master, to prove
       // the index serves that exact shape. Nothing user-supplied enters it.
-      sql.raw( // CONSTANT-IDENTIFIER STATEMENT POD-5612
+      // CONSTANT-IDENTIFIER STATEMENT POD-5612
+      sql.raw(
         `EXPLAIN QUERY PLAN SELECT id FROM ship_orders WHERE ${ACTIVE_SHIP_ORDER_TERM} AND state = 'queued' AND EXISTS (SELECT 1 FROM json_each(delivery_depends_on) WHERE json_each.value IN ('dependency'))`,
       ),
     )) as { detail: string }[]
@@ -185,7 +207,7 @@ describe('POD-4974 O2 lane-scoped shipping reads', () => {
 
   it('reads open holds, receipts and stack edges only for the orders asked about', async () => {
     const s = await seeded([shipOrder('lower', 0), shipOrder('upper', 1), shipOrder('other', 2)])
-    await s.shipping.recordNativeStackEdge({
+    await s.shipping.recordNativeStackEdge(fixtureWriteScope(), {
       upperOrderId: asShipOrderId('upper'),
       lowerOrderId: asShipOrderId('lower'),
       recordedAt: '2026-08-12T11:00:00.000Z',

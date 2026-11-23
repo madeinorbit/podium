@@ -74,7 +74,7 @@ would not try to reacquire the already-held lease.
 Both runs stopped at the known rearchitecture-audit boundary in `@podium/scripts#test`;
 they did not report a green result. A bounded rerun of the same `scripts/vitest.config.ts`
 collected all 47 scripts files and identified the persistent failure as the pre-existing
-`scripts/audit-god-objects.test.ts` ledger mismatch. The runtime `session-mint.test.ts`
+`scripts/audit-god-objects.test.ts` ledger mismatch. The runtime host-sign-in
 tripwire was not reached in these aggregate runs. The repeat is therefore a partial-cache
 measurement: the failed task must execute again and tasks ordered after the failure did not
 get cache entries. Even with that limitation, the no-edit repeat reduced wall time by 64%.

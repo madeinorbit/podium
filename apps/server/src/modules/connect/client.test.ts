@@ -1,10 +1,15 @@
-import { tmpdir } from 'node:os'
-import { openTestStore } from '../../test-support/open-test-store'
 import { createHash, createPublicKey, verify } from 'node:crypto'
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { InstallationIdentity } from '@podium/runtime/installation-identity'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import {
+  INSTALLATION_META_KEY,
+  INSTALLATION_PRIVATE_KEY,
+  type InstallationIdentity,
+} from '@podium/runtime/installation-identity'
+import { sql } from 'drizzle-orm'
+import { beforeAll, describe, expect, it } from 'vitest'
+import { openTestStore } from '../../test-support/open-test-store'
+import { storeSql } from '../../test-support/store-sql'
 import { connectClient } from './client'
 
 const vectors = JSON.parse(
@@ -37,17 +42,24 @@ const legacyIdentity: InstallationIdentity = {
 }
 
 let identity: InstallationIdentity
-const identityRoot = mkdtempSync(join(tmpdir(), 'connect-db-identity-'))
+// The vectors' identity, stored where the store keeps an installation's identity and read
+// back through it: its metadata in `meta`, its private key in `server_secrets`. (How a legacy
+// installation.json gets there is installation-identity-import.test.ts's subject.)
 beforeAll(async () => {
-  writeFileSync(join(identityRoot, 'installation.json'), JSON.stringify(legacyIdentity))
-  const store = await openTestStore(join(identityRoot, 'podium.db'))
+  const store = await openTestStore(':memory:')
   try {
+    const { privateKey, ...metadata } = legacyIdentity
+    const raw = storeSql(store)
+    await raw.run(sql`INSERT INTO meta (key, value) VALUES (${INSTALLATION_META_KEY}, ${JSON.stringify(metadata)})
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value`)
+    await raw.run(sql`INSERT INTO server_secrets (key, value, updated_at)
+      VALUES (${INSTALLATION_PRIVATE_KEY}, ${privateKey}, ${legacyIdentity.createdAt})
+      ON CONFLICT (key) DO UPDATE SET value = excluded.value`)
     identity = await store.secrets.installationIdentity()
   } finally {
     await store.close()
   }
 })
-afterAll(() => rmSync(identityRoot, { recursive: true, force: true }))
 
 type Seen = { url: string; init: RequestInit }
 function client(respond: (seen: Seen) => Response | Promise<Response>, now = vectors.timestamp) {

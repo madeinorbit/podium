@@ -18,14 +18,17 @@ import {
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
   Authority,
+  type CapturedRow,
   DeviceGradeNoAnchors,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
   type VisibilityStatePort,
 } from '@podium/sync'
+import { authorityCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { databaseRecords } from '../../sync/record-source'
 import { LayoutService } from './service'
-import { installedWorldOver } from '@podium/sync/testing'
 
 const ALICE: UserId = asUserId('user:alice')
 const BOB: UserId = asUserId('user:bob')
@@ -74,18 +77,37 @@ function memoryStore(): AuthorityStore {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    ...installedWorldOver(async () => {
-      const latest = new Map<string, (typeof rows)[number]>()
-      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
-      return [...latest.values()]
-    }),
   } as AuthorityStore
 }
 
-/** Minimal layout store — only the methods LayoutService uses. */
+/** Minimal layout store — only the methods LayoutService uses, with the
+ *  change capture the table's triggers keep (POD-6920): a row whose value
+ *  changes is captured under its key, workspace first as the triggers key it
+ *  (POD-7021), and a drain takes the captured rows. */
 function memoryLayoutRepo() {
   const byUser = new Map<string, Map<string, unknown>>()
+  let captured: CapturedRow[] = []
+  const capture = (op: CapturedRow['op'], userId: UserId, key: string) =>
+    captured.push({
+      id: captured.length + 1,
+      kind: 'userLayout',
+      source: 0,
+      op,
+      oldKey: op === 'i' ? null : [SELF_HOSTED_WORKSPACE_ID, userId, key],
+      newKey: op === 'd' ? null : [SELF_HOSTED_WORKSPACE_ID, userId, key],
+    })
   return {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    async drainCapture(): Promise<CapturedRow[]> {
+      const out = captured
+      captured = []
+      return out
+    },
+    async allForBootReconcile() {
+      return [...byUser].flatMap(([user, values]) =>
+        [...values].map(([key, value]) => ({ userId: asUserId(user), key, value })),
+      )
+    },
     getSnapshot(userId: UserId): LayoutSnapshot {
       const m = byUser.get(userId)
       return m ? Object.fromEntries(m) : {}
@@ -96,15 +118,23 @@ function memoryLayoutRepo() {
         m = new Map()
         byUser.set(userId, m)
       }
+      const had = m.has(key)
+      if (had && JSON.stringify(m.get(key)) === JSON.stringify(value)) return
       m.set(key, value)
+      capture(had ? 'u' : 'i', userId, key)
     },
-    setMany(userId: UserId, values: Record<string, unknown>, updatedAt: string): void {
+    setMany(
+      _scope: unknown,
+      userId: UserId,
+      values: Record<string, unknown>,
+      updatedAt: string,
+    ): void {
       for (const [k, v] of Object.entries(values)) this.set(userId, k, v, updatedAt)
     },
     clear(userId: UserId, key: string): void {
-      byUser.get(userId)?.delete(key)
+      if (byUser.get(userId)?.delete(key)) capture('d', userId, key)
     },
-    clearMany(userId: UserId, keys: readonly string[]): void {
+    clearMany(_scope: unknown, userId: UserId, keys: readonly string[]): void {
       for (const k of keys) this.clear(userId, k)
     },
   }
@@ -123,41 +153,34 @@ function build() {
       }
     },
   }
+  const repo = memoryLayoutRepo()
   const authority = new Authority({
     store: memoryStore(),
     now: () => 1_000,
     transact: (fn) => fn(),
     visibility: new GrantEdgeVisibilityPolicy(visibilityPort, new NoDelegationsGranted()),
     anchors: new DeviceGradeNoAnchors(),
-  })
-  const repo = memoryLayoutRepo()
-  const service = new LayoutService({
-    layout: repo as never,
-    ledger: {
-      reconcile: async (entity, rows) => {
-        await authority.reconcile(entity, rows)
-        return []
-      },
-      capture: async (specs) => {
-        await authority.capture(
-          specs.map((s) => ({
-            entity: s.entity,
-            entityId: s.id,
-            op: s.op,
-            ...(s.value !== undefined ? { value: s.value } : {}),
-          })),
-        )
-        return [] as never
+    records: {
+      ...databaseRecords({ store: { layout: repo, sync: repo } } as never, ['userLayout']),
+      async *streamAllKinds() {
+        for await (const records of this.streamAll('userLayout'))
+          yield { entity: 'userLayout' as const, records }
       },
     },
   })
-  return { authority, service, repo }
+  const service = new LayoutService({
+    layout: repo as never,
+  })
+  // The command's writer: each commit goes through the Authority, which drains
+  // the repo's capture and builds the records it reached (POD-6920).
+  const writer = authorityCommitWriter(authority)
+  return { authority, service, repo, writer }
 }
 
 describe('layout rows scope to the owning user on the Authority feed', () => {
   it('Alice write is on Alice bootstrap; Bob bootstrap is empty; row exists', async () => {
-    const { authority, service, repo } = build()
-    await service.set(ALICE, { dockTab: 'files', superOpen: true }, 't')
+    const { authority, service, repo, writer } = build()
+    await service.set(writer, ALICE, { dockTab: 'files', superOpen: true }, 't')
 
     // Positive control: durable storage holds the row for Alice.
     expect(repo.getSnapshot(ALICE)).toEqual({ dockTab: 'files', superOpen: true })
@@ -183,10 +206,10 @@ describe('layout rows scope to the owning user on the Authority feed', () => {
   })
 
   it('a later write is visible on Alice changesSince; Bob receives no layout delta', async () => {
-    const { authority, service } = build()
-    await service.set(ALICE, { dockTab: 'chat' }, 't1')
+    const { authority, service, writer } = build()
+    await service.set(writer, ALICE, { dockTab: 'chat' }, 't1')
     const before = await authority.cursor()
-    await service.set(ALICE, { dockTab: 'files' }, 't2')
+    await service.set(writer, ALICE, { dockTab: 'files' }, 't2')
 
     const delivery = await authority.changesSince(before, humanPrincipal(ALICE))
     expect(delivery?.kind).toBe('batch')

@@ -132,7 +132,8 @@ export function unscopedReadSeams(source: string, file: string): Finding[] {
     },
     {
       rx: /principal\s*\?\s*:/g,
-      detail: 'an OPTIONAL principal: the unscoped read becomes the default, which is what new call sites take',
+      detail:
+        'an OPTIONAL principal: the unscoped read becomes the default, which is what new call sites take',
     },
   ]
   for (const { rx, detail } of patterns) {
@@ -188,7 +189,8 @@ export function removeUsedForRevocation(source: string, file: string): Finding[]
   //     the distinction (`replica/ports.ts` defines both ops four lines apart) than
   //     the violation, and a detector that cried wolf there would be suppressed by
   //     the next reader rather than fixed.
-  const declaration = /(?:function|const|let|async|=>|\b)\s*([A-Za-z_$][\w$]*)\s*(?:=\s*)?\([^)]*\)\s*(?::[^{\n]+)?\{/g
+  const declaration =
+    /(?:function|const|let|async|=>|\b)\s*([A-Za-z_$][\w$]*)\s*(?:=\s*)?\([^)]*\)\s*(?::[^{\n]+)?\{/g
   for (const match of source.matchAll(declaration)) {
     const name = match[1] ?? ''
     if (!REVOCATION_WORDS.test(name)) continue
@@ -242,7 +244,7 @@ export function deliveryShape(source: string): Finding[] {
         check: 'delivery-shape',
         where: 'packages/sync/src/authority/scoping.ts',
         detail:
-          "the `batch` arm of ScopedDelivery is GONE. That is a finding, not a pass: the type is " +
+          'the `batch` arm of ScopedDelivery is GONE. That is a finding, not a pass: the type is ' +
           'what makes filter-without-watermark unrepresentable.',
       },
     ]
@@ -317,9 +319,13 @@ export interface KernelUnderTest {
     transact: <T>(fn: () => T) => T
     visibility: unknown
     anchors: unknown
+    records: unknown
   }) => {
     subscribe(principal: unknown, subscriber: (delivery: FeedDelivery) => void): () => void
-    capture(specs: readonly ChangeSpec[]): unknown
+    commit(op: {
+      affects: readonly { entity: string; entityId: string }[]
+      write: () => Promise<void>
+    }): unknown
     changesSince(cursor: number | null, principal: unknown): FeedDelivery | null
   }
   FeedPublisher: new (deps: {
@@ -327,7 +333,11 @@ export interface KernelUnderTest {
     retention: { minAvailableSeq: () => number }
     sendQueue: { maxBytes: number; sizeOf: () => number }
   }) => {
-    connect(id: string, fromSeq: number, principal: unknown): {
+    connect(
+      id: string,
+      fromSeq: number,
+      principal: unknown,
+    ): {
       isDemoted(): boolean
       drain(): readonly { kind: string; fromSeq?: number; seq?: number }[]
     }
@@ -385,21 +395,6 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    // Latest per (entity, id) — the port's contract, and what the sqlite
-    // adapter's GROUP BY returns. A fake that hands back the whole table reads
-    // every historical write as part of the current world.
-    latestChangeStates: async () => {
-      const latest = new Map<string, (typeof rows)[number]>()
-      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
-      return [...latest.values()].filter((r) => r.op === 'upsert')
-    },
-    // The installed rows by key and by kind (POD-6156), from the same fold.
-    installedStates: async (keys) => {
-      const wanted = new Set(keys.map((k) => `${k.entity}/${k.entityId}`))
-      return (await store.latestChangeStates()).filter((r) => wanted.has(`${r.entity}/${r.entityId}`))
-    },
-    installedStatesOf: async (entity) =>
-      (await store.latestChangeStates()).filter((r) => r.entity === entity),
   }
 
   // Ada may see `mine`; Grace holds nothing. No privileged principal exists.
@@ -412,12 +407,15 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
     visibilityEdges: async (refs: readonly unknown[]) => refs.map(() => null),
     currentValuesOf: async (refs: readonly unknown[]) => refs.map(() => undefined),
   }
+  const { ModelRecords } = await import('../packages/sync/src/conformance/model-records')
+  const records = new ModelRecords()
   const authority = new Authority({
     store,
     now: () => 1,
-    transact: <T,>(fn: () => T) => fn(),
+    transact: <T>(fn: () => T) => fn(),
     visibility: new GrantEdgeVisibilityPolicy(state),
     anchors: state,
+    records,
   })
 
   /**
@@ -467,13 +465,24 @@ export async function runtimeChecks(kernel: KernelUnderTest): Promise<Finding[]>
     if (batch !== null) graceSaw.push(batch)
   })
 
-  await authority.capture([{ entity: 'session', entityId: 'mine', op: 'upsert', value: { n: 1 } }])
+  await authority.commit({
+    affects: [{ entity: 'session', entityId: 'mine' }],
+    write: async () => {
+      records.set([{ entity: 'session', entityId: 'mine', op: 'upsert', value: { n: 1 } }])
+    },
+  })
 
   if (adaSaw.flatMap((d) => d.ids).join() !== 'mine') {
-    fail('runtime-filter', 'the grantee did NOT receive a row she may see — the feed delivers nothing')
+    fail(
+      'runtime-filter',
+      'the grantee did NOT receive a row she may see — the feed delivers nothing',
+    )
   }
   if (graceSaw.flatMap((d) => d.ids).length > 0) {
-    fail('runtime-filter', 'a principal with no grant received the row — the filter does not filter')
+    fail(
+      'runtime-filter',
+      'a principal with no grant received the row — the filter does not filter',
+    )
   }
   // THE watermark property. Without it the previous check is satisfied by a feed
   // that silently drops suppressed rows, which is the protocol break rather than
@@ -612,7 +621,9 @@ function probe(): Finding[] {
   expectFinds(
     'unscoped-policy-sites',
     unscopedPolicySites(
-      new Map([['apps/server/src/gateway/planted.ts', 'const p = new DeviceGradeUnscopedPolicy()\n']]),
+      new Map([
+        ['apps/server/src/gateway/planted.ts', 'const p = new DeviceGradeUnscopedPolicy()\n'],
+      ]),
     ),
     'second permissive-policy site',
   )
@@ -675,7 +686,11 @@ function probe(): Finding[] {
     deliveryShape("export type D = { kind: 'batch'; readonly changes: Row[] }"),
     'batch arm with no certified range',
   )
-  expectFinds('delivery-shape', deliveryShape('export type D = { kind: "nothing" }'), 'missing batch arm')
+  expectFinds(
+    'delivery-shape',
+    deliveryShape('export type D = { kind: "nothing" }'),
+    'missing batch arm',
+  )
   expectClean(
     'delivery-shape',
     deliveryShape(
@@ -696,7 +711,9 @@ function main(): void {
     process.exit(2)
   }
   if (wants('--probe')) {
-    console.log('scoped-feed audit: all source-text probes found their fixtures and spared the clean ones')
+    console.log(
+      'scoped-feed audit: all source-text probes found their fixtures and spared the clean ones',
+    )
     return
   }
 
@@ -711,7 +728,7 @@ function main(): void {
       `Scoped-feed audit: ${findings.length} finding(s). POD-1077's claims are:\n` +
         '  · the device-grade "everyone" policy has exactly ONE declared composition root\n' +
         '  · neither Authority read path can be reached without a principal\n' +
-        "  · `remove` is never how a revocation is expressed (D14.5)\n" +
+        '  · `remove` is never how a revocation is expressed (D14.5)\n' +
         '  · a filtered list cannot travel without its certified range (D13)\n' +
         '  (the RUNNING feed — does it filter, watermark and survive a suppressed firehose — is\n' +
         '   scripts/audit-scoped-feed.test.ts, which resolves the kernel under vitest)\n',

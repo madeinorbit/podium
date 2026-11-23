@@ -12,6 +12,8 @@ import {
 } from '@podium/model'
 import type {
   WorkflowGitObservation as GitObservation,
+  WorkflowBindingTarget,
+  WorkflowBindingWire,
   WorkflowNextActionWire,
   WorkflowRevisionWire,
   WorkflowRunStepWire,
@@ -31,10 +33,14 @@ import type {
 } from '../../store/workflows'
 import {
   NO_RUN,
+  unknownRevision,
   WorkflowAccess,
   type WorkflowHandlerContext,
   type WorkflowPolicyPorts,
+  WorkflowRefusal,
 } from './handlers/context'
+import { assignHandler } from './handlers/library'
+import { committedWorkflowWrite, type WorkflowChangeWriter } from './records'
 import { dispatchWorkflowCommand, type WORKFLOW_COMMANDS, type WorkflowProcName } from './registry'
 
 /**
@@ -143,6 +149,13 @@ export interface WorkflowServiceDeps {
    * The honest type forces the `afterCommit` hand-off in `advances.ts`.
    */
   notifyCoordinator?(sessionId: SessionId, text: string): Promise<void>
+  /**
+   * The feed's own writer (the `feed.workflows` mirror origin, POD-6676): an
+   * operation no command's writer reaches (the run a spawn starts, inside
+   * whichever operation spawned the session) commits its rows and their change
+   * entries through it. Absent (the engine's unit tests), writes publish nothing.
+   */
+  changes?: WorkflowChangeWriter
 }
 
 function globalTargetId(): string {
@@ -199,12 +212,23 @@ export interface WorkflowEngine {
 }
 
 export class WorkflowService implements WorkflowEngine {
+  private readonly deps: WorkflowServiceDeps
+
   constructor(
-    private readonly deps: WorkflowServiceDeps,
+    deps: WorkflowServiceDeps,
     ports?: WorkflowPolicyPorts & { ledger?: AdvanceIdempotencyPort },
   ) {
-    this.access = new WorkflowAccess(deps, ports)
+    this.deps = deps
+    this.access = new WorkflowAccess(this.deps, ports)
     this.ledger = ports?.ledger
+  }
+
+  /** Run one operation as one commit of its rows and their change entries. */
+  private async committed<T>(
+    writer: WorkflowChangeWriter | undefined,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    return await committedWorkflowWrite(writer ?? this.deps.changes, operation)
   }
 
   /**
@@ -231,7 +255,7 @@ export class WorkflowService implements WorkflowEngine {
 
   scopeRef(scope: z.infer<typeof WorkflowScope>, raw: string | null | undefined): string | null {
     if (scope === 'global') return null
-    if (!raw) throw new Error(`${scope} workflows require scopeRef`)
+    if (!raw) throw new WorkflowRefusal('invalid', `${scope} workflows require scopeRef`)
     return raw
   }
 
@@ -512,6 +536,18 @@ export class WorkflowService implements WorkflowEngine {
     /** The delegating human, when the caller could resolve one. */
     onBehalfOf?: string | null
   }): Promise<WorkflowRunWire> {
+    return await this.committed(undefined, async () => await this.startRunNow(input))
+  }
+
+  private async startRunNow(input: {
+    sessionId: SessionId
+    cwd: string
+    issueId?: IssueId
+    revisionId: string
+    supersedesRunId?: string
+    startStepId?: string
+    onBehalfOf?: string | null
+  }): Promise<WorkflowRunWire> {
     const subjectKind = input.issueId ? 'issue' : 'session'
     const subjectId = input.issueId ?? input.sessionId
     const existing = await this.deps.store.findLiveRun(subjectKind, subjectId)
@@ -650,10 +686,11 @@ export class WorkflowService implements WorkflowEngine {
     // `no active workflow run for this session` against `workflow run is
     // outside this session` — the second of which confirms the run exists.
     // There is now one site and one string, so they cannot drift back apart.
-    if (!row) throw new Error(NO_RUN)
+    if (!row) throw new WorkflowRefusal('not-found', NO_RUN)
     const run = await this.toRun(row)
     const ownership = await this.access.ownershipFor(this.access.runEntities([run]))
-    if (!this.access.canSeeRun(caller, run, ownership)) throw new Error(NO_RUN)
+    if (!this.access.canSeeRun(caller, run, ownership))
+      throw new WorkflowRefusal('not-found', NO_RUN)
     return run
   }
 
@@ -762,19 +799,107 @@ export class WorkflowService implements WorkflowEngine {
     caller: WorkflowCaller,
     proc: N,
     rawInput: unknown,
+    opts: Pick<WorkflowHandlerContext, 'afterCommit'> & {
+      /** The command's writer: the operation's rows and their change entries
+       *  commit on it (POD-6676). Absent: the service's own. */
+      writer?: WorkflowChangeWriter
+    } = {},
   ): ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']> {
     const ctx: WorkflowHandlerContext = {
       caller,
       deps: this.deps,
       access: this.access,
       engine: this,
+      ...(opts.afterCommit !== undefined ? { afterCommit: opts.afterCommit } : {}),
     }
-    return dispatchWorkflowCommand(
-      proc,
-      ctx,
-      rawInput,
-      this.ledger ? { ledger: this.ledger } : {},
+    return this.committed(
+      opts.writer,
+      async () =>
+        await dispatchWorkflowCommand(
+          proc,
+          ctx,
+          rawInput,
+          this.ledger ? { ledger: this.ledger } : {},
+        ),
     ) as ReturnType<(typeof WORKFLOW_COMMANDS)[N]['handler']>
+  }
+
+  /**
+   * MAKE A TARGET RUN A REVISION: `records.workflowBinding.edit` (POD-6676),
+   * which replaced `workflows.assign`. Its checks are assign's, unchanged.
+   */
+  async assign(
+    caller: WorkflowCaller,
+    input: { targetKind: WorkflowBindingTarget; targetId: string; revisionId: string },
+    writer?: WorkflowChangeWriter,
+    afterCommit?: WorkflowHandlerContext['afterCommit'],
+  ): Promise<WorkflowBindingWire> {
+    const ctx: WorkflowHandlerContext = {
+      caller,
+      deps: this.deps,
+      access: this.access,
+      engine: this,
+      ...(afterCommit !== undefined ? { afterCommit } : {}),
+    }
+    return await this.committed(writer, async () => await assignHandler(ctx, input))
+  }
+
+  /**
+   * THE TARGET CHECK of a workflow write, for the sync write entry point
+   * (POD-6418, ADR 12 D2 step 4): may this caller write the record the input
+   * names, decided NOW, before the handler and before the dedup, so a replay is
+   * refused once a grant or a delegation is gone.
+   *
+   * It is not a second statement of the rules. It asks the same
+   * {@link WorkflowAccess} decisions the handler asks, on the record the command
+   * acts on: a definition's write for `revise` and `publish`, the source's read
+   * for `fork` and `assign`, the run's visibility for the five advances. `create`
+   * names no existing record: it is decided by the role, and its scope by the
+   * handler. The handler still runs every check it always ran; this one only
+   * moves the refusal in front of everything else.
+   *
+   * The refusal when the decision is no, with its words (a missing record and an
+   * invisible one alike: ADR 3 Amendment 1 D20.2); `undefined` when the write
+   * may go ahead. Any other failure propagates.
+   */
+  async targetRefusal(
+    caller: WorkflowCaller,
+    proc: WorkflowProcName | 'assign',
+    input: unknown,
+  ): Promise<WorkflowRefusal | undefined> {
+    const named = (input ?? {}) as { workflowId?: string; revisionId?: string; runId?: string }
+    const sourceOf = async (): Promise<string> => {
+      const revisionId = named.revisionId ?? ''
+      const revision = await this.deps.store.getRevision(revisionId)
+      if (!revision) throw new WorkflowRefusal('not-found', unknownRevision(revisionId))
+      return revision.workflowId
+    }
+    try {
+      switch (proc) {
+        case 'create':
+          return undefined
+        case 'revise':
+          await this.access.assertWorkflowWrite(caller, named.workflowId ?? '')
+          return undefined
+        case 'publish':
+          await this.access.assertWorkflowWrite(caller, await sourceOf())
+          return undefined
+        case 'fork':
+        case 'assign':
+          await this.access.assertWorkflowRead(caller, await sourceOf())
+          return undefined
+        case 'checkpoint':
+        case 'assignStep':
+        case 'skip':
+        case 'retry':
+        case 'adopt':
+          await this.runFor(caller, named.runId)
+          return undefined
+      }
+    } catch (error) {
+      if (error instanceof WorkflowRefusal) return error
+      throw error
+    }
   }
 
   async renderRevisionPrompt(revision: WorkflowRevisionWire): Promise<string> {

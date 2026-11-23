@@ -1,5 +1,5 @@
 import { LOCK_COMMAND_NAMES } from '@podium/commands'
-import { asSessionId, type SessionId } from '@podium/model'
+import { asSessionId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 
 import { SessionRegistry } from '../../relay'
@@ -54,6 +54,8 @@ describe('lock registry', () => {
         role: 'worker' as const,
         scope: { kind: 'none' as const },
         actorSessionId: asSessionId('sess_agent'),
+        // A relayed agent acts for its human (the front door reads the principal).
+        onBehalfOf: firstAdminMemberId(),
       },
     }
     const r = (await dispatch(caller, 'acquire', { repoPath: '/repo', name: 'agent-lock' })) as {
@@ -68,7 +70,14 @@ describe('lock registry', () => {
   })
 
   it('viewers are role-gated out of writes but may read status', async () => {
-    const viewer = { capability: { role: 'viewer' as const, scope: { kind: 'none' as const } } }
+    const viewer = {
+      capability: {
+        role: 'viewer' as const,
+        scope: { kind: 'none' as const },
+        actorUser: firstAdminMemberId(),
+        onBehalfOf: firstAdminMemberId(),
+      },
+    }
     await expect(dispatch(viewer, 'acquire', { repoPath: '/repo', name: 'x' })).rejects.toThrow(
       /not allowed/,
     )
@@ -83,7 +92,14 @@ describe('lock registry', () => {
     await dispatch({ capability: OPERATOR }, 'acquire', { repoPath: '/repo', name: 'op-held' })
     // Constrained caller, no actorSessionId (session not in the live map):
     // must NOT be able to release/renew the operator's lock.
-    const ghost = { capability: { role: 'worker' as const, scope: { kind: 'none' as const } } }
+    const ghost = {
+      capability: {
+        role: 'worker' as const,
+        scope: { kind: 'none' as const },
+        actorUser: firstAdminMemberId(),
+        onBehalfOf: firstAdminMemberId(),
+      },
+    }
     await expect(
       dispatch(ghost, 'release', { repoPath: '/repo', name: 'op-held' }),
     ).rejects.toThrow(/not by you/)
@@ -146,6 +162,8 @@ describe('lock registry', () => {
         role: 'worker' as const,
         scope: { kind: 'none' as const },
         actorSessionId: asSessionId('sess_h'),
+        // A relayed agent acts for its human (the front door reads the principal).
+        onBehalfOf: firstAdminMemberId(),
       },
     }
     const waiter = {
@@ -153,6 +171,8 @@ describe('lock registry', () => {
         role: 'worker' as const,
         scope: { kind: 'none' as const },
         actorSessionId: asSessionId('sess_w'),
+        // A relayed agent acts for its human (the front door reads the principal).
+        onBehalfOf: firstAdminMemberId(),
       },
     }
     await dispatch(holder, 'acquire', { repoPath: '/repo', name: 'c' })

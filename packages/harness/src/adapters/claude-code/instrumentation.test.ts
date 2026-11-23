@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { testAccount, testHarnessContext } from '../../driver/testing/harness-context.js'
 import { claudeCodeInstrumentation } from './instrumentation.js'
+
+/** No account folders exist: the payloads below name everything they need. */
+const NO_ACCOUNT = testAccount('claude-code', '/nonexistent-podium-home')
 
 const base = { session_id: 'cc1', transcript_path: '/nonexistent.jsonl', cwd: '/tmp' }
 
@@ -16,16 +20,16 @@ describe('claudeCodeInstrumentation.payloadCodec', () => {
   })
 
   it('decodes lifecycle events with the hook channel', async () => {
-    await expect(codec.decode({ ...base, hook_event_name: 'SessionStart' })).resolves.toEqual([
-      { kind: 'session_started', source: 'hook', confidence: 1 },
-    ])
     await expect(
-      codec.decode({ ...base, hook_event_name: 'UserPromptSubmit', prompt: 'go' }),
+      codec.decode({ ...base, hook_event_name: 'SessionStart' }, NO_ACCOUNT),
+    ).resolves.toEqual([{ kind: 'session_started', source: 'hook', confidence: 1 }])
+    await expect(
+      codec.decode({ ...base, hook_event_name: 'UserPromptSubmit', prompt: 'go' }, NO_ACCOUNT),
     ).resolves.toEqual([{ kind: 'prompt_submitted', source: 'hook', confidence: 1 }])
-    await expect(codec.decode({ ...base, hook_event_name: 'SessionEnd' })).resolves.toEqual([
-      { kind: 'session_ended', source: 'hook', confidence: 1 },
-    ])
-    await expect(codec.decode(null)).resolves.toEqual([])
+    await expect(
+      codec.decode({ ...base, hook_event_name: 'SessionEnd' }, NO_ACCOUNT),
+    ).resolves.toEqual([{ kind: 'session_ended', source: 'hook', confidence: 1 }])
+    await expect(codec.decode(null, NO_ACCOUNT)).resolves.toEqual([])
   })
 
   it('declares the loopback transport', () => {
@@ -37,6 +41,7 @@ describe('claudeCodeInstrumentation.payloadCodec', () => {
       sessionId: 's1' as never,
       endpointUrl: 'http://127.0.0.1:1/hooks/s1',
       settingsDir: '/settings',
+      harnessContext: testHarnessContext({ kind: 'claude-code' }),
     })
     expect(installed.args).toEqual(['--settings', '/settings/s1.json'])
     expect(installed.file?.path).toBe('/settings/s1.json')

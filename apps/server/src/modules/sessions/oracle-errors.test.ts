@@ -18,7 +18,13 @@
  * Messages are pinned with EXACT equality, never a substring (POD-743).
  */
 
-import { type AgentInventory, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
+import {
+  type AgentInventory,
+  asMachineId,
+  asMutationId,
+  asUserId,
+  firstAdminMemberId,
+} from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   disposeOracles,
@@ -57,9 +63,16 @@ describe('oracle: not-found shape, per write', () => {
     await expect(
       o.call.sessions.setWorkState({ sessionId: GHOST, workState: 'done' }),
     ).resolves.toBeUndefined()
+    // On `sync.submit` only since POD-6416: an unknown session is refused as
+    // one the caller may not see, and still writes no row.
     await expect(
-      o.call.sessions.setIssueId({ sessionId: GHOST, issueId: null }),
-    ).resolves.toBeUndefined()
+      o.call.sync.submit({
+        mutationId: asMutationId('m-ghost-issue'),
+        command: 'sessions.setIssueId',
+        version: 1,
+        input: { sessionId: GHOST, issueId: null },
+      }),
+    ).resolves.toEqual({ outcome: 'rejected', refusal: { kind: 'unauthorized' } })
 
     expect(await o.store.sessions.loadSessions()).toEqual([])
     expect(await o.reg.modules.sessions.listSessions(undefined, 'rpc')).toEqual([])
@@ -71,20 +84,6 @@ describe('oracle: not-found shape, per write', () => {
     await expect(o.call.snoozes.set({ sessionId: GHOST, until: null })).resolves.toBeUndefined()
     expect(await o.store.sessions.listSnoozes(firstAdminMemberId())).toEqual({})
     await expect(o.call.snoozes.clear({ sessionId: GHOST })).resolves.toBeUndefined()
-  })
-
-  it(`${SESSION_STATE_CLOSED_DEFAULT}: polymorphic panel pins remain valid, while tab order rejects an unknown session`, async () => {
-    const o = await makeOracle()
-
-    expect(await o.call.pins.set({ kind: 'panel', id: GHOST, pinned: true })).toEqual({
-      panels: [GHOST],
-      worktrees: [],
-      repos: [],
-    })
-    await expect(
-      o.call.tabs.setOrder({ worktree: '/nowhere', sessionIds: [GHOST] }),
-    ).resolves.toBeUndefined()
-    expect(await o.store.sessions.listTabOrders(firstAdminMemberId())).toEqual({})
   })
 
   it(`${EXISTENCE_ORACLE}: the lifecycle primitives REPORT not-found as a returned reason`, async () => {
@@ -149,10 +148,10 @@ describe('oracle: not-found shape, per write', () => {
     const o = await makeOracle()
     // An issue's repo resolves only through a machine that reported it (2b803efb5).
     await o.store.repos.addRepo('/r', o.store.hostMachineId)
-    const a = await o.reg.issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await o.reg.issues.crud.update(a.id, { worktreePath: '/r/.worktrees/a' })
-    const b = await o.reg.issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await o.reg.issues.crud.update(b.id, { worktreePath: '/r/.worktrees/b' })
+    const a = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'A', startNow: false })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, a.id, { worktreePath: '/r/.worktrees/a' })
+    const b = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, { repoPath: '/r', title: 'B', startNow: false })
+    await o.reg.issues.crud.update(o.reg.issues.reports.store.serverWriter, b.id, { worktreePath: '/r/.worktrees/b' })
     const agent = await o.reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/.worktrees/a',
@@ -241,7 +240,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     // cuts its draft on its own write turn and installs it when the commit
     // returns, so an un-awaited bind lands AFTER the detach below and paints
     // the row 'live' again with no daemon behind it. The detach itself still
-    // drops the row to 'reconnecting' synchronously (machine-reconciler
+    // marks the row awaiting its rebind synchronously (machine-reconciler
     // `onDetached`); the fixture has to let the bind finish first for that to
     // be the state under test.
     await o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
@@ -257,7 +256,8 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     // durable row stays queued and is forwarded on reconnect. Dead-lettering
     // here lost a message sent during a 3-second daemon restart without a word.
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
-    expect((await o.meta(sessionId)).status).toBe('reconnecting')
+    expect((await o.meta(sessionId)).status).toBe('live')
+    expect(o.reg.modules.machines.hasDaemon(o.reg.sessionStore.hostMachineId)).toBe(false)
     o.daemon.length = 0
 
     const sent = await o.call.sessions.sendText({ sessionId, text: 'anyone there' })

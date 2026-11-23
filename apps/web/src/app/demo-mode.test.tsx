@@ -7,8 +7,8 @@ import { DEMO_ISSUES, demoEnabled } from '@podium/client-core/demo'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PoolIssuePage } from '@/features/issues/pool-issue-page'
-import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { resetUsageCache } from '@/features/usage/useUsageFeed'
+import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import { demoTrpc, WebDemoProvider } from './demo-mode'
 import { StatusPerformanceStats } from './StatusPerformanceStats'
 
@@ -59,7 +59,12 @@ describe('web demo mode', () => {
     // The rows the work list shows as top-level lanes: the mission root and
     // the three demo issues. (Mission children nest collapsed under the root
     // and proposals follow the product's proposal grouping — same as prod.)
-    for (const id of ['demo-mission-root', 'demo-issue-auth', 'demo-issue-header', 'demo-issue-ci']) {
+    for (const id of [
+      'demo-mission-root',
+      'demo-issue-auth',
+      'demo-issue-header',
+      'demo-issue-ci',
+    ]) {
       const issue = DEMO_ISSUES.find((candidate) => candidate.id === id)!
       expect(screen.getByText(issue.title)).not.toBeNull()
     }
@@ -69,7 +74,7 @@ describe('web demo mode', () => {
     await mountDemo(
       <>
         <SidebarUnified />
-        <StatusPerformanceStats trpc={demoTrpc()} />
+        <StatusPerformanceStats />
       </>,
     )
     await waitFor(() =>
@@ -79,7 +84,12 @@ describe('web demo mode', () => {
 
   it('paints a demo issue page from the same rows', async () => {
     await mountDemo(
-      <PoolIssuePage issueId={DEMO_AUTH.id} orderedIds={[]} onBack={() => {}} onNavigate={() => {}} />,
+      <PoolIssuePage
+        issueId={DEMO_AUTH.id}
+        orderedIds={[]}
+        onBack={() => {}}
+        onNavigate={() => {}}
+      />,
     )
     expect(screen.getByText(DEMO_AUTH.description)).not.toBeNull()
   })

@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '../pool'
 import type { createRuntimeWorklistPool } from '../runtime-pool'
 
@@ -33,17 +33,7 @@ export function screenOptions(
   runtime: ClientRuntime,
 ): PoolScreenOptions {
   const options = screens.map((screen) => screen.options?.(runtime) ?? {})
-  const summaries: NonNullable<PoolScreenOptions['summaries']> = {}
-  for (const option of options)
-    for (const entity of Object.keys(option.summaries ?? {}) as (keyof typeof summaries)[]) {
-      summaries[entity] = [
-        ...new Set([...(summaries[entity] ?? []), ...(option.summaries?.[entity] ?? [])]),
-      ]
-    }
-  const merged: PoolScreenOptions = Object.assign({}, ...options)
-  if (Object.keys(summaries).length) merged.summaries = summaries
-  else delete merged.summaries
-  return merged
+  return Object.assign({}, ...options) as PoolScreenOptions
 }
 
 /** Own every async attachment even if principal teardown wins the race. Errors

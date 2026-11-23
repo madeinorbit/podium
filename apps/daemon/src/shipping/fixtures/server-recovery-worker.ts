@@ -13,14 +13,20 @@ import {
 import { type ControlMessage, shippingJobRequestFingerprint } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
+import { testLedgerWriter } from '@podium/sync/testing'
 import { IssueService } from '../../../../server/src/modules/issues/service'
 import { DaemonRpcService } from '../../../../server/src/modules/machines/rpc'
 import {
   CompatibilityShippingPolicyResolver,
   type ShippingEvidencePort,
+  type ShippingIssuePort,
   ShippingService,
 } from '../../../../server/src/modules/shipping'
 import { SessionStore } from '../../../../server/src/store'
+import { changeLogCommit } from '../../../../server/src/store/change-log-commit'
+import { installChangeLogHooks } from '../../../../server/src/test-support/change-log-hooks'
+import { assignHostMachine } from '../../../../server/src/test-support/host-daemon'
+import { logStoreRecords } from '../../../../server/src/test-support/record-writer'
 
 const [phase, dbPath, repoPath, daemonJournal] = process.argv.slice(2)
 if (!phase || !dbPath || !repoPath || !daemonJournal) throw new Error('missing recovery arguments')
@@ -29,8 +35,14 @@ const store = await SessionStore.open(dbPath, machineId)
 const ownerUserId = await firstAdminMemberId(store)
 const ledger = new Ledger({
   repo: store.sync,
+  records: await logStoreRecords(store),
   now: Date.now,
   transact: (fn) => store.transact(fn),
+})
+installChangeLogHooks(store, testLedgerWriter(ledger))
+await changeLogCommit(testLedgerWriter(ledger))(async () => {
+  await assignHostMachine(store)
+  await store.repos.addRepo(repoPath, machineId)
 })
 const issues = await IssueService.create({
   store,
@@ -38,6 +50,7 @@ const issues = await IssueService.create({
   readSessionFacts: async () => [],
   readSessionFactsById: async () => undefined,
   readSessionFactsByIssue: async () => [],
+  readSessionFactsByIssues: async () => new Map(),
   sessionById: async () => undefined,
   listSessionsForIssue: async () => [],
   sessionsById: async () => [],
@@ -45,7 +58,6 @@ const issues = await IssueService.create({
     normalizeSettings({
       gitWorkflow: {
         defaultParentBranch: 'main',
-        mergeStyle: 'ff-only',
         autoRebaseBeforeMerge: true,
       },
       sessionDefaults: { agent: 'codex' },
@@ -53,9 +65,8 @@ const issues = await IssueService.create({
   spawnSession: async () => ({ sessionId: 'recovery-session' as never, machine: machineId }),
   repoOp: async () => ({ ok: true, output: '' }),
   funnel: { run: (op) => op.write() },
-  ledger,
+  ledger: testLedgerWriter(ledger),
 })
-await issues.boot()
 
 const daemonWorker = new URL('./daemon-rpc-worker.ts', import.meta.url).pathname
 const git = (...argv: string[]): string =>
@@ -83,8 +94,14 @@ const issuePort = {
     return issue
   },
   children: (id: string, recursive?: boolean) => issues.reports.children(id, recursive),
-  shippingCommit: issues.crud.shippingCommit.bind(issues.crud),
-  shippingCommitMany: issues.crud.shippingCommitMany.bind(issues.crud),
+  shippingCommit: ((writer, id, mutation, write) =>
+    issues.crud.shippingCommit(writer, id, mutation, write)) as ShippingIssuePort['shippingCommit'],
+  shippingCommitMany: ((writer, entries, write) =>
+    issues.crud.shippingCommitMany(
+      writer,
+      entries,
+      write,
+    )) as ShippingIssuePort['shippingCommitMany'],
 }
 const compatibilityPolicy = new CompatibilityShippingPolicyResolver(() => 'main')
 const recoveryPolicy = {
@@ -115,9 +132,10 @@ const evidence: ShippingEvidencePort = {
   acceptedReviewEvidence: async () => null,
 }
 const service = new ShippingService({
+  workspaceId: store.workspaceId,
   repository: store.shipping,
   issues: issuePort,
-  ledger,
+  ledger: testLedgerWriter(ledger),
   daemon: rpc,
   authorization: {
     attribution: () => ({
@@ -152,18 +170,25 @@ const service = new ShippingService({
 })
 
 if (phase === 'crash') {
-  const created = await issues.crud.create({ repoPath, title: 'process recovery', startNow: false })
+  const created = await issues.crud.create(issues.reports.store.serverWriter, {
+    repoPath,
+    title: 'process recovery',
+    startNow: false,
+  })
   const started = await issues.gitWorkflow.start(created.id)
   if (!started.branch) throw new Error('started recovery issue has no branch')
   git('branch', started.branch, 'main')
-  await issues.crud.update(created.id, { stage: 'review', machineId })
+  await issues.crud.update(issues.reports.store.serverWriter, created.id, {
+    stage: 'review',
+    machineId,
+  })
   const head = git('rev-parse', started.branch)
   await store.shipping.recordRootIntegrationReceipt({
     rootIssueId: created.id,
     approvedHeadSha: head,
     descendants: [],
   })
-  const { order } = await service.enqueueCurrent({
+  const { order } = await service.enqueueCurrent(testLedgerWriter(ledger), {
     issueId: created.id,
     principal: {
       kind: 'user',

@@ -1,29 +1,31 @@
-import { describe, expect, it, vi } from 'vitest'
-import type { PodiumClientApi } from '../api'
-import { createEngineHub } from '../engine/wiring'
-import { memoryStorage } from '../replica/contract'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { encode } from '@podium/protocol'
+import { describe, expect, it, vi } from 'vitest'
 import { cookieCredentials } from '../accounts/storage'
-import type {
-  FeedServerFrame,
-  FeedSinkPort,
+import type { PodiumClientApi } from '../api'
+import { memoryStorage } from '../replica/contract'
+import { createEngineHub } from '../runtime-root/connection/hub'
+import {
+  type FeedServerFrame,
+  type FeedSinkPort,
   SocketHub,
-  WebSocketLike,
-  WireSkew,
+  type WebSocketLike,
+  type WireSkew,
 } from '../socket-transport'
 import {
   browserServerRelocation,
   createFeedRelay,
   createSocketLogin,
+  type FeedBroadcastChannel,
   observeLiveConnection,
   serverRelocationDestination,
   socketLoginOptions,
-  type FeedBroadcastChannel,
 } from './index'
 
 function sink() {
   return {
     syncHttp: true,
+    kindTokens: () => {},
     helloFields: () => null,
     connected: vi.fn(),
     disconnected: vi.fn(),
@@ -380,6 +382,67 @@ describe('connection observers', () => {
     expect(source.health.size).toBe(0)
     expect(source.skews.size).toBe(0)
     expect(reconnected).toHaveBeenCalledOnce()
+  })
+  it('reports every refused redial after a drop, never the drop itself, and rearms on welcome', () => {
+    // POD-6940: a server on a newer wire answers the upgrade with 426, which a
+    // browser socket sees only as a failed dial, and the hub redials forever.
+    vi.useFakeTimers()
+    try {
+      const sockets: WebSocketLike[] = []
+      const hub = new SocketHub({
+        url: 'ws://podium.test/ws',
+        onError: () => {},
+        makeSocket: () => {
+          const socket: WebSocketLike = {
+            send: () => {},
+            close: () => socket.onclose?.({}),
+            onopen: null,
+            onmessage: null,
+            onclose: null,
+            onerror: null,
+          }
+          sockets.push(socket)
+          return socket
+        },
+      })
+      const refused = vi.fn()
+      const stop = observeLiveConnection(hub, { onReconnectRefused: refused })
+      const welcomeThenDrop = (socket: WebSocketLike): void => {
+        socket.onopen?.({})
+        socket.onmessage?.({ data: encode({ type: 'welcome', kindTokens: {}, clientId: 'c' }) })
+        socket.onclose?.({ code: 1006 })
+      }
+      const refuseNextDial = (): void => {
+        vi.advanceTimersByTime(10_000)
+        const socket = sockets.at(-1)!
+        socket.onerror?.({})
+        socket.onclose?.({ code: 1006 })
+      }
+
+      hub.connect()
+      welcomeThenDrop(sockets[0]!)
+      expect(refused).not.toHaveBeenCalled()
+      refuseNextDial()
+      refuseNextDial()
+      refuseNextDial()
+      expect(sockets).toHaveLength(4)
+      expect(refused).toHaveBeenCalledTimes(3)
+      expect(refused).toHaveBeenLastCalledWith(3)
+
+      vi.advanceTimersByTime(10_000)
+      welcomeThenDrop(sockets.at(-1)!)
+      expect(refused).toHaveBeenCalledTimes(3)
+      refuseNextDial()
+      expect(refused).toHaveBeenCalledTimes(4)
+      expect(refused).toHaveBeenLastCalledWith(1)
+
+      stop()
+      refuseNextDial()
+      expect(refused).toHaveBeenCalledTimes(4)
+      hub.dispose()
+    } finally {
+      vi.useRealTimers()
+    }
   })
   it('wakes only after hiding and detaches the platform hub on cleanup', () => {
     const source = hubSource(),

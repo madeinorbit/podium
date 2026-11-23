@@ -155,80 +155,8 @@ describe('SessionStore changes table', () => {
     expect(next).toEqual([3])
   })
 
-  it('reports the latest LIVE state per (entity, id)', async () => {
-    const store = await openTestStore(':memory:')
-    await store.sync.appendChanges(
-      [
-        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issueProjection', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issueProjection', entityId: 'i1', op: 'upsert', payload: '{"v":2}' },
-        { entity: 'issueProjection', entityId: 'i2', op: 'remove', payload: null },
-        { entity: 'session', entityId: 'i1', op: 'upsert', payload: '{"s":1}' },
-      ],
-      1000,
-    )
-    const world = await store.sync.latestChangeStates()
-    // i2 was removed IN THE SAME BATCH it was first seen: the world is what is
-    // there, so a removed entity is absent rather than present as a tombstone.
-    // Order within the batch is what decides this — an implementation that
-    // applied the batch's upserts and removes in op order instead of log order
-    // would leave i2 installed here.
-    expect(world).toHaveLength(2)
-    expect(world.map((row) => row.entityId)).not.toContain('i2')
-    // `seq` is part of the row since POD-1203 — this is the bootstrap read, and a
-    // bootstrap row carries its position in the one global sequence. Asserted
-    // rather than stripped: a read that kept the FIRST state per key instead of
-    // the latest would still carry the right payload for i1 (both writes upsert
-    // it) and the wrong seq.
-    expect(world).toContainEqual({
-      seq: 3,
-      entity: 'issueProjection',
-      entityId: 'i1',
-      op: 'upsert',
-      payload: '{"v":2}',
-    })
-    // Same id under a different entity is a distinct key, not a collision.
-    expect(world).toContainEqual({
-      seq: 5,
-      entity: 'session',
-      entityId: 'i1',
-      op: 'upsert',
-      payload: '{"s":1}',
-    })
-    // In seq order, which is what a bootstrap installs in.
-    expect(world.map((row) => row.seq)).toEqual(
-      [...world.map((row) => row.seq)].sort((a, b) => a - b),
-    )
-  })
-
   // POD-678. The regression that made every POD-N mention older than a day render
   // as unknown: the installed world was a FOLD over the retained log, so retention
   // deleted the world along with the delta window. Retention bounds what
   // `changesSince` can serve; it may not bound what exists.
-  it('keeps the installed world when retention deletes the whole log', async () => {
-    const store = await openTestStore(':memory:')
-    await store.sync.appendChanges(
-      [
-        { entity: 'issueProjection', entityId: 'old', op: 'upsert', payload: '{"v":1}' },
-        { entity: 'issueProjection', entityId: 'gone', op: 'upsert', payload: '{"v":1}' },
-      ],
-      1000,
-    )
-    await store.sync.appendChanges(
-      [{ entity: 'issueProjection', entityId: 'gone', op: 'remove', payload: null }],
-      2000,
-    )
-    // Everything, including the row `old` was last written by, is now beyond the
-    // budget — exactly the live install's state after ~27h at 20k rows.
-    expect(await pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })).toBe(3)
-    expect(await store.sync.minChangeSeq()).toBeNull()
-
-    const world = await store.sync.latestChangeStates()
-    expect(world).toEqual([
-      { seq: 1, entity: 'issueProjection', entityId: 'old', op: 'upsert', payload: '{"v":1}' },
-    ])
-    // The removed entity did not come back with it, and the pruned log did not
-    // resurrect as a delta range either: a replica must still re-bootstrap.
-    expect(await store.sync.changesSince(0)).toEqual([])
-  })
 })

@@ -32,9 +32,18 @@ const RELOAD_COUNTER_KEY = WIRE_RELOAD_COUNTER_KEY
 const log = createLogger('web:version-guard')
 /** After this many reloads AGAINST THE SAME SERVED BUILD, stop looping and surface an error. */
 const MAX_RELOADS = 2
+/** The build whose spent budget was last logged; a refused reconnect re-checks every step. */
+let loggedBlockedTarget: string | null = null
 
-/** Result of a version check: matched, a hard-reload was triggered, or the loop guard tripped. */
-export type VersionCheck = 'ok' | 'reloaded' | 'blocked' | 'server-behind' | 'iteration'
+/** Result of a version check: matched, a hard-reload was triggered, or the loop guard tripped.
+ *  `deferred`: a refused reconnect held a reload back (see `checkRefusedReconnect`). */
+export type VersionCheck =
+  | 'ok'
+  | 'reloaded'
+  | 'blocked'
+  | 'server-behind'
+  | 'iteration'
+  | 'deferred'
 
 /** Re-exported so callers of `checkServedAssets` need only this module. */
 export type { ServedAssetsAnswer }
@@ -139,9 +148,15 @@ export async function checkServerVersion(
   httpOrigin: string,
   /** Injected for the test; production reads the build define. */
   iterating: boolean = isIterationMode(),
+  /** Set by a refused reconnect. `signal` aborts the `/version` request (an aborted request
+   *  reads as unreachable, so `'ok'`); `mayReload` can hold the reload back. */
+  refused?: {
+    signal: AbortSignal
+    mayReload: (verdict: SkewVerdict, target: string) => boolean
+  },
 ): Promise<VersionCheck> {
   const compatibility = await checkWireVersion(async () => {
-    const res = await workspaceFetch(`${httpOrigin}/version`)
+    const res = await workspaceFetch(`${httpOrigin}/version`, { signal: refused?.signal })
     return await res.json()
   })
   if (!compatibility) return 'ok'
@@ -226,13 +241,17 @@ export async function checkServerVersion(
   const budget = readReloadBudget()
   const reloads = budget.target === target ? budget.spent : 0
   if (reloads >= MAX_RELOADS) {
-    log.error('wire-version mismatch persists; not reloading again', {
-      reloads,
-      target,
-      bundleWire: CLIENT_WIRE_VERSION,
-      serverWire,
-      serverMin,
-    })
+    // A refused reconnect lands here on every backoff step: say it once per build.
+    if (loggedBlockedTarget !== target) {
+      loggedBlockedTarget = target
+      log.error('wire-version mismatch persists; not reloading again', {
+        reloads,
+        target,
+        bundleWire: CLIENT_WIRE_VERSION,
+        serverWire,
+        serverMin,
+      })
+    }
     // The loop guard has tripped, so reloading is off the table and this bundle
     // is going to run against a server it does not match. SAY SO — that silence
     // is the whole of POD-1610. The wording avoids "reload": two have already
@@ -252,8 +271,17 @@ export async function checkServerVersion(
     })
     return 'blocked'
   }
+  if (refused && !refused.mayReload(verdict, target)) return 'deferred'
   writeReloadBudget({ spent: reloads + 1, target })
-  await forceReload()
+  try {
+    await forceReload()
+  } catch (error) {
+    // Reload preparation refused (an unsaved file editor, the save budget), so
+    // no reload started and none was spent.
+    if (budget.spent > 0) writeReloadBudget(budget)
+    else clearReloadCounter()
+    throw error
+  }
   return 'reloaded'
 }
 
@@ -391,7 +419,73 @@ export async function recoverFromWireSkew(
   return await checkServerVersion(httpOrigin)
 }
 
-/** Test-only: the once-per-page latch outlives a test file's cases. */
+/**
+ * THE TAB WHOSE RECONNECTS ARE REFUSED (POD-6940).
+ *
+ * A server that moved to a newer wire refuses this bundle's WebSocket upgrade
+ * (HTTP 426), and a browser socket cannot see that status: the hub only sees a
+ * failed dial and retries forever, and none of the checks above runs, because
+ * each needs a connection that worked. So a refused reconnect re-runs the boot
+ * handshake over `/version`. An unreachable `/version` (the server is still
+ * restarting) and a matching one (an ordinary restart) change nothing. A
+ * mismatch takes the boot path: the budgeted hard reload in a browser, the
+ * "Update Podium" notice in the desktop app.
+ *
+ * A wire mismatch reloads on the first refused dial: the server refuses every
+ * dial from this bundle. A schema-only mismatch (same wire, different digest)
+ * reloads only when two consecutive refused dials both see the same served
+ * build. The server does not refuse a schema-only bundle, so one failed dial
+ * (in flight across the restart, a 503 or 401 upgrade answer) is no reason to
+ * take the tab away; the next dial usually succeeds. Any other outcome in
+ * between (a match, an unreachable `/version`, another build, a welcome) starts
+ * the count again. `dial` is the refused-dial count since the last welcome.
+ *
+ * One check at a time, and none once a reload is under way: the page is going
+ * away, and a second check would spend a second attempt of the reload budget
+ * on the same navigation. The `/version` request is bounded below the 10 s
+ * backoff cap, so a black-holed request cannot hold the latch. A reload that
+ * reload preparation refuses (unsaved file edits) is logged and spends nothing;
+ * a later refused dial asks again.
+ */
+let refusedCheckBusy = false
+const REFUSED_CHECK_TIMEOUT_MS = 8_000
+/** The served build whose schema-only mismatch the previous refused dial held back. */
+let heldSchemaSkew: string | null = null
+
+export async function checkRefusedReconnect(
+  httpOrigin: string,
+  dial = 1,
+): Promise<VersionCheck | 'ignored'> {
+  if (dial === 1) heldSchemaSkew = null
+  if (refusedCheckBusy) return 'ignored'
+  refusedCheckBusy = true
+  let result: VersionCheck | undefined
+  let held: string | null = null
+  try {
+    result = await checkServerVersion(httpOrigin, isIterationMode(), {
+      signal: AbortSignal.timeout(REFUSED_CHECK_TIMEOUT_MS),
+      mayReload: (verdict, target) => {
+        if (verdict !== 'schema-skew' || target === heldSchemaSkew) return true
+        held = target
+        return false
+      },
+    })
+    return result
+  } catch (error) {
+    log.warn('reload after a refused reconnect did not start', {
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return 'ignored'
+  } finally {
+    heldSchemaSkew = held
+    if (result !== 'reloaded') refusedCheckBusy = false
+  }
+}
+
+/** Test-only: the once-per-page latches outlive a test file's cases. */
 export function resetWireSkewRecovery(): void {
   recoveryAttempted = false
+  refusedCheckBusy = false
+  heldSchemaSkew = null
+  loggedBlockedTarget = null
 }

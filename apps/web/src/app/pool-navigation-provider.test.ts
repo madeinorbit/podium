@@ -1,17 +1,13 @@
-import { omitGone } from '@podium/client-graph/lookup'
+import type { SessionView } from '@podium/client-core/session-values'
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
-import type { IssueProjection } from '@podium/model'
-import { issueActivityAt } from '../../../../tests/worklist/diagnostics/reference-state'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import {
-  type EngineState,
   knownTabIdsForWorkspace,
   loadingNavigationProvider,
   NAVIGATION_LOADING,
   resolvedWorkspaceKey,
+  type ScreenState,
   workspaceKeyForState,
-} from '@podium/client-core/engine'
-import type { SessionView } from '@podium/client-core/session-values'
+} from '@podium/client-core/ui'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import {
   allTabIds,
@@ -24,18 +20,20 @@ import {
 } from '@podium/client-core/values'
 import { MobxPool } from '@podium/client-graph'
 import { preparePoolScreens, screenOptions } from '@podium/client-graph/host'
-import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
+import { omitGone } from '@podium/client-graph/lookup'
 import { computed } from '@podium/client-graph/react'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
+import type { IssueProjection } from '@podium/model'
 import { asIssueId } from '@podium/model/browser'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { planNavigation } from '../../../../packages/client-core/src/engine/navigation'
-import { Reactions } from '../../../../packages/client-core/src/engine/reactions'
+import { TabPruningService } from '../../../../packages/client-core/src/runtime-root/services/tab-pruning-service'
+import { planNavigation } from '../../../../packages/client-core/src/ui/navigation'
 import {
-  startScenarioEngine,
-  upsert,
-} from '../../../../tests/worklist/shared/src/scenarios'
-import { NAVIGATION_SUMMARIES, panePoolScreen } from './pane-pool-screen'
+  issueActivityAt,
+  referenceState,
+} from '../../../../tests/worklist/diagnostics/reference-state'
+import { startScenarioEngine, upsert } from '../../../../tests/worklist/shared/src/scenarios'
+import { panePoolScreen } from './pane-pool-screen'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 import { attachWorklistPool } from './store-worklist-pool'
 
@@ -70,14 +68,27 @@ const legacyActivity = (rows: SliceIssue[], sessions: SessionView[]) =>
 describe('web pool navigation', () => {
   it('wakes topology for unscanned rehomes and hidden sessions without loading row facets', () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
-    const session = { sessionId: 'seat', cwd: '/unscanned/old', headless: true, status: 'live', lastActiveAt: stamp }
+    const session = {
+      sessionId: 'seat',
+      cwd: '/unscanned/old',
+      headless: true,
+      status: 'live',
+      lastActiveAt: stamp,
+    }
     pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'seat', value: session }] })
-    const row = vi.spyOn(pool, 'row'), changed = vi.fn()
+    const row = vi.spyOn(pool, 'row'),
+      changed = vi.fn()
     const stop = createPoolNavigationProvider(pool).onTopology!(changed)
     try {
-      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: { ...session, title: 'Rename' } }] })
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'session', id: 'seat', value: { ...session, title: 'Rename' } }],
+      })
       expect(changed).not.toHaveBeenCalled()
-      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: { ...session, cwd: '/unscanned/new' } }] })
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'session', id: 'seat', value: { ...session, cwd: '/unscanned/new' } }],
+      })
       expect(changed).toHaveBeenCalledTimes(1)
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: undefined }] })
       expect(changed).toHaveBeenCalledTimes(2)
@@ -85,9 +96,16 @@ describe('web pool navigation', () => {
       expect(changed).toHaveBeenCalledTimes(3)
       // Ingestion maintains the changed seat's addressed scalar facts. The
       // topology observer never asks for an unrelated identity or full facet.
-      expect(row.mock.calls.every(([kind, id, mode]) => kind === 'session' && id === 'seat' &&
-        (mode === 'mark' || mode === 'summary-fields'))).toBe(true)
-    } finally { stop(); pool.dispose() }
+      expect(
+        row.mock.calls.every(
+          ([kind, id, mode]) =>
+            kind === 'session' && id === 'seat' && (mode === 'mark' || mode === undefined),
+        ),
+      ).toBe(true)
+    } finally {
+      stop()
+      pool.dispose()
+    }
   })
 
   it('counts legacy membership entries even on memo hits and direct session indexing', () => {
@@ -139,14 +157,26 @@ describe('web pool navigation', () => {
       sessions,
       pendingSpawnIds: new Set(['spawn']),
       fileTabs,
-    } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
+    } as unknown as ScreenState & {
+      issueProjections: SliceIssue[]
+      sessions: SessionView[]
+      issueUserStates: object[]
+      pendingSpawnIds: ReadonlySet<string>
+    } & {
+      issueProjections: SliceIssue[]
+      sessions: SessionView[]
+      issueUserStates: object[]
+      pendingSpawnIds: ReadonlySet<string>
+    }
     const keys: WorkspaceKey[] = ['mission:root', 'mission:other', 'mission:absent']
-    legacy.navigation = fixtureNavigation({ issues: () => rows as unknown as IssueProjection[], sessions: () => sessions })
+    legacy.navigation = fixtureNavigation({
+      issues: () => rows as unknown as IssueProjection[],
+      sessions: () => sessions,
+    })
     const expected = keys.map((key) => [...knownTabIdsForWorkspace(legacy, key)].sort())
     const load = vi.fn((_kind: string, id: string) => rows.find((row) => row.id === id))
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
       load,
-      summaries: NAVIGATION_SUMMARIES,
       schedule: () => () => {},
     })
     pool.apply({
@@ -169,15 +199,10 @@ describe('web pool navigation', () => {
         ),
       ]),
     )
-    const prune = (st: EngineState) => {
-      const reactions = new Reactions({
+    const prune = (st: ScreenState) => {
+      const reactions = new TabPruningService({
         state: () => st,
         publish: (patch) => Object.assign(st, patch),
-        hub: {} as never,
-        notices: {} as never,
-        isVisible: () => true,
-        markSessionRead: vi.fn(),
-        markIssueRead: vi.fn(),
       })
       try {
         reactions.pruneWorkspaces()
@@ -244,7 +269,17 @@ describe('web pool navigation', () => {
       sessions,
       pendingSpawnIds: new Set(),
       fileTabs: [],
-    } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
+    } as unknown as ScreenState & {
+      issueProjections: SliceIssue[]
+      sessions: SessionView[]
+      issueUserStates: object[]
+      pendingSpawnIds: ReadonlySet<string>
+    } & {
+      issueProjections: SliceIssue[]
+      sessions: SessionView[]
+      issueUserStates: object[]
+      pendingSpawnIds: ReadonlySet<string>
+    }
     missionLegacyStats.enable()
     missionLegacyStats.reset()
     expect([...knownTabIdsForWorkspace(state, 'mission:root')]).toEqual([
@@ -268,19 +303,21 @@ describe('web pool navigation', () => {
   })
 
   it('switches sessions with identical layouts and no legacy mission entries while pruning runs', async () => {
-    const prune = vi.spyOn(Reactions.prototype, 'pruneWorkspaces')
+    const prune = vi.spyOn(TabPruningService.prototype, 'pruneWorkspaces')
     {
       const ctx = await startScenarioEngine(1, { ownRows: true })
       const runtime = ctx.engine
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-      const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
+      const handle = createRuntimeWorklistPool(runtime, {})
       try {
         if (handle) {
-
           runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
         }
         const before = referenceState(runtime)
-        before.navigation = fixtureNavigation({ issues: () => before.issueProjections, sessions: () => before.sessions })
+        before.navigation = fixtureNavigation({
+          issues: () => before.issueProjections,
+          sessions: () => before.sessions,
+        })
         const seats = before.sessions.filter(
           (row) =>
             !row.archived &&
@@ -306,12 +343,14 @@ describe('web pool navigation', () => {
         const st = referenceState(runtime)
         expect(st.selectedIssueId).toBe(next.issueId)
         expect(st.paneA).toBe(next.sessionId)
-        expect(st.workspaceKey()).toBe(workspaceKeyForState({ ...before, selectedIssueId: next.issueId! }))
+        expect(st.workspaceKey()).toBe(
+          workspaceKeyForState({ ...before, selectedIssueId: next.issueId! }),
+        )
       } finally {
         missionLegacyStats.disable()
         runtime.setNavigationProvider(loadingNavigationProvider)
         handle?.dispose()
-        runtime.destroy()
+        runtime.dispose()
       }
     }
   })
@@ -337,11 +376,24 @@ describe('web pool navigation', () => {
     try {
       for (const id of [...rows.map((row) => row.id), 'absent', null]) {
         const st = {
-          navigation: fixtureNavigation({ issues: () => rows as unknown as IssueProjection[], sessions: () => [] }),
+          navigation: fixtureNavigation({
+            issues: () => rows as unknown as IssueProjection[],
+            sessions: () => [],
+          }),
           issueProjections: rows,
           selectedIssueId: id,
           selectedWorktree: '/repo',
-        } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
+        } as unknown as ScreenState & {
+          issueProjections: SliceIssue[]
+          sessions: SessionView[]
+          issueUserStates: object[]
+          pendingSpawnIds: ReadonlySet<string>
+        } & {
+          issueProjections: SliceIssue[]
+          sessions: SessionView[]
+          issueUserStates: object[]
+          pendingSpawnIds: ReadonlySet<string>
+        }
         expect(
           tracked(() => workspaceKeyForState({ ...st, navigation: provider })),
           String(id),
@@ -352,7 +404,17 @@ describe('web pool navigation', () => {
         selectedIssueId: 'child',
         selectedWorktree: '/repo',
         navigation: provider,
-      } as unknown as EngineState & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> } & { issueProjections: SliceIssue[]; sessions: SessionView[]; issueUserStates: object[]; pendingSpawnIds: ReadonlySet<string> }
+      } as unknown as ScreenState & {
+        issueProjections: SliceIssue[]
+        sessions: SessionView[]
+        issueUserStates: object[]
+        pendingSpawnIds: ReadonlySet<string>
+      } & {
+        issueProjections: SliceIssue[]
+        sessions: SessionView[]
+        issueUserStates: object[]
+        pendingSpawnIds: ReadonlySet<string>
+      }
       expect(tracked(() => workspaceKeyForState(selected))).toBe('mission:root')
       pool.apply({
         type: 'update',
@@ -365,41 +427,11 @@ describe('web pool navigation', () => {
     }
   })
 
-  it('answers cold rows with LOADING and the batched loader, then resolves the real root', () => {
-    const rows = [
-      issue('root', { archived: true }),
-      issue('child', { parentId: 'root', archived: true }),
-    ]
-    const byId = new Map(rows.map((row) => [row.id, row]))
-    const load = vi.fn((_kind: string, id: string) => byId.get(id))
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-      load,
-      summaries: MISSION_SUMMARIES,
-      schedule: () => () => {},
-    })
-    pool.apply({
-      type: 'replace',
-      rows: rows.map((value) => ({ kind: 'issue', id: value.id, value })),
-    })
-    const provider = createPoolNavigationProvider(pool)
-    try {
-      expect(tracked(() => provider.issue('child'))).toBe(NAVIGATION_LOADING)
-      expect(load).not.toHaveBeenCalled()
-      pool.hydrate()
-      expect(load).toHaveBeenCalledTimes(1)
-      expect(tracked(() => provider.issue('child'))).toMatchObject({ id: 'child' })
-      expect(tracked(() => provider.missionRoot('child'))).toBe('child')
-    } finally {
-      pool.dispose()
-    }
-  })
-
   it('uses declared cold navigation summaries without loading full issue rows', () => {
     const row = issue('cold', { archived: true, worktreePath: '/repo/branch' })
     const load = vi.fn(() => row)
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
       load,
-      summaries: NAVIGATION_SUMMARIES,
       schedule: () => () => {},
     })
     pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: row.id, value: row }] })
@@ -453,7 +485,6 @@ describe('web pool navigation', () => {
     ] as SessionView[]
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
       load: () => undefined,
-      summaries: NAVIGATION_SUMMARIES,
       schedule: () => () => {},
     })
     pool.apply({
@@ -482,33 +513,6 @@ describe('web pool navigation', () => {
     }
   })
 
-  it('loads missing cold activity facts in the ordinary batch', () => {
-    const rows = [
-      issue('root'),
-      issue('hidden', { parentId: 'root', archived: true, updatedAt: '2026-09-25T00:00:00.000Z' }),
-    ]
-    const load = vi.fn((_kind: string, id: string) => rows.find((row) => row.id === id))
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-      load,
-      summaries: MISSION_SUMMARIES,
-      schedule: () => () => {},
-    })
-    pool.apply({
-      type: 'replace',
-      rows: rows.map((value) => ({ kind: 'issue', id: value.id, value })),
-    })
-    const provider = createPoolNavigationProvider(pool)
-    try {
-      expect(tracked(() => provider.activityAt('root'))).toBe(NAVIGATION_LOADING)
-      expect(load).not.toHaveBeenCalled()
-      expect(pool.hydrate()).toBe(1)
-      expect(tracked(() => provider.activityAt('root'))).toBe(legacyActivity(rows, []))
-      expect(load).toHaveBeenCalledExactlyOnceWith('issue', 'hidden')
-    } finally {
-      pool.dispose()
-    }
-  })
-
   it('always prepares navigation and combines declared cold fields with other screens', () => {
     const setNavigationProvider = vi.fn(),
       prepare = vi.fn(),
@@ -527,7 +531,6 @@ describe('web pool navigation', () => {
     const detach = preparePoolScreens(screens, runtime)
     expect(screenOptions(screens, runtime)).toEqual({
       settings: true,
-      summaries: NAVIGATION_SUMMARIES,
     })
     expect(prepare).toHaveBeenCalledTimes(1)
     expect(setNavigationProvider).toHaveBeenCalledExactlyOnceWith(loadingNavigationProvider)
@@ -540,7 +543,10 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const before = referenceState(runtime)
-    before.navigation = fixtureNavigation({ issues: () => before.issueProjections, sessions: () => before.sessions })
+    before.navigation = fixtureNavigation({
+      issues: () => before.issueProjections,
+      sessions: () => before.sessions,
+    })
     const seat = before.sessions.find(
       (session) =>
         !session.archived &&
@@ -579,13 +585,13 @@ describe('web pool navigation', () => {
       expect(errors).not.toHaveBeenCalled()
     } finally {
       detach()
-      runtime.destroy()
+      runtime.dispose()
     }
   })
 
   it.each([
     1, 4,
-  ])('keeps local birth refs canonical, including a cold ref through its declared summary (%ix history)', (scale) => {
+  ])('keeps local birth refs canonical, including a stopped session ref (%ix history)', (scale) => {
     const seat = {
       sessionId: 'seat',
       displayRef: 'POD-529-A',
@@ -600,7 +606,6 @@ describe('web pool navigation', () => {
     const load = vi.fn((_kind: string, id: string) => (id === seat.sessionId ? seat : undefined))
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
       load,
-      summaries: { session: ['displayRef'] },
       schedule: () => () => {},
     })
     pool.apply({
@@ -616,20 +621,19 @@ describe('web pool navigation', () => {
     })
     const provider = createPoolNavigationProvider(pool)
     const questions = vi.spyOn(pool.queries, 'sessionReferenceId')
-    const catalog = vi.spyOn(pool.coldIndex(), 'readerIds')
+    const catalog = vi.spyOn(pool.deviceIndex(), 'readerIds')
     const residentKeys = vi.spyOn(pool.tables.session, 'keys')
     try {
-      expect(tracked(() => provider.session(seat.displayRef))).toBe(NAVIGATION_LOADING)
-      expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toBe(NAVIGATION_LOADING)
+      expect(tracked(() => provider.session(seat.displayRef))).toMatchObject({
+        sessionId: seat.sessionId,
+      })
+      expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toMatchObject({
+        sessionId: seat.sessionId,
+      })
       expect(load).not.toHaveBeenCalled()
       expect(questions).toHaveBeenCalledWith(seat.displayRef)
       expect(catalog).not.toHaveBeenCalled()
       expect(residentKeys).not.toHaveBeenCalled()
-      pool.hydrate()
-      expect(load).toHaveBeenCalledTimes(1)
-      expect(tracked(() => provider.session(`  ${seat.displayRef}  `))).toMatchObject({
-        sessionId: seat.sessionId,
-      })
       expect(tracked(() => provider.session('POD-530-A'))).toBeUndefined()
     } finally {
       pool.dispose()
@@ -666,7 +670,7 @@ describe('web pool navigation', () => {
       referenceState(runtime).navigateWorkspace({ selectedIssueId: target })
       referenceState(runtime).setView('settings')
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-      const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
+      const handle = createRuntimeWorklistPool(runtime, {})
       try {
         runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
         expect(referenceState(runtime).view).toBe('settings')
@@ -677,7 +681,7 @@ describe('web pool navigation', () => {
       }
     } finally {
       detach()
-      runtime.destroy()
+      runtime.dispose()
     }
   })
 
@@ -685,10 +689,17 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-    const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
+    const handle = createRuntimeWorklistPool(runtime, {})
     const target = asIssueId(ctx.targets.visibleRootId)
     const initial = referenceState(runtime)
-    runtime.setNavigationProvider(fixtureNavigation({ issues: () => initial.issueProjections, sessions: () => initial.sessions, markers: () => initial.issueUserStates }))
+    runtime.setNavigationProvider(
+      fixtureNavigation({
+        issues: () => initial.issueProjections,
+        sessions: () => initial.sessions,
+        markers: () => initial.issueUserStates,
+      }),
+    )
+    runtime.start()
     referenceState(runtime).setView('workspace')
     referenceState(runtime).setSelectedIssueId(target)
     expect(referenceState(runtime).issueVisitBaseline?.issueId).toBe(target)
@@ -700,7 +711,7 @@ describe('web pool navigation', () => {
     } finally {
       detach()
       handle.dispose()
-      runtime.destroy()
+      runtime.dispose()
     }
   })
 
@@ -709,7 +720,7 @@ describe('web pool navigation', () => {
       const ctx = await startScenarioEngine(1, { ownRows: true })
       const runtime = ctx.engine
       const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-      const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
+      const handle = createRuntimeWorklistPool(runtime, {})
       try {
         if (handle) runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
         const st = referenceState(runtime)
@@ -743,36 +754,35 @@ describe('web pool navigation', () => {
       } finally {
         runtime.setNavigationProvider(loadingNavigationProvider)
         handle?.dispose()
-        runtime.destroy()
+        runtime.dispose()
       }
     }
   })
 
-  it('watches navigation fields without waking for display metadata', async () => {
-    const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
+  it('watches read activity without waking for display metadata', async () => {
+    const ctx = await startScenarioEngine(1, { ownRows: true })
     const runtime = ctx.engine
     const target = asIssueId(ctx.targets.visibleRootId)
     referenceState(runtime).navigateWorkspace({ selectedIssueId: target })
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-    const handle = createRuntimeWorklistPool(runtime, { summaries: MISSION_SUMMARIES })
-    runtime.setNavigationProvider(createPoolNavigationProvider(handle.pool))
-    const turn = () => new Promise((resolve) => setTimeout(resolve, 0))
-    await turn()
-    const reactions = (
-      runtime as unknown as {
-        reactions: {
-          updateIssueVisitBaseline(): void
-          updateIssueMarkReadTimer(): void
-          updateMarkReadTimer(): void
-        }
-      }
-    ).reactions
+    const handle = createRuntimeWorklistPool(runtime, {})
+    const navigation = createPoolNavigationProvider(handle.pool)
+    const markRead = runtime.services.markRead
+    if (!markRead) throw new Error('Mark-read service is not installed')
     const spies = [
       'updateIssueVisitBaseline',
       'updateIssueMarkReadTimer',
       'updateMarkReadTimer',
-    ].map((name) => vi.spyOn(reactions, name as keyof typeof reactions))
+    ].map((name) => vi.spyOn(markRead, name as keyof typeof markRead))
     try {
+      runtime.setNavigationProvider(navigation)
+      const turn = () => new Promise((resolve) => setTimeout(resolve, 0))
+      await vi.waitFor(() => {
+        handle.pool.hydrate()
+        expect(typeof tracked(() => navigation.activityAt(target))).toBe('string')
+      })
+      await turn()
+      for (const spy of spies) spy.mockClear()
       const row = tracked(() => omitGone(handle.pool.row('issue', target))) as SliceIssue
       handle.pool.apply({
         type: 'update',
@@ -780,9 +790,19 @@ describe('web pool navigation', () => {
       })
       await turn()
       expect(spies.map((spy) => spy.mock.calls.length)).toEqual([0, 0, 0])
+      // Advance the roll-up the service actually watches, past all child and
+      // session activity, instead of changing an older issue timestamp.
+      const current = tracked(() => navigation.activityAt(target))
+      if (typeof current !== 'string') throw new Error('Expected foreground activity')
       handle.pool.apply({
         type: 'update',
-        rows: [{ kind: 'issue', id: target, value: { ...row, updatedAt: ctx.stamp() } }],
+        rows: [
+          {
+            kind: 'issue',
+            id: target,
+            value: { ...row, updatedAt: new Date(Date.parse(current) + 1000).toISOString() },
+          },
+        ],
       })
       await vi.waitFor(() => expect(spies[0]).toHaveBeenCalled())
     } finally {
@@ -791,7 +811,7 @@ describe('web pool navigation', () => {
       })
       runtime.setNavigationProvider(loadingNavigationProvider)
       handle.dispose()
-      runtime.destroy()
+      runtime.dispose()
     }
   })
 
@@ -799,11 +819,15 @@ describe('web pool navigation', () => {
     const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
     const runtime = ctx.engine
     const { createRuntimeWorklistPool } = await import('@podium/client-graph/runtime-pool')
-    const handle = createRuntimeWorklistPool(runtime, { summaries: NAVIGATION_SUMMARIES })
+    const handle = createRuntimeWorklistPool(runtime, {})
     const provider = createPoolNavigationProvider(handle.pool)
     try {
       const st = referenceState(runtime)
-      st.navigation = fixtureNavigation({ issues: () => st.issueProjections, sessions: () => st.sessions, markers: () => st.issueUserStates })
+      st.navigation = fixtureNavigation({
+        issues: () => st.issueProjections,
+        sessions: () => st.sessions,
+        markers: () => st.issueUserStates,
+      })
       const check = (id: string) =>
         tracked(() =>
           planNavigation(
@@ -839,7 +863,7 @@ describe('web pool navigation', () => {
       expect(differences).toBe(0)
     } finally {
       handle.dispose()
-      runtime.destroy()
+      runtime.dispose()
     }
   }, 60_000)
 })

@@ -6,6 +6,7 @@ import { checkedOutBranch, defaultParentBranchFor } from './modules/issues/servi
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { CompatibilityShippingPolicyResolver } from './modules/shipping/policy'
 import { openTestStore } from './test-support/open-test-store'
+import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 
 /**
@@ -40,7 +41,6 @@ async function harness(opts: {
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: opts.defaultParentBranch,
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
@@ -66,7 +66,7 @@ async function harness(opts: {
       return { ok: true, output: '' }
     },
     resolveMachine: vi.fn(async () => store.hostMachineId),
-    ...issueTestPlumbing((msg) => broadcast(msg)),
+    ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     setSessionArchived: vi.fn(),
     clearSessionOffer: vi.fn(),
     onWorktreesChanged: vi.fn(),
@@ -82,14 +82,22 @@ describe('parent branch for a new issue (POD-2065)', () => {
       repoDefault: 'tf.dev',
       refs: ['main', 'tf.dev'],
     })
-    const w = await svc.crud.create({ repoPath: '/r', title: 'Podium work', startNow: false })
+    const w = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Podium work',
+      startNow: false,
+    })
     expect(w.parentBranch).toBe('tf.dev')
     expect(ops).toEqual([])
   })
 
   it('stores the instance default as configured, without probing or falling back', async () => {
     const { svc, ops } = await harness({ defaultParentBranch: 'tf.dev', refs: ['main'] })
-    const w = await svc.crud.create({ repoPath: '/r', title: 'Other repo', startNow: false })
+    const w = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Other repo',
+      startNow: false,
+    })
     expect(w.parentBranch).toBe('tf.dev')
     expect(ops).toEqual([])
   })
@@ -97,11 +105,23 @@ describe('parent branch for a new issue (POD-2065)', () => {
   it('detects main, master, then the checked-out branch when nothing is configured', async () => {
     const main = await harness({ defaultParentBranch: '', refs: ['main', 'master'] })
     expect(
-      (await main.svc.crud.create({ repoPath: '/r', title: 'a', startNow: false })).parentBranch,
+      (
+        await main.svc.crud.create(main.svc.reports.store.serverWriter, {
+          repoPath: '/r',
+          title: 'a',
+          startNow: false,
+        })
+      ).parentBranch,
     ).toBe('main')
     const master = await harness({ defaultParentBranch: '', refs: ['master'] })
     expect(
-      (await master.svc.crud.create({ repoPath: '/r', title: 'b', startNow: false })).parentBranch,
+      (
+        await master.svc.crud.create(master.svc.reports.store.serverWriter, {
+          repoPath: '/r',
+          title: 'b',
+          startNow: false,
+        })
+      ).parentBranch,
     ).toBe('master')
     const trunk = await harness({
       defaultParentBranch: '',
@@ -109,13 +129,23 @@ describe('parent branch for a new issue (POD-2065)', () => {
       head: 'trunk...origin/trunk',
     })
     expect(
-      (await trunk.svc.crud.create({ repoPath: '/r', title: 'c', startNow: false })).parentBranch,
+      (
+        await trunk.svc.crud.create(trunk.svc.reports.store.serverWriter, {
+          repoPath: '/r',
+          title: 'c',
+          startNow: false,
+        })
+      ).parentBranch,
     ).toBe('trunk')
   })
 
   it('uses main when nothing is configured and the repository does not answer', async () => {
     const { svc } = await harness({ defaultParentBranch: '', refs: [], answers: false })
-    const w = await svc.crud.create({ repoPath: '/r', title: 'Offline', startNow: false })
+    const w = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Offline',
+      startNow: false,
+    })
     expect(w.parentBranch).toBe('main')
   })
 
@@ -125,7 +155,7 @@ describe('parent branch for a new issue (POD-2065)', () => {
       repoDefault: 'tf.dev',
       refs: ['main', 'tf.dev'],
     })
-    const w = await svc.crud.create({
+    const w = await svc.crud.create(svc.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Stacked',
       parentBranch: 'issue/7-base',
@@ -141,9 +171,19 @@ describe('parent branch for a new issue (POD-2065)', () => {
       repoDefault: 'main',
       refs: ['main', 'tf.dev'],
     })
-    const before = await h.svc.crud.create({ repoPath: '/r', title: 'Before', startNow: false })
-    await h.store.repos.setRepoDefaultParentBranch(h.store.hostMachineId, '/r', 'tf.dev')
-    const after = await h.svc.crud.create({ repoPath: '/r', title: 'After', startNow: false })
+    const before = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Before',
+      startNow: false,
+    })
+    await seedRows(h.store, () =>
+      h.store.repos.setRepoDefaultParentBranch(h.store.hostMachineId, '/r', 'tf.dev'),
+    )
+    const after = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'After',
+      startNow: false,
+    })
     expect((await h.svc.reports.get(before.id))?.parentBranch).toBe('main')
     expect(after.parentBranch).toBe('tf.dev')
   })
@@ -155,8 +195,8 @@ describe('detecting the base on the right machine (POD-2065)', () => {
     const a = asMachineId('machine-a')
     const b = asMachineId('machine-b')
     // The same path on two machines, holding two different repositories.
-    await store.repos.addRepo('/r', a, 'git@example.com:acme/alpha.git')
-    await store.repos.addRepo('/r', b, 'git@example.com:acme/beta.git')
+    await seedRows(store, () => store.repos.addRepo('/r', a, 'git@example.com:acme/alpha.git'))
+    await seedRows(store, () => store.repos.addRepo('/r', b, 'git@example.com:acme/beta.git'))
     const refs = new Map([
       [a, new Set(['main'])],
       [b, new Set(['master'])],
@@ -176,14 +216,19 @@ describe('detecting the base on the right machine (POD-2065)', () => {
       readRepo,
       repoOp: async () => ({ ok: true, output: '' }),
       resolveMachine: vi.fn(async () => a),
-      ...issueTestPlumbing(vi.fn()),
+      ...issueTestPlumbing(vi.fn(), { store }),
       setSessionArchived: vi.fn(),
       clearSessionOffer: vi.fn(),
       onWorktreesChanged: vi.fn(),
       now: () => '2026-10-26T00:00:00.000Z',
     }
     const svc = await IssueService.create(deps)
-    const onB = await svc.crud.create({ repoPath: '/r', title: 'B', machineId: b, startNow: false })
+    const onB = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      machineId: b,
+      startNow: false,
+    })
     expect(onB.parentBranch).toBe('master')
     expect(new Set(asked)).toEqual(new Set([b]))
   })
@@ -194,8 +239,8 @@ describe('detecting the base on the right machine (POD-2065)', () => {
     const b = asMachineId('machine-b')
     const c = asMachineId('machine-c')
     // Two identities at one path, and the pin reported neither: ambiguous.
-    await store.repos.addRepo('/same', a, 'git@example.com:acme/alpha.git')
-    await store.repos.addRepo('/same', b, 'git@example.com:acme/beta.git')
+    await seedRows(store, () => store.repos.addRepo('/same', a, 'git@example.com:acme/alpha.git'))
+    await seedRows(store, () => store.repos.addRepo('/same', b, 'git@example.com:acme/beta.git'))
     const asked: (string | undefined)[] = []
     const readRepo: NonNullable<IssueDeps['readRepo']> = async (op, _cwd, args, machineId) => {
       asked.push(machineId)
@@ -213,14 +258,19 @@ describe('detecting the base on the right machine (POD-2065)', () => {
       readRepo,
       repoOp: async () => ({ ok: true, output: '' }),
       resolveMachine: vi.fn(async () => a),
-      ...issueTestPlumbing(vi.fn()),
+      ...issueTestPlumbing(vi.fn(), { store }),
       setSessionArchived: vi.fn(),
       clearSessionOffer: vi.fn(),
       onWorktreesChanged: vi.fn(),
       now: () => '2026-10-26T00:00:00.000Z',
     }
     const svc = await IssueService.create(deps)
-    const onC = await svc.crud.create({ repoPath: '/same', title: 'C', machineId: c, startNow: false })
+    const onC = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/same',
+      title: 'C',
+      machineId: c,
+      startNow: false,
+    })
     expect(onC.parentBranch).toBe('main')
     expect(asked).toEqual([])
   })
@@ -229,7 +279,11 @@ describe('detecting the base on the right machine (POD-2065)', () => {
 describe('starting an issue whose parent branch is missing (POD-2065)', () => {
   it("refuses with both fixes instead of git's error, and leaves the parent alone", async () => {
     const h = await harness({ defaultParentBranch: 'tf.dev', refs: ['main'] })
-    const w = await h.svc.crud.create({ repoPath: '/r', title: 'Existing', startNow: false })
+    const w = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Existing',
+      startNow: false,
+    })
     expect(w.parentBranch).toBe('tf.dev')
 
     const start = h.svc.gitWorkflow.start(w.id)
@@ -237,7 +291,7 @@ describe('starting an issue whose parent branch is missing (POD-2065)', () => {
     const message = await h.svc.gitWorkflow.start(w.id).catch((e: Error) => e.message)
     expect(message).toContain("is the instance's default parent branch")
     expect(message).toContain(
-      "set this repository's base branch (sidebar project menu → Base branch, or Settings → Repositories)",
+      "set this repository's base branch (sidebar project menu → Base branch, or Settings → Projects)",
     )
     expect(message).toMatch(/podium issue update --id \S+ --parent-branch main\./)
     // git refused the add, so nothing was built and no session was spawned.
@@ -253,7 +307,11 @@ describe('starting an issue whose parent branch is missing (POD-2065)', () => {
       repoDefault: 'tf.dev',
       refs: ['main', 'tf.dev'],
     })
-    const w = await h.svc.crud.create({ repoPath: '/r', title: 'Existing', startNow: false })
+    const w = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Existing',
+      startNow: false,
+    })
     // The branch disappears after the issue was created — the TFT-33 shape.
     h.git.refs.delete('tf.dev')
     const message = await h.svc.gitWorkflow.start(w.id).catch((e: Error) => e.message)
@@ -263,10 +321,14 @@ describe('starting an issue whose parent branch is missing (POD-2065)', () => {
 
   it('starts once the parent is pointed at a branch that exists', async () => {
     const h = await harness({ defaultParentBranch: 'tf.dev', refs: ['main', 'tf.dev'] })
-    const w = await h.svc.crud.create({ repoPath: '/r', title: 'Recover', startNow: false })
+    const w = await h.svc.crud.create(h.svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Recover',
+      startNow: false,
+    })
     h.git.refs.delete('tf.dev')
     await expect(h.svc.gitWorkflow.start(w.id)).rejects.toThrow(/does not exist/)
-    await h.svc.crud.update(w.id, { parentBranch: 'main' })
+    await h.svc.crud.update(h.svc.reports.store.serverWriter, w.id, { parentBranch: 'main' })
     const started = await h.svc.gitWorkflow.start(w.id)
     expect(started.worktreePath).not.toBeNull()
   })

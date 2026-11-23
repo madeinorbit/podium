@@ -34,6 +34,12 @@ export interface SendSocket {
   sendBinary?(data: Uint8Array, compress?: boolean): SendStatus
   terminate(): void
   /**
+   * Close with a code and reason the client can read (POD-6910), where the
+   * socket can. Inbound frames that arrive after it are dropped. A socket
+   * without it is terminated instead.
+   */
+  end?(code: number, reason: string): void
+  /**
    * Native `drain` for THIS socket: Bun's buffer shrank, another send may be
    * attempted. Not an acknowledgement of anything the client read. Absent on a
    * socket that cannot push back, which then never pauses.
@@ -162,4 +168,26 @@ export function warnDroppedFrame(kind: 'client' | 'daemon' | 'machine', err: unk
   if (now - lastFrameWarnAt[kind] < FRAME_WARN_THROTTLE_MS) return
   lastFrameWarnAt[kind] = now
   log.warn('dropped a malformed frame', { kind, err })
+}
+
+/**
+ * The same drop, for a frame whose type can carry a secret (credential
+ * management §8, "Never logged"): named by its type only, never by an error
+ * that may quote its fields.
+ */
+export function warnDroppedSecretFrame(kind: 'client' | 'daemon' | 'machine', type: string): void {
+  const now = Date.now()
+  if (now - lastFrameWarnAt[kind] < FRAME_WARN_THROTTLE_MS) return
+  lastFrameWarnAt[kind] = now
+  log.warn('dropped a malformed frame', { kind, frameType: type })
+}
+
+/** The `type` of a raw text frame, read without the schema that refused it. */
+export function frameEnvelopeType(raw: string | Buffer): string | undefined {
+  try {
+    const parsed = JSON.parse(raw.toString()) as { type?: unknown } | null
+    return typeof parsed?.type === 'string' ? parsed.type : undefined
+  } catch {
+    return undefined
+  }
 }

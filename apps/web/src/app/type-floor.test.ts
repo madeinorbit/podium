@@ -53,16 +53,9 @@ const KNOWN_SUB_FLOOR = new Set<string>()
  */
 const SANCTIONED_SUB_FLOOR: Record<string, { sites: number; why: string }> = {
   'app/RightRail.tsx': { sites: 1, why: 'unread count badge inside a 16px circle' },
-  'app/FlightDeck.tsx': {
-    sites: 3,
-    why:
-      'the spine’s three mono micro-tokens: an issue-note chip’s relation prefix ' +
-      '(CONTINUED IN / BLOCKED BY, the small-caps half of a label-and-ref pair, which ' +
-      'has to sit BELOW the 10.5px ref it labels or the two stop reading as label and ' +
-      'value), the NATIVE badge on a harness subagent row, and the roster’s role ' +
-      'column (COORDINATOR / BY SPINE DESIGNER) — 96px of uppercase mono that the ' +
-      'floor would turn into a truncation. All three are machine voice beside a title, ' +
-      'read as marks rather than as prose, and none of them is ordinary shell text.',
+  'app/FlightDeckRows.tsx': {
+    sites: 1,
+    why: 'the relation-prefix mono annotation moved with the issue-note chip from FlightDeck',
   },
   'features/shipping/ShippingPanel.tsx': {
     sites: 1,

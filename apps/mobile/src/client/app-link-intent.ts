@@ -1,6 +1,7 @@
 import { parsePodiumLink } from '@podium/protocol'
 import { MOBILE_HOME } from '../lib/navigation'
 import { parseMobileHandoffUrl } from './mobile-handoff'
+import { isPairingSystemPath } from './pairing-intent'
 
 /**
  * Credential-bearing app links the profile gate consumes itself (POD-2364).
@@ -14,6 +15,9 @@ import { parseMobileHandoffUrl } from './mobile-handoff'
 const GATE_OWNED_HEADS = new Set(['pair', 'signed-in'])
 
 export function isGateOwnedAppLink(raw: string): boolean {
+  // The HTTPS fragment form (`…/mobile#pair=…`) and every custom-scheme
+  // spelling of a pairing link (POD-6913).
+  if (isPairingSystemPath(raw)) return true
   const match = /^podium:\/\/([^/?#]*)\/*([^/?#]*)/i.exec(raw.trim())
   if (!match) return false
   const head = (match[1] || match[2] || '').toLowerCase()

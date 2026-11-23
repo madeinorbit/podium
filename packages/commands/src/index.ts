@@ -22,34 +22,7 @@
  * import site was repointed instead.
  */
 
-export {
-  ACCOUNT_CONTRACT_NAMES,
-  ACCOUNT_CONTRACTS,
-  AccountConnectInput,
-  type AccountContractName,
-  accountsConnectContract,
-  accountsConnectInput,
-  accountsDisconnectContract,
-  accountsDisconnectInput,
-  accountsLoginContract,
-  accountsLoginInput,
-} from './accounts/contracts'
-export {
-  APPROVAL_CONTRACT_NAMES,
-  APPROVAL_CONTRACTS,
-  type ApprovalContractName,
-  approvalsApproveContract,
-  approvalsApproveInput,
-  approvalsDenyContract,
-  approvalsDenyInput,
-} from './approvals/contracts'
-export {
-  INTERACTION_CONTRACT_NAMES,
-  INTERACTION_CONTRACTS,
-  type InteractionContractName,
-  interactionsAnswerContract,
-  interactionsAnswerInput,
-} from './interactions/contracts'
+export { AgentProfileRef } from './agent-profiles/contracts'
 export {
   AUTOMATION_CONTRACT_NAMES,
   AUTOMATION_CONTRACTS,
@@ -133,6 +106,45 @@ export {
   conversationsSetMetaInput,
 } from './conversations/contracts'
 export {
+  CREDENTIAL_CONTRACT_NAMES,
+  CREDENTIAL_CONTRACTS,
+  CREDENTIAL_MACHINE_DISCLOSURE,
+  CREDENTIAL_SHARE_DISCLOSURE,
+  CREDENTIAL_SHARE_WARNING,
+  type CredentialContractName,
+  CredentialGrantee,
+  CredentialGrantVerb,
+  credentialsAddInput,
+  credentialsAllowMachineInput,
+  credentialsChatgptSignInCompleteInput,
+  credentialsChatgptSignInStartInput,
+  credentialsDisallowMachineInput,
+  credentialsRemoveInput,
+  credentialsRenameInput,
+  credentialsRenewInput,
+  credentialsShareInput,
+  credentialsSignInCancelInput,
+  credentialsSignInStartInput,
+  credentialsUnshareInput,
+} from './credentials/contracts'
+export {
+  credentialsLoginContract,
+  credentialsLoginInput,
+  credentialsUseOnMyMachinesContract,
+  credentialsUseOnMyMachinesInput,
+} from './credentials/native-login-contracts'
+export {
+  EFFECT_CONFLICT_RULE,
+  EFFECT_CONTRACTS,
+  EFFECT_MAX_DEADLINE_MS,
+  EffectsCancelInput,
+  EffectsCreateInput,
+  EffectsDismissInput,
+  effectsCancelContract,
+  effectsCreateContract,
+  effectsDismissContract,
+} from './effects/contracts'
+export {
   FILE_CONTRACT_NAMES,
   FILE_CONTRACTS,
   type FileContractName,
@@ -155,24 +167,20 @@ export {
   fleetServerRoleOf,
   machineAdoptContract,
   machineAdoptInput,
-  machineSupersedeContract,
-  machineSupersedeInput,
   machineApplyUpdateContract,
   machineApplyUpdateInput,
-  machinePairingCodeContract,
-  machinePairingCodeInput,
-  machineRenameContract,
-  machineRenameInput,
-  machineRevokeContract,
-  machineRevokeInput,
-  machineSetUpdateChannelContract,
-  machineSetUpdateChannelInput,
-  machineShareContract,
-  machineShareInput,
-  machineTransferOwnershipContract,
-  machineTransferOwnershipInput,
   machineMoveServerContract,
   machineMoveServerInput,
+  machinePairingCodeContract,
+  machinePairingCodeInput,
+  machineRevokeContract,
+  machineRevokeInput,
+  machineShareContract,
+  machineShareInput,
+  machineSupersedeContract,
+  machineSupersedeInput,
+  machineTransferOwnershipContract,
+  machineTransferOwnershipInput,
   machineUnshareContract,
   machineUnshareInput,
   repoAddContract,
@@ -242,11 +250,19 @@ export {
   telemetrySetInput,
 } from './instance/contracts'
 export {
+  INTERACTION_CONTRACT_NAMES,
+  INTERACTION_CONTRACTS,
+  type InteractionContractName,
+  interactionsAnswerContract,
+  interactionsAnswerInput,
+} from './interactions/contracts'
+export {
   ADDITIVE_POLICY,
   CREATES_NOTHING,
   ISSUE_ATTRIBUTION,
   ISSUE_REDACTION,
   ISSUE_VISIBILITY,
+  MACHINE_WORK_DELIVERY,
   MANAGE_POLICY,
   PER_USER_DELIVERY,
   PER_USER_POLICY,
@@ -264,9 +280,24 @@ export {
   ISSUE_COMMAND_NAMES,
   ISSUE_CONTRACT_LIST,
   ISSUE_CONTRACTS,
+  ISSUE_SEARCH_PAGE_DEFAULT,
+  ISSUE_SEARCH_PAGE_MAX,
   type IssueContractName,
   type IssueUpdatePatch,
 } from './issues/contracts'
+export {
+  ARTIFACT_EFFECT_OPS,
+  clientSendsThroughSubmit,
+  isSyncedIssueCommand,
+  MAIL_ISSUE_COMMANDS,
+  QUEUED_ISSUE_COMMANDS,
+  runsAsArtifactEffect,
+  SESSION_ISSUE_COMMANDS,
+  STRUCTURE_ISSUE_COMMANDS,
+  SYNCED_ISSUE_COMMANDS,
+  type SyncedIssueCommand,
+  writesThroughEntry,
+} from './issues/synced'
 export {
   LAYOUT_CONTRACT_NAMES,
   LAYOUT_CONTRACTS,
@@ -321,6 +352,7 @@ export {
   awaitAgentContract,
   awaitAgentInput,
   MAIL_CONTRACTS,
+  MAIL_RECORDS_MAX_IDS,
   type MailContractName,
   mailAskContract,
   mailAskInput,
@@ -334,7 +366,6 @@ export {
   mailInboxInput,
   mailLedgerContract,
   mailLedgerInput,
-  MAIL_RECORDS_MAX_IDS,
   mailPendingRemindersContract,
   mailPendingRemindersInput,
   mailRecordsContract,
@@ -362,26 +393,22 @@ export {
 } from './mail/principal'
 export { LEGACY_TURN_CLOSE_RULE, TURN_CLOSE_RULE } from './mail/turn-close-rule'
 export {
-  AGENT_PROFILE_CONTRACT_NAMES,
-  AGENT_PROFILE_CONTRACTS,
-  type AgentProfileContractName,
-  AgentProfileRef,
-  agentProfileCreateContract,
-  agentProfileCreateInput,
-  agentProfileDeleteContract,
-  agentProfileDeleteInput,
-  agentProfileImportContract,
-  agentProfileImportInput,
-  agentProfileUpdateContract,
-  agentProfileUpdateInput,
-} from './agent-profiles/contracts'
-export {
   MODEL_CONTRACT_NAMES,
   MODEL_CONTRACTS,
   type ModelContractName,
   modelsRefreshContract,
   modelsRefreshInput,
 } from './models/contracts'
+// The per-person notice inbox (POD-6881, credential management spec §13).
+export {
+  NOTICE_SYNC_COMMANDS,
+  type NoticeListInput,
+  type NoticeMarkReadInput,
+  noticeCommands,
+  noticeListInput,
+  noticeMarkAllReadInput,
+  noticeMarkReadInput,
+} from './notices/contracts'
 export {
   OPERATION_CONTRACT_NAMES,
   OPERATION_CONTRACTS,
@@ -402,13 +429,70 @@ export {
   perfResetInput,
 } from './perf/contracts'
 export {
-  READ_POSITION_CONTRACT_NAMES,
-  READ_POSITION_CONTRACTS,
-  type ReadPositionAdvanceInput,
-  type ReadPositionContractName,
-  readPositionAdvanceContract,
-  readPositionAdvanceInput,
-} from './read-position/contracts'
+  RECORD_CONTRACTS,
+  recordContracts,
+  recordContractTable,
+  recordCreateInput,
+  recordEditInput,
+  recordRemoveInput,
+} from './records/contracts'
+export {
+  createFields,
+  declarationProblems,
+  defineSyncedKind,
+  editNeedsRevision,
+  fieldConflict,
+  key as recordKeyField,
+  label as recordLabelField,
+  RECORD_CONFLICTS,
+  RECORD_OPS,
+  type RecordConflict,
+  type RecordField,
+  type RecordFieldRole,
+  type RecordOp,
+  type RecordOpPolicy,
+  recordCommandName,
+  type SyncedKindDeclaration,
+  spec as recordSpecField,
+  specFields,
+  status as recordStatusField,
+  unsettableFields,
+} from './records/declare'
+export {
+  type FreshContext,
+  type FreshRecord,
+  freshCreateFields,
+  freshProblems,
+  freshRow,
+  pendingCells,
+  wireCells,
+} from './records/fresh'
+export {
+  ISSUE_FIELD_DEFAULTS,
+  ISSUE_FRESH_CELLS,
+  issueSeqPending,
+  PENDING_ISSUE_SEQ,
+} from './records/issue-fresh'
+export {
+  AGENT_PROFILE_RECORD,
+  EFFECT_RECORD,
+  INSTANCE_PREFERENCES_RECORD,
+  ISSUE_RECORD,
+  ISSUE_USER_STATE_RECORD,
+  MACHINE_RECORD,
+  NOT_YET_GENERIC,
+  PIN_RECORD,
+  SESSION_RECORD,
+  SESSION_USER_STATE_RECORD,
+  SUBSCRIPTION_RECORD,
+  SUPERAGENT_THREAD_RECORD,
+  SYNCED_KINDS,
+  TAB_ORDER_RECORD,
+  USER_LAYOUT_RECORD,
+  USER_PREFERENCES_RECORD,
+  USER_READ_POSITION_RECORD,
+  WORKFLOW_BINDING_RECORD,
+} from './records/kinds'
 export {
   applyRedaction,
   applyRedactionWithReport,
@@ -439,6 +523,13 @@ export {
 } from './sessions/rename'
 export * from './sessions/session-state-commands'
 export {
+  type SessionSwitchCredentialInput,
+  type SessionSwitchCredentialOutput,
+  SwitchContinuation,
+  sessionSwitchCredentialInput,
+  sessionSwitchCredentialOutput,
+} from './sessions/switch-credential'
+export {
   CONTRACT_TIER,
   contractMatrixRow,
   ONLINE_ONLY_SETTINGS_COMMANDS,
@@ -455,10 +546,6 @@ export {
   settingsTelegramSetupPollInput,
   settingsTelegramSetupStartContract,
   settingsTelegramSetupStartInput,
-  settingsUpdateInstanceContract,
-  settingsUpdateInstanceInput,
-  settingsUpdatePersonalContract,
-  settingsUpdatePersonalInput,
   TIER_COMMAND,
   WRITABLE_PREFERENCE_PATHS,
 } from './settings/contracts'
@@ -510,6 +597,14 @@ export {
   superagentUserFocus,
 } from './superagent/contracts'
 export {
+  VAULT_CONTRACT_NAMES,
+  VAULT_CONTRACTS,
+  type VaultContractName,
+  type VaultResetInput,
+  vaultResetContract,
+  vaultResetInput,
+} from './vault/contracts'
+export {
   WORKFLOW_ADVANCE_NAMES,
   WORKFLOW_CONTRACTS,
   type WorkflowCommandContract,
@@ -517,7 +612,6 @@ export {
   workflowAdoptContract,
   workflowAdoptInput,
   workflowAdvanceOf,
-  workflowAssignContract,
   workflowAssignInput,
   workflowAssignStepContract,
   workflowAssignStepInput,

@@ -1,0 +1,615 @@
+/**
+ * THE TWO-MEMBER INSTANCE (POD-6282): one real server with Alice, Bob and Carol,
+ * so a test can prove who may see and do what (design §6, the acceptance matrix).
+ *
+ * WHO OWNS WHAT, after `await startTwoMemberInstance()`:
+ *
+ * | Member | Role            | Machine (custody)  | Task          | Sessions                                    |
+ * |--------|-----------------|--------------------|---------------|---------------------------------------------|
+ * | Alice  | admin (earliest)| `machine-alice`    | `aliceTask`   | `aliceSession` on machine-alice, aliceTask  |
+ * | Bob    | member          | `machine-bob`      | `bobTask`     | `bobSession` on machine-bob, bobTask;       |
+ * |        |                 |                    |               | `bobOnAliceTask` on machine-bob, aliceTask  |
+ * | Carol  | member, disabled| none               | none          | none                                        |
+ *
+ * - Custody is the `grants` edge `verb='manage', custody=1` that
+ *   `machines.upsertMachine({ ownerUserId })` writes. Nobody holds a `use` grant
+ *   on anyone else's machine.
+ * - Both machines report the repo `/repo` and have a fake daemon attached, so
+ *   sessions can be placed on them and their agents can relay.
+ * - Every session is an agent session (`claude-code`), started the way `sessions.create`
+ *   starts one for a signed-in member (owner and binding principal = the starter).
+ *   `bobOnAliceTask` is Bob's by the design (§2.3) although it sits on Alice's task.
+ *   TODAY `dev/mw` records it as ALICE's (an issue-owned session inherits the
+ *   issue owner, `session-start.ts`; design gap 3, POD-6283): only its
+ *   `createdBy.onBehalfOf` says Bob. `two-member-gaps.test.ts` pins that.
+ * - Carol has a password, but she is disabled, so she cannot sign in.
+ * - Alice is `firstAdminMemberId()`: the account an upgraded instance starts with.
+ *
+ * HOW TO ACT AS SOMEONE (each goes through the production transport, with the
+ * member's own login cookie, never a hand-built principal):
+ *
+ * - `as(member).trpc` is an HTTP tRPC client for `/trpc`; `as(member).fetch`
+ *   any other HTTP route.
+ * - `as(member).feed()` opens the real `/client` WebSocket. `bootstrap()` reads
+ *   the member's snapshot over HTTP `/sync/bootstrap`; `deltas` collects the
+ *   `feedDelta` frames pushed afterwards.
+ * - `agent(sessionId)` acts as that session's agent over the daemon relay:
+ *   `cli([...])` runs `podium issue …`, `mcp(tool, input)` calls an MCP issue tool.
+ * - `legacyDeviceFeed()` reads the feed as the device-grade principal
+ *   (`device:shared-instance-password`, design gap 7).
+ * - `daemonFrames(machineId)` lists every control frame the server sent that
+ *   machine's fake daemon. The fake daemons answer file, transcript, usage and
+ *   quota reads (naming the path, session or machine in the reply), so a test
+ *   can show an owner's read reached the machine and a refused one never did.
+ *
+ * Use one instance per test file (`beforeAll`/`afterAll`): booting a server
+ * costs about a second. Tests that mutate shared rows should create their own.
+ */
+
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
+import {
+  asMachineId,
+  asUserId,
+  firstAdminMemberId,
+  type IssueId,
+  type MachineId,
+  newMemberId,
+  type SessionId,
+  type UserId,
+} from '@podium/model'
+import { CLIENT_WIRE_VERSION, type FeedDeltaMessage, type ServerMessage } from '@podium/protocol'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync'
+import { createTRPCClient, httpLink, type TRPCClient } from '@trpc/client'
+import WebSocket from 'ws'
+import { runIssueCli } from '../../../cli/src/issue-cli'
+import { createAgentRelayHub, startAgentRelayServer } from '../../../daemon/src/agent-relay'
+import { userCommandPrincipal } from '../command-principal'
+import { IssueToolProvider } from '../issue-mcp'
+import { noJanitorWorkerForTests } from '../janitor-host'
+import type { AppRouter } from '../router'
+import { startServer } from '../server'
+import { syncFeedPrincipal } from '../sync/route-support'
+import { worldSnapshot } from './bootstrap-snapshot'
+import { attachDaemonWithInventory } from './daemon-inventory'
+
+export type MemberName = 'alice' | 'bob' | 'carol'
+
+export interface FixtureMember {
+  readonly name: MemberName
+  readonly displayName: string
+  readonly id: UserId
+  readonly email: string
+  readonly password: string
+  readonly role: 'admin' | 'member'
+}
+
+const ALICE: Omit<FixtureMember, 'id'> = {
+  name: 'alice',
+  displayName: 'Alice',
+  email: 'alice@example.com',
+  password: 'alice-fixture-password',
+  role: 'admin',
+}
+
+/**
+ * Bob's and Carol's member ids. A member is created through the identity
+ * package, which never takes an id from a caller; the fixture's server is
+ * started with these as the first ids it mints (`newMemberIdForTests`), so a
+ * test can name them before the instance exists.
+ */
+const FIXTURE_MEMBER_IDS = ['mem_fixture_bob', 'mem_fixture_carol'] as const
+
+export const MEMBERS: Readonly<Record<MemberName, FixtureMember>> = {
+  alice: {
+    ...ALICE,
+    // Server-unit setup primes this identity; process tests have no ambient fixture.
+    get id() {
+      return firstAdminMemberId()
+    },
+  },
+  bob: {
+    name: 'bob',
+    displayName: 'Bob',
+    id: asUserId('mem_fixture_bob'),
+    email: 'bob@example.com',
+    password: 'bob-fixture-password',
+    role: 'member',
+  },
+  carol: {
+    name: 'carol',
+    displayName: 'Carol',
+    id: asUserId('mem_fixture_carol'),
+    email: 'carol@example.com',
+    password: 'carol-fixture-password',
+    role: 'member',
+  },
+}
+
+export const REPO_PATH = '/repo'
+
+/** A member's view of the live feed: a real `/client` socket plus HTTP healing. */
+export interface FeedView {
+  /** Every frame the socket received, in order. */
+  readonly frames: ServerMessage[]
+  /** Every change carried by a `feedDelta` frame since the socket opened. */
+  deltas(): FeedChange[]
+  /** The member's bootstrap snapshot over HTTP `/sync/bootstrap`. */
+  bootstrap(): Promise<FeedSnapshot>
+  /** Wait until a frame satisfies `pred` (or throw after `ms`). */
+  until(pred: () => boolean, ms?: number): Promise<void>
+  /** Whether the server closed (or the test closed) the socket. */
+  closed(): boolean
+  close(): void
+}
+
+export interface MemberSession {
+  readonly member: FixtureMember
+  readonly cookie: string
+  readonly trpc: TRPCClient<AppRouter>
+  fetch(path: string, init?: RequestInit): Promise<Response>
+  feed(): Promise<FeedView>
+}
+
+export interface AgentActor {
+  readonly sessionId: SessionId
+  readonly client: IssueTrpc
+  /** `podium issue <args>` from inside the session, through the daemon relay. */
+  cli(args: string[]): Promise<string>
+  /** An MCP issue tool call from inside the session, through the daemon relay. */
+  mcp(tool: string, input: Record<string, unknown>): Promise<string>
+}
+
+export interface TwoMemberInstance {
+  readonly handle: Awaited<ReturnType<typeof startServer>>
+  readonly origin: string
+  readonly members: typeof MEMBERS
+  readonly machines: { readonly alice: MachineId; readonly bob: MachineId }
+  readonly tasks: { readonly alice: IssueId; readonly bob: IssueId }
+  readonly sessions: {
+    readonly alice: SessionId
+    readonly bob: SessionId
+    readonly bobOnAliceTask: SessionId
+  }
+  /** Sign in as the member (cached per member) and act over HTTP and the feed. */
+  as(member: MemberName): Promise<MemberSession>
+  /** POST `/auth/login` for the member and return the raw response (Carol's is refused). */
+  login(member: MemberName): Promise<Response>
+  /** A further device sign-in of the member; answers its cookie (`name=value`). */
+  signInDevice(member: MemberName): Promise<string>
+  /** Open the `/client` feed socket with any session cookie (a second device, say). */
+  feedWith(cookie: string): Promise<FeedView>
+  /** Drop that machine's fake daemon and attach it again, as a daemon reconnect does. */
+  reconnectDaemon(machineId: MachineId, whileAway?: () => Promise<void>): Promise<void>
+  /** Act as a session's agent over the daemon relay. A session a test started
+   *  itself names its machine. */
+  agent(sessionId: SessionId, opts?: { outsideScope?: boolean; machineId?: MachineId }): AgentActor
+  /** The feed as the legacy device-grade principal sees it (design gap 7). */
+  legacyDeviceFeed(): Promise<FeedSnapshot>
+  /** Every control frame the server sent to that machine's fake daemon, in order.
+   *  A file read the server refused never shows up here. */
+  daemonFrames(machineId: MachineId): readonly ControlMessage[]
+  /** What that machine's fake daemon answers a plan-quota read with from now on. */
+  setQuota(machineId: MachineId, agents: FakeQuotaAgents): void
+  close(): Promise<void>
+}
+
+export type FeedSnapshot = Awaited<ReturnType<typeof worldSnapshot>>
+
+export type FeedChange = FeedDeltaMessage['changes'][number]
+
+/** Ids of the rows of one entity that a list of pushed feed changes touched. */
+export function changedIds(changes: readonly FeedChange[], entity: string): string[] {
+  return changes.filter((change) => change.entity === entity).map((change) => change.entityId)
+}
+
+/** The session and task ids a snapshot carries. */
+export function snapshotIds(snapshot: FeedSnapshot): { sessions: string[]; issues: string[] } {
+  return {
+    sessions: snapshot.sessions.map((session) => session.sessionId),
+    issues: (snapshot.issueProjections ?? []).map((issue) => issue.id),
+  }
+}
+
+/** What each fake daemon reports as its plan quota; empty unless a test sets it
+ *  with `setQuota` (POD-6300). */
+type FakeQuotaAgents = Extract<DaemonMessage, { type: 'agentQuotaResult' }>['agents']
+
+/** The fake daemon's answer to a file, transcript, usage or quota read: the
+ *  requested path, session or machine named in the reply, so a test can see the
+ *  read reached the machine and what it asked for. */
+function fakeDaemonAnswer(
+  machineId: MachineId,
+  msg: ControlMessage,
+  quota: ReadonlyMap<MachineId, FakeQuotaAgents> = new Map(),
+): DaemonMessage | undefined {
+  if (msg.type === 'fileAssetRequest') {
+    const bytes = Buffer.from(`fixture bytes of ${msg.path}`)
+    return {
+      type: 'fileAssetResult',
+      requestId: msg.requestId,
+      ok: true,
+      path: msg.path,
+      dataBase64: bytes.toString('base64'),
+      contentType: 'text/plain',
+      size: bytes.length,
+    }
+  }
+  if (msg.type === 'fileReadRequest') {
+    return {
+      type: 'fileReadResult',
+      requestId: msg.requestId,
+      ok: true,
+      path: msg.path,
+      content: `fixture text of ${msg.path}`,
+    }
+  }
+  // Usage and plan quota answer with the machine's name as its hostname.
+  if (msg.type === 'usageRequest') {
+    return { type: 'usageResult', requestId: msg.requestId, hostname: machineId, buckets: [] }
+  }
+  if (msg.type === 'agentQuotaRequest') {
+    return {
+      type: 'agentQuotaResult',
+      requestId: msg.requestId,
+      hostname: machineId,
+      agents: quota.get(machineId) ?? [],
+    }
+  }
+  if (msg.type === 'transcriptRead') {
+    return {
+      type: 'transcriptReadResult',
+      requestId: msg.requestId,
+      sessionId: msg.sessionId,
+      items: [
+        { id: 'fixture-item', role: 'assistant', text: `fixture transcript of ${msg.sessionId}` },
+      ],
+      hasMore: false,
+    }
+  }
+  return undefined
+}
+
+const until = async (pred: () => boolean, ms = 5000): Promise<void> => {
+  const deadline = Date.now() + ms
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error('timed out waiting for condition')
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+// better-auth's in-memory address budget is shared by cores in one process.
+// Each fixture device, including one in a later instance, is a distinct client.
+let fixtureDeviceAddresses = 0
+
+export async function startTwoMemberInstance(
+  options: { runtimeWorkers?: boolean } = {},
+): Promise<TwoMemberInstance> {
+  const priorStateDir = process.env.PODIUM_STATE_DIR
+  const stateDir = mkdtempSync(join(tmpdir(), 'podium-two-member-'))
+  writeFileSync(
+    join(stateDir, 'config.json'),
+    JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+  )
+  process.env.PODIUM_STATE_DIR = stateDir
+  // Bob and Carol get the ids `MEMBERS` names; anybody a test adds later gets
+  // an id of the ordinary form.
+  const fixtureIds: string[] = [...FIXTURE_MEMBER_IDS]
+  const handle = await startServer({
+    port: 0,
+    // Unit runners suppress threads; real browsers need the production sync worker too.
+    ...(options.runtimeWorkers ? {} : { janitorWorkerForTests: noJanitorWorkerForTests }),
+    newMemberIdForTests: () => fixtureIds.shift() ?? newMemberId(),
+  })
+  const origin = `http://127.0.0.1:${handle.port}`
+  const registry = handle.registry
+  const store = registry.sessionStore
+  const { memberships } = handle.identity
+  const { accounts } = handle.identity.core
+  const aliceId = await firstAdminMemberId(store)
+  const relayServers: Array<Awaited<ReturnType<typeof startAgentRelayServer>>> = []
+  const sockets: WebSocket[] = []
+
+  const close = async () => {
+    for (const ws of sockets) ws.close()
+    for (const relay of relayServers) await relay.close()
+    await handle.close()
+    if (priorStateDir === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = priorStateDir
+    rmSync(stateDir, { recursive: true, force: true })
+  }
+
+  try {
+    // PEOPLE, all through the identity package (POD-6746). Alice is the admin
+    // every fresh instance already has: the boot gave her row its membership
+    // and an account, and here she gets an address and a password. Bob and
+    // Carol are invited by Alice and accept, which is the only way a member
+    // comes to exist. Carol is then disabled by Alice.
+    const aliceAccount = (await store.users.get(aliceId))?.accountId
+    if (!aliceAccount) throw new Error('the first admin of a fresh instance has no account')
+    await accounts.setEmail(aliceAccount, ALICE.email)
+    await accounts.setPassword(aliceAccount, ALICE.password)
+    for (const name of ['bob', 'carol'] as const) {
+      const member = MEMBERS[name]
+      const { invitation } = await memberships.invite({
+        actor: { memberId: aliceId },
+        role: member.role,
+        email: member.email,
+      })
+      const accepted = await memberships.accept({
+        token: invitation.token,
+        account: {
+          kind: 'new',
+          name: member.displayName,
+          email: member.email,
+          password: member.password,
+        },
+      })
+      if (accepted.memberId !== member.id) {
+        throw new Error(`${name} was minted as ${accepted.memberId}, not ${member.id}`)
+      }
+    }
+    const members: typeof MEMBERS = { ...MEMBERS, alice: { ...ALICE, id: aliceId } }
+    const { alice, bob, carol } = members
+    await memberships.disable({ actor: { memberId: alice.id }, memberId: carol.id })
+
+    // MACHINES. Each with custody for its member, `/repo` reported, and a fake
+    // daemon whose relay hub answers its agents' `podium issue` calls.
+    const machines = { alice: asMachineId('machine-alice'), bob: asMachineId('machine-bob') }
+    const relayFor = new Map<MachineId, Awaited<ReturnType<typeof startAgentRelayServer>>>()
+    const daemonFrames = new Map<MachineId, ControlMessage[]>()
+    const daemonTransports = new Map<MachineId, (msg: ControlMessage) => void>()
+    const quota = new Map<MachineId, FakeQuotaAgents>()
+    for (const [name, machineId] of Object.entries(machines) as Array<[MemberName, MachineId]>) {
+      await store.machines.upsertMachine({
+        id: machineId,
+        name: machineId,
+        hostname: machineId,
+        tokenHash: `${machineId}-token`,
+        ownerUserId: members[name].id,
+        assignment: { server: false, agentExecution: true },
+      })
+      await store.repos.addRepo(REPO_PATH, machineId)
+      const hub = createAgentRelayHub((msg: DaemonMessage) =>
+        registry.gateway.routeDaemonFrame(machineId, msg),
+      )
+      const received: ControlMessage[] = []
+      daemonFrames.set(machineId, received)
+      const transport = (msg: ControlMessage) => {
+        received.push(msg)
+        if (msg.type === 'agentRelayResult') hub.onResult(msg)
+        const answer = fakeDaemonAnswer(machineId, msg, quota)
+        if (answer) queueMicrotask(() => void registry.gateway.routeDaemonFrame(machineId, answer))
+      }
+      daemonTransports.set(machineId, transport)
+      await attachDaemonWithInventory(registry, machineId, transport)
+      const relay = await startAgentRelayServer({ port: 0, relay: (req) => hub.relay(req) })
+      relayServers.push(relay)
+      relayFor.set(machineId, relay)
+    }
+
+    // TASKS. One per active member, each homed in a worktree on its owner's machine.
+    const createTask = async (owner: FixtureMember, machineId: MachineId) => {
+      const task = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+        repoPath: REPO_PATH,
+        title: `${owner.name}'s task`,
+        startNow: false,
+        ownerUserId: owner.id,
+      })
+      await registry.issues.crud.update(registry.issues.reports.store.serverWriter, task.id, {
+        worktreePath: `/wt/${owner.name}-task`,
+        machineId,
+      })
+      return task.id
+    }
+    const tasks = {
+      alice: await createTask(alice, machines.alice),
+      bob: await createTask(bob, machines.bob),
+    }
+
+    // SESSIONS. Private to whoever started them, whatever task they sit on.
+    const startSession = async (
+      owner: FixtureMember,
+      machineId: MachineId,
+      issueId: IssueId,
+      title: string,
+    ) =>
+      (
+        await registry.modules.sessions.createSession({
+          ownerUserId: owner.id,
+          agentKind: 'claude-code',
+          cwd: `/wt/${owner.name}-session-${title}`,
+          title,
+          machineId,
+          issueId,
+          // What `sessions.create` passes for a signed-in human: the starter is
+          // both the requested owner and the binding principal.
+          binding: { principal: { kind: 'user', userId: owner.id } },
+        })
+      ).sessionId
+    const sessions = {
+      alice: await startSession(alice, machines.alice, tasks.alice, 'alice-own'),
+      bob: await startSession(bob, machines.bob, tasks.bob, 'bob-own'),
+      bobOnAliceTask: await startSession(bob, machines.bob, tasks.alice, 'bob-on-alice-task'),
+    }
+    registry.modules.sessions.flushBroadcasts()
+
+    const machineOfSession = new Map<SessionId, MachineId>([
+      [sessions.alice, machines.alice],
+      [sessions.bob, machines.bob],
+      [sessions.bobOnAliceTask, machines.bob],
+    ])
+
+    const login = async (name: MemberName) =>
+      await fetch(new URL('/auth/login', origin), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ email: members[name].email, password: members[name].password }),
+      })
+
+    /**
+     * A new device sign-in of the member, as a browser on this machine gets
+     * one, and its cookie. Through the package's password sign-in and not
+     * `POST /auth/login`: the sign-in library allows three sign-ins per ten
+     * seconds from one address, and every request of a test comes from
+     * 127.0.0.1. Each device here has an address of its own instead. The
+     * cookie is the real one and every later request goes through production.
+     */
+    const signInDevice = async (name: MemberName): Promise<string> => {
+      fixtureDeviceAddresses += 1
+      const issued = await handle.identity.core.signIn.password(
+        {
+          email: members[name].email,
+          password: members[name].password,
+          device: { kind: 'browser' },
+          delivery: 'cookie',
+        },
+        {
+          scheme: 'http',
+          sameMachine: true,
+          clientAddress: `10.6.${(fixtureDeviceAddresses >> 8) & 255}.${fixtureDeviceAddresses & 255}`,
+        },
+      )
+      if ('refused' in issued) throw new Error(`${name} could not sign in (${issued.refused})`)
+      const cookie = issued.headers.getSetCookie().find((c) => c.includes('session_token'))
+      if (!cookie) throw new Error(`${name}'s sign-in set no cookie`)
+      return cookie.split(';', 1)[0] as string
+    }
+
+    const signedIn = new Map<MemberName, MemberSession>()
+    const as = async (name: MemberName): Promise<MemberSession> => {
+      const cached = signedIn.get(name)
+      if (cached) return cached
+      const cookie = await signInDevice(name)
+      const trpc = createTRPCClient<AppRouter>({
+        links: [httpLink({ url: `${origin}/trpc`, headers: () => ({ cookie }) })],
+      })
+      const session: MemberSession = {
+        member: members[name],
+        cookie,
+        trpc,
+        fetch: async (path, init) =>
+          await fetch(new URL(path, origin), {
+            ...init,
+            headers: { ...(init?.headers as Record<string, string> | undefined), cookie },
+          }),
+        feed: async () => await openFeed(cookie),
+      }
+      signedIn.set(name, session)
+      return session
+    }
+
+    const openFeed = async (cookie: string): Promise<FeedView> => {
+      const ws = new WebSocket(
+        `ws://127.0.0.1:${handle.port}/client?v=${CLIENT_WIRE_VERSION}&cap=sync.http.v1`,
+        { headers: { cookie } },
+      )
+      sockets.push(ws)
+      const frames: ServerMessage[] = []
+      let closed = false
+      ws.on('close', () => {
+        closed = true
+      })
+      ws.on('message', (data) => frames.push(JSON.parse(String(data)) as ServerMessage))
+      await new Promise<void>((resolve, reject) => {
+        ws.on('error', reject)
+        ws.on('open', () => {
+          ws.send(
+            JSON.stringify({
+              type: 'hello',
+              clientId: '',
+              viewport: { cols: 80, rows: 24, dpr: 1 },
+              wireVersion: CLIENT_WIRE_VERSION,
+              caps: ['sync.http.v1', 'metadataDelta'],
+            }),
+          )
+          resolve()
+        })
+      })
+      await until(() => frames.some((frame) => frame.type === 'welcome'))
+      return {
+        frames,
+        deltas: () =>
+          frames
+            .filter((frame): frame is FeedDeltaMessage => frame.type === 'feedDelta')
+            .flatMap((frame) => frame.changes),
+        bootstrap: async () => {
+          // This host's no-janitor seam omits its normal sync worker. Resolve
+          // the real sign-in cookie through the identity package before the
+          // fixture worker builds/scopes the snapshot; never infer a member from
+          // the test name. The request is the loopback one the feed socket
+          // makes; a valid credential resolves before any same-machine admission.
+          const resolution = await handle.identity.resolve(
+            new Request(origin, { headers: { cookie } }),
+            { scheme: 'http', sameMachine: true, clientAddress: '127.0.0.1' },
+          )
+          const userId = resolution.kind === 'member' ? asUserId(resolution.memberId) : undefined
+          const account = userId ? await store.users.get(userId) : undefined
+          if (!userId || !account || account.disabledAt)
+            throw new Error('authenticated member required')
+          const principal = syncFeedPrincipal(userCommandPrincipal(userId, account.role))
+          if (!principal) throw new Error('authenticated feed principal required')
+          return await worldSnapshot(registry, principal)
+        },
+        until: async (pred, ms) => await until(pred, ms),
+        closed: () => closed,
+        close: () => ws.close(),
+      }
+    }
+
+    const agent = (
+      sessionId: SessionId,
+      opts: { outsideScope?: boolean; machineId?: MachineId } = {},
+    ): AgentActor => {
+      const machineId = opts.machineId ?? machineOfSession.get(sessionId)
+      const relay = machineId ? relayFor.get(machineId) : undefined
+      if (!relay) throw new Error(`no fixture relay for session ${sessionId}`)
+      const client = makeRelayIssueClient(relay.endpointFor(sessionId), opts)
+      const mcp = new IssueToolProvider()
+      mcp.setClient(client)
+      return {
+        sessionId,
+        client,
+        cli: async (args) => await runIssueCli(args, client),
+        mcp: async (tool, input) => await mcp.callMcpTool(tool, input),
+      }
+    }
+
+    const legacyDeviceFeed = async (): Promise<FeedSnapshot> => {
+      return await worldSnapshot(registry, DEVICE_GRADE_PRINCIPAL)
+    }
+
+    return {
+      handle,
+      origin,
+      members,
+      machines,
+      tasks,
+      sessions,
+      as,
+      login,
+      feedWith: async (cookie) => await openFeed(cookie),
+      signInDevice,
+      reconnectDaemon: async (machineId, whileAway) => {
+        const transport = daemonTransports.get(machineId)
+        if (!transport) throw new Error(`no fake daemon for ${machineId}`)
+        registry.gateway.detachDaemon(machineId)
+        await whileAway?.()
+        await attachDaemonWithInventory(registry, machineId, transport)
+      },
+      agent,
+      legacyDeviceFeed,
+      daemonFrames: (machineId) => daemonFrames.get(machineId) ?? [],
+      setQuota: (machineId, agents) => {
+        quota.set(machineId, agents)
+      },
+      close,
+    }
+  } catch (error) {
+    await close()
+    throw error
+  }
+}

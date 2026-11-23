@@ -1,4 +1,4 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { PoolSource } from './source-registry'
 import type { Loaded } from './worklist/rollup'
 
@@ -19,7 +19,7 @@ declare module './source-registry' {
 export const MOBILE_SETTINGS_SOURCE_KEY = 'mobile-settings'
 export const MOBILE_SETTINGS_ENTITIES = ['mobileSettingsDiagnostics'] as const
 
-type DiagnosticsOwner = Pick<ClientRuntime, 'replica'>
+type DiagnosticsOwner = { readonly replica: ClientRuntime['replica'] }
 
 /** Demand batches one O(1) summary from the existing runtime. Cardinality is
  * maintained by the replica's keyed map; no issue models or table walks
@@ -71,7 +71,12 @@ export async function createMobileSettingsSource(
   })
   // Keyed (POD-5433): the two counts move only with their lists; the cursor
   // has its own signal.
-  if (!owner.replica.subscribeCursor) throw new Error('Phone diagnostics require the replica cursor signal')
-  const stops = [owner.replica.subscribeRows('issueProjections', schedule), owner.replica.subscribeRows('conversations', schedule), owner.replica.subscribeCursor(schedule)]
+  if (!owner.replica.subscribeCursor)
+    throw new Error('Phone diagnostics require the replica cursor signal')
+  const stops = [
+    owner.replica.subscribeRows('issueProjections', schedule),
+    owner.replica.subscribeRows('conversations', schedule),
+    owner.replica.subscribeCursor(schedule),
+  ]
   return Object.assign(source, { counts })
 }

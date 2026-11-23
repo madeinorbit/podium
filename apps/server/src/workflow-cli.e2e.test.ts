@@ -20,7 +20,7 @@
  * they cross both halves of the cutover.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeIssueClient } from '@podium/issue-client'
@@ -29,6 +29,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runWorkflowCli, type WorkflowCliDeps } from '../../cli/src/workflow-cli'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -39,13 +40,24 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-workflow-e2e-'))
+    // A configured all-in-one instance, as a real `podium workflow` talks to.
+    // Workflows are synced records since POD-6676, written through the data
+    // plane, which an unconfigured (setup-required) server keeps blocked.
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+    )
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     const registry = server.registry
-    await registry.modules.settings.setSettingsFor(firstAdminMemberId(), {
-      ...await registry.modules.settings.getSettings(),
-      experimental: { workflows: true },
-    })
+    await attachHostDaemon(registry, () => {}, { repos: ['/repo/wt'] })
+    await registry.modules.settings.setSettingsFor(
+      await firstAdminMemberId(registry.sessionStore),
+      {
+        ...(await registry.modules.settings.getSettings()),
+        experimental: { workflows: true },
+      },
+    )
     // Open (no-password) server ⇒ the CLI acts as the operator, exactly as it
     // does for a local `podium workflow` invocation.
     deps = {
@@ -105,6 +117,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
    */
   it('checkpoint advances a real run through the derived mutation, and status reads it back', async () => {
     const registry = server.registry
+    await attachHostDaemon(registry, () => {}, { repos: ['/repo/wt'] })
     const operator = { actor: { kind: 'operator' as const, id: null }, protectedWrite: true }
     const created = await registry.modules.workflows.execute(operator, 'create', {
       // Unique per attempt: the integration lane retries, and workflow names are
@@ -119,7 +132,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
       ],
     })
     const { sessionId } = await registry.modules.sessions.createSession({
-      agentKind: 'claude-code',
+      agentKind: 'shell',
       cwd: '/repo/wt',
       initialPrompt: 'do the work',
     })
@@ -171,7 +184,6 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
       'revise',
       'fork',
       'publish',
-      'assign',
       'checkpoint',
       'assignStep',
       'skip',

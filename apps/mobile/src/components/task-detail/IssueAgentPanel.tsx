@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { artifactKind } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model'
 import { useState } from 'react'
@@ -38,7 +38,7 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
   issue,
   only,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   /** Draw one half: the artifact list (behind the strip's "See all"), or the
    *  deferred items. Both when absent. */
   only?: 'artifacts' | 'deferred'

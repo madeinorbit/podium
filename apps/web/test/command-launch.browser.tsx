@@ -1,13 +1,14 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Actual menus, one existing offline runtime/replica/outbox. Synthetic data only. */
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { omitGone } from '@podium/client-graph/lookup'
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import { NewPanelMenu } from '../src/app/NewPanelMenu'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
@@ -54,11 +55,8 @@ const repos = [
     worktrees: [],
   },
 ]
-api.discovery = {
-  refreshRepos: {
-    mutate: async () => ({ repositories: repos, machines: [machine], diagnostics: [] }),
-  },
-}
+// Machines and repositories are records; online is the live condition (POD-6644).
+fixture.putMachinesAndRepos({ machines: [machine], repos })
 api.sessions = {
   create: {
     mutate: async (input: unknown) => {
@@ -68,7 +66,7 @@ api.sessions = {
   },
 }
 api.issues = {
-  searchNormalized: { query: async () => [] },
+  searchNormalized: { query: async () => ({ hits: [], next: null }) },
   create: {
     mutate: async (input: unknown) => {
       calls.push({ kind: 'issue', input })
@@ -91,20 +89,14 @@ storeStats.enable()
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 function Surface() {
-  const runtime = useStoreHandle() as ClientRuntime
+  const runtime = useClientRuntime() as ClientRuntime
   owner = runtime
   pool = useWorklistPool()
   const [newIssue, setNewIssue] = useState(false),
     [opened, setOpened] = useState('')
   useEffect(() => {
-    let active = true
-    void referenceState(runtime)
-      .refreshRepos()
-      .then(() => {
-        if (active) booted = true
-      })
+    booted = true
     return () => {
-      active = false
       booted = false
     }
   }, [runtime])
@@ -151,7 +143,7 @@ root.render(
     networkEnabled={false}
     onFatalError={(error) => failures.push(error)}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.hub)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >
@@ -162,7 +154,8 @@ root.render(
 )
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 const driver = {
-  ready: () => booted && pool !== null && typeof omitGone(pool.row('commandWindow', 'window')) === 'object',
+  ready: () =>
+    booted && pool !== null && typeof omitGone(pool.row('commandWindow', 'window')) === 'object',
   reset() {
     storeStats.reset()
     commits = 0
@@ -188,7 +181,10 @@ const driver = {
     }
   },
   calls: () => calls,
-  selection: () => ({ issueId: referenceState(owner).openIssueId, view: referenceState(owner).view }),
+  selection: () => ({
+    issueId: referenceState(owner).openIssueId,
+    view: referenceState(owner).view,
+  }),
   async check() {
     if (!pool) return null
     const { poolCommandLaunchSnapshot } = await import(

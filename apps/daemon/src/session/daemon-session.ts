@@ -27,13 +27,14 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { HarnessContext } from '@podium/harness'
 import type {
   AbandonedQueuedTurn,
   AgentSessionHandle,
   EngineBindUnrecoverable,
 } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
-import type { SessionId } from '@podium/model'
+import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { TerminalScreen } from '@podium/process/screen'
 import { ForeignWriteCounter } from '../terminal/foreign-writes.js'
@@ -195,6 +196,12 @@ export class DaemonSession {
   nativeTransition: Promise<void> | undefined = undefined
   /** Transient refusals spent (POD-2489); undefined = nothing owed. */
   nativeRetryCount: number | undefined = undefined
+  /**
+   * The agent state this daemon folded from the session's runtime stream, with
+   * its turn marker (POD-6397): what a turn-scoped interrupt is checked
+   * against. Undefined until the first state event.
+   */
+  turnState: AgentRuntimeState | undefined = undefined
 
   /**
    * THE SESSION'S DRIVER (POD-4512, layers §1b / spec §4.6): the ONE live
@@ -207,6 +214,15 @@ export class DaemonSession {
    * ownership fact the keyed map used to carry.
    */
   driver: AgentSessionHandle | undefined = undefined
+
+  /**
+   * THE SESSION-PINNED HARNESS CONTEXT (POD-6533): the installation, account
+   * environment and folders this session's harness runs under, built once when
+   * the session was spawned (`session-harness-context.ts`). Daemon memory only:
+   * a restarted daemon rebuilds it from the current inventory on reattach.
+   * Undefined for a plain shell or login pane.
+   */
+  harnessContext: HarnessContext | undefined = undefined
 
   /**
    * THE ORDER THIS DAEMON IS CARRYING OUT (POD-5814, POD-5841): the server's

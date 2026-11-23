@@ -1,28 +1,38 @@
-import { cookieCredentials } from '@podium/client-core/accounts'
+import { cookieCredentials, watchAccountSwitch } from '@podium/client-core/accounts'
 import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
+import type { ClientPrincipal } from '@podium/client-core/principal'
+import { useSocketHub } from '@podium/client-core/react'
+import { parseReplicaNamespaceKey, replicaNamespaceKey } from '@podium/client-core/replica'
 import { observer } from '@podium/client-graph/react'
-import type { JSX, ReactNode } from 'react'
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import type { JSX } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
+import { lazyScreen } from '@/components/LazyScreen'
 import { PodiumLinkHost } from '@/components/PodiumLinkHost'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { WaitingForServer } from '@/components/WaitingForServer'
 import { chordLabel } from '@/features/chat/use-composer-chord'
 import { DockIssueProvider } from '@/features/issues/dock-issue'
+import { AdminViewerContext, useAdminSections } from '@/features/settings/admin-viewer'
 import {
   hasActivationState,
+  hasStaleActivation,
   isActivationEligible,
   shouldStartBrowserAtProjectIntake,
   shouldStartRemoteClientAtHandoff,
 } from '@/features/setup/activation-route'
 import { NewTaskOverlay } from '@/features/setup/NewTaskOverlay'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
-import { SetupGate } from '@/features/setup/SetupGate'
+import { SetupGate, SetupRecoveryOnConnect } from '@/features/setup/SetupGate'
 import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
-import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version-guard'
+import {
+  checkRefusedReconnect,
+  checkServedAssets,
+  recoverFromWireSkew,
+} from '@/features/setup/version-guard'
 import { vpsIntroState } from '@/features/setup/vps-activation'
 import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
@@ -36,8 +46,12 @@ import {
   ResizableAside,
   ResizableColumn,
 } from '@/features/worklist/sidebar-common'
+import { expireSignedInRuntime } from '@/lib/account-context'
+import { webAccounts } from '@/lib/accounts'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { useSettingsShortcut } from '@/lib/hooks/use-settings-shortcut'
+import { lazy, lazySurfaces } from '@/lib/lazy-surface'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import { QuoteLayer } from '@/lib/quote/QuoteLayer'
@@ -50,6 +64,7 @@ import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { AppErrorPage } from './AppErrorPage'
 import { AppSheet } from './AppSheet'
 import { BrowserOpenOverlay } from './BrowserOpenOverlay'
+import { ClientRegistrationNotice } from './ClientRegistrationNotice'
 import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
@@ -57,12 +72,12 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { FLIGHT_DECK_SIZING, readFlightDeckWidth } from './flight-deck-display'
 import { LoadingScreen } from './LoadingScreen'
 import { OperatorFocusProvider } from './operator-focus'
-import { ReplicaFailureScreen } from './ReplicaFailureScreen'
+import { ReplicaFailureShell } from './ReplicaFailureShell'
 import { RightDock } from './RightDock'
 import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
-import { SyncLoader, WarmSyncStatus } from './SyncLoader'
+import { SyncLoader } from './SyncLoader'
 import { useShellActions, useShellChrome } from './shell-data'
 import {
   CLOSE_RIGHT_PANEL,
@@ -76,12 +91,13 @@ import {
   rightPanelAllowed,
   SUPERAGENT_MODE_KEY,
 } from './shell-state'
+import { startSignInEndedWatch } from './sign-in-ended'
 import { describeWireSkew, reportSkew } from './skew-notice'
-import { type MainView, StoreProvider, useRuntimeSelector } from './store'
+import { type MainView, StoreProvider, useLive } from './store'
 import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
-import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
+import { UpdateEffectsObserver } from './UpdateEffectsObserver'
 import { useResponsiveSidebars } from './use-responsive-sidebars'
 
 /**
@@ -96,28 +112,47 @@ import { useResponsiveSidebars } from './use-responsive-sidebars'
  */
 // The app lands on the work list. Loading Workspace here used to pull the chat,
 // terminal and editor stack into first paint before a workspace was selected.
-const Workspace = lazy(() =>
-  throughRestarts(() => import('./Workspace')).then((module) => ({ default: module.Workspace })),
+const Workspace = lazyScreen(
+  () => import('./Workspace'),
+  (module) => module.Workspace,
 )
-const SettingsView = lazy(() =>
-  throughRestarts(() => import('@/features/settings/SettingsView')).then((module) => ({
-    default: module.SettingsView,
-  })),
+const SettingsView = lazyScreen(
+  () => import('@/features/settings/SettingsView'),
+  (module) => module.SettingsView,
+  (content, { onClose }) => (
+    <AppSheet
+      label="Settings"
+      title="Settings"
+      className="app-sheet-settings app-sheet-fit"
+      onClose={onClose}
+    >
+      {content}
+    </AppSheet>
+  ),
 )
-const UsageView = lazy(() =>
-  throughRestarts(() => import('@/features/usage/UsageView')).then((module) => ({
-    default: module.UsageView,
-  })),
+const UsageView = lazyScreen(
+  () => import('@/features/usage/UsageView'),
+  (module) => module.UsageView,
+  (content, { onClose }) => (
+    <AppSheet
+      label="Usage & analytics"
+      title="Usage & analytics"
+      className="app-sheet-fit"
+      onClose={onClose}
+    >
+      {content}
+    </AppSheet>
+  ),
 )
 // FlightDeck already unmounts when folded. Deferring its module in exactly that
 // state changes no subscriptions or retained component state.
-const FlightDeck = lazy(() =>
-  throughRestarts(() => import('./FlightDeck')).then((module) => ({ default: module.FlightDeck })),
+const FlightDeck = lazyScreen(
+  () => import('./FlightDeck'),
+  (module) => module.FlightDeck,
 )
-const FoldedFlightDeckBar = lazy(() =>
-  throughRestarts(() => import('./FoldedFlightDeckBar')).then((module) => ({
-    default: module.FoldedFlightDeckBar,
-  })),
+const FoldedFlightDeckBar = lazyScreen(
+  () => import('./FoldedFlightDeckBar'),
+  (module) => module.FoldedFlightDeckBar,
 )
 const OnboardingWizard = lazy(() =>
   throughRestarts(() => import('@/features/setup/OnboardingWizard')).then((module) => ({
@@ -145,9 +180,9 @@ const AutoContinueDialog = lazy(() =>
  * a `<Select>`, and `@base-ui/react`'s select is 27 modules and ~90 KB that
  * nothing else on the first paint uses.
  *
- * Deferred the way every other gesture surface here is (see
- * INTERACTION_ONLY_MODULES in scripts/web-bundle-budget.ts, which now fails the
- * build by name if this comes back eager). The first hover pays one chunk
+ * Deferred the way every other gesture surface here is; no build check guards
+ * this any more (the size budget was removed in POD-6423), so keep the import
+ * lazy by hand. The first hover pays one chunk
  * fetch; `prefetchAfterFirstPaint` below spends the idle time after the shell
  * mounts so that in practice it has already arrived.
  */
@@ -187,7 +222,7 @@ function SheetFallback({
 
 /** Observe socket build skew; HTTP bootstrap has no hub attachment cycle. */
 function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
-  const hub = useRuntimeSelector((s) => s.hub)
+  const hub = useSocketHub()
   useEffect(
     () =>
       observeLiveConnection(hub, {
@@ -198,8 +233,32 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
         onReconnect: () => {
           void checkServedAssets(httpOrigin)
         },
+        onReconnectRefused: (dial) => {
+          void checkRefusedReconnect(httpOrigin, dial)
+        },
       }),
     [hub, httpOrigin],
+  )
+  return null
+}
+
+/** Ends the runtime when the server says this device's sign-in is gone (POD-6910). */
+function SignInEndedObserver({
+  httpOrigin,
+  principal,
+}: {
+  httpOrigin: string
+  principal: ClientPrincipal
+}): null {
+  const hub = useSocketHub()
+  const { userId, syncBoundaryId } = principal
+  useEffect(
+    () =>
+      startSignInEndedWatch(hub, {
+        httpOrigin,
+        principal: syncBoundaryId === undefined ? { userId } : { userId, syncBoundaryId },
+      }),
+    [hub, httpOrigin, userId, syncBoundaryId],
   )
   return null
 }
@@ -210,7 +269,7 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
  * holds the installation key; a transfer frame moves at once.
  */
 function ServerFollowObserver(): null {
-  const hub = useRuntimeSelector((s) => s.hub)
+  const hub = useSocketHub()
   useEffect(() => {
     let stop: (() => void) | undefined
     let cancelled = false
@@ -279,12 +338,50 @@ export function AppShell({
   const pendingInitialPodiumHref = useRef(initialPodiumHref)
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
-  const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
+  // The client is made for the member the gate resolves, so the assembly's
+  // outbox drains fenced to that member (POD-6292).
+  const [gateTrpc] = useState(
+    () =>
+      ({ principal, member }: { principal: string; member: string }) =>
+        makeTrpc(config.httpOrigin, {
+          member,
+          onMemberRefused: () => expireSignedInRuntime(principal),
+        }),
+  )
   const kernel = useKernelReplica({
-    trpc: gateTrpc,
+    trpcFor: gateTrpc,
     auth,
     httpOrigin: config.httpOrigin,
   })
+  // Registration precedes replica opening, but uses the same verified member
+  // fence as that replica's requests. The factory itself is not a tRPC client.
+  const registrationPrincipal = auth.kind === 'principal' ? auth.principal : undefined
+  const registrationTrpc = useMemo(() => {
+    if (registrationPrincipal === undefined) return undefined
+    const identity = parseReplicaNamespaceKey(registrationPrincipal)
+    return identity
+      ? gateTrpc({ principal: registrationPrincipal, member: identity.memberId })
+      : undefined
+  }, [gateTrpc, registrationPrincipal])
+
+  // ANOTHER TAB SWITCHED THE ACCOUNT (POD-6292, MU-12). This tab's runtime ends
+  // the moment the saved account no longer names its member, exactly as an
+  // expired session ends it, so the next person never sees this one's world.
+  const boundPrincipal = kernel.status === 'kernel' ? kernel.principal : null
+  const boundMember = boundPrincipal?.userId
+  const boundBoundary = boundPrincipal?.syncBoundaryId
+  useEffect(() => {
+    if (boundMember === undefined || boundBoundary === undefined) return
+    return watchAccountSwitch({
+      source: window,
+      profilesKey: webAccounts(config.httpOrigin).profilesKey,
+      identity: { syncBoundaryId: boundBoundary, memberId: boundMember },
+      onSwitched: () =>
+        expireSignedInRuntime(
+          replicaNamespaceKey({ syncBoundaryId: boundBoundary, memberId: boundMember }),
+        ),
+    })
+  }, [boundMember, boundBoundary, config.httpOrigin])
 
   // Queued offline writes the boot migration could not simply carry across
   // (POD-1232). Shown once, as a toast rather than a console line, because the
@@ -310,7 +407,7 @@ export function AppShell({
     // never going to be allowed to open (POD-1304).
     shell = (
       <TooltipProvider>
-        <ReplicaFailureScreen
+        <ReplicaFailureShell
           cause={kernel.cause}
           detail={kernel.failure}
           httpOrigin={config.httpOrigin}
@@ -353,6 +450,8 @@ export function AppShell({
               >
                 <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
                 <ServerFollowObserver />
+                <SignInEndedObserver httpOrigin={config.httpOrigin} principal={kernel.principal} />
+                <UpdateEffectsObserver />
                 <ReplicaReadyPodiumLinkHost
                   syncProgress={kernel.assembly.progress}
                   initialHref={pendingInitialPodiumHref.current}
@@ -361,8 +460,8 @@ export function AppShell({
                     onInitialPodiumHrefConsumed()
                   }}
                 />
-                <RoutedDensityProvider>
-                  <ThemeUiStateMirror />
+                <DensityProvider>
+                  <SetupRecoveryReporter />
                   <BrowserOpenOverlay />
                   <ConfirmProvider>
                     {/* Above both TopBar and the view outlet: the command bar's centre
@@ -371,7 +470,7 @@ export function AppShell({
                       <AppBody syncProgress={kernel.assembly.progress} />
                     </ToolbarSlotProvider>
                   </ConfirmProvider>
-                </RoutedDensityProvider>
+                </DensityProvider>
               </StoreProvider>
             </ErrorBoundary>
           )}
@@ -395,12 +494,17 @@ export function AppShell({
   // other. Mount the setup gate beside the replica effect and keep the shell
   // itself behind the setup decision. An unreachable auth bootstrap is also
   // recovered inside the replica effect, so that check stays parallel too.
-  return <SetupGate>{shell}</SetupGate>
+  return (
+    <>
+      {registrationTrpc && <ClientRegistrationNotice auth={auth} trpc={registrationTrpc} />}
+      <SetupGate>{shell}</SetupGate>
+    </>
+  )
 }
 
-function RoutedDensityProvider({ children }: { children: ReactNode }): JSX.Element {
-  const densityEnabled = useFeature('shell-density')
-  return <DensityProvider densityEnabled={densityEnabled}>{children}</DensityProvider>
+/** The degraded setup gate re-asks when this runtime's connection comes back (POD-5798). */
+function SetupRecoveryReporter(): JSX.Element {
+  return <SetupRecoveryOnConnect live={useLive()} />
 }
 
 /** Module-scope so the setter keeps a stable identity across renders — an inline
@@ -411,18 +515,22 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   const { setSelectedIssueId, setSuperOpen, setPaletteOpen, setView, uiState, trpc } =
     useShellActions()
   const {
-    reposLoaded,
     superOpen,
     paletteOpen,
     view,
     repoCount,
     worktreeCount,
-    sessionCount,
     selectedIssueId,
     missionRoot: flightDeckMission,
     settled: chromeSettled,
   } = useShellChrome()
   const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
+  // Repositories and worktrees are records (POD-6644): they are here once the
+  // replica holds a synced copy, saved or fresh (`hasInstalled` is set for both a
+  // warm open and a cold install), AND the shell view has settled. Before that the
+  // chrome's counts are placeholder zeros, not answers; reading them as "no repos,
+  // no sessions" sent a populated instance into first-run setup.
+  const reposLoaded = sync.hasInstalled && chromeSettled
   // Settings and Usage are utilities layered OVER a mode, not modes themselves
   // (POD-365). The shell keeps rendering the mode underneath, and closing the
   // sheet returns you to the one you actually came from rather than always
@@ -451,13 +559,22 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   } = useActivationRoute()
   const vpsActivation = useConfirmedVpsActivation(trpc)
   const hasActivationCheckpoint = hasActivationState(window.location.search)
+  // WHO SETS THIS SERVER UP is the server's answer (POD-6882), not a reading of
+  // this member's own repo list: a member who joined an existing workspace sees
+  // nothing of anyone else's, and that emptiness sent them into the installer's
+  // wizard with no way out. Undefined until the server has answered.
+  const adminViewer = useAdminSections()
+  const setsUpServer =
+    adminViewer.status === 'ready' ? adminViewer.capabilities?.setUpServer : undefined
+  const setupFinished = adminViewer.setupFinished
   const shouldContinueRemoteActivation =
     vpsActivation.ready &&
     shouldStartRemoteClientAtHandoff({
       launchMode: nativeDesktopBridge()?.launchMode,
-      loaded: reposLoaded,
+      loaded: reposLoaded && setupFinished !== undefined,
+      setsUpServer: setsUpServer === true,
       repoCount,
-      sessionCount,
+      setupFinished: setupFinished === true,
       route: activationState.route,
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
@@ -466,21 +583,30 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     vpsActivation.ready &&
     shouldStartBrowserAtProjectIntake({
       nativeShell: nativeDesktopBridge() !== undefined,
-      loaded: reposLoaded,
+      loaded: reposLoaded && setupFinished !== undefined,
+      setsUpServer: setsUpServer === true,
       repoCount,
-      sessionCount,
+      setupFinished: setupFinished === true,
       route: activationState.route,
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
     })
-  const activationEligible = isActivationEligible({
-    loaded: reposLoaded,
+  const activationFacts = {
+    loaded: reposLoaded && setupFinished !== undefined,
     repoCount,
-    sessionCount,
+    setupFinished: setupFinished === true,
     setupInProgress,
     hasActivationCheckpoint,
     hasVpsCheckpoint: vpsActivation.state !== null,
+  }
+  const activationEligible = isActivationEligible({
+    ...activationFacts,
+    setsUpServer: setsUpServer === true,
   })
+  // Only a window that could open setup waits for the shared viewer read.
+  const awaitingSetupViewer =
+    (setsUpServer === undefined || setupFinished === undefined) &&
+    isActivationEligible({ ...activationFacts, loaded: reposLoaded, setsUpServer: true })
   // Setup owns the window outright (POD-1174). There is no exploring mode and no
   // other view to be in: while this is true the shell below simply does not
   // render, so nothing else can be reached until setup finishes.
@@ -551,7 +677,20 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     navigateActivation(next.route)
   }
 
+  // Retire a saved flag from a finished instance using the server's answer.
+  const staleActivation = hasStaleActivation({
+    loaded: setsUpServer !== undefined && setupFinished !== undefined,
+    setsUpServer: setsUpServer !== false,
+    setupFinished: setupFinished === true,
+    setupInProgress,
+    hasActivationCheckpoint,
+  })
+  useEffect(() => {
+    if (staleActivation) clearActivation()
+  }, [staleActivation, clearActivation])
+
   const completeActivation = (): void => {
+    adminViewer.retry()
     clearActivation()
     if (vpsActivation.state) void vpsActivation.clear().catch(() => {})
     setSelectedIssueId(null)
@@ -745,6 +884,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
    */
   useEffect(() => {
     const cancels = [
+      prefetchAfterFirstPaint(() => lazySurfaces.warm()),
       prefetchAfterFirstPaint(loadAgentPanel),
       // AgentPanel deliberately keeps chat-first sessions free of a hidden PTY.
       // Warm only the renderer bytes here: preloadTerminalRuntime neither mounts
@@ -819,6 +959,8 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     return () => window.removeEventListener('keydown', onKey)
   }, [commandPaletteEnabled, paletteOpen, setPaletteOpen])
 
+  useSettingsShortcut(() => setView('settings'))
+
   const menuHost = (
     <DesktopMenuHost
       openSettings={() => setView('settings')}
@@ -827,19 +969,21 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     />
   )
 
-  // THE FIRST-SYNC GATE (POD-1249). `reposLoaded` alone is the wrong condition
-  // on a cold replica: it flips when the discovery tRPC call answers, which is
-  // unrelated to the feed bootstrap — the old gate dropped the loader while the
-  // whole world was still downloading and left a fully-chromed empty shell. A
-  // cold launch therefore also waits for the bootstrap to INSTALL, and shows the
-  // detailed sync screen instead of the splash; warm launches keep the splash
-  // for the enrichment beat exactly as before.
-  const firstSyncPending = sync.firstSync && !sync.hasInstalled && sync.phase !== 'ready'
-  if (!reposLoaded || firstSyncPending) {
+  // THE FIRST-SYNC GATE (POD-1249). A cold launch waits for the bootstrap to
+  // INSTALL, and shows the detailed sync screen instead of the splash. The
+  // repositories are records in that bootstrap (POD-6644), so there is no
+  // separate repository read to wait for.
+  if (!reposLoaded || awaitingSetupViewer) {
     return (
       <>
         {menuHost}
-        {sync.firstSync ? (
+        {awaitingSetupViewer && adminViewer.status === 'error' ? (
+          <AppErrorPage
+            title="Setup status is unavailable"
+            message="Podium could not check whether this server needs setup. Try again to continue."
+            onRetry={adminViewer.retry}
+          />
+        ) : sync.firstSync ? (
           <SyncLoader
             store={syncProgress}
             reposLoaded={reposLoaded}
@@ -896,7 +1040,6 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
         <DockShellLifecycle />
         <div className="desktop-shell">
           <TopBar revealing={revealingChrome} />
-          <WarmSyncStatus store={syncProgress} />
           <div className="desktop-shell-row">
             <ResizableAside>
               <SidebarUnified />
@@ -985,7 +1128,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
               <RightRail rightPanel={visibleRightPanel} onPanelChange={setRightPanel} />
             )}
           </div>
-          <StatusStrip />
+          <StatusStrip syncProgress={syncProgress} />
         </div>
         {/* The utility tier (POD-365): an inset sheet over a live shell. The mode
           underneath stays mounted, so closing is instant and the chrome never
@@ -1042,7 +1185,20 @@ const ObservedAppBody = observer(AppBodyView)
 export function AppBody(props: { syncProgress: SyncProgressStore }): JSX.Element {
   return (
     <TipHost>
-      <ObservedAppBody {...props} />
+      <SharedAdminViewer>
+        <ObservedAppBody {...props} />
+      </SharedAdminViewer>
     </TipHost>
   )
+}
+
+/**
+ * ONE `/auth/admin/viewer` READ FOR THE WHOLE SHELL (POD-6882). Setup reads
+ * from it who sets this server up; the command palette and Settings read the
+ * admin sections. Below this provider they share one answer instead of each
+ * asking the server.
+ */
+function SharedAdminViewer({ children }: { children: JSX.Element }): JSX.Element {
+  const viewer = useAdminSections()
+  return <AdminViewerContext.Provider value={viewer}>{children}</AdminViewerContext.Provider>
 }

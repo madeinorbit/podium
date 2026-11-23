@@ -16,6 +16,9 @@ export interface BoardFilter {
   stage?: IssueStatus
   archived?: boolean
   deleted?: boolean
+  /** Only this member's tasks (POD-6294): the resolved Assigned to filter. The
+   *  view resolves `me` to the viewer; absent lists every assignee's. */
+  assignee?: string
 }
 
 /** The State facet's choices, in the order every filter menu lists them. */
@@ -44,6 +47,7 @@ export type BoardFilterIssue = Pick<
   | 'deferred'
   | 'archived'
   | 'deletedAt'
+  | 'assignee'
 >
 
 /** Alphanumerics only so POD-123, pod 123, #123 and 123 share one needle. */
@@ -74,6 +78,7 @@ export function filterBoardIssues<T extends BoardFilterIssue>(
   return issues.filter((issue) => {
     if (issue.deletedAt ? !filter.deleted : issue.archived && !filter.archived) return false
     if (filter.priority != null && issue.priority !== filter.priority) return false
+    if (filter.assignee && issue.assignee !== filter.assignee) return false
     if (filter.projectPaths?.length && !filter.projectPaths.includes(issue.repoPath)) return false
     if (filter.stage && issueStatusOf(issue) !== filter.stage) return false
     const closed = isFinished(issue)

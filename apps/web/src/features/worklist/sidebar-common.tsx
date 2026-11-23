@@ -1,3 +1,4 @@
+import { useDeviceState } from '@podium/client-core/react'
 /**
  * Shared sidebar building blocks (extracted from the retired classic
  * Sidebar.tsx): the resizable aside shell and the persisted per-group fold state.
@@ -19,7 +20,6 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
 import { cn } from '@/lib/utils'
 
@@ -95,7 +95,7 @@ export function ResizableColumn({
   className?: string
   children: ReactNode
 }): JSX.Element {
-  const ui = useRuntimeSelector((s) => s.uiState)
+  const ui = useDeviceState()
   const [width, setWidth] = useState<number>(() => {
     const v = Number(ui.get(storageKey))
     return Number.isFinite(v) && v >= min && v <= max ? v : defaultWidth
@@ -302,7 +302,7 @@ export function ResizableAside({ children }: { children: ReactNode }): JSX.Eleme
 export function useCollapsedKeys(
   keys: readonly string[],
 ): [ReadonlySet<string>, (key: string) => void] {
-  const ui = useRuntimeSelector((s) => s.uiState) as RoutedUiState | undefined
+  const ui = useDeviceState() as RoutedUiState | undefined
   const signature = keys.join('\u0000')
   // biome-ignore lint/correctness/useExhaustiveDependencies: the joined
   // signature IS the dependency — `keys` is a fresh array on every render.

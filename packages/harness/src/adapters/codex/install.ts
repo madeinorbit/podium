@@ -14,7 +14,7 @@ export const codexInstall: HarnessInstall = {
   runInstaller(scriptPath, binDir, ports) {
     // Codex exits non-zero without CODEX_NON_INTERACTIVE, and installs to the
     // wrong directory without CODEX_INSTALL_DIR — getting these wrong is silent.
-    ports.run('sh', [scriptPath], {
+    ports.runTool('sh', [scriptPath], {
       ...ports.env,
       CODEX_NON_INTERACTIVE: '1',
       CODEX_INSTALL_DIR: binDir,

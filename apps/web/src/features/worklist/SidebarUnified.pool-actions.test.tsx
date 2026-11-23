@@ -1,11 +1,14 @@
+import { beginSwitch } from '@podium/client-core/perf'
+import { asClientPrincipal } from '@podium/client-core/principal'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import {
   type ClientRuntime,
   createEngineOutbox,
   type OutboxOutcome,
-} from '@podium/client-core/engine'
-import { beginSwitch } from '@podium/client-core/perf'
-import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+} from '@podium/client-core/runtime-root'
+import { fixtureRoot } from '@podium/client-core/test-support/command-hooks'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+
 import {
   emptyWorkspace,
   missionIssueIds,
@@ -17,13 +20,13 @@ import {
   workspaceKeyFor,
 } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { spreadSortKeys } from '@podium/model'
+import { parseIssueUserStateRowId, pinRowId, spreadSortKeys } from '@podium/model'
 import { asArtifactId, asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { autorun, observable } from 'mobx'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider, useOperatorFocus } from '@/app/operator-focus'
@@ -87,7 +90,7 @@ let requests: Request[]
 let outcomes: OutboxOutcome[]
 
 function Capture() {
-  runtime = useStoreHandle() as ClientRuntime
+  runtime = useClientRuntime() as ClientRuntime
   pool = useWorklistPool()
   focused = useOperatorFocus().focusedIssueId
   return pool ? <CaptureActions pool={pool} /> : null
@@ -181,9 +184,6 @@ async function mount(prepare?: (fixture: Fixture) => void, count = 12, probeId?:
       </ConfirmProvider>
     </StoreProvider>,
   )
-  await act(async () => {
-    await referenceState(runtime).refreshRepos()
-  })
   await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(sidebarView(pool!).sections().bands.length).toBeGreaterThan(0))
   runtime.subscribeOutboxOutcomes((outcome) => outcomes.push(outcome))
@@ -196,6 +196,34 @@ async function settle() {
     await Promise.resolve()
   })
 }
+/** The pin field on issues.update was removed in 28e2d0053c. Current
+ * pin commands create/remove my pin record through the sync entry point. */
+function enableRecordRequests(fixture: Fixture) {
+  Object.assign(fixture.api, {
+    sync: {
+      submit: {
+        mutate: ({ command, input }: { command: string; input: Record<string, unknown> }) =>
+          new Promise((resolve, reject) =>
+            requests.push({
+              procedure: command,
+              input,
+              resolve: (result) =>
+                resolve({
+                  outcome: 'applied',
+                  result,
+                  replayed: false,
+                  receipt: { feedId: 'fixture', epoch: 'fixture', seq: 1 },
+                }),
+              reject,
+            }),
+          ),
+      },
+    },
+  })
+}
+function issuePinId(id = TARGET) {
+  return pinRowId(asUserId('sidebar-pool-actions'), 'issue', id)
+}
 function row(id = TARGET) {
   return document.querySelector<HTMLElement>(`[data-issue-row="${id}"]`)!
 }
@@ -205,6 +233,36 @@ function value(id = TARGET) {
   expect(result).toBeDefined()
   if (result === undefined || result === LOADING) throw new Error('Expected resident row')
   return result
+}
+/** An archive: a plain-field edit of the issue record (POD-6405); this server
+ *  has no sync.submit, so it reaches `issues.update`. */
+function isArchive(entry: { kind: string; input: unknown }): boolean {
+  const input = entry.input as { kind?: unknown; patch?: { archived?: unknown } }
+  return (
+    entry.kind === 'recordEdit' &&
+    input.kind === 'issueProjection' &&
+    input.patch?.archived === true
+  )
+}
+/** An un-archive: the plain-field edit `archived: false` (POD-6405). */
+function isRestore(entry: { kind: string; input: unknown }): boolean {
+  const input = entry.input as { kind?: unknown; patch?: { archived?: unknown } }
+  return (
+    entry.kind === 'recordEdit' &&
+    input.kind === 'issueProjection' &&
+    input.patch?.archived === false
+  )
+}
+function isMarkRead(entry: {
+  kind: string
+  input: unknown
+}): entry is { kind: 'recordEdit'; input: { id: string } } {
+  const input = entry.input as { kind?: unknown; patch?: { readAt?: unknown } }
+  return (
+    entry.kind === 'recordEdit' &&
+    input.kind === 'issueUserState' &&
+    input.patch?.readAt !== undefined
+  )
 }
 async function request(name: string, id = TARGET) {
   await waitFor(() =>
@@ -307,27 +365,27 @@ describe('pool navigation uses the existing gesture semantics', () => {
     await act(async () => actions.selectIssue('synthetic-3'))
     await settle()
     await act(async () => {
-      runtime.access.openArtifact({
+      runtime.ui.openArtifact({
         issueId: asIssueId('synthetic-3'),
         artifactId: asArtifactId(artifactId),
         path,
         ...(worktreePath ? { worktreePath } : {}),
       })
     })
-    await waitFor(() => expect(runtime.access.paneA).toMatch(/^file:/))
-    const artifactTabId = runtime.access.paneA
-    const saved = runtime.access.workspaces[runtime.access.workspaceKey()]
+    await waitFor(() => expect(runtime.ui.paneA).toMatch(/^file:/))
+    const artifactTabId = runtime.ui.paneA
+    const saved = runtime.ui.workspaces[runtime.ui.workspaceKey()]
     await act(async () => actions.selectIssue('synthetic-6'))
-    expect(runtime.access.selectedIssueId).toBe('synthetic-6')
-    expect(runtime.access.paneA).not.toBe(artifactTabId)
+    expect(runtime.ui.selectedIssueId).toBe('synthetic-6')
+    expect(runtime.ui.paneA).not.toBe(artifactTabId)
     await act(async () => actions.selectIssue('synthetic-3'))
-    expect(runtime.access.paneA).toBe(artifactTabId)
-    expect(runtime.access.workspaces[runtime.access.workspaceKey()]).toEqual(saved)
+    expect(runtime.ui.paneA).toBe(artifactTabId)
+    expect(runtime.ui.workspaces[runtime.ui.workspaceKey()]).toEqual(saved)
     // An explicit agent click still replaces the selected artifact.
     await act(async () =>
       actions.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3')),
     )
-    expect(runtime.access.paneA).toBe('synthetic-session-3')
+    expect(runtime.ui.paneA).toBe('synthetic-session-3')
   })
 
   it('restores the selected session and focused split pane across task switches', async () => {
@@ -336,16 +394,16 @@ describe('pool navigation uses the existing gesture semantics', () => {
     })
     await act(async () => {
       actions.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
-      const layout = runtime.access.workspaces[runtime.access.workspaceKey()]!
-      runtime.access.openSessionTab(asSessionId('synthetic-session-4'))
-      runtime.access.splitWorkspacePane(layout.focusedPaneId, 'row')
-      runtime.access.openSessionTab(asSessionId('synthetic-session-1'))
+      const layout = runtime.ui.workspaces[runtime.ui.workspaceKey()]!
+      runtime.ui.openSessionTab(asSessionId('synthetic-session-4'))
+      runtime.ui.splitWorkspacePane(layout.focusedPaneId, 'row')
+      runtime.ui.openSessionTab(asSessionId('synthetic-session-1'))
     })
-    const saved = runtime.access.workspaces[runtime.access.workspaceKey()]
+    const saved = runtime.ui.workspaces[runtime.ui.workspaceKey()]
     await act(async () => actions.selectIssue('synthetic-6'))
     await act(async () => actions.selectIssue('synthetic-3'))
-    expect(runtime.access.workspaces[runtime.access.workspaceKey()]).toEqual(saved)
-    expect(runtime.access.focusedPane).toBe('B')
+    expect(runtime.ui.workspaces[runtime.ui.workspaceKey()]).toEqual(saved)
+    expect(runtime.ui.focusedPane).toBe(saved!.focusedPaneId)
   })
 
   it('borrows immutable full drag order across heartbeat and selection changes', async () => {
@@ -372,25 +430,29 @@ describe('pool navigation uses the existing gesture semantics', () => {
       patchIssue(fixture, 'synthetic-3', { deferUntil: new Date(NOW - 1000).toISOString() }),
     )
     const calls: string[] = []
+    const changed = observable.box(0)
+    const publications: { changed: number; calls: string[] }[] = []
+    const stop = autorun(() => {
+      if (changed.get() > 0) publications.push({ changed: changed.get(), calls: [...calls] })
+    })
     const store = {
       ...referenceState(runtime),
-      batchGesture: vi.fn((fn: () => void) => {
-        calls.push('batch')
-        fn()
-        calls.push('end')
-      }),
       navigateWorkspace: vi.fn(() => {
         calls.push('navigate')
+        changed.set(changed.get() + 1)
         return false
       }),
       markIssueRead: vi.fn(async () => {
         calls.push('issue-read')
+        changed.set(changed.get() + 1)
       }),
       deferIssue: vi.fn(async () => {
         calls.push('defer')
+        changed.set(changed.get() + 1)
       }),
       markSessionRead: vi.fn(async () => {
         calls.push('session-read')
+        changed.set(changed.get() + 1)
       }),
     }
     vi.mocked(beginSwitch).mockImplementation(() => {
@@ -399,18 +461,16 @@ describe('pool navigation uses the existing gesture semantics', () => {
     const focus = vi.fn(() => {
       calls.push('focus')
     })
-    const work = createPoolWorkActions(pool!, { ...runtime, access: store }, focus)
+    const ui = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {} }).ui
+    const work = createPoolWorkActions(
+      pool!,
+      fixtureRoot({ outbox: runtime.services.outbox.queue, ui, access: store }),
+      focus,
+    )
     work.selectPanelForIssue('synthetic-3', asSessionId('synthetic-session-3'))
-    expect(calls).toEqual([
-      'trace',
-      'batch',
-      'navigate',
-      'issue-read',
-      'defer',
-      'session-read',
-      'end',
-      'focus',
-    ])
+    stop()
+    expect(calls).toEqual(['trace', 'navigate', 'issue-read', 'defer', 'session-read', 'focus'])
+    expect(publications).toEqual([{ changed: 4, calls: [...calls] }])
     expect(store.navigateWorkspace).toHaveBeenCalledExactlyOnceWith({
       selectedIssueId: 'synthetic-1',
       selectedWorktree: ROOT,
@@ -533,8 +593,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
     if (['archived-parent', 'deleted-parent', 'archived-grandparent'].includes(scenario)) {
       const grandparent = scenario === 'archived-grandparent'
       const ancestorId = grandparent ? 'synthetic-0' : 'synthetic-1'
-      expect(pool!.tables.issue.has(ancestorId)).toBe(false)
-      expect(pool!.row('issue', ancestorId, 'summary')).toMatchObject(
+      expect(pool!.row('issue', ancestorId)).toMatchObject(
         scenario === 'deleted-parent'
           ? { deletedAt: new Date(NOW - 1000).toISOString() }
           : { archived: true },
@@ -607,7 +666,15 @@ describe('pool navigation uses the existing gesture semantics', () => {
       markIssueRead: vi.fn(async () => {}),
     }
     const focus = vi.fn()
-    const work = createPoolWorkActions(pool!, { ...runtime, access: store }, focus)
+    const ui = withKeyedInputs({ getSnapshot: () => store, subscribe: () => () => {} }).ui
+    const work = createPoolWorkActions(
+      pool!,
+      fixtureRoot({ outbox: runtime.services.outbox.queue, ui, access: store }),
+      focus,
+    )
+    // Seed the current layout owner explicitly; paneA is a derived mirror.
+    ui.patch({ workspaces: store.workspaces, fileTabs: store.fileTabs })
+    expect(ui.workspaces[key]).toBe(store.workspaces[key])
     work.selectIssue('synthetic-3')
     expect(store.navigateWorkspace).toHaveBeenCalledWith(expect.objectContaining({ tabId: null }))
     expect(focus).toHaveBeenCalledWith('synthetic-3')
@@ -616,91 +683,22 @@ describe('pool navigation uses the existing gesture semantics', () => {
     work.selectPanelForIssue('synthetic-3', file)
     expect(beginSwitch).not.toHaveBeenCalled()
   })
-
-  it('waits without a mutation for unloaded rows and loads repeated clicks in one batch', async () => {
-    await mount()
-    const owner = pool!
-    const residency = owner.residency!
-    const ids = ['synthetic-9', TARGET]
-    const rows = ids.map((id) => owner.row('issue', id) as SliceIssue)
-    const coldRule = residency.coldRule.bind(residency)
-    const hidden = residency.hidden.bind(residency)
-    residency.coldRule = (entity, id) =>
-      entity === 'issue' && ids.includes(id) ? true : coldRule(entity, id)
-    residency.hidden = (entity, id) =>
-      entity === 'issue' && ids.includes(id) ? false : hidden(entity, id)
-    try {
-      act(() => {
-        ids.forEach((id, index) => {
-          owner.apply({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
-          owner.apply({
-            type: 'update',
-            rows: [{ kind: 'issue', id, value: rows[index] }],
-          })
-        })
-      })
-      const fetch = vi.spyOn(runtime.replica, 'row')
-      act(() => {
-        for (const id of [...ids, ...ids]) actions.selectIssue(id)
-        expect(ids.map((id) => sidebarView(owner).row(id))).toEqual([LOADING, LOADING])
-        expect(requests).toHaveLength(0)
-        expect(referenceState(runtime).selectedIssueId).toBeNull()
-        expect(focused).toBeNull()
-        expect(fetch).not.toHaveBeenCalled()
-        expect(owner.hydrate()).toBe(2)
-      })
-      fetch.mockRestore()
-      expect(ids.map((id) => sidebarView(owner).row(id))).not.toContain(LOADING)
-    } finally {
-      residency.coldRule = coldRule
-      residency.hidden = hidden
-    }
-    await settle()
-  })
-
-  it('waits for a loading mission ancestor before navigating or mutating a loaded child', async () => {
-    await mount((fixture) => fixture.patchIssue(TARGET, { parentId: asIssueId('synthetic-3') }))
-    const owner = pool!
-    const residency = owner.residency!
-    const ancestor = owner.row('issue', 'synthetic-3') as SliceIssue
-    const coldRule = residency.coldRule.bind(residency)
-    const hidden = residency.hidden.bind(residency)
-    residency.coldRule = (entity, id) =>
-      entity === 'issue' && id === 'synthetic-3' ? true : coldRule(entity, id)
-    residency.hidden = (entity, id) =>
-      entity === 'issue' && id === 'synthetic-3' ? false : hidden(entity, id)
-    try {
-      act(() => {
-        owner.apply({
-          type: 'update',
-          rows: [{ kind: 'issue', id: 'synthetic-3', value: undefined }],
-        })
-        owner.apply({
-          type: 'update',
-          rows: [{ kind: 'issue', id: 'synthetic-3', value: ancestor }],
-        })
-        for (let click = 0; click < 3; click += 1) actions.selectIssue(TARGET)
-        expect(sidebarView(owner).row('synthetic-3')).toBe(LOADING)
-        expect(requests).toHaveLength(0)
-        expect(referenceState(runtime).selectedIssueId).toBeNull()
-        expect(focused).toBeNull()
-        expect(owner.hydrate()).toBe(1)
-      })
-      await act(async () => actions.selectIssue(TARGET))
-      expect(referenceState(runtime).selectedIssueId).toBe('synthetic-1')
-      expect(focused).toBe(TARGET)
-    } finally {
-      residency.coldRule = coldRule
-      residency.hidden = hidden
-    }
-    await settle()
-  })
 })
+
+/** The synthetic project's band. Bands follow the registered repositories,
+ *  which come from checkout records in path order (POD-6644). */
+function projectBand() {
+  const band = sidebarView(pool!)
+    .sections()
+    .bands.find((entry) => entry.repoId === 'synthetic-repo')
+  if (!band) throw new Error('The synthetic project band is missing')
+  return band
+}
 
 describe('real pool row mutations and receipts', () => {
   it('backfills missing sort keys through planReorderKeys and the existing outbox, then rewinds every refusal', async () => {
     await mount()
-    const original = [...sidebarView(pool!).sections().bands[0]!.rowIds]
+    const original = [...projectBand().rowIds]
     const movedId = original.at(-1)!
     const order = [movedId, ...original.slice(0, -1)]
     const patches = planReorderKeys(order, movedId, () => undefined)
@@ -714,47 +712,70 @@ describe('real pool row mutations and receipts', () => {
       })
     })
     expect(
-      runtime.outbox.pending().map((entry) => {
+      runtime.services.outbox.queue.pending().map((entry) => {
         const input = entry.input as { id: string; patch: object }
         return { id: input.id, ...input.patch }
       }),
     ).toEqual(patches)
-    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toEqual(order)
+    expect(projectBand().rowIds).toEqual(order)
     await settle()
     for (const patch of patches) await refuse(await request('issues.update', patch.id))
-    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toEqual(original)
+    expect(projectBand().rowIds).toEqual(original)
   })
 
   it.each([
     true,
     false,
-  ])('crosses the pinned boundary (%s) with only the moved row patch', async (pinned) => {
-    await mount((fixture) => {
+  ])('crosses the pinned boundary (%s) with only the moved issue and pin records', async (pinned) => {
+    const fixture = await mount((fixture) => {
       const keys = spreadSortKeys(12)
       for (let index = 0; index < 12; index += 1)
         patchIssue(fixture, `synthetic-${index}`, { sortKey: keys[index] })
     })
+    enableRecordRequests(fixture)
     const movedId = pinned ? TARGET : 'synthetic-0'
     const sourceScope = pinned ? 'group:synthetic-repo' : 'pinned'
     const targetScope = pinned ? 'pinned' : 'group:synthetic-repo'
     const existing = pinned
       ? [...sidebarView(pool!).sections().pinnedIds]
-      : [...sidebarView(pool!).sections().bands[0]!.rowIds]
+      : [...projectBand().rowIds]
     const order = [...existing, movedId]
+    const beforePinned = [...sidebarView(pool!).sections().pinnedIds]
+    const beforeBand = [...projectBand().rowIds]
     expect(drag.options!.allowedTargets?.(sourceScope, movedId)).toEqual([targetScope])
     await act(async () => {
       await drag.options!.onDrop({ sourceScope, targetScope, movedId, order })
     })
-    const write = await request('issues.update', movedId)
-    expect(requests).toHaveLength(1)
-    expect(write.input).toMatchObject({
+    const sort = await request('issues.update', movedId)
+    // The compatibility outbox sends one promise at a time. Both optimistic
+    // records are present before either deferred transport is answered.
+    expect(runtime.services.outbox.queue.pending()).toHaveLength(2)
+    expect(runtime.services.outbox.queue.pending()).toContainEqual(
+      expect.objectContaining({
+        kind: pinned ? 'recordCreate' : 'recordRemove',
+        input: expect.objectContaining({ kind: 'pin', id: issuePinId(movedId) }),
+      }),
+    )
+    expect(sort.input).toMatchObject({
       id: movedId,
-      patch: { pinned, sortKey: expect.any(String) },
+      patch: { sortKey: expect.any(String) },
     })
+    expect(sort.input['patch']).not.toHaveProperty('pinned')
     expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(pinned)
     await settle()
-    await refuse(write)
+    await refuse(sort)
+    const pin = await request(`records.pin.${pinned ? 'create' : 'remove'}`, issuePinId(movedId))
+    expect(requests).toHaveLength(2)
+    expect(pin.input).toMatchObject({
+      id: issuePinId(movedId),
+      ...(pinned
+        ? { fields: { userId: 'sidebar-pool-actions', kind: 'issue', entityId: movedId } }
+        : {}),
+    })
+    await refuse(pin)
     expect(sidebarView(pool!).sections().pinnedIds.includes(movedId)).toBe(!pinned)
+    expect(sidebarView(pool!).sections().pinnedIds).toEqual(beforePinned)
+    expect(projectBand().rowIds).toEqual(beforeBand)
   })
 
   it('renames inline on Enter, paints before the receipt and rewinds on refusal', async () => {
@@ -773,14 +794,19 @@ describe('real pool row mutations and receipts', () => {
     await refuse(write)
     expect(value().title).toBe('Only responsive target')
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
-    expect(referenceState(runtime).outboxDeadLetters).toHaveLength(1)
+    // Parked writes are a LiveStore condition (POD-5798), applied with the frame.
+    await waitFor(() => expect(runtime.live.outbox.deadLetters).toHaveLength(1))
   })
 
-  it('retains an accepted rename until the echo, composes a later edit and rewinds only that edit', async () => {
+  // How long an applied write paints is the outbox entry's (POD-6279), and this
+  // fixture's compatibility queue retires on the reply: the echo lands first here.
+  it('composes a later edit over an accepted rename and rewinds only that edit', async () => {
     const fixture = await mount()
     act(() => actions.renameIssue(TARGET, 'Accepted title'))
+    expect(value().title).toBe('Accepted title')
     const first = await request('issues.update')
     await act(async () => {
+      patchIssue(fixture, TARGET, { title: 'Accepted title' })
       first.resolve({ ok: true })
     })
     await waitFor(() => expect(outcomes.some((o) => o.type === 'applied')).toBe(true))
@@ -791,9 +817,6 @@ describe('real pool row mutations and receipts', () => {
       expect(requests.filter((r) => r.procedure === 'issues.update')).toHaveLength(2),
     )
     const second = requests.filter((r) => r.procedure === 'issues.update')[1]!
-    await act(async () => {
-      patchIssue(fixture, TARGET, { title: 'Accepted title' })
-    })
     expect(value().title).toBe('Second pending title')
     await settle()
     await refuse(second)
@@ -835,11 +858,15 @@ describe('real pool row mutations and receipts', () => {
   })
 
   it('pins immediately from the actual issue menu and returns to the original band on refusal', async () => {
-    await mount()
+    const fixture = await mount()
+    enableRecordRequests(fixture)
     await menu()
     fireEvent.click(await item('Pin'))
-    const write = await request('issues.update')
-    expect(write.input).toMatchObject({ patch: { pinned: true } })
+    const write = await request('records.pin.create', issuePinId())
+    expect(write.input).toMatchObject({
+      id: issuePinId(),
+      fields: { userId: 'sidebar-pool-actions', kind: 'issue', entityId: TARGET },
+    })
     expect(sidebarView(pool!).sections().pinnedIds).toContain(TARGET)
     expect(screen.getByTestId('pinned-section').contains(row())).toBe(true)
     await settle()
@@ -859,10 +886,10 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(within(row()).getByTestId('tuck-away'))
     const tuck = await request('issues.setTucked')
     expect(tuck.input).toMatchObject({ id: TARGET, tucked: true })
-    await waitFor(() => expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain(TARGET))
+    await waitFor(() => expect(projectBand().closedIds).toContain(TARGET))
     await settle()
     await refuse(tuck)
-    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET)
+    expect(projectBand().rowIds).toContain(TARGET)
     fireEvent.click(within(row()).getByTestId('tuck-away'))
     await accept(await request('issues.setTucked'))
     await act(async () => patchIssue(fixture, TARGET, { tuckedAt: new Date(NOW).toISOString() }))
@@ -873,19 +900,25 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(folded)
     await settle()
     expect(worklistView(pool!).selectedWasFolded).toBe(true)
-    for (const queued of runtime.outbox.pending().filter((entry) => entry.kind === 'issueMarkRead'))
-      await accept(await request('issues.markRead', (queued.input as { id: string }).id))
+    // A mark-read is a record edit of my own issue row (POD-6404); this server has
+    // no sync.submit, so it reaches `issues.markRead`.
+    for (const queued of runtime.services.outbox.queue
+      .pending()
+      .filter((entry): entry is typeof entry & { input: { id: string } } => isMarkRead(entry)))
+      await accept(
+        await request('issues.markRead', parseIssueUserStateRowId(queued.input.id).entityId),
+      )
     fireEvent.contextMenu(folded, { clientX: 30, clientY: 40 })
     fireEvent.click(await screen.findByTestId('bring-back'))
     const bringBack = await request('issues.setTucked')
     expect(bringBack.input).toMatchObject({ id: TARGET, tucked: false })
-    await waitFor(() => expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET))
+    await waitFor(() => expect(projectBand().rowIds).toContain(TARGET))
     // Brought back to Open: the row is there once that lane shows (POD-2074).
     fireEvent.click(screen.getByTestId('work-lane-open'))
     await waitFor(() => expect(row()?.textContent).toContain('Only responsive target'))
     await settle()
     await refuse(bringBack)
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain(TARGET)
+    expect(projectBand().closedIds).toContain(TARGET)
   })
 
   it('unsnoozes from the snoozed row context menu and restores it on refusal', async () => {
@@ -902,11 +935,11 @@ describe('real pool row mutations and receipts', () => {
     expect(write.input).toMatchObject({ id: TARGET })
     expect(value().issue.deferred).toBe(false)
     expect(screen.queryByRole('menu', { name: 'Folded task actions' })).toBeNull()
-    expect(sidebarView(pool!).sections().bands[0]!.rowIds).toContain(TARGET)
+    expect(projectBand().rowIds).toContain(TARGET)
     await settle()
     await refuse(write)
     expect(value().issue.deferred).toBe(true)
-    expect(sidebarView(pool!).sections().bands[0]!.snoozedIds).toContain(TARGET)
+    expect(projectBand().snoozedIds).toContain(TARGET)
   })
 
   it('keeps Bring back disabled with its explanation after the grace window', async () => {
@@ -932,19 +965,19 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await screen.findByTestId('closed-issue-archive'))
     await settle()
     expect(
-      sidebarView(pool!).sections().bands[0]!.closedIds,
+      projectBand().closedIds,
       JSON.stringify({
-        pending: runtime.outbox.pending(),
+        pending: runtime.services.outbox.queue.pending(),
         row: sidebarView(pool!).row('synthetic-5'),
         requests,
       }),
     ).not.toContain('synthetic-5')
-    const write = await request('issues.archive', 'synthetic-5')
+    const write = await request('issues.update', 'synthetic-5')
     expect(write.input).toMatchObject({ id: 'synthetic-5' })
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).not.toContain('synthetic-5')
+    expect(projectBand().closedIds).not.toContain('synthetic-5')
     await settle()
     await refuse(write)
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toContain('synthetic-5')
+    expect(projectBand().closedIds).toContain('synthetic-5')
     await waitFor(() =>
       expect(screen.getByTestId('folded-work-row').textContent).toContain('Synthetic task 5'),
     )
@@ -1025,7 +1058,7 @@ describe('real pool row mutations and receipts', () => {
   })
 
   it('marks an unread task read, clears deferral and unpins through the actual menu', async () => {
-    await mount((fixture) =>
+    const fixture = await mount((fixture) =>
       patchIssue(fixture, TARGET, {
         readAt: null,
         pinned: true,
@@ -1048,10 +1081,11 @@ describe('real pool row mutations and receipts', () => {
     expect(value().issue.deferred).toBe(false)
     await settle()
     await refuse(unsnooze)
+    enableRecordRequests(fixture)
     await menu()
     fireEvent.click(await item('Unpin'))
-    const unpin = await request('issues.update')
-    expect(unpin.input).toMatchObject({ patch: { pinned: false } })
+    const unpin = await request('records.pin.remove', issuePinId())
+    expect(unpin.input).toMatchObject({ id: issuePinId() })
     expect(sidebarView(pool!).sections().pinnedIds).not.toContain(TARGET)
     await refuse(unpin)
     expect(sidebarView(pool!).sections().pinnedIds).toContain(TARGET)
@@ -1099,44 +1133,67 @@ describe('real pool row mutations and receipts', () => {
   it('hands the pool-resolved session to the same shared Handoff menu command', async () => {
     features.handoff = true
     await mount((fixture) => {
+      // A move is a `session.handoff` effect record (POD-6422): this server
+      // takes it on the sync write entry point.
+      Object.assign(fixture.api, {
+        sync: {
+          submit: {
+            mutate: (input: Record<string, unknown>) =>
+              new Promise((resolve, reject) =>
+                requests.push({ procedure: 'sync.submit', input, resolve, reject }),
+              ),
+          },
+        },
+      })
       fixture.patch('session', 'synthetic-session-11', {
         machineId: 'source',
         harnessHandoff: true,
         cwd: `${ROOT}/guests`,
       })
       patchIssue(fixture, TARGET, { worktreePath: `${ROOT}/guests` })
-      const refresh = fixture.api.discovery.refreshRepos.mutate
-      fixture.api.discovery.refreshRepos.mutate = async (...args) => {
-        const result = await refresh(...args)
-        return {
-          ...result,
-          repositories: ['source', 'target'].map((machineId) => ({
-            path: machineId === 'source' ? ROOT : '/synthetic/target',
-            machineId,
-            repoId: 'synthetic-repo',
-            kind: 'repository',
-            branch: 'main',
-            worktrees:
-              machineId === 'source' ? [{ path: `${ROOT}/guests`, branch: 'synthetic' }] : [],
-          })),
-          machines: ['source', 'target'].map((id) => ({
-            id,
-            name: `Synthetic ${id}`,
-            online: true,
-            serviceAssignment: { server: false, agentExecution: true },
-            availability: { daemon: true },
-            inventory: { agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }] },
-          })),
-        } as typeof result
-      }
+      // Machines and repositories are records (POD-6644).
+      fixture.putMachinesAndRepos({
+        repos: ['source', 'target'].map((machineId) => ({
+          path: machineId === 'source' ? ROOT : '/synthetic/target',
+          machineId,
+          repoId: 'synthetic-repo',
+          kind: 'repository',
+          branch: 'main',
+          worktrees:
+            machineId === 'source' ? [{ path: `${ROOT}/guests`, branch: 'synthetic' }] : [],
+        })),
+        machines: ['source', 'target'].map((id) => ({
+          id,
+          name: `Synthetic ${id}`,
+          serviceAssignment: { server: false, agentExecution: true },
+          inventory: { agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }] },
+        })),
+      })
     })
+    // Both machines are online: their live condition.
+    for (const id of ['source', 'target'])
+      liveFixture(pool!).condition(id, {
+        online: true,
+        since: null,
+        availability: { daemon: true },
+      } as never)
     await menu()
     fireEvent.click(await item('Handoff'))
     fireEvent.click(await item('Synthetic target'))
-    const write = await request('sessions.handoff', 'synthetic-session-11')
-    expect(write.input).toEqual({ sessionId: 'synthetic-session-11', machineId: 'target' })
-    // Handoff retains the shared menu's existing direct command semantics.
-    expect(runtime.outbox.pending()).toHaveLength(0)
+    await waitFor(() =>
+      expect(requests.filter((r) => !r.settled && r.procedure === 'sync.submit')).toHaveLength(1),
+    )
+    const write = requests.find((r) => !r.settled && r.procedure === 'sync.submit')!
+    expect(write.input).toMatchObject({
+      command: 'effects.create',
+      input: {
+        kind: 'session.handoff',
+        target: { kind: 'session', id: 'synthetic-session-11' },
+        input: { machineId: 'target' },
+      },
+    })
+    // The old direct route is not called any more.
+    expect(requests.filter((r) => r.procedure === 'sessions.handoff')).toHaveLength(0)
     await act(async () => write.reject(new Error('Synthetic handoff refusal')))
     await settle()
   })
@@ -1156,17 +1213,17 @@ describe('real pool row mutations and receipts', () => {
     expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
     await settle()
     expect(
-      runtime.outbox
+      runtime.services.outbox.queue
         .pending()
-        .filter((entry) => entry.kind === 'issueArchive')
+        .filter(isArchive)
         .map((entry) => (entry.input as { id: string }).id)
         .sort(),
     ).toEqual(['synthetic-5', TARGET].sort())
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(0)
+    expect(projectBand().closedIds).toHaveLength(0)
     await settle()
-    for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive'))
-      await refuse(await request('issues.archive', (entry.input as { id: string }).id))
-    expect(sidebarView(pool!).sections().bands[0]!.closedIds).toHaveLength(2)
+    for (const entry of runtime.services.outbox.queue.pending().filter(isArchive))
+      await refuse(await request('issues.update', (entry.input as { id: string }).id))
+    expect(projectBand().closedIds).toHaveLength(2)
     await waitFor(() => expect(screen.queryByTestId('closed-issues-undo')).toBeNull())
   })
 
@@ -1181,12 +1238,12 @@ describe('real pool row mutations and receipts', () => {
     )
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
-    for (const entry of runtime.outbox.pending().filter((entry) => entry.kind === 'issueArchive')) {
+    for (const entry of runtime.services.outbox.queue.pending().filter(isArchive)) {
       expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(
         true,
       )
       const id = (entry.input as { id: string }).id
-      const write = await request('issues.archive', id)
+      const write = await request('issues.update', id)
       await act(async () => patchIssue(fixture, id, { archived: true }))
       await accept(write)
     }
@@ -1207,12 +1264,25 @@ describe('real pool row mutations and receipts', () => {
       }),
     )
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    const restores = runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')
+    // The restores are plain-field edits too (POD-6405).
+    const restores = runtime.services.outbox.queue
+      .pending()
+      .filter(
+        (entry) =>
+          entry.kind === 'recordEdit' &&
+          (entry.input as { patch?: { archived?: unknown } }).patch?.archived === false,
+      )
     expect(
       restores
         .map((entry) => entry.input)
         .sort((a, b) => (a as { id: string }).id.localeCompare((b as { id: string }).id)),
-    ).toEqual([TARGET, 'synthetic-5'].map((id) => ({ id, patch: { archived: false } })))
+    ).toEqual(
+      [TARGET, 'synthetic-5'].map((id) => ({
+        kind: 'issueProjection',
+        id,
+        patch: { archived: false },
+      })),
+    )
     await settle()
     expect(
       sidebarView(pool!)
@@ -1260,7 +1330,6 @@ describe('real pool row mutations and receipts', () => {
       patchIssue(fixture, 'synthetic-9', { parentId: 'synthetic-7' })
     })
     // Cold payloads still have formal links and declared archive summaries.
-    expect(pool!.tables.issue.has('synthetic-6')).toBe(false)
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
     expect(screen.getByTestId('closed-lane-header').textContent).toContain('Archiving…')
@@ -1270,8 +1339,8 @@ describe('real pool row mutations and receipts', () => {
     expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.queryByTestId('closed-issues-archive-all')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    const archive = await request('issues.archive', 'synthetic-5')
-    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
+    const archive = await request('issues.update', 'synthetic-5')
+    expect(runtime.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
     // Model the server's whole cascade before accepting the parent command.
     await act(async () => {
       for (const id of ids) patchIssue(fixture, id, { archived: true })
@@ -1282,15 +1351,14 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
     // No receipt waiter or microtask may stand between the gesture and any restore.
     expect(
-      runtime.outbox
+      runtime.services.outbox.queue
         .pending()
-        .filter((entry) => entry.kind === 'issueUpdate')
+        .filter(isRestore)
         .map((entry) => entry.input),
-    ).toEqual(ids.map((id) => ({ id, patch: { archived: false } })))
-    for (const id of ids)
-      expect(pool!.row('issue', id, 'summary-fields')).toMatchObject({ archived: false })
-    expect(pool!.row('issue', 'synthetic-7', 'summary-fields')).toMatchObject({ archived: true })
-    expect(pool!.row('issue', 'synthetic-9', 'summary-fields')).toMatchObject({ archived: false })
+    ).toEqual(ids.map((id) => ({ kind: 'issueProjection', id, patch: { archived: false } })))
+    for (const id of ids) expect(pool!.row('issue', id)).toMatchObject({ archived: false })
+    expect(pool!.row('issue', 'synthetic-7')).toMatchObject({ archived: true })
+    expect(pool!.row('issue', 'synthetic-9')).toMatchObject({ archived: false })
   })
 
   it('does not delay an Undo past a newer archive of a promoted child', async () => {
@@ -1311,14 +1379,14 @@ describe('real pool row mutations and receipts', () => {
     expect(screen.queryByTestId('closed-issues-archive-all')).toBeNull()
     // A newer archive from another control must not be overwritten by an old Undo.
     await act(async () => actions.archiveIssue('synthetic-6'))
-    const parentArchive = await request('issues.archive', 'synthetic-5')
+    const parentArchive = await request('issues.update', 'synthetic-5')
     await act(async () => {
       for (const id of ['synthetic-5', 'synthetic-6']) patchIssue(fixture, id, { archived: true })
     })
     await accept(parentArchive)
-    await accept(await request('issues.archive', 'synthetic-6'))
-    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
-    expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: true })
+    await accept(await request('issues.update', 'synthetic-6'))
+    expect(runtime.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
+    expect(pool!.row('issue', 'synthetic-6')).toMatchObject({ archived: true })
   })
 
   it('does not restore descendants when a pending parent archive is refused', async () => {
@@ -1326,9 +1394,9 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(screen.getByTestId('work-lane-closed'))
     fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
-    await refuse(await request('issues.archive', 'synthetic-5'))
-    expect(runtime.outbox.pending().filter((entry) => entry.kind === 'issueUpdate')).toHaveLength(0)
-    expect(pool!.row('issue', 'synthetic-6', 'summary-fields')).toMatchObject({ archived: false })
+    await refuse(await request('issues.update', 'synthetic-5'))
+    expect(runtime.services.outbox.queue.pending().filter(isRestore)).toHaveLength(0)
+    expect(pool!.row('issue', 'synthetic-6')).toMatchObject({ archived: false })
   })
 
   it('does not archive a partial batch while a descendant summary is loading', async () => {
@@ -1338,13 +1406,13 @@ describe('real pool row mutations and receipts', () => {
     const lookup = vi
       .spyOn(pool!, 'row')
       .mockImplementation((entity, id, mode) =>
-        entity === 'issue' && id === 'synthetic-6' && mode === 'summary-fields'
+        entity === 'issue' && id === 'synthetic-6' && mode === undefined
           ? LOADING
           : read(entity, id, mode),
       )
     try {
       fireEvent.click(await screen.findByTestId('closed-issues-archive-all'))
-      expect(runtime.outbox.pending()).toHaveLength(0)
+      expect(runtime.services.outbox.queue.pending()).toHaveLength(0)
       expect(screen.queryByTestId('closed-issues-undo')).toBeNull()
     } finally {
       lookup.mockRestore()
@@ -1367,7 +1435,7 @@ describe('real pool row mutations and receipts', () => {
       target: { value: 'Only responsive' },
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Archive all 1 closed task' }))
-    const archive = await request('issues.archive')
+    const archive = await request('issues.update')
     await act(async () => patchIssue(fixture, TARGET, { archived: true }))
     await accept(archive)
     expect(await screen.findByTestId('work-filter-empty')).toBeTruthy()

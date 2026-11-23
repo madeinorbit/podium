@@ -1,5 +1,5 @@
 import { recordChipWork } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import type { IssueReferenceModel as IssueReferenceView } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { referenceView } from '@podium/client-graph/issue-reference'
@@ -29,7 +29,7 @@ export const LiveIssueReference = memo(function LiveIssueReference(props: ChipPr
 })
 
 function PoolIssueReference({ token, ...props }: ChipProps): JSX.Element {
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const read = useCallback(
     (pool: MobxPool) => {
       recordChipWork(owner, 'reads')

@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   asIssueId,
@@ -6,6 +7,7 @@ import {
   type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
+  type PinWire,
   type RepoProjection,
 } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
@@ -14,8 +16,8 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { issueRowToProjection } from '../../../server/src/modules/issues/projection'
 import { issueRowFixture } from '../../../server/src/test-support/issue-row'
-import type { StoreActions } from '../client/hooks'
-import { useBooting, useIssue, useIssues, useStoreActions } from '../client/hooks'
+import { useIssues } from '../../test/roster-hooks'
+import { useBooting, useIssue } from '../client/hooks'
 import {
   ServerProfileContext,
   type ServerProfileContextValue,
@@ -69,42 +71,6 @@ vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 // Flow-typed RN icon source never parses in this lane; every glyph is a no-op.
 // Named one by one because vitest validates a mock against the factory's OWN
 // keys — when the task page's component tree grows an icon, this list grows.
-vi.mock('lucide-react-native', () => ({
-  AlertTriangle: () => null,
-  ArrowRight: () => null,
-  ArrowUp: () => null,
-  CheckCircle2: () => null,
-  ChevronDown: () => null,
-  ChevronLeft: () => null,
-  ChevronRight: () => null,
-  ChevronUp: () => null,
-  Circle: () => null,
-  CircleDot: () => null,
-  ClipboardPaste: () => null,
-  ExternalLink: () => null,
-  FileText: () => null,
-  Flag: () => null,
-  FlagOff: () => null,
-  GitBranch: () => null,
-  GitCommit: () => null,
-  GitMerge: () => null,
-  Link2: () => null,
-  Mail: () => null,
-  MessageCircleQuestion: () => null,
-  Mic: () => null,
-  MicOff: () => null,
-  MoreHorizontal: () => null,
-  Paperclip: () => null,
-  Play: () => null,
-  Plus: () => null,
-  RefreshCw: () => null,
-  Square: () => null,
-  SquareTerminal: () => null,
-  Trash2: () => null,
-  Unlock: () => null,
-  Users: () => null,
-  X: () => null,
-}))
 // Status/priority glyphs draw with react-native-svg, whose RN source never
 // parses in this lane; the geometry is not what this file is about.
 vi.mock('react-native-svg', async () => {
@@ -194,7 +160,13 @@ const markers: IssueUserStateWire = {
   entityId: projection.id,
   readAt: '2026-09-30T12:00:00Z',
   tuckedAt: null,
-  pinned: true,
+}
+// The task is pinned: my pin record (POD-6692), not a marker.
+const pin: PinWire = {
+  userId: asUserId('user:test'),
+  kind: 'issue',
+  entityId: projection.id,
+  pinnedAt: '2026-09-30T12:00:00Z',
 }
 const git = {
   id: projection.id,
@@ -210,6 +182,7 @@ const fixture = {
   issues: [],
   issueProjections: [projection],
   issueUserStates: [markers],
+  pins: [pin],
   issueGitStates: [git],
   repoProjections: [repo],
 }
@@ -242,10 +215,10 @@ const profile: ServerProfileContextValue = {
   revalidateOfflineProfile: async () => {},
 }
 let latest: IssueViewModel | undefined
-let actions: StoreActions
+let actions: import('@podium/client-core/commands').Commands
 const Probe = observer(function Probe() {
   latest = useIssue('root')
-  actions = useStoreActions()
+  actions = useCommands()
   const issues = useIssues()
   const booting = useBooting()
   // Hook results are live graph models with pool references, not wire records.
@@ -283,7 +256,20 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     expect(await mounted.replica.hydrate()).not.toHaveProperty('issues')
     await waitFor(() =>
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0),
-    )
+    ).catch((error) => {
+      console.error('normalized Tasks readiness', {
+        scope: mounted.pool?.queries.issueScope(projection.id),
+        position: mounted.pool?.row(
+          'issueBoardPosition',
+          JSON.stringify([projection.id, 'priority']),
+        ),
+        query: mounted.pool?.row(
+          'issueBoardQuery',
+          JSON.stringify({ kind: 'board', filter: {}, showAgentTasks: false }),
+        ),
+      })
+      throw error
+    })
     if (Surface === IssuesScreen) {
       expect(screen.getByText('POD-42')).toBeTruthy()
     }
@@ -406,8 +392,8 @@ describe('mobile normalized issue reads with no legacy issue rows', () => {
     })
     let completion: Promise<unknown> | undefined
     await act(async () => {
-      completion = actions
-        .updateIssue(projection.id, { title: 'Optimistic normalized title' })
+      completion = actions.issues
+        .update(projection.id, { title: 'Optimistic normalized title' })
         .catch(() => {})
     })
     expect(latest?.title).toBe('Optimistic normalized title')

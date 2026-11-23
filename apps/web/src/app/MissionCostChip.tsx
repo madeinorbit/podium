@@ -1,5 +1,5 @@
 import { Popover } from '@base-ui/react/popover'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useRequestClient } from '@podium/client-core/react'
 import {
   COST_HEDGE,
   costHarnessLabel,
@@ -97,7 +97,7 @@ export const MissionCostChip = observer(function MissionCostChip({
 }: {
   issueId: string
 }): JSX.Element | null {
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const trpc = useRequestClient<Trpc>()
   const [open, setOpen] = useState(false)
   const { view } = useMissionCost(trpc, issueId, open)
   if (view?.state !== 'costed') return null

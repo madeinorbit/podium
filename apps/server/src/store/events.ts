@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Events/steward aggregate — owns the durable orchestrator event log
  * (`podium_events`), the steward's KV state (`steward_state`) and the
@@ -5,32 +6,53 @@
  * event-subscriptions design Phase B).
  */
 
-import { AgentRuntimeState, type SessionId } from '@podium/model'
+import { AgentRuntimeState, FEED_EVENT_KINDS, isFeedEventKind, type SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
-import { and, asc, desc, eq, gt, inArray, isNull, lt, lte, max, not, or, type SQL, sql } from 'drizzle-orm'
 import {
-  podiumEvents,
-  runtimeEventCheckpoints,
-  runtimeEventProjectionCursors,
-  sessions as sessionsTable,
-  stewardState,
-  subscriptionDeliveries,
-  subscriptions,
-} from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  max,
+  ne,
+  not,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
+import { captureWrite } from '../sync/capture-pg'
+import { type ChangeLogCommit, inChangeLogTransaction } from './change-log-commit'
+import { runAtRoot } from './executor/context'
+import { dialectOf, dialectPrepared } from './executor/dialect-prepared'
+import { afterCommit, spanOpen } from './executor/executor'
+import { withOwnOperation } from './executor/operation-scope'
+import type {
+  StoreDrizzle,
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   notInListOf,
   param,
   prepared,
   preparedFamily,
+  WORKSPACE,
 } from './executor/sync-drizzle'
-import { runAtRoot } from './executor/context'
-import { afterCommit, spanOpen } from './executor/executor'
-import { withOwnOperation } from './executor/operation-scope'
+import { RUNTIME_EVENT_LOG_KIND } from './runtime-event-kind'
 import type { Subscription } from './types'
 
 /**
@@ -122,7 +144,7 @@ function rowToSubscription(r: SubscriptionRow): Subscription {
   }
 }
 
-export const RUNTIME_EVENT_LOG_KIND = 'session.runtime'
+export { RUNTIME_EVENT_LOG_KIND }
 
 /** The projector whose head fences runtime-event pruning. */
 const RUNTIME_BOARD_PROJECTOR = 'runtime.board.v1'
@@ -132,54 +154,69 @@ const JANITOR_OWNERSHIP_KEY = 'janitor-ownership-v1'
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const checkpointOf = prepared((db: StoreDrizzle) =>
+const checkpointOf = prepared((db, t) =>
   db
     .select({
-      observerGeneration: runtimeEventCheckpoints.observerGeneration,
-      cursorJson: runtimeEventCheckpoints.cursorJson,
-      turnEpoch: runtimeEventCheckpoints.turnEpoch,
-      closedTurnEpoch: runtimeEventCheckpoints.closedTurnEpoch,
-      updatedAt: runtimeEventCheckpoints.updatedAt,
-      turnStateJson: runtimeEventCheckpoints.turnStateJson,
+      observerGeneration: t.runtimeEventCheckpoints.observerGeneration,
+      cursorJson: t.runtimeEventCheckpoints.cursorJson,
+      turnEpoch: t.runtimeEventCheckpoints.turnEpoch,
+      closedTurnEpoch: t.runtimeEventCheckpoints.closedTurnEpoch,
+      updatedAt: t.runtimeEventCheckpoints.updatedAt,
+      turnStateJson: t.runtimeEventCheckpoints.turnStateJson,
     })
-    .from(runtimeEventCheckpoints)
-    .where(eq(runtimeEventCheckpoints.sessionId, param(runtimeEventCheckpoints.sessionId, 'sessionId')))
+    .from(t.runtimeEventCheckpoints)
+    .where(
+      inWorkspace(
+        t.runtimeEventCheckpoints,
+        eq(
+          t.runtimeEventCheckpoints.sessionId,
+          param(t.runtimeEventCheckpoints.sessionId, 'sessionId'),
+        ),
+      ),
+    )
     .prepare(),
 )
 
 /** The recorded turn states of a set of sessions (POD-6160 D2h). */
-const turnStatesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const turnStatesOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ sessionId: runtimeEventCheckpoints.sessionId, turnStateJson: runtimeEventCheckpoints.turnStateJson })
-    .from(runtimeEventCheckpoints)
-    .where(inListOf(runtimeEventCheckpoints.sessionId, size))
+    .select({
+      sessionId: t.runtimeEventCheckpoints.sessionId,
+      turnStateJson: t.runtimeEventCheckpoints.turnStateJson,
+    })
+    .from(t.runtimeEventCheckpoints)
+    .where(
+      inWorkspace(t.runtimeEventCheckpoints, inListOf(t.runtimeEventCheckpoints.sessionId, size)),
+    )
     .prepare(),
 )
 
-const upsertCheckpoint = prepared((db: StoreDrizzle) =>
-  db
-    .insert(runtimeEventCheckpoints)
-    .values({
-      sessionId: sql.placeholder('sessionId'),
-      observerGeneration: sql.placeholder('observerGeneration'),
-      cursorJson: sql.placeholder('cursorJson'),
-      turnEpoch: sql.placeholder('turnEpoch'),
-      closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
-      updatedAt: sql.placeholder('updatedAt'),
-      turnStateJson: sql.placeholder('turnStateJson'),
-    })
-    .onConflictDoUpdate({
-      target: runtimeEventCheckpoints.sessionId,
-      set: {
+const upsertCheckpoint = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.runtimeEventCheckpoints)
+      .values({
+        workspaceId: WORKSPACE,
+        sessionId: sql.placeholder('sessionId'),
         observerGeneration: sql.placeholder('observerGeneration'),
         cursorJson: sql.placeholder('cursorJson'),
         turnEpoch: sql.placeholder('turnEpoch'),
         closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
         updatedAt: sql.placeholder('updatedAt'),
         turnStateJson: sql.placeholder('turnStateJson'),
-      },
-    })
-    .prepare(),
+      })
+      .onConflictDoUpdate({
+        target: [t.runtimeEventCheckpoints.workspaceId, t.runtimeEventCheckpoints.sessionId],
+        set: {
+          observerGeneration: sql.placeholder('observerGeneration'),
+          cursorJson: sql.placeholder('cursorJson'),
+          turnEpoch: sql.placeholder('turnEpoch'),
+          closedTurnEpoch: sql.placeholder('closedTurnEpoch'),
+          updatedAt: sql.placeholder('updatedAt'),
+          turnStateJson: sql.placeholder('turnStateJson'),
+        },
+      }),
+  ).prepare(),
 )
 
 /**
@@ -187,28 +224,68 @@ const upsertCheckpoint = prepared((db: StoreDrizzle) =>
  * stopping at the limit (POD-6224). `ts` is the agent's clock, so the ts index
  * is not in id order: through it the read sorted the session's whole history.
  */
-const recentRuntimeEventPayloads = prepared((db: StoreDrizzle) =>
+const recentRuntimeEventPayloads = prepared((db, t) =>
   db
-    .select({ payload: podiumEvents.payload })
-    .from(podiumEvents)
+    .select({ payload: t.podiumEvents.payload })
+    .from(t.podiumEvents)
     .where(
-      and(
-        eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-        eq(podiumEvents.subject, param(podiumEvents.subject, 'sessionId')),
+      inWorkspace(
+        t.podiumEvents,
+        eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+        eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'sessionId')),
       ),
     )
-    .orderBy(desc(podiumEvents.id))
+    .orderBy(desc(t.podiumEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const runtimeEventSubjects = prepared((db: StoreDrizzle) =>
+const runtimeEventSubjects = prepared((db, t) =>
   db
-    .selectDistinct({ subject: podiumEvents.subject })
-    .from(podiumEvents)
-    .where(eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND))
+    .selectDistinct({ subject: t.podiumEvents.subject })
+    .from(t.podiumEvents)
+    .where(inWorkspace(t.podiumEvents, eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND)))
     .prepare(),
 )
+
+/**
+ * THE PAYLOAD FIELDS THESE READS FILTER ON, per engine. SQLite stores the payload as
+ * text and reads it with `json_extract`; Postgres stores `json` and reads it with
+ * `->>` / `#>>`, as text in byte order (`COLLATE "C"`, design 2.3 rule 13). A number
+ * is compared as a number on both; a missing field is NULL on both. Postgres also
+ * yields NULL for a field that holds no number, where SQLite would compare its text
+ * (the fields read here, `turnEpoch`, are always numbers when present).
+ */
+interface PayloadFields {
+  /** `$.t`, the event's type. */
+  readonly type: (payload: SQL) => SQL
+  /** A nested text field, by its path. */
+  readonly text: (payload: SQL, path: readonly string[]) => SQL
+  /** A numeric field, NULL when it is not a number. */
+  readonly number: (payload: SQL, field: string) => SQL
+  /** Whether a field holds an array with at least one element. */
+  readonly nonEmptyArray: (payload: SQL, field: string) => SQL
+}
+
+const SQLITE_PAYLOAD: PayloadFields = {
+  type: (payload) => sql`json_extract(${payload}, '$.t')`,
+  text: (payload, path) => sql`json_extract(${payload}, ${sql.raw(`'$.${path.join('.')}'`)})`,
+  number: (payload, field) => sql`json_extract(${payload}, ${sql.raw(`'$.${field}'`)})`,
+  nonEmptyArray: (payload, field) =>
+    sql`coalesce(json_array_length(${payload}, ${sql.raw(`'$.${field}'`)}), 0) > 0`,
+}
+
+const PG_PAYLOAD: PayloadFields = {
+  type: (payload) => sql`(${payload} ->> 't') COLLATE "C"`,
+  text: (payload, path) => sql`(${payload} #>> ${sql.raw(`'{${path.join(',')}}'`)}) COLLATE "C"`,
+  number: (payload, field) =>
+    sql`(CASE WHEN json_typeof(${payload} -> ${sql.raw(`'${field}'`)}) = 'number' THEN (${payload} ->> ${sql.raw(`'${field}'`)})::numeric END)`,
+  // `-> 0` is an array's first element, and NULL for an empty array or anything else.
+  nonEmptyArray: (payload, field) => sql`(${payload} -> ${sql.raw(`'${field}'`)} -> 0) IS NOT NULL`,
+}
+
+const payloadFieldsOf = (db: StoreDrizzle): PayloadFields =>
+  dialectOf(db) === 'pg' ? PG_PAYLOAD : SQLITE_PAYLOAD
 
 /**
  * The inner query takes the NEWEST `limit` matching rows and the outer one puts
@@ -216,27 +293,26 @@ const runtimeEventSubjects = prepared((db: StoreDrizzle) =>
  * newest is what bounds the read, and returning them oldest-first is what the
  * transcript reader expects.
  */
-const runtimeTranscriptPayloads = prepared((db: StoreDrizzle) => {
+const runtimeTranscriptPayloads = prepared((db, t) => {
+  const f = payloadFieldsOf(db)
+  const payload = sql`${t.podiumEvents.payload}`
   const recent = db
-    .select({ id: podiumEvents.id, payload: podiumEvents.payload })
-    .from(podiumEvents)
+    .select({ id: t.podiumEvents.id, payload: t.podiumEvents.payload })
+    .from(t.podiumEvents)
     .where(
-      and(
-        eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-        eq(podiumEvents.subject, param(podiumEvents.subject, 'sessionId')),
-        sql`(json_extract(${podiumEvents.payload}, '$.t') = 'transcript-reset'
-          OR (json_extract(${podiumEvents.payload}, '$.t') = 'item'
-            AND json_extract(${podiumEvents.payload}, '$.item.kind') = 'complete'))`,
+      inWorkspace(
+        t.podiumEvents,
+        eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+        eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'sessionId')),
+        sql`(${f.type(payload)} = 'transcript-reset'
+          OR (${f.type(payload)} = 'item'
+            AND ${f.text(payload, ['item', 'kind'])} = 'complete'))`,
       ),
     )
-    .orderBy(desc(podiumEvents.id))
+    .orderBy(desc(t.podiumEvents.id))
     .limit(sql.placeholder('limit'))
     .as('recent')
-  return db
-    .select({ payload: recent.payload })
-    .from(recent)
-    .orderBy(asc(recent.id))
-    .prepare()
+  return db.select({ payload: recent.payload }).from(recent).orderBy(asc(recent.id)).prepare()
 })
 
 /**
@@ -246,86 +322,108 @@ const runtimeTranscriptPayloads = prepared((db: StoreDrizzle) => {
  * restored session (`transcriptAvailable`), asked for a set of durable records
  * without replaying their items. One statement per 500 ids.
  *
- * The newest reset and whether it carried items are one aggregate: its id
- * doubled, plus one when its `items` are not empty.
+ * The NEWEST reset-or-complete-item decides it: a complete item is newer than
+ * every reset, so there are items; a reset is available exactly when it carried
+ * items. Each session reads that one row newest-first through
+ * `idx_podium_events_kind_subject_id` and stops. It used to aggregate EVERY
+ * runtime event of the session, parsing each payload, and the session record
+ * build runs this on every transcript item the capture sees: a busy session
+ * paid for its whole history (11 MB, about 70 ms) on each new item.
  */
-const runtimeTranscriptSubjectsOfIds = preparedFamily((db: StoreDrizzle, size: number) => {
-  const type = sql`json_extract(${podiumEvents.payload}, '$.t')`
-  const newestReset = sql`coalesce(max(CASE WHEN ${type} = 'transcript-reset'
-    THEN ${podiumEvents.id} * 2 + (coalesce(json_array_length(${podiumEvents.payload}, '$.items'), 0) > 0) END), 0)`
+const runtimeTranscriptSubjectsOfIds = preparedFamily((db, t, size: number) => {
+  const f = payloadFieldsOf(db)
+  const payload = sql`${t.podiumEvents.payload}`
+  const type = f.type(payload)
+  const newestDecides = sql`(SELECT CASE
+      WHEN ${type} = 'item' THEN 1
+      WHEN ${f.nonEmptyArray(payload, 'items')} THEN 1
+      ELSE 0 END
+    FROM ${t.podiumEvents}
+    WHERE ${t.podiumEvents.workspaceId} = ${WORKSPACE}
+      AND ${t.podiumEvents.kind} = ${RUNTIME_EVENT_LOG_KIND}
+      AND ${t.podiumEvents.subject} = ${t.sessions.id}
+      AND (${type} = 'transcript-reset'
+        OR (${type} = 'item' AND ${f.text(payload, ['item', 'kind'])} = 'complete'))
+    ORDER BY ${t.podiumEvents.id} DESC
+    LIMIT 1)`
   return db
-    .select({ subject: podiumEvents.subject })
-    .from(podiumEvents)
-    .where(and(eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND), inListOf(podiumEvents.subject, size)))
-    .groupBy(podiumEvents.subject)
-    .having(
-      sql`max(CASE WHEN ${type} = 'item' AND json_extract(${podiumEvents.payload}, '$.item.kind') = 'complete'
-          THEN ${podiumEvents.id} * 2 END) > ${newestReset}
-        OR ${newestReset} % 2 = 1`,
-    )
+    .select({ subject: t.sessions.id })
+    .from(t.sessions)
+    .where(inWorkspace(t.sessions, inListOf(t.sessions.id, size), sql`${newestDecides} = 1`))
     .prepare()
 })
 
-const liveTurnFailure = prepared((db: StoreDrizzle) =>
-  db
+const liveTurnFailure = prepared((db, t) => {
+  const f = payloadFieldsOf(db)
+  const payload = sql`${t.podiumEvents.payload}`
+  return db
     .select({ present: sql<number>`1` })
-    .from(podiumEvents)
+    .from(t.podiumEvents)
     .where(
-      and(
-        eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-        eq(podiumEvents.subject, param(podiumEvents.subject, 'sessionId')),
-        sql`json_extract(${podiumEvents.payload}, '$.t') = 'turn'`,
-        sql`json_extract(${podiumEvents.payload}, '$.ev.ev') = 'failed'`,
-        sql`json_extract(${podiumEvents.payload}, '$.provenance') = 'live'`,
-        sql`json_extract(${podiumEvents.payload}, '$.turnEpoch') >= ${sql.placeholder('turnEpoch')}`,
+      inWorkspace(
+        t.podiumEvents,
+        eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+        eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'sessionId')),
+        sql`${f.type(payload)} = 'turn'`,
+        sql`${f.text(payload, ['ev', 'ev'])} = 'failed'`,
+        sql`${f.text(payload, ['provenance'])} = 'live'`,
+        sql`${f.number(payload, 'turnEpoch')} >= ${sql.placeholder('turnEpoch')}`,
       ),
     )
     .limit(1)
-    .prepare(),
-)
+    .prepare()
+})
 
-const runtimeEventsAfter = prepared((db: StoreDrizzle) =>
+const runtimeEventsAfter = prepared((db, t) =>
   db
     .select({
-      id: podiumEvents.id,
-      subject: podiumEvents.subject,
-      payload: podiumEvents.payload,
+      id: t.podiumEvents.id,
+      subject: t.podiumEvents.subject,
+      payload: t.podiumEvents.payload,
     })
-    .from(podiumEvents)
+    .from(t.podiumEvents)
     .where(
-      and(
-        eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-        gt(podiumEvents.id, param(podiumEvents.id, 'afterId')),
+      inWorkspace(
+        t.podiumEvents,
+        eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+        gt(t.podiumEvents.id, param(t.podiumEvents.id, 'afterId')),
       ),
     )
-    .orderBy(asc(podiumEvents.id))
+    .orderBy(asc(t.podiumEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const projectionCursorOf = prepared((db: StoreDrizzle) =>
+const projectionCursorOf = prepared((db, t) =>
   db
-    .select({ lastEventId: runtimeEventProjectionCursors.lastEventId })
-    .from(runtimeEventProjectionCursors)
+    .select({ lastEventId: t.runtimeEventProjectionCursors.lastEventId })
+    .from(t.runtimeEventProjectionCursors)
     .where(
-      eq(
-        runtimeEventProjectionCursors.projector,
-        param(runtimeEventProjectionCursors.projector, 'projector'),
+      inWorkspace(
+        t.runtimeEventProjectionCursors,
+        eq(
+          t.runtimeEventProjectionCursors.projector,
+          param(t.runtimeEventProjectionCursors.projector, 'projector'),
+        ),
       ),
     )
     .prepare(),
 )
 
-const advanceProjectionCursor = prepared((db: StoreDrizzle) =>
+const advanceProjectionCursor = prepared((db, t) =>
   db
-    .insert(runtimeEventProjectionCursors)
+    .insert(t.runtimeEventProjectionCursors)
     .values({
+      workspaceId: WORKSPACE,
       projector: sql.placeholder('projector'),
       lastEventId: sql.placeholder('lastEventId'),
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: runtimeEventProjectionCursors.projector,
+      target: [
+        t.runtimeEventProjectionCursors.workspaceId,
+        t.runtimeEventProjectionCursors.projector,
+      ],
       set: { lastEventId: sql.placeholder('lastEventId'), updatedAt: sql.placeholder('updatedAt') },
       // MONOTONIC, and the guard belongs in the statement rather than in a
       // caller: a replaying projector must not rewind the head, because
@@ -333,29 +431,33 @@ const advanceProjectionCursor = prepared((db: StoreDrizzle) =>
       // would make already-projected rows undeletable. `setWhere` guards the
       // UPDATE; `targetWhere` would filter which rows conflict, which is a
       // different statement.
-      setWhere: sql`excluded.last_event_id > ${runtimeEventProjectionCursors.lastEventId}`,
+      setWhere: sql`excluded.last_event_id > ${t.runtimeEventProjectionCursors.lastEventId}`,
     })
     .prepare(),
 )
 
-const insertEvent = prepared((db: StoreDrizzle) =>
-  db
-    .insert(podiumEvents)
-    .values({
-      ts: sql.placeholder('ts'),
-      kind: sql.placeholder('kind'),
-      subject: sql.placeholder('subject'),
-      repoPath: sql.placeholder('repoPath'),
-      payload: sql.placeholder('payload'),
-    })
-    .prepare(),
+const insertEvent = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.podiumEvents)
+      .values({
+        workspaceId: WORKSPACE,
+        ts: sql.placeholder('ts'),
+        kind: sql.placeholder('kind'),
+        subject: sql.placeholder('subject'),
+        repoPath: sql.placeholder('repoPath'),
+        payload: sql.placeholder('payload'),
+      })
+      // The new id by RETURNING, on both engines: Postgres has no last insert rowid.
+      .returning({ id: t.podiumEvents.id }),
+  ).prepare(),
 )
 
-const eventById = prepared((db: StoreDrizzle) =>
+const eventById = prepared((db, t) =>
   db
     .select()
-    .from(podiumEvents)
-    .where(eq(podiumEvents.id, param(podiumEvents.id, 'id')))
+    .from(t.podiumEvents)
+    .where(inWorkspace(t.podiumEvents, eq(t.podiumEvents.id, param(t.podiumEvents.id, 'id'))))
     .prepare(),
 )
 
@@ -364,70 +466,195 @@ const eventById = prepared((db: StoreDrizzle) =>
  * (`b` before, `r` repoPath, `s` subject), the bucketed size of each kind list
  * (`k`, `x`; 0 means the filter is absent), and the order.
  */
-const eventsSince = preparedFamily((db: StoreDrizzle, shape: string) => {
+const eventsSince = preparedFamily((db, t, shape: string) => {
   const [before, kinds, excludeKinds, repoPath, subject, order] = shape.split('|')
   const kindsSize = Number(kinds!.slice(1))
   const excludeSize = Number(excludeKinds!.slice(1))
-  const where: SQL[] = [gt(podiumEvents.id, param(podiumEvents.id, 'sinceId'))]
-  if (before === 'b1') where.push(lt(podiumEvents.id, param(podiumEvents.id, 'before')))
-  if (kindsSize > 0) where.push(inListOf(podiumEvents.kind, kindsSize, 'kind'))
-  if (excludeSize > 0) where.push(notInListOf(podiumEvents.kind, excludeSize, 'xkind'))
-  if (repoPath === 'r1') where.push(eq(podiumEvents.repoPath, param(podiumEvents.repoPath, 'repoPath')))
-  if (subject === 's1') where.push(eq(podiumEvents.subject, param(podiumEvents.subject, 'subject')))
+  const where: SQL[] = [gt(t.podiumEvents.id, param(t.podiumEvents.id, 'sinceId'))]
+  if (before === 'b1') where.push(lt(t.podiumEvents.id, param(t.podiumEvents.id, 'before')))
+  if (kindsSize > 0) where.push(inListOf(t.podiumEvents.kind, kindsSize, 'kind'))
+  if (excludeSize > 0) where.push(notInListOf(t.podiumEvents.kind, excludeSize, 'xkind'))
+  if (repoPath === 'r1')
+    where.push(eq(t.podiumEvents.repoPath, param(t.podiumEvents.repoPath, 'repoPath')))
+  if (subject === 's1')
+    where.push(eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'subject')))
   return db
     .select()
-    .from(podiumEvents)
-    .where(and(...where))
-    .orderBy(order === 'desc' ? desc(podiumEvents.id) : asc(podiumEvents.id))
+    .from(t.podiumEvents)
+    .where(inWorkspace(t.podiumEvents, ...where))
+    .orderBy(order === 'desc' ? desc(t.podiumEvents.id) : asc(t.podiumEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare()
 })
 
-const kindSubjectPrior = prepared((db: StoreDrizzle) =>
-  db
+/**
+ * THE ISSUE-EVENT FEED'S WINDOW AS A QUERY (POD-6766, design POD-6253 §1):
+ * the newest `limit` events of the feed kinds that name a subject, at or
+ * below `through`, newest first, skipping the newest `offset`. One arm per
+ * feed kind, each walking `idx_podium_events_kind` (kind, then id) newest
+ * first and stopping at its LIMIT, joined by `UNION ALL` and cut to the
+ * limit: the sort reads at most `limit` rows of each kind, never the log.
+ * Two statements: whole rows, or ids and subjects.
+ */
+function feedPage(db: StoreDrizzle, t: StoreTables, kind: string, i: number) {
+  return db
     .select()
-    .from(podiumEvents)
+    .from(t.podiumEvents)
     .where(
-      and(
-        eq(podiumEvents.kind, param(podiumEvents.kind, 'kind')),
-        eq(podiumEvents.subject, param(podiumEvents.subject, 'subject')),
-        sql`${podiumEvents.ts} < ${sql.placeholder('since')}`,
+      inWorkspace(
+        t.podiumEvents,
+        eq(t.podiumEvents.kind, kind),
+        ne(t.podiumEvents.subject, ''),
+        lte(t.podiumEvents.id, param(t.podiumEvents.id, 'through')),
       ),
     )
-    .orderBy(desc(podiumEvents.ts), desc(podiumEvents.id))
+    .orderBy(desc(t.podiumEvents.id))
+    .limit(sql.placeholder('reach'))
+    .as(`feed${i}`)
+}
+
+const feedWindowRows = prepared((db, t) => {
+  const [first, ...rest] = FEED_EVENT_KINDS.map((kind, i) =>
+    db.select().from(feedPage(db, t, kind, i)),
+  )
+  let union = first!.$dynamic()
+  for (const next of rest) union = union.unionAll(next).$dynamic()
+  return union
+    .orderBy(desc(sql`id`))
+    .limit(sql.placeholder('limit'))
+    .offset(sql.placeholder('offset'))
+    .prepare()
+})
+
+const feedWindowIds = prepared((db, t) => {
+  const [first, ...rest] = FEED_EVENT_KINDS.map((kind, i) => {
+    const page = feedPage(db, t, kind, i)
+    return db.select({ id: page.id, subject: page.subject }).from(page)
+  })
+  let union = first!.$dynamic()
+  for (const next of rest) union = union.unionAll(next).$dynamic()
+  return union
+    .orderBy(desc(sql`id`))
+    .limit(sql.placeholder('limit'))
+    .offset(sql.placeholder('offset'))
+    .prepare()
+})
+
+/** Requested feed-kind rows still at or above the current window's floor. */
+const feedEventsOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select()
+    .from(t.podiumEvents)
+    .where(
+      inWorkspace(
+        t.podiumEvents,
+        inListOf(t.podiumEvents.id, size),
+        gte(t.podiumEvents.id, param(t.podiumEvents.id, 'floor')),
+        inArray(t.podiumEvents.kind, [...FEED_EVENT_KINDS]),
+        ne(t.podiumEvents.subject, ''),
+      ),
+    )
+    .prepare(),
+)
+
+/** The feed-kind events of these subjects at or above `floor` (the window's
+ *  oldest), oldest first; keyed by the subject list's bucketed size. */
+const feedEventsOfSubjects = preparedFamily((db, t, size: number) =>
+  db
+    .select({ id: t.podiumEvents.id, subject: t.podiumEvents.subject })
+    .from(t.podiumEvents)
+    .where(
+      inWorkspace(
+        t.podiumEvents,
+        inArray(t.podiumEvents.kind, [...FEED_EVENT_KINDS]),
+        inListOf(t.podiumEvents.subject, size, 'subject'),
+        gte(t.podiumEvents.id, param(t.podiumEvents.id, 'floor')),
+      ),
+    )
+    .orderBy(asc(t.podiumEvents.id))
+    .prepare(),
+)
+
+const kindSubjectPrior = prepared((db, t) =>
+  db
+    .select()
+    .from(t.podiumEvents)
+    .where(
+      inWorkspace(
+        t.podiumEvents,
+        eq(t.podiumEvents.kind, param(t.podiumEvents.kind, 'kind')),
+        eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'subject')),
+        sql`${t.podiumEvents.ts} < ${sql.placeholder('since')}`,
+      ),
+    )
+    .orderBy(desc(t.podiumEvents.ts), desc(t.podiumEvents.id))
     .limit(1)
     .prepare(),
 )
 
-const kindSubjectSince = prepared((db: StoreDrizzle) =>
+const kindSubjectSince = prepared((db, t) =>
   db
     .select()
-    .from(podiumEvents)
+    .from(t.podiumEvents)
     .where(
-      and(
-        eq(podiumEvents.kind, param(podiumEvents.kind, 'kind')),
-        eq(podiumEvents.subject, param(podiumEvents.subject, 'subject')),
-        sql`${podiumEvents.ts} >= ${sql.placeholder('since')}`,
+      inWorkspace(
+        t.podiumEvents,
+        eq(t.podiumEvents.kind, param(t.podiumEvents.kind, 'kind')),
+        eq(t.podiumEvents.subject, param(t.podiumEvents.subject, 'subject')),
+        sql`${t.podiumEvents.ts} >= ${sql.placeholder('since')}`,
       ),
     )
-    .orderBy(asc(podiumEvents.ts), asc(podiumEvents.id))
+    .orderBy(asc(t.podiumEvents.ts), asc(t.podiumEvents.id))
     .prepare(),
 )
 
-const highestEventId = prepared((db: StoreDrizzle) =>
+const highestEventId = prepared((db, t) =>
   db
-    .select({ m: max(podiumEvents.id) })
-    .from(podiumEvents)
+    .select({ m: max(t.podiumEvents.id) })
+    .from(t.podiumEvents)
+    .where(inWorkspace(t.podiumEvents))
     .prepare(),
 )
 
-const eventIdBeyondCap = prepared((db: StoreDrizzle) =>
+/**
+ * THE EVENT-LOG CAP AS A SEEK (POD-7035). The cap keeps the newest `maxRows`
+ * events; the cut is the id of the next one down. `ORDER BY id DESC OFFSET
+ * maxRows` found it by walking `maxRows` table rows, payloads and all: about
+ * 0.9 s per call on a 150 MB log, under the server's one event loop.
+ *
+ * Ids are AUTOINCREMENT, so the newest `maxRows` ids span at least `maxRows`
+ * values and the cut is never above `max(id) - maxRows`. It is below that only
+ * by the ids missing above it (an aged-out row the agent's clock dated old, a
+ * rolled-back insert). So: count the rows above the guess, then step down
+ * from the guess past exactly the missing number of rows.
+ *
+ * The count reads the narrowest index whole (a kind and a rowid per entry, about
+ * 1 MB at the 50k cap) and never a table page: a rowid range would walk the
+ * same leaf pages, payloads included, that the OFFSET did. The step-down walks
+ * only as many rows as ids are missing.
+ */
+const eventsAboveIdWhere = (t: StoreTables) =>
+  inWorkspace(t.podiumEvents, gt(t.podiumEvents.id, param(t.podiumEvents.id, 'guess')))
+/** SQLite is told the index; Postgres counts off `(workspace_id, id)` by its own plan. */
+const eventsAboveId = dialectPrepared<{ readonly guess: number }, { n: number }>()({
+  sqlite: (db, t) =>
+    db
+      .select({ n: count() })
+      .from(sql`${t.podiumEvents} INDEXED BY idx_podium_events_kind`)
+      .where(eventsAboveIdWhere(t))
+      .prepare(),
+  pg: (db, t) =>
+    db.select({ n: count() }).from(t.podiumEvents).where(eventsAboveIdWhere(t)).prepare(),
+})
+
+const eventIdAtOrBelow = prepared((db, t) =>
   db
-    .select({ id: podiumEvents.id })
-    .from(podiumEvents)
-    .orderBy(desc(podiumEvents.id))
+    .select({ id: t.podiumEvents.id })
+    .from(t.podiumEvents)
+    .where(inWorkspace(t.podiumEvents, lte(t.podiumEvents.id, param(t.podiumEvents.id, 'guess'))))
+    .orderBy(desc(t.podiumEvents.id))
     .limit(1)
-    .offset(sql.placeholder('maxRows'))
+    .offset(sql.placeholder('missing'))
     .prepare(),
 )
 
@@ -436,61 +663,92 @@ const eventIdBeyondCap = prepared((db: StoreDrizzle) =>
  * projected yet and must survive retention. COALESCE covers the projector
  * never having run, where the head is 0 and nothing is fenced.
  */
-const deletePruneBatch = prepared((db: StoreDrizzle) => {
+const pruneCandidates = (db: StoreDrizzle, t: StoreTables) => {
   const projectedThrough = db
-    .select({ head: runtimeEventProjectionCursors.lastEventId })
-    .from(runtimeEventProjectionCursors)
-    .where(eq(runtimeEventProjectionCursors.projector, RUNTIME_BOARD_PROJECTOR))
-  const victims = db
-    .select({ id: podiumEvents.id })
-    .from(podiumEvents)
+    .select({ head: t.runtimeEventProjectionCursors.lastEventId })
+    .from(t.runtimeEventProjectionCursors)
     .where(
-      and(
+      inWorkspace(
+        t.runtimeEventProjectionCursors,
+        eq(t.runtimeEventProjectionCursors.projector, RUNTIME_BOARD_PROJECTOR),
+      ),
+    )
+  return db
+    .select({ id: t.podiumEvents.id, kind: t.podiumEvents.kind, subject: t.podiumEvents.subject })
+    .from(t.podiumEvents)
+    .where(
+      inWorkspace(
+        t.podiumEvents,
         or(
-          sql`${podiumEvents.ts} < ${sql.placeholder('cutoff')}`,
-          lte(podiumEvents.id, param(podiumEvents.id, 'capThroughId')),
+          sql`${t.podiumEvents.ts} < ${sql.placeholder('cutoff')}`,
+          lte(t.podiumEvents.id, param(t.podiumEvents.id, 'capThroughId')),
         ),
         not(
           and(
-            eq(podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
-            gt(podiumEvents.id, sql`COALESCE((${projectedThrough}), 0)`),
+            eq(t.podiumEvents.kind, RUNTIME_EVENT_LOG_KIND),
+            gt(t.podiumEvents.id, sql`COALESCE((${projectedThrough}), 0)`),
           ) ?? sql`0`,
         ),
       ),
     )
-    .orderBy(asc(podiumEvents.id))
+    .orderBy(asc(t.podiumEvents.id))
     .limit(sql.placeholder('batchSize'))
-  return db.delete(podiumEvents).where(inArray(podiumEvents.id, victims)).prepare()
+}
+
+const deletePruneBatch = prepared((db, t) => {
+  const victims = pruneCandidates(db, t).as('victims')
+  return captureWrite(
+    db
+      .delete(t.podiumEvents)
+      .where(
+        inWorkspace(
+          t.podiumEvents,
+          inArray(t.podiumEvents.id, db.select({ id: victims.id }).from(victims)),
+        ),
+      )
+      .returning({
+        id: t.podiumEvents.id,
+        kind: t.podiumEvents.kind,
+        subject: t.podiumEvents.subject,
+      }),
+  ).prepare()
 })
 
-const stewardValueOf = prepared((db: StoreDrizzle) =>
+const stewardValueOf = prepared((db, t) =>
   db
-    .select({ value: stewardState.value })
-    .from(stewardState)
-    .where(eq(stewardState.key, param(stewardState.key, 'key')))
+    .select({ value: t.stewardState.value })
+    .from(t.stewardState)
+    .where(inWorkspace(t.stewardState, eq(t.stewardState.key, param(t.stewardState.key, 'key'))))
     .prepare(),
 )
 
-const upsertStewardValue = prepared((db: StoreDrizzle) =>
+const upsertStewardValue = prepared((db, t) =>
   db
-    .insert(stewardState)
-    .values({ key: sql.placeholder('key'), value: sql.placeholder('value') })
-    .onConflictDoUpdate({ target: stewardState.key, set: { value: sql.placeholder('value') } })
+    .insert(t.stewardState)
+    .values({
+      workspaceId: WORKSPACE,
+      key: sql.placeholder('key'),
+      value: sql.placeholder('value'),
+    })
+    .onConflictDoUpdate({
+      target: [t.stewardState.workspaceId, t.stewardState.key],
+      set: { value: sql.placeholder('value') },
+    })
     .prepare(),
 )
 
-const janitorOwnership = prepared((db: StoreDrizzle) =>
+const janitorOwnership = prepared((db, t) =>
   db
     .select({ present: sql<number>`1` })
-    .from(stewardState)
-    .where(eq(stewardState.key, JANITOR_OWNERSHIP_KEY))
+    .from(t.stewardState)
+    .where(inWorkspace(t.stewardState, eq(t.stewardState.key, JANITOR_OWNERSHIP_KEY)))
     .prepare(),
 )
 
-const insertSubscription = prepared((db: StoreDrizzle) =>
-  db
-    .insert(subscriptions)
-    .values({
+const insertSubscription = prepared((db, t) =>
+  captureWrite(
+    db.insert(t.subscriptions).values({
+      workspaceId: WORKSPACE,
       id: sql.placeholder('id'),
       subscriberKind: sql.placeholder('subscriberKind'),
       subscriberId: sql.placeholder('subscriberId'),
@@ -502,54 +760,103 @@ const insertSubscription = prepared((db: StoreDrizzle) =>
       origin: sql.placeholder('origin'),
       enabled: sql.placeholder('enabled'),
       createdAt: sql.placeholder('createdAt'),
-    })
-    .prepare(),
+    }),
+  ).prepare(),
 )
 
-const deleteSubscription = prepared((db: StoreDrizzle) =>
+const deleteSubscription = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.subscriptions)
+      .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id')))),
+  ).prepare(),
+)
+
+/** One keyset page of ONE MEMBER'S subscriptions, oldest first (POD-6288):
+ *  the rows whose subscriber is a session they own or a task assigned to them.
+ *  Subscriptions are per-user state (design §4.1), so this is every person's
+ *  listing, admins included. Walks `idx_subscriptions_created` like the
+ *  unfiltered page and answers each row's owner by primary key. */
+const ownSubscriptionsPage = prepared((db, t) =>
   db
-    .delete(subscriptions)
-    .where(eq(subscriptions.id, param(subscriptions.id, 'id')))
+    .select()
+    .from(t.subscriptions)
+    .where(
+      inWorkspace(
+        t.subscriptions,
+        sql`(${t.subscriptions.createdAt}, ${t.subscriptions.id}) > (${param(t.subscriptions.createdAt, 'afterCreatedAt')}, ${param(t.subscriptions.id, 'afterId')})`,
+        or(
+          and(
+            eq(t.subscriptions.subscriberKind, 'session'),
+            sql`EXISTS (SELECT 1 FROM ${t.sessions} WHERE ${t.sessions.workspaceId} = ${WORKSPACE} AND ${t.sessions.id} = ${t.subscriptions.subscriberId} AND ${t.sessions.ownerUserId} = ${sql.placeholder('userId')})`,
+          ),
+          and(
+            eq(t.subscriptions.subscriberKind, 'issue'),
+            sql`EXISTS (SELECT 1 FROM ${t.issues} WHERE ${t.issues.workspaceId} = ${WORKSPACE} AND ${t.issues.id} = ${t.subscriptions.subscriberId} AND ${t.issues.ownerUserId} = ${sql.placeholder('userId')})`,
+          ),
+        ),
+      ),
+    )
+    .orderBy(asc(t.subscriptions.createdAt), asc(t.subscriptions.id))
+    .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
 /** One keyset page of every subscription, oldest first, through
  *  `idx_subscriptions_created` (POD-6208): the rows after the cursor's
  *  `(created_at, id)`. The first page starts after `('', '')`, before every row. */
-const subscriptionsPage = prepared((db: StoreDrizzle) =>
+const subscriptionsPage = prepared((db, t) =>
   db
     .select()
-    .from(subscriptions)
+    .from(t.subscriptions)
     .where(
-      sql`(${subscriptions.createdAt}, ${subscriptions.id}) > (${param(subscriptions.createdAt, 'afterCreatedAt')}, ${param(subscriptions.id, 'afterId')})`,
+      inWorkspace(
+        t.subscriptions,
+        sql`(${t.subscriptions.createdAt}, ${t.subscriptions.id}) > (${param(t.subscriptions.createdAt, 'afterCreatedAt')}, ${param(t.subscriptions.id, 'afterId')})`,
+      ),
     )
-    .orderBy(asc(subscriptions.createdAt), asc(subscriptions.id))
+    .orderBy(asc(t.subscriptions.createdAt), asc(t.subscriptions.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const subscriptionsOf = prepared((db: StoreDrizzle) =>
+const subscriptionsOf = prepared((db, t) =>
   db
     .select()
-    .from(subscriptions)
-    .where(eq(subscriptions.subscriberId, param(subscriptions.subscriberId, 'subscriberId')))
-    .orderBy(asc(subscriptions.createdAt))
+    .from(t.subscriptions)
+    .where(
+      inWorkspace(
+        t.subscriptions,
+        eq(t.subscriptions.subscriberId, param(t.subscriptions.subscriberId, 'subscriberId')),
+      ),
+    )
+    .orderBy(asc(t.subscriptions.createdAt))
     .prepare(),
 )
 
-const setSubscriptionEnabledById = prepared((db: StoreDrizzle) =>
+const setSubscriptionEnabledById = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.subscriptions)
+      .set({ enabled: sql.placeholder('enabled') })
+      .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id')))),
+  ).prepare(),
+)
+
+/** Subscriptions by id, for building `subscription` records by id (POD-6763). */
+const subscriptionsOfIds = preparedFamily((db, t, size: number) =>
   db
-    .update(subscriptions)
-    .set({ enabled: sql.placeholder('enabled') })
-    .where(eq(subscriptions.id, param(subscriptions.id, 'id')))
+    .select()
+    .from(t.subscriptions)
+    .where(inWorkspace(t.subscriptions, inListOf(t.subscriptions.id, size, 'ids')))
     .prepare(),
 )
 
-const subscriptionById = prepared((db: StoreDrizzle) =>
+const subscriptionById = prepared((db, t) =>
   db
     .select()
-    .from(subscriptions)
-    .where(eq(subscriptions.id, param(subscriptions.id, 'id')))
+    .from(t.subscriptions)
+    .where(inWorkspace(t.subscriptions, eq(t.subscriptions.id, param(t.subscriptions.id, 'id'))))
     .prepare(),
 )
 
@@ -559,15 +866,16 @@ const subscriptionById = prepared((db: StoreDrizzle) =>
  * issues' ancestors only when the answer is yes (POD-6208). Keyed by the
  * bucketed size of the kind list.
  */
-const relationshipSubscriptionFor = preparedFamily((db: StoreDrizzle, size: number) =>
+const relationshipSubscriptionFor = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: subscriptions.id })
-    .from(subscriptions)
+    .select({ id: t.subscriptions.id })
+    .from(t.subscriptions)
     .where(
-      and(
-        inListOf(subscriptions.event, size, 'kind'),
-        eq(subscriptions.sourceKind, 'relationship'),
-        eq(subscriptions.enabled, true),
+      inWorkspace(
+        t.subscriptions,
+        inListOf(t.subscriptions.event, size, 'kind'),
+        eq(t.subscriptions.sourceKind, 'relationship'),
+        eq(t.subscriptions.enabled, true),
       ),
     )
     .limit(1)
@@ -590,21 +898,22 @@ const relationshipSubscriptionFor = preparedFamily((db: StoreDrizzle, size: numb
  * subscriber kind), so `UNION ALL`; the few candidates are sorted as the
  * whole-table read sorted them, oldest first.
  */
-const matchingSubscriptions = preparedFamily((db: StoreDrizzle, shape: string) => {
+const matchingSubscriptions = preparedFamily((db, t, shape: string) => {
   const [arms, sizeText] = shape.split('|')
   const size = Number(sizeText)
-  const kinds = () => inListOf(subscriptions.event, size, 'kind')
+  const kinds = () => inListOf(t.subscriptions.event, size, 'kind')
   const relationship = (subscriberKind: 'issue' | 'session', subscriber: SQL) =>
     db
       .select()
-      .from(subscriptions)
+      .from(t.subscriptions)
       .where(
-        and(
+        inWorkspace(
+          t.subscriptions,
           subscriber,
-          eq(subscriptions.subscriberKind, subscriberKind),
-          eq(subscriptions.sourceKind, 'relationship'),
+          eq(t.subscriptions.subscriberKind, subscriberKind),
+          eq(t.subscriptions.sourceKind, 'relationship'),
           kinds(),
-          eq(subscriptions.enabled, true),
+          eq(t.subscriptions.enabled, true),
         ),
       )
   const selects = []
@@ -612,29 +921,43 @@ const matchingSubscriptions = preparedFamily((db: StoreDrizzle, shape: string) =
     selects.push(
       db
         .select()
-        .from(subscriptions)
+        .from(t.subscriptions)
         .where(
-          and(
+          inWorkspace(
+            t.subscriptions,
             kinds(),
-            inArray(subscriptions.sourceKind, ['session', 'issue']),
-            inListOf(subscriptions.sourceRef, size, 'ref'),
-            eq(subscriptions.enabled, true),
+            inArray(t.subscriptions.sourceKind, ['session', 'issue']),
+            inListOf(t.subscriptions.sourceRef, size, 'ref'),
+            eq(t.subscriptions.enabled, true),
           ),
         ),
     )
   }
   if (arms!.includes('a')) {
     selects.push(
-      relationship('issue', inListOf(subscriptions.subscriberId, size, 'anchor')),
+      relationship('issue', inListOf(t.subscriptions.subscriberId, size, 'anchor')),
       relationship(
         'session',
         inArray(
-          subscriptions.subscriberId,
+          t.subscriptions.subscriberId,
+          // Through `idx_sessions_issue` by name on SQLite (POD-7034): the list is
+          // padded to the largest of the poll's three lists, and at a few hundred
+          // anchors the planner prices the seeks above a scan of every session.
+          // Postgres has no INDEXED BY.
           db
-            .select({ id: sessionsTable.id })
-            .from(sessionsTable)
+            // Selected by name: drizzle refuses a table column over a raw FROM.
+            .select({ id: sql<string>`${sql.identifier('id')}` })
+            .from(
+              dialectOf(db) === 'pg'
+                ? sql`${t.sessions}`
+                : sql`${t.sessions} INDEXED BY idx_sessions_issue`,
+            )
             .where(
-              and(inListOf(sessionsTable.issueId, size, 'anchor'), isNull(sessionsTable.deletedAt)),
+              inWorkspace(
+                t.sessions,
+                inListOf(t.sessions.issueId, size, 'anchor'),
+                isNull(t.sessions.deletedAt),
+              ),
             ),
         ),
       ),
@@ -643,13 +966,17 @@ const matchingSubscriptions = preparedFamily((db: StoreDrizzle, shape: string) =
   const [first, ...rest] = selects
   let union = first!.$dynamic()
   for (const arm of rest) union = union.unionAll(arm).$dynamic()
-  return union.orderBy(asc(subscriptions.createdAt), asc(subscriptions.id)).prepare()
+  return union.orderBy(asc(t.subscriptions.createdAt), asc(t.subscriptions.id)).prepare()
 })
 
-const insertDeliveryIfNew = prepared((db: StoreDrizzle) =>
+const insertDeliveryIfNew = prepared((db, t) =>
   db
-    .insert(subscriptionDeliveries)
-    .values({ subscriptionId: sql.placeholder('subscriptionId'), eventId: sql.placeholder('eventId') })
+    .insert(t.subscriptionDeliveries)
+    .values({
+      workspaceId: WORKSPACE,
+      subscriptionId: sql.placeholder('subscriptionId'),
+      eventId: sql.placeholder('eventId'),
+    })
     .onConflictDoNothing()
     .prepare(),
 )
@@ -682,14 +1009,20 @@ export type EventAppendListener = (
   event: { ts: string; kind: string; subject: string; repoPath: string | null; payload: unknown },
 ) => void | Promise<void>
 
-export class EventsRepository {
-  /** The feed publisher, installed by the composition root once the ledger
-   *  exists. Absent in the storage-only unit tests, and absent for the window
-   *  between store construction and wiring — an event appended in that window is
-   *  boot bookkeeping nobody is connected to see. */
-  private appendListener: EventAppendListener | undefined
+/**
+ * The change-log commit an event write runs in: it drains what the insert or
+ * the retention batch captured, so the records they changed (the
+ * issue-event window, a session's transcript flag) are appended with them
+ * (POD-6920). A failure rolls both back.
+ */
+export type EventLogCommit = ChangeLogCommit
 
-  private readonly rootDb: StoreDrizzle
+export class EventsRepository {
+  /** Optional post-commit observer, separate from the transactional log commit. */
+  private appendListener: EventAppendListener | undefined
+  private logCommit: EventLogCommit | undefined
+
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /** Appends waiting for the next group transaction (`appendEventGrouped`). */
@@ -697,8 +1030,8 @@ export class EventsRepository {
   /** The group drain in flight, if any: one at a time, like the board drain. */
   private appendDrain: Promise<void> | undefined
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -710,14 +1043,19 @@ export class EventsRepository {
    * (rule 35) this resolves the ENCLOSING transaction on every access, and a
    * field frozen at construction could never do that. B1 changes this one line.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** Install the post-append announcement. One listener: this is the feed's
    *  seam, not a general event bus (the orchestrator already has one). */
   async onAppend(listener: EventAppendListener): Promise<void> {
     this.appendListener = listener
+  }
+
+  /** Install the change-log commit every captured event write runs. */
+  setLogCommit(commit: EventLogCommit): void {
+    this.logCommit = commit
   }
 
   // ---- coarse runtime event log + restart head ----
@@ -759,7 +1097,9 @@ export class EventsRepository {
 
   /** The recorded turn state of each of these sessions that has one
    *  (POD-6160 D2h), one statement per 500 ids. */
-  async runtimeTurnStatesOf(sessionIds: readonly SessionId[]): Promise<Map<SessionId, AgentRuntimeState>> {
+  async runtimeTurnStatesOf(
+    sessionIds: readonly SessionId[],
+  ): Promise<Map<SessionId, AgentRuntimeState>> {
     const out = new Map<SessionId, AgentRuntimeState>()
     for (let at = 0; at < sessionIds.length; at += 500) {
       const chunk = sessionIds.slice(at, at + 500)
@@ -796,7 +1136,9 @@ export class EventsRepository {
     for (let at = 0; at < sessionIds.length; at += 500) {
       const chunk = sessionIds.slice(at, at + 500)
       const size = inListSize(chunk.length)
-      for (const row of await runtimeTranscriptSubjectsOfIds(this.db, size).all(inListValues(chunk, size))) {
+      for (const row of await runtimeTranscriptSubjectsOfIds(this.db, size).all(
+        inListValues(chunk, size),
+      )) {
         if (row.subject) out.add(row.subject as SessionId)
       }
     }
@@ -859,7 +1201,11 @@ export class EventsRepository {
     return row ? row.lastEventId : 0
   }
 
-  async saveRuntimeEventProjectionCursor(projector: string, eventId: number, updatedAt: string): Promise<void> {
+  async saveRuntimeEventProjectionCursor(
+    projector: string,
+    eventId: number,
+    updatedAt: string,
+  ): Promise<void> {
     // MONOTONIC: the statement's `setWhere` never rewinds the head (see
     // advanceProjectionCursor).
     await advanceProjectionCursor(this.db).run({ projector, lastEventId: eventId, updatedAt })
@@ -877,41 +1223,53 @@ export class EventsRepository {
     },
     options: { announce?: boolean } = {},
   ): Promise<number> {
-    const r = await insertEvent(this.db).run({
-      ts: e.ts,
-      kind: e.kind,
-      subject: e.subject,
-      repoPath: e.repoPath ?? null,
-      payload: JSON.stringify(e.payload ?? {}),
-    })
-    const id = Number(r.lastInsertRowid)
-    // AFTER the insert, never before: the feed must not carry a row the log does
-    // not have. The listener is documented as non-throwing, and this call is not
-    // guarded here on purpose — a swallow at both ends hides a wiring fault
-    // behind a pane that simply never updates.
-    //
-    // AND AFTER THE COMMIT, when this append is inside one [POD-3260, spec §3.3
-    // mechanism 3]. Publication is an EXTERNAL EFFECT, and "after the insert" is
-    // not the same statement as "after the commit": a caller that appends inside
-    // a transaction was announcing a row that the enclosing span could still roll
-    // back, so a listener saw an event the log ended up not having — the exact
-    // direction this comment was written to prevent, one level up. The 22 call
-    // sites that reach this from a span body needed no change: the rule belongs
-    // at the one place the announcement happens, not on a list somebody has to
-    // keep complete. `persistManyWith` already did this by hand with
-    // `announce: false` plus `announceEvent`, and that convention still works
-    // unchanged — this makes it the default rather than the exception.
-    if (options.announce !== false) {
-      const announced = {
-        ts: e.ts,
-        kind: e.kind,
-        subject: e.subject,
-        repoPath: e.repoPath ?? null,
-        payload: e.payload ?? {},
-      }
-      afterCommit(() => this.appendListener?.(id, announced), `podium-event:${e.kind}`)
-    }
-    return id
+    // A feed-kind event moves the issue-event window, and a runtime event may
+    // change its session's transcript flag: both are captured, and the append
+    // runs as a change-log commit that appends them (POD-6920).
+    const logged =
+      (e.subject !== '' && isFeedEventKind(e.kind)) || e.kind === RUNTIME_EVENT_LOG_KIND
+    return await inChangeLogTransaction(
+      logged ? this.logCommit : undefined,
+      this.createOrJoinTransaction,
+      async () => {
+        const inserted = await insertEvent(this.db).get({
+          ts: e.ts,
+          kind: e.kind,
+          subject: e.subject,
+          repoPath: e.repoPath ?? null,
+          payload: JSON.stringify(e.payload ?? {}),
+        })
+        if (inserted === undefined) throw new Error('podium event insert returned no row')
+        const id = Number(inserted.id)
+        // AFTER the insert, never before: the feed must not carry a row the log does
+        // not have. The listener is documented as non-throwing, and this call is not
+        // guarded here on purpose — a swallow at both ends hides a wiring fault
+        // behind a pane that simply never updates.
+        //
+        // AND AFTER THE COMMIT, when this append is inside one [POD-3260, spec §3.3
+        // mechanism 3]. Publication is an EXTERNAL EFFECT, and "after the insert" is
+        // not the same statement as "after the commit": a caller that appends inside
+        // a transaction was announcing a row that the enclosing span could still roll
+        // back, so a listener saw an event the log ended up not having — the exact
+        // direction this comment was written to prevent, one level up. The 22 call
+        // sites that reach this from a span body needed no change: the rule belongs
+        // at the one place the announcement happens, not on a list somebody has to
+        // keep complete. `persistManyWith` already did this by hand with
+        // `announce: false` plus `announceEvent`, and that convention still works
+        // unchanged — this makes it the default rather than the exception.
+        if (options.announce !== false) {
+          const announced = {
+            ts: e.ts,
+            kind: e.kind,
+            subject: e.subject,
+            repoPath: e.repoPath ?? null,
+            payload: e.payload ?? {},
+          }
+          afterCommit(() => this.appendListener?.(id, announced), `podium-event:${e.kind}`)
+        }
+        return id
+      },
+    )
   }
 
   /**
@@ -961,15 +1319,18 @@ export class EventsRepository {
           // Its own operation at the root: the drain serves every caller in the
           // group, and the first one's scope is not the others'.
           const ids = await runAtRoot(() =>
-            withOwnOperation(async () =>
-              await this.createOrJoinTransaction(async () => {
-                const out: number[] = []
-                for (const pending of group) out.push(await this.appendEvent(pending.event))
-                return out
-              }),
+            withOwnOperation(
+              async () =>
+                await this.createOrJoinTransaction(async () => {
+                  const out: number[] = []
+                  for (const pending of group) out.push(await this.appendEvent(pending.event))
+                  return out
+                }),
             ),
           )
-          group.forEach((pending, i) => pending.resolve(ids[i]!))
+          group.forEach((pending, i) => {
+            pending.resolve(ids[i]!)
+          })
         } catch (error) {
           for (const pending of group) pending.reject(error)
         }
@@ -990,7 +1351,7 @@ export class EventsRepository {
   }): Promise<number | undefined> {
     return await this.createOrJoinTransaction(async () => {
       const key = `event-once:${JSON.stringify([e.kind, e.subject])}`
-      if (await this.getStewardState(key) !== undefined) return undefined
+      if ((await this.getStewardState(key)) !== undefined) return undefined
       const id = await this.appendEvent(e)
       await this.setStewardState(key, String(id))
       return id
@@ -1088,10 +1449,92 @@ export class EventsRepository {
    * sorted every row the kind had ever kept — seconds of frozen server on a
    * real-size log.
    */
-  async listKindSubjectSinceWithPrior(kind: string, subject: string, since: string): Promise<PodiumEventRecord[]> {
+  async listKindSubjectSinceWithPrior(
+    kind: string,
+    subject: string,
+    since: string,
+  ): Promise<PodiumEventRecord[]> {
     const prior = await kindSubjectPrior(this.db).get({ kind, subject, since })
     const rows = await kindSubjectSince(this.db).all({ kind, subject, since })
     return [...(prior ? [rowToEvent(prior)] : []), ...rows.map(rowToEvent)]
+  }
+
+  /**
+   * The issue-event feed's window ({@link feedWindow}): the newest `limit`
+   * feed-kind events with a subject, at or below `through` (default: all),
+   * newest first. The window the feed carries is `limit = FEED_WINDOW`.
+   */
+  async feedWindow(opts: { limit: number; through?: number }): Promise<PodiumEventRecord[]> {
+    return (await feedWindowRows(this.db).all(this.feedWindowValues(opts))).map(rowToEvent)
+  }
+
+  /** {@link feedWindow}, ids and subjects only, skipping the newest `offset`. */
+  async feedWindowIds(opts: {
+    limit: number
+    through?: number
+    offset?: number
+  }): Promise<{ id: number; subject: string }[]> {
+    return await feedWindowIds(this.db).all(this.feedWindowValues(opts))
+  }
+
+  /** Only these events' payloads, provided the current feed window holds them. */
+  async feedWindowByIds(ids: readonly number[], windowSize: number): Promise<PodiumEventRecord[]> {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0) return []
+    const [oldest] = await this.feedWindowIds({ limit: 1, offset: Math.max(windowSize - 1, 0) })
+    const floor = oldest?.id ?? 0
+    const out: PodiumEventRecord[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await feedEventsOfIds(this.db, size).all({
+        floor,
+        ...inListValues(chunk, size),
+      }))
+        out.push(rowToEvent(row))
+    }
+    return out
+  }
+
+  /**
+   * The events of these subjects that a window of `windowSize` holds, oldest
+   * first: the window's oldest id, then the subjects' feed-kind events from
+   * there up. Two reads whatever the size of the log.
+   */
+  async feedWindowOfSubjects(
+    subjects: readonly string[],
+    windowSize: number,
+  ): Promise<{ id: number; subject: string }[]> {
+    const unique = [...new Set(subjects)].filter((subject) => subject !== '')
+    if (unique.length === 0) return []
+    const [oldest] = await this.feedWindowIds({ limit: 1, offset: Math.max(windowSize - 1, 0) })
+    const floor = oldest?.id ?? 0
+    const out: { id: number; subject: string }[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      out.push(
+        ...(await feedEventsOfSubjects(this.db, size).all({
+          floor,
+          ...inListValues(chunk, size, 'subject'),
+        })),
+      )
+    }
+    return out.sort((a, b) => a.id - b.id)
+  }
+
+  private feedWindowValues(opts: {
+    limit: number
+    through?: number
+    offset?: number
+  }): Record<string, unknown> {
+    const offset = opts.offset ?? 0
+    return {
+      through: opts.through ?? Number.MAX_SAFE_INTEGER,
+      limit: opts.limit,
+      offset,
+      reach: opts.limit + offset,
+    }
   }
 
   /** The highest event id in the log (0 when empty) — the "now" mark for
@@ -1124,8 +1567,21 @@ export class EventsRepository {
     // Compute the cap threshold once per job. Repeating this OFFSET scan before
     // every delete unit made a 50k-row retention pass itself monopolize the loop.
     // Rows appended after this snapshot are intentionally handled by the next pass.
-    const cap = await eventIdBeyondCap(this.db).get({ maxRows: opts.maxRows })
-    return { cutoff, capThroughId: cap?.id ?? 0 }
+    return { cutoff, capThroughId: await this.eventCapThroughId(opts.maxRows) }
+  }
+
+  /**
+   * The highest event id the row cap prunes: the id of the newest event beyond
+   * the newest `maxRows`, or 0 when the log holds no more than `maxRows`. Exact
+   * with gaps in the ids; see {@link eventsAboveId}.
+   */
+  async eventCapThroughId(maxRows: number): Promise<number> {
+    // `max(id)` alone, so SQLite reads it off the end of the primary key.
+    const guess = ((await highestEventId(this.db).get())?.m ?? 0) - maxRows
+    if (guess <= 0) return 0
+    const above = (await eventsAboveId(this.db).get({ guess }))?.n ?? 0
+    const missing = Math.max(0, maxRows - above)
+    return (await eventIdAtOrBelow(this.db).get({ guess, missing }))?.id ?? 0
   }
 
   /** [spec:SP-c29e] One bounded synchronous DELETE unit from a fixed plan. */
@@ -1134,12 +1590,16 @@ export class EventsRepository {
       throw new RangeError('batchSize must be a positive integer')
     }
     // The projector's head fences runtime rows (see deletePruneBatch).
-    const result = await deletePruneBatch(this.db).run({
-      cutoff: plan.cutoff,
-      capThroughId: plan.capThroughId,
-      batchSize,
-    })
-    return Number(result.changes)
+    const params = { cutoff: plan.cutoff, capThroughId: plan.capThroughId, batchSize }
+    // Retention can take events of the feed window and a session's transcript
+    // evidence: the batch runs as a change-log commit, so what moved is
+    // appended in the batch's own transaction (POD-6920).
+    const deleted = await inChangeLogTransaction(
+      this.logCommit,
+      this.createOrJoinTransaction,
+      async () => await deletePruneBatch(this.db).all(params),
+    )
+    return deleted.length
   }
 
   // ---- steward state ----
@@ -1230,10 +1690,61 @@ export class EventsRepository {
     return rows.map(rowToSubscription)
   }
 
+  /** {@link listSubscriptionsPage} narrowed to one member's own subscriptions
+   *  (POD-6288): subscriber = a session they own or a task assigned to them. */
+  async listOwnSubscriptionsPage(
+    userId: string,
+    opts: { after?: SubscriptionPageCursor; limit?: number } = {},
+  ): Promise<Subscription[]> {
+    const after = opts.after ?? { createdAt: '', id: '' }
+    const rows = await ownSubscriptionsPage(this.db).all({
+      userId,
+      afterCreatedAt: after.createdAt,
+      afterId: after.id,
+      limit: Math.min(
+        Math.max(1, Math.trunc(opts.limit ?? SUBSCRIPTION_PAGE_DEFAULT)),
+        SUBSCRIPTION_PAGE_MAX,
+      ),
+    })
+    return rows.map(rowToSubscription)
+  }
+
+  /** Every subscription, for the boot reconcile (POD-6676): one keyset walk of
+   *  `idx_subscriptions_created`, a page per {@link SUBSCRIPTION_PAGE_MAX} rows. */
+  async allSubscriptionsForBootReconcile(): Promise<Subscription[]> {
+    const out: Subscription[] = []
+    let after: SubscriptionPageCursor | undefined
+    for (;;) {
+      const page = await this.listSubscriptionsPage({
+        ...(after ? { after } : {}),
+        limit: SUBSCRIPTION_PAGE_MAX,
+      })
+      out.push(...page)
+      const last = page.at(-1)
+      if (page.length < SUBSCRIPTION_PAGE_MAX || last === undefined) return out
+      after = { createdAt: last.createdAt, id: last.id }
+    }
+  }
+
   /** Flip a subscription's enabled flag. Returns true when a row was updated. */
   async setSubscriptionEnabled(id: string, enabled: boolean): Promise<boolean> {
     const r = await setSubscriptionEnabledById(this.db).run({ id, enabled })
     return r.changes > 0
+  }
+
+  /** {@link getSubscription} for many ids, one read per 500 (POD-6763). */
+  async subscriptionsByIds(ids: readonly string[]): Promise<Subscription[]> {
+    const unique = [...new Set(ids)]
+    const out: Subscription[] = []
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await subscriptionsOfIds(this.db, size).all(
+        inListValues(chunk, size, 'ids'),
+      ))
+        out.push(rowToSubscription(row))
+    }
+    return out
   }
 
   async getSubscription(id: string): Promise<Subscription | undefined> {

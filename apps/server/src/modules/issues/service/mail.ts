@@ -1,11 +1,34 @@
 import { randomUUID } from 'node:crypto'
-import type { IssueId, IssueProjection, SessionId } from '@podium/model'
-import { attributionOf, type CommandPrincipal } from '../../../command-principal'
+import type { IssueId, IssueProjection, SessionId, UserId } from '@podium/model'
+import {
+  attributionOf,
+  type CommandAttribution,
+  type CommandPrincipal,
+  onBehalfOfUser,
+} from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
+import { settingsAuditAttribution } from '../../../store/settings-audit'
+import { mentionsColumn, parseMentionsColumn } from '../../notices/mentions'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
+import { IssueNotFound } from './not-found'
 import type { IssueReportsModule } from './reads'
-import { IssueRefusal } from './refusal'
+import { IssueForbidden, IssueRefusal } from './refusal'
+import type { IssueWriter } from './types'
+
+/**
+ * IS THIS COMMENT THE CALLER'S OWN (POD-6289, POD-6295; design §2.2)? Its
+ * author is the human it was written for, so a member's agent counts as that
+ * member. A comment with no recorded author is nobody's. The one rule behind
+ * both the edit and delete refusal and the task page's edit control.
+ */
+export function isCommentAuthor(
+  authorId: string | null | undefined,
+  principal: CommandPrincipal,
+): boolean {
+  const caller = onBehalfOfUser(principal)
+  return caller !== null && authorId === caller
+}
 
 /**
  * Comments and tracker-mail capability: an issue's comments, and the read side
@@ -15,7 +38,7 @@ import { IssueRefusal } from './refusal'
 export class IssueCommentsMailModule {
   constructor(
     readonly store: IssueStore,
-    private readonly reports: () => Pick<IssueReportsModule, 'comments' | 'get'>,
+    private readonly reports: () => Pick<IssueReportsModule, 'comments' | 'get' | 'niceRef'>,
   ) {}
 
   async comments(
@@ -38,27 +61,45 @@ export class IssueCommentsMailModule {
    * the BUILD (not just the run) if a default comes back.
    */
   async addComment(
+    writer: IssueWriter,
     id: string,
     author: string,
     body: string,
-    principal: CommandPrincipal,
+    principal: CommandPrincipal | CommandAttribution,
   ): Promise<IssueProjection> {
     const issueId = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(issueId)
-    const attribution = attributionOf(principal)
-    return await this.store.persistWith(
-      row,
-      async () =>
-        await this.store.deps.store.issues.addIssueComment({
-          id: `cmt_${randomUUID()}`,
+    // An effect's executor (POD-6394) has the stored attribution, not a live principal.
+    const attribution = 'kind' in principal ? attributionOf(principal) : principal
+    const mentions = this.store.deps.commentMentions
+    return await this.store.persistWith(writer, row, async () => {
+      const commentId = `cmt_${randomUUID()}`
+      // MENTIONS (POD-6881): matched against the members as the comment is
+      // written, stored with it, and told in the same transaction.
+      const mentioned = (await mentions?.find(body)) ?? []
+      await this.store.deps.store.issues.addIssueComment({
+        id: commentId,
+        issueId,
+        author,
+        body,
+        createdAt: this.store.now(),
+        actor: attribution.actor,
+        onBehalfOf: attribution.onBehalfOf,
+        mentions: mentionsColumn(mentioned),
+      })
+      if (mentions !== undefined && mentioned.length > 0) {
+        await mentions.raise({
           issueId,
-          author,
+          issueRef: await this.reports().niceRef(row),
+          issueTitle: row.title,
+          commentId,
+          authorName: author,
+          authorUserId: (attribution.onBehalfOf as UserId | null | undefined) ?? null,
           body,
-          createdAt: this.store.now(),
-          actor: attribution.actor,
-          onBehalfOf: attribution.onBehalfOf,
-        }),
-    )
+          mentioned,
+        })
+      }
+    })
   }
 
   /**
@@ -70,11 +111,124 @@ export class IssueCommentsMailModule {
    * author could also suppress their notes.
    */
   async addCallerComment(
+    writer: IssueWriter,
     id: string,
     body: string,
     principal: CommandPrincipal,
   ): Promise<IssueProjection> {
-    return await this.addComment(id, await this.authorOf(principal), body, principal)
+    return await this.addComment(writer, id, await this.authorOf(principal), body, principal)
+  }
+
+  /**
+   * EDIT OR DELETE A COMMENT (POD-6289, design §2.2/§4.4).
+   *
+   * Only the comment's author may: the human it was written for, so a
+   * member's agent edits its human's comments and nobody else's. An admin may
+   * moderate any comment. That is allowed, written to the audit trail in the
+   * same transaction, and the comment keeps its author: a moderated edit
+   * stamps the admin as `edited_on_behalf_of` and never touches the author
+   * columns. A comment with no recorded author (written before attribution)
+   * can only be moderated.
+   */
+  async editComment(
+    writer: IssueWriter,
+    id: string,
+    commentId: string,
+    body: string,
+    principal: CommandPrincipal,
+  ): Promise<IssueProjection> {
+    return await this.changeComment(writer, id, commentId, principal, { kind: 'edit', body })
+  }
+
+  async deleteComment(
+    writer: IssueWriter,
+    id: string,
+    commentId: string,
+    principal: CommandPrincipal,
+  ): Promise<IssueProjection> {
+    return await this.changeComment(writer, id, commentId, principal, { kind: 'delete' })
+  }
+
+  private async changeComment(
+    writer: IssueWriter,
+    id: string,
+    commentId: string,
+    principal: CommandPrincipal,
+    change: { kind: 'edit'; body: string } | { kind: 'delete' },
+  ): Promise<IssueProjection> {
+    const issueId = await this.store.resolveRef(id)
+    const row = await this.store.draftOrThrow(issueId)
+    const issues = this.store.deps.store.issues
+    const comment = await issues.getIssueComment(commentId)
+    // Another task's comment is as unknown here as a missing one.
+    if (!comment || comment.issueId !== issueId) {
+      throw new IssueNotFound(`comment ${commentId}`)
+    }
+    const authored = isCommentAuthor(comment.onBehalfOf, principal)
+    // Moderation is a PERSON's admin action: an admin's agent is not an admin.
+    const moderating =
+      !authored &&
+      principal.kind === 'user' &&
+      (await this.store.deps.store.users.get(principal.user))?.role === 'admin'
+    if (!authored && !moderating) {
+      throw new IssueForbidden(`only the comment's author can ${change.kind} comment ${commentId}`)
+    }
+    const attribution = attributionOf(principal)
+    const at = this.store.now()
+    const mentions = this.store.deps.commentMentions
+    return await this.store.persistWith(writer, row, async () => {
+      // MENTIONS (POD-6881): only a name the edit ADDS is told; a name it drops,
+      // or every name of a deleted comment, has its notice resolved.
+      const before = parseMentionsColumn(comment.mentions)
+      if (change.kind === 'edit') {
+        const after = (await mentions?.find(change.body)) ?? []
+        await issues.editIssueComment({
+          id: commentId,
+          body: change.body,
+          editedAt: at,
+          editedBy: attribution.actor,
+          editedOnBehalfOf: attribution.onBehalfOf,
+          mentions: mentionsColumn(after),
+        })
+        if (mentions !== undefined) {
+          const added = after.filter((user) => !before.includes(user))
+          const dropped = before.filter((user) => !after.includes(user))
+          await mentions.resolve(commentId, dropped)
+          if (added.length > 0) {
+            await mentions.raise({
+              issueId,
+              issueRef: await this.reports().niceRef(row),
+              issueTitle: row.title,
+              commentId,
+              authorName: comment.author,
+              authorUserId: (comment.onBehalfOf as UserId | null | undefined) ?? null,
+              body: change.body,
+              mentioned: added,
+            })
+          }
+        }
+      } else {
+        await issues.deleteIssueComment(commentId)
+        await mentions?.resolve(commentId, before)
+      }
+      if (moderating) {
+        await this.store.deps.store.settingsAudit.append({
+          command: change.kind === 'edit' ? 'issues.editComment' : 'issues.deleteComment',
+          outcome: 'applied',
+          ...settingsAuditAttribution(principal),
+          // Ids only: the audit trail carries no comment text.
+          detail: {
+            moderation: true,
+            issueId,
+            commentId,
+            authorId: comment.onBehalfOf ?? null,
+            authorActor: comment.actor ?? null,
+          },
+          redactedPaths: [],
+          createdAt: at,
+        })
+      }
+    })
   }
 
   /** The display name a principal comments under: a human's own profile name,
@@ -113,8 +267,16 @@ export class IssueCommentsMailModule {
    *  advances (it is what stops the push/retry sweep re-injecting a message the
    *  issue has now pulled) — it just no longer decides who gets nagged. */
   async mailInbox(
+    writer: IssueWriter,
     issueId: IssueId,
-    opts?: { markRead?: boolean; sessionId?: SessionId },
+    opts?: {
+      markRead?: boolean
+      sessionId?: SessionId
+      /** Whose per-user read markers the read writes: the member the reading
+       *  agent acts for (POD-6291). Absent = no per-user marker, only the
+       *  shared delivery state moves. */
+      member?: UserId
+    },
   ): Promise<Array<IssueMessageRow & { wasUnread: boolean }>> {
     const id = await this.store.resolveRef(issueId)
     await this.store.rowOrThrow(id)
@@ -141,14 +303,17 @@ export class IssueCommentsMailModule {
     // the write, and re-reading an inbox must stay free.
     const newReceipts = reader ? ids.filter((mid) => !seen.has(mid)) : []
     if (markRead && (unreadIds.length || newReceipts.length)) {
-      await this.store.deps.funnel.run({
-        write: async () => {
+      // On the reading command's writer (POD-6602): the pull moves the messages
+      // rows' delivery status, a synced write; their feed changes come from the
+      // messages table's capture, so the commit declares none.
+      await writer.commit({
+        write: async (scope) => {
           const at = this.store.now()
           if (unreadIds.length) {
             // PER-USER read markers (POD-1076): `status` is the mail's shared
             // delivery state, `read_at` is a fact about THIS reader.
             await this.store.deps.store.issues.markIssueMessagesRead(
-              await this.store.broadcastViewer(),
+              opts?.member ?? null,
               id,
               unreadIds,
               at,
@@ -164,7 +329,12 @@ export class IssueCommentsMailModule {
             // when it was overwhelmingly the pull path working. A readerless peek
             // (operator/UI) still has nobody to name and stays null.
             for (const mid of unreadIds)
-              await this.store.deps.store.messages.markDeliveredByPull(mid, reader ?? null, at)
+              await this.store.deps.store.messages.markDeliveredByPull(
+                scope,
+                mid,
+                reader ?? null,
+                at,
+              )
           }
           if (reader)
             for (const mid of newReceipts)
@@ -187,12 +357,13 @@ export class IssueCommentsMailModule {
    *  reaches every session on the issue exactly once. Claiming does prove the
    *  claimer has the message, so it records that reader's receipt [POD-1379]. */
   async mailClaim(
+    writer: IssueWriter,
     messageId: string,
     claimedBy: string,
     opts?: { sessionId?: SessionId },
   ): Promise<{ claimed: boolean; message: IssueMessageRow }> {
-    const claimed = await this.store.deps.funnel.run({
-      write: async () => {
+    const { result: claimed } = await writer.commit({
+      write: async (scope) => {
         const won = await this.store.deps.store.issues.claimIssueMessage(
           messageId,
           claimedBy,
@@ -203,6 +374,7 @@ export class IssueCommentsMailModule {
         // ledger names [POD-1420]; absent a session id there is nobody to name.
         if (won)
           await this.store.deps.store.messages.markDeliveredByPull(
+            scope,
             messageId,
             opts?.sessionId ?? null,
             this.store.now(),

@@ -42,8 +42,8 @@
  * multi-tenancy.
  */
 
+import { ROW } from './matrix-rows'
 import {
-  asMatrixRowId,
   type GrantRule,
   type MatrixRow,
   type MatrixRowId,
@@ -51,119 +51,7 @@ import {
   SYSTEM_WRITER_RULE,
 } from './ownership'
 
-const id = asMatrixRowId
-
-// Row ids, declared once so `inherits` edges are checkable.
-export const ROW = {
-  instanceId: id('instance-id'),
-  machine: id('machine'),
-  pairingToken: id('pairing-token'),
-  daemonIdentityFile: id('daemon-identity-file'),
-  enrollmentLedger: id('enrollment-ledger'),
-
-  sessionIdentity: id('session-identity'),
-  sessionBinding: id('session-binding'),
-  sessionPlacement: id('session-placement'),
-  sessionLabels: id('session-labels'),
-  sessionReadAt: id('session-read-at'),
-  snooze: id('snooze'),
-  composerDraft: id('composer-draft'),
-  queuedMessages: id('queued-agent-messages'),
-  daemonObservedRuntime: id('daemon-observed-runtime'),
-  sessionObservationBookkeeping: id('session-observation-bookkeeping'),
-  sessionUploads: id('session-uploads'),
-  headlessTurnSpool: id('headless-turn-spool'),
-  offers: id('agent-offers'),
-  sessionLiveEphemeral: id('session-live-ephemeral'),
-  hostMetrics: id('host-metrics'),
-  provenanceEnvelope: id('provenance-envelope'),
-
-  issueCore: id('issue-core'),
-  shippingAggregate: id('shipping-aggregate-family'),
-  issueDocumentFields: id('issue-document-fields'),
-  needsHuman: id('needs-human-group'),
-  issueGraph: id('issue-graph'),
-  issueComments: id('issue-comments'),
-  activityEvents: id('activity-events'),
-  eventSubscriptions: id('event-subscriptions'),
-  subscriptionDeliveries: id('subscription-deliveries'),
-  issueMessages: id('issue-messages'),
-  issueMessageReadAt: id('issue-message-read-at'),
-  artifacts: id('artifacts'),
-
-  conversationRegistry: id('conversation-registry'),
-  segments: id('segments'),
-  blobs: id('blobs'),
-
-  repoPrefix: id('repo-prefix'),
-  harnessDiscoveryCache: id('harness-discovery-cache'),
-  harnessHookSettings: id('harness-hook-settings'),
-  /** The living project spec (pspec v1) — files in a repo, NOT a replicated
-   *  table. Added by POD-385; see the row for why it is `owned-compute`. */
-  pspecComponent: id('pspec-component'),
-  pins: id('pins'),
-  tabOrder: id('tab-order'),
-  /** Sidebar/tab layout shell chrome (POD-1350) — distinct from tab_order's
-   *  session order per worktree. */
-  sidebarTabLayout: id('sidebar-tab-layout'),
-  /** How far a person has read an event stream (POD-1380) — a POSITION in an
-   *  ordered log, not the per-entity `readAt` markers above it. */
-  feedReadCursor: id('feed-read-cursor'),
-  /** Which shell belongs to a person's worktree (POD-4436) — the server-owned
-   *  dock-shell mapping, one row per (user, worktree). */
-  dockShellMapping: id('dock-shell-mapping'),
-
-  preferencesPersonal: id('preferences-personal-keys'),
-  preferencesInstance: id('preferences-instance-keys'),
-  serverSecrets: id('server-owned-secrets'),
-  managedCredentials: id('managed-credentials'),
-  configFeatures: id('config-features'),
-  settingsAuditTrail: id('settings-audit-trail'),
-
-  locks: id('advisory-locks'),
-  approvals: id('approval-requests'),
-  pendingInteractions: id('pending-interactions'),
-  automations: id('automations-and-runs'),
-  // POD-1211's coordination-shaped adoptions. Each is server-internal
-  // bookkeeping the SWEEP found with no row at all; see `serverBookkeeping`
-  // for why they are `personal`-with-no-owner rather than substrate.
-  maintenanceLease: id('maintenance-lease'),
-  maintenanceCommandReceipts: id('maintenance-command-receipts'),
-  stewardState: id('steward-state'),
-  notificationFacts: id('notification-facts'),
-  wakeCooldowns: id('message-wake-cooldowns'),
-  idAllocationCounters: id('id-allocation-counters'),
-  // The workflow surface, as FIVE classes rather than the one row it used to
-  // be (POD-731). The split is not cosmetic: revisions inherit their definition
-  // while runs inherit the ISSUE they advance, and one row cannot carry two
-  // owner rules. See the rows themselves for the rest.
-  workflowDefinitions: id('workflow-definitions'),
-  workflowRevisions: id('workflow-revisions'),
-  workflowBindings: id('workflow-bindings'),
-  agentProfiles: id('agent-profiles'),
-  workflowRuns: id('workflow-runs'),
-
-  messages: id('messages-substrate'),
-  messagingTopics: id('messaging-issue-topics'),
-  superagentState: id('superagent-state'),
-
-  handoffBundle: id('handoff-bundle'),
-
-  changeLog: id('change-log'),
-  feedIdentity: id('feed-identity'),
-  appliedMutations: id('applied-mutations'),
-  clientOutbox: id('client-outbox'),
-  replicaCursor: id('replica-cursor'),
-
-  userAccount: id('user-account'),
-  accountCredential: id('account-credential'),
-  perUserClientSession: id('per-user-client-session'),
-  grantEdge: id('grant-edge'),
-  delegationRecord: id('delegation-record'),
-  telegramChatBinding: id('telegram-chat-binding'),
-  perUserStateFamily: id('per-user-state-family'),
-  recapWatermark: id('recap-watermark'),
-} as const
+export { ROW }
 
 // ---------------------------------------------------------------------------
 // Shared cell values, so a repeated rule cannot drift between rows.
@@ -360,6 +248,42 @@ const IDENTITY_ROWS: readonly MatrixRow[] = [
       mutable: false,
       verbs: [],
       note: 'Tenant-visible from creation and never narrows.',
+    },
+    open: [],
+  },
+  {
+    id: ROW.machineSpec,
+    section: 'identity-and-deployment-scope',
+    title: 'Machine spec (`name`, `updateChannelOverride`) on the synced `machine` record',
+    sites: [
+      'packages/commands/src/records/kinds.ts',
+      'apps/server/src/modules/records/machine-record.ts',
+    ],
+    home: 'server',
+    idMinting: 'n/a',
+    writers: ['operator'],
+    replication: 'server-to-clients',
+    conflict: 'field-LWW',
+    conflictNote:
+      'ADR 12 D3 (POD-6644): the name and the update-channel pin are each their own independent group at `field-LWW`, which is what `machines.rename` and `machines.setUpdateChannel` always did (they carried no revision). Clock: the Authority-assigned event time at commit. Every other field of the record is status, written by the server.',
+    tombstone: 'soft-delete',
+    tombstoneNote: 'Follows the machine: revoked, never deleted.',
+    offline: 'offline-eligible',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.machine },
+    visibility: 'owned-compute',
+    grants: { kind: 'inherits', from: ROW.machine },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'The transport principal’s pair through `sync.submit`, gated by `manage` on the machine.',
+    },
+    systemWriter: 'never-writes',
+    inheritanceOnCreate: { kind: 'parent', from: ROW.machine },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['grant-see', 'grant-use', 'grant-manage', 'revoke'],
+      note: 'Follows the machine.',
     },
     open: [],
   },
@@ -701,9 +625,9 @@ const SESSION_ROWS: readonly MatrixRow[] = [
     idMinting: 'n/a',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    conflict: 'exp-rev',
+    conflict: 'field-LWW',
     conflictNote:
-      'AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and are now SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable ([spec:SP-eb60]).',
+      'AMENDED AGAIN by ADR 12 D3 (POD-6406): each label (`name`, `archived`, `workState`) is its own independent group at `field-LWW`, which is what their commands always did (they carried no revision); they are still SHARED SESSION FACTS, written once for every viewer. Clock: the Authority-assigned event time at commit. The lifecycle has its own row at exp-rev (session-desired-state), and a label edit never moves its spec revision. Before: AMENDED (Amendment 1 D10): `archived` and `workState` were `field-LWW` in the base matrix and became SHARED SESSION FACTS at `exp-rev`. `WorkState` is `planning|implementing|testing|done|icebox` — a statement about the WORK, identical for every viewer; a session that is `done` is not `done` only for me. `readAt` LEFT this group entirely and is per-user state. The `name`/`nameSource` rule survives unchanged: a human-set name is not agent-overwritable ([spec:SP-eb60]).',
     tombstone: 'never-delete',
     tombstoneNote:
       'Archive is not delete — `archived` sits beside `deletedAt` on the shared row and means "retired".',
@@ -723,6 +647,44 @@ const SESSION_ROWS: readonly MatrixRow[] = [
       mutable: true,
       verbs: ['share', 'unshare', 'revoke'],
       note: 'PHASE 2 MUST HANDLE: follows the session.',
+    },
+    open: [],
+  },
+  {
+    id: ROW.sessionDesiredState,
+    section: 'sessions',
+    title:
+      'Lifecycle as desired state (`desired`, `force`; the spec `revision`, `observedRevision`, `lifecycleFailure`)',
+    sites: [
+      'packages/model/src/entities/session.ts',
+      'apps/server/src/modules/sessions/lifecycle-controller.ts',
+    ],
+    home: 'server',
+    idMinting: 'n/a',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    conflict: 'exp-rev',
+    conflictNote:
+      'ADR 12 D5 E1 (POD-6356). `desired`/`force` are SPEC, written through `records.session.edit` against `revision`, the spec revision: only spec edits move it, never a daemon report, so a late stop is refused after a newer start and daemon traffic never makes an edit stale. The server lifecycle controller writes only the observed half (`observedRevision`, `lifecycleFailure`); `status` stays the daemon’s.',
+    tombstone: 'never-delete',
+    tombstoneNote: 'Follows the session tombstone.',
+    offline: 'offline-eligible',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.sessionIdentity },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.sessionIdentity },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'The edit carries the transport principal’s pair through `sync.submit`; the controller’s acknowledgement is a system write.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.sessionIdentity },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'Follows the session: shared and revoked with it.',
     },
     open: [],
   },
@@ -1179,6 +1141,44 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
       'O3: whether `reparent` is a permission-affecting operation needing confirmation. Human call, Phase 3.',
   },
   {
+    id: ROW.issuePlainFields,
+    section: 'issues-and-tracker',
+    title:
+      'Issue plain fields (title, brief, acceptance, priority, type, assignee, due, defer, labels, archived, estimate, machine)',
+    sites: [
+      'packages/commands/src/records/kinds.ts',
+      'apps/server/src/modules/records/issue-record.ts',
+    ],
+    home: 'server',
+    idMinting: 'n/a',
+    writers: ['operator', 'agent-session'],
+    replication: 'server-to-clients',
+    conflict: 'field-LWW',
+    conflictNote:
+      'AMENDED by ADR 12 D3 (POD-6405): each field is its OWN group, independent of every other, so an edit of the title never conflicts with one of the priority, which is what `issues.update` always did (it carried no revision). Clock: the Authority-assigned event time at commit (D3 condition 1); client clocks never arbitrate. The invariant-heavy fields stay in issue-core at exp-rev: stage transitions and close, the parent link, the agent profile.',
+    tombstone: 'soft-delete',
+    tombstoneNote: 'Follows the issue: soft-delete `deletedAt`.',
+    offline: 'offline-eligible',
+    secret: 'public',
+    owner: { kind: 'inherits', from: ROW.issueCore },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.issueCore },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'required',
+      note: 'As issue-core: the transport principal’s pair through `sync.submit`.',
+    },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.issueCore },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'Follows the issue: shared and revoked with it.',
+    },
+    open: [],
+  },
+  {
     id: ROW.shippingAggregate,
     section: 'issues-and-tracker',
     title: 'Shipping aggregate family (orders, attempts, steps, holds, delivery receipts)',
@@ -1229,10 +1229,10 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     idMinting: 'n/a (fields of the issue row)',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    conflict: 'exp-rev',
+    conflict: 'field-LWW',
     reservedConflict: { rule: 'op-stream', constraint: OP_STREAM_COMPACTION_CONSTRAINT },
     conflictNote:
-      'SPLIT OUT of issue core deliberately: Amendment 1 D12 names composer draft body AND issue description/notes as `op-stream`’s ONLY permitted members, and a reservation that cannot be attached to a row is a reservation nobody can honour. Today’s rule is `exp-rev` (nothing implements op-streams — this issue does not build one). Adding a member to the reserved set requires an ADR 1 amendment, exactly as `field-LWW` does. POD-6101 removed `notes` (folded into `brief`), so `description` is the only issue member left.',
+      'SPLIT OUT of issue core deliberately: Amendment 1 D12 names composer draft body AND issue description/notes as `op-stream`’s ONLY permitted members, and a reservation that cannot be attached to a row is a reservation nobody can honour. AMENDED by ADR 12 D3 (POD-6405): until op-streams exist the rule is `field-LWW`, the description its own independent group, which is what `issues.update` always did (it carried no revision). Clock: the Authority-assigned event time at commit. Adding a member to the reserved set requires an ADR 1 amendment, exactly as `field-LWW` does. POD-6101 removed `notes` (folded into `brief`), so `description` is the only issue member left.',
     tombstone: 'n/a',
     tombstoneNote: 'Follows the issue tombstone.',
     offline: 'offline-eligible',
@@ -1408,7 +1408,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     section: 'issues-and-tracker',
     title: 'Issue message / issue `readAt` (moved by Amendment 1 D10)',
     sites: [
-      '`issue_user_state` — keyed `(user_id, issue_id)`, carrying `read_at` / `tucked_at` / `pinned_at`',
+      '`issue_user_state` — keyed `(user_id, issue_id)`, carrying `read_at` / `tucked_at` (an issue pin is a `pins` row since POD-6692)',
       '`issue_message_user_state` — keyed `(user_id, issue_message_id)`',
       '(both POD-1076; the markers were `issues.read_at` and `issue_messages.read_at` columns until then)',
     ],
@@ -1521,19 +1521,21 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     sites: [
       '`subscriptions`',
       'apps/server/src/store/events.ts',
-      'apps/server/src/modules/issues/service/crud.ts (`subscriptionSetEnabled`)',
+      'apps/server/src/modules/issues/subscription-record.ts (`records.subscription.edit/remove`, POD-6676)',
     ],
     home: 'server',
     idMinting: 'Server id',
     writers: ['operator', 'agent-session', 'system'],
     replication: 'server-to-clients',
-    conflict: 'cmd',
+    replicationNote:
+      'The synced `subscription` kind since POD-6676, keyed `subscriptionRowId(subscriber, id)` so the feed scopes a row and its removal by its subscriber.',
+    conflict: 'single-writer',
     conflictNote:
-      'Subscribe / unsubscribe / enable are commands against a row keyed by its subscriber; nothing merges.',
+      'One writer per row, its subscriber (POD-6288): `enabled` and the removal are generic edits that only the subscriber may make, applied in commit order. Subscribe is `issues.subscriptionAdd`.',
     tombstone: 'hard-delete',
     tombstoneNote:
       'Unsubscribe removes the row; `enabled = 0` is the softer state and is a different act.',
-    offline: 'online-only',
+    offline: 'offline-eligible',
     secret: 'public',
     owner: {
       kind: 'user',
@@ -1665,7 +1667,7 @@ const CONVERSATION_ROWS: readonly MatrixRow[] = [
     title: 'Blobs (content-addressed)',
     sites: [
       'the content-addressed store',
-      '`<stateDir>/transcripts` — the mirror lake on disk (`mirrorLakeDir`, apps/server/src/server.ts)',
+      '`<stateDir>/transcripts` — the parted mirror lake through the blob store (`transcriptLake`, apps/server/src/server.ts)',
     ],
     home: 'server',
     idMinting: 'sha256 — identity IS the hash',
@@ -1874,7 +1876,7 @@ const REPO_ROWS: readonly MatrixRow[] = [
       'packages/model/src/user-state/read-position-state.ts — closed stream vocabulary + the monotonic rule',
     ],
     conflictNote:
-      "How far a person has read an ordered log, so it is theirs by definition (readiness §3.3). NOT the `readAt` rows above: those are per-ENTITY timestamps and merge last-writer-wins, while a cursor is a POSITION and merges MONOTONICALLY — `max(stored, proposed)`, executed by advanceReadPosition and declared as `readPosition.advance`'s `cmd` conflict rule. Under LWW a device writing before its hydration lands would move the marker backward and re-mark read events unread.",
+      'How far a person has read an ordered log, so it is theirs by definition (readiness §3.3). NOT the `readAt` rows above: those are per-ENTITY timestamps and merge last-writer-wins, while a cursor is a POSITION and merges MONOTONICALLY — `max(stored, proposed)`, executed by advanceReadPosition inside the `records.userReadPosition.edit` generic edit (POD-6673), so a stale proposal is a no-op. Under LWW a device writing before its hydration lands would move the marker backward and re-mark read events unread.',
     tombstoneNote: 'Cascades on user deletion. No entity lifecycle owns these rows.',
   }),
   perUserState({
@@ -2105,38 +2107,42 @@ const SETTINGS_ROWS: readonly MatrixRow[] = [
   {
     id: ROW.managedCredentials,
     section: 'settings-secrets-accounts',
-    title: 'Managed credentials / accounts (`accounts`)',
-    sites: ['`accounts.credential`'],
+    title: 'Credentials (`credentials`, `credential_secrets`; formerly `accounts`)',
+    sites: ['`credentials`', '`credential_secrets`', '`accounts.credential`'],
     home: 'server',
-    idMinting: 'Server account id',
+    idMinting: 'Server credential id (`cred_<uuid>`)',
     writers: ['operator', 'system'],
     replication: 'none',
     replicationNote:
-      'Presence / identity reach clients; VALUES never do. Injection at spawn is server→daemon.',
+      'The record without its secret reaches its owner and grantees through `credentials.list`; VALUES never leave the server except to a daemon starting a process.',
     conflict: 'exp-rev',
     tombstone: 'hard-delete',
-    tombstoneNote: 'Delete the row.',
+    tombstoneNote: 'Removal deletes the secrets and the grants; the record stays as `revoked`.',
     offline: 'never-enqueue',
     secret: 'secret-value',
-    secretNote: '`secret-value` at rest.',
-    owner: { kind: 'none', reason: 'secret', note: '`secret` at rest (D15).' },
+    secretNote: '`secret-value` at rest, sealed by the vault (credential management §7).',
+    owner: {
+      kind: 'user',
+      resolves: 'on-behalf-of-human',
+      note: 'The person who added it (credential management §12). Being an admin gives no access to it.',
+    },
     visibility: 'secret',
     grants: {
-      kind: 'none',
-      reason: 'secret-admin-grade',
-      note: '`manage` is admin-grade; INJECTION at spawn is bounded by the spawning principal’s rights. O5 is adjacent and open: server-injected material is separable from a host and should plausibly bill the DELEGATING human rather than the machine owner — that is a per-feature call and must not be modelled speculatively.',
+      kind: 'verbs',
+      verbs: ['use', 'manage'],
+      note: '`use`: run sessions and model calls on it; `manage`: rename, renew, remove, share. To a person, or `use` to all members (`group:all-members`). Read at every use, never copied (credential management §12).',
     },
     attribution: { actor: 'required', onBehalfOf: 'required' },
     systemWriter: 'may-write',
     systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: {
-      kind: 'not-applicable',
-      reason: 'Secret: no owner and no grants (D15).',
+      kind: 'on-behalf-of-human',
+      note: 'Owned by the person who added it; private until shared.',
     },
     visibilityMutability: {
-      mutable: false,
-      verbs: [],
-      note: 'Values never replicate; `manage` is admin-grade.',
+      mutable: true,
+      verbs: ['grant-use', 'grant-manage', 'revoke'],
+      note: 'A grant makes the record (never its value) appear in the grantee’s `credentials.list`; not replicated, so no feed signal is needed.',
     },
     open: ['O5'],
     openNote:
@@ -2282,32 +2288,40 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
   {
     id: ROW.approvals,
     section: 'coordination',
-    title: 'Approval requests',
-    sites: ['`approval_requests`', 'apps/server approvals module'],
+    title:
+      'Approval requests: the decision on an `approval` effect record (`decision`, the record `revision`)',
+    sites: [
+      'packages/model/src/entities/effect.ts (`decision`)',
+      '`effects` (`kind = approval`)',
+      'apps/server/src/modules/approvals',
+    ],
     home: 'server',
-    idMinting: 'Server id',
-    writers: ['daemon', 'agent-session', 'operator'],
+    idMinting: 'Server id (`apr_<uuid>`, minted when the agent asks)',
+    writers: ['operator', 'agent-session', 'system'],
     replication: 'server-to-clients',
-    conflict: 'cmd',
-    conflictNote: 'A state machine.',
-    tombstone: 'never-delete',
-    tombstoneNote: 'Terminal states retained.',
-    offline: 'online-only',
+    conflict: 'exp-rev',
+    conflictNote:
+      'POD-6674. An approval is an effect record (ADR 12 D5 E2) with a human gate. The agent asks (`approvals.request`, the record is created `pending`); a person decides with `records.effect.edit`, setting `decision` against the record `revision`. The first decision wins: the write is guarded on a pending, undecided record, and a decision made against a stale revision is refused. Every status move after it is the executor’s.',
+    tombstone: 'soft-delete',
+    tombstoneNote:
+      'Follows the effect record: an ended approval leaves the feed after the retention window (failed and unknown ones stay until dismissed); the issue activity log keeps every step.',
+    offline: 'offline-eligible',
     secret: 'public',
-    secretNote: 'Payload redaction is ADR 3’s.',
+    secretNote: 'Payload redaction is ADR 3’s; an op carries no credential.',
     owner: {
       kind: 'user',
       resolves: 'routed-to-human',
-      note: 'The human the request is ROUTED TO — the requesting agent’s on-behalf-of (Amendment 1 §3 §7). Attention routing is per-user by construction (ADR 9 D8 S3).',
+      note: 'The human the request is ROUTED TO — the requesting session’s owner (Amendment 1 §3 §7, POD-6284). Only they decide it.',
     },
     visibility: 'personal',
     grants: {
       kind: 'inherits',
-      from: ROW.sessionIdentity,
-      note: 'Inherits the SUBJECT entity, whichever it is.',
+      from: ROW.effectRecords,
+      note: 'Follows the effect record: its person, and whoever may read the requesting issue or session.',
     },
     attribution: { actor: 'required', onBehalfOf: 'required' },
-    systemWriter: 'never-writes',
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
     inheritanceOnCreate: {
       kind: 'on-behalf-of-human',
       note: 'DECLARED as the routed-to human rather than the parent: an approval must reach a PERSON, and inheriting a shared subject entity’s owner would route it to the wrong one.',
@@ -2315,7 +2329,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     visibilityMutability: {
       mutable: true,
       verbs: ['share', 'unshare', 'revoke'],
-      note: 'PHASE 2 MUST HANDLE: follows its subject entity.',
+      note: 'PHASE 2 MUST HANDLE: follows its target.',
     },
     open: [],
   },
@@ -2405,6 +2419,54 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
       mutable: true,
       verbs: ['share', 'unshare', 'revoke', 'account-disable'],
       note: 'PHASE 2 MUST HANDLE: and note that disabling the creator’s ACCOUNT must stop the automation — live intersection, not a stored capability.',
+    },
+    open: [],
+  },
+  {
+    id: ROW.effectRecords,
+    section: 'coordination',
+    title: 'Effect records',
+    sites: [
+      'packages/model/src/entities/effect.ts',
+      '`effects`',
+      'apps/server/src/modules/effects',
+    ],
+    home: 'server',
+    idMinting: 'Device id (`eff_<uuid>`, ADR 12 D4)',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    conflict: 'cmd',
+    conflictNote:
+      'A state machine (`EffectLifecycle`): a person creates the record `pending`, may ask to cancel it, and may dismiss it once it has ended; every status move is the executor’s, written as a guarded UPDATE on the states the machine allows into the target status, so a second trigger claims nothing.',
+    tombstone: 'soft-delete',
+    tombstoneNote:
+      'Dismissed or pruned records leave the feed as a tombstone (the feed scopes a `remove` after the write, and the audience is read off the target), and are deleted after the feed’s retention window. `failed` and `unknown` stay until dismissed (ADR 12 O5).',
+    offline: 'offline-eligible',
+    secret: 'public',
+    secretNote:
+      'An executor kind publishes only what it declares of its input (a file write publishes path and hash, never the text); the whole input stays on the server.',
+    owner: {
+      kind: 'user',
+      resolves: 'on-behalf-of-human',
+      note: 'The person who asked for the effect (an agent’s on-behalf-of human); everyone who may read its target sees it too.',
+    },
+    visibility: 'personal',
+    grants: {
+      kind: 'inherits',
+      from: ROW.issueCore,
+      note: 'Inherits the TARGET it acts on: an issue, a session, or (creator only, for now) a machine.',
+    },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: {
+      kind: 'on-behalf-of-human',
+      note: 'DECLARED: the creating principal’s human; the audience beyond the creator follows the target.',
+    },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'PHASE 2 MUST HANDLE: follows its target.',
     },
     open: [],
   },
@@ -2512,7 +2574,11 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     idMinting: 'Composite key — `(target_kind, target_id)`, no minted id',
     writers: ['operator', 'agent-session'],
     replication: 'server-to-clients',
-    conflict: 'exp-rev',
+    replicationNote:
+      'The synced `workflowBinding` kind since POD-6676, keyed `workflowBindingRowId`.',
+    conflict: 'field-LWW',
+    conflictNote:
+      'One binding per target, last writer wins by the Authority commit clock (design POD-5620 §1.10): each target is one group with one field, independent of every other target; `records.workflowBinding.edit` sets the revision it runs, whatever it ran before.',
     tombstone: 'remove',
     tombstoneNote: 'Rebinding replaces the row; there is no binding history.',
     offline: 'offline-eligible',
@@ -2551,10 +2617,10 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     writers: ['operator'],
     replication: 'server-to-clients',
     replicationNote:
-      'Read through `agentProfiles.list`; not a synced feed entity yet (the profile UI is POD-6098).',
-    conflict: 'cmd',
+      'The synced `agentProfile` kind since POD-6676: every member receives every profile on the feed; the CLI, which has no replica, reads `agentProfiles.list`.',
+    conflict: 'field-LWW',
     conflictNote:
-      'Online replace: a save replaces the whole profile and the later Authority commit wins outright. Edits are rare and made by people, so no revision is carried.',
+      'Field-level last writer wins by the Authority commit clock (design POD-5620 §1.9): each field is an independent group, and `records.agentProfile.edit` writes the fields it names over the stored row. The one invariant across fields, a unique name, is checked inside the write. Edits are rare and made by people, so no revision is carried.',
     tombstone: 'hard-delete',
     tombstoneNote:
       'A delete removes the row, refused while an open issue points at it. Sessions keep the id and the launch values they actually ran with, so history never depends on the row.',
@@ -2840,6 +2906,45 @@ const MESSAGING_ROWS: readonly MatrixRow[] = [
       mutable: true,
       verbs: ['share', 'unshare', 'revoke'],
       note: 'PHASE 2 MUST HANDLE: private by default, shareable by explicit grant.',
+    },
+    open: [],
+  },
+  {
+    id: ROW.superagentThreadFields,
+    section: 'messaging-and-superagent',
+    title:
+      'Superagent thread record (`superagentThread`): spec `title`, `archived`, `model`, `effort`; status `turnRunning`, `lastTurnFailure`, the headless binding',
+    sites: [
+      '`superagent_threads` (the row; `turn_running` and `last_turn_failure_*` since POD-6675)',
+      'packages/model/src/user-state/synced-records.ts (`SuperagentThreadWire`)',
+      'apps/server/src/modules/superagent/thread-records.ts',
+    ],
+    home: 'server',
+    idMinting: 'Server id',
+    writers: ['operator', 'agent-session', 'system'],
+    replication: 'server-to-clients',
+    replicationNote:
+      'A synced per-user record (ADR 12 D1, POD-6675): every write of the row publishes it to its owner’s devices.',
+    conflict: 'field-LWW',
+    conflictNote:
+      'Each spec field is its own independent group, last writer wins (the owner’s devices edit a title, an archive flag, a model or an effort; a merge of two titles has no meaning). Clock: the Authority-assigned event time at commit. Status fields are the server’s alone: `turnRunning` is set at turn start and end, `lastTurnFailure` when a turn fails and cleared when the next one starts. The turn machine itself stays `cmd` (superagent-state).',
+    tombstone: 'soft-delete',
+    tombstoneNote: 'Archive a thread (`archived`).',
+    offline: 'offline-eligible',
+    secret: 'public',
+    secretNote:
+      'The harness’s own session id, the watermarks and the terminal lock never leave the server; the record says only whether a harness conversation exists (`resumable`).',
+    owner: { kind: 'inherits', from: ROW.superagentState },
+    visibility: 'personal',
+    grants: { kind: 'inherits', from: ROW.superagentState },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: { kind: 'parent', from: ROW.superagentState },
+    visibilityMutability: {
+      mutable: false,
+      verbs: [],
+      note: 'The owner’s alone, as the thread it describes.',
     },
     open: [],
   },
@@ -3137,11 +3242,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     id: ROW.accountCredential,
     section: 'multi-user-classes',
     title: 'Account credential material',
-    sites: [
-      '`user_credentials`',
-      'POD-1075',
-      'packages/runtime/src/auth-store.ts (one password per instance today)',
-    ],
+    sites: ['`identity_account`', 'POD-1075', 'packages/identity (account login methods)'],
     home: 'server',
     idMinting: 'n/a',
     writers: ['operator', 'system'],
@@ -3173,7 +3274,7 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     id: ROW.perUserClientSession,
     section: 'multi-user-classes',
     title: 'Per-user `client_session` (a device that resolves to a user)',
-    sites: ['`client_sessions` — `(token_hash, created_at, expires_at)`, NO user column today'],
+    sites: ['`identity_session` — one hashed device sign-in per account device'],
     home: 'server',
     idMinting: 'Server-minted at login',
     writers: ['system'],
@@ -3326,6 +3427,38 @@ const MULTI_USER_ROWS: readonly MatrixRow[] = [
     },
   }),
   perUserState({
+    id: ROW.notices,
+    section: 'multi-user-classes',
+    title: 'Recipient notice inbox (credential management design section 13)',
+    sites: [
+      'apps/server/src/store/notices.ts',
+      'apps/server/src/modules/notices/emit.ts',
+      'apps/server/src/modules/notices/sync-write.ts',
+      'docs/superpowers/specs/2026-11-12-credential-management-design.md#13-the-notification-inbox',
+    ],
+    idMinting: 'Server-minted notice id; recipientUserId is fixed when the notice is raised.',
+    writers: ['operator', 'system'],
+    owner: {
+      kind: 'user',
+      resolves: 'routed-to-human',
+      note: 'The recipient named by the producer, never the actor who caused the notice or the owner of its subject.',
+    },
+    conflictNote:
+      'The server raises and resolves the condition under its dedupe key; only the recipient marks it read. Each write is serialized by the authority and never transfers the recipient.',
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: {
+      kind: 'not-applicable',
+      reason:
+        'The producer explicitly routes the notice to its recipient; it does not inherit the subject owner, the actor, or any grants.',
+    },
+    attribution: {
+      actor: 'required',
+      onBehalfOf: 'none-representable',
+      note: 'A system producer may have no human principal; a recipient read is attributed to that recipient. No producer becomes the owner through attribution.',
+    },
+  }),
+  perUserState({
     id: ROW.perUserStateFamily,
     section: 'multi-user-classes',
     title: 'Per-user state family (generic)',
@@ -3385,12 +3518,27 @@ export const OP_STREAM_RESERVED_MEMBERS: readonly MatrixRowId[] = [
 /**
  * The closed membership of the surviving `field-LWW` set (Amendment 1 D10):
  * instance-scope preference keys, plus the composer draft's named interim
- * defect. Everything else that ADR 1 D3 once listed is now per-user state or
+ * defect, plus an issue's plain fields (ADR 12 D3, POD-6405). Everything else that ADR 1 D3 once listed is now per-user state or
  * `exp-rev`.
  */
 export const FIELD_LWW_MEMBERS: readonly MatrixRowId[] = [
   ROW.preferencesInstance,
   ROW.composerDraft,
+  // ADR 12 D3 (POD-6405): an issue's plain fields, each its own group, and
+  // its description until op-streams exist.
+  ROW.issuePlainFields,
+  ROW.issueDocumentFields,
+  // ADR 12 D3 (POD-6406): a session's labels, each its own group.
+  ROW.sessionLabels,
+  // ADR 12 D1/D3 (POD-6675): a superagent thread's spec fields, each its own group.
+  ROW.superagentThreadFields,
+  // ADR 12 D3 (POD-6676, design POD-5620 §1.9-1.10, approved 2026-11-08): an
+  // agent profile's fields, each its own group, and a workflow binding, one
+  // group per target.
+  ROW.agentProfiles,
+  ROW.workflowBindings,
+  // ADR 12 D3 (POD-6644): a machine's name and update-channel pin.
+  ROW.machineSpec,
 ]
 
 /**
@@ -3408,6 +3556,11 @@ export const PER_USER_WRITER_EXCEPTIONS: readonly {
   readonly row: MatrixRowId
   readonly reason: string
 }[] = [
+  {
+    row: ROW.notices,
+    reason:
+      'Credential management design section 13 authorizes system producers to raise and resolve a notice for its fixed recipient. Only that person reads or marks it; no admin, producer or subject owner gains the recipient row.',
+  },
   {
     row: ROW.perUserClientSession,
     reason:

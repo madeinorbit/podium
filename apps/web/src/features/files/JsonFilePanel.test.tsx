@@ -32,7 +32,7 @@ vi.mock('./useFileDocument', () => ({
  *  so a `set` that never notifies would model a store it cannot have (POD-540). */
 const ui = vi.hoisted(() => {
   const data = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   return {
     data,
     uiState: {
@@ -40,9 +40,9 @@ const ui = vi.hoisted(() => {
       set: (k: string, v: string | null): void => {
         if (v === null) data.delete(k)
         else data.set(k, v)
-        for (const cb of [...listeners]) cb()
+        for (const cb of [...listeners]) cb(new Set([k]))
       },
-      subscribe: (cb: () => void): (() => void) => {
+      subscribe: (cb: (keys: ReadonlySet<string>) => void): (() => void) => {
         listeners.add(cb)
         return () => void listeners.delete(cb)
       },
@@ -54,7 +54,7 @@ vi.mock('@/app/store', () => {
   const useStore = () => ({ httpOrigin: 'http://podium.test', uiState: ui.uiState })
   return {
     useStore,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

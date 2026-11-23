@@ -13,46 +13,161 @@ package and are omitted.
 
 | License | Packages |
 | --- | --- |
-| MIT | 421 |
-| ISC | 23 |
-| Apache-2.0 | 6 |
-| BSD-3-Clause | 6 |
-| BSD-2-Clause | 5 |
-| BlueOak-1.0.0 | 3 |
+| MIT | 462 |
+| Apache-2.0 | 32 |
+| ISC | 26 |
+| BSD-3-Clause | 7 |
+| BSD-2-Clause | 6 |
 | MPL-2.0 | 3 |
+| BlueOak-1.0.0 | 2 |
 | OFL-1.1 | 2 |
-| SEE LICENSE IN LICENSE.md | 2 |
 | (MIT OR CC0-1.0) | 1 |
 | (MPL-2.0 OR Apache-2.0) | 1 |
 | 0BSD | 1 |
 | Apache-2.0 OR MIT | 1 |
 | CC-BY-4.0 | 1 |
-| CC0-1.0 | 1 |
 | MIT OR Apache-2.0 | 1 |
 | Python-2.0 | 1 |
-| SEE LICENSE IN README.md | 1 |
 | Unlicense | 1 |
 
 ## npm packages
 
-### @anthropic-ai/claude-agent-sdk@0.3.201
+### @aws-sdk/checksums@3.1002.5
 
-- License: SEE LICENSE IN README.md
-- Copyright Anthropic <support@anthropic.com>
-- https://github.com/anthropics/claude-agent-sdk-typescript
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/checksums
 
-### @anthropic-ai/claude-agent-sdk-linux-x64@0.3.201
+### @aws-sdk/client-s3@3.1170.0
 
-- License: SEE LICENSE IN LICENSE.md
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/clients/client-s3
 
-### @anthropic-ai/claude-agent-sdk-linux-x64-musl@0.3.201
+### @aws-sdk/core@3.981.0
 
-- License: SEE LICENSE IN LICENSE.md
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/core
 
-### @anthropic-ai/sdk@0.110.0
+### @aws-sdk/credential-provider-env@3.972.84
 
-- License: MIT
-- Copyright 2023 Anthropic, PBC.
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-env
+
+### @aws-sdk/credential-provider-http@3.972.86
+
+- License: Apache-2.0
+- Copyright AWS SDK for JavaScript Team
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-http
+
+### @aws-sdk/credential-provider-ini@3.973.30
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-ini
+
+### @aws-sdk/credential-provider-login@3.972.92
+
+- License: Apache-2.0
+- Copyright AWS SDK for JavaScript Team
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-login
+
+### @aws-sdk/credential-provider-node@3.972.97
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-node
+
+### @aws-sdk/credential-provider-process@3.972.84
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-process
+
+### @aws-sdk/credential-provider-sso@3.973.28
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-sso
+
+### @aws-sdk/credential-provider-web-identity@3.972.90
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/credential-provider-web-identity
+
+### @aws-sdk/middleware-sdk-s3@3.972.89
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/middleware-sdk-s3
+
+### @aws-sdk/nested-clients@3.998.3
+
+- License: Apache-2.0
+- Copyright AWS SDK for JavaScript Team
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages/nested-clients
+
+### @aws-sdk/signature-v4-multi-region@3.996.52
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages/signature-v4-multi-region
+
+### @aws-sdk/token-providers@3.1166.0
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages/token-providers
+
+### @aws-sdk/types@3.975.1
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/types
+
+### @aws-sdk/xml-builder@3.972.43
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/aws/aws-sdk-js-v3/tree/main/packages-internal/xml-builder
+
+### @aws/lambda-invoke-store@0.3.0
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- https://github.com/awslabs/aws-lambda-invoke-store
 
 ### @babel/code-frame@7.29.7
 
@@ -64,6 +179,12 @@ package and are omitted.
 
 - License: MIT
 - Copyright (c) 2014-present Sebastian McKenzie and other contributors
+
+### @babel/core@7.29.0
+
+- License: MIT
+- Copyright (c) 2014-present Sebastian McKenzie and other contributors
+- https://babel.dev/docs/en/next/babel-core
 
 ### @babel/core@7.29.7
 
@@ -233,6 +354,63 @@ package and are omitted.
 - License: MIT
 - Copyright (c) 2019 Material-UI SAS
 
+### @better-auth/core@1.7.4
+
+- License: MIT
+- Copyright (c) 2024 - present, Bereket Engida
+- https://www.better-auth.com
+
+### @better-auth/drizzle-adapter@1.7.4
+
+- License: MIT
+- Copyright (c) 2024 - present, Bereket Engida
+- https://www.better-auth.com/docs/adapters/drizzle
+
+### @better-auth/kysely-adapter@1.7.4
+
+- License: MIT
+- Copyright (c) 2024 - present, Bereket Engida
+- https://www.better-auth.com/docs/adapters/kysely
+
+### @better-auth/memory-adapter@1.7.4
+
+- License: MIT
+- Copyright (c) 2024 - present, Bereket Engida
+- https://www.better-auth.com
+
+### @better-auth/mongo-adapter@1.7.4
+
+- License: MIT
+- Copyright (c) 2024 - present, Bereket Engida
+- https://www.better-auth.com/docs/adapters/mongodb
+
+### @better-auth/prisma-adapter@1.7.4
+
+- License: MIT
+- Copyright (c) 2024 - present, Bereket Engida
+- https://www.better-auth.com/docs/adapters/prisma
+
+### @better-auth/telemetry@1.7.4
+
+- License: MIT
+- Copyright (c) 2024 - present, Bereket Engida
+- https://www.better-auth.com
+
+### @better-auth/utils@0.4.2
+
+- License: MIT
+- Copyright Bereket Engida
+
+### @better-auth/utils@0.5.1
+
+- License: MIT
+- Copyright (c) 2024 - present, Bereket Engida
+
+### @better-fetch/fetch@1.3.1
+
+- License: MIT
+- Copyright (c) Bereket Engida
+
 ### @blocknote/core@0.51.4
 
 - License: MPL-2.0
@@ -247,6 +425,18 @@ package and are omitted.
 
 - License: MPL-2.0
 - https://github.com/TypeCellOS/BlockNote
+
+### @clack/core@1.4.3
+
+- License: MIT
+- Copyright Nate Moore
+- https://github.com/bombshell-dev/clack/tree/main/packages/core#readme
+
+### @clack/prompts@1.7.0
+
+- License: MIT
+- Copyright Nate Moore
+- https://github.com/bombshell-dev/clack/tree/main/packages/prompts#readme
 
 ### @codemirror/autocomplete@6.20.3
 
@@ -390,7 +580,7 @@ package and are omitted.
 - COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 - https://floating-ui.com
 
-### @fontsource-variable/geist@5.2.9
+### @fontsource-variable/geist@5.3.0
 
 - License: OFL-1.1
 - Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font) Geist-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
@@ -398,7 +588,7 @@ package and are omitted.
 - Copyright Holder. This restriction only applies to the primary font name as
 - https://fontsource.org/fonts/geist
 
-### @fontsource-variable/geist-mono@5.2.8
+### @fontsource-variable/geist-mono@5.3.0
 
 - License: OFL-1.1
 - Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git) GeistMono-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)
@@ -527,6 +717,13 @@ package and are omitted.
 - Copyright (c) 2016 Thomas Pornin <pornin@bolet.org>
 - https://paulmillr.com/noble/
 
+### @noble/ciphers@2.4.0
+
+- License: MIT
+- Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+- Copyright (c) 2016 Thomas Pornin <pornin@bolet.org>
+- https://paulmillr.com/noble/
+
 ### @noble/curves@1.9.7
 
 - License: MIT
@@ -534,6 +731,18 @@ package and are omitted.
 - https://paulmillr.com/noble/
 
 ### @noble/hashes@1.8.0
+
+- License: MIT
+- Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+- https://paulmillr.com/noble/
+
+### @noble/hashes@1.8.0
+
+- License: MIT
+- Copyright (c) 2022 Paul Miller (https://paulmillr.com)
+- https://paulmillr.com/noble/
+
+### @noble/hashes@2.4.0
 
 - License: MIT
 - Copyright (c) 2022 Paul Miller (https://paulmillr.com)
@@ -553,6 +762,14 @@ package and are omitted.
 
 - License: MIT
 - Copyright (c) Denis Malinochkin
+
+### @opentelemetry/semantic-conventions@1.45.0
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright [yyyy] [name of copyright owner]
+- https://github.com/open-telemetry/opentelemetry-js/tree/main/semantic-conventions
 
 ### @sec-ant/readable-stream@0.4.1
 
@@ -577,47 +794,59 @@ package and are omitted.
 - License: MIT
 - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
-### @stablelib/base64@1.0.1
+### @smithy/core@3.41.0
 
-- License: MIT
-- Copyright (C) 2016 Dmitry Chestnykh
-- https://github.com/StableLib/stablelib/tree/master/packages/base64
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/smithy-lang/smithy-typescript/tree/main/packages/core
+
+### @smithy/credential-provider-imds@4.5.2
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/smithy-lang/smithy-typescript/tree/main/packages/credential-provider-imds
+
+### @smithy/fetch-http-handler@5.8.1
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/smithy-lang/smithy-typescript/tree/main/packages/fetch-http-handler
+
+### @smithy/node-http-handler@4.14.2
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/smithy-lang/smithy-typescript/tree/main/packages/node-http-handler
+
+### @smithy/signature-v4@5.7.5
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/smithy-lang/smithy-typescript/tree/main/packages/signature-v4
+
+### @smithy/types@4.20.0
+
+- License: Apache-2.0
+- copyright notice that is included in or attached to the work
+- copyright license to reproduce, prepare Derivative Works of,
+- Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+- https://github.com/smithy-lang/smithy-typescript/tree/main/packages/types
 
 ### @standard-schema/spec@1.1.0
 
 - License: MIT
 - Copyright (c) 2024 Colin McDonnell
 - https://standardschema.dev
-
-### @tanstack/db@0.6.16
-
-- License: MIT
-- Copyright (c) 2025 Kyle Mathews
-- https://tanstack.com/db
-
-### @tanstack/db-ivm@0.1.18
-
-- License: MIT
-- Copyright (c) 2025 Kyle Mathews
-- https://tanstack.com/db
-
-### @tanstack/db-sqlite-persistence-core@0.2.8
-
-- License: MIT
-- Copyright (c) 2025 Kyle Mathews
-- https://tanstack.com/db
-
-### @tanstack/pacer-lite@0.2.2
-
-- License: MIT
-- Copyright (c) 2025 Tanner Linsley
-- https://tanstack.com/pacer
-
-### @tanstack/react-db@0.1.94
-
-- License: MIT
-- Copyright (c) 2025 Kyle Mathews
-- https://tanstack.com/db
 
 ### @tanstack/react-store@0.7.7
 
@@ -789,10 +1018,23 @@ package and are omitted.
 - Copyright (c) Microsoft Corporation.
 - https://github.com/DefinitelyTyped/DefinitelyTyped/tree/master/types/validate-npm-package-name
 
+### @typescript/typescript-linux-x64@7.0.2
+
+- License: Apache-2.0
+- COPYRIGHT AND PERMISSION NOTICE
+- Copyright (c) 1991-2017 Unicode, Inc. All rights reserved.
+- COPYRIGHT HOLDERS WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF ANY USE OF THE SOFTWARE OR DOCUMENT.
+- https://www.typescriptlang.org/
+
 ### @xterm/addon-fit@0.10.0
 
 - License: MIT
 - Copyright (c) 2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
+
+### @xterm/addon-serialize@0.13.0
+
+- License: MIT
+- Copyright The xterm.js authors
 
 ### @xterm/addon-web-links@0.11.0
 
@@ -826,6 +1068,24 @@ package and are omitted.
 - License: MIT
 - Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>
 
+### ajv@6.15.0
+
+- License: MIT
+- Copyright (c) 2015-2017 Evgeny Poberezkin
+- https://github.com/ajv-validator/ajv
+
+### ajv@8.20.0
+
+- License: MIT
+- Copyright (c) 2015-2021 Evgeny Poberezkin
+- https://ajv.js.org
+
+### ajv@8.20.0
+
+- License: MIT
+- Copyright (c) 2015-2021 Evgeny Poberezkin
+- https://ajv.js.org
+
 ### ajv@8.20.0
 
 - License: MIT
@@ -858,7 +1118,7 @@ package and are omitted.
 ### ansi-regex@6.2.2
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### argparse@2.0.1
 
@@ -887,11 +1147,28 @@ package and are omitted.
 - copyright license to reproduce, prepare Derivative Works of,
 - Copyright [yyyy] [name of copyright owner]
 
+### better-auth@1.7.4
+
+- License: MIT
+- Copyright (c) 2024 - present, Bereket Engida
+- https://better-auth.com
+
+### better-call@1.4.0
+
+- License: MIT
+- Copyright (c) 2025 Bereket Engida
+
 ### body-parser@2.3.0
 
 - License: MIT
 - Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+
+### bowser@2.15.0
+
+- License: MIT
+- Copyright 2015, Dustin Diaz (the "Original Author")
+- https://github.com/bowser-js/bowser
 
 ### brace-expansion@5.0.6
 
@@ -943,6 +1220,11 @@ package and are omitted.
 - License: CC-BY-4.0
 - copyright and certain other rights. Our licenses are
 - copyright--then that use is not regulated by the license. Our
+
+### chalk@5.6.2
+
+- License: MIT
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### chalk@5.6.2
 
@@ -1075,10 +1357,21 @@ package and are omitted.
 - Copyright Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)
 - https://github.com/TooTallNate/node-data-uri-to-buffer
 
+### dataloader@2.2.3
+
+- License: MIT
+- Copyright (c) GraphQL Contributors
+- https://github.com/graphql/dataloader
+
 ### debounce-fn@4.0.0
 
 - License: MIT
 - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+
+### debug@2.6.9
+
+- License: MIT
+- Copyright (c) 2014 TJ Holowaychuk <tj@vision-media.ca>
 
 ### debug@4.4.3
 
@@ -1111,17 +1404,28 @@ package and are omitted.
 ### define-lazy-prop@2.0.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
 ### define-lazy-prop@3.0.0
 
 - License: MIT
 - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
+### defu@6.1.7
+
+- License: MIT
+- Copyright (c) Pooya Parsa <pooya@pi0.io>
+
 ### depd@2.0.0
 
 - License: MIT
 - Copyright (c) 2014-2018 Douglas Christopher Wilson
+
+### destroy@1.2.0
+
+- License: MIT
+- Copyright (c) 2014 Jonathan Ong me@jongleberry.com
+- Copyright (c) 2015-2022 Douglas Christopher Wilson doug@somethingdoug.com
 
 ### detect-node-es@1.1.0
 
@@ -1308,10 +1612,23 @@ package and are omitted.
 - License: MIT
 - Copyright (c) Denis Malinochkin
 
-### fast-sha256@1.3.0
+### fast-json-stable-stringify@2.1.0
 
-- License: Unlicense
-- Copyright Dmitry Chestnykh
+- License: MIT
+- Copyright (c) 2017 Evgeny Poberezkin
+- Copyright (c) 2013 James Halliday
+- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+- https://github.com/epoberezkin/fast-json-stable-stringify
+
+### fast-string-truncated-width@3.0.3
+
+- License: MIT
+- Copyright (c) 2024-present Fabio Spampinato
+
+### fast-string-width@3.0.2
+
+- License: MIT
+- Copyright (c) 2024-present Fabio Spampinato
 
 ### fast-uri@3.1.2
 
@@ -1319,6 +1636,13 @@ package and are omitted.
 - Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
 - Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
 - https://github.com/fastify/fast-uri
+
+### fast-wrap-ansi@0.2.2
+
+- License: MIT
+- Copyright (c) 2025 James Garbutt
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- https://github.com/43081j/fast-wrap-ansi#readme
 
 ### fastq@1.20.1
 
@@ -1371,16 +1695,16 @@ package and are omitted.
 - License: MIT
 - Copyright (c) 2014-2017 Douglas Christopher Wilson
 
-### fractional-indexing@3.4.0
-
-- License: CC0-1.0
-- Copyright arv@rocicorp.dev
-- https://github.com/rocicorp/fractional-indexing#readme
-
 ### framer-motion@12.42.2
 
 - License: MIT
 - Copyright (c) 2018 Framer B.V.
+
+### fresh@0.5.2
+
+- License: MIT
+- Copyright (c) 2012 TJ Holowaychuk <tj@vision-media.ca>
+- Copyright (c) 2016-2017 Douglas Christopher Wilson <doug@somethingdoug.com>
 
 ### fresh@2.0.0
 
@@ -1391,7 +1715,7 @@ package and are omitted.
 ### fs-extra@11.3.5
 
 - License: MIT
-- Copyright (c) 2011-2017 JP Richardson
+- Copyright (c) 2011-2024 JP Richardson
 - https://github.com/jprichardson/node-fs-extra
 
 ### function-bind@1.1.2
@@ -1479,6 +1803,12 @@ package and are omitted.
 - Copyright (c) Jordan Harband and contributors
 - https://github.com/inspect-js/hasOwn#readme
 
+### highlight.js@11.11.1
+
+- License: BSD-3-Clause
+- Copyright (c) 2006, Ivan Sagalaev.
+- https://highlightjs.org/
+
 ### hono@4.12.23
 
 - License: MIT
@@ -1501,8 +1831,8 @@ package and are omitted.
 - License: Apache-2.0
 - copyright notice that is included in or attached to the work
 - copyright license to reproduce, prepare Derivative Works of,
-- Copyright 2025 ehmicky <ehmicky@gmail.com>
-- https://www.github.com/ehmicky/human-signals
+- Copyright 2019 ehmicky <ehmicky@gmail.com>
+- https://git.io/JeluP
 
 ### human-signals@8.0.1
 
@@ -1595,7 +1925,7 @@ package and are omitted.
 ### is-obj@2.0.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
 ### is-obj@3.0.0
 
@@ -1605,7 +1935,7 @@ package and are omitted.
 ### is-plain-obj@4.1.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### is-promise@4.0.0
 
@@ -1645,13 +1975,14 @@ package and are omitted.
 ### is-wsl@3.1.1
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### isexe@2.0.0
 
-- License: BlueOak-1.0.0
-- Copyright
-- copyright in it.
+- License: ISC
+- Copyright (c) Isaac Z. Schlueter and Contributors
+- copyright notice and this permission notice appear in all copies.
+- https://github.com/isaacs/isexe#readme
 
 ### isexe@3.1.5
 
@@ -1693,11 +2024,23 @@ package and are omitted.
 - Copyright 2017 Kat Marchán
 - Copyright npm, Inc.
 
-### json-schema-to-ts@3.1.1
+### json-schema-traverse@0.4.1
 
 - License: MIT
-- Copyright (c) 2020 Thomas Aribart
-- https://github.com/ThomasAribart/json-schema-to-ts#readme
+- Copyright (c) 2017 Evgeny Poberezkin
+- https://github.com/epoberezkin/json-schema-traverse#readme
+
+### json-schema-traverse@1.0.0
+
+- License: MIT
+- Copyright (c) 2017 Evgeny Poberezkin
+- https://github.com/epoberezkin/json-schema-traverse#readme
+
+### json-schema-traverse@1.0.0
+
+- License: MIT
+- Copyright (c) 2017 Evgeny Poberezkin
+- https://github.com/epoberezkin/json-schema-traverse#readme
 
 ### json-schema-traverse@1.0.0
 
@@ -1708,8 +2051,8 @@ package and are omitted.
 ### json-schema-typed@7.0.3
 
 - License: BSD-2-Clause
-- Copyright Remy Rylan
-- https://github.com/RemyRylan/json-schema-typed/tree/main/dist/node
+- Copyright (c) 2018 IETF Trust, Austin Wright, Henry Andrews, Geraint Luff,
+- https://github.com/typeslick/json-schema-typed
 
 ### json-schema-typed@8.0.2
 
@@ -1737,6 +2080,12 @@ package and are omitted.
 
 - License: MIT
 - Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
+
+### kysely@0.29.8
+
+- License: MIT
+- Copyright (c) 2022 Sami Koskimäki
+- https://kysely.dev
 
 ### lib0@0.2.117
 
@@ -1824,11 +2173,40 @@ package and are omitted.
 - Copyright (c) 2014-present, Jon Schlinkert.
 - https://github.com/micromatch/micromatch
 
+### mime@1.6.0
+
+- License: MIT
+- Copyright (c) 2010 Benjamin Thomas, Robert Kieffer
+
+### mime-db@1.52.0
+
+- License: MIT
+- Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+- Copyright (c) 2015-2022 Douglas Christopher Wilson <doug@somethingdoug.com>
+
 ### mime-db@1.54.0
 
 - License: MIT
 - Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2015-2022 Douglas Christopher Wilson <doug@somethingdoug.com>
+
+### mime-db@1.54.0
+
+- License: MIT
+- Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+- Copyright (c) 2015-2022 Douglas Christopher Wilson <doug@somethingdoug.com>
+
+### mime-types@2.1.35
+
+- License: MIT
+- Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+- Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+
+### mime-types@3.0.2
+
+- License: MIT
+- Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
+- Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
 
 ### mime-types@3.0.2
 
@@ -1863,6 +2241,18 @@ package and are omitted.
 - COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 - https://github.com/minimistjs/minimist
 
+### mobx@7.0.3
+
+- License: MIT
+- Copyright (c) 2015 Michel Weststrate
+- https://mobx.js.org/
+
+### mobx-react-lite@5.0.3
+
+- License: MIT
+- Copyright (c) 2015 Michel Weststrate
+- https://mobx.js.org
+
 ### motion@12.42.2
 
 - License: MIT
@@ -1878,6 +2268,11 @@ package and are omitted.
 - License: MIT
 - Copyright (c) 2024 [Motion](https://motion.dev) B.V.
 
+### ms@2.0.0
+
+- License: MIT
+- Copyright (c) 2016 Zeit, Inc.
+
 ### ms@2.1.3
 
 - License: MIT
@@ -1887,6 +2282,12 @@ package and are omitted.
 
 - License: MIT
 - Copyright 2017 Andrey Sitnik <andrey@sitnik.ru>
+- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+
+### nanostores@1.5.5
+
+- License: MIT
+- Copyright 2020 Andrey Sitnik <andrey@sitnik.es>
 - COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 
 ### negotiator@1.0.0
@@ -1916,7 +2317,7 @@ package and are omitted.
 ### npm-run-path@4.0.1
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
 ### npm-run-path@6.0.0
 
@@ -2039,7 +2440,7 @@ package and are omitted.
 ### path-key@4.0.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### path-to-regexp@8.4.2
 
@@ -2086,6 +2487,12 @@ package and are omitted.
 
 - License: MIT
 - https://github.com/postcss/postcss-selector-parser
+
+### postgres@3.4.7
+
+- License: Unlicense
+- Copyright Rasmus Porsager <rasmus@porsager.com> (https://www.porsager.com)
+- https://github.com/porsager/postgres
 
 ### powershell-utils@0.1.0
 
@@ -2177,6 +2584,19 @@ package and are omitted.
 
 - License: MIT
 - Copyright (c) 2014-2016 Douglas Christopher Wilson
+
+### punycode@2.3.1
+
+- License: MIT
+- Copyright Mathias Bynens
+- https://mths.be/punycode
+
+### qrcode.react@4.2.0
+
+- License: ISC
+- Copyright (c) 2015, Paul O’Shannessy
+- copyright notice and this permission notice appear in all copies.
+- http://zpao.github.io/qrcode.react
 
 ### qs@6.15.2
 
@@ -2280,6 +2700,11 @@ package and are omitted.
 - License: MIT
 - Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin>
 
+### rou3@0.9.2
+
+- License: MIT
+- Copyright (c) Pooya Parsa <pooya@pi0.io>
+
 ### router@2.2.0
 
 - License: MIT
@@ -2327,13 +2752,19 @@ package and are omitted.
 - Copyright (c) Isaac Z. Schlueter and Contributors
 - copyright notice and this permission notice appear in all copies.
 
+### semver@6.3.1
+
+- License: ISC
+- Copyright (c) Isaac Z. Schlueter and Contributors
+- copyright notice and this permission notice appear in all copies.
+
 ### semver@7.8.1
 
 - License: ISC
 - Copyright (c) Isaac Z. Schlueter and Contributors
 - copyright notice and this permission notice appear in all copies.
 
-### send@1.2.1
+### send@0.19.2
 
 - License: MIT
 - Copyright (c) 2012 TJ Holowaychuk
@@ -2351,6 +2782,12 @@ package and are omitted.
 - Copyright (c) 2010 Sencha Inc.
 - Copyright (c) 2011 LearnBoost
 - Copyright (c) 2011 TJ Holowaychuk
+
+### set-cookie-parser@3.2.2
+
+- License: MIT
+- Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/)
+- https://github.com/nfriedly/set-cookie-parser
 
 ### setprototypeof@1.2.0
 
@@ -2407,14 +2844,12 @@ package and are omitted.
 ### signal-exit@4.1.0
 
 - License: ISC
-- Copyright (c) 2015, Contributors
-- https://github.com/tapjs/signal-exit
+- Copyright (c) 2015-2023 Benjamin Coe, Isaac Z. Schlueter, and Contributors
 
 ### signal-exit@4.1.0
 
 - License: ISC
-- Copyright (c) 2015, Contributors
-- https://github.com/tapjs/signal-exit
+- Copyright (c) 2015-2023 Benjamin Coe, Isaac Z. Schlueter, and Contributors
 
 ### sisteransi@1.0.5
 
@@ -2427,12 +2862,6 @@ package and are omitted.
 - Copyright (c) 2023 Emil Kowalski
 - https://sonner.emilkowal.ski/
 
-### sorted-btree@1.8.1
-
-- License: MIT
-- Copyright (c) 2018 David Piepgrass
-- https://github.com/qwertie/btree-typescript#readme
-
 ### source-map@0.6.1
 
 - License: BSD-3-Clause
@@ -2444,12 +2873,6 @@ package and are omitted.
 - License: BSD-3-Clause
 - Copyright (c) 2009-2011, Mozilla Foundation and contributors
 - https://github.com/7rulnik/source-map-js
-
-### standardwebhooks@1.0.0
-
-- License: MIT
-- Copyright Standard Webhooks
-- https://github.com/standard-webhooks/standard-webhooks/tree/main/libraries/javascript
 
 ### statuses@2.0.2
 
@@ -2480,7 +2903,7 @@ package and are omitted.
 ### strip-ansi@7.2.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### strip-bom@3.0.0
 
@@ -2490,7 +2913,7 @@ package and are omitted.
 ### strip-final-newline@2.0.0
 
 - License: MIT
-- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
+- Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
 
 ### strip-final-newline@4.0.0
 
@@ -2542,12 +2965,6 @@ package and are omitted.
 - License: MIT
 - Copyright (c) 2016 Douglas Christopher Wilson <doug@somethingdoug.com>
 
-### ts-algebra@2.0.0
-
-- License: MIT
-- Copyright (c) 2020 Thomas Aribart
-- https://github.com/ThomasAribart/ts-algebra#readme
-
 ### ts-morph@26.0.0
 
 - License: MIT
@@ -2576,10 +2993,12 @@ package and are omitted.
 - Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
 
-### typescript@6.0.3
+### typescript@7.0.2
 
 - License: Apache-2.0
-- Copyright Microsoft Corp.
+- COPYRIGHT AND PERMISSION NOTICE
+- Copyright (c) 1991-2017 Unicode, Inc. All rights reserved.
+- COPYRIGHT HOLDERS WILL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, SPECIAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF ANY USE OF THE SOFTWARE OR DOCUMENT.
 - https://www.typescriptlang.org/
 
 ### undici@7.28.0
@@ -2618,6 +3037,12 @@ package and are omitted.
 - Copyright 2022 Andrey Sitnik <andrey@sitnik.ru> and other contributors
 - COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 
+### uri-js@4.4.1
+
+- License: BSD-2-Clause
+- Copyright 2011 Gary Court. All rights reserved.
+- https://github.com/garycourt/uri-js
+
 ### use-callback-ref@1.3.3
 
 - License: MIT
@@ -2628,6 +3053,12 @@ package and are omitted.
 - License: MIT
 - Copyright (c) 2017 Anton Korzunov
 - https://github.com/theKashey/use-sidecar
+
+### use-stick-to-bottom@1.1.6
+
+- License: MIT
+- Copyright (c) 2024 - present StackBlitz
+- https://use-stick-to-bottom.samdenty.io
 
 ### use-sync-external-store@1.6.0
 
@@ -2731,6 +3162,18 @@ package and are omitted.
 - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 
 ### zod@3.25.76
+
+- License: MIT
+- Copyright (c) 2025 Colin McDonnell
+- https://zod.dev
+
+### zod@4.6.7
+
+- License: MIT
+- Copyright (c) 2025 Colin McDonnell
+- https://zod.dev
+
+### zod@4.6.7
 
 - License: MIT
 - Copyright (c) 2025 Colin McDonnell

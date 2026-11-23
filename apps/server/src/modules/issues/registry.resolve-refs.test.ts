@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asMachineId, asUserId, firstAdminMemberId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IssueRow, SessionStore } from '../../store'
@@ -69,7 +70,7 @@ async function harness(initial: IssueRow[] = []) {
   stores.push(store)
   await store.repos.addRepo('/repo', store.hostMachineId, undefined, 'POD')
   await store.transact(async () => {
-    for (const issue of initial) await store.issues.upsertIssue(issue)
+    for (const issue of initial) await store.issues.upsertIssue(fixtureWriteScope(), issue)
   })
   // Reference lookup needs only the repository.
   const issues = new IssueStore({ store } as IssueDeps)
@@ -77,7 +78,9 @@ async function harness(initial: IssueRow[] = []) {
 }
 
 describe('batched chip identities', () => {
-  it('deduplicates a bounded indexed batch and hides unreadable identities from two principals', async () => {
+  // Every member reads every task (design §2.2, §4.1; POD-6288 6d0dc46741), so
+  // both people resolve both tasks; only an unknown ref stays unresolved.
+  it('deduplicates a bounded indexed batch and resolves every task for each of two members', async () => {
     const alice = asUserId('alice'),
       bob = asUserId('bob')
     const { reports } = await harness([
@@ -94,16 +97,13 @@ describe('batched chip identities', () => {
         refs: ['POD-1', 'POD-2', 'POD-404', 'POD-1'],
       })
     }
-    expect(await call(alice)).toEqual([
-      { ref: 'POD-1', id: 'iss_1' },
-      { ref: 'POD-2', id: null },
-      { ref: 'POD-404', id: null },
-    ])
-    expect(await call(bob)).toEqual([
-      { ref: 'POD-1', id: null },
-      { ref: 'POD-2', id: 'iss_2' },
-      { ref: 'POD-404', id: null },
-    ])
+    for (const user of [alice, bob]) {
+      expect(await call(user)).toEqual([
+        { ref: 'POD-1', id: 'iss_1' },
+        { ref: 'POD-2', id: 'iss_2' },
+        { ref: 'POD-404', id: null },
+      ])
+    }
     expect(
       issueRegistry.defs.resolveRefs.input.safeParse({ refs: Array(201).fill('POD-1') }).success,
     ).toBe(false)
@@ -120,7 +120,7 @@ describe('batched chip identities', () => {
     // The same numbers in another repo must not increase prefix lookup work.
     await store.transact(async () => {
       for (let i = 1; i <= 50; i++)
-        await store.issues.upsertIssue(
+        await store.issues.upsertIssue(fixtureWriteScope(),
           row(i, {
             id: asIssueId(`iss_other_${i}`),
             repoPath: '/other',
@@ -155,7 +155,7 @@ describe('batched chip identities', () => {
   it('keeps the batch numeric grammar and returns null for ambiguous #N', async () => {
     const { store, reports } = await harness([row(1), row(2)])
     await store.repos.addRepo('/other', store.hostMachineId, undefined, 'OTH')
-    await store.issues.upsertIssue(row(1, { id: asIssueId('iss_other'), repoPath: '/other' }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(1, { id: asIssueId('iss_other'), repoPath: '/other' }))
     expect(
       await reports.resolveRefs(['#1', '#2', ' #2 ', '2', '/repo#2', 'iss_2', 'pod-2', 'POD-0']),
     ).toEqual([
@@ -185,7 +185,7 @@ describe('maintained issue reference index', () => {
       { ref: 'NEW-1', id: 'iss_1' },
     ])
     await store.repos.addRepo('/other', store.hostMachineId, undefined, 'POD')
-    await store.issues.upsertIssue(row(1, { id: asIssueId('iss_other'), repoPath: '/other' }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(1, { id: asIssueId('iss_other'), repoPath: '/other' }))
     expect(await issues.resolveRef('POD-1')).toBe('iss_other')
     expect(await reports.resolveRefs(['POD-1', 'NEW-1'])).toEqual([
       { ref: 'POD-1', id: 'iss_other' },
@@ -213,7 +213,7 @@ describe('maintained issue reference index', () => {
   it('preserves internal, numeric, scoped, path-qualified and stable repo-id references', async () => {
     const { store, issues } = await harness([row(1)])
     await store.repos.addRepo('/other', store.hostMachineId, undefined, 'OTH')
-    await store.issues.upsertIssue(row(1, { id: asIssueId('iss_other'), repoPath: '/other' }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(1, { id: asIssueId('iss_other'), repoPath: '/other' }))
     const otherRepo = await store.repos.resolveRepoIdForPath('/other')
     expect(await issues.resolveRef('iss_1')).toBe('iss_1')
     expect(await issues.resolveRef('iss_missing')).toBe('iss_missing')
@@ -231,11 +231,11 @@ describe('maintained issue reference index', () => {
     expect(await issues.resolveRef(`${otherRepo}#1`)).toBe('iss_other')
     expect(await issues.resolveRef('/unknown#1')).toBe('/unknown#1')
     await store.repos.addRepo('/nested/repo', store.hostMachineId)
-    await store.issues.upsertIssue(
+    await store.issues.upsertIssue(fixtureWriteScope(),
       row(1, { id: asIssueId('iss_nested'), repoPath: '/nested/repo' }),
     )
     await expect(issues.resolveRef('repo#1')).rejects.toThrow('ambiguous issue ref repo#1')
-    await store.issues.upsertIssue(row(2))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(2))
     expect(await issues.resolveRef(' 2 ', '/unknown')).toBe('iss_2')
   })
 
@@ -245,14 +245,14 @@ describe('maintained issue reference index', () => {
     const origin = 'https://example.test/reference-repo.git'
     await store.repos.addRepo('/first/checkout', store.hostMachineId, origin, 'ONE')
     await store.repos.addRepo('/second/checkout', remote, origin)
-    await store.issues.upsertIssue(
+    await store.issues.upsertIssue(fixtureWriteScope(),
       row(1, {
         id: asIssueId('iss_shared'),
         repoPath: '/first/checkout',
         machineId: store.hostMachineId,
       }),
     )
-    await store.issues.upsertIssue(row(1, { id: asIssueId('iss_other'), repoPath: '/repo' }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(1, { id: asIssueId('iss_other'), repoPath: '/repo' }))
     expect(await issues.resolveRef('ONE-1')).toBe('iss_shared')
     expect(await issues.resolveRef('#1', '/second/checkout')).toBe('iss_shared')
     expect(await reports.resolveRefs(['ONE-1', 'POD-1'])).toEqual([
@@ -268,10 +268,10 @@ describe('maintained issue reference index', () => {
     await store.repos.addRepo('/shared', remote, 'https://example.test/two.git', 'TWO')
     // Legacy rows carry no repo id; only a database from before POD-1360 has
     // them, so they are planted with SQL, and the old index reloads to match.
-    await store.issues.upsertIssue(
+    await store.issues.upsertIssue(fixtureWriteScope(),
       row(7, { id: asIssueId('iss_one'), repoPath: '/shared', machineId: store.hostMachineId }),
     )
-    await store.issues.upsertIssue(
+    await store.issues.upsertIssue(fixtureWriteScope(),
       row(7, { id: asIssueId('iss_two'), repoPath: '/shared', machineId: remote }),
     )
     const sql = (statement: string, ...args: unknown[]) =>
@@ -300,7 +300,7 @@ describe('maintained issue reference index', () => {
   it('tracks direct repository inserts, identity upgrades with renumbering and deletion', async () => {
     const { store, issues, reports } = await harness([row(1)])
     await store.repos.addRepo('/other', store.hostMachineId, undefined, 'OTH')
-    await store.issues.upsertIssue(row(1, { id: asIssueId('iss_other'), repoPath: '/other' }))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(1, { id: asIssueId('iss_other'), repoPath: '/other' }))
     const target = await store.repos.resolveRepoIdForPath('/other')
     await store.issues.assignRepoIdToIssuesUnder(target, '/repo')
     expect(await issues.resolveRef('POD-1')).toBe('POD-1')
@@ -316,7 +316,7 @@ describe('maintained issue reference index', () => {
     await store.issues.deleteIssue('iss_1')
     expect(await issues.resolveRef('OTH-2')).toBe('OTH-2')
     expect(await reports.resolveRefs(['OTH-2'])).toEqual([{ ref: 'OTH-2', id: null }])
-    await store.issues.upsertIssue(row(3))
+    await store.issues.upsertIssue(fixtureWriteScope(), row(3))
     expect(await issues.resolveRef('POD-3')).toBe('iss_3')
   })
 
@@ -329,7 +329,7 @@ describe('maintained issue reference index', () => {
     await expect(
       store.transact(async () => {
         await store.issues.assignRepoIdToIssuesUnder(target, '/repo')
-        await store.issues.upsertIssue(row(10, { id: asIssueId('iss_new'), repoPath: '/other' }))
+        await store.issues.upsertIssue(fixtureWriteScope(), row(10, { id: asIssueId('iss_new'), repoPath: '/other' }))
         expect(await issues.resolveRef('POD-1')).toBe('POD-1')
         expect(await issues.resolveRef('OTH-1')).toBe('iss_1')
         expect(await reports.resolveRefs(['OTH-1', 'OTH-10'])).toEqual([

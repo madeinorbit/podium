@@ -2,6 +2,7 @@ import { asSessionId } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
 import { attachTestTerminal, testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { dispatchInputBytes } from './legacy-terminal-input'
 
@@ -31,6 +32,7 @@ function world(contracted: boolean, bridged: boolean) {
     clientTerminals: { input },
     composerEngine: { onInputByte },
     observers: { recordInputOrigin },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   if (bridged) attachTestTerminal(ctx, sessionId, attachment)
   return { ctx, writeBytes, input, recordInputOrigin, onInputByte }

@@ -21,28 +21,24 @@ function localStore(initial: Record<string, string | null> = {}) {
   }
 }
 
-function apiWith(snapshot: ReadPositionSnapshot) {
+/** The queued write (POD-6673: an edit of my `userReadPosition` record), and
+ *  the server's max-merge it ends in. */
+function writerWith(snapshot: ReadPositionSnapshot) {
   const advances: { streamId: string; lastEventId: number; seenAt?: string | null }[] = []
   let server: ReadPositionSnapshot = snapshot
-  const api = {
-    readPosition: {
-      get: { query: () => Promise.resolve(server) },
-      advance: {
-        mutate: (input: { streamId: string; lastEventId: number; seenAt?: string | null }) => {
-          advances.push(input)
-          const current = server[input.streamId]
-          if (current === undefined || input.lastEventId > current.lastEventId) {
-            server = {
-              ...server,
-              [input.streamId]: { lastEventId: input.lastEventId, seenAt: input.seenAt ?? null },
-            }
-          }
-          return Promise.resolve(server)
-        },
-      },
-    },
+  const write = async (streamId: string, value: { lastEventId: number; seenAt: string | null }) => {
+    advances.push({ streamId, ...value })
+    const current = server[streamId]
+    if (current === undefined || value.lastEventId > current.lastEventId) {
+      server = { ...server, [streamId]: { lastEventId: value.lastEventId, seenAt: value.seenAt } }
+    }
   }
-  return { api, advances, serverNow: () => server }
+  /** What a boot does since POD-6673: the replica's rows, then the legacy drain. */
+  const hydrate = (port: ReturnType<typeof createReadPositionClient>) => {
+    port.replace(server)
+    port.drainLegacy()
+  }
+  return { write, advances, serverNow: () => server, hydrate }
 }
 
 describe('the legacy blob parser', () => {
@@ -59,18 +55,20 @@ describe('the legacy blob parser', () => {
 })
 
 describe('the client cursor port', () => {
-  it('reads NO_READ_POSITION before hydration and the server position after', async () => {
-    const { api } = apiWith({ issueEvents: { lastEventId: 12, seenAt: 't' } })
-    const port = createReadPositionClient({ api: api as never, local: localStore() })
+  it('reads NO_READ_POSITION before the replica answers and its position after', async () => {
+    const { hydrate, write } = writerWith({ issueEvents: { lastEventId: 12, seenAt: 't' } })
+    const port = createReadPositionClient({ write, local: localStore() })
     expect(port.get('issueEvents')).toEqual(NO_READ_POSITION)
-    await port.hydrate()
+    hydrate(port)
     expect(port.get('issueEvents')).toEqual({ lastEventId: 12, seenAt: 't' })
   })
 
   it('advance is monotonic locally: a stale proposal neither paints nor sends', async () => {
-    const { api, advances } = apiWith({ issueEvents: { lastEventId: 30, seenAt: null } })
-    const port = createReadPositionClient({ api: api as never, local: localStore() })
-    await port.hydrate()
+    const { hydrate, write, advances } = writerWith({
+      issueEvents: { lastEventId: 30, seenAt: null },
+    })
+    const port = createReadPositionClient({ write, local: localStore() })
+    hydrate(port)
 
     port.advance('issueEvents', { lastEventId: 10, seenAt: 'x' })
     expect(port.get('issueEvents').lastEventId).toBe(30)
@@ -83,16 +81,16 @@ describe('the client cursor port', () => {
 
   it('drains the legacy device-local key exactly once and forwards it', async () => {
     const local = localStore({ [READ_POSITION_UI_KEY]: '{"id":77,"ts":"then"}' })
-    const { api, advances, serverNow } = apiWith({})
-    const port = createReadPositionClient({ api: api as never, local })
+    const { hydrate, write, advances, serverNow } = writerWith({})
+    const port = createReadPositionClient({ write, local })
 
-    await port.hydrate()
+    hydrate(port)
     expect(advances).toEqual([{ streamId: 'issueEvents', lastEventId: 77, seenAt: 'then' }])
     expect(local.has(READ_POSITION_UI_KEY)).toBe(false)
     expect(serverNow().issueEvents?.lastEventId).toBe(77)
 
     // A second hydration finds no local key and forwards nothing again.
-    await port.hydrate()
+    hydrate(port)
     expect(advances).toHaveLength(1)
   })
 
@@ -100,18 +98,20 @@ describe('the client cursor port', () => {
     // The migration must be safe on the second device, which has an old local
     // value and a server row already further along.
     const local = localStore({ [READ_POSITION_UI_KEY]: '{"id":5,"ts":"old"}' })
-    const { api, advances } = apiWith({ issueEvents: { lastEventId: 500, seenAt: 'new' } })
-    const port = createReadPositionClient({ api: api as never, local })
+    const { hydrate, write, advances } = writerWith({
+      issueEvents: { lastEventId: 500, seenAt: 'new' },
+    })
+    const port = createReadPositionClient({ write, local })
 
-    await port.hydrate()
+    hydrate(port)
     expect(advances).toEqual([])
     expect(local.has(READ_POSITION_UI_KEY)).toBe(false)
     expect(port.get('issueEvents')).toEqual({ lastEventId: 500, seenAt: 'new' })
   })
 
   it('replace drops a row for a stream this build does not know', async () => {
-    const { api } = apiWith({})
-    const port = createReadPositionClient({ api: api as never, local: localStore() })
+    const { hydrate, write } = writerWith({})
+    const port = createReadPositionClient({ write, local: localStore() })
     port.replace({
       issueEvents: { lastEventId: 4, seenAt: null },
       someFutureFeed: { lastEventId: 900, seenAt: null },
@@ -122,27 +122,22 @@ describe('the client cursor port', () => {
     expect(port.get('someFutureFeed' as never)).toEqual(NO_READ_POSITION)
   })
 
-  it('a failed advance reports and keeps the optimistic position', async () => {
+  it('a write that cannot be queued reports and keeps the optimistic position', async () => {
     const onError = vi.fn()
-    const api = {
-      readPosition: {
-        get: { query: () => Promise.resolve({}) },
-        advance: { mutate: () => Promise.reject(new Error('offline')) },
-      },
-    }
-    const port = createReadPositionClient({ api: api as never, local: localStore(), onError })
-    await port.hydrate()
+    const write = () => Promise.reject(new Error('outbox closed'))
+    const port = createReadPositionClient({ write, local: localStore(), onError })
+    port.drainLegacy()
     port.advance('issueEvents', { lastEventId: 9, seenAt: null })
-    await Promise.resolve()
-    await Promise.resolve()
-    expect(onError).toHaveBeenCalledWith(expect.stringContaining('offline'))
+    await vi.waitFor(() =>
+      expect(onError).toHaveBeenCalledWith(expect.stringContaining('outbox closed')),
+    )
     expect(port.get('issueEvents').lastEventId).toBe(9)
   })
 
   it('notifies subscribers when the position moves and not when it does not', async () => {
-    const { api } = apiWith({ issueEvents: { lastEventId: 10, seenAt: null } })
-    const port = createReadPositionClient({ api: api as never, local: localStore() })
-    await port.hydrate()
+    const { hydrate, write } = writerWith({ issueEvents: { lastEventId: 10, seenAt: null } })
+    const port = createReadPositionClient({ write, local: localStore() })
+    hydrate(port)
     const seen = vi.fn()
     port.subscribe(seen)
     port.advance('issueEvents', { lastEventId: 3, seenAt: null })

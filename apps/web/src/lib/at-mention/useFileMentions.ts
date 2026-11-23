@@ -1,6 +1,7 @@
+import type { Trpc } from '@/app/trpc'
+import { useRequestClient } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
 import { useEffect, useMemo } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import type { AtOption } from './at-mention'
 import { FileMentionView } from '../search-views'
 
@@ -36,7 +37,7 @@ export function useFileMentions({
   limit?: number
   debounceMs?: number
 }): AtOption[] {
-  const trpc = useRuntimeSelector((s) => s.trpc)
+  const trpc = useRequestClient<Trpc>()
   const view = useMemo(() => new FileMentionView(trpc), [trpc])
   useEffect(() => {
     if (!enabled || !query || !root || root === '/') {

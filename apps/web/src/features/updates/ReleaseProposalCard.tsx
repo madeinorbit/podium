@@ -1,7 +1,7 @@
 import type { ReleaseProposal } from '@podium/protocol'
 import type { JSX } from 'react'
 import { Button } from '@/components/ui/button'
-import { formatDisplayedVersion } from '@/lib/machine-version-skew'
+import { UpdateCardHeader, UpdateCommitList, UpdateScrollArea } from './UpdateCardParts'
 
 export function ReleaseProposalCard({
   proposal,
@@ -17,7 +17,8 @@ export function ReleaseProposalCard({
   onHide: () => void
 }): JSX.Element {
   const building = proposal.state === 'building' || pending
-  const targetVersion = formatDisplayedVersion(proposal.version)
+  const targetVersion = proposal.version.split('+')[0] ?? proposal.version
+  const commitCount = proposal.commitCount ?? proposal.commits.length
   return (
     <aside
       data-testid="release-proposal-card"
@@ -25,45 +26,34 @@ export function ReleaseProposalCard({
       role="dialog"
       aria-modal="false"
       aria-label="Development release proposal"
-      className="fixed right-4 bottom-9 z-50 flex max-h-[min(42rem,calc(100vh-4rem))] w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]"
+      className="update-card overflow-hidden"
     >
-      <div className="shrink-0 border-b border-border px-4 pt-4 pb-3">
-        <h2 className="text-[14px] font-semibold tracking-[-0.01em]">
-          Build {targetVersion} for the fleet?
-        </h2>
-        <p className="text-[11px] leading-[1.5] text-muted-foreground">
-          {proposal.runningVersion && (
-            <>
-              <span data-testid="release-proposal-server-transition">
-                Server: {formatDisplayedVersion(proposal.runningVersion)} → {targetVersion}
-              </span>
-              <br />
-            </>
-          )}
-          <span>
-            {proposal.branch} · {proposal.headSha}
+      <UpdateCardHeader
+        title={`Podium ${targetVersion}`}
+        dev
+        badge={
+          <>
+            dev <code>{proposal.headSha.slice(0, 7)}</code>
+          </>
+        }
+        subtitle={
+          <span data-testid="release-proposal-server-transition">
+            {proposal.runningVersion && <>You're on {proposal.runningVersion.split('+')[0]} · </>}
+            {commitCount} new {commitCount === 1 ? 'commit' : 'commits'} on {proposal.branch}
           </span>
-        </p>
+        }
+      />
+      <div className="update-card-bar">
+        <span className="update-card-section-label">Build for the fleet</span>
+        <span className="update-card-count">{commitCount} commits</span>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden px-4 py-4">
-        {proposal.commits.length > 0 ? (
-          <ul
-            data-testid="release-proposal-commits"
-            className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1"
-            aria-label="Commits in this release"
-          >
-            {proposal.commits.map((commit) => (
-              <li key={commit.sha} className="text-[11px] leading-[1.5] text-muted-foreground">
-                <code className="mr-2 text-foreground">{commit.sha}</code>
-                {commit.summary}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-[11px] leading-[1.5] text-muted-foreground">
-            No changes since what this server is running.
-          </p>
-        )}
+      <UpdateScrollArea
+        testId="release-proposal-commits"
+        className="min-h-0 flex-1 overflow-y-auto"
+      >
+        <UpdateCommitList commits={proposal.commits} total={proposal.commitCount} />
+      </UpdateScrollArea>
+      <div className="update-card-status">
         {proposal.addedMigrations.length > 0 && (
           <div
             data-testid="release-proposal-migration-warning"
@@ -108,10 +98,11 @@ export function ReleaseProposalCard({
           offer, and will not install until someone accepts that second prompt.
         </p>
       </div>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3">
+      <div className="update-card-foot">
         <Button type="button" variant="ghost" size="sm" onClick={onHide}>
-          Hide
+          Later
         </Button>
+        <span className="update-card-spacer" />
         <Button
           type="button"
           size="sm"

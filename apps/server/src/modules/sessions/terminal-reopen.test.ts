@@ -1,4 +1,5 @@
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 /** Live-only attaches on sessions without pictures (SPEC v4 B3, H6). */
 
 import { asSessionId, asUserId, firstAdminMemberId, type Geometry } from '@podium/model'
@@ -23,6 +24,7 @@ function makeClient(id: string): Sent {
     id,
     principal: userClientPrincipal(id, OWNER, 'admin'),
     send: (m: ServerMessage) => sent.push(m),
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

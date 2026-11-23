@@ -1,14 +1,49 @@
-import type { ClientRuntime, KeyedListChange, KeyedListName } from '@podium/client-core/engine'
-import { compareStructural, observable, runInAction } from 'mobx'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { lazy } from '@podium/mobx-helpers'
+import { compareShallow, compareStructural, observable, runInAction } from 'mobx'
 import { RelationBuckets } from './relations'
-import { createFieldInputs } from './shared/field-inputs'
-import { SHELL_RELATIONS, SHELL_SCHEMA, type ShellEntity, type ShellRows } from './shell-schema'
+import { SHELL_RELATIONS, type ShellEntity, type ShellRows } from './shell-schema'
 import { defineSource, type PoolSource } from './source-registry'
 import type { Loaded } from './worklist/rollup'
+
+const EMPTY_IDS: readonly string[] = Object.freeze([])
 
 /** Read-side attachment. Locals are already authoritative engine values;
  * replica deltas read just the addressed lane, not the legacy ship collection. */
 export class ShellSource implements PoolSource<ShellEntity> {
+  private readonly window = Object.defineProperties(
+    {},
+    {
+      ...Object.fromEntries(
+        ['view', 'paneA', 'selectedIssueId', 'selectedWorktree', 'superOpen'].map((key) => [
+          key,
+          { enumerable: true, get: () => Reflect.get(this.runtime.ui, key) },
+        ]),
+      ),
+      paletteOpen: { enumerable: true, get: () => this.runtime.palette.open },
+      autoContinuePromptSessionId: {
+        enumerable: true,
+        get: () => this.runtime.autoContinueDialog.sessionId,
+      },
+    },
+  ) as ShellRows['shellWindow']
+  @lazy({ equals: compareShallow }) private get fileIds(): readonly string[] {
+    return [...this.runtime.ui.fileTabs.keys()]
+  }
+  @lazy({ equals: compareShallow }) private get workspaceIds(): readonly string[] {
+    return Object.keys(this.runtime.ui.workspaces)
+  }
+  // Each question follows only its own membership. Editing a workspace must
+  // not rebuild the unchanged file list or wake its observers.
+  private readonly screenCatalog = Object.defineProperties(
+    {},
+    {
+      files: { enumerable: true, get: () => this.fileIds },
+      workspaces: { enumerable: true, get: () => this.workspaceIds },
+      lanes: { enumerable: true, get: () => this.orders.get('shellShipLane') ?? EMPTY_IDS },
+    },
+  ) as ShellRows['shellCatalog']
+
   private readonly rows = observable.map<string, object>(undefined, { deep: false })
   private readonly orders = observable.map<ShellEntity, readonly string[]>(undefined, {
     deep: false,
@@ -19,53 +54,17 @@ export class ShellSource implements PoolSource<ShellEntity> {
     readById: this.readById.bind(this),
     release: this.release.bind(this),
   })
-  private get disposed(): boolean { return this.source.disposed }
+  private get disposed(): boolean {
+    return this.source.disposed
+  }
   readonly counts = { locals: 0, laneCollections: 0, laneRows: 0 }
 
   constructor(
-    runtime: Pick<
+    private readonly runtime: Pick<
       ClientRuntime,
-      'readLocal' | 'onLocals' | 'onList' | 'listIds' | 'listRow' | 'replica'
+      'ui' | 'palette' | 'autoContinueDialog' | 'replica'
     >,
   ) {
-    // Keyed (POD-5433): the window wakes on its own locals; each list hands
-    // over only the rows that changed, by id.
-    const windowKeys = SHELL_SCHEMA.shellWindow.fields
-    const inputs = createFieldInputs<ShellRows['shellWindow']>(windowKeys, {}, 'shellWindow')
-    const window = (changed?: ReadonlySet<string>) => {
-      if (this.disposed) return
-      runInAction(() => {
-        for (const key of windowKeys)
-          if (!changed || changed.has(key)) inputs.set(key, runtime.readLocal(key))
-        this.change('shellWindow', 'window', inputs.row)
-        this.counts.locals++
-      })
-    }
-    const lists = [
-      ['shellApproval', 'approvals'],
-      ['shellFile', 'fileTabs'],
-      ['shellWorkspace', 'workspaces'],
-    ] as const
-    const list = (entity: ShellEntity, name: KeyedListName, change?: KeyedListChange) => {
-      if (this.disposed) return
-      runInAction(() => {
-        if (change === undefined)
-          this.replace(
-            entity,
-            runtime.listIds(name).map((id) => [id, runtime.listRow(name, id) as object]),
-          )
-        else {
-          for (const id of change.ids)
-            this.change(entity, id, runtime.listRow(name, id) as object | undefined)
-          const ids = runtime.listIds(name)
-          if (change.order && !compareStructural(this.orders.get(entity), ids))
-            this.orders.set(entity, [...ids])
-        }
-        this.catalog()
-      })
-    }
-    window()
-    for (const [entity, name] of lists) list(entity, name)
     const lanes = () => {
       this.counts.laneCollections++
       this.replace(
@@ -78,10 +77,6 @@ export class ShellSource implements PoolSource<ShellEntity> {
     if (!runtime.replica.row || !runtime.replica.subscribeAddressedBatch)
       throw new Error('Shell controls require the existing addressed replica')
     this.stops = [
-      runtime.onLocals(windowKeys, window),
-      ...lists.map(([entity, name]) =>
-        runtime.onList(name, (change) => list(entity, name, change)),
-      ),
       runtime.replica.subscribeAddressedBatch((batch) => {
         if (this.disposed) return
         runInAction(() => {
@@ -123,8 +118,12 @@ export class ShellSource implements PoolSource<ShellEntity> {
       if (relation.from !== entity) continue
       const value = next && Reflect.get(next, relation.key)
       const targets = typeof value === 'string' && value ? [value] : []
-      this.relations.move(`${address}:${relation.name}`, id, targets,
-        target => `${relation.to}:${target}:${relation.name}`)
+      this.relations.move(
+        `${address}:${relation.name}`,
+        id,
+        targets,
+        (target) => `${relation.to}:${target}:${relation.name}`,
+      )
     }
   }
   private replace(entity: ShellEntity, entries: readonly (readonly [string, object])[]): void {
@@ -137,7 +136,6 @@ export class ShellSource implements PoolSource<ShellEntity> {
   }
   private catalog(): void {
     this.change('shellCatalog', 'catalog', {
-      approvals: this.orders.get('shellApproval') ?? [],
       files: this.orders.get('shellFile') ?? [],
       workspaces: this.orders.get('shellWorkspace') ?? [],
       lanes: this.orders.get('shellShipLane') ?? [],
@@ -148,11 +146,20 @@ export class ShellSource implements PoolSource<ShellEntity> {
   }
 
   private readById<E extends ShellEntity>(entity: E, id: string): Loaded<ShellRows[E]> {
-    return (this.rows.get(`${entity}:${id}`) as ShellRows[E] | undefined)
+    if (entity === 'shellWindow') return this.window as ShellRows[E]
+    if (entity === 'shellFile') return this.runtime.ui.fileTabs.get(id) as ShellRows[E] | undefined
+    if (entity === 'shellWorkspace')
+      return this.runtime.ui.workspaces[id] as ShellRows[E] | undefined
+    if (entity === 'shellCatalog') return this.screenCatalog as ShellRows[E]
+    return this.rows.get(`${entity}:${id}`) as ShellRows[E] | undefined
   }
   related(entity: string, id: string, name: string): readonly string[] {
+    if (entity === 'issue' && name === 'files')
+      return [...this.runtime.ui.fileTabs.values()]
+        .filter((file) => file.issueId === id)
+        .map((file) => file.id)
     const relation = SHELL_RELATIONS.find((value) => value.from === entity && value.name === name)
-    return relation ? (this.relations.many(`${relation.to}:${id}:${name}`)) : []
+    return relation ? this.relations.many(`${relation.to}:${id}:${name}`) : []
   }
   dispose(): void {
     this.source.dispose()

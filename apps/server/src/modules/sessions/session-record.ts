@@ -3,10 +3,11 @@ import {
   AgentKind,
   type AgentRuntimeState,
   type Attribution,
-  type Geometry,
   type HarnessAgent,
   type SessionDelegation,
+  type SessionDesired,
   type SessionId,
+  type SessionLifecycleFailure,
   type SessionMeta,
   type SessionOrigin,
   type UserId,
@@ -15,7 +16,8 @@ import {
 } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { driverFamilyForId } from '../../harness-manifest'
-import type { SessionRow } from '../../store'
+import type { SessionLifecycleRow, SessionRow } from '../../store'
+import { NO_LIFECYCLE } from '../../store/types'
 import type { SessionDurableFields, SessionDurableState, SessionInit } from './session'
 
 /**
@@ -37,7 +39,7 @@ import type { SessionDurableFields, SessionDurableState, SessionInit } from './s
 
 /** The statuses of a session whose process runs or is expected back. */
 export function isRunningStatus(status: SessionDurableFields['status']): boolean {
-  return status === 'live' || status === 'starting' || status === 'reconnecting'
+  return status === 'live' || status === 'starting'
 }
 
 /** Fixed for the life of the row: who, what and how it was born. */
@@ -61,19 +63,15 @@ export interface SessionIdentity {
   readonly headless: boolean
 }
 
-/** What the wire reads off a session's terminal and bound driver. */
+/**
+ * What server code reads off a session's terminal beside its durable state: the
+ * last input time (the offer staleness rule) and whether it is busy (the
+ * session facts). Neither reaches the synced record (POD-6764): clients read
+ * them from the `session.condition` topic.
+ */
 export interface SessionLiveView {
-  readonly controllerId: string | null
-  readonly geometry: Geometry
-  readonly requestsGated: number
-  readonly epoch: number
-  readonly clientCount: number
   readonly lastInputAtMs: number
   readonly busy: boolean
-  readonly configureFields: readonly string[] | undefined
-  readonly attachKinds: readonly ('engine' | 'client')[] | undefined
-  readonly draftSyncEngine: boolean
-  readonly driverId: string | undefined
 }
 
 /**
@@ -119,7 +117,10 @@ export function identityFromInit(init: StoredSessionInit): SessionIdentity {
 export const OOM_ATTRIBUTION_WINDOW_MS = 60_000
 
 /** Was a kernel OOM kill observed close enough to `exitedAtMs` to be its cause? */
-export function oomExplainsExit(exitedAtMs: number, d: Pick<SessionDurableFields, 'oomKilledAt'>): boolean {
+export function oomExplainsExit(
+  exitedAtMs: number,
+  d: Pick<SessionDurableFields, 'oomKilledAt'>,
+): boolean {
   if (!d.oomKilledAt) return false
   const killed = Date.parse(d.oomKilledAt)
   if (!Number.isFinite(killed) || !Number.isFinite(exitedAtMs)) return false
@@ -152,6 +153,7 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     selectedDriverId: init.selectedDriverId,
     requestedDriverId: init.requestedDriverId,
     boundDriverId: init.boundDriverId,
+    boundDriverCapabilities: init.boundDriverCapabilities,
     cwd: init.cwd,
     issueId: init.issueId,
     refIssueId: init.refIssueId ?? null,
@@ -170,20 +172,30 @@ export function durableStateFromInit(init: StoredSessionInit): SessionDurableSta
     stopReason,
     oomKilledAt,
     workState: init.workState || undefined,
+    lifecycle: init.lifecycle ?? NO_LIFECYCLE,
     cmd: '',
     status,
     exitCode: init.exitCode,
     spawnFailure: init.spawnFailure,
-    agentState: undefined,
+    // The last unfenced report survives a restart; the satellites applied
+    // afterwards replace it with a causally fenced observation/runtime state.
+    agentState: init.agentState ? structuredClone(init.agentState) : undefined,
     workingMsTotal: init.workingMsTotal,
     incomingWorkingMsTotal: undefined,
-    agentColor: undefined,
-    observedModel: undefined,
-    observedEffort: undefined,
+    // Stored since POD-6764: a restart keeps what the transcript tail last
+    // showed, and a move in flight keeps its target.
+    agentColor: init.agentColor,
+    observedModel: init.observedModel,
+    observedEffort: init.observedEffort,
+    observedMode: init.observedMode,
+    launchPosture: init.launchPosture,
     requestedModel: init.requestedModel,
     requestedEffort: init.requestedEffort,
-    contextUsagePercent: undefined,
-    handoffTargetMachineId: undefined,
+    effectiveAuth: init.effectiveAuth,
+    credentialMismatch: init.credentialMismatch,
+    credentialId: init.credentialId,
+    draftSyncEngine: init.draftSyncEngine === true,
+    handoffTargetMachineId: init.handoffTargetMachineId,
     conversationPodiumId: undefined,
     draftUpdatedAt: undefined,
     offer: undefined,
@@ -197,22 +209,9 @@ export function seedMs(value: string | null | undefined): number {
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
-/** The live plane of a session nothing runs: what a freshly restored terminal
- *  and an unbound driver report. */
-export function liveViewAtRest(init: Pick<SessionInit, 'geometry' | 'lastInputAt'>): SessionLiveView {
-  return {
-    controllerId: null,
-    geometry: { ...init.geometry },
-    requestsGated: 0,
-    epoch: 0,
-    clientCount: 0,
-    lastInputAtMs: seedMs(init.lastInputAt),
-    busy: false,
-    configureFields: undefined,
-    attachKinds: undefined,
-    draftSyncEngine: false,
-    driverId: undefined,
-  }
+/** The live plane of a session nothing runs: its stored last input time, not busy. */
+export function liveViewAtRest(init: Pick<SessionInit, 'lastInputAt'>): SessionLiveView {
+  return { lastInputAtMs: seedMs(init.lastInputAt), busy: false }
 }
 
 /** A restored record: identity, durable state and the live plane at rest. */
@@ -236,10 +235,11 @@ export function parseWorkState(raw: string | null): WorkState | undefined {
  * restore and a durable record share. `undefined` for a row whose agent kind
  * is not one this build knows (the caller logs it).
  *
- * A boot restore reads a row that was live or starting as `reconnecting`: its
- * process may have survived the restart, and a daemon rebind decides. A
- * headless row keeps its status (no terminal to reconnect). An issue restore
- * brings a tombstone back as `exited`: deletion killed its runtime.
+ * A boot restore keeps a live or starting row's status and marks it
+ * `awaitingRebind`: its process may have survived the restart, and a daemon
+ * rebind decides. A headless row is not marked (no terminal to reconnect). An
+ * issue restore brings a tombstone back as `exited`: deletion killed its
+ * runtime.
  */
 export function storedSessionInit(
   r: SessionRow,
@@ -248,17 +248,11 @@ export function storedSessionInit(
 ): StoredSessionInit | undefined {
   const kind = AgentKind.safeParse(r.agentKind)
   if (!kind.success) return undefined
-  const reloadStatus =
-    mode === 'restore'
-      ? 'exited'
-      : r.headless
-        ? r.status
-        : r.status === 'live' || r.status === 'starting'
-          ? 'reconnecting'
-          : r.status
+  const reloadStatus = mode === 'restore' ? 'exited' : r.status
+  const awaitingRebind =
+    mode === 'boot' && !r.headless && (r.status === 'live' || r.status === 'starting')
   const exitCode = mode === 'restore' || r.status !== 'exited' ? null : r.exitCode
   return {
-
     sessionId: r.id,
     ownerUserId: r.ownerUserId ?? ownerFallback,
     agentKind: kind.data,
@@ -281,12 +275,14 @@ export function storedSessionInit(
     lastInputAt: r.lastInputAt,
     lastResumedAt: r.lastResumedAt,
     status: reloadStatus,
+    ...(awaitingRebind ? { awaitingRebind: true } : {}),
     exitCode: exitCode ?? undefined,
     ...(exitCode === -1 && r.spawnFailure ? { spawnFailure: r.spawnFailure } : {}),
     ...(r.name ? { name: r.name } : {}),
     // Survives a restart — otherwise a reboot would forget that the USER named this
     // session and the next agent title would sail straight through (#490).
     ...(r.name && r.nameSource ? { nameSource: r.nameSource } : {}),
+    ...(r.agentState ? { agentState: r.agentState } : {}),
     ...(r.model ? { model: r.model } : {}),
     ...(r.effort ? { effort: r.effort } : {}),
     /**
@@ -303,6 +299,9 @@ export function storedSessionInit(
     ...(r.requestedModel ? { requestedModel: r.requestedModel } : {}),
     ...(r.requestedEffort ? { requestedEffort: r.requestedEffort } : {}),
     ...(r.accountId ? { accountId: r.accountId } : {}),
+    ...(r.credentialId ? { credentialId: r.credentialId } : {}),
+    ...(r.effectiveAuth ? { effectiveAuth: r.effectiveAuth } : {}),
+    ...(r.credentialMismatch ? { credentialMismatch: r.credentialMismatch } : {}),
     ...(r.loginHarness ? { loginHarness: r.loginHarness } : {}),
     ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
     // The pair survives a restart. Absent on the row = none was ever recorded
@@ -321,16 +320,15 @@ export function storedSessionInit(
     archived: r.archived,
     stoppedAt: r.stoppedAt ?? null,
     stopReason: r.stopReason ?? null,
-    ...(parseWorkState(r.workState)
-      ? { workState: parseWorkState(r.workState) }
-      : {}),
+    ...(r.lifecycle ? { lifecycle: r.lifecycle } : {}),
+    ...(parseWorkState(r.workState) ? { workState: parseWorkState(r.workState) } : {}),
     ...(r.resumeKind && r.resumeValue
       ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
       : {}),
     /**
-     * THE FIX THIS COLUMN EXISTS FOR (POD-2290 round 2). `reloadStatus` above
-     * turns a persisted live/starting row into `reconnecting`, and a
-     * reconnecting row with no driver family is exactly where the panel falls
+     * THE FIX THIS COLUMN EXISTS FOR (POD-2290 round 2). A boot restore holds a
+     * persisted live/starting row with no daemon bound until one rebinds, and
+     * such a row with no driver family is exactly where the panel falls
      * back to "assume a terminal" — the original bug's screen, driven live by
      * the reviewer with the daemon held down. `driverId` is deliberately NOT
      * restored beside it: that one names a live handle, and this row has none
@@ -339,6 +337,17 @@ export function storedSessionInit(
     ...(r.selectedDriverId ? { selectedDriverId: r.selectedDriverId } : {}),
     ...(r.requestedDriverId ? { requestedDriverId: r.requestedDriverId } : {}),
     ...(r.boundDriverId ? { boundDriverId: r.boundDriverId } : {}),
+    ...(r.boundDriverCapabilities ? { boundDriverCapabilities: r.boundDriverCapabilities } : {}),
+    // What a daemon last reported and the transcript tail last showed (POD-6764).
+    // They describe the session until it starts again, when a bind and the
+    // tail's seed window state them afresh.
+    ...(r.draftSyncEngine ? { draftSyncEngine: true } : {}),
+    ...(r.agentColor ? { agentColor: r.agentColor } : {}),
+    ...(r.observedModel ? { observedModel: r.observedModel } : {}),
+    ...(r.observedEffort ? { observedEffort: r.observedEffort } : {}),
+    ...(r.observedMode ? { observedMode: r.observedMode } : {}),
+    ...(r.launchPosture ? { launchPosture: r.launchPosture } : {}),
+    ...(r.handoffTargetMachineId ? { handoffTargetMachineId: r.handoffTargetMachineId } : {}),
     // Passed through, never defaulted: a row from before this column exists
     // makes no claim about whether its launch ever had a conversation, and
     // inventing `'never'` for it would authorize discarding one.
@@ -347,7 +356,9 @@ export function storedSessionInit(
 }
 
 /** Has this launch PROVABLY never had a native conversation (POD-2392)? */
-export function isNeverBound(d: Pick<SessionDurableFields, 'conversationBinding' | 'resume'>): boolean {
+export function isNeverBound(
+  d: Pick<SessionDurableFields, 'conversationBinding' | 'resume'>,
+): boolean {
   return d.conversationBinding === 'never' && d.resume === undefined
 }
 
@@ -384,25 +395,38 @@ export function applyRuntimeTurnStateTo(d: SessionDurableFields, state: AgentRun
   d.incomingWorkingMsTotal = undefined
 }
 
-/** THE wire projection of a session's shared facts (S6): identity, durable
- *  state (the live object's or a draft's) and the live plane. */
-export function projectSessionMeta(
-  s: SessionIdentity,
-  d: SessionDurableFields,
-  live: SessionLiveView,
-): SessionMeta {
+/**
+ * THE wire projection of a session's shared facts (S6): identity and durable
+ * state (the live object's or a draft's).
+ *
+ * EVERY INPUT IS STORED (POD-6764). Nothing here reads a terminal or a bound
+ * driver handle, so a record read from the database and a session running in
+ * this process project the same value, and the record can be built by any
+ * process by id. What only a running process knows (who controls the terminal
+ * and at what size, busy, gated requests, last input time, context use, how
+ * many clients watch) is not a record field: clients read it from the
+ * `session.terminalState` and `session.condition` topics and the presence room.
+ */
+export function projectSessionMeta(s: SessionIdentity, d: SessionDurableFields): SessionMeta {
   // BOUND WINS OVER SELECTED, and both beat nothing (POD-2290). The selection
   // is what the daemon decided before it started the harness; the binding is
   // what it ended up with. They agree on every path that works, and where
   // they can differ — a launch that failed and fell back — the one that
   // describes a running session has to win.
-  const driverFamily = driverFamilyForId(live.driverId ?? d.selectedDriverId ?? '')
+  // The binding is the STORED one: what a daemon last bound, written with the
+  // bind. A server restart does not change the daemon's binding, and the live
+  // handle (`Session.driverId`) stays server-side routing state.
+  const driverId = d.boundDriverId
+  const configureFields = d.boundDriverCapabilities?.configureFields
+  const attachKinds = d.boundDriverCapabilities?.attachKinds
+  const driverFamily = driverFamilyForId(driverId ?? d.selectedDriverId ?? '')
   return {
     sessionId: s.sessionId,
     agentKind: s.agentKind,
     ...(s.model ? { model: s.model } : {}),
     ...(s.effort ? { effort: s.effort } : {}),
     ...(s.accountId ? { accountId: s.accountId } : {}),
+    ...(d.credentialId ? { credentialId: d.credentialId } : {}),
     title: d.title,
     ...(d.name ? { name: d.name } : {}),
     ...(d.name && d.nameSource ? { nameSource: d.nameSource } : {}),
@@ -411,50 +435,40 @@ export function projectSessionMeta(
     ...(d.exitCode !== undefined ? { exitCode: d.exitCode } : {}),
     ...(d.spawnFailure ? { spawnFailure: d.spawnFailure } : {}),
     ...(d.agentState ? { agentState: d.agentState } : {}),
-    controllerId: live.controllerId,
-    geometry: { ...live.geometry },
-    // Only when there is something to report (POD-3239 B6).
-    ...(live.requestsGated > 0 ? { requestsGated: live.requestsGated } : {}),
-    epoch: live.epoch,
-    clientCount: live.clientCount,
     createdAt: s.createdAt,
     lastActiveAt: d.lastActiveAt,
-    // Last human (controller) input — the offer-artifact freshness fallback
-    // [POD-120] compares issue-artifact addedAt against this on the client.
-    ...(live.lastInputAtMs > 0
-      ? { lastInputAt: new Date(live.lastInputAtMs).toISOString() }
-      : {}),
     origin: s.origin,
     archived: d.archived,
     ...(d.stoppedAt ? { stoppedAt: d.stoppedAt } : {}),
     ...(d.stopReason ? { stopReason: d.stopReason } : {}),
     machineId: d.machineId,
     ...(d.workState ? { workState: d.workState } : {}),
+    ...lifecycleWire(d.lifecycle),
     ...(d.resume ? { resumable: true, resume: d.resume } : {}),
     // ONLY when proven. A recovery surface reads this to offer starting the
     // agent again instead of removing the row, so its absence has to stay the
     // safe answer for every session whose history we cannot vouch for.
     ...(isNeverBound(d) ? { neverBound: true as const } : {}),
     ...(d.transcriptAvailable ? { transcriptAvailable: true } : {}),
-    ...(live.busy ? { busy: true } : {}),
     ...(d.agentColor ? { agentColor: d.agentColor } : {}),
     ...(d.observedModel ? { observedModel: d.observedModel } : {}),
     ...(d.observedEffort ? { observedEffort: d.observedEffort } : {}),
+    ...(d.observedMode ? { observedMode: d.observedMode } : {}),
+    ...(d.launchPosture ? { launchPosture: structuredClone(d.launchPosture) } : {}),
     ...(d.requestedModel ? { requestedModel: d.requestedModel } : {}),
     ...(d.requestedEffort ? { requestedEffort: d.requestedEffort } : {}),
+    ...(d.effectiveAuth ? { effectiveAuth: d.effectiveAuth } : {}),
+    ...(d.credentialMismatch ? { credentialMismatch: d.credentialMismatch } : {}),
     // POD-3087. Published even when EMPTY, because empty is an answer — "this
     // driver changes nothing" — and a client that could not tell it from
     // "nobody told me" would hide the control on both.
-    ...(live.configureFields ? { configureFields: [...live.configureFields] } : {}),
-    ...(live.attachKinds ? { attachKinds: [...live.attachKinds] } : {}),
-    ...(d.contextUsagePercent !== undefined
-      ? { contextUsagePercent: d.contextUsagePercent }
-      : {}),
+    ...(configureFields ? { configureFields: [...configureFields] } : {}),
+    ...(attachKinds ? { attachKinds: [...attachKinds] } : {}),
     ...(d.draftUpdatedAt !== undefined ? { draftUpdatedAt: d.draftUpdatedAt } : {}),
-    ...(live.draftSyncEngine ? { draftSyncEngine: true } : {}),
+    ...(d.draftSyncEngine ? { draftSyncEngine: true } : {}),
     ...(d.offer !== undefined ? { offer: d.offer } : {}), // [spec:SP-c7f1]
     ...(d.handoffTargetMachineId ? { handoffTargetMachineId: d.handoffTargetMachineId } : {}),
-    ...(live.driverId ? { driverId: live.driverId } : {}),
+    ...(driverId ? { driverId } : {}),
     ...(d.requestedDriverId ? { requestedDriverId: d.requestedDriverId } : {}),
     // The bound driver's FAMILY, so a client can pick a surface without
     // learning driver ids (POD-2290). Resolved through the manifests — the
@@ -486,5 +500,26 @@ export function projectSessionMeta(
     ...(s.workflowRunId ? { workflowRunId: s.workflowRunId } : {}),
     ...(s.workflowStepId ? { workflowStepId: s.workflowStepId } : {}),
     ...(s.agentProfileId ? { agentProfileId: s.agentProfileId } : {}),
+  }
+}
+
+/**
+ * The lifecycle on the wire (POD-6356): each key only when it says something,
+ * so a session nobody has edited projects exactly as before. An absent
+ * `revision` or `observedRevision` reads as 1.
+ */
+export function lifecycleWire(l: SessionLifecycleRow): {
+  desired?: SessionDesired
+  force?: boolean
+  revision?: number
+  observedRevision?: number
+  lifecycleFailure?: SessionLifecycleFailure
+} {
+  return {
+    ...(l.desired ? { desired: l.desired } : {}),
+    ...(l.desired && l.force ? { force: true } : {}),
+    ...(l.revision !== 1 ? { revision: l.revision } : {}),
+    ...(l.observedRevision !== 1 ? { observedRevision: l.observedRevision } : {}),
+    ...(l.failure ? { lifecycleFailure: l.failure } : {}),
   }
 }

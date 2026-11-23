@@ -2,7 +2,7 @@ import { attentionGroup } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { type IssueCloseMemberCounts, isSessionWorking } from '@podium/client-core/values'
 import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
-import { createKeyedAnswer, createKeyedAnswerBuilder, type KeyedAnswer } from '../query-result'
+import { createBucketWriter, createKeyedAnswer, createKeyedAnswerBuilder, type KeyedAnswer } from '../query-result'
 import type { SessionActivityQuestion } from './session-activity'
 import { sessionReferenceKey } from './session-reference'
 
@@ -53,6 +53,7 @@ interface Seed {
   closeMembers: KeyedAnswer<CloseMember>
   closeCounts: KeyedAnswer<IssueCloseMemberCounts>
   references: KeyedAnswer<Bucket<ReferenceSession>>
+  workspaceMembers: KeyedAnswer<Bucket<ReferenceSession>>
   setupAgents: KeyedAnswer<SetupAgent>
   setupMembers: KeyedAnswer<boolean>
   setupCount: number
@@ -86,6 +87,8 @@ export interface SessionQuestions {
   issueCloseCounts(issueId: string): IssueCloseMemberCounts
   referenceId(ref: string): string | undefined
   hasWithin(path: string): boolean
+  /** One unarchived, non-headless workspace fallback, preferring the shown tab. */
+  firstWithin(path: string, preferred?: string | null): string | undefined
   present(id: string): boolean
   setupAgent(): string | undefined
   setupCount(): number
@@ -138,6 +141,7 @@ export function createSessionQuestions(
   let closeMembers = seed?.closeMembers.fork() ?? createKeyedAnswer<CloseMember>()
   let closeCounts = seed?.closeCounts.fork() ?? createKeyedAnswer<IssueCloseMemberCounts>()
   let references = seed?.references.fork() ?? createKeyedAnswer<Bucket<ReferenceSession>>()
+  let workspaceMembers = seed?.workspaceMembers.fork() ?? createKeyedAnswer<Bucket<ReferenceSession>>()
   let setupAgents = seed?.setupAgents.fork() ?? createKeyedAnswer<SetupAgent>(compareSetupAgent)
   let setupMembers = seed?.setupMembers.fork() ?? createKeyedAnswer<boolean>()
   let setupCount = seed?.setupCount ?? 0
@@ -145,6 +149,7 @@ export function createSessionQuestions(
   let visits = 0, activityVisits = 0, activityPathsBuilt = 0
   const updates = { close: 0, setupCount: 0, setupAgent: 0, reference: 0, triage: 0, recent: 0, machine: 0, activity: 0 }
   let building = false
+  const buckets = createBucketWriter()
   let builders: (() => unknown)[] = []
   function newAnswer<T>(compare?: (a: T, b: T) => number, point?: (value: T) => number): KeyedAnswer<T> {
     if (!building) return createKeyedAnswer(compare, point)
@@ -202,11 +207,14 @@ export function createSessionQuestions(
     const before = collection.get(key), previous = before?.answer.get(id)
     if (previous && next && compare(previous, next) === 0) return
     if (previous === next) return
-    const answer = (building ? before?.answer : before?.answer.fork()) ?? newAnswer<T>(compare)
+    const answer = building
+      ? (before?.answer ?? newAnswer<T>(compare))
+      : buckets.writable(before?.answer, () => newAnswer<T>(compare))
     if (next) answer.set(id, '', next)
     else answer.delete(id)
-    if (next || answer.first()) collection.set(key, key, { id: key, answer })
-    else collection.delete(key)
+    if (next || answer.first()) {
+      if (answer !== before?.answer) collection.set(key, key, { id: key, answer })
+    } else collection.delete(key)
     touch(key)
   }
   /** Each declared answer reads only these scalar inputs. Presence and source
@@ -215,6 +223,17 @@ export function createSessionQuestions(
     const presence = !before || !value
     const membership = presence || visibilityChanged
     const visible = value !== undefined && !collapsed(id)
+    if (membership || before.cwd !== value.cwd || before.order !== value.order ||
+        before.archived !== value.archived || before.headless !== value.headless) {
+      const previousPaths = before ? machinePathAncestors(before.cwd).map(path => `workspace:within:${machinePathKey(path)}`) : []
+      const nextPaths = value ? machinePathAncestors(value.cwd).map(path => `workspace:within:${machinePathKey(path)}`) : []
+      const nextKeys = new Set(nextPaths)
+      for (const key of previousPaths) if (!nextKeys.has(key))
+        bucket(workspaceMembers, key, id, undefined, compareReference)
+      for (const key of nextPaths)
+        bucket(workspaceMembers, key, id, visible && value && !value.archived && !value.headless
+          ? { id, order: value.order } : undefined, compareReference)
+    }
     if (membership || before.issueId !== value.issueId ||
       before.closeOffers !== value.closeOffers || before.closeWorking !== value.closeWorking)
       fileClose(id, value)
@@ -297,6 +316,11 @@ export function createSessionQuestions(
   const api: SessionQuestions = {
     updates,
     hasWithin: path => activities.get(`activity:within:${machinePathKey(path)}`)?.answer.first() !== undefined,
+    firstWithin(path, preferred) {
+      visits++
+      const answer = workspaceMembers.get(`workspace:within:${machinePathKey(path)}`)?.answer
+      return preferred && answer?.has(preferred) ? preferred : answer?.first()?.id
+    },
     present(id) {
       return setupMembers.has(id)
     },
@@ -306,9 +330,12 @@ export function createSessionQuestions(
     get visits() { return visits },
     get activityVisits() { return activityVisits },
     get activityPathsBuilt() { return activityPathsBuilt },
-    fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,
-      { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references,
-        setupAgents, setupMembers, setupCount, version, replacement }, setupOrder),
+    fork: (isCollapsed, orderKey) => {
+      buckets.share()
+      return createSessionQuestions(isCollapsed, orderKey,
+      { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references, workspaceMembers,
+        setupAgents, setupMembers, setupCount, version, replacement }, setupOrder)
+    },
     clear() {
       facts = newAnswer<FiledSessionFacts>()
       triage = newAnswer<TriageSession>(compareTriageSessions)
@@ -321,6 +348,7 @@ export function createSessionQuestions(
       closeMembers = newAnswer<CloseMember>()
       closeCounts = newAnswer<IssueCloseMemberCounts>()
       references = newAnswer<Bucket<ReferenceSession>>()
+      workspaceMembers = newAnswer<Bucket<ReferenceSession>>()
       setupAgents = newAnswer<SetupAgent>(compareSetupAgent)
       setupMembers = newAnswer<boolean>()
       setupCount = 0
@@ -339,10 +367,11 @@ export function createSessionQuestions(
         for (const bucket of machines.snapshot()) bucket.answer = bucket.answer.fork()
         for (const bucket of activities.snapshot()) bucket.answer = bucket.answer.fork()
         for (const bucket of references.snapshot()) bucket.answer = bucket.answer.fork()
+        for (const bucket of workspaceMembers.snapshot()) bucket.answer = bucket.answer.fork()
         facts = facts.fork(); triage = triage.fork(); recent = recent.fork()
         machines = machines.fork(); activities = activities.fork(); revisions = revisions.fork()
         future = future.fork(); expired = expired.fork()
-        closeMembers = closeMembers.fork(); closeCounts = closeCounts.fork(); references = references.fork()
+        closeMembers = closeMembers.fork(); closeCounts = closeCounts.fork(); references = references.fork(); workspaceMembers = workspaceMembers.fork()
         setupAgents = setupAgents.fork(); setupMembers = setupMembers.fork()
       }
     },

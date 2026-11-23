@@ -5,6 +5,7 @@ import { asMachineId } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Profiler, useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { FOLDER_TRUST_NOTICE } from './folder-trust-notice'
 import { GitHubProjectIntake } from './GitHubProjectIntake'
 
 const values = new Map<string, string>()
@@ -66,13 +67,20 @@ function publishUnchangedSelection(): void {
   for (const listener of storeListeners) listener()
 }
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ get access() { return storeSnapshot } }),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => ({
+      get access() {
+        return storeSnapshot
+      },
+    })),
+  }
+})
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: useTestStoreSelector,
+  readFixture: useTestStoreSelector,
 }))
 
 const machine = {
@@ -116,6 +124,18 @@ describe('GitHub project intake', () => {
 
     expect(updates).toBe(updatesBeforePublication)
     expect(githubList).toHaveBeenCalledTimes(1)
+  })
+
+  it('says under the clone destination that the added folder is trusted', async () => {
+    githubList.mockResolvedValue({ status: { state: 'ready', login: 'octocat' }, repositories: [] })
+    render(<GitHubProjectIntake machine={machine} homePath="/Users/me" onClone={vi.fn()} />)
+    expect(await screen.findByText('Signed in as octocat')).toBeTruthy()
+    expect(
+      screen.getByRole('textbox', {
+        name: 'Clone destination on Laptop',
+        description: FOLDER_TRUST_NOTICE,
+      }),
+    ).toBeTruthy()
   })
 
   it('keeps missing-CLI controls focusable and offers install plus check-again recovery', async () => {

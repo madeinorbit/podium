@@ -40,10 +40,12 @@ import { SessionDelegation } from '../identity/delegation'
  */
 
 import { z } from 'zod'
+import { CredentialMismatch, EffectiveAuth } from '../credentials/effective-auth'
 import { Attribution } from '../fields/attribution'
 import {
   AccountIdField,
   ConversationIdField,
+  CredentialIdField,
   IssueIdField,
   MachineIdField,
   RepoIdField,
@@ -81,8 +83,39 @@ export type GeometryState = z.infer<typeof GeometryState>
 export const ResumeRef = z.object({ kind: z.string(), value: z.string() })
 export type ResumeRef = z.infer<typeof ResumeRef>
 
-export const SessionStatus = z.enum(['starting', 'live', 'reconnecting', 'hibernated', 'exited'])
+/**
+ * What the daemon last observed of the session's process. `reconnecting` is not
+ * one of them (ADR 12 D1, POD-6646): a dropped daemon link is a condition of the
+ * machine, derived on each reader by `isSessionReconnecting`.
+ */
+export const SessionStatus = z.enum(['starting', 'live', 'hibernated', 'exited'])
 export type SessionStatus = z.infer<typeof SessionStatus>
+
+/**
+ * WHAT A SESSION SHOULD BE: the spec half of its lifecycle (ADR 12 D5 E1,
+ * POD-6356). People and agents write it; `status` is what the daemon observes.
+ * The server's lifecycle controller acts until they agree.
+ *
+ *  - `running`: the agent process runs (resume or resurrect it).
+ *  - `hibernated`: parked; process gone, row, transcript and worktree kept.
+ *  - `stopped`: a clean end; process gone and the worktree freed, branch kept.
+ *
+ * Absent on a row means no intent was ever recorded (a session from before
+ * this field, or one nobody has edited since): `status` alone describes it.
+ */
+export const SessionDesired = z.enum(['running', 'hibernated', 'stopped'])
+export type SessionDesired = z.infer<typeof SessionDesired>
+
+/**
+ * The controller's definitive refusal of the action for one revision: a dirty
+ * worktree stopped without `force`, no resume ref to wake from, a machine the
+ * session may no longer use. Cleared by the next edit of the desired state.
+ */
+export const SessionLifecycleFailure = z.object({
+  revision: z.number().int().positive(),
+  reason: z.string(),
+})
+export type SessionLifecycleFailure = z.infer<typeof SessionLifecycleFailure>
 
 /** A known harness condition that should be visible on the started session. */
 export const SessionCondition = z.enum(['logged-out'])
@@ -295,8 +328,88 @@ export const AgentRuntimeState = z.object({
   stateSource: z.enum(['hook', 'poll', 'classifier']).optional(),
   stateConfidence: z.number().min(0).max(1).optional(),
   stateObservedAt: z.string().optional(),
+  /**
+   * THE TURN MARKER (POD-6397, ADR 12 D5 E2): which turn this state belongs
+   * to, so a client can NAME the turn it asks to interrupt. It is the time the
+   * turn opened (the `since` of the first state of the turn, from the daemon's
+   * report) and stays after the turn ends, until the next one opens. The server
+   * stamps it ({@link withTurnMarker}); the daemon never sends it. Absent on
+   * rows from before it, and on states no turn ever opened in.
+   */
+  turnStartedAt: z.string().optional(),
 })
 export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
+
+/** The effect kind of a Stop that names its turn (POD-6397). */
+export const SESSION_INTERRUPT_KIND = 'session.interrupt'
+
+/**
+ * IS A TURN OPEN in this state (POD-6397)? Working, waiting on the user inside
+ * a turn (a permission prompt, a question), or compacting in the middle of one.
+ * `unknown` is not an answer either way and reads as open, so a lost channel
+ * never ends a turn nobody saw end.
+ */
+export function isTurnOpen(state: AgentRuntimeState | null | undefined): boolean {
+  if (!state) return false
+  switch (state.phase) {
+    case 'working':
+    case 'needs_user':
+    case 'unknown':
+      return true
+    case 'compacting':
+      return (
+        state.compactingFrom === undefined ||
+        state.compactingFrom.phase === 'working' ||
+        state.compactingFrom.phase === 'needs_user'
+      )
+    case 'idle':
+    case 'errored':
+    case 'ended':
+      return false
+  }
+}
+
+/**
+ * A turn starts on the edge from no open turn into working or a wait. From
+ * `unknown` it starts only when no turn was ever seen (a fresh session): after
+ * a lost channel nobody can say whether a new turn began, so the marker stays.
+ */
+function opensTurn(prev: AgentRuntimeState | undefined, next: AgentRuntimeState): boolean {
+  if (next.phase === 'unknown' || !isTurnOpen(next)) return false
+  if (prev === undefined || !isTurnOpen(prev)) return true
+  return prev.phase === 'unknown' && prev.turnStartedAt === undefined
+}
+
+/**
+ * STAMP THE TURN MARKER on a state the daemon reported (POD-6397). A state
+ * that opens a turn gets its own `since`; every other state keeps the marker of
+ * the turn before it, so "turn T, now idle" stays nameable. Returns `next`
+ * itself when the marker is already right.
+ */
+export function withTurnMarker(
+  prev: AgentRuntimeState | undefined,
+  next: AgentRuntimeState,
+): AgentRuntimeState {
+  const marker = opensTurn(prev, next) ? next.since : prev?.turnStartedAt
+  if (marker === next.turnStartedAt) return next
+  if (marker === undefined) {
+    const { turnStartedAt: _dropped, ...rest } = next
+    return rest
+  }
+  return { ...next, turnStartedAt: marker }
+}
+
+/**
+ * HAS THE NAMED TURN ENDED (POD-6397)? Yes when a later turn has opened since,
+ * or when no turn is open now. `turn` absent names whatever turn runs now.
+ */
+export function hasTurnEnded(
+  state: AgentRuntimeState | null | undefined,
+  turn: string | undefined,
+): boolean {
+  if (!isTurnOpen(state)) return true
+  return turn !== undefined && state?.turnStartedAt !== undefined && state.turnStartedAt !== turn
+}
 
 /**
  * IS A LIVE NATIVE MENU ON SCREEN, right now, for this session?
@@ -367,6 +480,36 @@ export const SessionOffer = z.object({
 export type SessionOffer = z.infer<typeof SessionOffer>
 
 /**
+ * WHAT "SET UP RIGHT" MEANS, BY NAME (POD-6858, harness-session-posture.md §3).
+ * The one list: the harness contract, the wire and the session row read it.
+ */
+export const POSTURE_REQUIREMENTS = [
+  'workspace-trust',
+  'podium-cli',
+  'autonomy',
+  'quiet-start',
+  'podium-material',
+] as const
+export const PostureRequirementSchema = z.enum(POSTURE_REQUIREMENTS)
+
+/**
+ * WHAT A LAUNCH COULD NOT MEET, AS THE DAEMON REPORTED IT (POD-6858 Task 11,
+ * §4.6 and §5). Decided before the process started, from the adapter's
+ * posture section and the home edits the daemon made; nothing here was read
+ * off a screen.
+ *
+ * - `requestedMode`: the harness mode Podium asked for. Not proof of the mode
+ *   in force; `null` where the harness takes no mode at launch.
+ * - `unmet`: one entry per requirement this launch cannot meet, with the
+ *   reason in words.
+ */
+export const LaunchPostureReport = z.object({
+  requestedMode: z.string().nullable(),
+  unmet: z.array(z.object({ requirement: PostureRequirementSchema, reason: z.string() })),
+})
+export type LaunchPostureReport = z.infer<typeof LaunchPostureReport>
+
+/**
  * The session entity — PROVENANCE-FREE (POD-304 / ADR 4 D3.8). `viaHub` and
  * `upstreamStale` are not fields of a session: they describe how a row reached
  * a replica, and they live on the envelope. See `SessionMeta` below for the
@@ -381,7 +524,15 @@ export const SessionMetaEntity = z.object({
   /** Resolved launch configuration captured at spawn [spec:SP-dae6]. */
   model: z.string().optional(),
   effort: z.string().optional(),
+  // LEGACY(remove-after: 2027-02): reads account ids written before credentials existed; removing it stops old spellings from resolving
   accountId: AccountIdField.optional(),
+  /** The credential the session runs on (credential management §4); absent: none. */
+  credentialId: CredentialIdField.optional(),
+  /** What the harness reported it authenticated with after its last start
+   *  (credential management §9 "Launching"); absent until it reports. */
+  effectiveAuth: EffectiveAuth.optional(),
+  /** The harness answered on another identity than `credentialId` names. */
+  credentialMismatch: CredentialMismatch.optional(),
   /** The agent profile this session started from (POD-6107). */
   agentProfileId: z.string().optional(),
   /** WHO set `name` (#490): 'user' = a human named it, and no agent may overwrite it;
@@ -392,41 +543,42 @@ export const SessionMetaEntity = z.object({
   exitCode: z.number().int().optional(), // present only when status === 'exited'
   /** Daemon diagnosis for exitCode=-1 (spawn never started). */
   spawnFailure: z.string().optional(),
-  /** NOT a `SessionId` — it holds a WEBSOCKET CLIENT id
-   *  (`apps/server/src/modules/sessions/session.ts`: `if (this.controllerId ===
-   *  null) this.controllerId = client.id`). Branding it `SessionId` because the
-   *  field sits on `SessionMeta` and is "actor-shaped" would have been a
-   *  well-typed lie. Its brand is ADR 9's `DeviceId` family (a device/connection,
-   *  not a person and not a session), which POD-1075 owns. */
-  controllerId: z.string().nullable(),
-  geometry: Geometry,
+  // NOT HERE (POD-6764): who controls the terminal and its size, how many
+  // clients watch, whether it is busy, its gated requests, last input time and
+  // context use. A saved copy of any of them would be wrong tomorrow, so they
+  // are live readings, never record fields: `session.terminalState` and
+  // `session.condition` (`@podium/protocol` topics) and the presence room.
   /** Never sent since POD-4771: whether the pty exists is `status` (`live`).
    *  Optional so an older server's row still parses. */
   geometryState: GeometryState.optional(),
-  /**
-   * HOW MANY VIEWPORT STATEMENTS THIS SESSION DID NOT FORWARD because their
-   * sender was not the visible native controller (POD-3239 B6). Omitted when
-   * zero. A pane stuck at a stale grid is told apart from one that never asked.
-   */
-  requestsGated: z.number().int().nonnegative().optional(),
   /** Never sent since POD-4771 (no seq watermark). Optional for older servers. */
   requestsDuplicate: z.number().int().nonnegative().optional(),
   /** Never sent since POD-4771 (no report watchdog). Optional for older servers. */
   requestsUnanswered: z.number().int().nonnegative().optional(),
-  epoch: z.number().int().nonnegative(),
-  clientCount: z.number().int().nonnegative(),
   createdAt: z.string(), // ISO 8601
   lastActiveAt: z.string(), // ISO 8601 — recency signal for the home board
-  /** ISO 8601 time of the last human (controller) input into this session, when
-   *  one has happened. The offer-artifact freshness fallback [POD-120] compares
-   *  issue-artifact addedAt against this to show "new since you last typed". */
-  lastInputAt: z.string().optional(),
   origin: SessionOrigin,
   agentState: AgentRuntimeState.optional(),
   archived: z.boolean(),
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt: z.string().optional(),
   stopReason: z.enum(['self', 'parent', 'forced', 'exited', 'oom']).optional(),
+  /**
+   * THE LIFECYCLE AS DESIRED STATE (ADR 12 D5 E1, POD-6356).
+   *
+   * `desired` and `force` are spec (written by people and agents through
+   * `records.session.edit`); `force` qualifies a `stopped` edit: discard unsaved
+   * work in the worktree. `revision` is the SPEC revision (Kubernetes'
+   * `generation`): only spec edits move it, never a daemon report, so an edit is
+   * stale only against another edit. `observedRevision` is the controller's
+   * acknowledgement; the session is still changing while `revision` is ahead of
+   * it. Both are 1 when absent.
+   */
+  desired: SessionDesired.optional(),
+  force: z.boolean().optional(),
+  revision: z.number().int().positive().optional(),
+  observedRevision: z.number().int().positive().optional(),
+  lifecycleFailure: SessionLifecycleFailure.optional(),
   workState: WorkState.optional(),
   /** True when a resume ref is known — hibernate→resume is possible. */
   resumable: z.boolean().optional(),
@@ -456,10 +608,6 @@ export const SessionMetaEntity = z.object({
    *  absent on old peers, shell sessions, and unknown harnesses. */
   harnessHandoff: z.boolean().optional(),
   harnessPromptModeHints: z.boolean().optional(),
-  /** True while the session is actively writing to its PTY (debounced). The
-   *  activity signal for uninstrumented kinds with no agentState — a shell reads
-   *  as "working" only while a process is producing output, idle at its prompt. */
-  busy: z.boolean().optional(),
   /** The agent's self-chosen identity colour (Claude's `/color`): a named colour
    *  — red|blue|green|yellow|purple|orange|pink|cyan — used to tell agents apart,
    *  shown as the tab/sidebar accent line. Absent / 'default' = no colour. This is
@@ -473,6 +621,15 @@ export const SessionMetaEntity = z.object({
   /** The reasoning-effort tier OBSERVED on assistant turns (transcript top-level
    *  `effort`) — the observed counterpart of the spawn-time `effort` request. */
   observedEffort: z.string().optional(),
+  /** The permission mode the HARNESS reports it is in (POD-6858 Task 11), e.g.
+   *  Claude Code's `permission-mode` transcript record. Absent until the
+   *  harness reports one; the chip then falls back to
+   *  `launchPosture.requestedMode`. */
+  observedMode: z.string().optional(),
+  /** What this session's last launch asked for and could not meet, as the
+   *  daemon reported it before the process started (POD-6858 Task 11). One
+   *  notice per `unmet` entry. Replaced by the next launch's report. */
+  launchPosture: LaunchPostureReport.optional(),
   /** The model/effort this session was last ASKED for at RUNTIME, through
    *  `sessions.configure` (POD-3081). Absent until someone changes it, and then
    *  `model`/`effort` above still record how the session was LAUNCHED — three
@@ -480,9 +637,6 @@ export const SessionMetaEntity = z.object({
    *  answering as. See `SessionLiveOverlay` for why none of them is a column. */
   requestedModel: z.string().optional(),
   requestedEffort: z.string().optional(),
-  /** Latest exact harness-reported context-window usage. Absent when the
-   * harness transcript does not expose both used tokens and window capacity. */
-  contextUsagePercent: z.number().finite().min(0).max(100).optional(),
   /** The machine this session runs on; the client joins its replicated row. */
   machineId: MachineIdField.optional(),
   /** Last-edit time (ISO 8601) of a non-empty unsent composer draft, when one

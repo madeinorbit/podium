@@ -16,6 +16,8 @@ export type {
   ScreenMenuSection,
 } from './screen-actions'
 
+import { ScreenRefreshMark } from './ScreenRefreshMark'
+
 /**
  * Screen scaffold on the flat Dark Ink canvas (`color.bg`, #16171a).
  *
@@ -40,6 +42,7 @@ export function Screen({
   bareBack = false,
   monoSubtitle = false,
   onTitlePress,
+  refreshing,
 }: {
   title?: string
   /** Use the system grouped-list ground beneath content and navigation. */
@@ -80,6 +83,7 @@ export function Screen({
   underHeader?: boolean
   /** Makes the compact title block one button (Messages' contact-name tap). */
   onTitlePress?: () => void
+  refreshing?: boolean
 }) {
   const refreshSubtitle = useWorkspaceRefreshSubtitle()
   const subtitle = large ? (refreshSubtitle ?? normalSubtitle) : normalSubtitle
@@ -135,7 +139,10 @@ export function Screen({
                 </Text>
               ) : null}
             </View>
-            {right ? <View style={styles.right}>{right}</View> : null}
+            <View style={styles.right}>
+              {refreshing !== undefined ? <ScreenRefreshMark refreshing={refreshing} /> : null}
+              {right}
+            </View>
           </View>
         ) : (
           <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
@@ -175,7 +182,10 @@ export function Screen({
             ) : (
               <View style={styles.titles}>{compactTitles}</View>
             )}
-            {right ? <View style={styles.right}>{right}</View> : null}
+            <View style={styles.right}>
+              {refreshing !== undefined ? <ScreenRefreshMark refreshing={refreshing} /> : null}
+              {right}
+            </View>
           </View>
         )}
         <View style={styles.body}>{children}</View>

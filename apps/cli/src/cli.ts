@@ -46,7 +46,7 @@ import {
   selectInstance,
   stateDir,
 } from '@podium/runtime/config'
-import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
+import { claimInstanceStateRoot, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import {
   claimSupervisorGeneration,
@@ -143,6 +143,7 @@ const HELP_DELEGATED = new Set([
   'instance',
   'logs',
   'perf',
+  'vault',
 ])
 
 /** First token the launch path does not understand (skipping value-flag arguments). */
@@ -235,6 +236,8 @@ export type LaunchPlan =
   | { kind: 'machine'; args: string[] }
   /** `podium instance rekey`: mint a new owner UUID for a copied state root. */
   | { kind: 'instance'; args: string[] }
+  /** `podium vault status|reset --confirm`: the credential vault's key (POD-6889). */
+  | { kind: 'vault'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
   | { kind: 'server-transfer-promote'; transferId: string }
@@ -765,6 +768,7 @@ export function resolvePlan(
   if (argv[0] === 'machine' || argv[0] === 'machines')
     return { kind: 'machine', args: argv.slice(1) }
   if (argv[0] === 'instance') return { kind: 'instance', args: argv.slice(1) }
+  if (argv[0] === 'vault') return { kind: 'vault', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -1056,6 +1060,8 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     'Work tools (each has its own help, e.g. `podium issue --help`):',
     '  issue <command>       Drive the native issue tracker',
     '  instance rekey         Mint a fresh owner UUID for a copied state root',
+    '  vault status           Where the credential vault key file is, and whether it opens',
+    '  vault reset --confirm  Delete every stored secret after the key file was lost',
     ...(enabledFeatures.has('specs')
       ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
       : []),
@@ -1145,6 +1151,8 @@ export interface DaemonStartOptions {
   machineId?: MachineId
   pairCode?: string
   name?: string
+  /** Finish legacy startup writes only after the daemon is admitted. */
+  onAdmitted?: () => void
   /** Production daemons install the global codex hook instrumentation at boot. */
   installCodexHooks?: boolean
   /** Production daemons install env-gated Grok Build lifecycle hooks at boot. */
@@ -1240,13 +1248,14 @@ export interface HostModules {
      *  so per-frame traffic skips the loopback WebSocket entirely. */
     localDaemonLink?: LocalDaemonLink
     recoveryOnly: boolean
+    close(): Promise<void>
   }>
   isAddressInUseError(err: unknown): boolean
   startDaemon(
     opts: DaemonStartOptions & {
       onBlocked?: (info: { type: string; reason: string }) => void | Promise<void>
     },
-  ): Promise<unknown>
+  ): Promise<{ close(): Promise<void> }>
 }
 
 /** Composition-root work that may touch the selected instance's state directory.
@@ -1263,9 +1272,10 @@ type InProcessPlan = Extract<LaunchPlan, { kind: 'in-process' }>
 async function runInProcess(
   plan: InProcessPlan,
   loadHost: () => Promise<HostModules>,
+  onDaemonAdmitted?: () => void,
 ): Promise<void> {
   const { port, roles, modePlan } = plan
-  ensureInstanceStateIdentity({ instanceId: resolveInstanceId() }) // [spec:SP-15aa] claim before run-registry writes
+  claimInstanceStateRoot({ instanceId: resolveInstanceId() }) // [spec:SP-15aa] claim before run-registry writes
   if (plan.claimRole === 'daemon' && plan.takeover) {
     const { liveRecord } = await import('@podium/runtime/run-registry')
     const coordinatorOwnsSuccessor = await yieldToDetachedDaemonSuccessor({
@@ -1297,9 +1307,49 @@ async function runInProcess(
     digest: installedArtifactDigest(resolveInstallDir(process.env)),
   })
   let stopRequested: string | undefined
-  lifecycle?.onStop((reason) => {
-    stopRequested = reason
-  })
+  let startupSettled = false
+  let serverHandle: Awaited<ReturnType<HostModules['startServer']>> | undefined
+  let daemonHandle: Awaited<ReturnType<HostModules['startDaemon']>> | undefined
+  let stopWatchdog: (() => void) | undefined
+  let stopSupervisorWatch: (() => void) | undefined
+  let shutdownWork: Promise<void> | undefined
+  const shutdown = (reason = 'signal'): void => {
+    stopRequested ??= reason
+    // A boot may be inside a migration transaction. Retain the stop until its
+    // handle exists, then use the same ordered close as an already-ready server.
+    if (!startupSettled || shutdownWork !== undefined) return
+    shutdownWork = (async () => {
+      lifecycle?.stopping(stopRequested)
+      stopWatchdog?.()
+      stopSupervisorWatch?.()
+      // Stop the producer before its server/store; one failing close must not
+      // skip the other component or the log drain.
+      for (const [name, close] of [
+        ['daemon', () => daemonHandle?.close()],
+        ['server', () => serverHandle?.close()],
+        ['logs', () => componentLogging?.close()],
+      ] as const) {
+        try {
+          await close()
+        } catch (error) {
+          console.error(`Podium ${name} close failed:`, error)
+        }
+      }
+      lifecycle?.close()
+      process.exit(0)
+    })()
+  }
+  process.on('SIGINT', () => shutdown('SIGINT'))
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  lifecycle?.onStop((reason) => shutdown(`parent asked us to stop: ${reason}`))
+  lifecycle?.onSupervisorGone(() => shutdown('parent channel closed'))
+  const finishIfStopped = async (): Promise<boolean> => {
+    if (stopRequested === undefined) return false
+    startupSettled = true
+    shutdown(stopRequested)
+    await shutdownWork
+    return true
+  }
 
   // Claim this component's role in the run registry BEFORE binding: reclaim() SIGKILLs a
   // stale holder (a force-killed desktop orphan, a crashed detached process) so we don't
@@ -1353,6 +1403,7 @@ async function runInProcess(
   let localDaemonLink: LocalDaemonLink | undefined
   let recoveryOnly = false
   const host = roles.server || roles.daemon ? await loadHost() : undefined
+  if (await finishIfStopped()) return
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
     let server: Awaited<ReturnType<typeof startServer>>
@@ -1366,8 +1417,19 @@ async function runInProcess(
         console.error(portInUseMessage(port))
         process.exit(1)
       }
-      throw err
+      // Startup is not a recoverable request handler. Letting this escape to
+      // the process safety net keeps an unbound server alive indefinitely.
+      const reason = err instanceof Error ? err.message : String(err)
+      console.error(`Podium server failed to start: ${reason}`)
+      if (lifecycle) {
+        await new Promise<void>((resolve) => {
+          if (!lifecycle.stopping(reason, () => resolve())) resolve()
+        })
+      }
+      process.exit(78)
     }
+    serverHandle = server
+    if (await finishIfStopped()) return
     serverPort = server.port
     localDaemonLink = server.localDaemonLink
     recoveryOnly = server.recoveryOnly
@@ -1407,8 +1469,9 @@ async function runInProcess(
     // code (not crash-loop): the systemd unit's RestartPreventExitStatus matches it and
     // stops restarting; `podium status` then explains the blocked state (#19).
     const remoteDaemon = modePlan.mode === 'daemon'
-    await startDaemon({
+    daemonHandle = await startDaemon({
       ...daemonOptions,
+      ...(onDaemonAdmitted ? { onAdmitted: onDaemonAdmitted } : {}),
       ...(remoteDaemon
         ? {
             onBlocked: async ({ type, reason }: { type: string; reason: string }) => {
@@ -1425,8 +1488,10 @@ async function runInProcess(
           }
         : {}),
     })
+    if (await finishIfStopped()) return
     console.log(`podium daemon up → ${daemonOptions.serverUrl}`)
   }
+  startupSettled = true
   // Every role this process was asked for is up: say so on the line, with the
   // port when we bound one. THIS FRAME IS THE GATE (POD-3762): the parent that
   // spawned us will not call its stack healthy until it arrives, and the port it
@@ -1435,22 +1500,8 @@ async function runInProcess(
 
   // Watchdog pet (no-op off a Type=notify unit) — mirror scripts/daemon.ts.
   const { startWatchdog } = await import('@podium/runtime/sd-notify')
-  const stopWatchdog = startWatchdog()
-  let stopSupervisorWatch: (() => void) | undefined
-  const shutdown = (reason: string = 'signal'): void => {
-    // Last word on the line, then hang up: the parent learns this was a
-    // shutdown and why, rather than inferring it from an exit code later.
-    lifecycle?.stopping(reason)
-    lifecycle?.close()
-    stopWatchdog?.()
-    stopSupervisorWatch?.()
-    // Drain the log sink before exiting; best-effort, never a reason to hang.
-    void (componentLogging?.close() ?? Promise.resolve())
-      .catch(() => {})
-      .finally(() => process.exit(0))
-  }
-  process.on('SIGINT', shutdown)
-  process.on('SIGTERM', shutdown)
+  stopWatchdog = startWatchdog()
+  if (await finishIfStopped()) return
   // Topology migration kickoff: a legacy CLI unit that just became the new version
   // writes+starts podium.service and keeps serving until the parent takes over.
   // That CLI unit has a run-registry role for the --takeover child to reclaim.
@@ -1472,12 +1523,7 @@ async function runInProcess(
   // hook-ingest port, which is what breaks the NEXT launch. No-op unsupervised.
   const { watchSupervisor } = await import('@podium/runtime/supervisor')
   stopSupervisorWatch = watchSupervisor(() => shutdown('supervising shell exited'))
-  // The parent's stop on the line is the same request a SIGTERM is; so is the
-  // line closing under us, which means the parent died — on every platform,
-  // now that a supervised child is spawned detached on Windows (POD-3790).
-  lifecycle?.onStop((reason) => shutdown(`parent asked us to stop: ${reason}`))
-  lifecycle?.onSupervisorGone(() => shutdown('parent channel closed'))
-  if (stopRequested !== undefined) shutdown(`parent asked us to stop: ${stopRequested}`)
+  if (await finishIfStopped()) return
   await new Promise(() => {})
 }
 
@@ -1511,12 +1557,43 @@ export async function main(
     return
   }
 
+  // The immutable shell calls its bundled CLI once, before launching an installed
+  // supervisor. This must precede state claiming, config migrations and all identity
+  // initialization: payload delivery has no authority to change those records.
+  if (argv[0] === '--desktop-payload-startup') {
+    const { DesktopPayloadStartupRequest, prepareDesktopPayloadStartup } = await import(
+      '@podium/runtime/desktop-payload-startup'
+    )
+    const { canonicalInstallationPath } = await import('@podium/runtime/installation-lease')
+    const request = DesktopPayloadStartupRequest.parse(
+      JSON.parse(process.env.PODIUM_DESKTOP_PAYLOAD_STARTUP ?? 'null'),
+    )
+    if (argv.length !== 1) throw new Error('invalid desktop payload startup invocation')
+    const installDir = canonicalInstallationPath(request.installDir)
+    const result = await prepareDesktopPayloadStartup(request, {
+      installDir,
+      metadataDir: `${installDir}.lifecycle`,
+      exclusive: request.exclusive,
+    })
+    console.log(JSON.stringify(result))
+    return
+  }
+
   // Claim the selected state root before ANY shared CLI bootstrap can populate it.
   // In particular, a packaged `podium-<instance> channel ...` invocation configures
   // detached file logging before dispatch; if logging creates logs/ first, the channel
   // write sees a non-empty unmarked named root and correctly refuses to adopt it.
+  let deferLegacyConfig = false
   try {
-    ensureInstanceStateIdentity({ instanceId: selection.instanceId })
+    const claimed = claimInstanceStateRoot({ instanceId: selection.instanceId })
+    if (claimed.version === 1) {
+      const initialPlan = resolvePlan(loadConfig(), argv, process.env, Boolean(process.stdin.isTTY))
+      deferLegacyConfig =
+        (initialPlan.kind === 'in-process' &&
+          initialPlan.roles.daemon &&
+          !initialPlan.roles.server) ||
+        (initialPlan.kind === 'parent' && initialPlan.includeDaemon && !initialPlan.includeServer)
+    }
   } catch (error) {
     console.error(`podium: ${(error as Error).message}`)
     process.exitCode = 2
@@ -1552,10 +1629,18 @@ export async function main(
   // `loadConfig` migrates in memory regardless. The write is an optimisation and
   // a courtesy to anyone reading config.json by hand, not a correctness step.
   const { migrateConfigFile } = await import('@podium/runtime/config')
-  const migrations = migrateConfigFile()
-  if (migrations.length > 0) {
-    console.error(`[podium] config upgraded: ${migrations.join('; ')}`)
+  let startupConfigCommitted = false
+  let pendingDaemonConfig: PodiumConfig | undefined
+  const commitStartupConfig = (): void => {
+    if (startupConfigCommitted) return
+    const migrations = migrateConfigFile()
+    if (migrations.length > 0) {
+      console.error(`[podium] config upgraded: ${migrations.join('; ')}`)
+    }
+    if (pendingDaemonConfig) saveConfig(pendingDaemonConfig)
+    startupConfigCommitted = true
   }
+  if (!deferLegacyConfig) commitStartupConfig()
 
   if (shouldInferLocalSetupDefault(runtime, process.env, argv)) {
     const { applyLocalSetupDefault } = await import('@podium/runtime/setup')
@@ -1602,13 +1687,37 @@ export async function main(
       serverUrl: plan.modePlan.serverUrl,
       ...(plan.modePlan.pairCode ? { pairCode: plan.modePlan.pairCode } : {}),
     }
-    saveConfig(config)
+    if (deferLegacyConfig) pendingDaemonConfig = config
+    else saveConfig(config)
     plan = {
       kind: 'parent',
       port: plan.port,
       includeDaemon: true,
       includeServer: false,
       takeover: plan.takeover,
+    }
+  }
+
+  // The shell's lease spans its launch/respawn boundary. Runtime leases additionally
+  // cover headless parents, replacement parents, children and direct updaters.
+  // These are shared leases: explicit takeover and the existing updater still own
+  // their normal lifecycle. Only the lower-priority startup fallback needs exclusive.
+  if (process.env.PODIUM_HOME && ['parent', 'in-process', 'update'].includes(plan.kind)) {
+    const { acquireRuntimeInstallationLease, registerInstallationStateRoot } = await import(
+      '@podium/runtime/installation-lease'
+    )
+    const usage = acquireRuntimeInstallationLease(process.env.PODIUM_HOME)
+    if (usage) {
+      try {
+        registerInstallationStateRoot(usage, stateDir())
+      } catch {
+        // Registry damage disables the lower-priority startup source. Keep the
+        // usage lease and let this instance's existing lifecycle/update owner boot.
+        console.error(
+          'installation state-root registry unavailable; bundled startup replacement will defer',
+        )
+      }
+      process.once('exit', () => usage.release())
     }
   }
 
@@ -1727,6 +1836,11 @@ export async function main(
       }
       return
     }
+    case 'vault': {
+      const { vaultCliMain } = await import('./vault-cli')
+      await vaultCliMain(plan.args)
+      return
+    }
     case 'instance': {
       const { instanceCliMain } = await import('./instance-cli')
       const code = instanceCliMain(plan.args)
@@ -1772,7 +1886,7 @@ export async function main(
       return
     }
     case 'parent': {
-      ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
+      claimInstanceStateRoot({ instanceId: resolveInstanceId() })
       const parentLogging = configureProcessLogging({ role: 'parent' })
       const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
       const { ParentProcess, PARENT_SUCCESSOR_ENV } = await import('@podium/runtime/parent-process')
@@ -1996,7 +2110,7 @@ export async function main(
       const machineServerUrl = (): string => {
         // Remote endpoint commits may happen in the daemon while the parent remains live.
         // Resolve again on every dial, including after the old coordinator retires.
-        const current = loadConfig()
+        const current = deferLegacyConfig && !startupConfigCommitted ? config : loadConfig()
         const endpoint = runningAssignment.server ? localServerWsUrl(plan.port) : current.serverUrl
         if (!endpoint) throw new Error('machine supervisor has no coordinating server URL')
         return endpoint
@@ -2045,6 +2159,17 @@ export async function main(
           supervisorGeneration,
         },
         deliveryCaps,
+        // This callback is reached only by an explicit informational request.
+        // Do not call it from onGrant, reconnect/replay, or the update executor.
+        onSpaceCheck: async ({ target }) => {
+          const { previewUpdateSpace } = await import('@podium/runtime/update-space')
+          return previewUpdateSpace(target, {
+            installDir,
+            stateDir: stateDir(),
+            hostsServer: runningAssignment.server,
+            source: !installedPayload,
+          })
+        },
         report: () =>
           machineServiceReport({
             snap: parent.snapshot(),
@@ -2084,7 +2209,17 @@ export async function main(
         },
       })
       supervisorConnection.start()
-      if (!supervisorState.token && config.pairCode && !children.includes('server')) {
+      if (deferLegacyConfig) {
+        // A legacy remote runtime must be admitted before its configuration is
+        // upgraded or children start. A refused candidate remains restartable
+        // by the retained release with its original startup files.
+        if (!(await supervisorConnection.waitUntilConnected(null))) {
+          const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
+          await supervisorConnection.close()
+          process.exit(DAEMON_BLOCKED_EXIT_CODE)
+        }
+        commitStartupConfig()
+      } else if (!supervisorState.token && config.pairCode && !children.includes('server')) {
         await supervisorConnection.waitUntilConnected()
       }
       console.log(`podium parent up — supervising ${children.join(' + ')} on :${plan.port}`)
@@ -2367,6 +2502,6 @@ export async function main(
       return
     }
     case 'in-process':
-      return runInProcess(plan, loadHost)
+      return runInProcess(plan, loadHost, deferLegacyConfig ? commitStartupConfig : undefined)
   }
 }

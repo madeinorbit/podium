@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import type { MachineId } from '@podium/model'
 import { inspectConfig, resolveMode, stateDir } from './config'
+import { withConfigWriteLock } from './config-write-lock'
 import { fsyncPath } from './fsync'
+import { readInstanceStateIdentity } from './instance'
 import { createMachineCredential, machinePublicKeyWire } from './machine-credential'
 
 export { stateDir }
@@ -100,19 +102,23 @@ function finishImport(dir: string, state: MachineState): void {
 function persist(dir: string, state: MachineState, exclusive: boolean): void {
   const path = join(dir, MACHINE_STATE_FILE)
   const temporary = `${path}.tmp-${process.pid}-${randomUUID()}`
+  let failure: { error: unknown } | undefined
   try {
     writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
     sync(temporary)
     if (exclusive) linkSync(temporary, path)
     else renameSync(temporary, path)
     sync(dir)
-  } finally {
-    try {
-      unlinkSync(temporary)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
+  } catch (error) {
+    failure = { error }
   }
+  try {
+    unlinkSync(temporary)
+  } catch (error) {
+    // Cleanup must not hide the publication failure that explains the state.
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') failure ??= { error }
+  }
+  if (failure) throw failure.error
 }
 
 /** One-time file import, not database reconciliation or owner inference. */
@@ -121,16 +127,40 @@ export function loadMachineState(
   expectedId?: MachineId,
   allowCreate = true,
 ): MachineState {
+  const read = () => loadMachineStateOwned(dir, expectedId, allowCreate)
+  // Reuse the root's existing configuration lock for an unaccepted import.
+  // Every candidate writer joins it; the old release never writes machine.json.
+  return readInstanceStateIdentity(dir)?.version === 1
+    ? withConfigWriteLock(join(dir, 'config.json'), read)
+    : read()
+}
+
+function loadMachineStateOwned(
+  dir: string,
+  expectedId: MachineId | undefined,
+  allowCreate: boolean,
+): MachineState {
   mkdirSync(dir, { recursive: true })
+  const unaccepted = readInstanceStateIdentity(dir)?.version === 1
   let current = readMachineState(dir)
-  if (!current) {
+  const changed =
+    unaccepted &&
+    current !== undefined &&
+    LEGACY_FILES.some((name) => {
+      const bytes = readOptional(join(dir, name))
+      return (bytes === undefined ? undefined : digest(bytes)) !== current?.importedFiles[name]
+    })
+  if (changed && !LEGACY_FILES.some((name) => readOptional(join(dir, name)) !== undefined)) {
+    throw new Error('legacy machine inputs are missing before admission; refusing a new identity')
+  }
+  if (!current || changed) {
     const importedFiles: MachineState['importedFiles'] = {}
     const sections: Partial<Pick<MachineState, 'daemon' | 'supervisor' | 'connectivity'>> = {}
     // The root identity is the one a credential authenticates: the supervisor's row
     // when the box is supervised, else the daemon's own credential row. `machine.id`
     // is the bare pre-consolidation id file and the weakest witness: a re-paired box
-    // keeps a stale one (flatblock: machine.id from an earlier pairing, daemon.json the
-    // live row), and a supervised box keeps a dead daemon.json (ludovico). Disagreement
+    // keeps a stale one (one install: machine.id from an earlier pairing, daemon.json the
+    // live row), and a supervised box keeps a dead daemon.json (another install). Disagreement
     // is ordinary, never a refusal; every section is kept verbatim.
     //
     // A daemon.json WITHOUT a token is not a credential row and outranks nothing
@@ -157,7 +187,8 @@ export function loadMachineState(
           if (typeof data.machineId !== 'string' || !data.machineId.trim())
             throw new Error(`invalid legacy identity in ${name}`)
           legacyIds[section === 'daemon' ? 'daemon.json' : 'supervisor.json'] = data.machineId
-          if (section === 'daemon') daemonHasToken = typeof data.token === 'string' && data.token !== ''
+          if (section === 'daemon')
+            daemonHasToken = typeof data.token === 'string' && data.token !== ''
         }
       }
     }
@@ -186,9 +217,17 @@ export function loadMachineState(
     // legacy row onto that key. Nothing else at boot exists for the migration.
     const host = legacyHostEnrollment(dir, machineId, legacy, sections)
     if (host) candidate.supervisor = host
+    // Refusal/rollback can leave an unaccepted candidate beside newer legacy
+    // inputs. The legacy bytes remain authoritative until UUID admission; the
+    // same owner atomically refreshes its candidate and exact input receipts.
+    for (const name of LEGACY_FILES) {
+      const bytes = readOptional(join(dir, name))
+      if ((bytes === undefined ? undefined : digest(bytes)) !== importedFiles[name])
+        throw new Error('legacy machine state changed during migration')
+    }
     let published = false
     try {
-      persist(dir, candidate, true)
+      persist(dir, candidate, !changed)
       published = true
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
@@ -205,7 +244,7 @@ export function loadMachineState(
   }
   if (expectedId !== undefined && current.machineId !== expectedId)
     throw new LocalMachineIdentityConflictError(expectedId, current.machineId)
-  finishImport(dir, current)
+  if (!unaccepted) finishImport(dir, current)
   return current
 }
 
@@ -215,12 +254,17 @@ export function updateMachineState(
   change: (state: MachineState) => void,
   expectedId?: MachineId,
 ): MachineState {
-  const state = loadMachineState(dir, expectedId)
-  const id = state.machineId
-  change(state)
-  if (state.machineId !== id) throw new Error('machine identity is immutable')
-  persist(dir, state, false)
-  return state
+  const write = () => {
+    const state = loadMachineState(dir, expectedId)
+    const id = state.machineId
+    change(state)
+    if (state.machineId !== id) throw new Error('machine identity is immutable')
+    persist(dir, state, false)
+    return state
+  }
+  return readInstanceStateIdentity(dir)?.version === 1
+    ? withConfigWriteLock(join(dir, 'config.json'), write)
+    : write()
 }
 
 /**

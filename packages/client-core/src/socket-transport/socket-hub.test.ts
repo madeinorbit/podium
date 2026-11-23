@@ -94,7 +94,7 @@ describe('SocketHub', () => {
     const makeSocket = vi.fn(() => socket)
     const hub = new SocketHub({
       url: 'ws://x', makeSocket,
-      feed: { syncHttp: true, requestRebootstrap: fresh, helloFields: () => null, connected, disconnected() {}, frame() {} },
+      feed: { syncHttp: true, requestRebootstrap: fresh, kindTokens: () => {}, helloFields: () => null, connected, disconnected() {}, frame() {} },
     })
     hub.connect()
     socket.open()
@@ -114,10 +114,12 @@ describe('SocketHub', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
+    // Every hub speaks topics (ADR 7 Amendment 2), so `caps` is always present.
     expect(sock.parsed()).toContainEqual({
       type: 'hello',
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
+      caps: ['topics.v1'],
     })
   })
 
@@ -173,7 +175,7 @@ describe('SocketHub', () => {
 
     // Input acknowledgement is independent of output: this welcome grants only
     // input, yet the client must switch the input path to the binary envelope.
-    sock.recv({ type: 'welcome', clientId: 'c0', caps: [CAP_TERMINAL_INPUT_BINARY_V1] })
+    sock.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0', caps: [CAP_TERMINAL_INPUT_BINARY_V1] })
     const inputs = ['\u0000\u001b[200~é💩', 'paste\nblock', '\r']
     for (const input of inputs) conn.sendInput(input)
 
@@ -198,7 +200,7 @@ describe('SocketHub', () => {
     const conn = hub.attach(asSessionId('s1'))
     hub.connect()
     sock.open()
-    sock.recv({ type: 'welcome', clientId: 'c0' })
+    sock.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0' })
 
     const input = '\u001b[1;5Dé'
     conn.sendInput(input)
@@ -237,6 +239,7 @@ describe('SocketHub', () => {
       url: 'ws://x',
       makeSocket: () => (socketIndex++ === 0 ? malformed : replacement),
       feed: {
+        kindTokens: () => {},
         helloFields: () => null,
         connected: () => {},
         disconnected: () => {},
@@ -304,7 +307,7 @@ describe('SocketHub', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
-    sock.recv({ type: 'welcome', clientId: 'c0' })
+    sock.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0' })
     expect(hub.clientId).toBe('c0')
   })
 
@@ -317,6 +320,7 @@ describe('SocketHub', () => {
       url: 'ws://x',
       makeSocket: () => sock,
       feed: {
+        kindTokens: () => {},
         helloFields: () => null,
         connected: () => {},
         disconnected: () => {},
@@ -370,6 +374,7 @@ describe('SocketHub', () => {
       url: 'ws://x',
       makeSocket: () => sock,
       feed: {
+        kindTokens: () => {},
         helloFields: () => null,
         connected: () => {},
         disconnected: () => {},
@@ -404,7 +409,7 @@ describe('SocketHub', () => {
     const fresh = vi.fn()
     const hub = new SocketHub({ url: 'ws://x', makeSocket: () => sock,
       scheduleFeedTask: () => {},
-      feed: { syncHttp: true, requestRebootstrap: fresh, helloFields: () => null, connected() {}, disconnected() {}, frame() {} },
+      feed: { syncHttp: true, requestRebootstrap: fresh, kindTokens: () => {}, helloFields: () => null, connected() {}, disconnected() {}, frame() {} },
     })
     hub.connect()
     sock.open()
@@ -435,6 +440,7 @@ describe('SocketHub', () => {
         requestRebootstrap: rebootstrap,
         // No position to present: these cases are about the backlog bound, and a
         // cold hello is the honest answer for a hub that has installed nothing.
+        kindTokens: () => {},
         helloFields: () => null,
         connected: () => {},
         disconnected: () => {
@@ -482,10 +488,6 @@ describe('SocketHub', () => {
       title: 't',
       cwd: '/w',
       status: 'live',
-      controllerId: 'c0',
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 1,
       createdAt: '2026-06-03T00:00:00.000Z',
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' },
@@ -611,7 +613,7 @@ describe('SocketHub', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
-    sock.recv({ type: 'welcome', clientId: 'c0' })
+    sock.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0' })
     const f1: Uint8Array[] = []
     const f2: Uint8Array[] = []
     hub.attach(asSessionId('s1'), { onFrame: (t) => f1.push(t) })
@@ -681,7 +683,7 @@ describe('SessionConnection (hub-backed)', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
-    sock.recv({ type: 'welcome', clientId: 'c0' })
+    sock.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0' })
     const conn = hub.attach(asSessionId('s1'))
     sock.recv({
       type: 'attached',
@@ -741,7 +743,7 @@ describe('SessionConnection (hub-backed)', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
-    sock.recv({ type: 'welcome', clientId: 'c0' })
+    sock.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0' })
     const conn = hub.attach(asSessionId('s1'))
     sock.recv({
       type: 'attached',
@@ -774,7 +776,7 @@ describe('SessionConnection (hub-backed)', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
-    sock.recv({ type: 'welcome', clientId: 'c0' })
+    sock.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0' })
     const onAttached = vi.fn()
     hub.attach(asSessionId('s1'), { onAttached })
     expect(onAttached).not.toHaveBeenCalled()
@@ -1350,7 +1352,7 @@ describe('reattach + offline input queue', () => {
     hub.connect()
     sockets[0]?.open()
     const conn = hub.attach(asSessionId('s1'))
-    sockets[0]?.recv({ type: 'welcome', clientId: 'c0', caps: [CAP_TERMINAL_INPUT_BINARY_V1] })
+    sockets[0]?.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0', caps: [CAP_TERMINAL_INPUT_BINARY_V1] })
     conn.sendInput('first')
     expect(sockets[0]?.binarySent).toHaveLength(1)
 
@@ -1365,7 +1367,7 @@ describe('reattach + offline input queue', () => {
       { type: 'input', sessionId: 's1', data: b64('\r') },
     ])
 
-    sockets[1]?.recv({ type: 'welcome', clientId: 'c1', caps: [] })
+    sockets[1]?.recv({ type: 'welcome', kindTokens: {}, clientId: 'c1', caps: [] })
     conn.sendInput('after-downgrade')
     expect(sockets[1]?.binarySent).toHaveLength(0)
     expect(sockets[1]?.parsed()).toContainEqual({
@@ -1619,50 +1621,6 @@ describe('transcript delta forwarding', () => {
   })
 })
 
-describe('host metrics', () => {
-  it('exposes hostMetricsChanged via hostMetrics() + onHostMetrics', () => {
-    const { hub, sock } = setup()
-    hub.connect()
-    sock.open()
-    const seen: number[] = []
-    hub.onHostMetrics((h) => seen.push(h.length))
-    const host = {
-      hostname: 'podium-host',
-      sampledAt: '2026-06-11T00:00:00.000Z',
-      memory: { totalBytes: 32, availableBytes: 16, swapTotalBytes: 0, swapFreeBytes: 0 },
-    }
-    sock.recv({ type: 'hostMetricsChanged', hosts: [host] })
-    expect(hub.hostMetrics()).toEqual([host])
-    expect(seen).toEqual([0, 1]) // immediate replay + the update
-    sock.recv({ type: 'hostMetricsChanged', hosts: [] })
-    expect(hub.hostMetrics()).toEqual([])
-    expect(seen).toEqual([0, 1, 0])
-  })
-})
-
-describe('machines', () => {
-  it('exposes machinesChanged via machines() + onMachines', () => {
-    const { hub, sock } = setup()
-    hub.connect()
-    sock.open()
-    const seen: number[] = []
-    hub.onMachines((m) => seen.push(m.length))
-    const machine = {
-      id: asMachineId('m1'),
-      name: 'box',
-      hostname: 'box.local',
-      online: true,
-      lastSeenAt: '2026-06-17T00:00:00.000Z',
-    }
-    sock.recv({ type: 'machinesChanged', machines: [machine] })
-    expect(hub.machines()).toEqual([machine])
-    expect(seen).toEqual([0, 1]) // immediate replay + the update
-    sock.recv({ type: 'machinesChanged', machines: [] })
-    expect(hub.machines()).toEqual([])
-    expect(seen).toEqual([0, 1, 0])
-  })
-})
-
 describe('view state', () => {
   function multiSetup() {
     const sockets: FakeSocket[] = []
@@ -1907,7 +1865,7 @@ describe('SocketHub reconnect jitter and connectNow', () => {
     vi.advanceTimersByTime(first)
 
     sockets[1]?.open()
-    sockets[1]?.recv({ type: 'welcome', clientId: 'c0' }) // the server is really there
+    sockets[1]?.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0' }) // the server is really there
     const second = scheduledDelay(spy, () => sockets[1]?.close())
     // Back to the floor's jitter window rather than the doubled one.
     expect(second).toBeGreaterThanOrEqual(250)
@@ -1981,7 +1939,7 @@ it('sends client hello and web/mobile URLs that deployed integer-only gates acce
   }
   const hub = new SocketHub({
     url: 'ws://compat.test/client', makeSocket: () => socket,
-    feed: { syncHttp: true, helloFields: () => null, connected() {}, disconnected() {}, frame() {} },
+    feed: { syncHttp: true, kindTokens: () => {}, helloFields: () => null, connected() {}, disconnected() {}, frame() {} },
   })
   try {
     hub.connect()

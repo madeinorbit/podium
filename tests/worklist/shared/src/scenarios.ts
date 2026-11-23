@@ -1,10 +1,12 @@
-import { setReferenceClock } from '../../diagnostics/reference-state'
-import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
-import { referenceState } from '../../diagnostics/reference-state'
-
-import { allIssueViewModels } from '../../diagnostics/reference/issue-view-models'
 import { IssueProjection as IssueProjectionSchema } from '@podium/model'
-import { fixtureGitStates, fixtureMarkers } from '../../harness/src/fixture/normalized-issues'
+import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import { allIssueViewModels } from '../../diagnostics/reference/issue-view-models'
+import { referenceState, setReferenceClock } from '../../diagnostics/reference-state'
+import {
+  fixtureGitStates,
+  fixtureIssuePins,
+  fixtureMarkers,
+} from '../../harness/src/fixture/normalized-issues'
 
 /**
  * POD-4444 / POD-4550 — the scenario replay library (methodology §5.8), over
@@ -84,12 +86,6 @@ import { fixtureGitStates, fixtureMarkers } from '../../harness/src/fixture/norm
  */
 
 import type { PodiumClientApi } from '@podium/client-core/api'
-import {
-  createClientRuntime,
-  loadingNavigationProvider,
-  openKernelEngineOutbox,
-} from '@podium/client-core/engine'
-import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import type { OnlineEvents } from '@podium/client-core/outbox'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
@@ -99,15 +95,30 @@ import {
   type KernelEntity,
   memoryStorage,
 } from '@podium/client-core/replica'
+import { createClientRuntime, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
 import type { SocketHub } from '@podium/client-core/socket-transport'
+import {
+  machineRecords,
+  repositoriesAsCheckouts,
+} from '@podium/client-core/test-support/machine-records'
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
+import { loadingNavigationProvider } from '@podium/client-core/ui'
 import type { RouterWindow } from '@podium/client-core/ui-state'
-import { createRowSource } from './row-source'
-import { asIssueId, asUserId, issueUserStateRowId, sessionUserStateRowId, type SessionMeta } from '@podium/model'
+import {
+  asIssueId,
+  asUserId,
+  type GitRepositoryWire,
+  issueUserStateRowId,
+  pinRowId,
+  type SessionMeta,
+  sessionUserStateRowId,
+} from '@podium/model'
 import { InMemoryOutboxStore } from '@podium/sync/outbox'
 import type { EntityRecord } from '@podium/sync/replica'
 import { buildCorpus, type CorpusScale, type FixtureCorpus } from '../../harness/src/fixture/index'
-import type { RowSourceEvent } from './stats'
 import { fixtureSessionHomes, stripSessionLegacy } from '../../harness/src/fixture/session-homes'
+import { createRowSource } from './row-source'
+import type { RowSourceEvent } from './stats'
 
 // ------------------------------------------------------------------ corpus
 
@@ -175,7 +186,7 @@ export class ScenarioCache implements KernelCacheRead {
  *  disk holds. */
 export function seedCacheFromCorpus(
   corpus: FixtureCorpus,
-  options: { ownRows?: boolean } = {},
+  options: { ownRows?: boolean; principal?: string } = {},
 ): ScenarioCache {
   const cache = new ScenarioCache()
   const own = <T>(value: T): T => (options.ownRows === true ? structuredClone(value) : value)
@@ -188,6 +199,12 @@ export function seedCacheFromCorpus(
       entityId: issueUserStateRowId(state.userId, state.entityId),
       value: own(state),
     })
+  for (const pin of fixtureIssuePins(corpus.issues, asUserId(options.principal ?? 'u-bench')))
+    rows.push({
+      entity: 'pin',
+      entityId: pinRowId(pin.userId, pin.kind, pin.entityId),
+      value: own(pin),
+    })
   for (const git of corpus.issueGitStates ?? fixtureGitStates(corpus.issues))
     rows.push({ entity: 'issueGitState', entityId: git.id, value: own(git) })
   for (const session of corpus.sessions)
@@ -196,14 +213,22 @@ export function seedCacheFromCorpus(
     rows.push({ entity: 'repo', entityId: repo.id, value: own(repo) })
   for (const dep of corpus.issueDeps)
     rows.push({ entity: 'issueDep', entityId: dep.id, value: own(dep) })
+  // Each machine's record and my access row, and every registered repository
+  // and worktree as a checkout record (POD-6644).
+  for (const record of [
+    ...(corpus.machines ?? []).flatMap((machine) =>
+      machineRecords(options.principal ?? 'u-bench', machine as never),
+    ),
+    ...repositoriesAsCheckouts((corpus.repos ?? []) as never),
+  ])
+    rows.push({ entity: record.entity, entityId: record.entityId, value: own(record.value) })
   cache.install(rows)
   return cache
 }
 
 class FakeHub {
   private handlers = new Map<string, Set<(...a: unknown[]) => void>>()
-  /** A server push, delivered to whatever the runtime subscribed (POD-4555:
-   *  `worktreesChanged` drives the runtime's own discovery refresh). */
+  /** A server push, delivered to whatever the runtime subscribed. */
   emit(kind: string, ...args: unknown[]): void {
     for (const cb of this.handlers.get(kind) ?? []) cb(...args)
   }
@@ -225,6 +250,24 @@ class FakeHub {
     )
     cb(this.connectionHealth())
     return off
+  }
+  /** The live feed's slice (POD-5798): topics stay pending, no server identity yet. */
+  subscribeTopic(
+    _kind: string,
+    _id: string,
+    listener: { onState?: (state: { status: 'pending' }) => void },
+  ): () => void {
+    listener.onState?.({ status: 'pending' })
+    return () => {}
+  }
+  machines(): never[] {
+    return []
+  }
+  serverIdentity(): null {
+    return null
+  }
+  clockSkewMs(): null {
+    return null
   }
   seedMetadata(): void {}
   connect(): void {}
@@ -268,7 +311,6 @@ export interface ScenarioServer {
 
 // biome-ignore lint/suspicious/noExplicitAny: scenario API stub — shaped per-test like engine runtime.test.ts
 function scenarioApi(
-  discovery: { repos: unknown[] },
   opts: {
     rejectMarkRead?: () => boolean
     server?: ScenarioServer
@@ -289,11 +331,6 @@ function scenarioApi(
         }),
       },
     },
-    discovery: {
-      refreshRepos: {
-        mutate: async () => ({ repositories: discovery.repos, diagnostics: [], machines: [] }),
-      },
-    },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
     tabs: { listOrders: { query: async () => ({}) } },
     settings: {
@@ -301,7 +338,6 @@ function scenarioApi(
         query: async () => ({ sidebar: { repoSort: 'lastUsed', repoOrder: [] } }),
       },
     },
-    superagent: { listThreads: { query: async () => [] } },
     sessions: {
       markRead: { mutate: async () => ({}) },
       create: {
@@ -684,9 +720,13 @@ export interface ScenarioEngine {
   cache: ScenarioCache
   /** The socket hub the current runtime subscribed; `emit` is a server push. */
   hub: { emit(kind: string, ...args: unknown[]): void }
-  /** What `discovery.refreshRepos` answers. Replace `repos` to move worktrees,
-   *  then push `worktreesChanged` through `hub`. */
-  discovery: { repos: unknown[] }
+  /** The registered repositories, in the listing shape the corpus wrote. */
+  repos(): readonly GitRepositoryWire[]
+  /**
+   * Move the repositories (POD-6644): the server writes their checkout
+   * records, removing the ones that left. Only changed records are written.
+   */
+  setRepos(repos: readonly GitRepositoryWire[]): void
   /**
    * POD-4555 — a tab reload: destroy the runtime and boot a new one over a
    * fresh replica facade on the SAME durable cache and the SAME outbox store,
@@ -764,19 +804,21 @@ export async function startEngineOnCorpus(
         userId: asUserId(principal),
       })),
     },
-    { ownRows: opts.ownRows === true },
+    { ownRows: opts.ownRows === true, principal },
   )
   // The current server publishes these homes alongside each raw session.
   // An old corpus without them exercises a cold offline gap, not steady-state work.
-  const own = <T>(value: T): T => opts.ownRows ? structuredClone(value) : value
+  const own = <T>(value: T): T => (opts.ownRows ? structuredClone(value) : value)
   cache.install([
-    ...homes.userStates.map(state => ({
+    ...homes.userStates.map((state) => ({
       entity: 'sessionUserState' as const,
       entityId: sessionUserStateRowId(state.userId, state.sessionId),
       value: own(state),
     })),
-    ...homes.machines.map(machine => ({
-      entity: 'machine' as const, entityId: machine.id, value: own(machine),
+    ...homes.machines.map((machine) => ({
+      entity: 'machine' as const,
+      entityId: machine.id,
+      value: own(machine),
     })),
   ])
   await opts.stage?.('cache')
@@ -784,8 +826,7 @@ export async function startEngineOnCorpus(
   const newReplica = () => createKernelReplica({ cache, side })
   let rejectArmed = false
   const markReadReceipts: string[] = []
-  const discovery = { repos: corpus.repos as unknown[] }
-  const api = scenarioApi(discovery, {
+  const api = scenarioApi({
     rejectMarkRead: () => {
       if (!rejectArmed) return false
       rejectArmed = false
@@ -834,9 +875,19 @@ export async function startEngineOnCorpus(
     // navigation sooner would fire mark-read without a transaction owner.
     const engine = ctx.engine
     const navigation = fixtureNavigation({
-      issues: () => referenceState(engine).issueProjections,
-      sessions: () => referenceState(engine).sessions,
-      markers: () => referenceState(engine).issueUserStates,
+      issues: () => referenceState(engine, { screen: false }).issueProjections,
+      sessions: () => referenceState(engine, { screen: false }).sessions,
+      markers: () => referenceState(engine, { screen: false }).issueUserStates,
+      // Reference publications are plain records. Their invalidations come
+      // from the replica, rather than an empty MobX watch over those arrays.
+      follow: (changed) => {
+        const stops = (['sessions', 'issueProjections', 'issueUserStates'] as const).map((kind) =>
+          engine.replica.subscribeRows(kind, changed),
+        )
+        return () => {
+          for (const stop of stops) stop()
+        }
+      },
     })
     const attachWriter = engine.attachPoolWriter
     Object.assign(engine, {
@@ -871,6 +922,7 @@ export async function startEngineOnCorpus(
   }
   const replica = newReplica()
   const first = await boot(replica)
+  let currentRepos: readonly GitRepositoryWire[] = corpus.repos as unknown as GitRepositoryWire[]
   let stamps = 0
   const settleMs = opts.settleMs ?? (corpus.issues.length > 1000 ? 600 : 60)
   const ctx: ScenarioEngine = {
@@ -878,9 +930,25 @@ export async function startEngineOnCorpus(
     replica,
     cache,
     hub: first.hub,
-    discovery,
+    repos: () => currentRepos,
+    setRepos(repos) {
+      currentRepos = repos
+      const next = new Map(
+        repositoriesAsCheckouts(repos as never).map((record) => [record.entityId, record.value]),
+      )
+      ctx.replica.batch(() => {
+        for (const record of cache.readEntities())
+          if (record.entity === 'checkout' && !next.has(record.entityId))
+            remove(ctx, 'checkout', record.entityId)
+        for (const [id, value] of next) {
+          const held = cache.read('checkout', id)?.value
+          if (held && JSON.stringify(held) === JSON.stringify(value)) continue
+          upsert(ctx, 'checkout', id, value)
+        }
+      })
+    },
     reload: async () => {
-      ctx.engine.destroy()
+      ctx.engine.dispose()
       const fresh = newReplica()
       const next = await boot(fresh)
       ctx.engine = next.engine
@@ -890,7 +958,7 @@ export async function startEngineOnCorpus(
     },
     dispose: () => {
       try {
-        ctx.engine.destroy()
+        ctx.engine.dispose()
       } finally {
         side.dispose()
       }
@@ -1056,9 +1124,10 @@ function takeMarkReadReceipts(ctx: ScenarioEngine): string[] {
  * server and then ECHOED as truth — `readAt` at the server's clock — before
  * the step ends (POD-4618).
  *
- * Without the echo the runtime keeps that read awaiting truth until its 60 s
- * WALL-CLOCK sweep (`AWAITING_TRUTH_TTL_MS`), which retires it in whichever
- * later step is running then and charges that step a row it did not change.
+ * Without the echo an awaiting read can retire in whichever later step is
+ * running then, and charge that step a row it did not change. (Before POD-6279
+ * that was the runtime's 60 s wall-clock sweep; now an overlay lives exactly
+ * as long as its outbox entry.)
  * Only an explicit press (#9a) is left un-echoed, on purpose: its echo is #9b.
  */
 export async function settled(ctx: ScenarioEngine): Promise<void> {
@@ -1229,10 +1298,6 @@ function liveSession(
     cwd: fields.cwd,
     title: fields.title,
     status: 'live',
-    controllerId: `c-${sessionId}`,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 1,
-    clientCount: 1,
     createdAt: now,
     lastActiveAt: now,
     origin: { kind: 'spawn' },
@@ -1327,15 +1392,21 @@ const OVERLAY_ENTITIES = [
  * in flight, or resolved and AWAITING TRUTH — as `<entity>:<id>`, sorted.
  * Empty when every optimistic write has settled.
  *
- * A write left here outlives its step: the runtime retires an awaiting write
- * only on covering truth or on its 60 s WALL-CLOCK sweep
- * (`AWAITING_TRUTH_TTL_MS`), and the sweep lands in whichever later step is
+ * A write left here outlives its step: an awaiting write paints until its
+ * outbox entry retires (POD-6279), which can land in whichever later step is
  * running then (POD-4618).
  */
 export function pendingWrites(ctx: ScenarioEngine): string[] {
   const pending: string[] = []
   for (const entity of OVERLAY_ENTITIES) {
-    for (const id of ((ctx.engine as unknown as { poolWriter: import('@podium/client-graph/write/transactions').PoolTransactions }).poolWriter?.pending.byRow(entity) ?? new Map()).keys()) pending.push(`${entity}:${id}`)
+    for (const id of (
+      (
+        ctx.engine as unknown as {
+          poolWriter: import('@podium/client-graph/write/transactions').PoolTransactions
+        }
+      ).poolWriter?.pending.byRow(entity) ?? new Map()
+    ).keys())
+      pending.push(`${entity}:${id}`)
   }
   return pending.sort()
 }

@@ -1,10 +1,10 @@
 import '@podium/client-graph/requested-models'
-import { PodiumSettings } from '@podium/runtime'
-import { MobileClientSession } from '@podium/protocol'
-import { AccountView, MemberView, RequestRecordKey } from '@podium/model'
+import { DeviceSignInView } from '@podium/protocol'
+import { CredentialView, MemberView, RequestRecordKey } from '@podium/model'
 import '@podium/client-graph/message-models'
 import { PendingInteractionWire } from '@podium/protocol'
 import '@podium/client-graph/synced-models'
+import '@podium/client-graph/workflow-models'
 /**
  * POD-4546 (L1a) — the runtime bridge from a field citation in `schema.ts` to
  * the real definition in `@podium/model`.
@@ -29,13 +29,26 @@ import {
   SCHEMA,
 } from '@podium/client-graph/shared/schema'
 import {
+  AgentProfileWire,
   AgentRuntimeState,
   MessageRecordWire,
   MessageLedgerWire,
   MachineProjection,
-  MachineWire,
+  MachineAccessWire,
+  CheckoutWire,
   AutomationWire,
   AutomationRunWire,
+  EffectGroup,
+  EffectRecordWire,
+  EffectTarget,
+  PersonalPreferences,
+  InstancePreferences,
+  PinWire,
+  LayoutWire,
+  ReadPositionWire,
+  SuperagentThreadWire,
+  NoticeWire,
+  TabOrderWire,
   GitRepositoryWire,
   Geometry,
   GitWorktreeWire,
@@ -43,14 +56,26 @@ import {
   IssueDepWire,
   IssueDerived,
   IssueGitState,
+  IssueBriefWire,
+  IssueDescriptionWire,
+  IssuePanelTodoWire,
+  IssuePanelArtifactWire,
+  IssuePanelDeferredWire,
+  IssuePanelStateWire,
   IssueGitStateProjection,
   IssueProjection,
+  SlimIssueProjection,
   IssueUserStateWire,
   RepoProjection,
   ResumeRef,
   SessionMeta,
   SessionOffer,
   SessionUserStateWire,
+  SubscriptionWire,
+  WorkflowBindingWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
+  WorkflowWire,
 } from '@podium/model'
 
 /** The minimum a zod object exposes that the validator needs. */
@@ -63,18 +88,49 @@ export interface ShapeCarrier {
  * typecheck, so the citation vocabulary cannot drift from the model.
  */
 export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
-  AccountView, MemberView, MobileClientSession, PodiumSettings, RequestRecordKey,
-  PendingInteractionWire: { shape: Object.assign({}, ...PendingInteractionWire.options.map(arm => arm.shape)) },
+  CredentialView,
+  MemberView,
+  DeviceSignInView,
+  RequestRecordKey,
+  PendingInteractionWire: {
+    shape: Object.assign({}, ...PendingInteractionWire.options.map((arm) => arm.shape)),
+  },
   MessageRecordWire,
   MessageLedgerWire,
   MachineProjection,
-  MachineWire,
+  MachineAccessWire,
+  CheckoutWire,
   AutomationWire,
   AutomationRunWire,
+  EffectRecordWire,
+  EffectGroup,
+  EffectTarget,
+  PinWire,
+  LayoutWire,
+  TabOrderWire,
+  PersonalPreferences,
+  InstancePreferences,
+  ReadPositionWire,
+  SuperagentThreadWire,
+  NoticeWire,
+  AgentProfileWire,
+  WorkflowWire,
+  WorkflowRevisionWire,
+  WorkflowBindingWire,
+  WorkflowRunRecord,
+  SubscriptionWire,
   IssueUserStateWire,
   IssueGitStateProjection,
   IssueDerived,
   IssueProjection,
+  SlimIssueProjection,
+  IssueBriefWire,
+  IssueDescriptionWire,
+  IssuePanelTodoWire,
+  IssuePanelArtifactWire,
+  IssuePanelDeferredWire,
+  IssuePanelStateWire,
+
   IssueDepWire,
   IssueDepProjection,
   SessionMeta,

@@ -4,7 +4,7 @@ import {
   type MachineWire,
   type QuotaWindowHistoryWire,
 } from '@podium/model'
-import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView, HostMemoryBreakdown } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import {
   connectedDeviceViews,
@@ -57,6 +57,19 @@ const breakdown: HostMemoryBreakdown = {
 }
 
 describe('visibleFleetOperations', () => {
+  it('labels an unavailable target from the open view answer rather than the machine row', () => {
+    const host = machine('owned', { appVersion: '0.4.8' })
+    const args = {
+      machines: [host],
+      hosts: [],
+      targetUnavailableReasons: { [host.id]: 'No release for this platform' },
+    }
+    expect(visibleFleetOperations(args).machines[0]?.updateLabel).toBe('0.4.8 · target unavailable')
+    expect(
+      visibleFleetOperations({ ...args, targetUnavailableReasons: {} }).machines[0]?.updateLabel,
+    ).toBe('0.4.8')
+  })
+
   it('keeps visibility, use, liveness, and update state as separate facts', () => {
     const owned = machine('owned', {
       appVersion: '0.4.8',
@@ -129,10 +142,12 @@ describe('visibleFleetOperations', () => {
     const assigned = machine('agent-host')
     const readings = { [assigned.id]: { state: 'ready' as const, value: breakdown } }
     const disconnected = visibleFleetOperations({
-      machines: [{
-        ...assigned,
-        availability: { epoch: 'test', server: false, daemon: false, supervisor: true },
-      }],
+      machines: [
+        {
+          ...assigned,
+          availability: { epoch: 'test', server: false, daemon: false, supervisor: true },
+        },
+      ],
       hosts: [],
       capacityReadings: readings,
       nowMs: Date.parse('2026-08-31T00:05:01.000Z'),
@@ -160,11 +175,13 @@ describe('visibleFleetOperations', () => {
 
   it('keeps a disconnected server-only host offline even though execution is unassigned', () => {
     const fleet = visibleFleetOperations({
-      machines: [machine('server-only', {
-        online: false,
-        serviceAssignment: { server: true, agentExecution: false },
-        availability: { epoch: 'test', server: false, daemon: false, supervisor: false },
-      })],
+      machines: [
+        machine('server-only', {
+          online: false,
+          serviceAssignment: { server: true, agentExecution: false },
+          availability: { epoch: 'test', server: false, daemon: false, supervisor: false },
+        }),
+      ],
       hosts: [],
     })
 
@@ -294,12 +311,10 @@ describe('useGrantedHostMetrics', () => {
 describe('connectedDeviceViews', () => {
   const session = (
     sessionId: string,
-    partial: Partial<MobileClientSession> = {},
-  ): MobileClientSession => ({
-    sessionId,
-    userId: 'user:one',
-    label: 'mobile',
-    deviceId: `device-${sessionId}`,
+    partial: Partial<DeviceSignInView> = {},
+  ): DeviceSignInView => ({
+    id: sessionId,
+    kind: 'phone',
     deviceName: sessionId,
     platform: 'ios',
     createdAt: '2026-08-29T00:00:00.000Z',
@@ -328,11 +343,20 @@ describe('connectedDeviceViews', () => {
   })
 })
 
-
 it('shows daemon recovery reasons and counts in the mobile machine list', () => {
   const fleet = visibleFleetOperations({
-    machines: [machine('recovering', { daemonReadiness: { state: 'recovering', reason: 'retrying handshake', quarantinedBindings: 3 } })],
-    hosts: [], capacityReadings: {}, loadPerCore: 1.5,
+    machines: [
+      machine('recovering', {
+        daemonReadiness: {
+          state: 'recovering',
+          reason: 'retrying handshake',
+          quarantinedBindings: 3,
+        },
+      }),
+    ],
+    hosts: [],
+    capacityReadings: {},
+    loadPerCore: 1.5,
   })
   expect(fleet.machines[0]?.statusLabel).toBe('not ready · retrying handshake · 3 quarantined')
 })

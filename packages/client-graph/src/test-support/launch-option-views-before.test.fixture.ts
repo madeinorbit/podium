@@ -10,8 +10,8 @@ import { type GitRepositoryWire, machinePathBasename, machinePathKey, machinePat
 import { action, computed, observable, observableRef } from 'mobx'
 import { headerEntities } from '../header-entities'
 import { headerView } from '../header-views'
+import { pinnedIds } from '../per-user-records'
 import type { MobxPool } from '../pool'
-import { LOADING } from '../worklist/rollup'
 
 /** Live repository/host metadata shared by launchers. Recency is read only
  * by a picker's open action, never by the open launcher's derived fields. */
@@ -29,10 +29,8 @@ export function launchOptionViews(pool: MobxPool) {
       return reposToViews(scans)[0]
     })
     const machines = computed(() => headerView(pool).machines())
-    const pins = computed(() => {
-      const row = omitGone(pool.row('commandWindow', 'window'))
-      return row && row !== LOADING ? row.pins : EMPTY_PINS
-    })
+    // My pins are synced records since POD-6673.
+    const pins = computed(() => ({ repos: pinnedIds(pool, 'repo'), worktrees: pinnedIds(pool, 'worktree') }))
     const projectForRepository = (repo: NonNullable<ReturnType<typeof repository>>): RepoNavView => {
       const pinned = pins.get().worktrees
       return { ...repo, worktrees: repo.worktrees.flatMap(tree =>
@@ -134,7 +132,6 @@ export function launchOptionViews(pool: MobxPool) {
   })
 }
 
-const EMPTY_PINS = { repos: [] as readonly string[], worktrees: [] as readonly string[] }
 
 /** New-task recency belongs to this opening; host and catalog edits stay live. */
 export class LaunchCatalogPicker {

@@ -1,11 +1,11 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import type { ClientRuntime } from '@podium/client-core/engine'
-import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { createMobileSettingsSource } from '@podium/client-graph/mobile-settings'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { afterEach, expect, it, vi } from 'vitest'
+import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 
 const stops: (() => void)[] = []
 afterEach(() => {

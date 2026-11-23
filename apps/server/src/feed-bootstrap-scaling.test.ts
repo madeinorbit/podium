@@ -1,3 +1,4 @@
+import { fixtureWriteScope } from '@podium/sync/testing'
 /**
  * THE BOOTSTRAP MUST NOT BE QUADRATIC IN THE CORPUS (POD-1614).
  *
@@ -39,14 +40,17 @@
  * corpus sizes differ instead of matching.
  */
 
-import { asUserId, firstAdminMemberId, issueDepId } from '@podium/model'
+import { asSessionId, asUserId, firstAdminMemberId, issueDepId } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import { queryAttributionEnabled } from '@podium/runtime/query-attribution'
 import type { EntityChangeSpec, Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
+import { issueRowFixture } from './test-support/issue-row'
 import { statementBudget } from './test-support/statement-budget'
+import type { WriteContexts } from './write-contexts'
+import { seedRows } from './test-support/seed-rows'
 
 const OWNER = firstAdminMemberId()
 
@@ -63,21 +67,29 @@ const feedPrincipal: Principal = {
  *  once here rather than cast at every call site (as `automation-removal-
  *  scoping.test.ts` does for the same reason). */
 const internals = (reg: SessionRegistry) =>
-  reg as unknown as { ledger: Ledger; store: SessionStore }
+  reg as unknown as { ledger: Ledger; store: SessionStore; writes: WriteContexts }
 
 /**
- * Append `count` conversation rows to the change log, through the Ledger — the
- * same seam `MemoryService.reconcileConversations` writes them on. Their ids are
- * the `resumeValue`s the policy will be asked to resolve.
+ * Index `count` conversations and commit them through the Ledger, as the
+ * discovery write does: the rows are real, and the commit names their records
+ * (compare at save, POD-6770), so the bootstrap, which is built from the
+ * tables, has them to ask the policy about. Their ids are the `resumeValue`s
+ * the policy will be asked to resolve. Returns how many changes were appended.
  */
 async function seedConversations(reg: SessionRegistry, count: number): Promise<number> {
-  const specs: EntityChangeSpec[] = Array.from({ length: count }, (_, i) => ({
-    entity: 'conversation',
+  const { store, writes } = internals(reg)
+  const rows = Array.from({ length: count }, (_, i) => ({
     id: `conv-${i}`,
-    op: 'upsert',
-    value: { id: `conv-${i}`, machineId: 'm1', nativeId: `conv-${i}` },
+    agentKind: 'claude-code' as const,
+    providerId: 'claude-code-jsonl',
+    machineId: store.hostMachineId,
   }))
-  return (await internals(reg).ledger.capture(specs)).length
+  const committed = await writes.system('conversations.discovery').commit({
+    write: async (scope) => {
+      await store.conversations.index.upsert(scope, rows)
+    },
+  })
+  return committed.changes.length
 }
 
 /** How many times a bootstrap loads the WHOLE sessions table. */
@@ -191,6 +203,9 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
   it('reads only the anchored rows for a delivery, afresh after each append', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
+    // Every member reads every task that EXISTS (design §2.2, §4.1; 6d0dc46741
+    // retired the owner-or-grant read), so the anchored issues are real rows.
+    // Their legacy grants stay: the grant audiences still anchor the rows.
     for (const issueId of ['i1', 'i2']) {
       await store.grants.upsert({
         resourceKind: 'issue',
@@ -205,8 +220,18 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
         onBehalfOf: OWNER,
       })
     }
-    const latestStates = vi.spyOn(store.sync, 'latestChangeStates')
-    const installedReads = vi.spyOn(store.sync, 'installedStates')
+    await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
+    await store.transact(async () => {
+      for (const [index, id] of ['i1', 'i2'].entries()) {
+        await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
+          ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OWNER }),
+          repoId: undefined,
+          machineId: store.hostMachineId,
+          parentId: null,
+          worktreePath: null,
+        } as never))
+      }
+    })
     // RE-POINTED, NOT RELAXED [POD-3261]. The conserved quantity this test names
     // is ONE SESSION READ per generation, however many anchored issue refs the
     // batch carries; only the read changed. It was `loadSessions()` — every live
@@ -233,11 +258,10 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     }
     // Before POD-3261 this fixture made 5 latest-state folds (one anchor scan
     // plus current values) and 2 full session loads; until POD-6156 it made one
-    // fold of the whole installed world per append. Now nothing reads the whole
-    // world: the subjects' values are one grouped read by key, and the issues'
-    // sessions one indexed read.
-    expect(latestStates).toHaveBeenCalledTimes(0)
-    expect(installedReads).toHaveBeenCalledTimes(1)
+    // fold of the whole installed world per append, and until POD-6770 one
+    // grouped read of the installed copy by key. Now nothing reads the stored
+    // copy at all: the subjects' current values are built from the model
+    // tables, and the issues' sessions are one indexed read.
     expect(sessionLoads).toHaveBeenCalledTimes(1)
     expect(wholeTableLoads).toHaveBeenCalledTimes(0)
     expect(
@@ -277,8 +301,6 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     }
     // Each delivery reads the database afresh, so current values cannot come
     // from the previous delivery.
-    expect(latestStates).toHaveBeenCalledTimes(0)
-    expect(installedReads).toHaveBeenCalledTimes(2)
     expect(sessionLoads).toHaveBeenCalledTimes(2)
     expect(second.changes).toContainEqual(
       expect.objectContaining({
@@ -328,13 +350,13 @@ describe('POD-1732 — a bootstrap resolves visibility in batches, not per row',
  */
 const OTHER_OWNER = asUserId('usr_someone_else')
 
-/** Issue ids in the change log, owned by somebody else and read-granted to
- *  OWNER — so every one of them reaches the grant check rather than stopping at
- *  the owner check. No durable issue row is written on purpose: an absent row is
- *  the same miss a row owned by another user produces, by the same line. */
+/** Issues owned by somebody else and read-granted to OWNER, so every one of
+ *  them reaches the grant read. Real rows: the bootstrap is built from the
+ *  model tables (POD-6770), so an entry with no row is not in the world. */
 async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<number> {
-  const { ledger, store } = internals(reg)
+  const { store } = internals(reg)
   const ids = Array.from({ length: count }, (_, i) => `iss_shared_${i}`)
+  await seedRows(store, async () => await store.repos.addRepo('/r', store.hostMachineId))
   for (const id of ids) {
     await store.grants.upsert({
       resourceKind: 'issue',
@@ -349,14 +371,23 @@ async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<n
       onBehalfOf: OTHER_OWNER,
     })
   }
-  return (
-    await ledger.capture(
-      ids.map(
-        (id) =>
-          ({ entity: 'issueProjection', id, op: 'upsert', value: { id } }) as EntityChangeSpec,
-      ),
-    )
-  ).length
+  await store.transact(async () => {
+    for (const [index, id] of ids.entries()) {
+      await seedRows(store, async () => await store.issues.upsertIssue(fixtureWriteScope(), {
+        ...issueRowFixture({ id, repoPath: '/r', seq: index + 1, ownerUserId: OTHER_OWNER }),
+        repoId: undefined,
+        machineId: store.hostMachineId,
+        parentId: null,
+        worktreePath: null,
+      } as never))
+    }
+  })
+  // The feed's head: the load is stamped with it.
+  await store.sync.appendChanges(
+    [{ entity: 'issueProjection', entityId: ids[0] ?? 'none', op: 'upsert', payload: '{}' }],
+    1000,
+  )
+  return (await store.issues.getIssues(ids)).size
 }
 
 /** Wait until the authority has delivered every captured batch. Its broadcast
@@ -382,6 +413,7 @@ async function grantReadsDuring(
   const { store } = internals(reg)
   const one = store.grants.listForResource.bind(store.grants)
   const many = store.grants.listForResources.bind(store.grants)
+  const grouped = store.grants.loadForResourcesOfKinds.bind(store.grants)
   let points = 0
   let batches = 0
   const byKind = new Map<string, number>()
@@ -394,11 +426,18 @@ async function grantReadsDuring(
     byKind.set(kind, (byKind.get(kind) ?? 0) + 1)
     return await many(kind, ids)
   }
+  // The feed's own pass asks through the operation loader (POD-6217).
+  store.grants.loadForResourcesOfKinds = async (resources) => {
+    batches++
+    for (const kind of Object.keys(resources)) byKind.set(kind, (byKind.get(kind) ?? 0) + 1)
+    return await grouped(resources)
+  }
   try {
     await run()
   } finally {
     store.grants.listForResource = one
     store.grants.listForResources = many
+    store.grants.loadForResourcesOfKinds = grouped
   }
   return { points, batches, byKind }
 }
@@ -426,11 +465,12 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
       internals(large).ledger.authority.bootstrap(feedPrincipal),
     )
 
-    // No point read, and at either size one grouped read per resource kind the
-    // pass names: the issue edges once, never once per shared row.
+    // No point read, and the same grouped reads at either size, never one per
+    // shared row. Tasks are shared (POD-6288: every member reads every task),
+    // so a bootstrap reads no issue grant at all.
     expect(a.points).toBe(0)
     expect(b.points).toBe(0)
-    expect(a.byKind.get('issue')).toBe(1)
+    expect(a.byKind.get('issue')).toBeUndefined()
     expect(b.byKind).toEqual(a.byKind)
 
     // AND THE ANSWER IS UNCHANGED — the rows the grant admits are still in the
@@ -439,7 +479,7 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
     expect(world.changes.filter((change) => change.entity === 'issueProjection')).toHaveLength(32)
   })
 
-  it('reads them once for a batch across subscribed principals', async () => {
+  it('reads no session grant for a batch across subscribed principals (POD-6283)', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
     // Session subjects do not trigger the issue-anchor rescope threshold (32).
@@ -483,14 +523,40 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
     try {
       const publish = () =>
         grantReadsDuring(reg, async () => {
-          await ledger.capture(
-            Array.from({ length: 50 }, (_, i) => ({
-              entity: 'session',
-              id: `shared_${i}`,
-              op: 'upsert',
-              value: { id: `shared_${i}`, v: 2 },
-            })) as EntityChangeSpec[],
-          )
+          const ids = Array.from({ length: 50 }, (_, i) => asSessionId(`shared_${i}`))
+          await internals(reg)
+            .writes.system('conversations.discovery')
+            .commit({
+              write: async (scope) =>
+                await store.sessions.upsertSessions(
+                  scope,
+                  ids.map((id) => ({
+                    id,
+                    ownerUserId: OTHER_OWNER,
+                    agentKind: 'codex',
+                    cwd: '/repo',
+                    title: id,
+                    name: null,
+                    originKind: 'spawn',
+                    conversationId: null,
+                    resumeKind: null,
+                    resumeValue: null,
+                    status: 'exited',
+                    exitCode: 0,
+                    durableLabel: id,
+                    createdAt: '2026-11-11T00:00:00.000Z',
+                    lastActiveAt: '2026-11-11T00:00:00.000Z',
+                    lastOutputAt: null,
+                    lastInputAt: null,
+                    lastResumedAt: null,
+                    machineId: store.hostMachineId,
+                    headless: false,
+                    issueId: null,
+                    archived: false,
+                    workState: null,
+                  })),
+                ),
+            })
           await delivery
         })
       // Attribution must be enabled before import. The focused acceptance run
@@ -499,30 +565,24 @@ describe('POD-6155 — feed passes read grants in one grouped query', () => {
       const reads = budget?.result ?? (await publish())
       if (budget) {
         expect(budget.statements).toBeGreaterThan(0)
+        // Sessions are private: their visibility is their owner, so the 50
+        // legacy session grants seeded above are never read.
         const grantReads = [...budget.byQuery].filter(([sql]) => /\bgrants\b/i.test(sql))
-        expect(grantReads.reduce((sum, [, n]) => sum + n, 0)).toBe(1)
+        expect(grantReads.reduce((sum, [, n]) => sum + n, 0)).toBe(0)
       }
       expect(delivered).toEqual(Array.from({ length: 10 }, (_, i) => i))
+      // Every subscriber is answered, and none receives a session it was only
+      // granted: a legacy session grant admits nobody.
       for (const batch of payloads) {
-        expect(batch).toEqual(
-          expect.objectContaining({
-            kind: 'batch',
-            changes: expect.arrayContaining(
-              Array.from({ length: 50 }, (_, i) =>
-                expect.objectContaining({
-                  entity: 'session',
-                  entityId: `shared_${i}`,
-                  op: 'upsert',
-                  value: { id: `shared_${i}`, v: 2 },
-                }),
-              ),
-            ),
-          }),
-        )
+        expect(batch).toEqual(expect.objectContaining({ kind: 'batch' }))
+        expect(
+          ((batch as { changes?: { entity: string }[] }).changes ?? []).filter(
+            (change) => change.entity === 'session',
+          ),
+        ).toEqual([])
       }
       expect(reads.points).toBe(0)
-      // One grouped grant read for the whole batch, not one per subscriber.
-      expect(reads.batches).toBe(1)
+      expect(reads.batches).toBe(0)
     } finally {
       for (const off of unsubscribe) off()
     }

@@ -11,6 +11,7 @@
 import type { TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { AgentSessionHandle, RuntimeEvent, SessionSpec } from '../../host.js'
+import { testHarnessContext, testSessionTerms } from '../../testing/harness-context.js'
 import { createMemoryDriverSlots } from '../../testing/index.js'
 import { deltaItemIdForPart } from './map.js'
 import { createOpencodeRuntime } from './runtime.js'
@@ -18,6 +19,8 @@ import { makeOpencodeTestHost, type OpencodeTestHost } from './test-support/host
 
 const spec = (): SessionSpec => ({
   harness: 'opencode',
+  ...testSessionTerms(),
+  harnessContext: testHarnessContext({ kind: 'opencode' }),
   selection: { auth: 'api-key', platform: 'linux', available: ['opencode-server'] },
   workdir: '/tmp/transcript-item-test',
   model: {},

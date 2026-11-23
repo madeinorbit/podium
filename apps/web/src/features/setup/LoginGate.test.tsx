@@ -1,21 +1,70 @@
+import { httpsRequiredRefusal } from '@podium/protocol'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ClientRegistration, clientRegistration } from '@/app/client-registration'
+import type { Trpc } from '@/app/trpc'
+import { useAccount } from '@/lib/account-context'
+import type { NativeClientRegistrationStatus, NativeDesktopBridge } from '@/lib/nativeDesktop'
+import { accountCapabilities, passwordCapabilities } from '@/test-support/auth-capabilities'
 import { LoginGate, LoginView } from './LoginGate'
+
+// The refused account's erase (POD-6293) is observed, not run: jsdom has no
+// IndexedDB to erase. Every other account operation is the real one.
+const removePrincipal = vi.fn(async (_principal: string) => {})
+vi.mock('@/lib/accounts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/accounts')>()
+  return {
+    ...actual,
+    webAccounts: (origin: string) => ({ ...actual.webAccounts(origin), removePrincipal }),
+  }
+})
 
 afterEach(() => {
   cleanup()
   localStorage.clear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  removePrincipal.mockClear()
 })
 
 const child = <div>APP-READY</div>
 
 function statusFetch(body: unknown) {
-  return vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body })
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      capabilities: passwordCapabilities,
+      prompt: 'password',
+      ...(body as Record<string, unknown>),
+    }),
+  })
 }
 
 describe('LoginGate', () => {
+  it.each([
+    'browser',
+    'desktop',
+  ])('shows dedicated HTTPS guidance for a refused %s connection', async (surface) => {
+    const guidance = httpsRequiredRefusal('https://podium.example')
+    if (surface === 'desktop') vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux' })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json(guidance, { status: 400 })),
+    )
+    render(<LoginGate>{child}</LoginGate>)
+    await screen.findByRole('heading', { name: 'Connect with HTTPS' })
+    expect(screen.getByText(guidance.message)).toBeTruthy()
+    expect(
+      screen.getByRole('link', { name: 'Open https://podium.example' }).getAttribute('href'),
+    ).toBe('https://podium.example')
+    expect(
+      screen.getByRole('link', { name: 'HTTPS setup instructions' }).getAttribute('href'),
+    ).toBe(guidance.docsUrl)
+    expect(screen.queryByLabelText(/password/i)).toBeNull()
+    expect(screen.queryByText('APP-READY')).toBeNull()
+  })
+
   it('renders the app when no password is required (open mode)', async () => {
     vi.stubGlobal('fetch', statusFetch({ needsAuth: false, authed: false }))
     render(<LoginGate>{child}</LoginGate>)
@@ -155,68 +204,45 @@ describe('LoginView', () => {
     }),
   }
 
-  it('hides the email field and signs in the first admin as user:sole', async () => {
+  it('hides the email field and signs in the first admin with only a password', async () => {
     const login = vi.fn().mockResolvedValue(signedIn)
     vi.stubGlobal('fetch', login)
     const onLoggedIn = vi.fn()
-    render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="password"
+        httpOrigin="http://x"
+        onLoggedIn={onLoggedIn}
+      />,
+    )
     expect(screen.queryByLabelText(/^email$/i)).toBeNull()
     expect(document.activeElement).toBe(screen.getByLabelText(/password/i))
     typePasswordAndSubmit('hunter2')
     await waitFor(() => expect(onLoggedIn).toHaveBeenCalled())
     const body = JSON.parse((login.mock.calls[0]?.[1] as { body: string }).body)
-    expect(body).toEqual({ email: 'user:sole', password: 'hunter2' })
+    expect(body).toEqual({ password: 'hunter2' })
   })
 
-  it('signs in with an email once revealed, and keeps it shown next time', async () => {
+  it('uses the email form selected by the server without storing a form override', async () => {
     const login = vi.fn().mockResolvedValue(signedIn)
     vi.stubGlobal('fetch', login)
     const onLoggedIn = vi.fn()
-    const view = render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in with email' }))
-    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'alice@example.com' } })
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="email-password"
+        httpOrigin="http://x"
+        onLoggedIn={onLoggedIn}
+      />,
+    )
+    fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'alice@example.com' } })
     typePasswordAndSubmit('hunter2')
     await waitFor(() => expect(onLoggedIn).toHaveBeenCalled())
-    const body = JSON.parse((login.mock.calls[0]?.[1] as { body: string }).body)
-    expect(body).toEqual({ email: 'alice@example.com', password: 'hunter2' })
-    view.unmount()
-    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
-    expect(screen.getByLabelText(/^email$/i)).toBeTruthy()
-  })
-
-  it('keeps the existing remembered email form but returns to first-admin sign-in when chosen', async () => {
-    localStorage.setItem('podium.login.withEmail', '1')
-    const login = vi.fn().mockResolvedValue(signedIn)
-    vi.stubGlobal('fetch', login)
-    const onLoggedIn = vi.fn()
-    const view = render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
-    expect(screen.getByLabelText(/^email$/i)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in with password only' }))
-    typePasswordAndSubmit('hunter2')
-    await waitFor(() =>
-      expect(onLoggedIn).toHaveBeenCalledWith(JSON.stringify(['installation-a', 'alice'])),
-    )
     expect(JSON.parse(login.mock.calls[0]![1].body)).toEqual({
-      email: 'user:sole',
+      email: 'alice@example.com',
       password: 'hunter2',
     })
-    view.unmount()
-    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
-    expect(screen.queryByLabelText(/^email$/i)).toBeNull()
-  })
-
-  it.each([
-    { ok: false, status: 401, json: async () => ({}) },
-    { ok: true, status: 200, json: async () => ({ ok: true }) },
-  ])('does not remember a form choice without a verified principal: $status', async (response) => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
-    const onLoggedIn = vi.fn()
-    render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in with email' }))
-    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'alice@example.com' } })
-    typePasswordAndSubmit('hunter2')
-    await screen.findByRole('alert')
-    expect(onLoggedIn).not.toHaveBeenCalled()
     expect(localStorage.getItem('podium.login.withEmail')).toBeNull()
   })
 
@@ -232,7 +258,14 @@ describe('LoginView', () => {
     })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(signedIn))
     const onLoggedIn = vi.fn()
-    render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="password"
+        httpOrigin="http://x"
+        onLoggedIn={onLoggedIn}
+      />,
+    )
     expect(screen.queryByLabelText(/^email$/i)).toBeNull()
     typePasswordAndSubmit('hunter2')
     await waitFor(() =>
@@ -254,7 +287,14 @@ describe('LoginView', () => {
     })
     vi.stubGlobal('fetch', login)
     const onLoggedIn = vi.fn()
-    render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="password"
+        httpOrigin="http://x"
+        onLoggedIn={onLoggedIn}
+      />,
+    )
     typePasswordAndSubmit('hunter2')
     await waitFor(() =>
       expect(onLoggedIn).toHaveBeenCalledWith(JSON.stringify(['installation-a', 'alice'])),
@@ -264,7 +304,7 @@ describe('LoginView', () => {
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     )
     const body = JSON.parse((login.mock.calls[0]?.[1] as { body: string }).body)
-    expect(body).toEqual({ email: 'user:sole', password: 'hunter2' })
+    expect(body).toEqual({ password: 'hunter2' })
   })
 
   it('shows an error and does not proceed on a wrong password (401)', async () => {
@@ -273,7 +313,14 @@ describe('LoginView', () => {
       vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }),
     )
     const onLoggedIn = vi.fn()
-    render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="password"
+        httpOrigin="http://x"
+        onLoggedIn={onLoggedIn}
+      />,
+    )
     typePasswordAndSubmit('wrong')
     expect((await screen.findByRole('alert')).textContent).toBe(
       '✗ incorrect email or password — try again',
@@ -286,7 +333,14 @@ describe('LoginView', () => {
       'fetch',
       vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({}) }),
     )
-    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="password"
+        httpOrigin="http://x"
+        onLoggedIn={vi.fn()}
+      />,
+    )
     typePasswordAndSubmit('x')
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('✗ too many attempts — wait a moment, then try again')
@@ -297,7 +351,14 @@ describe('LoginView', () => {
       'fetch',
       vi.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) }),
     )
-    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="password"
+        httpOrigin="http://x"
+        onLoggedIn={vi.fn()}
+      />,
+    )
     typePasswordAndSubmit('wrong')
     await screen.findByRole('alert')
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'wrong2' } })
@@ -315,7 +376,14 @@ describe('LoginView', () => {
         }),
       ),
     )
-    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="password"
+        httpOrigin="http://x"
+        onLoggedIn={vi.fn()}
+      />,
+    )
     const status = screen.getByRole('status')
     expect(status.textContent).toContain('waiting on you')
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'pw' } })
@@ -337,7 +405,14 @@ describe('LoginView', () => {
 
   it('shows the caps-lock pill while CapsLock is on', () => {
     vi.stubGlobal('fetch', vi.fn())
-    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="password"
+        httpOrigin="http://x"
+        onLoggedIn={vi.fn()}
+      />,
+    )
     const input = screen.getByLabelText(/password/i)
     // happy-dom ignores the modifierCapsLock init flag, so stub getModifierState directly.
     const capsEvent = (type: string, on: boolean) => {
@@ -353,7 +428,14 @@ describe('LoginView', () => {
 
   it('renders the ASCII wordmark', () => {
     vi.stubGlobal('fetch', vi.fn())
-    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    render(
+      <LoginView
+        capabilities={passwordCapabilities}
+        prompt="password"
+        httpOrigin="http://x"
+        onLoggedIn={vi.fn()}
+      />,
+    )
     expect(screen.getByLabelText('Podium')).toBeTruthy()
   })
 })
@@ -368,7 +450,12 @@ describe('LoginGate success reveal', () => {
         .mockResolvedValueOnce({
           ok: true,
           status: 200,
-          json: async () => ({ needsAuth: true, authed: false }),
+          json: async () => ({
+            needsAuth: true,
+            authed: false,
+            capabilities: passwordCapabilities,
+            prompt: 'password',
+          }),
         })
         // auth/login → success
         .mockResolvedValue({
@@ -411,113 +498,46 @@ describe('LoginGate success reveal', () => {
   })
 })
 
-describe('cloud login gate', () => {
-  it.each([
-    'not a member of this workspace',
-    'Server-supplied admission reason',
-  ])('shows the provider refusal verbatim: %s', async (deniedReason) => {
-    const fetchMock = statusFetch({
-      needsAuth: true,
-      authed: false,
-      mode: 'cloud',
-      providerSignedIn: true,
-      deniedReason,
-    })
-    vi.stubGlobal('fetch', fetchMock)
-    const renderApp = vi.fn(() => child)
-    render(<LoginGate>{renderApp}</LoginGate>)
-    expect((await screen.findByRole('alert')).textContent).toBe(deniedReason)
-    expect(screen.queryByRole('link')).toBeNull()
-    expect(screen.queryByRole('button')).toBeNull()
-    expect(screen.getByRole('main').textContent).toBe(deniedReason)
-    expect(screen.queryByLabelText(/password/i)).toBeNull()
-    expect(renderApp).not.toHaveBeenCalled()
-    expect(fetchMock).toHaveBeenCalledOnce()
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringMatching(/\/auth\/status$/),
-      expect.objectContaining({ credentials: 'include' }),
-    )
-  })
-
-  it.each([
-    { providerSignedIn: false, deniedReason: 'not a member of this workspace' },
-    { providerSignedIn: true },
-    { providerSignedIn: true, deniedReason: 403 },
-    { providerSignedIn: true, deniedReason: '' },
-  ])('keeps sign-in available without a valid provider refusal: %j', async (reporting) => {
+describe('account capability sign-in', () => {
+  it('shows membership denial from the shared envelope and keeps account switching available', async () => {
     vi.stubGlobal(
       'fetch',
-      statusFetch({ needsAuth: true, authed: false, mode: 'cloud', ...reporting }),
+      statusFetch({
+        needsAuth: true,
+        authed: false,
+        capabilities: accountCapabilities,
+        prompt: 'email-password',
+        denied: 'not_workspace_member',
+      }),
     )
     render(<LoginGate>{child}</LoginGate>)
-    expect(await screen.findByRole('link', { name: 'Continue with Podium Cloud' })).toBeTruthy()
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect((await screen.findByRole('alert')).textContent).toBe(
+      'This account is not a member of this workspace.',
+    )
+    expect(screen.getByRole('button', { name: 'Use another account' })).toBeTruthy()
+    expect(screen.queryByLabelText('Password')).toBeNull()
     expect(screen.queryByText('APP-READY')).toBeNull()
   })
-
-  it('admits an authenticated cloud member even if reporting fields remain', async () => {
+  it('admits an authenticated member even if denial reporting remains', async () => {
     vi.stubGlobal(
       'fetch',
       statusFetch({
         needsAuth: true,
         authed: true,
-        mode: 'cloud',
+        capabilities: accountCapabilities,
         userId: 'alice',
         memberId: 'alice',
         syncBoundaryId: 'installation-a',
-        providerSignedIn: true,
-        deniedReason: 'not a member of this workspace',
+        denied: 'not_workspace_member',
       }),
     )
     render(<LoginGate>{child}</LoginGate>)
     expect(await screen.findByText('APP-READY')).toBeTruthy()
-    expect(screen.queryByRole('alert')).toBeNull()
-  })
-
-  it('shows only the cloud sign-in link and keeps the workspace return path', async () => {
-    window.history.replaceState(null, '', '/w/anna/session/one')
-    vi.stubGlobal(
-      'fetch',
-      vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ needsAuth: true, authed: false, mode: 'cloud' })),
-        ),
-    )
-    render(<LoginGate>{child}</LoginGate>)
-    const link = await screen.findByRole('link', { name: 'Continue with Podium Cloud' })
-    expect(link.getAttribute('href')).toBe('/account/sign-in?returnTo=%2Fw%2Fanna%2Fsession%2Fone')
-    expect(document.querySelector('input[type="password"]')).toBeNull()
-    expect(document.querySelector('input[type="email"]')).toBeNull()
-    window.history.replaceState(null, '', '/')
   })
 })
 
-it('uses the configured cloud destination and preserves query, fragment, and workspace return path', async () => {
-  window.history.replaceState(null, '', '/w/anna/issues/one?view=full#comment')
-  vi.stubGlobal(
-    'fetch',
-    statusFetch({
-      needsAuth: true,
-      authed: false,
-      mode: 'cloud',
-      signInUrl: 'https://accounts.example/login?org=one&returnTo=old#start',
-    }),
-  )
-  render(<LoginGate>{child}</LoginGate>)
-  const link = await screen.findByRole('link', { name: 'Continue with Podium Cloud' })
-  const destination = new URL(link.getAttribute('href')!)
-  expect(destination.origin + destination.pathname).toBe('https://accounts.example/login')
-  expect(destination.searchParams.get('org')).toBe('one')
-  expect(destination.searchParams.getAll('returnTo')).toEqual([
-    '/w/anna/issues/one?view=full#comment',
-  ])
-  expect(destination.hash).toBe('#start')
-  expect(screen.queryByLabelText(/password/i)).toBeNull()
-  window.history.replaceState(null, '', '/')
-})
-
-it('opens desktop cloud sign-in in the system browser with the handoff intent', async () => {
+it('opens the reported account page in the desktop system browser with the workspace return path', async () => {
+  window.history.replaceState(null, '', '/w/alice/issues/one?view=full#comment')
   const beginCloudSignIn = vi.fn().mockResolvedValue(undefined)
   vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', beginCloudSignIn })
   vi.stubGlobal(
@@ -525,62 +545,52 @@ it('opens desktop cloud sign-in in the system browser with the handoff intent', 
     handoffFetch({
       needsAuth: true,
       authed: false,
-      mode: 'cloud',
-      signInUrl: 'https://ade.podium.do/account/sign-in',
+      capabilities: accountCapabilities,
+      prompt: 'email-password',
     }),
   )
   render(<LoginGate>{child}</LoginGate>)
-  const link = await screen.findByRole('link', { name: 'Continue with Podium Cloud' })
-  expect(fireEvent.click(link)).toBe(false)
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }))
   await waitFor(() => expect(beginCloudSignIn).toHaveBeenCalledOnce())
   expect(beginCloudSignIn.mock.calls[0]![1]).toBe('a'.repeat(64))
   const url = new URL(beginCloudSignIn.mock.calls[0]![0])
-  expect(url.origin + url.pathname).toBe('https://ade.podium.do/account/sign-in')
+  expect(url.origin + url.pathname).toBe('https://accounts.example/account/sign-in')
   expect(url.searchParams.get('handoff')).toBe('desktop')
+  expect(url.searchParams.get('returnTo')).toBe('/w/alice/issues/one?view=full#comment')
+  window.history.replaceState(null, '', '/')
 })
-
 it('keeps sign-in out of the webview when the browser opener fails', async () => {
   vi.stubGlobal('__PODIUM_DESKTOP__', {
     platform: 'linux',
-    beginCloudSignIn: vi.fn().mockRejectedValue(new Error('unavailable')),
+    beginCloudSignIn: vi.fn().mockRejectedValue(new Error('Browser unavailable')),
   })
-  vi.stubGlobal('fetch', handoffFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
+  vi.stubGlobal(
+    'fetch',
+    handoffFetch({
+      needsAuth: true,
+      authed: false,
+      capabilities: accountCapabilities,
+      prompt: 'email-password',
+    }),
+  )
   render(<LoginGate>{child}</LoginGate>)
-  expect(
-    fireEvent.click(await screen.findByRole('link', { name: 'Continue with Podium Cloud' })),
-  ).toBe(false)
-  expect((await screen.findByRole('alert')).textContent).toContain('Could not open your browser')
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('Browser unavailable')
 })
-
-it('lets the person retry an expired or reused handoff', async () => {
-  window.history.replaceState(null, '', '/?handoff=failed')
-  vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
-  render(<LoginGate>{child}</LoginGate>)
-  expect((await screen.findByRole('alert')).textContent).toContain('expired or was already used')
-  expect(screen.getByRole('link', { name: 'Continue with Podium Cloud' })).toBeTruthy()
-  window.history.replaceState(null, '', '/')
-})
-
-it('asks an older desktop to update instead of navigating into embedded sign-in', async () => {
+it('asks an older desktop to update before starting an account handover', async () => {
   vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux' })
-  vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
+  vi.stubGlobal(
+    'fetch',
+    statusFetch({
+      needsAuth: true,
+      authed: false,
+      capabilities: accountCapabilities,
+      prompt: 'email-password',
+    }),
+  )
   render(<LoginGate>{child}</LoginGate>)
-  expect(
-    fireEvent.click(await screen.findByRole('link', { name: 'Continue with Podium Cloud' })),
-  ).toBe(false)
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue with GitHub' }))
   expect((await screen.findByRole('alert')).textContent).toContain('Update Podium Desktop')
-})
-
-it('does not open twice when the native capture shim already handled the link', async () => {
-  const openExternal = vi.fn().mockResolvedValue(undefined)
-  vi.stubGlobal('__PODIUM_DESKTOP__', { platform: 'linux', openExternal })
-  vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: false, mode: 'cloud' }))
-  render(<LoginGate>{child}</LoginGate>)
-  const link = await screen.findByRole('link', { name: 'Continue with Podium Cloud' })
-  const click = new MouseEvent('click', { bubbles: true, cancelable: true })
-  click.preventDefault()
-  fireEvent(link, click)
-  expect(openExternal).not.toHaveBeenCalled()
 })
 
 function handoffFetch(status: Parameters<typeof statusFetch>[0]) {
@@ -610,9 +620,187 @@ it('returns to the existing sign-in flow when HTTP sync reports expired auth', a
   fetchMock.mockResolvedValue({
     ok: true,
     status: 200,
-    json: async () => ({ needsAuth: true, authed: false }),
+    json: async () => ({
+      needsAuth: true,
+      authed: false,
+      capabilities: passwordCapabilities,
+      prompt: 'password',
+    }),
   })
   fireEvent(window, new Event('podium:sync-auth-expired'))
   expect(await screen.findByLabelText(/password/i)).toBeTruthy()
   expect(screen.queryByText('APP-READY')).toBeNull()
+})
+
+it('ignores a late expiry from an account that is no longer mounted (POD-6292)', async () => {
+  const fetchMock = statusFetch({
+    needsAuth: true,
+    authed: true,
+    userId: 'bob',
+    memberId: 'bob',
+    syncBoundaryId: 'installation-a',
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  render(<LoginGate>{child}</LoginGate>)
+  expect(await screen.findByText('APP-READY')).toBeTruthy()
+  const probes = fetchMock.mock.calls.length
+  // A request Alice's runtime sent before the switch is refused after it.
+  fireEvent(
+    window,
+    new CustomEvent('podium:sync-auth-expired', {
+      detail: { principal: JSON.stringify(['installation-a', 'alice']) },
+    }),
+  )
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  expect(screen.getByText('APP-READY')).toBeTruthy()
+  expect(fetchMock.mock.calls.length).toBe(probes)
+  expect(removePrincipal).not.toHaveBeenCalled()
+  // Bob's own expiry still ends Bob's session.
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      needsAuth: true,
+      authed: false,
+      capabilities: passwordCapabilities,
+      prompt: 'password',
+    }),
+  })
+  fireEvent(
+    window,
+    new CustomEvent('podium:sync-auth-expired', {
+      detail: { principal: JSON.stringify(['installation-a', 'bob']) },
+    }),
+  )
+  expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+})
+
+it('keeps current native registration live on foreign expiry and cancels it on own expiry', async () => {
+  const principal = JSON.stringify(['installation-a', 'bob'])
+  const fetchMock = statusFetch({
+    needsAuth: true,
+    authed: true,
+    memberId: 'bob',
+    syncBoundaryId: 'installation-a',
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  const registration = new ClientRegistration()
+  vi.spyOn(clientRegistration, 'invalidateLogin').mockImplementation(() =>
+    registration.invalidateLogin(),
+  )
+  function pendingRead() {
+    let resolve!: (value: NativeClientRegistrationStatus) => void
+    const promise = new Promise<NativeClientRegistrationStatus>((done) => {
+      resolve = done
+    })
+    return { promise, resolve }
+  }
+  const firstRead = pendingRead()
+  const secondRead = pendingRead()
+  const read = vi
+    .fn()
+    .mockReturnValueOnce(firstRead.promise)
+    .mockReturnValueOnce(secondRead.promise)
+  const save = vi.fn(async () => {})
+  const mint = vi.fn().mockResolvedValue({ code: 'OWNER-CODE' })
+  const bridge: NativeDesktopBridge = {
+    platform: 'linux',
+    launchMode: 'client',
+    minimize: vi.fn(),
+    toggleMaximize: vi.fn(),
+    close: vi.fn(),
+    clientRegistrationStatus: read,
+    registerClient: save,
+  }
+  const trpc = { machines: { pairingCode: { mutate: mint } } } as unknown as Trpc
+  const needed = { state: 'needed', target: 'same-client', machineId: 'retained-client' } as const
+  render(<LoginGate>{child}</LoginGate>)
+  await screen.findByText('APP-READY')
+  const first = registration.start(bridge, trpc, principal)
+  fireEvent(
+    window,
+    new CustomEvent('podium:sync-auth-expired', {
+      detail: { principal: JSON.stringify(['installation-a', 'alice']) },
+    }),
+  )
+  firstRead.resolve(needed)
+  await first
+  expect(save).toHaveBeenCalledExactlyOnceWith('OWNER-CODE', 'same-client')
+  expect(screen.getByText('APP-READY')).toBeTruthy()
+
+  registration.retryAfterSignIn()
+  const second = registration.start(bridge, trpc, principal)
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      needsAuth: true,
+      authed: false,
+      capabilities: passwordCapabilities,
+      prompt: 'password',
+    }),
+  })
+  fireEvent(window, new CustomEvent('podium:sync-auth-expired', { detail: { principal } }))
+  secondRead.resolve(needed)
+  await second
+  expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+  expect(mint).toHaveBeenCalledTimes(1)
+  expect(save).toHaveBeenCalledTimes(1)
+})
+
+it("a refused account's stored data is erased before the sign-in shows again (POD-6293)", async () => {
+  // Bob was disabled or signed out elsewhere while this device was offline.
+  const BOB = JSON.stringify(['installation-a', 'bob'])
+  const fetchMock = statusFetch({
+    needsAuth: true,
+    authed: true,
+    userId: 'bob',
+    memberId: 'bob',
+    syncBoundaryId: 'installation-a',
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  render(<LoginGate>{child}</LoginGate>)
+  expect(await screen.findByText('APP-READY')).toBeTruthy()
+  fetchMock.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      needsAuth: true,
+      authed: false,
+      capabilities: passwordCapabilities,
+      prompt: 'password',
+    }),
+  })
+  fireEvent(window, new CustomEvent('podium:sync-auth-expired', { detail: { principal: BOB } }))
+  expect(await screen.findByLabelText(/password/i)).toBeTruthy()
+  expect(screen.queryByText('APP-READY')).toBeNull()
+  expect(removePrincipal).toHaveBeenCalledExactlyOnceWith(BOB)
+})
+
+describe('the sign-out control is offered only where a login is required (POD-6292)', () => {
+  function SignOutProbe() {
+    return <div>{useAccount() ? 'SIGN-OUT-OFFERED' : 'NO-SIGN-OUT'}</div>
+  }
+  const member = { memberId: 'alice', userId: 'alice', syncBoundaryId: 'installation-a' }
+
+  it('offers none in open mode, which would sign straight back in', async () => {
+    vi.stubGlobal('fetch', statusFetch({ needsAuth: false, authed: true, ...member }))
+    render(
+      <LoginGate>
+        <SignOutProbe />
+      </LoginGate>,
+    )
+    expect(await screen.findByText('NO-SIGN-OUT')).toBeTruthy()
+  })
+
+  it('offers it to a member signed in with a credential', async () => {
+    vi.stubGlobal('fetch', statusFetch({ needsAuth: true, authed: true, ...member }))
+    render(
+      <LoginGate>
+        <SignOutProbe />
+      </LoginGate>,
+    )
+    expect(await screen.findByText('SIGN-OUT-OFFERED')).toBeTruthy()
+  })
 })

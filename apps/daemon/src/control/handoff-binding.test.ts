@@ -1,6 +1,7 @@
 import { asAgentIdentityId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import { exportCwd, handoffHandlers } from './handoff'
 
@@ -25,6 +26,7 @@ function refusalContext(sent: DaemonMessage[]): DaemonContext {
   return {
     machineId: 'target-machine',
     send: (message: DaemonMessage) => sent.push(message),
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 }
 

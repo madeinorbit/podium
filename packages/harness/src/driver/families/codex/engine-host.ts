@@ -46,26 +46,36 @@
  * file never touches the socket's filesystem entry.
  */
 
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { access, readFile } from 'node:fs/promises'
 import { createLogger } from '@podium/logger'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import { codexMcpArgs } from '../../../adapters/codex/index.js'
+import {
+  codexEngineHookTrustArgs,
+  PODIUM_CODEX_HOOK_SOCKET_ENV,
+  PODIUM_CODEX_HOOK_URL_ENV,
+} from '../../../adapters/codex/instrumentation.js'
 import { codexTranscript } from '../../../adapters/codex/transcript.js'
-import { readEngineHistoryFromGrammar } from '../engine-history.js'
+import { harnessCommand } from '../../../bound-command.js'
+import type { HarnessContext, HarnessInstallation } from '../../../harness-context-types.js'
+import {
+  agentLaunchTerms,
+  agentTermsFor,
+  type LaunchFolders,
+  launchPosture,
+} from '../../../launch-terms.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import {
   CODEX_VERSION_POLICY,
   gateHarnessVersion,
   harnessVersionDiagnostic,
 } from '../../../version-policy.js'
-import type { AttachmentStager } from '../../turns.js'
 import type { ScopeResources } from '../../capabilities.js'
-import type { CodexJournalEntry, CodexRuntimeHost, CodexServerEndpoint } from './runtime.js'
-import type { CodexTransport } from './client.js'
-import type { CodexVersionDiagnostic } from './version.js'
-import type { CodexEngineFacts } from './engine-facts.js'
+import type { AttachmentStager } from '../../turns.js'
+import { readEngineHistoryFromGrammar } from '../engine-history.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
@@ -73,6 +83,10 @@ import type {
   SessionEngineOwner,
 } from '../engine-supervision.js'
 import { bindingRecordsOf, EngineBindUnrecoverable } from '../engine-supervision.js'
+import type { CodexTransport } from './client.js'
+import type { CodexEngineFacts } from './engine-facts.js'
+import type { CodexJournalEntry, CodexRuntimeHost, CodexServerEndpoint } from './runtime.js'
+import type { CodexVersionDiagnostic } from './version.js'
 
 const log = createLogger('harness:codex-engine-host')
 
@@ -144,11 +158,14 @@ export function evaluateCodexVersionProbe(output: string, ok: boolean): CodexPro
  * present. The app-server's current default routes approval requests through
  * server→client JSON-RPC, which is the behaviour this driver consumes; pinning
  * a retired policy both duplicates the harness default and kills every session
- * before that protocol can open.
+ * before that protocol can open. An autonomous session's posture adds only
+ * `approvals_reviewer="auto_review"`, which sends those requests to Codex's
+ * reviewer instead.
  *
- * `sandbox_mode=workspace-write` matches what a Podium session is for — an agent
- * that may edit the worktree it was pointed at — and keeps the network closed
- * unless the MCP mount opens it below.
+ * THE SANDBOX IS THE POSTURE SECTION'S (adapters/codex/posture.ts, POD-6858):
+ * `sandbox_mode="workspace-write"`, loopback open in it in every mode, folder
+ * trust and the approval reviewer are added by the adapter's `engine` terms
+ * when the command is bound, so the engine and the terminal state them once.
  */
 export function codexAppServerConfigArgs(input: {
   /** The session's MCP declaration, forwarded by the driver from `SessionSpec`. */
@@ -177,14 +194,6 @@ export function codexAppServerConfigArgs(input: {
   const mcp = config ? codexMcpArgs(config, 'app-server') : { args: [], env: {} }
   return {
     args: [
-      '-c',
-      'sandbox_mode="workspace-write"',
-      ...(mcp.args.length > 0
-        ? // The terminal launch already does this for the loopback CLI; an MCP
-          // server Podium hosts on loopback is unreachable from a sandbox with
-          // no network, so mounting one without this is mounting nothing.
-          ['-c', 'sandbox_workspace_write.network_access=true']
-        : []),
       ...mcp.args,
       // The terminal adapter's own override, so a session's instructions reach
       // Codex the same way whichever driver runs it (POD-5814).
@@ -193,6 +202,31 @@ export function codexAppServerConfigArgs(input: {
         : []),
     ],
     env: mcp.env,
+  }
+}
+
+/** The hook wiring a Codex terminal gets and an engine never may. */
+const ENGINE_HOOK_ENV = [PODIUM_CODEX_HOOK_URL_ENV, PODIUM_CODEX_HOOK_SOCKET_ENV] as const
+
+/**
+ * Codex refuses to start when `CODEX_HOME` names a directory that does not
+ * exist (0.169: "CODEX_HOME points to …, but that path does not exist"), and
+ * every child's environment names one (`<home>/.codex`). A machine whose user
+ * never ran Codex has none, and a session on a ChatGPT plan signed in to
+ * Podium needs no login there, only the directory (epic Task 15). So it is
+ * made here, owner-only, as Codex makes it when the variable is unset.
+ */
+export function ensureCodexHome(
+  env: Readonly<Record<string, string>>,
+  mkdir: (path: string, opts: { recursive: true; mode: number }) => unknown = mkdirSync,
+): void {
+  const dir = env.CODEX_HOME
+  if (!dir) return
+  try {
+    mkdir(dir, { recursive: true, mode: 0o700 })
+  } catch (err) {
+    // Codex's own refusal then names the problem; this adds the cause.
+    log.warn('could not create the codex home', { err, dir })
   }
 }
 
@@ -264,19 +298,30 @@ export interface CodexEngineHostDeps {
   buildEnv(input: {
     sessionId: SessionId
     agentKind: HarnessAgent
+    /** The session's pinned context: its environment is the child's base. */
+    harnessContext: HarnessContext
     homeDir?: string
     sessionEnv?: Readonly<Record<string, string>>
     harnessEnv?: Readonly<Record<string, string>>
     instanceUuid?: string
   }): Record<string, string>
+  /** The context a session runs under when a launch has no spec in hand
+   *  (adopt, wake): see `CodexRuntimeHost.harnessContextFor`. */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's grants for a session with no spec in hand (POD-6858): see
+   *  `CodexRuntimeHost.podiumGrantsFor`. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
+  /** The session's launch folders (POD-6858): its runtime folder for
+   *  generated config and, for a worktree, the main checkout. */
+  launchFoldersFor(sessionId: SessionId, workdir: string): Promise<LaunchFolders>
   /** How long a SIGTERM stop waits for the rollout's last flush. Shared with
    *  the reap that has to outlast it — the one declaration carries both
    *  numbers, so it arrives as a value rather than living here twice. */
   gracefulExitMs: number
-  /** Version admission: only the floor can refuse a launch. The supervisor
-   *  owns the probe budget, the memo and the fork; this family owns the
-   *  evaluation (see `evaluateCodexVersionProbe`). */
-  checkVersion(): Promise<CodexProbeVerdict>
+  /** Version admission for the session's installation: only the floor can
+   *  refuse a launch. The supervisor owns the probe budget, the memo and the
+   *  fork; this family owns the evaluation (see `evaluateCodexVersionProbe`). */
+  checkVersion(installation: HarnessInstallation): Promise<CodexProbeVerdict>
   /** Open one WebSocket client to the engine's listener, by the address the
    *  session layer handed. The supervisor owns the socket library and the
    *  socket file; the retry loop and the transport adapter below are this
@@ -321,7 +366,10 @@ export class CodexEngineLeaseRefused extends Error {
  * an owner cannot summon one at all. Loud, naming the session — a refused
  * launch beats a child no restart could re-adopt.
  */
-function engineOwner(engines: EngineProcessOwner | undefined, sessionId: SessionId): EngineProcessOwner {
+function engineOwner(
+  engines: EngineProcessOwner | undefined,
+  sessionId: SessionId,
+): EngineProcessOwner {
   if (!engines) {
     throw new Error(
       `codex engine for ${sessionId} requires the session engine owner: this family never spawns its own engine`,
@@ -417,7 +465,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
     sessionId: SessionId,
     label: string,
   ): Promise<{ held: HeldEngine; address: string | undefined } | undefined> {
-    let hold
+    let hold: Awaited<ReturnType<EngineProcessOwner['reattachEngine']>>
     try {
       hold = await owner.reattachEngine({ label, fromSeq: 'tail', sessionId })
     } catch (err) {
@@ -441,7 +489,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
     label: string,
     session: EngineAttachment,
   ): Promise<HeldEngine | undefined> {
-    let welcome
+    let welcome: Awaited<EngineAttachment['ready']>
     try {
       welcome = await session.ready
     } catch (err) {
@@ -521,7 +569,11 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
    * thing `resume()` and `adopt()` have to work from — and the rollout is
    * flushed incrementally during turns, not only at exit.
    */
-  async function terminate(sessionId: SessionId, signal: 'SIGTERM' | 'SIGKILL', held: HeldEngine | undefined): Promise<void> {
+  async function terminate(
+    sessionId: SessionId,
+    signal: 'SIGTERM' | 'SIGKILL',
+    held: HeldEngine | undefined,
+  ): Promise<void> {
     engines.delete(sessionId)
     if (held) {
       if (signal === 'SIGTERM') {
@@ -604,8 +656,11 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
     now: deps.now ?? (() => Date.now()),
     mintSessionId: () => asSessionId(crypto.randomUUID()),
 
+    harnessContextFor: (sessionId) => deps.harnessContextFor(sessionId),
+    podiumGrantsFor: (sessionId) => deps.podiumGrantsFor(sessionId),
+
     async launch(input) {
-      const verdict = await deps.checkVersion()
+      const verdict = await deps.checkVersion(input.harnessContext.installation)
       if (!verdict.drivable) {
         // Only the floor can refuse a Codex launch.
         throw new Error(`${verdict.diagnostic.title}: ${verdict.diagnostic.body}`)
@@ -630,17 +685,51 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
           }
         },
       })
-      const argv = [deps.facts.command, ...deps.facts.serverArgs, ...config.args]
-      const [command, ...args] = argv
+      // argv[0] is the session's pinned installation (POD-6546), never the
+      // adapter's bare command name. The engine runs on the harness's `engine`
+      // terms (POD-6858); what they add to the env is wiring.
+      const terms = agentTermsFor(
+        deps.facts.harnessKind,
+        launchPosture(
+          {
+            posture: input.posture,
+            grants: input.grants,
+            workdir: input.workdir,
+            context: input.harnessContext,
+          },
+          await deps.launchFoldersFor(input.sessionId, input.workdir),
+        ),
+      )
+      // Per-launch trust for Podium's own hooks (POD-7028): the engine decides
+      // hook review for every `resume --remote` client that joins it, and a
+      // client facing untrusted hooks opens "Hooks need review" over its
+      // first message. Read from the home's hooks.json, never written.
+      const hookTrust = await codexEngineHookTrustArgs({
+        hooksRoot: input.harnessContext.roots.hooks ?? input.harnessContext.roots.state,
+        version: input.harnessContext.installation.version,
+      })
+      const command = harnessCommand(
+        input.harnessContext,
+        { args: [...deps.facts.serverArgs, ...config.args, ...hookTrust] },
+        agentLaunchTerms(terms.manifest, 'engine', terms.posture),
+      )
 
       const env = deps.buildEnv({
         ...(deps.instanceUuid ? { instanceUuid: deps.instanceUuid } : {}),
         sessionId: input.sessionId,
         agentKind: deps.facts.harnessKind,
+        harnessContext: input.harnessContext,
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(input.env ? { sessionEnv: input.env } : {}),
-        harnessEnv: config.env,
+        harnessEnv: { ...config.env, ...command.env },
       })
+      // CHANNEL EXCLUSIVITY (./session.ts): the trust above makes Podium's
+      // handlers run in the engine, where they stay inert only while the hook
+      // env is absent. A daemon started inside a Podium Codex terminal would
+      // otherwise hand its own down, and the engine would report every turn
+      // twice. Removed here and at the spawn boundary.
+      for (const key of ENGINE_HOOK_ENV) delete env[key]
+      ensureCodexHome(env)
 
       /**
        * THE ENGINE, UNDER THE HOST. The session owner starts `codex app-server`
@@ -658,13 +747,12 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         const started = await owner.startEngine({
           sessionId: input.sessionId,
           label,
-          cmd: command ?? deps.facts.command,
-          args,
+          command,
           // The engine is TOLD its address by flag; the session layer mints it.
           listen: { argv: (address) => ['--listen', address] },
           cwd: input.workdir,
           env,
-          stripEnv: deps.facts.stripEnv,
+          stripEnv: [...deps.facts.stripEnv, ...ENGINE_HOOK_ENV],
         })
         clientAddress = started.address
         held = await claimEngine(input.sessionId, label, started.attachment)
@@ -744,7 +832,12 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
       const banner = (): string => held.banner
       try {
         if (address === undefined) throw new Error('the session layer handed no listener address')
-        const socket = await connectCodexWebSocket(deps.dialSocket, address, livenessFor(held), banner)
+        const socket = await connectCodexWebSocket(
+          deps.dialSocket,
+          address,
+          livenessFor(held),
+          banner,
+        )
         const transport = websocketTransport(socket, held, banner)
         return endpointFor({
           sessionId: binding.sessionId,
@@ -801,7 +894,12 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
         direction?: RuntimeHistoryRange['direction']
       },
     ): Promise<RuntimeHistoryPage> {
-      return readEngineHistoryFromGrammar(codexTranscript, session, range, deps.homeDir)
+      return readEngineHistoryFromGrammar(
+        codexTranscript,
+        session,
+        range,
+        await deps.harnessContextFor(session.sessionId),
+      )
     },
 
     reportAuthMode({ sessionId, authMethod, subscription }) {
@@ -1011,35 +1109,32 @@ export async function connectCodexWebSocket(
         // large payload ceiling); a library that errors after the first
         // failed attempt is terminated must not surface that cleanup as an
         // unhandled `error`, so the port keeps one durable listener for it.
-        dial(path).then(
-          (candidate) => {
-            candidate.on('error', () => undefined)
-            let timer: ReturnType<typeof setTimeout>
-            const failed = (err: Error): void => {
-              clearTimeout(timer)
-              candidate.off('open', opened)
-              candidate.terminate()
-              reject(err)
-            }
-            const opened = (): void => {
-              clearTimeout(timer)
-              candidate.off('error', failed)
-              resolve(candidate)
-            }
-            timer = setTimeout(
-              () =>
-                failed(
-                  new HandshakeTimeout(
-                    `the listener did not complete the upgrade within ${attemptMs}ms`,
-                  ),
+        dial(path).then((candidate) => {
+          candidate.on('error', () => undefined)
+          let timer: ReturnType<typeof setTimeout>
+          const failed = (err: Error): void => {
+            clearTimeout(timer)
+            candidate.off('open', opened)
+            candidate.terminate()
+            reject(err)
+          }
+          const opened = (): void => {
+            clearTimeout(timer)
+            candidate.off('error', failed)
+            resolve(candidate)
+          }
+          timer = setTimeout(
+            () =>
+              failed(
+                new HandshakeTimeout(
+                  `the listener did not complete the upgrade within ${attemptMs}ms`,
                 ),
-              attemptMs,
-            )
-            candidate.once('open', opened)
-            candidate.once('error', failed)
-          },
-          reject,
-        )
+              ),
+            attemptMs,
+          )
+          candidate.once('open', opened)
+          candidate.once('error', failed)
+        }, reject)
       })
       return socket
     } catch (err) {

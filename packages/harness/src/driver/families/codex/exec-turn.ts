@@ -16,22 +16,29 @@
 // process, a spawn port or a kill. First turn is `codex exec --json`, turns ≥2
 // resume the journalled thread.
 
-import { bindHarnessExec } from '../../../executable-runtime.js'
-import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
-import { declaredValue, type AgentManifest, type HeadlessExecOptions } from '../../../manifest.js'
+import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
+import type { HarnessInstallation } from '../../../harness-context-types.js'
+import { agentLaunchTerms, type LaunchPosture } from '../../../launch-terms.js'
+import { type AgentManifest, declaredValue, type HeadlessExecOptions } from '../../../manifest.js'
 
 /**
  * Pure argv builder for the codex-json turn, so the exact invocation shape is
  * unit-testable. Reads the HANDED headless section: the adapter's
- * `headless.buildExec` owns the CLI's invocation shape.
+ * `headless.buildExec` owns the CLI's invocation shape. The turn runs on the
+ * handed posture section's `turn` terms, or no-agent terms when tool-less.
  */
 export function buildCodexExecTurn(
   opts: HeadlessExecOptions,
-  snapshot: ResolvedHarnessInventory,
-  sections: Pick<AgentManifest, 'headless'>,
-): { cmd: string; args: string[]; env?: Record<string, string> } {
+  installation: HarnessInstallation,
+  sections: Pick<AgentManifest, 'headless' | 'posture'>,
+  posture: LaunchPosture,
+): BoundCommand<{ args: string[]; env?: Record<string, string> }> {
   const headless = declaredValue(sections.headless)
   const buildExec = headless && declaredValue(headless.buildExec)
   if (!buildExec) throw new Error('codex adapter has no headless exec builder')
-  return bindHarnessExec(snapshot, 'codex', buildExec({ ...opts, env: opts.env ?? snapshot.commandEnvironment.env }))
+  return harnessCommand(
+    { installation },
+    buildExec(opts),
+    agentLaunchTerms(sections, 'turn', posture, opts.toolPolicy),
+  )
 }

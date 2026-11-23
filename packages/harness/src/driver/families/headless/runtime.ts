@@ -1,5 +1,9 @@
 import { machinePathBasename } from '@podium/model'
-import { createRuntimeEventStream, DriverRefusalError, headlessAskAndAwait } from '../../contract.js'
+import {
+  createRuntimeEventStream,
+  DriverRefusalError,
+  headlessAskAndAwait,
+} from '../../contract.js'
 /**
  * THE HEADLESS RUNTIME DRIVER (POD-4392).
  *
@@ -57,10 +61,11 @@ import { createRuntimeEventStream, DriverRefusalError, headlessAskAndAwait } fro
  * `acknowledge` below.
  * - Per-turn `contextPrompt`, `systemPrompt` and `timeoutMs` ride `TurnInput`
  *   (and the WS relay) since the caller-migration lane landed them.
- * - `structuredPermissions: true` routes claude-code turns through the
- *   stream-json conversation with its permission callback wired to contract
- *   PendingInteractions (open/answer/close). Other harnesses refuse
- *   `unsupported`: their CLIs have no permission channel to route. A
+ * - A `supervised` claude-code turn (POD-6858: its asks must reach someone)
+ *   runs through the stream-json conversation with its permission callback
+ *   wired to contract PendingInteractions (open/answer/close). Other
+ *   harnesses have no permission channel to route: a supervised turn there
+ *   runs on its posture section's terms, which report what it cannot do. A
  *   structured turn runs under podium-host like every other, but a live
  *   conversation cannot be rejoined by the next daemon generation, so it has
  *   no cross-restart replay (the adopting generation fails it loudly).
@@ -83,9 +88,11 @@ import {
   type SessionId,
 } from '@podium/model'
 import {
+  DEFAULT_SESSION_POSTURE,
   type HeadlessTurnEvent,
   type ObservationProvenance,
   PermissionAnswer,
+  type SessionPosture,
 } from '@podium/protocol'
 import type {
   DaemonMessage,
@@ -95,6 +102,7 @@ import type {
 import { isRuntimeFineEvent } from '@podium/protocol/daemon'
 import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
+import type { LaunchPosture } from '../../../launch-terms.js'
 import { declaredValue, supported, unsupported } from '../../../manifest.js'
 import { reduceAgentState } from '../../../observer.js'
 import { harnessAdapterFor } from '../../../registry.js'
@@ -122,6 +130,7 @@ import {
   type SessionLease,
   type SessionSnapshot,
   type SessionSpec,
+  sessionPostureOf,
   type TurnDelivery,
   type TurnInput,
   type TurnReceipt,
@@ -185,7 +194,12 @@ export interface HeadlessDriverHost {
    *  at the process boundary. Precedence is the daemon's decision. */
   turnChildEnv(input: {
     agent: HarnessAgent
+    /** The session the turn is for: its access names the home it runs in. */
+    sessionId: SessionId
     specEnv: Record<string, string> | undefined
+    /** The turn's managed credential (`TurnInput.env`, POD-6733): the only
+     *  explicitly selected credential a headless child carries. */
+    credentialEnv?: Record<string, string>
     snapshot: ResolvedHarnessInventory
     execEnv?: Record<string, string>
     envOverlay?: Record<string, string>
@@ -199,15 +213,32 @@ export interface HeadlessDriverHost {
     accountId: AccountId,
     inventory: Pick<Inventory, 'agents'>,
   ): void
-  /** The instance-owned child environment for one turn (HOME + relay routing +
-   *  tool-less account HOME). Mirrors the `spawnEnv` composition the legacy
-   *  path builds per request, over the same snapshot the dispatch runs under. */
+  /** What the instance decides for one turn's child (relay routing, a
+   *  tool-less turn's pinned config folder). Never the command env or HOME:
+   *  `turnChildEnv` composes those from the turn's account context
+   *  (`harnessChildEnv`, POD-6535), so nothing here can make an inherited
+   *  credential look chosen. */
   sessionEnv(input: {
     sessionId: SessionId
     agent: HarnessAgent
     toolPolicyNone: boolean
     snapshot: ResolvedHarnessInventory
   }): Record<string, string>
+  /**
+   * What one turn's launch terms are stated from (POD-6858): the session's
+   * posture, Podium's grants for the session, the turn's account context over
+   * this snapshot (the same one `turnChildEnv` composes from) and the launch
+   * folders. Built on this machine; the turn's mode is the family's.
+   */
+  turnPosture(input: {
+    sessionId: SessionId
+    agent: HarnessAgent
+    cwd: string
+    posture: SessionPosture
+    /** The turn's MCP config JSON: Podium's MCP servers it mounts. */
+    mcpConfig?: string
+    snapshot: ResolvedHarnessInventory
+  }): Promise<LaunchPosture>
   /** The exact durable host label for a session (stable across restarts — it is
    *  the process identity `adopt()` matches on). */
   durableLabel(sessionId: SessionId): string
@@ -328,8 +359,8 @@ interface HeadlessDriverSession {
   wakers: Set<() => void>
   watchers: Map<'coarse' | 'fine', number>
   /** Open structured permission asks for the live SDK turn, by interaction id.
-   *  Only populated for claude-code `structuredPermissions` turns; every other
-   *  harness never opens one. */
+   *  Only populated for supervised claude-code turns; every other harness
+   *  never opens one. */
   interactions: Map<string, PendingInteraction>
   /** Answered interaction ids, for idempotent `answer()` (`already-answered`). */
   answered: Set<string>
@@ -341,17 +372,19 @@ interface HeadlessDriverSession {
   /** Folded from the same causal state events the server projects. */
   state: AgentRuntimeState
   /** Sticky session policy (POD-4386 `SessionSpec` headless defaults);
-   *  per-turn `TurnInput` values win over these at dispatch. */
+   *  per-turn `TurnInput` values win over these at dispatch. `permissionMode`
+   *  is a mid-session `configure` pick, a native mode. */
   sticky: {
     model?: string
     effort?: string
     permissionMode?: string
-    allowedTools?: string[]
     toolPolicy?: 'none'
     mcpConfig?: string
     executablePath?: string
-    structuredPermissions?: true
   }
+  /** The session's posture (POD-6858): the spec's, or the default for an
+   *  adopted session, whose spec is not in hand. */
+  posture: SessionPosture
   ended: boolean
   disposed: boolean
 }
@@ -409,7 +442,7 @@ export function headlessCapabilities(harness?: string): DriverCapabilities {
           atLeastOnce: false,
         })
       : unsupported(
-          'only claude-code headless turns expose an SDK permission callback; structuredPermissions refuses unsupported elsewhere',
+          'only claude-code headless turns expose an SDK permission callback; a supervised turn elsewhere runs on its posture section, which reports what it cannot do',
         ),
     observation: { watchLevels: ['coarse', 'fine'], cursorMaterial: 'event-seq' },
     transcript: { supported: true, value: { history: true } },
@@ -536,7 +569,11 @@ export function createHeadlessRuntime(
     session: HeadlessDriverSession,
     provenance: ObservationProvenance = 'bootstrap',
   ): void {
-    emit(session, { t: 'state', change: { kind: 'state_snapshot', state: session.state } }, provenance)
+    emit(
+      session,
+      { t: 'state', change: { kind: 'state_snapshot', state: session.state } },
+      provenance,
+    )
   }
 
   function summarizePermissionInput(input: unknown): string | undefined {
@@ -789,6 +826,7 @@ export function createHeadlessRuntime(
     }
     const model = input.overrides?.supported === true ? input.overrides.value.model : undefined
     const effort = input.overrides?.supported === true ? input.overrides.value.effort : undefined
+    const legacy = input.legacyTerms
     const actual = createHash('sha256')
       .update(
         canonicalHeadlessContractFacts({
@@ -798,14 +836,18 @@ export function createHeadlessRuntime(
             : {}),
           ...(model !== undefined ? { model } : {}),
           ...(effort !== undefined ? { effort } : {}),
-          ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
-          ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+          // The old frame's vendor-worded terms, never `posture`: the server
+          // mints the digest over what a pre-posture daemon recomputes.
+          ...(legacy?.allowedTools !== undefined ? { allowedTools: [...legacy.allowedTools] } : {}),
+          ...(legacy?.permissionMode !== undefined
+            ? { permissionMode: legacy.permissionMode }
+            : {}),
           ...(input.toolPolicy !== undefined ? { toolPolicy: input.toolPolicy } : {}),
           ...(input.mcpConfig !== undefined ? { mcpConfig: input.mcpConfig } : {}),
           ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
           ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
-          ...(input.structuredPermissions !== undefined
-            ? { structuredPermissions: input.structuredPermissions }
+          ...(legacy?.structuredPermissions !== undefined
+            ? { structuredPermissions: legacy.structuredPermissions }
             : {}),
           ...(input.contextPrompt !== undefined ? { contextPrompt: input.contextPrompt } : {}),
           ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
@@ -832,6 +874,8 @@ export function createHeadlessRuntime(
     input: TurnInput,
     identity: { accountId: AccountId; toolPolicy: 'none' | undefined },
     snapshot: ResolvedHarnessInventory,
+    launchPosture: LaunchPosture,
+    structured: boolean,
   ): HeadlessTurnSpec {
     const agent = session.agentKind as HarnessAgent
     const overridesModel =
@@ -853,12 +897,6 @@ export function createHeadlessRuntime(
       ...((overridesEffort ?? session.sticky.effort) !== undefined
         ? { effort: (overridesEffort ?? session.sticky.effort) as string }
         : {}),
-      ...((input.allowedTools ?? session.sticky.allowedTools) !== undefined
-        ? { allowedTools: (input.allowedTools ?? session.sticky.allowedTools) as string[] }
-        : {}),
-      ...((input.permissionMode ?? session.sticky.permissionMode) !== undefined
-        ? { permissionMode: (input.permissionMode ?? session.sticky.permissionMode) as string }
-        : {}),
       ...(identity.toolPolicy !== undefined ? { toolPolicy: identity.toolPolicy } : {}),
       ...((input.mcpConfig ?? session.sticky.mcpConfig) !== undefined
         ? { mcpConfig: (input.mcpConfig ?? session.sticky.mcpConfig) as string }
@@ -867,12 +905,7 @@ export function createHeadlessRuntime(
         ? { resumeValue: (input.resumeValue ?? session.resume?.value) as string }
         : {}),
       ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
-      ...((input.structuredPermissions ?? session.sticky.structuredPermissions) !== undefined
-        ? {
-            structuredPermissions: (input.structuredPermissions ??
-              session.sticky.structuredPermissions) as true,
-          }
-        : {}),
+      ...(structured ? { structuredPermissions: true as const } : {}),
       ...(input.contextPrompt !== undefined ? { contextPrompt: input.contextPrompt } : {}),
       ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
@@ -883,6 +916,7 @@ export function createHeadlessRuntime(
         snapshot,
       }),
       durableLabel: session.label,
+      launchPosture,
     }
   }
 
@@ -910,17 +944,6 @@ export function createHeadlessRuntime(
         ),
       }
     }
-    const structured =
-      (input.structuredPermissions ?? session.sticky.structuredPermissions) === true
-    if (structured && !headlessSupportsStructuredPermissions(session.agentKind)) {
-      return {
-        outcome: 'refused',
-        refusal: refuse(
-          'unsupported',
-          `structuredPermissions needs an SDK permission callback; harness '${session.agentKind}' has none`,
-        ),
-      }
-    }
     const turnId = input.id ?? ''
     let accountId: string
     try {
@@ -932,12 +955,35 @@ export function createHeadlessRuntime(
 
     const agent = session.agentKind as HarnessAgent
     const toolPolicy = input.toolPolicy ?? session.sticky.toolPolicy
+    // THE TURN'S POSTURE (POD-6858): the turn's own, else a native mode a
+    // mid-session `configure` picked, else the session's.
+    const posture: SessionPosture =
+      input.posture ??
+      (session.sticky.permissionMode
+        ? { mode: { native: session.sticky.permissionMode } }
+        : session.posture)
+    // A supervised turn's asks must reach someone: on a harness with an SDK
+    // permission callback they reach chat. A tool-less turn has nothing to ask.
+    const structured =
+      toolPolicy !== 'none' &&
+      posture.mode === 'supervised' &&
+      headlessSupportsStructuredPermissions(session.agentKind)
     // One snapshot per send, shared by the account fence and the dispatch
     // below — the check cannot pass on a login the launch does not see, and a
     // refused send pays no inventory read at all (digest first, snapshot after).
     let snapshot: ResolvedHarnessInventory
+    let launchPosture: LaunchPosture
     try {
       snapshot = await host.snapshot()
+      const mcpConfig = input.mcpConfig ?? session.sticky.mcpConfig
+      launchPosture = await host.turnPosture({
+        sessionId: session.sessionId,
+        agent,
+        cwd: session.cwd,
+        posture,
+        ...(mcpConfig !== undefined ? { mcpConfig } : {}),
+        snapshot,
+      })
     } catch (error) {
       return {
         outcome: 'refused',
@@ -1041,6 +1087,8 @@ export function createHeadlessRuntime(
         toolPolicy,
       },
       snapshot,
+      launchPosture,
+      structured,
     )
     let handle: HeadlessTurnHandle
     try {
@@ -1063,11 +1111,19 @@ export function createHeadlessRuntime(
           }
         : undefined
       const specEnv = spec.env
+      const credentialEnv = input.env
       handle = runners.runTurn(
         {
           owner: host.engines(),
           childEnv: (invocation) =>
-            host.turnChildEnv({ agent, specEnv, snapshot, ...invocation }),
+            host.turnChildEnv({
+              agent,
+              sessionId: session.sessionId,
+              specEnv,
+              ...(credentialEnv ? { credentialEnv } : {}),
+              snapshot,
+              ...invocation,
+            }),
           now: () => host.now(),
           isRoot: process.getuid?.() === 0,
         },
@@ -1159,7 +1215,11 @@ export function createHeadlessRuntime(
     session.ended = true
     // Ending the session also works between turns, after the last epoch closed.
     // A final snapshot is session bookkeeping, not a late update of that turn.
-    session.state = reduceAgentState(session.state, { kind: 'session_ended' }, new Date(host.now()).toISOString())
+    session.state = reduceAgentState(
+      session.state,
+      { kind: 'session_ended' },
+      new Date(host.now()).toISOString(),
+    )
     publishSnapshot(session, 'live')
     emit(
       session,
@@ -1358,7 +1418,12 @@ export function createHeadlessRuntime(
         }
         // Delivery yielded: completion, teardown or interrupt-and-send may
         // have retired the callback while its answer was being delivered.
-        if (session.disposed || session.ended || session.liveTurn !== live || !session.interactions.has(interactionId)) {
+        if (
+          session.disposed ||
+          session.ended ||
+          session.liveTurn !== live ||
+          !session.interactions.has(interactionId)
+        ) {
           return { ok: false, reason: 'delivery-failed', detail: 'the permission turn has ended' }
         }
         session.interactions.delete(interactionId)
@@ -1483,15 +1548,6 @@ export function createHeadlessRuntime(
     // Fail fast on a harness this build cannot drive headlessly — creating a
     // session that can never turn is worse than refusing.
     headlessNoTools(spec.harness)
-    if (spec.structuredPermissions !== undefined && !headlessSupportsStructuredPermissions(spec.harness)) {
-      throw new DriverRefusalError(
-        {
-          reason: 'unsupported',
-          detail: `structuredPermissions needs an SDK permission callback; harness '${spec.harness}' has none`,
-        },
-        'headless create',
-      )
-    }
     if (spec.initialPrompt !== undefined) {
       throw new DriverRefusalError(
         {
@@ -1517,29 +1573,30 @@ export function createHeadlessRuntime(
       interactions: new Map(),
       answered: new Set(),
       state: {
-        phase: 'idle', since: new Date(host.now()).toISOString(),
-        nativeSubagentCount: 0, idle: { kind: 'done' },
+        phase: 'idle',
+        since: new Date(host.now()).toISOString(),
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
       },
       sticky: {
         ...(spec.model.model !== undefined ? { model: spec.model.model } : {}),
         ...(spec.model.effort !== undefined ? { effort: spec.model.effort } : {}),
-        ...(spec.permissionMode !== undefined ? { permissionMode: spec.permissionMode } : {}),
-        ...(spec.allowedTools !== undefined ? { allowedTools: [...spec.allowedTools] } : {}),
         ...(spec.toolPolicy !== undefined ? { toolPolicy: spec.toolPolicy } : {}),
         ...(spec.mcpServers.supported === true && spec.mcpServers.value.transport === 'inline'
           ? { mcpConfig: spec.mcpServers.value.config }
           : {}),
         ...(spec.executablePath !== undefined ? { executablePath: spec.executablePath } : {}),
-        ...(spec.structuredPermissions !== undefined
-          ? { structuredPermissions: spec.structuredPermissions }
-          : {}),
       },
+      posture: sessionPostureOf(spec),
       ended: false,
       disposed: false,
     }
   }
 
-  async function createWithId(sessionId: SessionId, spec: SessionSpec): Promise<AgentSessionHandle> {
+  async function createWithId(
+    sessionId: SessionId,
+    spec: SessionSpec,
+  ): Promise<AgentSessionHandle> {
     if (sessions.has(sessionId)) {
       throw new DriverRefusalError(
         { reason: 'invalid_value', detail: `headless session '${sessionId}' already exists` },
@@ -1657,10 +1714,14 @@ export function createHeadlessRuntime(
       interactions: new Map(),
       answered: new Set(),
       state: {
-        phase: 'idle', since: new Date(host.now()).toISOString(),
-        nativeSubagentCount: 0, idle: { kind: 'done' },
+        phase: 'idle',
+        since: new Date(host.now()).toISOString(),
+        nativeSubagentCount: 0,
+        idle: { kind: 'done' },
       },
       sticky: {},
+      // An adopted session's spec is not in hand: its turns run on the default.
+      posture: DEFAULT_SESSION_POSTURE,
       ended: false,
       disposed: false,
     }
@@ -1694,7 +1755,9 @@ export function createHeadlessRuntime(
       askAndAwait: (handle, input, options) => {
         const turnId = input.id
         if (!turnId)
-          return Promise.reject(new Error('headless askAndAwait requires TurnInput.id turn identity'))
+          return Promise.reject(
+            new Error('headless askAndAwait requires TurnInput.id turn identity'),
+          )
         return headlessAskAndAwait(handle, input, { ...options, turnId }).then(
           (outcome) => outcome.terminal,
         )

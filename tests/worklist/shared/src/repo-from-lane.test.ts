@@ -12,30 +12,35 @@
  */
 
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
-import {
-  createPlainTables as createMobxPlainTables,
-  ingestOut as mobxIngestOut,
-  ingestRecord as mobxIngestRecord,
-} from '@podium/client-graph/tables'
+import { parseSync, types as t, traverse } from '@babel/core'
 import type { RelationMaintenance as MobxMaintenance } from '@podium/client-graph/relations'
-import { moduleGraphOf } from '../../harness/entry-pin'
+import * as composer from '@podium/client-graph/shared/repo-from-lane'
 import {
   FEED_SPELLING,
   ingestWorktreeRecord,
   isLaneRow,
   laneRepoId,
-  repoFieldOf,
   type RepoLaneOps,
+  repoFieldOf,
 } from '@podium/client-graph/shared/repo-from-lane'
-import * as composer from '@podium/client-graph/shared/repo-from-lane'
+import {
+  createPlainTables as createMobxPlainTables,
+  ingestOut as mobxIngestOut,
+  ingestRecord as mobxIngestRecord,
+} from '@podium/client-graph/tables'
+import { describe, expect, it, vi } from 'vitest'
+import { moduleGraphOf } from '../../harness/entry-pin'
 import type { RowRecord } from './stats'
 
 const PACKAGE_DIR = process.cwd().endsWith(join('tests', 'worklist'))
   ? process.cwd()
   : join(process.cwd(), 'tests', 'worklist')
-const SHARED_COMPOSER = resolve(PACKAGE_DIR, '../../packages/client-graph/src/shared/repo-from-lane.ts')
+const SHARED_COMPOSER = resolve(
+  PACKAGE_DIR,
+  '../../packages/client-graph/src/shared/repo-from-lane.ts',
+)
 
 // ------------------------------------------------------------------ fakes
 
@@ -208,23 +213,56 @@ describe('repo-from-lane composition', () => {
     // The holding lane leaves with no relations to ask: the repo leaves.
     ingestWorktreeRecord(mobx, '/repo', undefined)
     expect(mobxTables.repo.has('r1')).toBe(false)
-
   })
 })
 
 // ------------------------------------------------------------------ Part B
 
-const ARM_TABLES = [
-  resolve(PACKAGE_DIR, '../../packages/client-graph/src/tables.ts'),
-]
-const FIELD_LAYERS = [
-  resolve(PACKAGE_DIR, '../../packages/client-graph/src/models.ts'),
-]
+const ARM_TABLES = [resolve(PACKAGE_DIR, '../../packages/client-graph/src/tables.ts')]
+const FIELD_LAYERS = [resolve(PACKAGE_DIR, '../../packages/client-graph/src/models.ts')]
 
 function codeOf(file: string): string {
   return readFileSync(file, 'utf-8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/(^|\s)\/\/[^\n]*/g, '$1')
+}
+
+const syntaxTypeScript = createRequire(import.meta.url).resolve('@babel/plugin-syntax-typescript')
+function directLaneReads(code: string): string[] {
+  const source = parseSync(code, {
+    filename: 'tables.ts',
+    configFile: false,
+    babelrc: false,
+    plugins: [syntaxTypeScript],
+  })
+  if (!source) throw new Error('lane-read fixture did not parse')
+  const fields = new Set(['repoPath', 'repoId', 'repoName'])
+  const reads: string[] = []
+  traverse(source, {
+    enter(path) {
+      if (path.isMemberExpression() || path.isOptionalMemberExpression()) {
+        const { property, computed } = path.node
+        const name =
+          computed && t.isStringLiteral(property)
+            ? property.value
+            : !computed && t.isIdentifier(property)
+              ? property.name
+              : undefined
+        if (name && fields.has(name)) reads.push(path.toString())
+      } else if (path.isObjectPattern()) {
+        for (const property of path.node.properties) {
+          if (!t.isObjectProperty(property)) continue
+          const name = t.isIdentifier(property.key)
+            ? property.key.name
+            : t.isStringLiteral(property.key)
+              ? property.key.value
+              : undefined
+          if (name && fields.has(name)) reads.push(path.toString())
+        }
+      }
+    },
+  })
+  return reads
 }
 
 describe('both arms consume the shared composer', () => {
@@ -266,14 +304,22 @@ describe('both arms consume the shared composer', () => {
       // repoFieldOf/FEED_SPELLING. A direct lane read off the feed row would
       // bypass that spelling, so every repoPath line must be one of those
       // mediated uses.
-      const lanes = code.split('\n').filter((line) => line.includes('repoPath'))
-      expect(lanes.length, `${tables} declares its repo facade through the shared spelling`).toBeGreaterThan(0)
-      for (const line of lanes) {
-        expect(line, `${tables} reads no lane field itself: ${line.trim()}`).toMatch(
-          /RepoInputs|repoFieldOf|\['id',\s*'prefix',\s*'repoPath'\]/,
-        )
-      }
+      expect(code).toMatch(/repoFieldOf\(/)
+      expect(directLaneReads(code), `${tables} mediates actual member reads`).toEqual([])
     }
+  })
+
+  it.each([
+    'row.repoPath',
+    'row["repoPath"]',
+    'const { repoPath } = row',
+  ])('catches a planted direct lane read: %s', (code) => {
+    expect(directLaneReads(code)).not.toEqual([])
+    expect(
+      directLaneReads(
+        "type RepoInputs = { repoPath: string }; const keys = ['id', 'defaultParentBranch', 'repoPath']",
+      ),
+    ).toEqual([])
   })
 })
 
@@ -375,12 +421,9 @@ describe('every worktree record passes through the shared composer', () => {
       expect(repo.get('r1')).toBe(script.a)
       for (const record of rest) mobxIngestRecord(target, record, out)
       expect(consumed).toHaveBeenCalledTimes(script.worktreeRecords)
-      expectScriptedHoldings(
-        repo,
-        target.write.worktree as Map<string, object>,
-        script,
-      )
-    } finally { consumed.mockRestore() }
+      expectScriptedHoldings(repo, target.write.worktree as Map<string, object>, script)
+    } finally {
+      consumed.mockRestore()
+    }
   })
-
 })

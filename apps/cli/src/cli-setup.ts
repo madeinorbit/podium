@@ -8,9 +8,14 @@ import {
   resolvePort,
   saveConfig,
   stateDir,
+  withConfigWriteLock,
 } from '@podium/runtime/config'
-import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
-import { connectivityPath, readLiveConnectivity } from '@podium/runtime/connectivity'
+import {
+  CHECK_ERROR_SENTENCES,
+  type CheckResult,
+  normalizeCheckResult,
+} from '@podium/runtime/connect-check'
+import { clearConnectivity, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { decodeJoin } from '@podium/runtime/join'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import {
@@ -230,7 +235,7 @@ export async function startBackendEngine(opts: StartBackendOpts): Promise<StartB
   await stopBackend()
   // A stale connected/refused record belongs to a previous attempt and cannot prove this one.
   // Clear it only after the previous backend has stopped, then let the new daemon be the writer.
-  if (mode === 'daemon') rmSync(connectivityPath(), { force: true })
+  if (mode === 'daemon') clearConnectivity()
   const what = mode === 'daemon' ? 'daemon' : 'server + daemon'
   let result: StartBackendResult
   if (persistence === 'systemd') {
@@ -813,7 +818,12 @@ async function verifyReachable(
     }
     spin.error(`${url} did not answer from this machine through ${via}.`)
   } else {
-    const verdict = await checks.outside(url)
+    const outside = await checks.outside(url)
+    const verdict = outside === undefined ? undefined : normalizeCheckResult(url, outside)
+    if (verdict && !verdict.ok && verdict.error === 'PORT_UNSUPPORTED') {
+      io.warn(CHECK_ERROR_SENTENCES.PORT_UNSUPPORTED)
+      return 'ok'
+    }
     if (verdict === undefined || (!verdict.ok && verdict.error === 'CONNECT_UNAVAILABLE')) {
       // No outside opinion (Connect off or out of reach): this machine asks instead. That
       // still proves the name, the certificate and the proxy, which is what a typo breaks.
@@ -1253,12 +1263,16 @@ export function repairConfig(): {
   const res = inspectConfig()
   if (res.state === 'ok') return { state: 'ok' }
   if (res.state === 'missing') return { state: 'missing' }
-  const backupPath = `${configPath()}.invalid-${new Date().toISOString().replace(/[:.]/g, '-')}`
-  renameSync(configPath(), backupPath)
-  // This process just moved the live config away without writing to it, so the
-  // loader's entry for that path describes a file that is no longer there.
-  forgetConfig()
-  return { state: 'repaired', backupPath, ...(res.error ? { error: res.error } : {}) }
+  return withConfigWriteLock(configPath(), () => {
+    // Another owner may repair it while we wait. Never move its newer config.
+    const current = inspectConfig()
+    if (current.state === 'ok') return { state: 'ok' }
+    if (current.state === 'missing') return { state: 'missing' }
+    const backupPath = `${configPath()}.invalid-${new Date().toISOString().replace(/[:.]/g, '-')}`
+    renameSync(configPath(), backupPath)
+    forgetConfig()
+    return { state: 'repaired', backupPath, ...(current.error ? { error: current.error } : {}) }
+  })
 }
 
 export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {

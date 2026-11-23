@@ -297,6 +297,9 @@ describe('test lane configuration', () => {
       // server package) because every lane that collects apps/server must make the
       // same real-chain-vs-clone decision per file.
       './test-pre-migrated-store.ts',
+      // POD-6423: client files get the record declarations the app loads when it
+      // opens its outbox; a no-op for server and daemon files.
+      './test-record-declarations.ts',
     ])
     const bunfig = readFileSync(new URL('../bunfig.toml', import.meta.url), 'utf8')
     expect(bunfig).toContain('preload = ["./test-hermetic-env.ts", "./test-hermetic-bun-hooks.ts"]')
@@ -346,9 +349,14 @@ describe('test lane configuration', () => {
 
   it('keeps package-owned lanes on shared Vitest hardening', () => {
     for (const packageConfig of [scriptsConfig, desktopConfig]) {
-      expect(config(packageConfig).test?.setupFiles).toEqual(sharedVitestConfig.test.setupFiles)
+      expect(config(packageConfig).test?.setupFiles).toEqual(
+        expect.arrayContaining(sharedVitestConfig.test.setupFiles),
+      )
       expect(config(packageConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
     }
+    expect(config(scriptsConfig).test?.setupFiles).toContain(
+      fileURLToPath(new URL('./test-repository-root.ts', import.meta.url)),
+    )
     // Sorted: the shard's include comes from the generated manifest, which is sorted,
     // while normalizedWireTests is written in run order. Same two files either way.
     expect([...(config(normalizedWirePackageConfig).test?.include ?? [])].sort()).toEqual(
@@ -523,6 +531,15 @@ describe('test lane configuration', () => {
     expect(config(agentSmokeConfig).test?.projects).toBeUndefined()
     expect(config(agentSmokeConfig).test?.exclude).toContain('apps/web/**')
   })
+
+  it('collects real-browser web integrations only in the integration lane', () => {
+    const file = 'apps/web/test/app-sheet-layers.integration.test.ts'
+    const selected = (lane: Config, path: string) =>
+      lane.test?.include?.some((pattern) => new Bun.Glob(pattern).match(path)) &&
+      !lane.test?.exclude?.some((pattern) => new Bun.Glob(pattern).match(path))
+    expect(selected(config(integrationConfig), file)).toBe(true)
+    expect(selected(config(webConfig), file.slice('apps/web/'.length))).toBe(false)
+  })
   it('keeps an all-five turn-and-resume case in the real-agent lane', () => {
     const source = readFileSync(
       new URL('../apps/daemon/src/headless-turns.smoke.test.ts', import.meta.url),
@@ -613,7 +630,7 @@ describe('test lane configuration', () => {
     // `vitest run` and the footer, the resolution check and this guard all vanish
     // together, which is precisely the state POD-2728 was filed about.
     expect(pkg.scripts.test).toBe(
-      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun run lint:clock-reads && bun scripts/test-lean.ts',
+      'bun run typecheck && bun run lint:span-effects && bun run lint:interaction-scans && bun run lint:mobx-private && bun run lint:untracked-reads && bun run lint:clock-reads && bun run lint:harness-ambient && bun run lint:public-emails && bun scripts/test-lean.ts',
     )
     expect(pkg.scripts.test).not.toContain('scripts/test.ts')
     // THE SPAN-EFFECT GATE IS PART OF THE DEFAULT LANE [POD-3821]. It is in the
@@ -625,6 +642,9 @@ describe('test lane configuration', () => {
     // It stays affordable by being turbo-cached, not by being skipped.
     expect(pkg.scripts.test).toContain('bun run lint:span-effects')
     expect(pkg.scripts['lint:span-effects']).toBe('bun scripts/lint-span-effects.ts')
+    // The repository is public: committed captures once carried an account address.
+    // The text scan costs about two seconds, so it runs on every default gate.
+    expect(pkg.scripts['lint:public-emails']).toBe('bun scripts/check-public-emails.ts')
   })
 
   it('collects the worklist baseline files in the scheduled package lane [POD-2185]', () => {
@@ -635,7 +655,6 @@ describe('test lane configuration', () => {
       'shared/src/overlay-row.test.ts',
       'harness/src/heartbeat-ancestors.test.ts',
       'harness/src/perf/header-work.test.ts',
-      'harness/src/cold-structures.test.ts',
       'harness/src/mission-screen-work.test.ts',
       'product/mission-pane.work.test.ts',
     ]
@@ -761,7 +780,7 @@ describe('test lane configuration', () => {
     const passed = footer('PASSED', reconcileExecution(fullRun()), 955, lanes)
     expect(passed).toContain('NOT the test suite')
     expect(passed).toContain(`Ran ${LEAN_GATE_FILES.length} of the 955 files`)
-    expect(passed).toContain('0.4%')
+    expect(passed).toContain(`${((LEAN_GATE_FILES.length / 955) * 100).toFixed(1)}%`)
     expect(passed).toContain('bun run test:full')
     for (const file of LEAN_GATE_FILES) expect(passed).toContain(file)
 
@@ -814,7 +833,7 @@ describe('test lane configuration', () => {
     expect(filtered.ok, 'a run with zero assertions passed').toBe(false)
     expect(filtered.ranTests).toBe(0)
     expect(filtered.ranFiles).toBe(0)
-    expect(filtered.skippedTests).toBe(76)
+    expect(filtered.skippedTests).toBe(LEAN_GATE_FILES.length * 19)
     expect(filtered.shortfall.every((entry) => entry.reason === 'every test skipped')).toBe(true)
     const filteredFooter = footer('INCOMPLETE', filtered, 1022, lanes)
     expect(filteredFooter).toContain('Ran 0 of the 1022')
@@ -831,7 +850,7 @@ describe('test lane configuration', () => {
       ),
     )
     expect(skippedOne.ok, 'a .skip silently removed a file from the gate').toBe(false)
-    expect(skippedOne.ranFiles).toBe(3)
+    expect(skippedOne.ranFiles).toBe(LEAN_GATE_FILES.length - 1)
     expect(skippedOne.shortfall).toEqual([
       { file: LEAN_GATE_FILES[2], reason: 'every test skipped' },
     ])
@@ -840,14 +859,14 @@ describe('test lane configuration', () => {
     const whole = reconcileExecution(fullRun())
     expect(whole.ok).toBe(true)
     expect(whole.ranFiles).toBe(LEAN_GATE_FILES.length)
-    expect(whole.ranTests).toBe(76)
+    expect(whole.ranTests).toBe(LEAN_GATE_FILES.length * 19)
     expect(whole.skippedTests).toBe(0)
     // A failing assertion is still an executed one: red is a verdict, not a shortfall.
     const red = reconcileExecution(
       vitestReport(LEAN_GATE_FILES.map((file) => ({ file, passed: 18, failed: 1 }))),
     )
     expect(red.ok, 'a red gate was misreported as an incomplete one').toBe(true)
-    expect(red.failedTests).toBe(4)
+    expect(red.failedTests).toBe(LEAN_GATE_FILES.length)
   })
 
   /**

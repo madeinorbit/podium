@@ -1,21 +1,22 @@
 // @vitest-environment happy-dom
 import { readFileSync, writeFileSync } from 'node:fs'
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import { FLIGHT_DECK_FOLDS_KEY, type RoutedUiState } from '@podium/client-core/ui-state'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
+import { fixtureRuntimeRender } from '@/test-support/fixture-runtime-render'
 import { FlightDeckFullControls } from './FlightDeckFullControls'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 
-vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (value: unknown) => unknown) => read({ renameSession: vi.fn() }),
-}))
+// The deck reads its commands from the runtime root (792821bc50).
+const render = fixtureRuntimeRender({ renameSession: vi.fn() })
 vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
@@ -101,7 +102,8 @@ function storage(initial: [string, string][] = []) {
       return () => listeners.delete(listener)
     },
   }
-  return { values, ui }
+  // The product's device preferences are observable (UiStore); so is this port.
+  return { values, ui: observableFixtureKeys(ui) }
 }
 async function open(prefs = storage(), ready = true, fixture = { issues, sessions }) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
@@ -430,18 +432,21 @@ it('keeps explicit task and phase choices across remount, state changes and a se
   expect(reopened.actions.onSelectSession).not.toHaveBeenCalled()
 })
 
-it('waits for stored folds before drawing tasks or enabling controls, with no default-open flash', async () => {
+it('draws stored folds on the first frame, with no loading pass and no default-open flash', async () => {
+  // Device preferences are read synchronously from their observable owner
+  // (098982b246, cc0ce7bb46): there is no preference batch to wait for.
   const f = await open(
     storage([
       [FLIGHT_DECK_FOLDS_KEY, JSON.stringify({ v: 2, closed: ['build', 'error'], open: [] })],
     ]),
     false,
   )
-  expect(f.initial).toEqual({ pending: true, disabled: true, rows: 0 })
-  await waitFor(() => expect(f.button('All 8').hasAttribute('disabled')).toBe(false))
   // The complete phase shows too: done work is in place by default (POD-6245).
+  expect(f.initial.pending).toBe(false)
+  expect(f.initial.rows).toBe(4)
   expect(f.order()).toEqual(['loose', 'build', 'complete', 'released'])
   expect(f.button('Expand phase build').getAttribute('aria-expanded')).toBe('false')
+  expect(f.button('All 8').hasAttribute('disabled')).toBe(false)
 })
 
 it('gives task, phase and native disclosures distinct live targets and keyboard actions', async () => {

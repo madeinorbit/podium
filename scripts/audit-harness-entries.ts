@@ -26,16 +26,16 @@
  * (and `@podium/pty`, its real package name), and any driver-family module
  * (`packages/harness/src/driver/families/`).
  *
-  * A third arm walks the SERVER closure from `apps/server/src/index.ts` and
-  * refuses any reachable `driver/families/` module: the server bundle must
-  * include no families. Before the dissolve this arm was red (the server
-  * reached the agent-runtime barrel); the contract entry is what turns it
-  * green.
-  *
-  * A fourth arm reads the `exports` map in `packages/harness/package.json`
-  * and refuses ANY key under `./driver/families/` (POD-4498): no family path
-  * may be offered to clients again. The daemon takes the same machinery
-  * through `@podium/harness/driver/host`, which re-exports it.
+ * A third arm walks the SERVER closure from `apps/server/src/index.ts` and
+ * refuses any reachable `driver/families/` module: the server bundle must
+ * include no families. Before the dissolve this arm was red (the server
+ * reached the agent-runtime barrel); the contract entry is what turns it
+ * green.
+ *
+ * A fourth arm reads the `exports` map in `packages/harness/package.json`
+ * and refuses ANY key under `./driver/families/` (POD-4498): no family path
+ * may be offered to clients again. The daemon takes the same machinery
+ * through `@podium/harness/driver/host`, which re-exports it.
  *
  * NON-VACUITY, same shape as audit-browser-reach: a resolver that followed
  * nothing would report zero findings for every entry and pass perfectly. So
@@ -88,7 +88,11 @@ const ENTRIES: Readonly<Record<string, string>> = {
 }
 
 /** Entries whose transitive closure is held to the bar (root is direct-only). */
-const CLOSURE_ENTRIES = ['@podium/harness/driver', '@podium/harness/store', '@podium/harness/browser']
+const CLOSURE_ENTRIES = [
+  '@podium/harness/driver',
+  '@podium/harness/store',
+  '@podium/harness/browser',
+]
 
 const SERVER_ENTRY = 'apps/server/src/index.ts'
 
@@ -133,11 +137,7 @@ export function isForbiddenModule(repoRel: string): boolean {
  * leaves the source walk cannot (and need not) follow: npm bare specifiers,
  * node:/bun: builtins, JSON data, and workspace subpaths with no source file.
  */
-export function resolveToSource(
-  root: string,
-  fromFile: string,
-  spec: string,
-): string | null {
+export function resolveToSource(root: string, fromFile: string, spec: string): string | null {
   if (spec.startsWith('node:') || spec.startsWith('bun:')) return null
   if (spec.startsWith('.')) {
     const base = spec.replace(/\.js$/, '')
@@ -383,11 +383,7 @@ export function runProbe(): boolean {
     'driver/families/x.ts': `export const y = 1\n`,
   })
   check('transitive-forbidden-import', auditClosureAt(transDir, 'probe', 'entry.ts'), 'transitive')
-  check(
-    'family-path-import',
-    auditClosureAt(transDir, 'probe', 'fam-entry.ts'),
-    'transitive',
-  )
+  check('family-path-import', auditClosureAt(transDir, 'probe', 'fam-entry.ts'), 'transitive')
   rmSync(transDir, { recursive: true, force: true })
 
   // Arm C (server): a server entry reaching a family module, via the REAL walk.
@@ -415,23 +411,27 @@ export function runProbe(): boolean {
   return ok
 }
 
-const args = process.argv.slice(2)
-if (args.includes('--probe')) {
-  const ok = runProbe()
-  if (!ok) {
-    console.error('probe INCOMPLETE: an arm that cannot fail is no guard')
+if (import.meta.main) {
+  const args = process.argv.slice(2)
+  if (args.includes('--probe')) {
+    const ok = runProbe()
+    if (!ok) {
+      console.error('probe INCOMPLETE: an arm that cannot fail is no guard')
+      process.exit(1)
+    }
+    console.log('probe complete: every arm can fail')
+    process.exit(0)
+  }
+
+  const findings = auditHarnessEntries()
+  if (findings.length > 0) {
+    for (const f of findings) console.error(`[${f.kind}] ${f.detail}`)
+    console.error(
+      `\nharness entry audit: ${findings.length} finding(s). Host/process/family code stays behind /driver/host; the contract/store/browser entries must not reach it.`,
+    )
     process.exit(1)
   }
-  console.log('probe complete: every arm can fail')
-  process.exit(0)
-}
-
-const findings = auditHarnessEntries()
-if (findings.length > 0) {
-  for (const f of findings) console.error(`[${f.kind}] ${f.detail}`)
-  console.error(
-    `\nharness entry audit: ${findings.length} finding(s). Host/process/family code stays behind /driver/host; the contract/store/browser entries must not reach it.`,
+  console.log(
+    'harness entry audit: clean (4 entries direct, 3 closures, server closure, export map)',
   )
-  process.exit(1)
 }
-console.log('harness entry audit: clean (4 entries direct, 3 closures, server closure, export map)')

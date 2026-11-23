@@ -287,6 +287,28 @@ export function createSharedCodexStateMetadataReaders(
  * [spec:SP-c29e] */
 export const sharedCodexStateMetadataReaders = createSharedCodexStateMetadataReaders()
 
+/**
+ * Delete the home's index row for one thread, so Codex indexes its rollout file
+ * again (credential management §9, epic Task 11). The row wins over the file
+ * (POD-6893 §3): a row written for another copy, or under another provider,
+ * would otherwise decide how the thread resumes. True when a row went.
+ */
+export async function forgetCodexThreadRow(
+  root: string,
+  /** UNBRANDED BY DECISION: a provider/harness-native thread id, not a Podium messaging ThreadId. */
+  threadId: string,
+): Promise<boolean> {
+  const statePath = await findLatestStateDatabase(root)
+  if (!statePath) return false
+  const db = openDatabase(statePath)
+  try {
+    if (!tableExists(db, 'threads')) return false
+    return db.prepare('DELETE FROM threads WHERE id = ?').run(threadId).changes > 0
+  } finally {
+    db.close()
+  }
+}
+
 async function findLatestStateDatabase(root: string): Promise<string | undefined> {
   let entries: string[]
   try {

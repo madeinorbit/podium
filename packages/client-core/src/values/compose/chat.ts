@@ -61,7 +61,13 @@ import type { SessionView } from '../../session-values'
 import { isCodexAsyncQuestion, isInterviewQuestion, isPendingAskQuestion } from '../ask-question'
 import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE, transcriptActivityFacts } from '../chat'
 import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
-import { type ChatActivity, chatActivity, sessionWaking } from '../session-status'
+import {
+  type ChatActivity,
+  chatActivity,
+  phoneChatActivity,
+  phoneSessionWaking,
+  sessionWaking,
+} from '../session-status'
 
 // ---------------------------------------------------------------------------
 // The composer draft: classified, and deliberately absent.
@@ -368,6 +374,9 @@ export function blockMatches(block: ChatBlock, query: string): boolean {
     block.item.text,
     block.item.toolName ?? '',
     block.item.toolInput ?? '',
+    ...(block.item.toolExecution?.inputs?.map(
+      (input) => `${input.description ?? ''}\n${input.text}`,
+    ) ?? []),
     block.result ?? block.item.toolResult ?? '',
     block.harnessSummary?.text ?? '',
   ]
@@ -525,7 +534,9 @@ export function composerState(input: {
   headless: boolean
   turnRunning: boolean
   compact: boolean
-  wakeRequestedAt?: number | null
+  /** PHONE ONLY (POD-2471): present, the phone's waking rule
+   *  ({@link phoneSessionWaking}) decides; web omits it and keeps {@link sessionWaking}. */
+  phoneWakeRequestedAt?: number | null
 }): ComposerState {
   const { session, headless, turnRunning, compact } = input
   // Archive is retirement, not another parked state. In particular, an
@@ -536,17 +547,14 @@ export function composerState(input: {
     session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
       ? session.agentState.error
       : undefined
-  // POD-4800: `reconnecting` is transport state, not a stopped session. The
-  // server queues the send durably and forwards it when the daemon re-attaches,
-  // so the composer routes straight through (route `session`) instead of
-  // refusing with "Session is not running" exactly in the window the send must
-  // survive. The bubble then reads queued, never failed-or-nothing.
+  // POD-4800: a reconnecting session (its machine's link is down, ADR 12 D1)
+  // is still `live`: transport state, not a stopped session. The server queues
+  // the send durably and forwards it when the daemon re-attaches, so the
+  // composer routes straight through (route `session`) instead of refusing with
+  // "Session is not running" exactly in the window the send must survive. The
+  // bubble then reads queued, never failed-or-nothing.
   const sendable =
-    !archived &&
-    !terminalError &&
-    (session?.status === 'live' ||
-      session?.status === 'starting' ||
-      session?.status === 'reconnecting')
+    !archived && !terminalError && (session?.status === 'live' || session?.status === 'starting')
   const canResume =
     !archived &&
     !terminalError &&
@@ -555,7 +563,10 @@ export function composerState(input: {
   // A wake already in flight (POD-762). The composer stays open — a second
   // message queues behind the first — but it must not keep offering to do the
   // thing it is already doing.
-  const waking = sessionWaking(session, false, input.wakeRequestedAt)
+  const waking =
+    'phoneWakeRequestedAt' in input
+      ? phoneSessionWaking(session, false, input.phoneWakeRequestedAt)
+      : sessionWaking(session)
   // Headless: PTY status is meaningless — a send goes whenever no turn is
   // running (a turn is one queued unit; the server rejects overlap anyway).
   const deliverable = headless ? !archived && !turnRunning : sendable || canResume
@@ -676,10 +687,14 @@ export function chatActivityState(input: {
   headless: boolean
   turnRunning: boolean
   justSent: boolean
-  wakeRequestedAt?: number | null
+  /** PHONE ONLY (POD-2471): see {@link composerState}. */
+  phoneWakeRequestedAt?: number | null
 }): ChatActivity | null {
   const { session, headless, turnRunning, justSent } = input
-  if (!headless) return chatActivity(session, justSent, undefined, input.wakeRequestedAt)
+  if (!headless)
+    return 'phoneWakeRequestedAt' in input
+      ? phoneChatActivity(session, justSent, undefined, input.phoneWakeRequestedAt)
+      : chatActivity(session, justSent)
   if (turnRunning) return { label: 'Working…', tone: 'working' }
   if (justSent) return { label: 'Sending', tone: 'idle', transient: 'just-sent' }
   return null

@@ -44,8 +44,8 @@ const MOBILE_INBOX_SCHEMA = {
     // eslint-disable-next-line fence/no-table-walk -- Static declared field names, not entity rows.
     summary: [...ISSUE_PAGE_SUMMARIES.issue, 'priority'],
   },
-  window: { source: 'pool:window', fields: ['outboxSize'] },
-  health: { source: 'pool:header', entities: ['machine', 'hostMetric'] },
+  outbox: { source: 'live:outbox', fields: ['pending'] },
+  health: { source: 'pool:header', entities: ['machine'], live: ['machine.metrics'] },
 } as const
 export const MOBILE_INBOX_SUMMARIES = {
   issue: MOBILE_INBOX_SCHEMA.issue.summary,

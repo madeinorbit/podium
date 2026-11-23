@@ -8,6 +8,7 @@ import {
   SubscriptionRegistry,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { userClientPrincipal } from './client-principal'
 import type { ClientConn } from './client-registry'
 import { ClientRegistry } from './client-registry'
@@ -36,6 +37,7 @@ function connection(
       sent.push(message)
       return stream(message)
     },
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),

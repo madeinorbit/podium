@@ -2,11 +2,22 @@
  * Layout service (POD-1350) — read/write the calling principal's layout and
  * publish each mutation onto the Authority change log so a second device of the
  * same user receives the row (scoped feed; POD-402 review gap 2).
+ *
+ * ONE COMMIT PER WRITE (ADR 12 D9, POD-6594). A set or a clear is one
+ * `commit` on the writer of the command that asked for it: the rows are written
+ * in its `write`, with the commit's scope, and the Authority appends a change
+ * entry for each layout record the write changed, from the database's change
+ * capture (POD-6920). The writer comes from the sync handler,
+ * per call; the service holds none of its own.
  */
 
 import { createLogger } from '@podium/logger'
-import { type LayoutSnapshot, type LayoutWire, layoutRowId, type UserId } from '@podium/model'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
+import { type LayoutSnapshot, type UserId } from '@podium/model'
+import type { LedgerWriter } from '@podium/sync'
+
+/** What a layout write is made through: the command's own writer. */
+export type LayoutCommandWriter = Pick<LedgerWriter, 'commit'>
+
 import type { UserLayoutRepository } from '../../store/user-layout'
 
 const log = createLogger('server:layout')
@@ -15,12 +26,6 @@ const PANEL_MODE_LAYOUT_KEY = 'panelMode'
 
 export interface LayoutServiceDeps {
   readonly layout: UserLayoutRepository
-  /**
-   * Write-seam ledger. Layout rows ride entity kind `userLayout` so bootstrap
-   * and delta share one log. Optional only for pure unit tests of storage;
-   * production always wires it.
-   */
-  readonly ledger?: Pick<Ledger, 'capture' | 'reconcile'>
 }
 
 export class LayoutService {
@@ -30,7 +35,12 @@ export class LayoutService {
     return await this.deps.layout.getSnapshot(userId)
   }
 
-  async set(userId: UserId, values: Record<string, unknown>, now: string): Promise<LayoutSnapshot> {
+  async set(
+    writer: LayoutCommandWriter,
+    userId: UserId,
+    values: Record<string, unknown>,
+    now: string,
+  ): Promise<LayoutSnapshot> {
     // Per-session panel modes travel as ONE map under one key, so the debug
     // line records which sessions this write changed against the stored map
     // (POD-3932): the server is the only place both maps meet, and the writer's
@@ -41,21 +51,20 @@ export class LayoutService {
       keys: Object.keys(values),
       ...(panelModeDiff ? { panelModeChanged: panelModeDiff } : {}),
     })
-    await this.deps.layout.setMany(userId, values, now)
-    await this.publish(
-      Object.entries(values).map(([key, value]) => ({
-        userId,
-        key,
-        value,
-        op: 'upsert' as const,
-      })),
-    )
+    await writer.commit({
+      write: async (scope) => await this.deps.layout.setMany(scope, userId, values, now),
+    })
     return await this.deps.layout.getSnapshot(userId)
   }
 
-  async clear(userId: UserId, keys: readonly string[]): Promise<LayoutSnapshot> {
-    await this.deps.layout.clearMany(userId, keys)
-    await this.publish(keys.map((key) => ({ userId, key, op: 'remove' as const })))
+  async clear(
+    writer: LayoutCommandWriter,
+    userId: UserId,
+    keys: readonly string[],
+  ): Promise<LayoutSnapshot> {
+    await writer.commit({
+      write: async (scope) => await this.deps.layout.clearMany(scope, userId, keys),
+    })
     return await this.deps.layout.getSnapshot(userId)
   }
 
@@ -82,40 +91,5 @@ export class LayoutService {
       }
     }
     return changed
-  }
-
-  /**
-   * Boot reconcile: every durable layout row becomes a positive upsert on the
-   * log so a reconnecting principal's bootstrap sees them without a second path.
-   */
-  async reconcileAllToLedger(): Promise<void> {
-    if (!this.deps.ledger) return
-    // Reconcile needs the full entity truth: limiting this to migrated tip keys
-    // would remove every other layout entry from the feed. It also deduplicates
-    // unchanged rows, so restarting does not append a second set of seed events.
-    const rows = await this.deps.layout.allForBootReconcile()
-    await this.deps.ledger.reconcile(
-      'userLayout',
-      rows.map((value) => ({ id: layoutRowId(value.userId, value.key), value })),
-    )
-  }
-
-  private async publish(
-    rows: ReadonlyArray<
-      | { userId: UserId; key: string; value: unknown; op: 'upsert' }
-      | { userId: UserId; key: string; op: 'remove' }
-    >,
-  ): Promise<void> {
-    const ledger = this.deps.ledger
-    if (!ledger || rows.length === 0) return
-    const specs: EntityChangeSpec[] = rows.map((row) => {
-      const id = layoutRowId(row.userId, row.key)
-      if (row.op === 'remove') {
-        return { entity: 'userLayout', id, op: 'remove' }
-      }
-      const value: LayoutWire = { userId: row.userId, key: row.key, value: row.value }
-      return { entity: 'userLayout', id, op: 'upsert', value }
-    })
-    await ledger.capture(specs)
   }
 }

@@ -75,6 +75,58 @@ Replace `18787` with your port if you changed it (`port` in `~/.podium/config.js
 After you paste the URL, setup saves it as `publicUrl` in `~/.podium/config.json` and asks
 you to restart `podium` to apply.
 
+## HTTPS for sign-in
+
+Sign-in from another computer requires HTTPS. If you previously used a LAN address
+such as `http://192.0.2.10:18787`, switch your browser, desktop app, phone app and CLI
+to the server's HTTPS address. Existing HTTP sessions do not bypass this requirement.
+Plain HTTP on `localhost` or `127.0.0.1` on the server itself keeps working, including
+the all-in-one desktop app's own connection.
+
+On the server, run `podium setup` and choose a networking option to configure HTTPS
+and save its address. For private access, install Tailscale on the server and each
+client device, then run `tailscale serve 18787` on the server. Use the HTTPS address
+it prints. For public access, use Tailscale Funnel, Cloudflare Tunnel or a reverse
+proxy with a certificate trusted by your clients. Replace `18787` with your configured
+port. To change an existing installation's advertised address, run `podium setup` and
+choose **Change how this machine is reached (its URL)**.
+
+For example, Caddy on the server can terminate HTTPS for a domain you control:
+
+```caddyfile
+podium.example.com {
+    reverse_proxy 127.0.0.1:18787
+}
+```
+
+Point the domain at the proxy and allow the ports it needs to obtain and serve its
+certificate. Keep Podium's backend listener private. A proxy must set
+`X-Forwarded-Proto: https` and append the original client address to
+`X-Forwarded-For`; Caddy's `reverse_proxy` does this. A loopback-bound Podium listener
+trusts one local proxy hop by default. If the proxy reaches a non-loopback backend,
+set `PODIUM_TRUSTED_PROXY_HOPS=1` in the **server process environment**, and restrict
+backend access to that proxy. Use the actual hop count for a longer trusted chain.
+Restart Podium after changing these process settings. Setting the public address
+alone does not make HTTP secure or enable trust in forwarding headers.
+
+The same applies to the `/daemon` WebSocket when the proxy carries it: the proxy must
+forward `X-Forwarded-Proto` and `X-Forwarded-For` for it too. A proxy that strips
+them fails closed: a daemon that reaches Podium through it is treated as an
+unencrypted connection from another computer, and it receives no credentials. Podium
+recognises a daemon on its own computer by the loopback peer address and by the
+request's `Host`, which must be `localhost` or a loopback address. A proxy that
+rewrites `Host` to its loopback upstream (for example nginx's plain
+`proxy_pass http://127.0.0.1:18787` without `proxy_set_header Host $host`) and also
+strips the forwarding headers is not supported: the server cannot tell its traffic
+from its own daemon's. Keep the original `Host`, or forward the headers above.
+
+For direct TLS, configure both `PODIUM_TLS_KEY_FILE` and `PODIUM_TLS_CERT_FILE` in the
+server process environment, then restart. The certificate must be trusted on every
+client. Advertise the reachable HTTPS address with `PODIUM_PUBLIC_URL` when deployment
+configuration owns it, or save it through the URL option in `podium setup`. Podium reports this
+address in its HTTP refusal so clients can show where to reconnect. It never guesses
+an HTTPS address from the HTTP hostname.
+
 ### Keeping a quick tunnel's URL current
 
 A Cloudflare quick tunnel gets a new `https://<random>.trycloudflare.com` address every time
@@ -102,6 +154,19 @@ daemon → server, not the other way around. So a VPS that runs only a daemon ne
 reachability to the server's URL; it never has to be publicly reachable itself. With
 Tailscale, both machines are on the same tailnet and the daemon↔server traffic rides that
 encrypted link directly, even when the public Funnel URL is only used by your browser.
+
+### A daemon on another computer needs an encrypted connection
+
+Podium sends credentials (API keys and other secrets it holds) to a machine only over a
+connection the server itself judged safe: a `wss://` address, a daemon on the server's own
+computer, or an address inside a network an admin trusts. A daemon on another computer that
+connects over plain `ws://` keeps working for now, but it receives no credentials. Its row in
+**Settings → Machines** shows **Not encrypted**, and its log says so at start. **Plain `ws://`
+connections from other computers stop being accepted after February 2027** (the code that
+still accepts them is marked `LEGACY(remove-after: 2027-02)`). To fix it, give the server an
+`https://` address (any of the reachability options above), or, when your machines talk over
+a private encrypted network such as a tailnet, add that network's range under **Settings →
+Machines → Trusted networks** (for example `100.64.0.0/10`).
 
 ## Add a machine to an existing server
 

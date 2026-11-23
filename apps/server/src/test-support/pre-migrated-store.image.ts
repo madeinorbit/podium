@@ -27,9 +27,12 @@ export function buildSchemaImage(): Uint8Array {
   // cascade-delete the rows it is copying.
   db.exec('PRAGMA foreign_keys = OFF')
   const applied = runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  if (applied.length !== DRIZZLE_MIGRATIONS.length) {
+  const schemaMigrations = DRIZZLE_MIGRATIONS.filter(
+    (m) => !m.sql.startsWith('-- after-local-identity-import'),
+  )
+  if (applied.length !== schemaMigrations.length) {
     throw new Error(
-      `pre-migrated fixture: a fresh database should apply all ${DRIZZLE_MIGRATIONS.length} ` +
+      `pre-migrated fixture: a fresh database should apply all ${schemaMigrations.length} ` +
         `migrations, applied ${applied.length}`,
     )
   }
@@ -47,7 +50,9 @@ export function assertImageMatchesManifest(image: Uint8Array): void {
   const db = openDatabaseFromImage(image)
   try {
     const ledger = appliedDrizzleNames(db)
-    const expected = DRIZZLE_MIGRATIONS.map((m) => m.name)
+    const expected = DRIZZLE_MIGRATIONS.filter(
+      (m) => !m.sql.startsWith('-- after-local-identity-import'),
+    ).map((m) => m.name)
     const missing = expected.filter((name) => !ledger.has(name))
     if (missing.length > 0 || ledger.size !== expected.length) {
       throw new Error(

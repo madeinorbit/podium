@@ -1,5 +1,5 @@
 /**
- * THE LIVE UPGRADE — a REAL pre-migration `podium.db`, upgraded in place.
+ * THE HISTORICAL PROVENANCE UPGRADE — a real database upgraded in place.
  *
  * POD-305's acceptance criterion asks for two things a schema-convergence test
  * cannot give: that an EXISTING database with EXISTING rows survives the
@@ -9,7 +9,7 @@
  * WHY SEQ CONTINUITY IS THE ASSERTION, AND WHY IT NEEDS ITS OWN TEST
  * ---------------------------------------------------------------------------
  *
- * `changes.seq` is the ONE global sequence (ADR 2 D2). Every replica's cursor is
+ * `changes.seq` was the global sequence at this migration boundary (ADR 2 D2). Every replica's cursor is
  * a position in it. If a migration restarted it — which is exactly what a
  * table-rebuild migration does, and SQLite's usual answer to "add a column with
  * a constraint" IS a table rebuild — then:
@@ -36,42 +36,38 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { openTestStore } from '../test-support/open-test-store'
-import { appliedDrizzleNames } from './index'
+import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
+import { appliedDrizzleNames, runDrizzleMigrations } from './index'
 
 function tmpDbFile(name: string): string {
   return join(mkdtempSync(join(tmpdir(), 'podium-provenance-')), name)
 }
 
-/** The migration under test — the ONE name this fixture rewinds past. */
+/** The historical migration under test. */
 const MIGRATION = '20260730162954_change-provenance-envelope'
 
-/**
- * A REAL database rewound to the state immediately BEFORE the provenance
- * migration, carrying real change rows.
- *
- * Built by running the actual boot path to HEAD and then rewinding one
- * migration — dropping the three columns and deleting that migration's ledger
- * row — rather than by hand-writing a `CREATE TABLE`.
- *
- * The first attempt DID hand-write it, and it was wrong in a way worth
- * recording: a hand-built `changes` table with no drizzle ledger is not an old
- * database, it is a database drizzle has never seen. The migrator correctly
- * treated it as fresh, replayed the BASELINE, and failed with "table changes
- * already exists" — so the test was exercising first-boot, not upgrade.
- *
- * The rewind's own risk is the mirror image: `ALTER TABLE … DROP COLUMN` could
- * leave the table's rowid allocation somewhere a genuinely old database never
- * was, and that allocation is the thing under test. So the fixture ASSERTS its
- * own pre-state — `sqlite_sequence` must still read the true high-water mark
- * before the upgrade runs — and the seq test below fails on the fixture rather
- * than on the migration if it does not.
- */
-async function seedPreMigrationDatabase(file: string, rowCount: number): Promise<void> {
-  // 1. A real database at HEAD, through the real boot path.
-  ;await (await openTestStore(file)).close()
+const provenanceIndex = DRIZZLE_MIGRATIONS.findIndex((migration) => migration.name === MIGRATION)
+if (provenanceIndex < 1) throw new Error('provenance migration missing')
 
+/** Keep this historical regression at the schema boundary it tests. Current
+ * tenant numbering and complete upgrades have their own migration fixtures. */
+function migrateToProvenance(file: string): void {
   const db = openDatabase(file)
+  try {
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, provenanceIndex + 1), {
+      skipSchemaRepair: true,
+    })
+  } finally {
+    db.close()
+  }
+}
+
+/** A real pre-provenance database with its real migration ledger and old rows. */
+async function seedPreMigrationDatabase(file: string, rowCount: number): Promise<void> {
+  const db = openDatabase(file)
+  runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, provenanceIndex), {
+    skipSchemaRepair: true,
+  })
   const insert = db.prepare(
     'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
   )
@@ -79,21 +75,11 @@ async function seedPreMigrationDatabase(file: string, rowCount: number): Promise
     insert.run('session', `s${i}`, 'upsert', JSON.stringify({ n: i }), 1_700_000_000_000 + i)
   }
 
-  // 2. Rewind exactly one migration. Both halves are required: dropping the
-  //    columns without clearing the ledger row leaves drizzle believing the
-  //    migration has run, so the reboot would be a no-op and the test would pass
-  //    against an upgrade that never happened.
-  db.exec('ALTER TABLE changes DROP COLUMN origin_id')
-  db.exec('ALTER TABLE changes DROP COLUMN causation_id')
-  db.exec('ALTER TABLE changes DROP COLUMN mutation_id')
-  db.prepare('DELETE FROM __drizzle_migrations WHERE name = ?').run(MIGRATION)
-
-  // 3. Prove the rewind produced the state it claims. Without this the whole
-  //    suite could be measuring a database that was already upgraded.
+  // Prove this is the old schema and ledger before applying the migration.
   const columns = db.prepare('PRAGMA table_info(changes)').all() as { name: string }[]
   const names = new Set(columns.map((c) => c.name))
   for (const gone of ['origin_id', 'causation_id', 'mutation_id']) {
-    if (names.has(gone)) throw new Error(`fixture: ${gone} survived the rewind`)
+    if (names.has(gone)) throw new Error(`fixture: ${gone} exists before its migration`)
   }
   if (appliedDrizzleNames(db).has(MIGRATION)) {
     throw new Error('fixture: the migration is still recorded as applied — the reboot would no-op')
@@ -104,7 +90,7 @@ async function seedPreMigrationDatabase(file: string, rowCount: number): Promise
 const maxSeq = (db: SqlDatabase): number =>
   (db.prepare('SELECT COALESCE(MAX(seq), 0) AS seq FROM changes').get() as { seq: number }).seq
 
-/** What `SyncRepository.maxChangeSeq()` reads: the highest seq EVER assigned,
+/** What the repository read at this boundary: the highest seq EVER assigned,
  *  which survives head-pruning and is the number a table rebuild resets. */
 const sequenceHighWater = (db: SqlDatabase): number =>
   (
@@ -120,9 +106,8 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     const file = tmpDbFile('upgrade.db')
     await seedPreMigrationDatabase(file, ROWS)
 
-    // The real boot path: SessionStore runs the drizzle migrations in one
-    // transaction. Nothing here reaches past it into the applier.
-    ;await (await openTestStore(file)).close()
+    // Use the production migration runner at the original schema boundary.
+    migrateToProvenance(file)
 
     const db = openDatabase(file)
     const rows = db
@@ -143,7 +128,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     // migration invented a confirmation for it.
     const file = tmpDbFile('upgrade-null.db')
     await seedPreMigrationDatabase(file, ROWS)
-    ;await (await openTestStore(file)).close()
+    migrateToProvenance(file)
 
     const db = openDatabase(file)
     const row = db
@@ -168,7 +153,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     expect(headBefore).toBe(ROWS)
     expect(highWaterBefore).toBe(ROWS)
 
-    ;await (await openTestStore(file)).close()
+    migrateToProvenance(file)
 
     const after = openDatabase(file)
     expect(sequenceHighWater(after)).toBe(highWaterBefore)
@@ -203,7 +188,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     expect(sequenceHighWater(pre)).toBe(ROWS)
     pre.close()
 
-    ;await (await openTestStore(file)).close()
+    migrateToProvenance(file)
 
     const after = openDatabase(file)
     expect(sequenceHighWater(after)).toBe(ROWS)
@@ -224,8 +209,8 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
   it('is idempotent — a second boot changes nothing', async () => {
     const file = tmpDbFile('upgrade-twice.db')
     await seedPreMigrationDatabase(file, ROWS)
-    ;await (await openTestStore(file)).close()
-    ;await (await openTestStore(file)).close()
+    migrateToProvenance(file)
+    migrateToProvenance(file)
 
     const db = openDatabase(file)
     expect(maxSeq(db)).toBe(ROWS)

@@ -16,6 +16,8 @@ export interface TasksSurfaceProps {
   board: MobileTasksBoard | null
   booting: boolean
   chips: ReturnType<typeof filterChips>
+  /** Filters that differ from Reset, saved member filters included. */
+  filterCount: number
   refresh: ReturnType<typeof useRefreshableTab>
   minimizeOnScroll: ReturnType<typeof useMinimizeTabBarOnScroll>
   bottomInset: number

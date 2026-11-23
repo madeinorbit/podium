@@ -11,9 +11,11 @@
  * podium-host across a daemon restart, by the daemon's
  * `headless-turn-restart.integration.test.ts`).
  */
+
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { asAccountId, asSessionId, type SessionId } from '@podium/model'
+import { DEFAULT_SESSION_POSTURE, type SessionPosture } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { supported } from '../../../manifest.js'
@@ -27,8 +29,14 @@ import {
 } from '../../contract.js'
 import { createMemoryAttachmentStager } from '../../testing/attachment-stager.js'
 import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
+import {
+  testHarnessContext,
+  testSessionTerms,
+  testTurnPosturePort,
+} from '../../testing/harness-context.js'
 import type { AttachmentRef } from '../../turns.js'
 import type { EngineProcessOwner } from '../engine-supervision.js'
+import { composeHeadlessInvocation } from './invocation.js'
 import {
   assertNativeHeadlessAccount,
   createHeadlessRuntime,
@@ -76,7 +84,12 @@ interface FakeTurn {
   deps: HostedTurnDeps
   spec: HeadlessTurnSpec
   emit: HeadlessEmit
-  onPermission?: (request: { id: string; toolName: string; input?: unknown; suggestions?: readonly unknown[] }) => void
+  onPermission?: (request: {
+    id: string
+    toolName: string
+    input?: unknown
+    suggestions?: readonly unknown[]
+  }) => void
   answered: { interactionId: string; answer: { decision: string; feedback?: string } }[]
   interrupted: boolean
   interruptCalls: number
@@ -129,12 +142,19 @@ function makeRunners(): HeadlessDriverRunners & {
         turn.interrupted = true
         turn.interruptCalls += 1
       },
-      answerPermission: (interactionId: string, answer: { decision: string; feedback?: string }) => {
+      answerPermission: (
+        interactionId: string,
+        answer: { decision: string; feedback?: string },
+      ) => {
         turn.answered.push({ interactionId, answer })
       },
     }
   }
-  const runners: HeadlessDriverRunners & { turns: FakeTurn[]; acks: FakeAck[]; held?: HostedTurnIdentity } = {
+  const runners: HeadlessDriverRunners & {
+    turns: FakeTurn[]
+    acks: FakeAck[]
+    held?: HostedTurnIdentity
+  } = {
     turns,
     acks,
     runTurn: (deps, input) => start(input.identity, deps, input.spec, input.emit, input.hooks),
@@ -173,6 +193,7 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount'>> = {}): 
   const runners = makeRunners()
   const now = 1_000_000
   const host: FakeHost = {
+    ...testTurnPosturePort(),
     stageAttachment: createMemoryAttachmentStager(),
     binds: [],
     sent: [],
@@ -184,8 +205,8 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount'>> = {}): 
     },
     snapshot: async () => testHarnessSnapshot(),
     engines: () => OWNER,
-    turnChildEnv: ({ specEnv, execEnv, envOverlay }) => ({
-      env: { ...specEnv, ...execEnv, ...envOverlay },
+    turnChildEnv: ({ specEnv, credentialEnv, execEnv, envOverlay }) => ({
+      env: { ...credentialEnv, ...specEnv, ...execEnv, ...envOverlay },
       stripEnv: [],
     }),
     assertNativeAccount: (_agent, accountId) => {
@@ -218,6 +239,8 @@ function makeRuntime(overrides: Partial<Pick<FakeHost, 'nativeAccount'>> = {}): 
 function makeSpec(harness = 'claude-code', extra: Partial<SessionSpec> = {}): SessionSpec {
   return {
     harness,
+    ...testSessionTerms(),
+    harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: { auth: 'unknown', platform: 'linux', available: [] },
     workdir: '/repo',
     model: {},
@@ -285,6 +308,7 @@ function makeTurn(
     structuredPermissions?: true
     attachments?: AttachmentRef[]
     digest?: string
+    posture?: SessionPosture
   } = {},
 ): TurnInput {
   const turnId = fields.turnId ?? 'turn-1'
@@ -326,15 +350,27 @@ function makeTurn(
           }),
         }
       : {}),
-    ...(fields.allowedTools !== undefined ? { allowedTools: fields.allowedTools } : {}),
-    ...(fields.permissionMode !== undefined ? { permissionMode: fields.permissionMode } : {}),
+    // The old vendor-worded fields ride only as the facts the digest covers.
+    ...(fields.allowedTools !== undefined ||
+    fields.permissionMode !== undefined ||
+    fields.structuredPermissions !== undefined
+      ? {
+          legacyTerms: {
+            ...(fields.allowedTools !== undefined ? { allowedTools: fields.allowedTools } : {}),
+            ...(fields.permissionMode !== undefined
+              ? { permissionMode: fields.permissionMode }
+              : {}),
+            ...(fields.structuredPermissions !== undefined
+              ? { structuredPermissions: fields.structuredPermissions }
+              : {}),
+          },
+        }
+      : {}),
+    ...(fields.posture !== undefined ? { posture: fields.posture } : {}),
     ...(fields.toolPolicy !== undefined ? { toolPolicy: fields.toolPolicy } : {}),
     ...(fields.mcpConfig !== undefined ? { mcpConfig: fields.mcpConfig } : {}),
     ...(fields.resumeValue !== undefined ? { resumeValue: fields.resumeValue } : {}),
     ...(fields.sessionUuid !== undefined ? { sessionUuid: fields.sessionUuid } : {}),
-    ...(fields.structuredPermissions !== undefined
-      ? { structuredPermissions: fields.structuredPermissions }
-      : {}),
   }
 }
 
@@ -449,6 +485,129 @@ describe('headless driver identity', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Posture (POD-6858 Task 9)
+// ---------------------------------------------------------------------------
+
+describe('a headless turn runs on the posture its frame states', () => {
+  it('runs a Cursor turn stated autonomous with --auto-review, whatever the old permissionMode says', async () => {
+    // The interim gap POD-6872 left: the old frame's `permissionMode: 'auto'`
+    // read as a native Cursor mode that does not exist, so the turn lost
+    // --auto-review. The posture on the frame is what the launch reads.
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime, 'cursor', {
+        harnessContext: testHarnessContext({ kind: 'cursor' }),
+      })
+      const receipt = await handle.send(
+        makeTurn(sessionId, {
+          accountId: 'native:cursor:fp-1',
+          sessionUuid: 'chat-1',
+          permissionMode: 'auto',
+          posture: { mode: 'autonomous' },
+        }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('accepted')
+      const spec = runners.turns[0]?.spec
+      expect(spec?.launchPosture.posture).toEqual({ mode: 'autonomous' })
+      const invocation = composeHeadlessInvocation(spec!, testHarnessSnapshot(), {
+        isRoot: false,
+      })
+      expect(invocation.command.args).toContain('--auto-review')
+      expect(invocation.command.terms.requestedMode).toBe('auto-review')
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('runs a turn that states no posture on the session posture', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const receipt = await handle.send(makeTurn(sessionId), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns[0]?.spec.launchPosture.posture).toEqual(DEFAULT_SESSION_POSTURE)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('verifies the digest over the old fields the server minted it on, not over posture', async () => {
+    // An older daemon strips `posture` before it recomputes the digest, so
+    // the server never puts it there: a posture beside an unchanged digest
+    // verifies.
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const receipt = await handle.send(
+        makeTurn(sessionId, {
+          permissionMode: 'auto',
+          allowedTools: ['mcp__podium__issue_list'],
+          posture: { mode: 'supervised' },
+        }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns).toHaveLength(1)
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('routes a supervised Claude turn through the permission channel, so its asks reach chat', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      const receipt = await handle.send(
+        makeTurn(sessionId, { turnId: 'supervised-1', posture: { mode: 'supervised' } }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns[0]?.spec).toMatchObject({ structuredPermissions: true })
+      expect(typeof runners.turns[0]?.onPermission).toBe('function')
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('runs an autonomous Claude turn without the permission channel', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      await handle.send(makeTurn(sessionId, { posture: { mode: 'autonomous' } }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
+      expect(runners.turns[0]?.spec).not.toHaveProperty('structuredPermissions')
+      expect(runners.turns[0]?.onPermission).toBeUndefined()
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('runs a supervised Codex turn rather than refusing it: its posture section reports what it cannot do', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime, 'codex')
+      const receipt = await handle.send(
+        makeTurn(sessionId, {
+          accountId: 'native:codex:fp-1',
+          posture: { mode: 'supervised' },
+        }),
+        { origin: 'system', delivery: 'when-ready' },
+      )
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns[0]?.spec).not.toHaveProperty('structuredPermissions')
+    } finally {
+      runtime.dispose()
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Dispatch
 // ---------------------------------------------------------------------------
 
@@ -458,8 +617,7 @@ describe('headless dispatch', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       const input = makeTurn(sessionId, {
-        allowedTools: ['Read', 'Bash'],
-        permissionMode: 'auto',
+        posture: { mode: { native: 'plan' } },
         mcpConfig: '{"mcpServers":{}}',
         resumeValue: 'harness-9',
         sessionUuid: 'uuid-9',
@@ -467,7 +625,11 @@ describe('headless dispatch', () => {
         effort: 'high',
       })
       const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
-      expect(receipt).toMatchObject({ outcome: 'accepted', turnEpoch: 1, deliveredAs: 'when-ready' })
+      expect(receipt).toMatchObject({
+        outcome: 'accepted',
+        turnEpoch: 1,
+        deliveredAs: 'when-ready',
+      })
       expect(runners.turns).toHaveLength(1)
       const spec = runners.turns[0]?.spec
       expect(spec).toMatchObject({
@@ -475,8 +637,6 @@ describe('headless dispatch', () => {
         accountId: ACCOUNT,
         cwd: '/repo',
         prompt: 'hello',
-        allowedTools: ['Read', 'Bash'],
-        permissionMode: 'auto',
         mcpConfig: '{"mcpServers":{}}',
         resumeValue: 'harness-9',
         sessionUuid: 'uuid-9',
@@ -484,6 +644,7 @@ describe('headless dispatch', () => {
         effort: 'high',
         durableLabel: `podium-${sessionId}`,
       })
+      expect(spec?.launchPosture.posture).toEqual({ mode: { native: 'plan' } })
       expect(spec?.env).toMatchObject({ HOME: '/test' })
       expect(host.envs).toHaveLength(1)
     } finally {
@@ -495,20 +656,21 @@ describe('headless dispatch', () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime, 'claude-code', {
-        allowedTools: ['Read'],
-        permissionMode: 'plan',
+        posture: { mode: 'supervised' },
         executablePath: '/opt/claude',
       })
       await handle.configure({ model: 'opus', effort: 'max' })
-      const input = makeTurn(sessionId, { permissionMode: 'auto' })
+      const input = makeTurn(sessionId, { posture: { mode: { native: 'acceptEdits' } } })
       const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
       expect(receipt.outcome).toBe('accepted')
       expect(runners.turns[0]?.spec).toMatchObject({
-        allowedTools: ['Read'],
-        permissionMode: 'auto',
         model: 'opus',
         effort: 'max',
         executablePath: '/opt/claude',
+      })
+      // The turn's posture wins over the session's.
+      expect(runners.turns[0]?.spec.launchPosture.posture).toEqual({
+        mode: { native: 'acceptEdits' },
       })
     } finally {
       runtime.dispose()
@@ -542,6 +704,7 @@ describe('headless dispatch', () => {
     }
     const now = 1_000_000
     const host: FakeHost = {
+      ...testTurnPosturePort(),
       stageAttachment: createMemoryAttachmentStager(),
       binds: [],
       sent: [],
@@ -645,9 +808,9 @@ describe('headless dispatch', () => {
         }
       }
       expect(partials).toEqual(['half', 'half done'])
-      expect(
-        events.some((event) => event.t === 'item' && event.item.kind === 'complete'),
-      ).toBe(false)
+      expect(events.some((event) => event.t === 'item' && event.item.kind === 'complete')).toBe(
+        false,
+      )
     } finally {
       runtime.dispose()
     }
@@ -681,6 +844,26 @@ describe('headless dispatch', () => {
       runtime.dispose()
     }
   })
+
+  it('hands the turn’s managed credential to the child env, outside the digest (POD-6733)', async () => {
+    const { runtime, runners } = makeRuntime()
+    try {
+      const { handle, sessionId } = await createHandle(runtime)
+      // The digest is minted without the env: a credential is not turn identity.
+      const input = {
+        ...makeTurn(sessionId, { turnId: 'cred-turn' }),
+        env: { ANTHROPIC_API_KEY: 'sk-chosen' },
+      }
+      const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
+      expect(receipt.outcome).toBe('accepted')
+      expect(runners.turns[0]?.deps.childEnv({}).env).toMatchObject({
+        ANTHROPIC_API_KEY: 'sk-chosen',
+      })
+      expect(JSON.stringify(runners.turns[0]?.spec)).not.toContain('sk-chosen')
+    } finally {
+      runtime.dispose()
+    }
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -692,10 +875,10 @@ describe('headless fences', () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
-      const receipt = await handle.send(
-        makeTurn(sessionId, { digest: 'b'.repeat(64) }),
-        { origin: 'system', delivery: 'when-ready' },
-      )
+      const receipt = await handle.send(makeTurn(sessionId, { digest: 'b'.repeat(64) }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
       expect(receipt).toMatchObject({
         outcome: 'refused',
         refusal: { reason: 'invalid_value', detail: expect.stringContaining('digest') },
@@ -736,7 +919,7 @@ describe('headless fences', () => {
       // the digest must refuse rather than run the wrong policy.
       const input = makeTurn(sessionId, { allowedTools: ['Read'] })
       const receipt = await handle.send(
-        { ...input, allowedTools: ['Bash'] },
+        { ...input, legacyTerms: { allowedTools: ['Bash'] } },
         { origin: 'system', delivery: 'when-ready' },
       )
       expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
@@ -842,10 +1025,10 @@ describe('headless fences', () => {
       expect(replay).toMatchObject({ outcome: 'accepted', turnEpoch: 1 })
       expect(runners.turns).toHaveLength(1)
       // Same turnId, different identity: never a reuse.
-      const clash = await handle.send(
-        makeTurn(sessionId, { turnId: 't', text: 'changed' }),
-        { origin: 'system', delivery: 'when-ready' },
-      )
+      const clash = await handle.send(makeTurn(sessionId, { turnId: 't', text: 'changed' }), {
+        origin: 'system',
+        delivery: 'when-ready',
+      })
       expect(clash).toMatchObject({
         outcome: 'refused',
         refusal: { reason: 'invalid_value', detail: expect.stringContaining('identity mismatch') },
@@ -862,27 +1045,7 @@ describe('headless fences', () => {
     }
   })
 
-  it('refuses structured permissions where the harness has no SDK callback', async () => {
-    const { runtime, runners } = makeRuntime()
-    try {
-      const { handle, sessionId } = await createHandle(runtime, 'codex')
-      const input = makeTurn(sessionId, {
-        turnId: 'perm-no-channel',
-        accountId: 'native:codex:fp-1',
-        structuredPermissions: true,
-      })
-      const receipt = await handle.send(input, { origin: 'system', delivery: 'when-ready' })
-      expect(receipt).toMatchObject({
-        outcome: 'refused',
-        refusal: { reason: 'unsupported' },
-      })
-      expect(runners.turns).toHaveLength(0)
-    } finally {
-      runtime.dispose()
-    }
-  })
-
-  it('binds structuredPermissions into the digest', async () => {
+  it('binds the old structuredPermissions fact into the digest', async () => {
     const { runtime, runners } = makeRuntime()
     try {
       const { handle, sessionId } = await createHandle(runtime)
@@ -890,7 +1053,7 @@ describe('headless fences', () => {
       // digest must refuse rather than run the wrong permission posture.
       const input = makeTurn(sessionId, { turnId: 'perm-digest' })
       const receipt = await handle.send(
-        { ...input, structuredPermissions: true as const },
+        { ...input, legacyTerms: { structuredPermissions: true as const } },
         { origin: 'system', delivery: 'when-ready' },
       )
       expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'invalid_value' } })
@@ -905,7 +1068,7 @@ describe('headless fences', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       const receipt = await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-sdk', structuredPermissions: true }),
+        makeTurn(sessionId, { turnId: 'perm-sdk', posture: { mode: 'supervised' } }),
         { origin: 'system', delivery: 'when-ready' },
       )
       expect(receipt).toMatchObject({ outcome: 'accepted', turnEpoch: 1 })
@@ -1195,7 +1358,10 @@ describe('headless history and rebind', () => {
     try {
       const { handle } = await createHandle(runtime)
       const source = { bytes: new Uint8Array([1]), filename: 'a.zip', mediaType: 'application/zip' }
-      expect(await handle.stageAttachment(source)).toMatchObject({ filename: 'a.zip', kind: 'file' })
+      expect(await handle.stageAttachment(source)).toMatchObject({
+        filename: 'a.zip',
+        kind: 'file',
+      })
       await handle.kill()
       expect(await handle.stageAttachment(source)).toMatchObject({ reason: 'not_running' })
     } finally {
@@ -1203,7 +1369,10 @@ describe('headless history and rebind', () => {
     }
   })
 
-  it.each(['/tmp/claude-session.jsonl', 'C:\\tmp\\claude-session.jsonl'])('machine paths: exports the harness-native transcript from %s', async path => {
+  it.each([
+    '/tmp/claude-session.jsonl',
+    'C:\\tmp\\claude-session.jsonl',
+  ])('machine paths: exports the harness-native transcript from %s', async (path) => {
     const { runtime, runners, host } = makeRuntime()
     host.archiveTranscript = async () => ({ path })
     try {
@@ -1266,7 +1435,10 @@ describe('headless history and rebind', () => {
       // Exact identity releases the host under THIS session's label.
       await runtime.acknowledge({ sessionId, turnId, requestDigest, accountId })
       expect(runners.acks).toEqual([
-        { label: handle.binding.process.key, identity: { sessionId, turnId, requestDigest, accountId } },
+        {
+          label: handle.binding.process.key,
+          identity: { sessionId, turnId, requestDigest, accountId },
+        },
       ])
     } finally {
       runtime.dispose()
@@ -1284,8 +1456,11 @@ describe('headless structured permissions', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-1', structuredPermissions: true }),
-        { origin: 'system', delivery: 'when-ready' },
+        makeTurn(sessionId, { turnId: 'perm-1', posture: { mode: 'supervised' } }),
+        {
+          origin: 'system',
+          delivery: 'when-ready',
+        },
       )
       const turn = runners.turns[0]
       expect(turn?.spec).toMatchObject({ structuredPermissions: true })
@@ -1326,9 +1501,9 @@ describe('headless structured permissions', () => {
         { interactionId: 'perm-ask-1', answer: { decision: 'deny', feedback: 'not today' } },
       ])
       expect(await handle.interactions()).toEqual([])
-      expect(await handle.answer('perm-ask-1', { kind: 'permission', decision: 'deny' })).toMatchObject(
-        { ok: false, reason: 'already-answered' },
-      )
+      expect(
+        await handle.answer('perm-ask-1', { kind: 'permission', decision: 'deny' }),
+      ).toMatchObject({ ok: false, reason: 'already-answered' })
       turn?.resolve({ harnessSessionId: 'h-perm-1', output: 'done' })
       await flush()
       expect((await handle.state()).phase).toBe('idle')
@@ -1342,8 +1517,11 @@ describe('headless structured permissions', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-2', structuredPermissions: true }),
-        { origin: 'system', delivery: 'when-ready' },
+        makeTurn(sessionId, { turnId: 'perm-2', posture: { mode: 'supervised' } }),
+        {
+          origin: 'system',
+          delivery: 'when-ready',
+        },
       )
       const turn = runners.turns[0]
       turn?.onPermission?.({ id: 'perm-ask-2', toolName: 'Edit' })
@@ -1358,9 +1536,9 @@ describe('headless structured permissions', () => {
       await flush()
       expect(await handle.interactions()).toEqual([])
       const events = await takeEvents(handle)
-      expect(
-        events.some((event) => event.t === 'interaction' && event.ev.ev === 'expired'),
-      ).toBe(true)
+      expect(events.some((event) => event.t === 'interaction' && event.ev.ev === 'expired')).toBe(
+        true,
+      )
     } finally {
       runtime.dispose()
     }
@@ -1371,7 +1549,7 @@ describe('headless structured permissions', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-dedupe', structuredPermissions: true }),
+        makeTurn(sessionId, { turnId: 'perm-dedupe', posture: { mode: 'supervised' } }),
         { origin: 'system', delivery: 'when-ready' },
       )
       const turn = runners.turns[0]
@@ -1420,8 +1598,11 @@ describe('headless structured permissions', () => {
     try {
       const { handle, sessionId } = await createHandle(runtime)
       await handle.send(
-        makeTurn(sessionId, { turnId: 'perm-3', structuredPermissions: true }),
-        { origin: 'system', delivery: 'when-ready' },
+        makeTurn(sessionId, { turnId: 'perm-3', posture: { mode: 'supervised' } }),
+        {
+          origin: 'system',
+          delivery: 'when-ready',
+        },
       )
       const turn = runners.turns[0]
       turn?.onPermission?.({
@@ -1451,11 +1632,9 @@ describe('headless procedures', () => {
       const handle = await driver.create(makeSpec('claude-code'))
       const sessionId = handle.binding.sessionId
       const procedures = resolveProcedures(driver)
-      const waited = procedures.askAndAwait(
-        handle,
-        makeTurn(sessionId, { turnId: 'proc-turn' }),
-        { origin: 'system' },
-      )
+      const waited = procedures.askAndAwait(handle, makeTurn(sessionId, { turnId: 'proc-turn' }), {
+        origin: 'system',
+      })
       await flush()
       expect(runners.turns).toHaveLength(1)
       runners.turns[0]?.emit({ kind: 'status', status: 'running', harnessSessionId: 'h-p' })

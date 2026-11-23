@@ -10,10 +10,13 @@ const access = vi.hoisted(() => ({
   openFileInWorktree: vi.fn(),
 }))
 
-vi.mock('@podium/client-core/react', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ access }),
-}))
+vi.mock('@podium/client-core/react', async (importOriginal) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await importOriginal<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => ({ access })),
+  }
+})
 
 const { MarkdownPreview } = await import('./MarkdownPreview')
 

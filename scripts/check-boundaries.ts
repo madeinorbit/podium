@@ -105,9 +105,9 @@
  *     is the same mechanically visible condition as Stage A's: the ledger is
  *     empty.
  *
-  *  19. A hand-written `sql` fragment used in a select projection may not carry an
-  *     outer-table Column into its own FROM scope; use `sql.identifier`.
-  *
+ *  19. A hand-written `sql` fragment used in a select projection may not carry an
+ *     outer-table Column into its own FROM scope; use `sql.identifier`.
+ *
  *  20. The TERMINAL OBJECTS family (POD-4437, closing issue of POD-4414): five
  *     per-file rules pinning the six runtime objects (podium-host,
  *     DurableProcess, Terminal, RuntimeDriver, Session, Viewer) to the places
@@ -182,6 +182,13 @@ import {
 } from './architecture-manifest'
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import { checkIssuePredicates } from './check-issue-predicates'
+import {
+  HARNESS_AMBIENT_ALLOWLIST,
+  HARNESS_AMBIENT_BASELINE_OS_TOOL,
+  HARNESS_AMBIENT_BASELINE_TO_MIGRATE,
+  type HarnessAmbientAccess,
+  type HarnessAmbientAllowlistEntry,
+} from './harness-ambient-allowlist'
 import {
   HARNESS_BASELINE_LEAK_COUNT,
   HARNESS_BASELINE_POLICY_COUNT,
@@ -611,6 +618,124 @@ export function isHarnessFixturePath(file: string): boolean {
   )
 }
 
+/** Sync's cursor vocabulary is unrelated to the Cursor harness. Classify syntax, never a whole file. */
+function syncCursorLiteralPositions(file: string, source: string): ReadonlySet<number> {
+  const homes = new Set([
+    'apps/server/src/store/janitor-reads.ts',
+    'packages/sync/src/replica/cache-state.ts',
+    'packages/sync/src/adapters/sqlite/sync-repository.ts',
+    'packages/sync/src/replica/loader.ts',
+    'packages/client-core/src/replica-assembly/assembly.ts',
+  ])
+  const allowed = new Set<number>()
+  if (!homes.has(file)) return allowed
+  const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true)
+  const path = (node: ts.Node | undefined): string | undefined => {
+    if (node && ts.isIdentifier(node)) return node.text
+    if (node && ts.isPropertyAccessExpression(node)) {
+      const root = path(node.expression)
+      return root === undefined ? undefined : `${root}.${node.name.text}`
+    }
+    return undefined
+  }
+  const variableOf = (node: ts.Node): string | undefined => {
+    for (let parent = node.parent; parent; parent = parent.parent)
+      if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) return parent.name.text
+    return undefined
+  }
+  const classify = (node: ts.StringLiteralLike): boolean => {
+    const parent = node.parent
+    if (file === 'packages/sync/src/replica/cache-state.ts') {
+      if (
+        !ts.isVariableDeclaration(parent) ||
+        path(parent.name) !== 'CURSOR_META_KEY' ||
+        parent.initializer !== node
+      )
+        return false
+      const declarations = parent.parent
+      const statement = declarations.parent
+      return (
+        ts.isVariableDeclarationList(declarations) &&
+        (declarations.flags & ts.NodeFlags.Const) !== 0 &&
+        ts.isVariableStatement(statement) &&
+        statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ===
+          true
+      )
+    }
+    if (
+      file === 'apps/server/src/store/janitor-reads.ts' ||
+      file === 'packages/sync/src/adapters/sqlite/sync-repository.ts'
+    ) {
+      if (
+        !ts.isCallExpression(parent) ||
+        parent.arguments.length !== 2 ||
+        parent.arguments[1] !== node
+      )
+        return false
+      return file === 'apps/server/src/store/janitor-reads.ts'
+        ? path(parent.expression) === 'eq' &&
+            path(parent.arguments[0]) === 't.stewardState.key' &&
+            variableOf(node) === 'stewardCursorOf'
+        : path(parent.expression) === 'param' &&
+            path(parent.arguments[0]) === 't.changes.seq' &&
+            variableOf(node) === 'changesAfter'
+    }
+    if (file === 'packages/sync/src/replica/loader.ts') {
+      if (!ts.isCaseClause(parent) || !ts.isCaseBlock(parent.parent)) return false
+      const branch = parent.parent.parent
+      if (!ts.isSwitchStatement(branch) || path(branch.expression) !== 'event.type') return false
+      for (let owner: ts.Node | undefined = branch.parent; owner; owner = owner.parent) {
+        if (!ts.isMethodDeclaration(owner)) continue
+        const parameter = owner.parameters[0]
+        return (
+          path(owner.name) === 'onEvent' &&
+          owner.parameters.length === 1 &&
+          parameter !== undefined &&
+          path(parameter.name) === 'event' &&
+          parameter.type?.getText(parsed) === 'ReplicaEvent' &&
+          ts.isClassDeclaration(owner.parent) &&
+          owner.parent.name?.text === 'CollectionLoader'
+        )
+      }
+      return false
+    }
+    if (
+      !ts.isBinaryExpression(parent) ||
+      parent.right !== node ||
+      parent.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      path(parent.left) !== 'event.type'
+    )
+      return false
+    for (let owner: ts.Node | undefined = parent.parent; owner; owner = owner.parent) {
+      if (!ts.isArrowFunction(owner)) continue
+      const property = owner.parent
+      if (
+        !ts.isPropertyAssignment(property) ||
+        path(property.name) !== 'onEvent' ||
+        owner.parameters.length !== 1 ||
+        path(owner.parameters[0]?.name) !== 'event'
+      )
+        return false
+      const options = property.parent
+      const kernel = options.parent
+      return (
+        ts.isObjectLiteralExpression(options) &&
+        ts.isNewExpression(kernel) &&
+        path(kernel.expression) === 'KernelReplica' &&
+        kernel.arguments?.[0] === options
+      )
+    }
+    return false
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteralLike(node) && node.text === 'cursor' && classify(node))
+      allowed.add(node.getStart(parsed))
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  return allowed
+}
+
 /**
  * Flag harness literals as quoted string literals outside the two homes.
  *
@@ -639,11 +764,13 @@ export function checkHarnessVendorLiterals(
     .map((l) => l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .join('|')
   const re = new RegExp(`(['"\`])(${alternation})\\1`, 'g')
+  const syncCursorPositions = syncCursorLiteralPositions(file, stripped)
   const violations: Violation[] = []
   for (const m of stripped.matchAll(re)) {
     const quote = m[1] ?? ''
     const literal = m[2] ?? ''
     if (!literal) continue
+    if (literal === 'cursor' && syncCursorPositions.has(m.index)) continue
     void quote
     const line = stripped.slice(0, m.index).split('\n').length
     violations.push({
@@ -781,16 +908,401 @@ export function checkHarnessAllowlistTotals(
   // issue/lane, policy points at the policy module. Unsure = leak.
   for (const entry of allowlist) {
     if (!entry.reason || entry.reason.trim().length === 0) {
-      problems.push(`allowlist entry ${entry.file} has no reason — every entry needs a one-line reason (unsure = leak)`)
+      problems.push(
+        `allowlist entry ${entry.file} has no reason — every entry needs a one-line reason (unsure = leak)`,
+      )
     }
     if (entry.category === 'leak' && (!entry.issue || entry.issue.trim().length === 0)) {
-      problems.push(`allowlist entry ${entry.file} is leak but names no removing issue — leaks must name the issue/lane that removes them`)
+      problems.push(
+        `allowlist entry ${entry.file} is leak but names no removing issue — leaks must name the issue/lane that removes them`,
+      )
     }
     if (entry.category === 'policy' && (!entry.policy || entry.policy.trim().length === 0)) {
-      problems.push(`allowlist entry ${entry.file} is policy but points at no policy module — policy must point at the module that owns the preference`)
+      problems.push(
+        `allowlist entry ${entry.file} is policy but points at no policy module — policy must point at the module that owns the preference`,
+      )
     }
   }
   return problems
+}
+
+// ---------------------------------------------------------------------------
+// Harness ambient access (POD-6545, design docs/design/harness-access-contract.md
+// §3.6). Freezes today's direct machine access in harness code so it can only
+// go down while the access-contract migration (POD-6520) runs.
+//
+// Scope A, the adapters and driver families: every value import of
+// `node:child_process`/`child_process`, every `Bun.spawn`/`Bun.spawnSync`,
+// every `homedir()`/`os.homedir` and every `process.env` read. A harness
+// reaches the machine through the context it is handed, not through the
+// daemon's own process.
+//
+// Scope B, apps/daemon/src: string literals naming a harness state folder
+// (`.codex`, `.claude`, `.grok`, `.pi/agent`). Folder rules belong to the
+// adapters' `roots`, never to daemon code.
+//
+// Counted per (file, access) against scripts/harness-ambient-allowlist.ts with
+// the vendor rule's ratchet: above the count fails, below it fails until the
+// count is lowered. Read off the TypeScript AST, so comments and prose never
+// count and a type-only import of `ChildProcess` is not machine access.
+// ---------------------------------------------------------------------------
+
+export const HARNESS_AMBIENT_RULE = 'harness-ambient-access'
+
+/** Scope A: where harness code lives. */
+export const HARNESS_AMBIENT_HARNESS_SCOPE: readonly string[] = [
+  'packages/harness/src/adapters/',
+  'packages/harness/src/driver/families/',
+]
+
+/** Scope B: the daemon, which must not know where a harness keeps its state. */
+export const HARNESS_AMBIENT_DAEMON_SCOPE = 'apps/daemon/src/'
+
+/**
+ * A literal names a harness state folder when one of its path segments is
+ * `.codex`, `.claude` or `.grok`, or it holds `.pi` as a segment that ends the
+ * literal or continues with `agent` (`'.pi/agent'`, and the split
+ * `join(home, '.pi', 'agent')`). `.claude.json` is a file, `.codexrc` is not a
+ * segment, and neither counts.
+ */
+const HARNESS_STATE_FOLDER_RE =
+  /(?:^|[\\/])(?:\.(?:codex|claude|grok)(?=$|[\\/])|\.pi(?=$|[\\/]agent(?:$|[\\/])))/
+
+function isHarnessAmbientExcluded(file: string): boolean {
+  if (!/\.tsx?$/.test(file) || file.endsWith('.d.ts')) return true
+  if (isTestFile(file)) return true
+  if (file.includes('__fixtures__') || /\.fixtures?\.tsx?$/.test(file)) return true
+  if (/(^|\/)test-support\.tsx?$/.test(file)) return true
+  return false
+}
+
+/** Which scope a file falls in, or null when the rule does not look at it. */
+export function harnessAmbientScopeOf(file: string): 'harness' | 'daemon' | null {
+  if (isHarnessAmbientExcluded(file)) return null
+  if (HARNESS_AMBIENT_HARNESS_SCOPE.some((root) => file.startsWith(root))) return 'harness'
+  if (file.startsWith(HARNESS_AMBIENT_DAEMON_SCOPE)) return 'daemon'
+  return null
+}
+
+const AMBIENT_WHAT: Record<HarnessAmbientAccess, string> = {
+  'child-process': 'child_process import',
+  'bun-spawn': 'Bun.spawn',
+  homedir: 'homedir()',
+  'process-env': 'process.env read',
+  'state-folder': 'harness state folder literal',
+}
+
+const AMBIENT_FIX: Record<'harness' | 'daemon', string> = {
+  harness:
+    'a harness reaches the machine through the context it is handed (account home, environment, selected installation), not through the daemon process',
+  daemon: "where a harness keeps its state is the adapter's `roots` rule, not daemon code",
+}
+
+/**
+ * Every direct machine access in one file, one violation per occurrence (so
+ * the allow-list counts occurrences and a second use in a listed file fails).
+ * `specifier` carries the access kind, which the allow-list keys on.
+ */
+export function checkHarnessAmbientAccess(file: string, source: string): Violation[] {
+  const scope = harnessAmbientScopeOf(file)
+  if (scope === null) return []
+  // Cheap pre-filter: most files never mention any of it.
+  if (
+    scope === 'harness'
+      ? !/child_process|bun|homedir|process/i.test(source)
+      : !/\.(?:codex|claude|grok|pi)/.test(source)
+  ) {
+    return []
+  }
+  const sf = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const violations: Violation[] = []
+  const hit = (node: ts.Node, access: HarnessAmbientAccess, detail: string): void => {
+    const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1
+    violations.push({
+      file,
+      specifier: access,
+      rule: HARNESS_AMBIENT_RULE,
+      message: `${file}:${line}: ${AMBIENT_WHAT[access]} (${detail}) — ${AMBIENT_FIX[scope]} (docs/design/harness-access-contract.md §3.6). See scripts/harness-ambient-allowlist.ts.`,
+    })
+  }
+  const isChildProcess = (node: ts.Node | undefined): boolean =>
+    node !== undefined &&
+    ts.isStringLiteralLike(node) &&
+    (node.text === 'node:child_process' || node.text === 'child_process')
+  // Names `node:os` is bound to here (`import * as os`, `import os`), so
+  // `os.homedir` counts under any alias and `opts.homedir` (a field) does not.
+  const osNames = new Set<string>(['os'])
+  const homedirNames = new Set<string>(['homedir'])
+  for (const statement of sf.statements) {
+    if (
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteralLike(statement.moduleSpecifier) &&
+      (statement.moduleSpecifier.text === 'node:os' || statement.moduleSpecifier.text === 'os')
+    ) {
+      const clause = statement.importClause
+      if (clause?.name) osNames.add(clause.name.text)
+      if (clause?.namedBindings && ts.isNamespaceImport(clause.namedBindings)) {
+        osNames.add(clause.namedBindings.name.text)
+      }
+      if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+        for (const element of clause.namedBindings.elements) {
+          if ((element.propertyName ?? element.name).text === 'homedir') {
+            homedirNames.add(element.name.text)
+          }
+        }
+      }
+    }
+  }
+  // `homedir` (under any import alias) as a value: called, or passed on
+  // (`getHome = homedir`). Its
+  // import specifier, a property key and a declared name are not uses.
+  const isHomedirValue = (node: ts.Identifier): boolean => {
+    const parent = node.parent
+    if (ts.isImportSpecifier(parent) || ts.isImportClause(parent)) return false
+    if (ts.isPropertyAccessExpression(parent) && parent.name === node) return false
+    if (
+      (ts.isPropertyAssignment(parent) ||
+        ts.isPropertyDeclaration(parent) ||
+        ts.isPropertySignature(parent) ||
+        ts.isMethodDeclaration(parent) ||
+        ts.isMethodSignature(parent) ||
+        ts.isVariableDeclaration(parent) ||
+        ts.isParameter(parent) ||
+        ts.isFunctionDeclaration(parent) ||
+        ts.isBindingElement(parent)) &&
+      parent.name === node
+    ) {
+      return false
+    }
+    return true
+  }
+  const visit = (node: ts.Node): void => {
+    if (scope === 'harness') {
+      if (
+        ts.isImportDeclaration(node) &&
+        ts.isStringLiteralLike(node.moduleSpecifier) &&
+        node.moduleSpecifier.text === 'bun' &&
+        !node.importClause?.isTypeOnly &&
+        node.importClause?.namedBindings &&
+        ts.isNamedImports(node.importClause.namedBindings)
+      ) {
+        // `import { spawn, $ } from 'bun'` is Bun.spawn by another spelling.
+        for (const element of node.importClause.namedBindings.elements) {
+          const imported = (element.propertyName ?? element.name).text
+          if (!element.isTypeOnly && /^(?:spawn|spawnSync|\$)$/.test(imported)) {
+            hit(element, 'bun-spawn', `import { ${imported} } from 'bun'`)
+          }
+        }
+      } else if (ts.isImportDeclaration(node) && isChildProcess(node.moduleSpecifier)) {
+        const clause = node.importClause
+        const typeOnly =
+          clause !== undefined &&
+          (clause.isTypeOnly ||
+            (clause.name === undefined &&
+              clause.namedBindings !== undefined &&
+              ts.isNamedImports(clause.namedBindings) &&
+              clause.namedBindings.elements.length > 0 &&
+              clause.namedBindings.elements.every((e) => e.isTypeOnly)))
+        if (!typeOnly) hit(node, 'child-process', node.moduleSpecifier.getText(sf))
+      } else if (
+        ts.isExportDeclaration(node) &&
+        !node.isTypeOnly &&
+        isChildProcess(node.moduleSpecifier)
+      ) {
+        hit(node, 'child-process', node.moduleSpecifier?.getText(sf) ?? '')
+      } else if (
+        ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
+        isChildProcess(node.arguments[0])
+      ) {
+        hit(node, 'child-process', node.getText(sf))
+      } else if (ts.isPropertyAccessExpression(node)) {
+        const target = node.expression
+        const name = node.name.text
+        if (
+          ts.isIdentifier(target) &&
+          target.text === 'Bun' &&
+          /^(?:spawn|spawnSync|\$)$/.test(name)
+        ) {
+          hit(node, 'bun-spawn', `Bun.${name}`)
+        } else if (name === 'homedir' && ts.isIdentifier(target) && osNames.has(target.text)) {
+          hit(node, 'homedir', node.getText(sf))
+        } else if (
+          name === 'env' &&
+          ((ts.isIdentifier(target) && target.text === 'process') ||
+            (ts.isPropertyAccessExpression(target) && target.name.text === 'process'))
+        ) {
+          hit(node, 'process-env', 'process.env')
+        }
+      } else if (
+        ts.isElementAccessExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === 'process' &&
+        ts.isStringLiteralLike(node.argumentExpression) &&
+        node.argumentExpression.text === 'env'
+      ) {
+        hit(node, 'process-env', node.getText(sf))
+      } else if (ts.isIdentifier(node) && homedirNames.has(node.text) && isHomedirValue(node)) {
+        hit(node, 'homedir', node.text)
+      }
+    } else if (
+      (ts.isStringLiteral(node) ||
+        ts.isNoSubstitutionTemplateLiteral(node) ||
+        ts.isTemplateHead(node) ||
+        ts.isTemplateMiddle(node) ||
+        ts.isTemplateTail(node)) &&
+      // Module specifiers name modules, not folders.
+      !(ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent)) &&
+      HARNESS_STATE_FOLDER_RE.test(node.text)
+    ) {
+      hit(node, 'state-folder', JSON.stringify(node.text))
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  return violations
+}
+
+const ambientKey = (file: string, access: string): string => `${file}\u0000${access}`
+
+/**
+ * The ratchet, the vendor rule's semantics keyed by (file, access): a use the
+ * allow-list does not cover (file or access not listed, or over its count)
+ * fails; an entry holding more than remains (slack, or dead at zero) fails
+ * with "lower the count" until it is lowered. Only this rule's violations are
+ * read, so the two harness families never declare each other's entries dead.
+ */
+export function applyHarnessAmbientAllowlist(
+  violations: readonly Violation[],
+  allowlist: readonly HarnessAmbientAllowlistEntry[] = HARNESS_AMBIENT_ALLOWLIST,
+): { warnings: Violation[]; errors: Violation[]; stale: string[] } {
+  const allowed = new Map<string, number>()
+  for (const entry of allowlist) {
+    const key = ambientKey(entry.file, entry.access)
+    allowed.set(key, (allowed.get(key) ?? 0) + entry.count)
+  }
+  const seen = new Map<string, Violation[]>()
+  for (const v of violations) {
+    if (v.rule !== HARNESS_AMBIENT_RULE) continue
+    const key = ambientKey(v.file, v.specifier)
+    seen.set(key, [...(seen.get(key) ?? []), v])
+  }
+  const warnings: Violation[] = []
+  const errors: Violation[] = []
+  for (const [key, group] of seen) {
+    const count = allowed.get(key) ?? 0
+    warnings.push(...group.slice(0, count))
+    errors.push(...group.slice(count))
+  }
+  const stale: string[] = []
+  for (const [key, count] of allowed) {
+    const [file, access] = key.split('\u0000')
+    const actual = seen.get(key)?.length ?? 0
+    if (actual === 0) {
+      stale.push(
+        `allowlist entry [${HARNESS_AMBIENT_RULE}] ${file} (${access}) is dead (0 uses) — remove it from scripts/harness-ambient-allowlist.ts and lower the baseline`,
+      )
+    } else if (actual < count) {
+      stale.push(
+        `allowlist entry [${HARNESS_AMBIENT_RULE}] ${file} (${access}) allows ${count} but only ${actual} remain — lower the count to ${actual} to hold the ground you gained`,
+      )
+    }
+  }
+  return { warnings, errors, stale }
+}
+
+/**
+ * The shrink-only guard on the allow-list itself, as for the vendor rule: a
+ * category total above its baseline fails (raising a count cannot admit new
+ * access), and a baseline above the seeded total fails (no slack to refill).
+ * Every entry carries its category pointer: `to-migrate` names the issue that
+ * removes it, `os-tool` says why the OS tool is not harness access.
+ */
+export function checkHarnessAmbientAllowlistTotals(
+  allowlist: readonly HarnessAmbientAllowlistEntry[] = HARNESS_AMBIENT_ALLOWLIST,
+  baselineToMigrate: number = HARNESS_AMBIENT_BASELINE_TO_MIGRATE,
+  baselineOsTool: number = HARNESS_AMBIENT_BASELINE_OS_TOOL,
+): string[] {
+  const sum = (category: string): number =>
+    allowlist.filter((e) => e.category === category).reduce((n, e) => n + e.count, 0)
+  const problems: string[] = []
+  for (const [category, seeded, baseline, constant] of [
+    ['to-migrate', sum('to-migrate'), baselineToMigrate, 'HARNESS_AMBIENT_BASELINE_TO_MIGRATE'],
+    ['os-tool', sum('os-tool'), baselineOsTool, 'HARNESS_AMBIENT_BASELINE_OS_TOOL'],
+  ] as const) {
+    if (seeded > baseline) {
+      problems.push(
+        `harness ambient allow-list ${category} total grew: ${seeded} > baseline ${baseline} — the list can only shrink; route the access through the harness context instead`,
+      )
+    } else if (baseline > seeded) {
+      problems.push(
+        `harness ambient baseline exceeds the seeded allow-list (${category}): baseline ${baseline} > seeded ${seeded} — lower ${constant} to ${seeded}`,
+      )
+    }
+  }
+  for (const entry of allowlist) {
+    if (!Number.isInteger(entry.count) || entry.count <= 0) {
+      problems.push(
+        `allowlist entry ${entry.file} (${entry.access}) has count ${entry.count} — remove the entry instead`,
+      )
+    }
+    if (entry.category === 'to-migrate' && !entry.issue?.trim()) {
+      problems.push(
+        `allowlist entry ${entry.file} (${entry.access}) is to-migrate but names no removing issue`,
+      )
+    }
+    if (entry.category === 'os-tool' && !entry.reason?.trim()) {
+      problems.push(
+        `allowlist entry ${entry.file} (${entry.access}) is os-tool but gives no reason — say which OS tool and why it is not harness access`,
+      )
+    }
+  }
+  return problems
+}
+
+/** Scope A and B files only — what `--harness-ambient-only` walks. */
+export function runHarnessAmbientCheck(repoRoot: string): Violation[] {
+  const violations: Violation[] = []
+  for (const root of [...HARNESS_AMBIENT_HARNESS_SCOPE, HARNESS_AMBIENT_DAEMON_SCOPE]) {
+    const dir = join(repoRoot, root)
+    if (!existsSync(dir)) continue
+    for (const abs of walk(dir)) {
+      const file = relative(repoRoot, abs).split(sep).join('/')
+      violations.push(...checkHarnessAmbientAccess(file, readFileSync(abs, 'utf8')))
+    }
+  }
+  return violations
+}
+
+/** Applies the allow-list and prints; true when the rule fails. */
+function reportHarnessAmbient(violations: readonly Violation[]): boolean {
+  const ambient = applyHarnessAmbientAllowlist(violations, HARNESS_AMBIENT_ALLOWLIST)
+  const totals = checkHarnessAmbientAllowlistTotals(HARNESS_AMBIENT_ALLOWLIST)
+  if (ambient.warnings.length > 0) {
+    console.warn(
+      `\nharness ambient access — ${ambient.warnings.length} allowlisted use(s) (warn, see scripts/harness-ambient-allowlist.ts)`,
+    )
+  }
+  if (ambient.stale.length > 0 || totals.length > 0) {
+    console.error(`\nharness ambient access — the ratchet only goes down:\n`)
+    for (const s of ambient.stale) console.error(`  ${s}`)
+    for (const t of totals) console.error(`  ${t}`)
+  }
+  if (ambient.errors.length > 0) {
+    console.error(`\nNEW ${HARNESS_AMBIENT_RULE} violations (${ambient.errors.length}):\n`)
+    for (const v of ambient.errors) console.error(`  [${v.rule}] ${v.message}`)
+    console.error(
+      '\nThese are not in scripts/harness-ambient-allowlist.ts (or exceed the declared count). Take the value from the harness context; the allow-list is a ratchet, it only goes down.',
+    )
+  }
+  return ambient.errors.length > 0 || ambient.stale.length > 0 || totals.length > 0
 }
 
 // ---------------------------------------------------------------------------
@@ -1344,7 +1856,7 @@ function resolveRelativeModule(repoRoot: string, fromFile: string, spec: string)
     .split(sep)
     .join('/')
   for (const candidate of [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`]) {
-    if (candidate.endsWith('.ts') || candidate.endsWith('.tsx')) {
+    if (candidate.endsWith('.ts') || candidate.endsWith('.tsx') || candidate.endsWith('.json')) {
       if (existsSync(join(repoRoot, candidate))) return candidate
     }
   }
@@ -1637,6 +2149,7 @@ export function checkSessionBindingFieldAccess(file: string, source: string): Vi
 const STORE_BOUNDARY_ROOTS: readonly string[] = [
   'apps/server/src/store/',
   'packages/sync/src/adapters/sqlite/',
+  'packages/sync/src/adapters/pg/',
 ]
 
 /** The one FILE outside those directories that is a repository (spec §6 rule 2). */
@@ -1783,21 +2296,6 @@ const STORE_BOUNDARY_DECISION_MARKER = /\/\/\s*DECISION POD-\d+/
  */
 const UPDATE_CONFLICT_STATEMENT_MARKER = /^\s*\/\/\s*UPDATE-CONFLICT STATEMENT POD-3406\b/
 
-/**
- * Rule 31b's `INSERT OR REPLACE` exemption (POD-3403), and it is PATH-PINNED
- * where {@link UPDATE_CONFLICT_STATEMENT_MARKER} is not.
- *
- * `UPDATE OR IGNORE` losing a race leaves the row alone. `INSERT OR REPLACE`
- * DELETES the conflicting row and reinserts, firing `ON DELETE CASCADE` on
- * every inbound foreign key. A token-plus-shape exemption would let any future
- * site adopt that by typing the token; pinning the path sends the next one back
- * for its own foreign-key audit. All THREE must hold — the token alone grants
- * nothing.
- */
-const REPLACE_STATEMENT_MARKER = /^\s*\/\/\s*REPLACE-STATEMENT POD-3403\b/
-const REPLACE_STATEMENT_SQL = /^\s*INSERT\s+OR\s+REPLACE\b/i
-const REPLACE_STATEMENT_FILE = 'apps/server/src/store/auth.ts'
-
 /** `.prepare(` — a prepared statement is a raw handle by definition. */
 // THE DISCRIMINATOR IS THE ARGUMENT, not the method — the same rule rule 1 uses
 // for `.all(sql`…`)` two definitions down. A raw connection prepare ALWAYS takes
@@ -1863,7 +2361,20 @@ const DRIZZLE_IMPORT_ROOTS: readonly string[] = [
   'apps/server/src/store/',
   'apps/server/src/migrations/',
   'packages/sync/src/adapters/sqlite/',
+  'packages/sync/src/adapters/pg/',
+  // The shared identity package defines its tables and its own statements for
+  // both the server's SQLite store and the cloud's Postgres (POD-6744).
+  'packages/identity/src/',
 ]
+
+/** Sync's schema/query compilers are persistence; their routers and siblings are not. */
+const DRIZZLE_PERSISTENCE_FILES = new Set([
+  'apps/server/src/sync/collection-sql.ts',
+  'apps/server/src/sync/row-records.ts',
+  'apps/server/src/sync/record-sources.ts',
+  'apps/server/src/sync/workspace-capture.ts',
+  'apps/server/src/sync/capture-pg.ts',
+])
 
 /**
  * STAGE A's CONVERSION LEDGER — the repository files that still hold a raw
@@ -2339,30 +2850,16 @@ function rawHandleViolations(file: string, source: string): Violation[] {
     }
     return false
   }
-  const spanHasReplaceStatementMarker = (start: number): boolean => {
-    const [from, to] = spanLines(start)
-    const sourceLines = source.split('\n')
-    for (let line = from; line <= to; line++) {
-      if (REPLACE_STATEMENT_MARKER.test(sourceLines[line - 1] ?? '')) return true
-    }
-    return false
-  }
   for (const m of stripped.matchAll(new RegExp(RAW_EXECUTION_CALL.source, 'g'))) {
     const start = m.index ?? 0
     const at = lineAt(start)
     if (spanIsDecisionMarked(start)) continue
     const statementBody = stripped.slice(start + m[0].length)
     if (UPDATE_CONFLICT_SQL.test(statementBody) && spanHasUpdateConflictMarker(start)) continue
-    if (
-      file === REPLACE_STATEMENT_FILE &&
-      REPLACE_STATEMENT_SQL.test(statementBody) &&
-      spanHasReplaceStatementMarker(start)
-    )
-      continue
     add(
       at,
       `.${m[1]}(sql\`…\`)`,
-      `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port unless it is an \`UPDATE OR <conflict-algorithm>\` carrying the \`UPDATE-CONFLICT STATEMENT POD-3406\` token, or the ONE \`INSERT OR REPLACE\` site rule 31b pins by path (\`${REPLACE_STATEMENT_FILE}\`). A NEW \`INSERT OR REPLACE\` site does not get that token by typing it: OR REPLACE deletes the conflicting row and cascades, so it needs its own ruling and its own foreign-key audit.`,
+      `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` fragment inside a builder query is fine; a whole statement belongs behind the search port unless it is an \`UPDATE OR <conflict-algorithm>\` carrying the \`UPDATE-CONFLICT STATEMENT POD-3406\` token.`,
     )
   }
   return violations
@@ -2667,7 +3164,7 @@ export function checkDrizzleTransaction(file: string, source: string): Violation
 
 /**
  * Rule 15 — drizzle is imported only from the store, the operations store, the
- * migrations and the sync SQLite adapter (spec §6 rule 2).
+ * migrations and the sync engine adapters (spec §6 rule 2).
  *
  * The rule the other three lean on: it is what makes "a drizzle handle can only
  * exist in persistence" a fact rather than a convention, and therefore what
@@ -2687,9 +3184,11 @@ export function checkDrizzleImportHome(file: string, source: string): Violation[
   // Superset pre-filter, same reason as rule 14: every specifier this rule can
   // flag matches /^drizzle-orm(\/|$)/ and so contains this substring.
   if (!source.includes('drizzle-orm')) return []
+  if (isTestFile(file)) return []
   if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
   if (STORE_BOUNDARY_FILES.has(file)) return []
   if (DRIZZLE_IMPORT_ROOTS.some((root) => file.startsWith(root))) return []
+  if (DRIZZLE_PERSISTENCE_FILES.has(file)) return []
   const violations: Violation[] = []
   const marked = decisionMarkedLines(source)
   const lines = stripComments(source).split('\n')
@@ -2732,7 +3231,8 @@ export function checkDrizzleImportHome(file: string, source: string): Violation[
  * CONSTANT. Rewriting it as one statement per table turns ONE round trip into
  * FOURTEEN at boot, which rule 24 says is the finding rather than the fix.
  *
- * TWO KEYS, BOTH REQUIRED: the file listed here AND the token on the line. A
+ * TWO KEYS, BOTH REQUIRED: the listed file AND the token at the call or in
+ * its immediately preceding comment (stable under formatting). A
  * listed file cannot quietly grow a second raw statement, and the token pasted
  * into an unlisted file does nothing. The token is deliberately NOT
  * `// DECISION POD-<n>`: a decision marker means UNANSWERED and Stage A's exit
@@ -2767,6 +3267,19 @@ const CONSTANT_IDENTIFIER_STATEMENTS: ReadonlyMap<string, { token: string; deriv
         derivedBy: 'apps/server/src/store/shipping-lane-reads.test.ts',
       },
     ],
+    // The collection fetch (POD-7085): each statement's text is compiled from
+    // the record declarations and the schema (`sync/collection-shapes.ts`),
+    // one prepared statement per shape, and every value an instance carries is
+    // bound as a placeholder. The deriving test compiles every declared rule
+    // with a hostile argument and asserts it is bound, never in the text, and
+    // that every audited shape builds from its key alone.
+    [
+      'apps/server/src/store/collections.ts',
+      {
+        token: 'CONSTANT-IDENTIFIER STATEMENT POD-7085',
+        derivedBy: 'apps/server/src/sync/collection-fetch.test.ts',
+      },
+    ],
     // The same test's own plan probe (POD-5612): the EXPLAIN interpolates the
     // verified constant to prove the index serves that exact shape. Derived by
     // the assertions around it in the same file.
@@ -2779,11 +3292,329 @@ const CONSTANT_IDENTIFIER_STATEMENTS: ReadonlyMap<string, { token: string; deriv
     ],
   ])
 
+/** A schema/dialect compiler site, bounded by owner, exact argument and occurrence count. */
+export interface SqlCompilerSite {
+  readonly file: string
+  readonly owner: string
+  readonly argument: string
+  readonly count: number
+  readonly derivedBy: string
+  readonly reason: string
+}
+
+/** Reviewed compiler expressions only; values and neighboring raw calls are still refused. */
+export const SQL_COMPILER_SITES: readonly SqlCompilerSite[] = [
+  {
+    file: 'apps/server/src/migrations/pg/pg-only-tables.ts',
+    owner: 'transcriptText',
+    argument: 'searchVectorOf(`left("content", ${TRANSCRIPT_SEARCH_CHARACTERS})`)',
+    count: 1,
+    derivedBy: 'apps/server/src/migrations/pg/schema-parity.test.ts',
+    reason: 'The generated search vector is derived from the schema and fixed search-text bound.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'assemble',
+    argument: "tail.map((cte) => `, ${cte}`).join('')",
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'assemble',
+    argument: 'WRITE_CTE',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'OLD_CTE',
+    count: 2,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'oldColumns',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'name',
+    count: 2,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'WRITE_CTE',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'join',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'updateForm',
+    argument: 'returning',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'insertForm',
+    argument: 'WRITE_CTE',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'insertForm',
+    argument: 'returning',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'deleteForm',
+    argument: 'WRITE_CTE',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/sync/capture-pg.ts',
+    owner: 'deleteForm',
+    argument: 'returning',
+    count: 1,
+    derivedBy: 'apps/server/src/sync/capture-pg.test.ts',
+    reason:
+      'The capture compiler uses quoted schema identifiers and fixed CTE names; caller data stays in Drizzle parameters.',
+  },
+  {
+    file: 'apps/server/src/store/events.ts',
+    owner: 'SQLITE_PAYLOAD',
+    argument: "`'$.${path.join('.')}'`",
+    count: 1,
+    derivedBy: 'apps/server/src/store/events-golden.test.ts',
+    reason:
+      'Finite runtime-event field paths compile to the engine expression; event payload values remain bound.',
+  },
+  {
+    file: 'apps/server/src/store/events.ts',
+    owner: 'SQLITE_PAYLOAD',
+    argument: "`'$.${field}'`",
+    count: 2,
+    derivedBy: 'apps/server/src/store/events-golden.test.ts',
+    reason:
+      'Finite runtime-event field paths compile to the engine expression; event payload values remain bound.',
+  },
+  {
+    file: 'apps/server/src/store/events.ts',
+    owner: 'PG_PAYLOAD',
+    argument: "`'{${path.join(',')}}'`",
+    count: 1,
+    derivedBy: 'apps/server/src/store/events-golden.test.ts',
+    reason:
+      'Finite runtime-event field paths compile to the engine expression; event payload values remain bound.',
+  },
+  {
+    file: 'apps/server/src/store/events.ts',
+    owner: 'PG_PAYLOAD',
+    argument: "`'${field}'`",
+    count: 3,
+    derivedBy: 'apps/server/src/store/events-golden.test.ts',
+    reason:
+      'Finite runtime-event field paths compile to the engine expression; event payload values remain bound.',
+  },
+  {
+    file: 'apps/server/src/store/executor/pg-drizzle.ts',
+    owner: 'StorePgDatabase.raw',
+    argument: 'query',
+    count: 1,
+    derivedBy: 'apps/server/src/store/executor/pg-driver.test.ts',
+    reason:
+      'The private Drizzle adapter compiles a trusted statement string; bound values are handed to the query client separately.',
+  },
+  {
+    file: 'apps/server/src/store/append-only.ts',
+    owner: 'refusalTerm',
+    argument: 'literal(text)',
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping-guards.test.ts',
+    reason:
+      'The write-fence compiler uses the finite schema guard declarations and quotes its refusal text.',
+  },
+  {
+    file: 'apps/server/src/store/append-only.ts',
+    owner: 'updateCases',
+    argument: "`${row('workspace_id')} IS NOT NULL`",
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping-guards.test.ts',
+    reason:
+      'The write-fence compiler uses the finite schema guard declarations and quotes its refusal text.',
+  },
+  {
+    file: 'apps/server/src/store/append-only.ts',
+    owner: 'updateCases',
+    argument: 'rule.fence.refuses(row)',
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping-guards.test.ts',
+    reason:
+      'The write-fence compiler uses the finite schema guard declarations and quotes its refusal text.',
+  },
+  {
+    file: 'apps/server/src/store/append-only.ts',
+    owner: 'writeGuard',
+    argument: 'fence.refuses(rowOf(shape.table))',
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping-guards.test.ts',
+    reason:
+      'The write-fence compiler uses the finite schema guard declarations and quotes its refusal text.',
+  },
+  {
+    file: 'apps/server/src/store/shipping.ts',
+    owner: 'insertedRow',
+    argument: 'type',
+    count: 1,
+    derivedBy: 'apps/server/src/store/shipping.workspace.test.ts',
+    reason:
+      'The cast type comes only from the addressed static schema column; the inserted value is a bound parameter.',
+  },
+  {
+    file: 'apps/server/src/store/conversations/search-pg.ts',
+    owner: 'conversationMatches',
+    argument: 'conversationSearchVector((name) => `c."${name}"`)',
+    count: 1,
+    derivedBy: 'apps/server/src/store/conversations/search-contract.test.ts',
+    reason:
+      'The search expression is the schema-owned vector over fixed conversation columns; search terms stay bound.',
+  },
+]
+
+const sqlArgumentKey = (argument: string): string =>
+  stripComments(argument).replace(/\s+/g, ' ').trim()
+const sqlCompilerKey = (owner: string, argument: string): string =>
+  `${owner}\0${sqlArgumentKey(argument)}`
+
+/** Find the actual declaring function/method, or outer variable for a data declaration. */
+function sqlCompilerOwner(call: ts.Node, source: ts.SourceFile): string {
+  let variable = ''
+  for (let node: ts.Node | undefined = call.parent; node; node = node.parent) {
+    if (ts.isFunctionDeclaration(node) && node.name) return node.name.text
+    if (ts.isMethodDeclaration(node)) {
+      const parent = node.parent
+      const klass = ts.isClassDeclaration(parent) ? parent.name?.text : undefined
+      return klass ? `${klass}.${node.name.getText(source)}` : node.name.getText(source)
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) variable = node.name.text
+  }
+  return variable
+}
+
+function sqlCompilerCalls(
+  file: string,
+  source: string,
+): Array<{ owner: string; argument: string; line: number }> {
+  const parsed = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const calls: Array<{ owner: string; argument: string; line: number }> = []
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      node.arguments.length === 1 &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'sql' &&
+      node.expression.name.text === 'raw'
+    ) {
+      calls.push({
+        owner: sqlCompilerOwner(node, parsed),
+        argument: node.arguments[0]!.getText(parsed),
+        line: parsed.getLineAndCharacterOfPosition(node.getStart(parsed)).line + 1,
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  return calls
+}
+
+/** A removed site cannot leave capacity behind for a later compiler expression. */
+export function sqlCompilerSiteProblems(file: string, source: string): string[] {
+  const sites = SQL_COMPILER_SITES.filter((site) => site.file === file)
+  if (sites.length === 0) return []
+  const calls = sqlCompilerCalls(file, source)
+  return sites.flatMap((site) => {
+    const actual = calls.filter(
+      (call) =>
+        sqlCompilerKey(call.owner, call.argument) === sqlCompilerKey(site.owner, site.argument),
+    ).length
+    return actual === site.count
+      ? []
+      : [`${site.owner}: expected ${site.count}, found ${actual}: ${site.argument}`]
+  })
+}
+
+function sqlCompilerAllowances(file: string, source: string): Map<string, number> {
+  const sites = SQL_COMPILER_SITES.filter((site) => site.file === file)
+  const remaining = new Map(
+    sites.map((site) => [sqlCompilerKey(site.owner, site.argument), site.count]),
+  )
+  const allowed = new Map<string, number>()
+  if (sites.length === 0) return allowed
+  for (const call of sqlCompilerCalls(file, source)) {
+    const site = sqlCompilerKey(call.owner, call.argument)
+    const count = remaining.get(site) ?? 0
+    if (count === 0) continue
+    remaining.set(site, count - 1)
+    const key = `${call.line}\0${sqlArgumentKey(call.argument)}`
+    allowed.set(key, (allowed.get(key) ?? 0) + 1)
+  }
+  return allowed
+}
+
 export function checkSqlRawLiteral(file: string, source: string): Violation[] {
   // Superset pre-filter, same reason as rule 14.
   if (!SQL_RAW_CALL.test(source)) return []
   if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
   if (SEARCH_INDEX_PORT.has(file)) return []
+  if (isTestFile(file)) return []
+  const compiler = sqlCompilerAllowances(file, source)
   const violations: Violation[] = []
   const marked = decisionMarkedLines(source)
   const code = stripComments(source)
@@ -2799,13 +3630,21 @@ export function checkSqlRawLiteral(file: string, source: string): Violation[] {
     // site. My first two attempts hooked it to the raw-EXECUTION rule, which
     // never sees `sql.raw(...)` at all and so was inert both times.
     const constant = CONSTANT_IDENTIFIER_STATEMENTS.get(file)
+    const sourceLines = source.split('\n')
+    const previous = sourceLines[line - 2] ?? ''
     const tokenOnLine =
-      constant !== undefined && (source.split('\n')[line - 1] ?? '').includes(constant.token)
+      constant !== undefined &&
+      ((sourceLines[line - 1] ?? '').includes(constant.token) ||
+        (/^\s*\/\//.test(previous) && previous.includes(constant.token)))
+    const compilerKey = `${line}\0${sqlArgumentKey(argument ?? '')}`
+    const compilerRemaining = compiler.get(compilerKey) ?? 0
+    if (compilerRemaining > 0) compiler.set(compilerKey, compilerRemaining - 1)
     if (
       argument !== null &&
       !SQL_RAW_STRING_LITERAL.test(argument.trim()) &&
       !marked.has(line) &&
-      !tokenOnLine
+      !tokenOnLine &&
+      compilerRemaining === 0
     ) {
       violations.push({
         file,
@@ -3044,6 +3883,94 @@ export function checkAsyncBooleanPredicate(file: string, source: string): Violat
  */
 const PROMISE_COMBINATORS = new Set(['all', 'allSettled', 'race', 'any'])
 
+/**
+ * A NESTED WRITE SCOPE OPENED INSIDE A PARALLEL COMBINATOR (POD-6625).
+ *
+ * ```ts
+ * await Promise.all(rows.map(async (m) => await commitMessages(writer, …)))  // refused
+ * for (const m of rows) await commitMessages(writer, …)                     // one at a time
+ * ```
+ *
+ * Inside a unit of work (every `sync.submit` write, POD-6525) a commit — a
+ * module's `commit*` helper, a writer's `commit`, `transact`,
+ * `createOrJoinTransaction`, `unitOfWork` — is a SAVEPOINT on that unit, and
+ * savepoints are a stack: while one branch's savepoint is open, the executor
+ * refuses every other statement on the unit with
+ * `ParallelNestedTransactionError` and the whole write rolls back. Run in
+ * parallel, two branches that each open one collide as soon as there are two
+ * rows; a fixture with one row passes. That is how the live inbox read failed
+ * while its tests stayed green: `mailbox.readInbox` marked each row read in its
+ * own commit under `Promise.all`.
+ *
+ * Plain statements in parallel are fine (they share the unit's frame), and so
+ * is a combinator over top-level transactions outside any unit — but source
+ * text cannot tell the two apart, so a combinator that opens scopes on purpose
+ * says so with a `// DECISION POD-…` marker on its line.
+ *
+ * Unlike the sequential rule above, nested function bodies ARE entered: the
+ * callback handed to `.map` is exactly the code that runs concurrently. The
+ * ceiling, said rather than left to be found: only DIRECT calls are seen. A
+ * branch that reaches a commit through a service method it calls is beyond a
+ * source-text rule; the oracle tests driving each write through the real entry
+ * point and executor are the guard for that.
+ */
+const NESTED_SCOPE_OPENER =
+  /^(?:commit[A-Z]\w*|commit|transact|createOrJoinTransaction|unitOfWork)$/
+
+export function checkParallelNestedScope(file: string, source: string): Violation[] {
+  if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
+  if (/\.test\.tsx?$/.test(file)) return []
+  if (!/Promise\s*\.\s*(?:all|allSettled|race|any)\s*\(/.test(source)) return []
+  const violations: Violation[] = []
+  const marked = decisionMarkedLines(source)
+  const sourceFile = ts.createSourceFile(
+    file,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const calleeName = (call: ts.CallExpression): string | undefined => {
+    const callee = unwrapTransparentExpression(call.expression)
+    if (ts.isIdentifier(callee)) return callee.text
+    if (ts.isPropertyAccessExpression(callee)) return callee.name.text
+    return undefined
+  }
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === 'Promise' &&
+      PROMISE_COMBINATORS.has(node.expression.name.text) &&
+      node.arguments.length > 0
+    ) {
+      const combinator = node.expression.name.text
+      const line = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
+      const openers: string[] = []
+      const scan = (inner: ts.Node): void => {
+        if (ts.isCallExpression(inner)) {
+          const name = calleeName(inner)
+          if (name !== undefined && NESTED_SCOPE_OPENER.test(name)) openers.push(name)
+        }
+        ts.forEachChild(inner, scan)
+      }
+      scan(node.arguments[0] as ts.Node)
+      if (openers.length > 0 && !marked.has(line)) {
+        violations.push({
+          file,
+          specifier: `Promise.${combinator}`,
+          rule: 'parallel-nested-scope',
+          message: `${file}:${line}: 'Promise.${combinator}()' runs branches that each open a write scope ('${[...new Set(openers)].join("', '")}'). Inside a unit of work every such scope is a savepoint on the unit, and savepoints are a stack: with two branches the executor refuses the second with ParallelNestedTransactionError and the whole write rolls back (POD-6625). Open them one at a time (a \`for … of\` with \`await\`). If this combinator only ever runs outside a unit, say so with a '// DECISION POD-…' marker on this line.`,
+        })
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return violations
+}
+
 export function checkSequentialPromiseCombinator(file: string, source: string): Violation[] {
   if (!/Promise\s*\.\s*(?:all|allSettled|race|any)\s*\(\s*\[/.test(source)) return []
   const violations: Violation[] = []
@@ -3098,13 +4025,14 @@ export function checkSequentialPromiseCombinator(file: string, source: string): 
       const literal = node.arguments[0] as ts.ArrayLiteralExpression
       for (const element of literal.elements) {
         for (const offender of serialisingAwaits(element)) {
-        const line = sourceFile.getLineAndCharacterOfPosition(offender.getStart(sourceFile)).line + 1
-        violations.push({
-          file,
-          specifier: `Promise.${combinator}`,
-          rule: 'sequential-promise-combinator',
-          message: `${file}:${line}: this element of the array passed to 'Promise.${combinator}()' is AWAITED, so it finishes before the next element is even started — the calls run one at a time and 'Promise.${combinator}' receives values that have already settled. Nothing here is concurrent. Delete the inner 'await' (the combinator already awaits); if you meant these to run in sequence, use separate statements and say so. (POD-3221 spec rule 59.)`,
-        })
+          const line =
+            sourceFile.getLineAndCharacterOfPosition(offender.getStart(sourceFile)).line + 1
+          violations.push({
+            file,
+            specifier: `Promise.${combinator}`,
+            rule: 'sequential-promise-combinator',
+            message: `${file}:${line}: this element of the array passed to 'Promise.${combinator}()' is AWAITED, so it finishes before the next element is even started — the calls run one at a time and 'Promise.${combinator}' receives values that have already settled. Nothing here is concurrent. Delete the inner 'await' (the combinator already awaits); if you meant these to run in sequence, use separate statements and say so. (POD-3221 spec rule 59.)`,
+          })
         }
       }
     }
@@ -3243,7 +4171,10 @@ export function checkTerminalObjectsProcess(file: string, source: string): Viola
       continue
     }
     const target = resolveTerminalObjectsRelative(file, spec)
-    if (target !== null && (target.startsWith('apps/daemon/') || target.startsWith('packages/harness/'))) {
+    if (
+      target !== null &&
+      (target.startsWith('apps/daemon/') || target.startsWith('packages/harness/'))
+    ) {
       violations.push({
         file,
         specifier: spec,
@@ -3322,7 +4253,10 @@ export function checkTerminalObjectsTerminal(file: string, source: string): Viol
       continue
     }
     const target = resolveTerminalObjectsRelative(file, spec)
-    if (target !== null && (target.startsWith(DAEMON_RUNTIME_DIR) || target.startsWith(DRIVER_DIR))) {
+    if (
+      target !== null &&
+      (target.startsWith(DAEMON_RUNTIME_DIR) || target.startsWith(DRIVER_DIR))
+    ) {
       violations.push({
         file,
         specifier: spec,
@@ -3448,7 +4382,10 @@ export function checkTerminalObjectsServer(file: string, source: string): Violat
       continue
     }
     const target = resolveTerminalObjectsRelative(file, spec)
-    if (target !== null && (target.startsWith('apps/daemon/') || target.startsWith('packages/pty/src/'))) {
+    if (
+      target !== null &&
+      (target.startsWith('apps/daemon/') || target.startsWith('packages/pty/src/'))
+    ) {
       violations.push({
         file,
         specifier: spec,
@@ -3577,7 +4514,8 @@ export function checkHistoryFromDisk(file: string, source: string): Violation[] 
     const code = stripComments(bodyText)
     for (const { label, re } of HISTORY_PROTOCOL_CLIENT_PATTERNS) {
       if (!re.test(code)) continue
-      const line = sourceFile.getLineAndCharacterOfPosition(historyNode.getStart(sourceFile)).line + 1
+      const line =
+        sourceFile.getLineAndCharacterOfPosition(historyNode.getStart(sourceFile)).line + 1
       violations.push({
         file,
         specifier: label,
@@ -3661,19 +4599,33 @@ export function checkHistoryFromDisk(file: string, source: string): Violation[] 
  * import a repository. This participates in the whole-repo sweep. */
 export function checkHotPathStoreBoundary(file: string, source: string): Violation[] {
   if (isTestFile(file) || file === 'apps/server/src/gateway/feed-test-plumbing.ts') return []
-  const hot = file.startsWith('apps/server/src/gateway/') || [
-    'apps/server/src/modules/sessions/daemon-lifecycle.ts',
-    'apps/server/src/modules/messages/scheduler.ts',
-    'apps/server/src/feed-visibility.ts',
-  ].includes(file)
+  const hot =
+    file.startsWith('apps/server/src/gateway/') ||
+    [
+      'apps/server/src/modules/sessions/daemon-lifecycle.ts',
+      'apps/server/src/modules/messages/scheduler.ts',
+      'apps/server/src/feed-visibility.ts',
+    ].includes(file)
   if (!hot) return []
   return extractImports(source).flatMap((ref) => {
     const target = ref.specifier.startsWith('.')
-      ? relative(process.cwd(), resolve(dirname(file), ref.specifier)).split(sep).join('/')
+      ? relative(process.cwd(), resolve(dirname(file), ref.specifier))
+          .split(sep)
+          .join('/')
       : ref.specifier.replace(/^@podium\/server(?:\/src)?(?=\/|$)/, 'apps/server/src')
     if (!/^apps\/server\/src\/store(?:[/.]|$)/.test(target)) return []
-    return [{ rule: 'hot-path-store-boundary', file, specifier: ref.specifier,
-      message: 'Hot paths receive a named port (hot-path-ports.ts); store imports belong to composition and persistence.' }]
+    // The operation scope carries memo slots and their operation lifetime only. It
+    // imports no database and supplies no repository reads or writes.
+    if (target === 'apps/server/src/store/executor/operation-scope') return []
+    return [
+      {
+        rule: 'hot-path-store-boundary',
+        file,
+        specifier: ref.specifier,
+        message:
+          'Hot paths receive a named port (hot-path-ports.ts); store imports belong to composition and persistence.',
+      },
+    ]
   })
 }
 
@@ -3754,8 +4706,9 @@ export function checkClientGraphBoundaries(file: string, source: string): Violat
     if (
       graph &&
       !ref.typeOnly &&
-      (/^@podium\/client-core(?:$|\/engine(?:\/|$))/.test(ref.specifier) ||
-        (path !== null && /^packages\/client-core\/src(?:$|\/index$|\/engine(?:\/|$))/.test(path)))
+      (/^@podium\/client-core(?:$|\/(?:engine|runtime-root)(?:\/|$))/.test(ref.specifier) ||
+        (path !== null &&
+          /^packages\/client-core\/src(?:$|\/index$|\/(?:engine|runtime-root)(?:\/|$))/.test(path)))
     ) {
       violations.push({
         file,
@@ -3767,7 +4720,10 @@ export function checkClientGraphBoundaries(file: string, source: string): Violat
     if (
       app &&
       (/^@podium\/client-graph\/diagnostics(?:\/|$)/.test(ref.specifier) ||
-        (path !== null && /^(?:packages\/client-graph\/(?:src\/)?diagnostics|tests\/worklist)(?:\/|$)/.test(path)) ||
+        (path !== null &&
+          /^(?:packages\/client-graph\/(?:src\/)?diagnostics|tests\/worklist)(?:\/|$)/.test(
+            path,
+          )) ||
         /^@podium\/worklist-tests(?:\/|$)/.test(ref.specifier))
     ) {
       violations.push({
@@ -3803,6 +4759,7 @@ export function checkFile(
     ...checkProjectionSqlIdentifiers(file, source),
     ...checkAsyncBooleanPredicate(file, source),
     ...checkSequentialPromiseCombinator(file, source),
+    ...checkParallelNestedScope(file, source),
     ...checkDrizzleTransaction(file, source),
     ...checkDrizzleImportHome(file, source),
     ...checkSqlRawLiteral(file, source),
@@ -4362,6 +5319,7 @@ export function runCheck(repoRoot: string): {
       violations.push(...checkFile(file, source, ownAdapterCtx))
       violations.push(...checkPrincipalFree(file, source))
       violations.push(...checkHarnessVendorLiterals(file, source, vendorLiterals))
+      violations.push(...checkHarnessAmbientAccess(file, source))
       manifest.push(...checkManifestFile(file, source, harnessLiterals, modelExportNames))
     }
   }
@@ -4390,6 +5348,17 @@ function main(): void {
   const manifestOnly = process.argv.includes('--manifest-only')
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
   const start = performance.now()
+  // `--harness-ambient-only` runs the harness ambient-access ratchet alone over
+  // its two scopes (POD-6545). The lean gate (`bun run test`) runs this mode via
+  // `lint:harness-ambient`: the full scan is ~50s and carries other families'
+  // reds, while this rule must hold on every change during the migration.
+  if (process.argv.includes('--harness-ambient-only')) {
+    const failed = reportHarnessAmbient(runHarnessAmbientCheck(repoRoot))
+    const ms = Math.round(performance.now() - start)
+    if (failed) process.exit(1)
+    console.log(`${HARNESS_AMBIENT_RULE} OK (${ms}ms) — 0 new, 0 slack`)
+    return
+  }
   const { violations, manifest } = runCheck(repoRoot)
   if (process.argv.includes('--probe')) {
     const probeSource = readFileSync(
@@ -4470,7 +5439,8 @@ function main(): void {
       seqProbeSource.indexOf('export async function loud'),
       seqProbeSource.indexOf('export async function quiet'),
     )
-    const loudOffset = seqProbeSource.slice(0, seqProbeSource.indexOf('export async function loud'))
+    const loudOffset = seqProbeSource
+      .slice(0, seqProbeSource.indexOf('export async function loud'))
       .split('\n').length
     const expectedLines = loudBody
       .split('\n')
@@ -4503,7 +5473,7 @@ function main(): void {
     console.log(
       `probe: sequential-promise-combinator flags ${seqLines.length}/${expectedLines.length} ` +
         `planted awaits (all/allSettled/race/any, conditional, nested, member) and ` +
-        `stays quiet on ${(quiet.length === 0 ? 'all' : 'not all')} 6 correct forms`,
+        `stays quiet on ${quiet.length === 0 ? 'all' : 'not all'} 6 correct forms`,
     )
   }
   // ONE allowlist, but the two rule families must be applied to their OWN
@@ -4517,7 +5487,11 @@ function main(): void {
   // a different family. Splitting vendor violations out first keeps each
   // family declaring only its own entries dead.
   const vendorViolations = violations.filter((v) => v.rule === HARNESS_VENDOR_RULE)
-  const nonVendorViolations = violations.filter((v) => v.rule !== HARNESS_VENDOR_RULE)
+  // The harness ambient-access ratchet (POD-6545) has its own allow-list too.
+  const ambientViolations = violations.filter((v) => v.rule === HARNESS_AMBIENT_RULE)
+  const nonVendorViolations = violations.filter(
+    (v) => v.rule !== HARNESS_VENDOR_RULE && v.rule !== HARNESS_AMBIENT_RULE,
+  )
   const harness = applyHarnessBoundaryAllowlist(vendorViolations, HARNESS_BOUNDARY_ALLOWLIST)
   const harnessTotals = checkHarnessAllowlistTotals(HARNESS_BOUNDARY_ALLOWLIST)
   // The legacy rules run through the SAME ratchet (POD-740): their two known
@@ -4578,7 +5552,8 @@ function main(): void {
       )
       const byFile = new Map<string, number>()
       for (const v of harness.warnings) byFile.set(v.file, (byFile.get(v.file) ?? 0) + 1)
-      for (const [file, n] of [...byFile.entries()].sort()) console.warn(`  [${HARNESS_VENDOR_RULE}] ${file} (${n})`)
+      for (const [file, n] of [...byFile.entries()].sort())
+        console.warn(`  [${HARNESS_VENDOR_RULE}] ${file} (${n})`)
     }
     for (const s of harness.stale) console.error(`  ${s}`)
     for (const t of harnessTotals) console.error(`  ${t}`)
@@ -4588,16 +5563,23 @@ function main(): void {
       if (harness.errors.length > 30) {
         console.error(`  … and ${harness.errors.length - 30} more`)
       }
-      console.error('\nThese are not in scripts/harness-boundary-allowlist.ts (or exceed the declared count).')
-      console.error('Vendor behaviour belongs in packages/harness/src/adapters/ or packages/harness/src/driver/families/ — the allow-list is a ratchet, it only goes down.')
+      console.error(
+        '\nThese are not in scripts/harness-boundary-allowlist.ts (or exceed the declared count).',
+      )
+      console.error(
+        'Vendor behaviour belongs in packages/harness/src/adapters/ or packages/harness/src/driver/families/ — the allow-list is a ratchet, it only goes down.',
+      )
     }
   }
 
+  const ambientFailed = !manifestOnly && reportHarnessAmbient(ambientViolations)
   const legacyFailed = !manifestOnly && (legacy.errors.length > 0 || legacy.stale.length > 0)
   const harnessFailed =
     !manifestOnly &&
     (harness.errors.length > 0 || harness.stale.length > 0 || harnessTotals.length > 0)
-  if (errors.length > 0 || stale.length > 0 || legacyFailed || harnessFailed) process.exit(1)
+  if (errors.length > 0 || stale.length > 0 || legacyFailed || harnessFailed || ambientFailed) {
+    process.exit(1)
+  }
   const allowlisted =
     warnings.length + (manifestOnly ? 0 : legacy.warnings.length + harness.warnings.length)
   console.log(

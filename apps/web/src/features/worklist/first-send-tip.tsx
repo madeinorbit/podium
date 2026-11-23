@@ -1,8 +1,8 @@
+import { useUiValue } from '@podium/client-core/react'
 import { type RoutedUiState, UI_STATE_KEYS } from '@podium/client-core/ui-state'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { useContext, useEffect } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import {
   type TipCard,
   useTipAnchorElement,
@@ -76,7 +76,7 @@ export const FirstSendTip = observer(function FirstSendTip(): null {
     parseIssueId,
     serializeIssueId,
   )
-  const selectedId = useRuntimeSelector((s) => s.selectedIssueId)
+  const selectedId = useUiValue('selectedIssueId')
   const log = useContext(TipContext)?.log
   const seen = log?.ready === true && log.isSeen('first-send')
   // Finished, dismissed or skipped: nothing is left to deliver.

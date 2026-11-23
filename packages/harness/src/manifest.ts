@@ -1,7 +1,14 @@
-import { stat } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { AgentQuotaWire, HarnessRef, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type {
+  AcceptedCredential,
+  AgentQuotaWire,
+  HarnessRef,
+  ResumeRef,
+  SessionId,
+  TranscriptItem,
+} from '@podium/model'
 import type {
   AgentInstruction,
   AgentObservation,
@@ -14,32 +21,33 @@ import type {
   QuotaHistorySampleWire,
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
+import type { HarnessContext } from './harness-context-types.js'
+import type { PostureSection } from './posture-types.js'
 import type {
   Declared,
   OpencodeMessagePartRow,
+  SqliteTranscriptLocator,
   StatTick,
   TranscriptColorReader,
   TranscriptRecordMapper,
   TranscriptRuntimeReader,
 } from './transcript-types.js'
-import type { SqliteTranscriptLocator } from './transcript-types.js'
 import { supported, unsupported } from './transcript-types.js'
+
 export type {
   Declared,
   SqliteTranscriptLocator,
 } from './transcript-types.js'
 export { declaredValue, supported, unsupported } from './transcript-types.js'
-import type { UsageFileScan, UsageScanCache } from './usage-records.js'
+
 import type {
   AgentStateEventSource,
   AgentStateProvider,
   ProviderAgentStateEvent,
 } from './agent-state/types.js'
+import type { HarnessCatalogData, HarnessDescriptorData } from './descriptor-types.js'
 import type { ConversationProvider } from './discovery/types.js'
-import type {
-  HarnessCatalogData,
-  HarnessDescriptorData,
-} from './descriptor-types.js'
+import type { UsageFileScan, UsageScanCache } from './usage-records.js'
 
 /** The harness kinds — every AgentKind except 'shell' (a shell is spawned by the
  *  daemon directly; it has no CLI conventions, transcript, or observers).
@@ -92,7 +100,7 @@ export type DeclaredKeys<T> = {
   // keeps an OPTIONAL `Declared<…>` member counted as declared rather than
   // dropped via its `| undefined`.
   [K in keyof T]-?: Exclude<T[K], undefined> extends Declared<unknown> ? K : never
-  }[keyof T]
+}[keyof T]
 
 // ---------------------------------------------------------------------------
 // Launch (interactive PTY spawn) — the agentLaunchCommand axis.
@@ -101,8 +109,13 @@ export type DeclaredKeys<T> = {
 export interface HarnessLaunchOptions {
   /** Working directory the agent runs in (a project or worktree path). */
   cwd: string
-  /** Instance agent home; adapters may use it for per-session state selectors. */
-  homeDir?: string
+  /**
+   * The session's harness context (POD-6536): the account home and the account
+   * environment an adapter reads for per-session state selectors or inline
+   * configuration. Required: an adapter never falls back to the daemon's own
+   * `homedir()` or `process.env`.
+   */
+  harnessContext: HarnessContext
   /** Stable Podium row identity for this interactive launch. Harnesses may use
    *  it for runtime correlation or instance-scoped state selectors; it is not a native resume id. */
   podiumSessionId?: SessionId
@@ -129,8 +142,9 @@ export interface HarnessLaunchOptions {
   /** Daemon-local directory available for adapters whose hidden channel is
    * file-backed (OpenCode inline config and Cursor rule plugins). */
   runtimeDir?: string
-  /** Effective spawn environment, supplied so file/config transports can merge
-   * with an existing harness-specific inline configuration. */
+  /** The session env (`spec.env`), which the child gets above the context's
+   * env, supplied so file/config transports can merge with an existing
+   * harness-specific inline configuration. */
   env?: Record<string, string>
 }
 
@@ -139,8 +153,15 @@ export interface LaunchFile {
   contents: string
 }
 
-export interface LaunchSpec {
-  cmd: string
+/**
+ * What an adapter's launch declares: argv WITHOUT a command (POD-6536, design
+ * §3.4). Which executable runs it is the harness context's answer, and only
+ * `harnessCommand(context, argv)` pairs the two into a launchable
+ * `BoundCommand`.
+ */
+export interface LaunchArgv {
+  /** Never set: an adapter cannot name the binary (see above). */
+  cmd?: never
   args: string[]
   cwd: string
   env?: Record<string, string>
@@ -161,14 +182,11 @@ export interface HarnessExecOptions {
   mcpConfigPath?: string
   /** The raw MCP config JSON ({ mcpServers: { name: { url, headers } } }). */
   mcpConfig?: string
-  /** Tools pre-approved so they run headlessly without a permission prompt. */
-  allowedTools?: string[]
-  /** Command environment used to resolve the harness executable. */
-  env?: HarnessEnvironment
 }
 
-export interface HarnessExecSpec {
-  cmd: string
+/** A one-shot exec's argv, without a command (see {@link LaunchArgv}). */
+export interface HarnessExecArgv {
+  cmd?: never
   args: string[]
   /** Delivered on the child's stdin (then EOF) — Claude's headless prompt path. */
   stdin?: string
@@ -203,6 +221,43 @@ export interface HarnessLogin {
 }
 
 export type HarnessEnvironment = Readonly<Record<string, string | undefined>>
+
+/**
+ * WHERE ONE HARNESS KEEPS ITS STATE for one (home, environment) pair
+ * (POD-6532, docs/design/harness-access-contract.md §3.2). Absolute folders.
+ *
+ * `state` is the harness's own root; the optional folders are filled only
+ * where the adapter reads or writes that kind of file today. Every folder is
+ * derived by the adapter's {@link AgentManifest.roots} rule, never by a caller,
+ * so launch, hooks, observation, usage and credentials cannot disagree.
+ */
+export interface HarnessRoots {
+  /** The harness's own state root (`CODEX_HOME`, `~/.claude`, …). */
+  state: string
+  /** Configuration files the harness reads (`config.toml`, `settings.json`). */
+  config?: string
+  /** The folder holding its credential file (`auth.json`, `.credentials.json`). */
+  credentials?: string
+  /** Root of its native transcript store. */
+  transcripts?: string
+  /** Where its global hook declarations live. */
+  hooks?: string
+}
+
+/**
+ * THE ONE ROOT RULE (POD-6532): a non-blank selector wins, otherwise the
+ * default folder under `home`. The same precedence the credential layouts'
+ * `homeEnvVar` already uses ({@link resolveCredentialFilePath}), so a
+ * credential file and its state root can never resolve to different folders.
+ */
+export function selectedRoot(
+  env: HarnessEnvironment,
+  selector: string,
+  home: string,
+  defaultDir: string,
+): string {
+  return env[selector]?.trim() || join(home, defaultDir)
+}
 
 /** Complete, bounded output from a non-interactive native login probe. */
 export interface LoginCommandResult {
@@ -242,12 +297,12 @@ export interface HarnessExecutableDeclaration {
 export interface HarnessInventory {
   executable: HarnessExecutableDeclaration
   /** Read-only local credential/profile detection. Uneven support is explicit. */
-  detectLogin(homeDir: string, env?: HarnessEnvironment): HarnessLogin
+  detectLogin(homeDir: string, env: HarnessEnvironment): HarnessLogin
   /** Authoritative native login probe. Local detection is only its compatibility fallback. */
   loginCommandProbe: Declared<HarnessLoginCommandProbe>
   /** Native interactive authentication entry point. The daemon launches this in
    * a PTY; the server and browser never encode provider OAuth behavior. */
-  loginCommand: Declared<{ cmd: string; args: readonly string[] }>
+  loginCommand: Declared<{ cmd?: never; args: readonly string[] }>
   loginIdentity: Declared<(homeDir: string, env?: HarnessEnvironment) => LoginIdentity | undefined>
   portableCredential: Declared<PortableCredential>
   /**
@@ -275,6 +330,58 @@ export interface HarnessInventory {
    * Empty array = this harness has no such variable (declare it, don't omit it).
    */
   foreignCredentialEnv: readonly string[]
+  /**
+   * The credential types this harness accepts and how each one is delivered
+   * (credential management spec §5). Whether a credential can be used for a
+   * session is the match between its type and these lines; a pairing not
+   * declared here cannot be selected.
+   *
+   * Only types this harness can already run on today. A harness's own login
+   * that is none of the registry's types gets no line and stays "no
+   * credential". Empty array = it accepts none (declare it, don't omit it).
+   */
+  accepts: readonly AcceptedCredential[]
+  /**
+   * What a launch sets so the commands the agent runs do not inherit the
+   * delivered credential, where the harness documents such a switch. It
+   * prevents accidents; it is not a barrier (spec §14). Absent: no switch.
+   */
+  hideFromCommands?: HideFromCommands
+  /**
+   * The harness's own answer to "which login are you on", read with a
+   * session's exact environment after it started (credential management §9
+   * "Launching"). Absent: the harness has no such command, and a session on it
+   * reports `unknown`.
+   */
+  authStatusProbe?: HarnessAuthStatusProbe
+  /**
+   * The harness's own sign-out, run in a Podium home before the home is
+   * deleted (credential management §8 "cleanup"). Never run in the harness's
+   * own directory. Absent: the harness has no sign-out command.
+   */
+  signOutCommand?: { readonly args: readonly string[] }
+}
+
+/** What a harness says it authenticated with. Never a secret. */
+export interface ReportedAuth {
+  readonly method: 'api-key' | 'subscription' | 'token' | 'unknown'
+  /** The environment variable the harness says it read the credential from. */
+  readonly sourceVariable?: string
+  /** A subscription login's account, and its login-identity fingerprint. */
+  readonly email?: string
+  readonly fingerprint?: string
+}
+
+export interface HarnessAuthStatusProbe {
+  readonly args: readonly string[]
+  readonly timeoutMs: number
+  classify(result: LoginCommandResult): ReportedAuth
+}
+
+/** Environment and arguments a launch adds to keep credentials out of agent commands. */
+export interface HideFromCommands {
+  env?: Readonly<Record<string, string>>
+  args?: readonly string[]
 }
 
 /** Prefer a recognizable name + email without duplicating equal values. */
@@ -463,9 +570,30 @@ export interface HarnessCredentials {
   transfer: Declared<HarnessCredentialTransfer>
 }
 
+/**
+ * THE ACCOUNT HALF OF A HARNESS CONTEXT (POD-6534, design §3.3 "account
+ * scope"): the account HOME, the environment the child gets for that account,
+ * and the folders the adapter's {@link AgentManifest.roots} rule resolves from
+ * them. A {@link HarnessContext} satisfies it; `harnessAccount()` builds one
+ * for a harness that need not be installed (quota, usage history, credential
+ * files and transcripts outlive an uninstall).
+ *
+ * Account reads take this and read `roots`, never `homedir()` or the daemon's
+ * own `process.env`.
+ */
+export interface HarnessAccountScope {
+  /** The account HOME (the daemon's credential home). */
+  readonly home: string
+  /** The account environment: what the child gets for this account. */
+  readonly env: HarnessEnvironment
+  /** Resolved once from the adapter's `roots` declaration. */
+  readonly roots: Readonly<HarnessRoots>
+}
+
 /** Options for a live quota probe — the same seam the daemon tests pin. */
 export interface QuotaProbeOptions {
-  homeDir?: string
+  /** The account whose credential the probe reads. */
+  account: HarnessAccountScope
   now?: number
   fetchImpl?: typeof fetch
 }
@@ -479,7 +607,7 @@ export interface QuotaProbeOptions {
  * (`inventory/usage.ts`) and stays harness-free.
  */
 export interface HarnessQuotaProbe {
-  fetchQuota(opts?: QuotaProbeOptions): Promise<AgentQuotaWire>
+  fetchQuota(opts: QuotaProbeOptions): Promise<AgentQuotaWire>
 }
 
 /** File-based recovery of past quota windows on this machine (POD-1571). */
@@ -487,7 +615,7 @@ export interface HarnessQuotaHistory {
   scan(opts: {
     sinceMs: number
     machineId: string
-    homeDir?: string
+    account: HarnessAccountScope
   }): Promise<QuotaHistorySampleWire[]>
 }
 
@@ -495,7 +623,7 @@ export interface HarnessQuotaHistory {
 export interface HarnessUsageTranscripts {
   scan(opts: {
     sinceMs: number
-    homeDir?: string
+    account: HarnessAccountScope
     cache?: UsageScanCache
   }): Promise<UsageFileScan[]>
   /**
@@ -527,8 +655,13 @@ export interface HarnessUsage {
 export interface HarnessInstallPorts {
   /** Download a URL to a path. Never forwards a GitHub auth token — these are vendor hosts. */
   fetch(url: string, out: string): void
-  /** Run a command, returning its combined output; throws with that output on failure. */
+  /** Run a program by ABSOLUTE path (the installed binary's `--version`),
+   *  returning its combined output; throws with that output on failure. */
   run(cmd: string, args: string[], env: NodeJS.ProcessEnv): string
+  /** Run an OS tool (an installer's shell) through the OS-tool port: resolved
+   *  to an absolute path in `env`, never a name on the daemon's PATH
+   *  (POD-6536). */
+  runTool(tool: 'sh' | 'bash', args: string[], env: NodeJS.ProcessEnv): string
   env: NodeJS.ProcessEnv
   arch: string
   /** Whether this box's libc is musl — Claude ships a separate build for it. */
@@ -574,7 +707,6 @@ export interface HeadlessExecOptions {
   effort?: string
   systemPrompt?: string
   mcpConfig?: string
-  permissionMode?: string
   /** Fail-closed capability request. `none` means the adapter must remove every
    * built-in, MCP, web, subagent and shell tool. */
   toolPolicy?: 'none'
@@ -583,8 +715,6 @@ export interface HeadlessExecOptions {
   /** The pinned harness session id (pre-minted for grok/cursor). */
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId?: string
-  /** Command environment used to resolve the harness executable. */
-  env?: HarnessEnvironment
 }
 
 export interface HarnessHeadless {
@@ -614,7 +744,7 @@ export interface HarnessHeadless {
    *  (POD-1021). */
   buildExec: Declared<
     (opts: HeadlessExecOptions) => {
-      cmd: string
+      cmd?: never
       args: string[]
       env?: Record<string, string>
       /** Delivered on the child's stdin (then EOF) — pi reads its prompt there. */
@@ -649,6 +779,25 @@ export interface HarnessProviderRebind {
 
 export interface HarnessObserveInput {
   cwd: string
+  /** Local PTY ownership, available only while this attachment is live. Never
+   * serialized; the generation changes when the host attachment is replaced. */
+  ownedProcess?: () => { pid: number; generation: object } | undefined
+  /**
+   * The session-pinned harness context (POD-6533): the folders this session's
+   * child reads and writes are `harnessContext.roots`, resolved once at spawn.
+   * The host passes it for every session it holds one for; absent only when
+   * none could be built (a survivor whose harness has since left the
+   * inventory), where an observer keeps its home-based default.
+   */
+  harnessContext?: HarnessContext
+  /**
+   * The account the session runs under (POD-6536): its HOME, its environment
+   * and the folders the adapter's `roots` rule resolves from them. Required:
+   * an observer reads these folders, never `homedir()` or the daemon's own
+   * `process.env`. With a {@link harnessContext} it is that context; a
+   * survivor whose harness has left the inventory still has an account.
+   */
+  account: HarnessAccountScope
   /** Daemon-owned shared cadence for transcript and native-state stat polls. */
   statTick?: StatTick
   /**
@@ -667,8 +816,6 @@ export interface HarnessObserveInput {
    *  absent on a fresh spawn — the observer discovers the session the CLI
    *  creates. */
   resumeValue?: string
-  /** Discovery homeDir override (tests / isolated HOME). */
-  homeDir?: string
   /** Product-owned native transcript root, separate from the harness account home. */
   transcriptRoot?: string
   /** Freshness floor for spawn-time session discovery, so a new pane can't
@@ -769,7 +916,13 @@ export interface TranscriptSourceInput {
   pathHint?: string
   /** Stable Podium row identity used by providers with a shared native store. */
   podiumSessionId?: SessionId
-  homeDir?: string
+  /**
+   * The account whose transcripts these are (POD-6534, POD-6536): its home,
+   * env and the folders the adapter's `roots` rule resolves. Required: a
+   * transcript read never falls back to `homedir()` or the daemon's own
+   * `process.env`.
+   */
+  account: HarnessAccountScope
   /** Product-owned native transcript root, separate from the harness account home. */
   transcriptRoot?: string
 }
@@ -781,15 +934,15 @@ export interface HarnessTranscript {
    *  the tailer already reads every file grammar as a stream). */
   storage: 'file' | 'sqlite' | 'stream'
   /** Pure native-record parser selected by this manifest. SQLite-backed
-  *  transcripts declare this unsupported because their adapter maps typed rows
-  *  before applying the storage-neutral slice contract. */
+   *  transcripts declare this unsupported because their adapter maps typed rows
+   *  before applying the storage-neutral slice contract. */
   recordToItems: Declared<TranscriptRecordMapper>
   /** Pure native-record reader for RUNTIME facts — the model, effort and context
-  *  use this harness actually reports. Separate from `recordToItems` because it
-  *  answers a different question about the same record: that one produces the
-  *  conversation, this one produces what the agent is running as. Unsupported ⇒
-  *  no observed model/effort/context for this harness; the transcript still
-  *  reads. */
+   *  use this harness actually reports. Separate from `recordToItems` because it
+   *  answers a different question about the same record: that one produces the
+   *  conversation, this one produces what the agent is running as. Unsupported ⇒
+   *  no observed model/effort/context for this harness; the transcript still
+   *  reads. */
   recordRuntime: Declared<TranscriptRuntimeReader>
   /** Pure native-record reader for the agent identity colour (`/color`).
    *  Unsupported ⇒ no colour is ever observed for this harness; the transcript
@@ -797,18 +950,18 @@ export interface HarnessTranscript {
    *  carries no harness default of its own. */
   recordColor: Declared<TranscriptColorReader>
   /** Ordered oldest→newest JSONL files for a session ('file' storage only;
-  *  unsupported for 'sqlite', which has no files to chain). Every file-based
-  *  harness resolves the SPECIFIC conversation by its resume value — a cwd
-  *  bucket holds many DISTINCT conversations, so globbing the bucket would merge
-  *  unrelated sessions; no resume value ⇒ []. */
+   *  unsupported for 'sqlite', which has no files to chain). Every file-based
+   *  harness resolves the SPECIFIC conversation by its resume value — a cwd
+   *  bucket holds many DISTINCT conversations, so globbing the bucket would merge
+   *  unrelated sessions; no resume value ⇒ []. */
   chainPaths: Declared<(input: TranscriptSourceInput) => Promise<string[]>>
   /** The sqlite address of this session ('sqlite' storage only; unsupported
-  *  for 'file', which chains JSONL instead). A pure locator — the adapter's
-  *  db-path rule resolved for this input — never a source: the Store builds
-  *  the host-only source from it (`transcriptSourceFromGrammar`), so the
-  *  section stays data plus pure functions and the dependency points one way
-  *  (Store → grammar, spec §5). `undefined` when no resume value names a
-  *  session. */
+   *  for 'file', which chains JSONL instead). A pure locator — the adapter's
+   *  db-path rule resolved for this input — never a source: the Store builds
+   *  the host-only source from it (`transcriptSourceFromGrammar`), so the
+   *  section stays data plus pure functions and the dependency points one way
+   *  (Store → grammar, spec §5). `undefined` when no resume value names a
+   *  session. */
   sqliteLocator: Declared<(input: TranscriptSourceInput) => SqliteTranscriptLocator | undefined>
   /**
    * PROOF-ONLY RECORDS for the terminal driver's receipts (POD-4905): items
@@ -842,7 +995,9 @@ export function fileTranscript(
       ? supported(recordColor)
       : unsupported('this harness does not report an identity colour in its records'),
     chainPaths: supported(chainPaths),
-    sqliteLocator: unsupported('this harness stores transcripts in files — there is no database to locate'),
+    sqliteLocator: unsupported(
+      'this harness stores transcripts in files — there is no database to locate',
+    ),
   }
 }
 
@@ -871,17 +1026,28 @@ export interface InstrumentationDestination {
   seedTheme?: boolean
   /** Directory holding the per-session settings file the install writes. */
   settingsDir: string
-  /** The harness's own state home (CODEX_HOME / GROK_HOME / …), resolved for
-   *  the child environment. Absent for settings-args installs, which touch no
-   *  global home. */
-  harnessHome?: string
-  /** Instance agent home override, for harness-home resolution. */
-  homeDir?: string
-  /** Effective spawn env, merged when matching the child environment. */
-  env?: Readonly<Record<string, string>>
+  /**
+   * The session-pinned harness context (POD-6533). The ONLY source of the
+   * install's facts: the harness's state folders are `roots` (a global-home
+   * install writes under them; settings-args installs touch none), and the
+   * version to gate on is `installation.version`, read when the inventory
+   * verified the very executable this session launches.
+   */
+  harnessContext: HarnessContext
   /** Host telemetry plumbing: report one harness `--version` probe's raw output.
    *  Best-effort observations only, never an admission requirement. */
   reportVersionProbe?: (harness: string, output: string) => void
+  /**
+   * Trust for hooks a harness takes at launch, in a home Podium created
+   * (credential management §10): the harness's own hash per hook key for
+   * exactly these launch flags, read from the harness and cached by the host.
+   * Undefined when it cannot be had; the install then degrades as untrusted.
+   * Codex only today.
+   */
+  launchHookTrust?: (
+    installation: HarnessContext['installation'],
+    flags: readonly string[],
+  ) => Promise<Readonly<Record<string, string>> | undefined>
 }
 
 /** What an install produced: CLI wiring plus how degraded the global part is.
@@ -923,7 +1089,7 @@ export interface HookPayloadCodec {
   /** This harness's spelling of the transcript path. */
   transcriptPath(raw: unknown): string | undefined
   /** The moved translate, verbatim: raw payload → normalized events. */
-  decode(raw: unknown): Promise<ProviderAgentStateEvent[]>
+  decode(raw: unknown, account: HarnessAccountScope): Promise<ProviderAgentStateEvent[]>
 }
 
 /**
@@ -1282,8 +1448,9 @@ export interface ClientTerminalLaunchOptions {
    */
   conversation: string
   endpoint: ClientTerminalEndpoint
-  /** Command environment used to resolve the client executable. */
-  env?: HarnessEnvironment
+  /** The session's harness context: the client runs under the session's
+   *  account, and its argv is bound to the session's installation. */
+  harnessContext: HarnessContext
 }
 
 /**
@@ -1314,7 +1481,7 @@ export interface ClientTerminalSpec {
    * conversation in, whether an out-of-band engine address rides on argv, and
    * whether per-session server credentials ride in the env.
    */
-  launch(opts: ClientTerminalLaunchOptions): LaunchSpec
+  launch(opts: ClientTerminalLaunchOptions): LaunchArgv
   /**
    * MAY THIS CLIENT KEEP RUNNING WHILE THE VIEWER IS IN CHAT?
    *
@@ -1524,6 +1691,34 @@ export interface HarnessHandoffTranscript {
     homeDir: string
     resumeValue: string
   }): Promise<{ path: string; relativeDir?: string }>
+  /**
+   * WHERE THE CONVERSATION IS IN ONE CONFIGURATION DIRECTORY (credential
+   * management §9 "Switching", §10 "Homes"; epic Task 11). `stateDir` is the
+   * harness's state root for a home (`roots(home, { VAR: dir }).state`). The
+   * answer is a file inside `stateDir`, or undefined: never a path elsewhere
+   * that an index there points at. Absent: a switch cannot move this harness's
+   * conversation between homes.
+   */
+  locateInHome?(input: {
+    stateDir: string
+    cwd: string
+    resumeValue: string
+  }): Promise<string | undefined>
+  /** Other files of the conversation to copy beside it (absolute, may not exist). */
+  companions?(path: string): string[]
+  /**
+   * One record of a conversation that continues on another account or model
+   * provider: undefined leaves it out, the same object keeps it as it was, a
+   * new object replaces it. Codex leaves out encrypted reasoning when the
+   * account changes (POD-6893 §3: a foreign one is refused with 400) and
+   * records the provider the target runs on. Absent: every record carries over.
+   */
+  carryRecord?(
+    record: unknown,
+    change: { accountChanged: boolean; modelProvider?: string },
+  ): unknown
+  /** After the file was placed or rewritten: the harness's own bookkeeping. */
+  afterPlace?(input: { stateDir: string; resumeValue: string; path: string }): Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -1586,6 +1781,21 @@ export interface AgentManifest {
    *
    * Required (empty is a decision) so a newly added harness cannot silently
    * inherit its parent's identity.
+   *
+   * `set` names variables every child of this harness gets, whatever spawns
+   * it (terminal, engine, headless turn, buffered exec, attach client). It is
+   * applied by `harnessChildEnv` after the session env and the wiring env, so
+   * neither can switch it off.
+   *
+   * `operatorSelectors` (POD-6604) names variables that move this harness's
+   * folders away from their default under HOME, for a harness that is not
+   * pinned by an `instanceHome` because SETTING the selector is not neutral
+   * (Claude: `CLAUDE_CONFIG_DIR` also moves `.claude.json` and re-keys the
+   * macOS keychain item). An operator who sets one chose it for their own
+   * account, so a NAMED account (home ≠ the machine command env's HOME) drops
+   * them: its context env, roots, every account read and its child all derive
+   * the folders from the account HOME. The machine's own account keeps the
+   * operator's value. A value a session layer chooses explicitly still wins.
    */
   environment: {
     removeInherited: readonly string[]
@@ -1593,7 +1803,16 @@ export interface AgentManifest {
       variable: string
       relativeDir: string
     }
+    operatorSelectors?: readonly string[]
+    set?: Readonly<Record<string, string>>
   }
+  /**
+   * Where this harness keeps its state for one (home, env) pair (POD-6532).
+   * Required, never Declared: every harness has a state root, and a caller that
+   * derives one itself is exactly the drift this rule exists to end. Pure path
+   * arithmetic — never reads the process environment or the filesystem.
+   */
+  roots(home: string, env: HarnessEnvironment): HarnessRoots
   /** Machine-local installation and account discovery owned by this harness. */
   inventory: HarnessInventory
   /** Credential files, freshness, identity and harness-local transfer (keychain). */
@@ -1606,12 +1825,20 @@ export interface AgentManifest {
    */
   install: Declared<HarnessInstall>
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */
-  launch(opts: HarnessLaunchOptions): LaunchSpec
+  launch(opts: HarnessLaunchOptions): LaunchArgv
+  /**
+   * The terms this harness runs on (POD-6858, docs/design/harness-session-posture.md
+   * §4.5): a pure function that adds this harness's flags, env, generated files
+   * and home edits to what the builders produced, for one launch mode, and
+   * names what it cannot meet. Required, never Declared: every harness process
+   * runs on some terms, and `applyTerms` checks the section only added.
+   */
+  posture: PostureSection
   /** Native-conversation discovery provider. */
   discovery: ConversationProvider
   /** One-shot full-harness turn (`claude -p` / `codex exec` …). Unsupported ⇒ the
    *  harness cannot serve superagent/work-LLM turns; callers pick another. */
-  exec: Declared<(opts: HarnessExecOptions) => HarnessExecSpec>
+  exec: Declared<(opts: HarnessExecOptions) => HarnessExecArgv>
   /** Persistent headless sessions. Unsupported ⇒ no headless driver; the session
    *  must run interactively over a PTY.
    *  SUPERSEDED IN DIRECTION by `runtime` below (POD-1761): a superagent thread

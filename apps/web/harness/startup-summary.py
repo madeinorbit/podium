@@ -1,6 +1,8 @@
 """Validate and summarize a startup-baseline controller ledger.
 
-Run where its raw capture paths exist (normally the issue checkout on flatblock).
+Run where its raw capture paths exist (the measurement host; POD-7099 ledgers
+name them under ~/<checkout>). A ledger over several checkouts keys its arms
+`<checkout>/<cell>`.
 Median, minimum and maximum retain the observed spread, without a speed claim.
 """
 import argparse
@@ -20,11 +22,14 @@ def summarize(ledger):
     if data['status'] != 'complete':
         raise ValueError('Only a completed interleaved round can be summarized')
     cells = {}
-    for cell, paths in data['outputs'].items():
-        cold, provenance = guard.cold_samples(paths)
+    for key, paths in data['outputs'].items():
+        cell = key.rsplit('/', 1)[-1]
+        cold, provenance = guard.cold_samples(paths, min_samples=data['samplesPerCell'])
         if provenance[3] != data['cohort'] or provenance[5] != data['surface'] or provenance[7] != cell:
             raise ValueError('Controller and capture provenance differ')
-        runs = [json.loads(Path(path).read_text()) for path in paths]
+        if data.get('host') and (provenance[8] != data['host'] or provenance[9] != data['lock']):
+            raise ValueError('Controller and capture host or lock differ')
+        runs = [json.loads(Path(path).expanduser().read_text()) for path in paths]
         warm = []
         for run in runs:
             unprofiled = [row for row in run['actions'] if not row.get('profiled')]
@@ -38,7 +43,8 @@ def summarize(ledger):
             raise ValueError('Missing interleaved pairs')
         def spread(values):
             return {'samplesMs': values, 'medianMs': statistics.median(values), 'minMs': min(values), 'maxMs': max(values)}
-        cells[cell] = {
+        cells[key] = {
+            'cell': cell, 'host': provenance[8], 'lock': provenance[9],
             'cold': spread(cold), 'warm': spread(warm), 'runs': paths,
             'sourceShas': sorted(set(run['sha'] for run in runs)),
             'builds': [run['build'] for run in runs[:1]],
@@ -53,7 +59,8 @@ def summarize(ledger):
             'endedAt': [run['endedAt'] for run in runs],
             'leaseWindows': sorted(set(run['lease']['acquiredAt'] for run in runs)),
         }
-    return {'cohort': data['cohort'], 'surface': data['surface'], 'schedule': data['schedule'], 'cells': cells}
+    return {'cohort': data['cohort'], 'surface': data['surface'], 'host': data.get('host'),
+            'schedule': data['schedule'], 'cells': cells}
 
 
 if __name__ == '__main__':

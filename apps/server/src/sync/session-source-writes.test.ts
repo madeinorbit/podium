@@ -1,0 +1,275 @@
+import { asIssueId, asRepoId, asSessionId, firstAdminMemberId } from '@podium/model'
+import type { SessionObservationCheckpointV1 } from '@podium/protocol'
+import { Ledger } from '@podium/sync'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { Session } from '../modules/sessions/session'
+import { RUNTIME_EVENT_LOG_KIND } from '../store/events'
+import { installCaptureOracle } from '../test-support/capture-oracle'
+import { installChangeLogHooks } from '../test-support/change-log-hooks'
+import { issueRowFixture } from '../test-support/issue-row'
+import { openTestStore } from '../test-support/open-test-store'
+import { logStoreRecords } from '../test-support/record-writer'
+import { seedRows } from '../test-support/seed-rows'
+import { installSessionSourceWrites } from './session-source-writes'
+
+const stores: Awaited<ReturnType<typeof openTestStore>>[] = []
+afterEach(() => {
+  vi.restoreAllMocks()
+  for (const store of stores.splice(0)) store.close()
+})
+
+async function fixture() {
+  const store = await openTestStore(':memory:')
+  stores.push(store)
+  // On the Postgres leg every commit's capture is held against the oracle's triggers.
+  await installCaptureOracle(store)
+  const ledger = new Ledger({
+    repo: store.sync,
+    records: await logStoreRecords(store),
+    now: () => Date.parse('2026-11-11T00:00:00.000Z'),
+    transact: (fn) => store.transact(fn),
+  })
+  const writer = testLedgerWriter(ledger)
+  installSessionSourceWrites(store, writer)
+  installChangeLogHooks(store, writer)
+  const session = new Session({
+    sessionId: asSessionId('source-session'),
+    ownerUserId: await firstAdminMemberId(store),
+    machineId: store.hostMachineId,
+    durableLabel: 'source-session',
+    agentKind: 'claude-code',
+    cwd: '/repo/work',
+    title: 'Source session',
+    origin: { kind: 'spawn' },
+    createdAt: '2026-11-10T00:00:00.000Z',
+    geometry: { cols: 80, rows: 24 },
+    toDaemon: () => {},
+  })
+  const save = async () =>
+    await writer.commit({
+      write: async (scope) => await store.sessions.upsertSession(scope, session.toRow()),
+    })
+  await save()
+  const changes = async (cursor: number) =>
+    ((await ledger.changesSince(cursor)) ?? []).filter((change) => change.entity === 'session')
+  return { store, ledger, writer, session, save, changes }
+}
+
+describe('session source writes compare before they write', () => {
+  it('logs queue membership immediately, dedups an unchanged queue and rolls back a failed append', async () => {
+    const f = await fixture()
+    const queued = { id: 'queued', sessionId: f.session.sessionId, text: 'hello', queuedAt: 1 }
+    const cursor = await f.ledger.cursor()
+    await f.store.sync.enqueueMessage(queued)
+    expect(await f.changes(cursor)).toHaveLength(1)
+    const afterEnqueue = await f.ledger.cursor()
+    await f.store.sync.enqueueMessage(queued)
+    expect(await f.changes(afterEnqueue)).toEqual([])
+    vi.spyOn(f.store.sync, 'appendChanges').mockRejectedValueOnce(new Error('append refused'))
+    await expect(f.store.sync.deleteQueuedMessage(queued.id)).rejects.toThrow('append refused')
+    expect(await f.store.sync.listQueuedMessages(f.session.sessionId)).toHaveLength(1)
+    await f.store.sync.deleteUnreservedQueuedMessage(queued.id)
+    expect(await f.changes(afterEnqueue)).toHaveLength(1)
+  })
+
+  it('logs a conversation mapping for a parked session, including a batched discovery', async () => {
+    const f = await fixture()
+    f.session.resume = { kind: 'claude-session', value: 'native-session' }
+    await f.save()
+    const cursor = await f.ledger.cursor()
+    await f.store.conversations.registry.ensureMany(f.store.hostMachineId, [
+      { nativeId: 'native-session', providerId: 'claude-code' },
+    ])
+    expect(await f.changes(cursor)).toHaveLength(1)
+    const after = await f.ledger.cursor()
+    await f.store.conversations.registry.ensure({
+      machineId: f.store.hostMachineId,
+      nativeId: 'native-session',
+      providerId: 'claude-code',
+    })
+    expect(await f.changes(after)).toEqual([])
+  })
+
+  it('logs the repository identity a permanent draft ref derives from the registry', async () => {
+    const f = await fixture()
+    f.session.refDraft = 1
+    await f.save()
+    const cursor = await f.ledger.cursor()
+    await f.store.repos.addRepo(
+      '/repo',
+      f.store.hostMachineId,
+      'https://example.com/team/repo.git',
+      'TEST',
+    )
+    expect(await f.changes(cursor)).toHaveLength(1)
+    const after = await f.ledger.cursor()
+    await f.store.repos.removeRepo('/repo', f.store.hostMachineId)
+    expect(await f.changes(after)).toHaveLength(1)
+  })
+
+  it('logs a birth issue number changed by the source issue write', async () => {
+    const f = await fixture()
+    const issue = issueRowFixture({
+      seq: 1,
+      repoPath: '/repo',
+      parentId: null,
+      ownerUserId: f.session.ownerUserId,
+    })
+    await seedRows(f.store, () => f.store.issues.upsertIssue(fixtureWriteScope(), issue))
+    f.session.refIssueId = issue.id
+    f.session.refLetter = 'A'
+    await f.save()
+    const repoId = asRepoId('repo-upgraded')
+    await seedRows(f.store, () =>
+      f.store.issues.upsertIssue(
+        fixtureWriteScope(),
+        issueRowFixture({
+          id: asIssueId('target-issue'),
+          repoPath: '/other',
+          repoId,
+          seq: 1,
+          parentId: null,
+          ownerUserId: f.session.ownerUserId,
+        }),
+      ),
+    )
+    const cursor = await f.ledger.cursor()
+    await f.store.issues.assignRepoIdToIssuesUnder(repoId, '/repo')
+    expect(await f.changes(cursor)).toHaveLength(1)
+    expect(await f.ledger.authority.snapshot('session')).toContainEqual(
+      expect.objectContaining({ sessionId: f.session.sessionId, refSeq: 2, refRepoId: repoId }),
+    )
+  })
+
+  it('logs the loss of transcript evidence in the retention write', async () => {
+    const f = await fixture()
+    const eventId = await f.store.events.appendEvent({
+      ts: '2026-01-01T00:00:00.000Z',
+      kind: RUNTIME_EVENT_LOG_KIND,
+      subject: f.session.sessionId,
+      payload: { t: 'item', item: { kind: 'complete' } },
+    })
+    await f.store.events.saveRuntimeEventProjectionCursor(
+      'runtime.board.v1',
+      eventId,
+      '2026-11-11T00:00:00.000Z',
+    )
+    const cursor = await f.ledger.cursor()
+    await f.store.events.pruneEventBatch({ cutoff: '2026-02-01T00:00:00.000Z', capThroughId: 0 })
+    expect(await f.changes(cursor)).toHaveLength(1)
+  })
+
+  it('builds the record for an observation checkpoint only when what the record reads moves (POD-6970)', async () => {
+    const f = await fixture()
+    await seedRows(
+      f.store,
+      async () =>
+        await f.store.observationCheckpoints.advanceGeneration(
+          f.session.sessionId,
+          'codex',
+          'thread',
+        ),
+    )
+    const at = (ms: number) => new Date(Date.parse('2026-11-10T01:00:00Z') + ms).toISOString()
+    const checkpoint: SessionObservationCheckpointV1 = {
+      schemaVersion: 1,
+      podiumSessionId: f.session.sessionId,
+      provider: 'codex',
+      providerSessionId: 'thread',
+      bindingVersion: 1,
+      lifecycleObservationGeneration: 1,
+      providerCursor: { segmentId: 'rollout', components: { file: 42 } },
+      bootstrapCursor: { segmentId: 'rollout', components: { file: 42 } },
+      lastAcceptedLiveCursor: null,
+      turnEpoch: 0,
+      providerTurnId: null,
+      providerPromptId: null,
+      turnState: { phase: 'working', since: at(0), workingMsTotal: 0, nativeSubagentCount: 0 },
+      terminalFence: null,
+      providerAt: at(0),
+      acceptedAt: at(0),
+      lastLiveReceiptAt: null,
+      lastTransitionId: 'snapshot-42',
+    }
+    const save = async () =>
+      await f.writer.commit({
+        write: async () => await f.store.observationCheckpoints.save(checkpoint),
+      })
+    // One read of the session's offers per record build.
+    const builds = vi.spyOn(f.store.sessions, 'offersOf')
+    let cursor = await f.ledger.cursor()
+    await save()
+    expect(builds).toHaveBeenCalled()
+    expect(await f.changes(cursor)).toHaveLength(1)
+    // Accepted refreshes: the cursors and times move, the turn state stays.
+    // The record does not change, so it is not built.
+    builds.mockClear()
+    cursor = await f.ledger.cursor()
+    for (let refresh = 1; refresh <= 5; refresh++) {
+      checkpoint.providerCursor = { segmentId: 'rollout', components: { file: 42 + refresh } }
+      checkpoint.providerAt = at(refresh * 1_000)
+      checkpoint.acceptedAt = at(refresh * 1_000)
+      checkpoint.lastLiveReceiptAt = at(refresh * 1_000)
+      checkpoint.lastTransitionId = `refresh-${refresh}`
+      await save()
+    }
+    expect(builds).not.toHaveBeenCalled()
+    expect(await f.changes(cursor)).toEqual([])
+    // The turn ends: the record's state moves, and is logged once.
+    cursor = await f.ledger.cursor()
+    checkpoint.turnState = {
+      phase: 'idle',
+      since: at(9_000),
+      workingMsTotal: 9_000,
+      nativeSubagentCount: 0,
+    }
+    checkpoint.acceptedAt = at(9_000)
+    await save()
+    expect(builds).toHaveBeenCalled()
+    const ended = await f.changes(cursor)
+    expect(ended).toHaveLength(1)
+    expect(ended[0]?.value).toMatchObject({ agentState: { phase: 'idle' } })
+  })
+})
+
+describe('runtime transcript availability (the newest reset or complete item decides)', () => {
+  it('follows resets and complete items, and ignores every other runtime event', async () => {
+    const f = await fixture()
+    const id = f.session.sessionId
+    let at = 0
+    const append = async (payload: unknown) =>
+      await f.store.events.appendEvent({
+        ts: new Date(Date.parse('2026-11-11T00:00:00Z') + at++ * 1000).toISOString(),
+        kind: RUNTIME_EVENT_LOG_KIND,
+        subject: id,
+        payload,
+      })
+    const available = async () => (await f.store.events.runtimeTranscriptAvailableOf([id])).has(id)
+
+    expect(await available()).toBe(false)
+    await append({ t: 'state', change: { kind: 'activity' } })
+    expect(await available()).toBe(false)
+    await append({ t: 'item', item: { kind: 'complete' } })
+    expect(await available()).toBe(true)
+    // Events that are neither a reset nor a complete item change nothing.
+    await append({ t: 'state', change: { kind: 'activity' } })
+    await append({ t: 'item', item: { kind: 'delta' } })
+    expect(await available()).toBe(true)
+    // An empty reset clears it; a later complete item restores it.
+    await append({ t: 'transcript-reset', items: [] })
+    expect(await available()).toBe(false)
+    await append({ t: 'state', change: { kind: 'activity' } })
+    expect(await available()).toBe(false)
+    await append({ t: 'item', item: { kind: 'complete' } })
+    expect(await available()).toBe(true)
+    // A reset that carries items is a transcript by itself.
+    await append({ t: 'transcript-reset', items: [{ kind: 'complete' }] })
+    expect(await available()).toBe(true)
+    await append({ t: 'transcript-reset' })
+    expect(await available()).toBe(false)
+    // A session with no runtime events, and an unknown id, have none.
+    const unknown = asSessionId('unknown')
+    expect(await f.store.events.runtimeTranscriptAvailableOf([unknown])).toEqual(new Set())
+  })
+})

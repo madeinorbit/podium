@@ -12,22 +12,15 @@
  */
 import { open } from 'node:fs/promises'
 import { join } from 'node:path'
-import type {
-  AgentInterview,
-  AgentInterviewOption,
-  AgentInterviewQuestion,
-} from '@podium/model'
+import type { AgentInterview, AgentInterviewOption, AgentInterviewQuestion } from '@podium/model'
+import type { DeterministicAgentState } from '../../agent-state/deterministic.js'
+import type { AgentStateEvent, ProviderAgentStateEvent } from '../../agent-state/types.js'
+import { withStateChannel } from '../../agent-state/types.js'
 import type {
   HarnessInstrumentation,
   InstalledInstrumentation,
   InstrumentationDestination,
 } from '../../manifest.js'
-import type {
-  AgentStateEvent,
-  ProviderAgentStateEvent,
-} from '../../agent-state/types.js'
-import { withStateChannel } from '../../agent-state/types.js'
-import type { DeterministicAgentState } from '../../agent-state/deterministic.js'
 import type { TranscriptClassifier } from '../../observer.js'
 
 // Observation only: every hook replies 200 {} immediately (see the daemon's
@@ -45,6 +38,17 @@ export function claudeHookSettings(endpointUrl: string, opts?: { seedTheme?: boo
       // scheme. Per-session --settings only; the user's global config is never
       // touched, and with seeding off the key is absent entirely [spec:SP-a04d].
       ...(opts?.seedTheme ? { theme: 'auto' } : {}),
+      // Launch terms that are settings keys, not flags (POD-6858 §4.8). The
+      // two skips keep a mode's one-time confirmation from opening as a menu
+      // in the terminal; auto mode's notice is a transcript line either way.
+      skipAutoPermissionPrompt: true,
+      skipDangerousModePermissionPrompt: true,
+      // The folder was trusted when it was added to Podium, and that switches
+      // on the repository's own MCP servers too (decision POD-6884). Without
+      // it an interactive session opens an approval dialog at startup, which a
+      // chat message cannot answer; a stream session connects them unasked.
+      // Read from every settings source, `--settings` included (2.1.323 bundle).
+      enableAllProjectMcpServers: true,
       hooks: {
         SessionStart: [h],
         UserPromptSubmit: [h],
@@ -338,10 +342,22 @@ export async function translateClaudeHookPayload(payload: unknown): Promise<Agen
     case 'Stop':
       return await stopEvents(p)
     case 'StopFailure': {
-      // Field name not pinned by docs — accept the plausible spellings, then give up
-      // to 'unknown' (still errored, still retryable) rather than dropping the event.
-      const errorClass = str(p.error_type) ?? str(p.errorType) ?? str(p.matcher) ?? 'unknown'
-      return [{ kind: 'turn_failed', errorClass, retryable: RETRYABLE.has(errorClass) }]
+      // Claude Code 2.1.323 sends the class as `error` ("authentication_failed",
+      // "rate_limit", …) and its own sentence as `last_assistant_message`
+      // (recorded on a live drive, credential management Task 13). The older
+      // spellings stay accepted; with none, 'unknown' (still errored, still
+      // retryable) rather than dropping the event.
+      const errorClass =
+        str(p.error) ?? str(p.error_type) ?? str(p.errorType) ?? str(p.matcher) ?? 'unknown'
+      const detail = str(p.last_assistant_message)?.trim().slice(0, 1000)
+      return [
+        {
+          kind: 'turn_failed',
+          errorClass,
+          retryable: RETRYABLE.has(errorClass),
+          ...(detail ? { detail } : {}),
+        },
+      ]
     }
     case 'TaskCreated':
       // Dead path on Claude 2.1.x (hooks never observed). task_delta event type
@@ -394,7 +410,6 @@ export type IdleClassification = {
   kind: 'done' | 'question' | 'approval' | 'interrupted' | 'open_todos'
   summary?: string
 }
-
 
 const STOP_TAIL_BYTES = 128 * 1024
 async function readTranscriptTail(path: string, maxBytes = STOP_TAIL_BYTES): Promise<unknown[]> {
@@ -527,7 +542,9 @@ function installClaudeCodeInstrumentation(
     args: ['--settings', settingsPath],
     file: {
       path: settingsPath,
-      contents: claudeHookSettings(destination.endpointUrl, { seedTheme: destination.seedTheme ?? true }),
+      contents: claudeHookSettings(destination.endpointUrl, {
+        seedTheme: destination.seedTheme ?? true,
+      }),
     },
   }
 }

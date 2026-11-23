@@ -1,6 +1,23 @@
 import { MachineServiceAssignment, MachineServiceReport } from '@podium/model'
 import { z } from 'zod'
+import { UpdateSpaceEstimate } from '../update/space'
 import { UpdateTarget } from '../update/target'
+
+/** Read-only preview: never an update grant or preparation request. */
+export const UpdateSpaceCheckMessage = z.object({
+  type: z.literal('updateSpaceCheck'),
+  requestId: z.string().min(1).max(128),
+  targetFingerprint: z.string().min(1).max(128),
+  target: UpdateTarget,
+})
+export type UpdateSpaceCheckMessage = z.infer<typeof UpdateSpaceCheckMessage>
+
+export const UpdateSpaceResultMessage = UpdateSpaceEstimate.extend({
+  type: z.literal('updateSpaceResult'),
+  requestId: z.string().min(1).max(128),
+  targetFingerprint: z.string().min(1).max(128),
+})
+export type UpdateSpaceResultMessage = z.infer<typeof UpdateSpaceResultMessage>
 
 /**
  * CONVERGENCE FRAMES — the server tells a machine to move, the machine says
@@ -131,11 +148,13 @@ export type MachineServiceAssignmentMessage = z.infer<typeof MachineServiceAssig
 export const MachineSupervisorMessage = z.discriminatedUnion('type', [
   MachineSupervisorReportMessage,
   UpdateStatusMessage,
+  UpdateSpaceResultMessage,
 ])
 export type MachineSupervisorMessage = z.infer<typeof MachineSupervisorMessage>
 
 export const MachineSupervisorControlMessage = z.discriminatedUnion('type', [
   MachineServiceAssignmentMessage,
   UpdateGrantMessage,
+  UpdateSpaceCheckMessage,
 ])
 export type MachineSupervisorControlMessage = z.infer<typeof MachineSupervisorControlMessage>

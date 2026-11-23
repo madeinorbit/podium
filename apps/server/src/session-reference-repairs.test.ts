@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asRepoId, firstAdminMemberId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HandoffPlacement } from './modules/sessions/handoff/placement'
 import type { HandoffInput } from './modules/sessions/handoff/ports'
@@ -34,15 +35,23 @@ async function fixture() {
   registries.push(registry)
   await attachHostDaemon(registry, () => {}, { repos: ['/heal/a', '/heal/b'] })
   const sessions = registry.modules.sessions
-  const a = await registry.issues.crud.create({ repoPath: '/heal/a', title: 'A', startNow: false })
-  const b = await registry.issues.crud.create({ repoPath: '/heal/b', title: 'B', startNow: false })
+  const a = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+    repoPath: '/heal/a',
+    title: 'A',
+    startNow: false,
+  })
+  const b = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
+    repoPath: '/heal/b',
+    title: 'B',
+    startNow: false,
+  })
   const repoId = asRepoId('repo:common')
   for (const issue of [a, b]) {
     const row = await store.issues.getIssue(issue.id)
-    await store.issues.upsertIssue({ ...row!, seq: 1, repoId })
+    await store.issues.upsertIssue(fixtureWriteScope(), { ...row!, seq: 1, repoId })
   }
   const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/unmapped' })
-  await sessions.setSessionIssueId(sessionId, b.id)
+  await sessions.setSessionIssueId(sessions.serverWriter, sessionId, b.id)
   return { registry, store, sessions, sessionId, repoId }
 }
 

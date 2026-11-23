@@ -26,20 +26,19 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing((change) => published.push(change)),
+    ...issueTestPlumbing((change) => published.push(change), { store }),
     now: () => '2026-10-02T00:00:00.000Z',
   })
   const ids: string[] = []
   for (let index = 0; index < count; index++) {
     ids.push(
-      (await svc.crud.create({ repoPath: '/repo', title: `Fixture issue ${index}`, startNow: false }))
+      (await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: `Fixture issue ${index}`, startNow: false }))
         .id,
     )
   }
@@ -60,9 +59,9 @@ it.each([16, 64])('publishes only the changed normalized issue among %i rows', a
   }> = []
   const emitted: MetadataChange[][] = []
   const operations = [
-    ['update', () => svc.crud.update(target, { title: 'Changed fixture title' })],
-    ['reparent', () => svc.hierarchy.reparent(target, parent)],
-    ['close', () => svc.crud.close(target)],
+    ['update', () => svc.crud.update(svc.reports.store.serverWriter, target, { title: 'Changed fixture title' })],
+    ['reparent', () => svc.hierarchy.reparent(svc.reports.store.serverWriter, target, parent)],
+    ['close', () => svc.crud.close(svc.reports.store.serverWriter, target)],
   ] as const
   try {
     for (const [operation, run] of operations) {
@@ -112,15 +111,15 @@ it('publishes read-only receipts without issue writes or collection discovery', 
     getSettings: async () => normalizeSettings({}),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing((change) => published.push(change)),
+    ...issueTestPlumbing((change) => published.push(change), { store }),
     now: () => '2026-10-29T12:05:00.000Z',
   })
-  const root = await svc.crud.create({
+  const root = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
     title: 'Read receipt fixture',
     startNow: false,
   })
-  const child = await svc.crud.create({
+  const child = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
     title: 'Independent child cursor',
     parentId: root.id,
@@ -135,7 +134,7 @@ it('publishes read-only receipts without issue writes or collection discovery', 
   published.length = 0
   const seen = '2026-10-29T12:00:00.000Z'
   try {
-    await svc.crud.markIssueRead(root.id, seen)
+    await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id, seen)
     const user = await firstAdminMemberId(store)
     expect((await store.issues.getIssueUserState(user, root.id))?.readAt).toBe(seen)
     expect((await store.issues.getIssueUserState(user, child.id))?.readAt ?? null).toBeNull()
@@ -144,10 +143,10 @@ it('publishes read-only receipts without issue writes or collection discovery', 
     expect(writeIssue).not.toHaveBeenCalled()
     expect(stateWrite).toHaveBeenCalledTimes(1)
     // Duplicate and out-of-order receipts neither regress the cursor nor write.
-    await svc.crud.markIssueRead(root.id, seen)
-    await svc.crud.markIssueRead(root.id, '2026-10-29T11:00:00.000Z')
+    await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id, seen)
+    await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id, '2026-10-29T11:00:00.000Z')
     expect(stateWrite).toHaveBeenCalledTimes(1)
-    await svc.crud.markIssueUnread(root.id)
+    await svc.crud.markIssueUnread(svc.reports.store.serverWriter, root.id)
     expect((await store.issues.getIssueUserState(user, root.id))?.readAt ?? null).toBeNull()
     expect(writeIssue).not.toHaveBeenCalled()
     expect(published.every((change) => change.entity === 'issueUserState')).toBe(true)
@@ -167,30 +166,30 @@ it('keeps explicit mark-read covering the current issue and descendants', async 
     getSettings: async () => normalizeSettings({}),
     spawnSession: async () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
-    ...issueTestPlumbing(() => {}),
+    ...issueTestPlumbing(() => {}, { store }),
     now: () => now,
   })
-  const root = await svc.crud.create({ repoPath: '/repo', title: 'Covering root', startNow: false })
+  const root = await svc.crud.create(svc.reports.store.serverWriter, { repoPath: '/repo', title: 'Covering root', startNow: false })
   now = '2026-10-29T12:00:10.000Z'
-  const child = await svc.crud.create({
+  const child = await svc.crud.create(svc.reports.store.serverWriter, {
     repoPath: '/repo',
     title: 'Newer child',
     parentId: root.id,
     startNow: false,
   })
   now = '2026-10-29T12:00:00.000Z'
-  await svc.crud.markIssueRead(root.id)
+  await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id)
   const user = await firstAdminMemberId(store)
   expect((await store.issues.getIssueUserState(user, root.id))?.readAt).toBe(
     '2026-10-29T12:00:10.000Z',
   )
-  await svc.crud.close(root.id)
+  await svc.crud.close(svc.reports.store.serverWriter, root.id)
   now = '2026-10-31T12:00:00.000Z'
-  await svc.crud.markIssueRead(root.id, '2026-10-29T12:00:10.000Z')
+  await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id, '2026-10-29T12:00:10.000Z')
   expect((await store.issues.getIssueUserState(user, root.id))?.readAt).toBe(now)
   now = '2026-11-01T12:00:00.000Z'
-  await svc.crud.update(child.id, { title: 'New unseen child activity' })
-  await svc.crud.markIssueUnread(root.id)
-  await svc.crud.markIssueRead(root.id, '2026-10-29T12:00:10.000Z')
+  await svc.crud.update(svc.reports.store.serverWriter, child.id, { title: 'New unseen child activity' })
+  await svc.crud.markIssueUnread(svc.reports.store.serverWriter, root.id)
+  await svc.crud.markIssueRead(svc.reports.store.serverWriter, root.id, '2026-10-29T12:00:10.000Z')
   expect((await store.issues.getIssueUserState(user, root.id))?.readAt).toBe('2026-10-29T12:00:10.000Z')
 })

@@ -14,12 +14,14 @@ import { runMachineCli } from './machine-cli'
 import { runMailCli } from './mail-cli'
 import { runOfferCli } from './offer-cli'
 import { runPerfCli } from './perf-cli'
+import { runProfileCli } from './profile-cli'
 import { runQuotaCli } from './quota-cli'
 import { runSessionCli } from './session-cli'
 import { runSpecCli } from './spec-cli'
 import { telemetryCliMain } from './telemetry-cli'
 import { tunnelCliMain } from './tunnel-cli'
 import { updateKeyCliMain } from './update-key-cli'
+import { runVaultCli } from './vault-cli'
 import { runWorkflowCli } from './workflow-cli'
 import { runWorkspaceCli } from './workspace-cli'
 import { runWorktreeCli } from './worktree-cli'
@@ -90,6 +92,7 @@ const plan = (argv: string[]): unknown => resolvePlan({}, argv, {}, false)
  * proving nothing.
  */
 const EVERY_SUBCOMMAND: ReadonlyArray<readonly [string, () => Promise<string>]> = [
+  ['vault', () => failureOf(() => runVaultCli(['status', BOGUS], noopClient))],
   ['issue', () => failureOf(() => runIssueCli(['show', '--id', '5', BOGUS], noopClient))],
   ['spec', () => failureOf(() => runSpecCli(['show', 'SP-1', BOGUS], noopClient))],
   ['lock', () => failureOf(() => runLockCli(['status', '--repoPath', '/r', BOGUS], noopClient))],
@@ -126,6 +129,14 @@ const EVERY_SUBCOMMAND: ReadonlyArray<readonly [string, () => Promise<string>]> 
   ['machine', () => failureOf(() => runMachineCli(['list', BOGUS], noopClient))],
   // `machines` dispatches to the same sub-CLI as `machine`.
   ['machines', () => failureOf(() => runMachineCli(['list', BOGUS], noopClient))],
+  [
+    'profile',
+    () => failureOf(() => runProfileCli(['list', BOGUS], { client: noopClient, cwd: '/r' })),
+  ],
+  [
+    'profiles',
+    () => failureOf(() => runProfileCli(['list', BOGUS], { client: noopClient, cwd: '/r' })),
+  ],
   ['quota', () => failureOf(() => runQuotaCli([BOGUS], noopClient))],
   [
     'telemetry',

@@ -44,13 +44,13 @@
     "detail": "attached=1; screenBytes=2122"
   },
   "evidence": [
-    "SCREEN            \"78]0; Claude CodeClaudeCodev2.1.231\\nTipsforgetting\\nWelcomebackMichael!started\\nAskClaudetocreatea\\nWhat'snew\\nAddedastartupwarnin\\nOpus5(1Mcontext)APIUsageBillingAddedanAutomodetab\\nmike.wirth@gmail.com'sOrganizationAddedtheturn'scompl\\n/tmp/pod-2874/probes/claude-a8/release-notesformore\\nTry\\\"createautillogging.pythat...\\\"\\nautomodeon(shift+tabtocycle)foragents\\nNotloggedinRun/login\\nhigh/effort\\n]11;?[>0q\"",
+    "SCREEN            \"78]0; Claude CodeClaudeCodev2.1.231\\nTipsforgetting\\nWelcomebackPerson!started\\nAskClaudetocreatea\\nWhat'snew\\nAddedastartupwarnin\\nOpus5(1Mcontext)APIUsageBillingAddedanAutomodetab\\nperson@example.com'sOrganizationAddedtheturn'scompl\\n/tmp/pod-2874/probes/claude-a8/release-notesformore\\nTry\\\"createautillogging.pythat...\\\"\\nautomodeon(shift+tabtocycle)foragents\\nNotloggedinRun/login\\nhigh/effort\\n]11;?[>0q\"",
     "LOGIN PATH        true",
     "STATUS            {\"sessionId\":\"d82c6856-3d6f-4d98-85e8-994876abd981\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":"
   ],
   "data": {
     "sid": "d82c6856-3d6f-4d98-85e8-994876abd981",
     "loginPath": true,
-    "screen": "78]0; Claude CodeClaudeCodev2.1.231\nTipsforgetting\nWelcomebackMichael!started\nAskClaudetocreatea\nWhat'snew\nAddedastartupwarnin\nOpus5(1Mcontext)APIUsageBillingAddedanAutomodetab\nmike.wirth@gmail.com'sOrganizationAddedtheturn'scompl\n/tmp/pod-2874/probes/claude-a8/release-notesformore\nTry\"createautillogging.pythat...\"\nautomodeon(shift+tabtocycle)foragents\nNotloggedinRun/login\nhigh/effort\n]11;?[>0q"
+    "screen": "78]0; Claude CodeClaudeCodev2.1.231\nTipsforgetting\nWelcomebackPerson!started\nAskClaudetocreatea\nWhat'snew\nAddedastartupwarnin\nOpus5(1Mcontext)APIUsageBillingAddedanAutomodetab\nperson@example.com'sOrganizationAddedtheturn'scompl\n/tmp/pod-2874/probes/claude-a8/release-notesformore\nTry\"createautillogging.pythat...\"\nautomodeon(shift+tabtocycle)foragents\nNotloggedinRun/login\nhigh/effort\n]11;?[>0q"
   }
 }

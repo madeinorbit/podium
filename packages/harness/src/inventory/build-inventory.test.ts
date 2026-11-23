@@ -487,7 +487,7 @@ describe('buildInventory', () => {
   it('reads Codex login from the credential home, not an ambient CODEX_HOME', async () => {
     /**
      * THE CREDENTIAL HOME WINS OVER AN AMBIENT SELECTOR (POD-2692), and it has to,
-     * because that is already what the SPAWNED CHILD gets: `harnessInstanceEnv`
+     * because that is already what the SPAWNED CHILD gets: `harnessChildEnv`
      * sets `CODEX_HOME` to `<instance home>/.codex` on every session. While this
      * probe followed the ambient value instead, the readout named one account and
      * the session ran as another — the divergence this issue exists to close.

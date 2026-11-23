@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 /**
  * The properties rail for the issue page. Rendered in the desktop `<aside>` and
  * mirrored inside the mobile `Details` disclosure.
@@ -55,6 +56,8 @@
  * `../issue-page-commands.ts`; the pure derivations still come from
  * `../issue-page-model.ts`.
  */
+
+import { otherMembersSessions } from '@podium/client-graph/issue-shared-detail'
 import {
   type IssueId,
   IssueType,
@@ -68,9 +71,10 @@ import { Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { usePoolMachines } from '@/app/header-data'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { useMemberRoster } from '@/lib/member-roster'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import { IssueStatusMenuContent } from '../IssueStatusPicker'
@@ -80,6 +84,7 @@ import type { IssuePageCommands } from '../issue-page-commands'
 import { labelPoolOf, mateOptionsOf, repoMatesOf } from '../issue-page-model'
 import { DateProperty, EstimateProperty } from './DateProperty'
 import { IssueAbout } from './IssueAbout'
+import { IssueAssignee } from './IssueAssignee'
 import { IssueParentBranch } from './IssueParentBranch'
 import { IssueParentRow } from './IssueParentRow'
 import { IssueRelations } from './IssueRelations'
@@ -88,13 +93,14 @@ import { useIssueEdgeResolver } from './issue-edges'
 import { issueObserver as observer } from './issue-observer'
 import { useIssuePageCatalog, useIssuePageContext } from './issue-page-data'
 import { PropertyRow, TriggerButton } from './property-chrome'
+import { useIssueSharedDetail } from './use-issue-shared-detail'
 
 /** The properties stack. `commands` is the page's named-command set (all
  *  mutations run through its toast-wrapping runner); `onNavigate` re-points the
  *  open issue (parent / relation click-through). */
 export const IssueProperties = observer(function IssueProperties({
   issue,
-  busy,
+  busy: pending,
   commands,
   onNavigate,
   onRequestClose,
@@ -106,11 +112,24 @@ export const IssueProperties = observer(function IssueProperties({
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
   const page = useIssuePageContext()!
-  const navigateToSession = useRuntimeSelector((s) => s.navigateToSession)
+  const navigateToSession = useUiValue('navigateToSession')
   const machines = usePoolMachines()
+  // The shared half (POD-6295): the server says what this reader may do, and
+  // the rail draws only those controls. Until it has said, the controls stay
+  // as they were; the server refuses a write it does not allow either way.
+  const shared = useIssueSharedDetail(issue)
+  const allowed = shared?.allowed
+  const busy = pending || allowed?.edit === false
+  const roster = useMemberRoster()
+  const nameOf = (id: string) => roster?.nameOf(id)
 
   const [optionsOpen, setOptionsOpen] = useState(false)
-  const issues = useIssuePageCatalog(optionsOpen)
+  const [targetQuery, setTargetQuery] = useState('')
+  const issues = useIssuePageCatalog(optionsOpen, targetQuery, issue.repoPath)
+  const targetOptionsOpen = (open: boolean) => {
+    setOptionsOpen(open)
+    if (!open) setTargetQuery('')
+  }
   const resolve = useIssueEdgeResolver()
 
   // Relation add is two steps: pick a dep type, then a target issue.
@@ -186,11 +205,16 @@ export const IssueProperties = observer(function IssueProperties({
           />
         </PropertyRow>
 
-        {/* NO ASSIGNEE ROW (POD-1163). Work here is placed on AGENTS, in
-            sessions, from the Sessions band below — the free-text assignee was
-            a second, disconnected answer to "who is working this" that nothing
-            else on the page read. The field survives on the wire and on the
-            board; the rail no longer offers a second place to set it. */}
+        {/* THE ASSIGNEE (POD-6295): the task's one accountable member, not a
+            free-text label. Work itself is still placed on agents, in the
+            Sessions band below; reassigning moves no session. */}
+        <IssueAssignee
+          issue={issue}
+          roster={roster}
+          mayReassign={allowed?.reassign ?? true}
+          busy={pending}
+          onReassign={(assignee) => commands.update({ assignee })}
+        />
 
         <PropertyRow label="Labels">
           {/* `-ml-1.5` on the add button, so its glyph starts on the same value
@@ -299,6 +323,11 @@ export const IssueProperties = observer(function IssueProperties({
           commands={commands}
           machines={machines}
           onOpenSession={openSession}
+          otherSessions={otherMembersSessions(
+            shared?.sessionSummaries ?? [],
+            roster?.currentMemberId,
+          )}
+          nameOf={nameOf}
         />
       </RailSection>
 
@@ -309,7 +338,9 @@ export const IssueProperties = observer(function IssueProperties({
           busy={busy}
           mateOptions={mateOptions}
           matesById={matesById}
-          onOptionsOpenChange={setOptionsOpen}
+          onOptionsOpenChange={targetOptionsOpen}
+          searchQuery={targetQuery}
+          onSearchQueryChange={setTargetQuery}
           onSetParent={(id) => commands.setParent(id)}
           onNavigate={onNavigate}
         />
@@ -319,7 +350,9 @@ export const IssueProperties = observer(function IssueProperties({
           commands={commands}
           mateOptions={mateOptions}
           hasMates={page.views.row(issue.id).hasTargets}
-          onOptionsOpenChange={setOptionsOpen}
+          onOptionsOpenChange={targetOptionsOpen}
+          searchQuery={targetQuery}
+          onSearchQueryChange={setTargetQuery}
           addRelType={addRelType}
           onAddRelTypeChange={setAddRelType}
           onNavigate={onNavigate}
@@ -327,7 +360,13 @@ export const IssueProperties = observer(function IssueProperties({
       </RailSection>
 
       <RailSection>
-        <IssueAbout issue={issue} />
+        <IssueAbout
+          issue={issue}
+          about={{
+            nameOf,
+            ...(roster?.shared ? { collaborators: shared?.collaboratorIds ?? [] } : {}),
+          }}
+        />
       </RailSection>
     </div>
   )

@@ -1,4 +1,3 @@
-import { describeError } from '@podium/logger'
 import type { GitDiscoveryDiagnosticWire, GitRepositoryWire, MachineId } from '@podium/model'
 import {
   isMachinePathWithinRoot,
@@ -34,6 +33,11 @@ import { normalizeRepoPath } from './store'
  * repo_id via deriveRepoId, so it is unambiguously "the same repo, here too");
  * anything else is returned as a candidate for the user to confirm — never a
  * silent add.
+ *
+ * A scan runs as a `machine.scan` effect record (POD-6396,
+ * `modules/fleet/discovery-effects.ts`): the record says that it runs and what
+ * it found, so this service holds no state of its own — no map of running
+ * scans, no last results.
  */
 
 export type DiscoveredRepo = {
@@ -58,8 +62,9 @@ type RepoRow = { machineId: MachineId; path: string; originUrl: string | null }
 
 /** `/home/u/src/x` | `/Users/u/src/x` → `~/src/x` (undefined when not under a home). */
 export function homeRelativePath(path: string): string | undefined {
-  const m = /^\/(?:home|Users)\/[^/]+\/(.+)$/.exec(path)
-    ?? /^[a-z]:[\\/]Users[\\/][^\\/]+[\\/](.+)$/i.exec(path)
+  const m =
+    /^\/(?:home|Users)\/[^/]+\/(.+)$/.exec(path) ??
+    /^[a-z]:[\\/]Users[\\/][^\\/]+[\\/](.+)$/i.exec(path)
   return m ? `~/${machinePathSegments(m[1]!, path).join('/')}` : undefined
 }
 
@@ -67,7 +72,9 @@ export function homeRelativePath(path: string): string | undefined {
  *  minus paths already registered on the target. Order-stable and deduped. */
 export function probeRootsFor(machineId: MachineId, rows: RepoRow[]): string[] {
   const registered = new Set(
-    rows.filter((r) => r.machineId === machineId).map((r) => machinePathKey(normalizeRepoPath(r.path))),
+    rows
+      .filter((r) => r.machineId === machineId)
+      .map((r) => machinePathKey(normalizeRepoPath(r.path))),
   )
   const probes: string[] = []
   const seen = new Set<string>()
@@ -93,7 +100,12 @@ export function adjacentRootsFor(knownPaths: string[], cap = 12): string[] {
   const parents = new Map<string, string>()
   for (const p of knownPaths) {
     const parent = machinePathDirname(normalizeRepoPath(p))
-    if (machinePathsEqual(parent, machinePathDirname(parent)) || /^[a-z]:\\users\\[^\\]+$/i.test(parent) || /^\/(?:home|Users)\/[^/]+$/.test(parent)) continue
+    if (
+      machinePathsEqual(parent, machinePathDirname(parent)) ||
+      /^[a-z]:\\users\\[^\\]+$/i.test(parent) ||
+      /^\/(?:home|Users)\/[^/]+$/.test(parent)
+    )
+      continue
     if (!parents.has(machinePathKey(parent))) parents.set(machinePathKey(parent), parent)
   }
   // Drop parents contained in another collected parent — the shallow walk from the
@@ -128,19 +140,11 @@ export interface RepoDiscoveryDeps {
   ): Promise<ScanReposResult>
   /** Display names for many machines in one read; every asked id gets an entry. */
   machineNames(machineIds: readonly MachineId[]): Promise<ReadonlyMap<string, string>>
-  localMachineId: MachineId
   log?: (message: string) => void
   now?: () => number
 }
 
-const CONNECT_SCAN_DELAY_MS = 3_000
-const CONNECT_SCAN_MIN_INTERVAL_MS = 10 * 60_000
-
 export class MachineRepoDiscovery {
-  private readonly running = new Map<string, Promise<MachineDiscoveryResult>>()
-  private readonly lastConnectScanAt = new Map<string, number>()
-  private readonly lastResults = new Map<string, MachineDiscoveryResult>()
-
   constructor(private readonly deps: RepoDiscoveryDeps) {}
 
   /**
@@ -219,48 +223,12 @@ export class MachineRepoDiscovery {
     return healed
   }
 
-  /** Fire-and-forget connect trigger: delayed (reattach settles first), throttled
-   *  per machine, never awaited by the attach path, shallow tiers only. */
-  onMachineConnected(machineId: MachineId): void {
-    if (machineId === this.deps.localMachineId) return // local repos are adopted at boot
-    const now = this.deps.now?.() ?? Date.now()
-    const last = this.lastConnectScanAt.get(machineId)
-    if (last !== undefined && now - last < CONNECT_SCAN_MIN_INTERVAL_MS) return
-    this.lastConnectScanAt.set(machineId, now)
-    setTimeout(async () => {
-      await this.scan(machineId, { deep: false }).catch((err) => {
-        this.deps.log?.(
-          `repo discovery for ${machineId} failed: ${describeError(err)}`,
-        )
-      })
-    }, CONNECT_SCAN_DELAY_MS).unref?.()
-  }
-
-  /** Most recent finished result for a machine (auto or explicit). */
-  lastResult(machineId: MachineId): MachineDiscoveryResult | undefined {
-    return this.lastResults.get(machineId)
-  }
-
-  /** Run the tiered discovery. Concurrent calls for one machine coalesce.
+  /** Run the tiered discovery.
    *  `atPath` adds the folder the user is browsing as a scan root (POD-855)
    *  [spec:SP-5eb6] — "scan here" — on top of the always-on tiers (probes of
    *  other machines' paths + the shallow walk around this machine's known repos,
    *  which is the "known repo locations" the user asked to always include). */
   async scan(
-    machineId: MachineId,
-    opts: { deep: boolean; atPath?: string },
-  ): Promise<MachineDiscoveryResult> {
-    // Coalesce only IDENTICAL scans: a plain connect-scan must not hand its result
-    // to a user "scan here" that named a folder (and vice versa).
-    const key = `${machineId}\0${opts.atPath ?? ''}\0${opts.deep ? 'deep' : 'shallow'}`
-    const inFlight = this.running.get(key)
-    if (inFlight) return inFlight
-    const run = this.runScan(machineId, opts).finally(() => this.running.delete(key))
-    this.running.set(key, run)
-    return run
-  }
-
-  private async runScan(
     machineId: MachineId,
     opts: { deep: boolean; atPath?: string },
   ): Promise<MachineDiscoveryResult> {
@@ -298,7 +266,7 @@ export class MachineRepoDiscovery {
     // T2 — shallow walk around everything known on this machine so far.
     const knownOnMachine = [
       ...rows.filter((r) => r.machineId === machineId).map((r) => r.path),
-      ...Array.from(found.values(), repo => repo.path),
+      ...Array.from(found.values(), (repo) => repo.path),
     ]
     const adjacent = adjacentRootsFor(knownOnMachine)
     if (adjacent.length > 0) {
@@ -318,7 +286,9 @@ export class MachineRepoDiscovery {
 
     // Classify + auto-register origin matches.
     const registeredHere = new Set(
-      rows.filter((r) => r.machineId === machineId).map((r) => machinePathKey(normalizeRepoPath(r.path))),
+      rows
+        .filter((r) => r.machineId === machineId)
+        .map((r) => machinePathKey(normalizeRepoPath(r.path))),
     )
     const byOrigin = new Map<string, RepoRow[]>()
     for (const row of rows) {
@@ -335,7 +305,9 @@ export class MachineRepoDiscovery {
     // all of them stay candidates (POD-779 feedback: a ~/bak_podium clone got
     // registered over the real one).
     // Every machine name this classification can print, in one read (rule 2).
-    const names = await this.deps.machineNames([...new Set([machineId, ...rows.map((r) => r.machineId)])])
+    const names = await this.deps.machineNames([
+      ...new Set([machineId, ...rows.map((r) => r.machineId)]),
+    ])
     const nameOf = (id: MachineId) => names.get(id) ?? id
     const foundByOrigin = new Map<string, number>()
     for (const repo of found.values()) {
@@ -356,7 +328,9 @@ export class MachineRepoDiscovery {
       // path) — a second copy must never be auto-added next to it.
       const originAlreadyRegisteredHere =
         origin !== null &&
-        rows.some((r) => r.machineId === machineId && canonicalizeRepoOrigin(r.originUrl) === origin)
+        rows.some(
+          (r) => r.machineId === machineId && canonicalizeRepoOrigin(r.originUrl) === origin,
+        )
       let status: DiscoveredRepo['status']
       if (registeredHere.has(key)) {
         status = 'registered'
@@ -387,7 +361,6 @@ export class MachineRepoDiscovery {
       repos,
       diagnostics,
     }
-    this.lastResults.set(machineId, result)
     return result
   }
 }

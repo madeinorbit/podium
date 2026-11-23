@@ -24,22 +24,23 @@
 
 import { randomUUID } from 'node:crypto'
 import {
-  type ConversationBubbleState,
   Conversation,
+  type ConversationBubbleState,
   type ConversationPendingTurn,
   type ConversationRecords,
   DraftStore,
+  discardChatThroughOutbox,
+  OutboxSettlements,
+  outboxChatSends,
   type Sends,
+  sendChatThroughOutbox,
   type TranscriptLog,
 } from '@podium/client-core/conversation'
-import {
-  discardChatThroughOutbox,
-  type EngineOutbox,
-  OutboxSettlements,
-  openKernelEngineOutbox,
-  outboxChatSends,
-  sendChatThroughOutbox,
-} from '@podium/client-core/engine'
+import { type EngineOutbox, openKernelEngineOutbox } from '@podium/client-core/runtime-root'
+import { HttpDeltaSource } from '@podium/client-core/sync-stream'
+import { here } from '@podium/client-graph/lookup'
+import { ingestMessageRecords } from '@podium/client-graph/message-models'
+import { MobxPool } from '@podium/client-graph/pool'
 import {
   asMutationId,
   type MessageRecordWire,
@@ -103,7 +104,15 @@ interface FeedRow {
  * from this fixture's pushed-feed owner.
  */
 export class RecordsView {
-  private byRowId = new Map<string, MessageRecordWire>()
+  private byRowId = new Map<string, string>()
+  private readonly pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
+  readonly messageRecords = {
+    read: (id: string) => here(this.pool.model('messageRecord', id)),
+    ingest: (rows: readonly MessageRecordWire[]) => ingestMessageRecords(this.pool, rows),
+  }
+  dispose(): void {
+    this.pool.dispose()
+  }
   private snapshot: { messageRecords: readonly MessageRecordWire[] } = { messageRecords: [] }
   private readonly listeners = new Set<() => void>()
   cursor = 0
@@ -135,14 +144,27 @@ export class RecordsView {
       if (change.entity !== 'message' || rowId === undefined) continue
       touched = true
       if (change.op === 'upsert' && change.value) {
-        this.byRowId.set(rowId, change.value as MessageRecordWire)
+        const record = change.value as MessageRecordWire
+        this.byRowId.set(rowId, record.id)
+        ingestMessageRecords(this.pool, [record])
       } else {
+        const id = this.byRowId.get(rowId)
         this.byRowId.delete(rowId)
+        if (id && ![...this.byRowId.values()].includes(id))
+          this.pool.apply({
+            type: 'update',
+            rows: [{ kind: 'messageRecord', id, value: undefined }],
+          })
       }
     }
     this.cursor = Math.max(this.cursor, through)
     if (!touched) return
-    this.snapshot = { messageRecords: [...this.byRowId.values()] }
+    this.snapshot = {
+      messageRecords: [...new Set(this.byRowId.values())].flatMap((id) => {
+        const record = this.messageRecords.read(id)
+        return record ? [record as MessageRecordWire] : []
+      }),
+    }
     for (const listener of this.listeners) listener()
   }
 
@@ -181,6 +203,8 @@ export class Device {
   private readonly conversations = new Map<SessionId, Conversation>()
   private drafts: DraftStore | undefined
   private records = new RecordsView()
+  private readonly deltaSource: HttpDeltaSource
+  private feedIdentity: { feedId: string; epoch: string } | undefined
   private socket: WebSocket | undefined
   private socketTimer: ReturnType<typeof setTimeout> | undefined
   private closed = false
@@ -196,11 +220,23 @@ export class Device {
     const gatedFetch: typeof fetch = async (input, init) => {
       if (!this.online) throw new TypeError('fetch failed (device offline)')
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-      for (const procedure of new URL(url).pathname.replace(/^\/trpc\//, '').split(',')) {
-        this.calls.set(procedure, (this.calls.get(procedure) ?? 0) + 1)
+      const procedures = new Set(new URL(url).pathname.replace(/^\/trpc\//, '').split(','))
+      // The kernel sends logical commands through sync.submit. Fault injection
+      // names the command, so it still loses THIS send's acknowledged answer,
+      // including when another command shares the tRPC batch.
+      if (procedures.has('sync.submit') && typeof init?.body === 'string') {
+        const commands = (value: unknown): void => {
+          if (!value || typeof value !== 'object') return
+          const row = value as Record<string, unknown>
+          if (typeof row.command === 'string') procedures.add(row.command)
+          else for (const nested of Object.values(row)) commands(nested)
+        }
+        commands(JSON.parse(init.body))
       }
+      for (const procedure of procedures)
+        this.calls.set(procedure, (this.calls.get(procedure) ?? 0) + 1)
       const response = await fetch(input, init)
-      const lose = this.loseAnswers.findIndex((procedure) => url.includes(`/trpc/${procedure}`))
+      const lose = this.loseAnswers.findIndex((procedure) => procedures.has(procedure))
       if (lose >= 0) {
         // The request reached the server and did its work; the answer is what
         // goes missing — the one failure a sender cannot tell from a lost request.
@@ -218,6 +254,13 @@ export class Device {
           headers: { cookie: options.cookie },
         }),
       ],
+    })
+    this.deltaSource = new HttpDeltaSource({
+      origin: `http://127.0.0.1:${options.serverPort}`,
+      streamingFetch: {
+        fetch: gatedFetch,
+        headers: () => ({ cookie: options.cookie }),
+      },
     })
   }
 
@@ -307,6 +350,7 @@ export class Device {
               ),
             ),
           records: this.records.forSession(sessionId),
+          messageRecords: this.records.messageRecords,
           lookupRecords: (ids) =>
             this.api.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
           retract: (id) =>
@@ -324,13 +368,23 @@ export class Device {
     this.openSocket()
   }
 
-  /** The feed read a reconnecting client heals through (`sync.changesSince`):
+  /** The HTTP feed read a reconnecting client heals through:
    *  everything after this device's cursor, then the pushed frames carry on. */
   private async catchUp(): Promise<void> {
-    if (this.closed || !this.online) return
+    if (this.closed || !this.online || !this.feedIdentity) return
     try {
-      const result = await this.api.sync.changesSince.query({ cursor: this.records.cursor })
-      if (result.kind === 'delta') this.records.apply(result.changes, result.cursor)
+      const result = await this.deltaSource.changesRange({
+        ...this.feedIdentity,
+        seq: this.records.cursor,
+      })
+      if (!(Symbol.asyncIterator in result)) return
+      for await (const frame of result) {
+        if (frame.kind !== 'delta') continue
+        this.records.apply(
+          frame.changes.map((change) => ({ ...change, value: change.payload })),
+          frame.seq,
+        )
+      }
     } catch {
       // Offline or restarting: the next socket open reads again.
     }
@@ -374,6 +428,8 @@ export class Device {
         items?: TranscriptItem[]
         reset?: boolean
         seq?: number
+        feedId?: string
+        epoch?: string
         changes?: FeedRow[]
       }
       try {
@@ -382,6 +438,11 @@ export class Device {
         return
       }
       this.socketFrames.set(frame.type ?? '?', (this.socketFrames.get(frame.type ?? '?') ?? 0) + 1)
+      if (frame.type === 'feedResume' && frame.feedId && frame.epoch) {
+        this.feedIdentity = { feedId: frame.feedId, epoch: frame.epoch }
+        void this.catchUp()
+        return
+      }
       if (frame.type === 'feedDelta' && Array.isArray(frame.changes)) {
         this.records.apply(frame.changes, frame.seq ?? this.records.cursor)
         return
@@ -551,6 +612,7 @@ export class Device {
     this.drafts = undefined
     this.conversations.clear()
     this.transcripts.clear()
+    this.records.dispose()
     this.records = new RecordsView()
     this.outbox?.dispose()
     this.outbox = undefined

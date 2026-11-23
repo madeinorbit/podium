@@ -88,6 +88,14 @@ const turnEnd = (turnEpoch: number, ev: 'completed' | 'failed' = 'completed'): R
         : { ev, turnEpoch, reason: 'provider-error' },
   }) as RuntimeEvent
 
+/** The turn's start as the gate accepted it: fragments fold only inside one (POD-6280). */
+const turnStart = (turnEpoch: number): RuntimeEvent =>
+  ({
+    ...envelope(turnEpoch),
+    t: 'turn',
+    ev: { ev: 'started', turnEpoch, origin: 'human' },
+  }) as RuntimeEvent
+
 const toolItem = (id: string): TranscriptItem => ({
   id,
   role: 'tool',
@@ -104,6 +112,7 @@ describe('turn preview — coalescing', () => {
 
   it('publishes the FIRST fragment immediately, then at most one frame per window', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     w.fold.record(SESSION, delta(1, 'a', 'He'))
     // The leading edge. A reply that took 100 ms to start appearing would read as
     // latency the streaming was supposed to remove.
@@ -125,6 +134,7 @@ describe('turn preview — coalescing', () => {
 
   it('does not publish a trailing frame when nothing changed inside the window', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     w.fold.record(SESSION, delta(1, 'a', 'x'))
     expect(w.sent).toHaveLength(1)
     w.tick(1000)
@@ -139,6 +149,7 @@ describe('turn preview — the three rules', () => {
 
   it('retires a row when the durable item carrying its identity lands', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     w.fold.record(SESSION, delta(1, 'msg_1', 'pong'))
     expect(w.sent.at(-1)?.items).toHaveLength(1)
 
@@ -153,6 +164,7 @@ describe('turn preview — the three rules', () => {
 
   it('keeps a row the durable item did NOT supersede', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     w.fold.record(SESSION, delta(1, 'msg_1', 'writing'))
     w.fold.record(SESSION, partial(1, toolItem('cmd_1')))
     w.tick(100)
@@ -165,6 +177,7 @@ describe('turn preview — the three rules', () => {
 
   it('clears the preview the instant the turn fences, without waiting for a window', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     w.fold.record(SESSION, delta(1, 'a', 'half a rep'))
     const before = w.sent.length
     w.fold.record(SESSION, turnEnd(1))
@@ -176,6 +189,7 @@ describe('turn preview — the three rules', () => {
 
   it('reports a FAILED turn as done too — how it ended is the transcript’s business', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     w.fold.record(SESSION, delta(1, 'a', 'partial'))
     w.fold.record(SESSION, turnEnd(1, 'failed'))
     expect(w.sent.at(-1)).toMatchObject({ done: true, items: [] })
@@ -200,6 +214,7 @@ describe('turn preview — the three rules', () => {
    */
   it('opens nothing for an epoch that finished before any preview existed', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     // The turn ends having never streamed a fragment — no state, nothing on
     // screen, and nothing for the terminal to clear.
     w.fold.record(SESSION, turnEnd(1))
@@ -207,11 +222,11 @@ describe('turn preview — the three rules', () => {
     w.fold.record(SESSION, delta(1, 'a', 'late'))
     w.tick(1000)
     expect(w.sent).toHaveLength(after)
-    expect(w.fold.retained(SESSION)).toBeUndefined()
   })
 
   it('never reopens a fenced epoch', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     w.fold.record(SESSION, delta(1, 'a', 'first'))
     w.fold.record(SESSION, turnEnd(1))
     const after = w.sent.length
@@ -220,14 +235,44 @@ describe('turn preview — the three rules', () => {
     w.fold.record(SESSION, delta(1, 'a', ' more'))
     w.tick(1000)
     expect(w.sent).toHaveLength(after)
-    expect(w.fold.retained(SESSION)).toBeUndefined()
+  })
+
+  it('opens nothing for fragments of a turn whose start the gate never accepted', () => {
+    const w = world()
+    // POD-6280: the gate rejected this stream's coarse events, so nothing could
+    // ever clear a preview built from its fragments. None is built.
+    w.fold.record(SESSION, delta(2, 'a', 'unadmitted'))
+    w.tick(1000)
+    expect(w.sent).toEqual([])
+  })
+
+  it('retires a Claude text preview by the provider message id its record carries', () => {
+    const w = world()
+    w.fold.record(SESSION, turnStart(1))
+    w.fold.record(SESSION, delta(1, 'msg_api_1', 'the reply'))
+    w.tick(200)
+    // The session file's record: its own uuid, the API message id as streamId.
+    w.fold.record(
+      SESSION,
+      complete(1, {
+        id: 'record-uuid',
+        cursor: 'c1',
+        role: 'assistant',
+        text: 'the reply',
+        streamId: 'msg_api_1',
+      }),
+    )
+    w.tick(200)
+    expect(w.sent.at(-1)).toMatchObject({ turnEpoch: 1, items: [] })
   })
 
   it('starts clean on the next epoch rather than carrying rows across', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     w.fold.record(SESSION, delta(1, 'a', 'old turn'))
     w.fold.record(SESSION, turnEnd(1))
     w.tick(100)
+    w.fold.record(SESSION, turnStart(2))
     w.fold.record(SESSION, delta(2, 'b', 'new turn'))
     expect(w.sent.at(-1)).toMatchObject({
       turnEpoch: 2,
@@ -241,23 +286,28 @@ describe('turn preview — replay and teardown', () => {
     seq = 0
   })
 
-  it('hands a late subscriber the current preview, and nothing once it is empty', () => {
+  it('leaves its viewers the current preview, and a done frame once it ends', () => {
+    // The terminal keeps the last frame for late subscribers: what it holds is
+    // the fold's last publish, so the fold must always publish the clear.
     const w = world()
-    expect(w.fold.retained(SESSION)).toBeUndefined()
+    w.fold.record(SESSION, turnStart(1))
+    expect(w.sent).toEqual([])
     w.fold.record(SESSION, delta(1, 'a', 'mid-turn'))
-    expect(w.fold.retained(SESSION)).toMatchObject({
+    expect(w.sent.at(-1)).toMatchObject({
       turnEpoch: 1,
       items: [{ kind: 'text', itemId: 'a', text: 'mid-turn' }],
     })
     w.fold.record(SESSION, turnEnd(1))
-    expect(w.fold.retained(SESSION)).toBeUndefined()
+    expect(w.sent.at(-1)).toMatchObject({ done: true, items: [] })
   })
 
   it('forgets a session outright — its epoch numbering may not survive a rebind', () => {
     const w = world()
+    w.fold.record(SESSION, turnStart(1))
     w.fold.record(SESSION, delta(1, 'a', 'x'))
     w.fold.forget(SESSION)
-    expect(w.fold.retained(SESSION)).toBeUndefined()
+    // Its viewers are told: the terminal's retained frame must not outlive it.
+    expect(w.sent.at(-1)).toMatchObject({ done: true, items: [] })
     const after = w.sent.length
     // Any timer the fold had must have gone with it: a coalescing flush landing
     // after teardown publishes into a session that is not there.

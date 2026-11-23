@@ -1,8 +1,9 @@
+import { createLogger } from '@podium/logger'
 import type {
   AgentKind,
   AgentQuotaWire,
   ConversationDiagnosticWire,
-  ConversationSummaryWire,
+  ConversationDiscoveryWire,
   DirectoryListingWire,
   GitDiscoveryDiagnosticWire,
   GitRepositoryWire,
@@ -20,12 +21,16 @@ import type {
 } from '@podium/model'
 import { asMachineId, resolveMachinePath } from '@podium/model'
 import type {
+  AccessField,
   BrowseDirsResultMessage,
   CodexCompleteResultMessage,
   CodexLlmMessageWire,
   CodexLlmToolWire,
+  ConversationPrepareRequestMessage,
+  ConversationPrepareResultMessage,
   CredentialExportResultMessage,
   CredentialInstallResultMessage,
+  CredentialRemoveResultMessage,
   DevArtifactProbeResultMessage,
   DirListResultMessage,
   DirOp,
@@ -40,8 +45,13 @@ import type {
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
+  HomeEnsureResultMessage,
+  HomeHarness,
+  HomeRemoveResultMessage,
   InteractionAnswerOutcome,
   ModelChoiceWire,
+  OauthLoopbackCallbackMessage,
+  OauthLoopbackResultMessage,
   ObservationInputOrigin,
   PortableCredentialBundle,
   PortableCredentialKind,
@@ -52,6 +62,7 @@ import type {
   ServerTransferManifest,
   ServerTransferManifestEntry,
   ServerTransferResultMessage,
+  SessionPosture,
   WorkspaceCleanResultMessage,
   WorkspaceExportResultMessage,
   WorkspaceImportResultMessage,
@@ -88,6 +99,7 @@ import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
+import { sessionPostureFor } from '../sessions/session-posture'
 import { mergeLatestTranscriptPage } from '../sessions/terminal'
 import type { ServerPlacement } from '../updates/service'
 
@@ -115,7 +127,7 @@ const RUNTIME_SEND_TIMEOUT_MS = 12_000
 const RUNTIME_VERB_TIMEOUT_MS = 10_000
 
 export interface ScanResult {
-  conversations: ConversationSummaryWire[]
+  conversations: ConversationDiscoveryWire[]
   diagnostics: ConversationDiagnosticWire[]
 }
 
@@ -282,6 +294,19 @@ const WORKSPACE_IMPORT = daemonRequestKind<Payload<WorkspaceImportResultMessage>
 const WORKSPACE_CLEAN = daemonRequestKind<Payload<WorkspaceCleanResultMessage>>('wc')
 const CREDENTIAL_EXPORT = daemonRequestKind<Payload<CredentialExportResultMessage>>('ce')
 const CREDENTIAL_INSTALL = daemonRequestKind<Payload<CredentialInstallResultMessage>>('ci')
+/** Sign in with ChatGPT's loopback listener (credential management §11). */
+const OAUTH_LOOPBACK = daemonRequestKind<Payload<OauthLoopbackResultMessage>>('ol')
+const OAUTH_LOOPBACK_ACK_TIMEOUT_MS = 15_000
+/** A callback is accepted this long past the listener's own time. */
+const OAUTH_LOOPBACK_GRACE_MS = 30_000
+// Harness homes (credential management §10) and the removal of a login file
+// propagation copied (§8 cleanup), on a daemon that offered harness.homes.v1.
+const HOME_ENSURE = daemonRequestKind<Payload<HomeEnsureResultMessage>>('hn')
+const HOME_REMOVE = daemonRequestKind<Payload<HomeRemoveResultMessage>>('hd')
+const CREDENTIAL_REMOVE = daemonRequestKind<Payload<CredentialRemoveResultMessage>>('cx')
+// A conversation placed for another credential's home (§9), on a daemon that
+// offered conversation.prepare.v1.
+const CONVERSATION_PREPARE = daemonRequestKind<Payload<ConversationPrepareResultMessage>>('cp')
 const SERVER_TRANSFER = daemonRequestKind<Payload<ServerTransferResultMessage>>('st')
 const SERVER_ENDPOINT = daemonRequestKind<Payload<ServerEndpointResultMessage>>('sm')
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
@@ -296,6 +321,8 @@ const RUNTIME_STAGE_ATTACHMENT =
 const RUNTIME_SEND = daemonRequestKind<TurnReceipt>('rs')
 const RUNTIME_LIFECYCLE = daemonRequestKind<Payload<RuntimeLifecycleResultMessage>>('rl')
 const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
+const log = createLogger('server:daemon-rpc')
+
 /** The observation bootstrap (POD-2023). Its result is the union the frame
  *  carries — a snapshot, or the typed refusal for a session that is not behind
  *  the contract. The server no longer SENDS runtimeHistoryRequest (POD-4783:
@@ -309,7 +336,7 @@ const RUNTIME_CONFIGURE = daemonRequestKind<Payload<RuntimeConfigureResultMessag
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
-type ReplySettler<K extends RpcDaemonFrameType> = (
+type ReplySettler<K extends SettledFrameType> = (
   broker: DaemonRequestPort,
   machineId: MachineId,
   msg: Extract<DaemonMessage, { type: K }>,
@@ -330,7 +357,10 @@ const payloadOf = <M extends { type: string; requestId: string }>(msg: M): Paylo
  * minus the twenty-three methods. Every row is a projection and nothing else:
  * no map, no timer, no delete. Settling belongs to the broker.
  */
-const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
+/** The loopback callback is not a reply: `settleDaemonReply` hands it to its listener. */
+type SettledFrameType = Exclude<RpcDaemonFrameType, 'oauthLoopbackCallback'>
+
+const RPC_REPLY_SETTLERS: { [K in SettledFrameType]: ReplySettler<K> } = {
   scanResult: (broker, machineId, msg) =>
     void broker.settle(SCAN, msg.requestId, machineId, {
       conversations: msg.conversations,
@@ -427,6 +457,16 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(SHIPPING_REPAIR_APPLY, msg.requestId, machineId, payloadOf(msg)),
   credentialInstallResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
+  oauthLoopbackResult: (broker, machineId, msg) =>
+    void broker.settle(OAUTH_LOOPBACK, msg.requestId, machineId, payloadOf(msg)),
+  homeEnsureResult: (broker, machineId, msg) =>
+    void broker.settle(HOME_ENSURE, msg.requestId, machineId, payloadOf(msg)),
+  homeRemoveResult: (broker, machineId, msg) =>
+    void broker.settle(HOME_REMOVE, msg.requestId, machineId, payloadOf(msg)),
+  credentialRemoveResult: (broker, machineId, msg) =>
+    void broker.settle(CREDENTIAL_REMOVE, msg.requestId, machineId, payloadOf(msg)),
+  conversationPrepareResult: (broker, machineId, msg) =>
+    void broker.settle(CONVERSATION_PREPARE, msg.requestId, machineId, payloadOf(msg)),
   runtimeStageAttachmentResult: (broker, machineId, msg) =>
     void broker.settle(RUNTIME_STAGE_ATTACHMENT, msg.requestId, machineId, payloadOf(msg)),
   runtimeSendResult: (broker, machineId, msg) =>
@@ -462,6 +502,11 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
 export class DaemonRpcService {
   private readonly broker: DaemonRequestPort
   private readonly serverTransferDigests = new Map<string, string>()
+  /** Open loopback listeners: who listens, and where its callback goes. Ten minutes at most. */
+  private readonly loopbacks = new Map<
+    string,
+    { machineId: MachineId; onCallback: (callback: Payload<OauthLoopbackCallbackMessage>) => void }
+  >()
 
   constructor(private readonly deps: DaemonRpcDeps) {
     this.broker =
@@ -478,8 +523,12 @@ export class DaemonRpcService {
    * the segment lookup that turns a path into a session has to be scoped to the
    * daemon whose walk produced it (POD-1858).
    */
-  async answeringMachineId(): Promise<MachineId> {
-    return await this.deps.defaultMachine()
+  async answeringMachineId(cwd?: string): Promise<MachineId> {
+    // Repo operations historically select by checkout affinity. Resolve that
+    // selection before authorization, then keep it through the eventual RPC.
+    return cwd === undefined
+      ? await this.deps.defaultMachine()
+      : asMachineId(await this.deps.resolveMachine(undefined, cwd))
   }
 
   nextRequestId(prefix: string): string {
@@ -617,6 +666,7 @@ export class DaemonRpcService {
   async usage(
     sinceMs?: number,
     withSources?: boolean,
+    machineId?: MachineId,
   ): Promise<{
     hostname: string
     sampledAt?: string
@@ -635,6 +685,7 @@ export class DaemonRpcService {
         ...(sinceMs !== undefined ? { sinceMs } : {}),
         ...(withSources ? { withSources } : {}),
       }),
+      machineId,
     )
   }
 
@@ -670,14 +721,15 @@ export class DaemonRpcService {
     const machineIds = this.deps.onlineMachineIds()
     if (machineIds.length === 0) return []
     const perMachine = await Promise.all(
-      machineIds.map(async (machineId) =>
-        await this.request(
-          QUOTA_HISTORY,
-          120_000,
-          () => ({ samples: [] }),
-          (requestId) => ({ type: 'quotaHistoryRequest', requestId, sinceMs }),
-          machineId,
-        ),
+      machineIds.map(
+        async (machineId) =>
+          await this.request(
+            QUOTA_HISTORY,
+            120_000,
+            () => ({ samples: [] }),
+            (requestId) => ({ type: 'quotaHistoryRequest', requestId, sinceMs }),
+            machineId,
+          ),
       ),
     )
     return perMachine.flatMap((r) => r.samples)
@@ -800,7 +852,7 @@ export class DaemonRpcService {
       35_000,
       () => ({ ok: false, output: 'no daemon answered the git request in time' }),
       (requestId) => ({ type: 'repoOpRequest', requestId, op, cwd, ...(args ? { args } : {}) }),
-      asMachineId(machineId ?? await this.deps.resolveMachine(undefined, cwd)),
+      asMachineId(machineId ?? (await this.deps.resolveMachine(undefined, cwd))),
     )
   }
 
@@ -908,7 +960,11 @@ export class DaemonRpcService {
       origin: ObservationInputOrigin
       delivery: TurnDelivery
       attachments?: readonly StagedAttachmentRef[]
+      /** The turn's launch terms in Podium's words (POD-6858). */
+      posture?: SessionPosture
+      // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
       allowedTools?: string[]
+      // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
       permissionMode?: string
       toolPolicy?: 'none'
       mcpConfig?: string
@@ -916,12 +972,13 @@ export class DaemonRpcService {
       sessionUuid?: string
       accountId?: string
       requestDigest?: string
-      structuredPermissions?: true
       contextPrompt?: string
       systemPrompt?: string
       timeoutMs?: number
       model?: string
       effort?: string
+      /** A headless turn's credential (POD-6733, credential management §8); never logged. */
+      access?: AccessField
     },
     machineId: MachineId,
   ): Promise<TurnReceipt> {
@@ -935,12 +992,14 @@ export class DaemonRpcService {
         at: new Date().toISOString(),
       }),
       (requestId) => ({
-        ...(input.rowId ? {
-          type: 'runtimeDurableSendRequest' as const,
-          rowId: input.rowId,
-          deliveryRecovery: input.deliveryRecovery === true,
-          initialPrompt: input.initialPrompt === true,
-        } : { type: 'runtimeSendRequest' as const }),
+        ...(input.rowId
+          ? {
+              type: 'runtimeDurableSendRequest' as const,
+              rowId: input.rowId,
+              deliveryRecovery: input.deliveryRecovery === true,
+              initialPrompt: input.initialPrompt === true,
+            }
+          : { type: 'runtimeSendRequest' as const }),
         requestId,
         turnId: input.turnId ?? requestId,
         sessionId: input.sessionId,
@@ -948,7 +1007,9 @@ export class DaemonRpcService {
         origin: input.origin,
         delivery: input.delivery,
         attachments: input.attachments ? [...input.attachments] : undefined,
+        // LEGACY(remove-after: 2027-02): pre-posture daemons read these; removing it drops them
         ...(input.allowedTools ? { allowedTools: [...input.allowedTools] } : {}),
+        // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
         ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
         ...(input.toolPolicy ? { toolPolicy: input.toolPolicy } : {}),
         ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
@@ -956,7 +1017,6 @@ export class DaemonRpcService {
         ...(input.sessionUuid ? { sessionUuid: input.sessionUuid } : {}),
         ...(input.accountId ? { accountId: input.accountId } : {}),
         ...(input.requestDigest ? { requestDigest: input.requestDigest } : {}),
-        ...(input.structuredPermissions ? { structuredPermissions: input.structuredPermissions } : {}),
         ...(input.contextPrompt ? { contextPrompt: input.contextPrompt } : {}),
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
@@ -965,6 +1025,9 @@ export class DaemonRpcService {
         ...(input.rowId && input.deliveryRecovery && input.held === 'durable'
           ? { held: 'durable' as const }
           : {}),
+        ...(input.access ? { access: input.access } : {}),
+        // Appended at the END, as the frame declares it (POD-6858).
+        ...(input.posture ? { posture: input.posture } : {}),
       }),
       machineId,
     )
@@ -1002,12 +1065,20 @@ export class DaemonRpcService {
     sessionId: SessionId,
     machineId: MachineId,
     cancelRowId?: string,
+    /** The turn the stop is for (POD-6397); the daemon answers `turn_ended`. */
+    turn?: string,
   ): Promise<Payload<RuntimeLifecycleResultMessage>> {
     return await this.request(
       RUNTIME_LIFECYCLE,
       RUNTIME_VERB_TIMEOUT_MS,
       () => ({ sessionId, result: { reason: 'not_running' as const } }),
-      (requestId) => ({ type: 'runtimeInterruptRequest', requestId, sessionId, cancelRowId }),
+      (requestId) => ({
+        type: 'runtimeInterruptRequest',
+        requestId,
+        sessionId,
+        cancelRowId,
+        ...(turn !== undefined ? { turn } : {}),
+      }),
       machineId,
     )
   }
@@ -1053,7 +1124,12 @@ export class DaemonRpcService {
   }
 
   async runtimeAnswer(
-    input: { sessionId: SessionId; interactionId: string; principal?: { kind: 'user' | 'agent' | 'system'; ref: string }; answer: Record<string, unknown> },
+    input: {
+      sessionId: SessionId
+      interactionId: string
+      principal?: { kind: 'user' | 'agent' | 'system'; ref: string }
+      answer: Record<string, unknown>
+    },
     machineId: MachineId,
   ): Promise<InteractionAnswerOutcome> {
     return await this.request(
@@ -1127,7 +1203,7 @@ export class DaemonRpcService {
   async credentialExport(
     kinds: PortableCredentialKind[],
     machineId: MachineId,
-    options?: { propagation?: boolean },
+    options?: { propagation?: boolean; expectedFingerprint?: string },
   ): Promise<Omit<CredentialExportResultMessage, 'type' | 'requestId'>> {
     return await this.request(
       CREDENTIAL_EXPORT,
@@ -1138,16 +1214,80 @@ export class DaemonRpcService {
         requestId,
         kinds,
         ...(options?.propagation ? { propagation: true } : {}),
+        ...(options?.expectedFingerprint
+          ? { expectedFingerprint: options.expectedFingerprint }
+          : {}),
       }),
       machineId,
     )
+  }
+
+  /**
+   * Ask one daemon to listen on `127.0.0.1:<port>` for a ChatGPT sign-in's
+   * callback (credential management §11). Answers whether it listens; the
+   * callback, if the browser returns there, goes to `onCallback` once, and only
+   * when the machine that listens sends it.
+   */
+  async oauthLoopbackListen(
+    machineId: MachineId,
+    i: { port: number; state: string; ttlMs: number },
+    onCallback: (callback: Payload<OauthLoopbackCallbackMessage>) => void,
+  ): Promise<{ listening: boolean; error?: string; listenerId?: string }> {
+    let requestId: string | undefined
+    const answer = await this.request(
+      OAUTH_LOOPBACK,
+      OAUTH_LOOPBACK_ACK_TIMEOUT_MS,
+      () => ({
+        listening: false,
+        error: 'This machine did not answer. Its Podium may be too old to listen for a sign-in.',
+      }),
+      (id) => {
+        requestId = id
+        this.loopbacks.set(id, { machineId, onCallback })
+        setTimeout(() => this.loopbacks.delete(id), i.ttlMs + OAUTH_LOOPBACK_GRACE_MS).unref?.()
+        return {
+          type: 'oauthLoopbackRequest',
+          requestId: id,
+          port: i.port,
+          path: '/auth/callback',
+          state: i.state,
+          ttlMs: i.ttlMs,
+        }
+      },
+      machineId,
+    )
+    if (!answer.listening && requestId) this.loopbacks.delete(requestId)
+    return answer.listening && requestId ? { ...answer, listenerId: requestId } : answer
+  }
+
+  /** Close a listener the server no longer needs; a no-op once it has closed. */
+  oauthLoopbackCancel(machineId: MachineId, listenerId: string): void {
+    if (!this.loopbacks.delete(listenerId)) return
+    try {
+      this.deps.toMachine(machineId, { type: 'oauthLoopbackCancel', requestId: listenerId })
+    } catch (err) {
+      log.warn('could not cancel a sign-in listener', { err, machineId })
+    }
+  }
+
+  private onLoopbackCallback(machineId: MachineId, msg: OauthLoopbackCallbackMessage): void {
+    const listener = this.loopbacks.get(msg.requestId)
+    if (!listener || listener.machineId !== machineId) {
+      log.warn('dropped a sign-in callback no listener of this machine expects', {
+        requestId: msg.requestId,
+        machineId,
+      })
+      return
+    }
+    this.loopbacks.delete(msg.requestId)
+    listener.onCallback(payloadOf(msg))
   }
 
   /** Atomically install allowlisted auth files on one authenticated daemon. */
   async credentialInstall(
     bundles: PortableCredentialBundle[],
     machineId: MachineId,
-    options?: { propagation?: boolean },
+    options?: { propagation?: boolean; expectedFingerprint?: string },
   ): Promise<Omit<CredentialInstallResultMessage, 'type' | 'requestId'>> {
     return await this.request(
       CREDENTIAL_INSTALL,
@@ -1158,7 +1298,81 @@ export class DaemonRpcService {
         requestId,
         bundles,
         ...(options?.propagation ? { propagation: true } : {}),
+        ...(options?.expectedFingerprint
+          ? { expectedFingerprint: options.expectedFingerprint }
+          : {}),
       }),
+      machineId,
+    )
+  }
+
+  /** Make sure the home for a credential and harness exists on one daemon. */
+  async homeEnsure(
+    credentialId: string,
+    harness: HomeHarness,
+    machineId: MachineId,
+  ): Promise<Payload<HomeEnsureResultMessage>> {
+    return await this.request(
+      HOME_ENSURE,
+      15_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'homeEnsureRequest', requestId, credentialId, harness }),
+      machineId,
+    )
+  }
+
+  /**
+   * Remove a home on one daemon. Generous: the daemon first stops the
+   * sessions in it and Codex's own daemon there, and the directory can hold
+   * Codex's 400 MB installed copy.
+   */
+  async homeRemove(
+    homeId: string,
+    machineId: MachineId,
+    options: { signOut?: boolean } = {},
+  ): Promise<Payload<HomeRemoveResultMessage>> {
+    return await this.request(
+      HOME_REMOVE,
+      120_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({
+        type: 'homeRemoveRequest',
+        requestId,
+        homeId,
+        ...(options.signOut ? { signOut: true } : {}),
+      }),
+      machineId,
+    )
+  }
+
+  /** Remove the login file propagation copied, while its fingerprint matches. */
+  async credentialRemove(
+    harness: HomeHarness,
+    fingerprint: string,
+    machineId: MachineId,
+  ): Promise<Payload<CredentialRemoveResultMessage>> {
+    return await this.request(
+      CREDENTIAL_REMOVE,
+      15_000,
+      () => ({ outcome: 'failed', error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'credentialRemoveRequest', requestId, harness, fingerprint }),
+      machineId,
+    )
+  }
+
+  /**
+   * Put a session's conversation where a resume in `toHomeId` finds it
+   * (credential management §9). Generous: a Codex rollout can be large.
+   */
+  async conversationPrepare(
+    input: Omit<ConversationPrepareRequestMessage, 'type' | 'requestId'>,
+    machineId: MachineId,
+  ): Promise<Payload<ConversationPrepareResultMessage>> {
+    return await this.request(
+      CONVERSATION_PREPARE,
+      60_000,
+      () => ({ ok: false, error: 'The machine did not answer in time.' }),
+      (requestId) => ({ type: 'conversationPrepareRequest', requestId, ...input }),
       machineId,
     )
   }
@@ -1345,6 +1559,10 @@ export class DaemonRpcService {
     cwd?: string
     systemPrompt?: string
     mcpConfig?: string
+    /** The run's launch terms (POD-6858). Absent: the default posture. */
+    posture?: SessionPosture
+    /** The old Claude-worded allow list, for a daemon that predates posture. */
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
     allowedTools?: string[]
     /** Kill budget for the CLI run, ms (daemon default 240s). The server-side
      *  wait adds 10s slack over it so the daemon's own timeout reports first. */
@@ -1364,8 +1582,10 @@ export class DaemonRpcService {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
         ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
+        // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
         ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
         ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+        posture: input.posture ?? sessionPostureFor({}),
       }),
     )
   }
@@ -1404,7 +1624,9 @@ export class DaemonRpcService {
         }),
         session?.machineId ?? input.machineId,
       )
-    return this.deps.portableStateFence ? await this.deps.portableStateFence.runWriter(write) : await write()
+    return this.deps.portableStateFence
+      ? await this.deps.portableStateFence.runWriter(write)
+      : await write()
   }
 
   /** The recorded segment path for a session's conversation, shaped for message
@@ -1439,7 +1661,7 @@ export class DaemonRpcService {
     const recordTotal = (): void => {
       perf.record('phase', 'transcriptRead.total', performance.now() - startedAt, DEPLOYMENT)
     }
-    if (!await this.deps.memory.canReadSession(reader, input.sessionId)) {
+    if (!(await this.deps.memory.canReadSession(reader, input.sessionId))) {
       recordTotal()
       return { items: [], hasMore: false }
     }
@@ -1525,7 +1747,7 @@ export class DaemonRpcService {
             // Segment evidence beats cwd derivation: the recorded absolute path (from
             // discovery scans) survives worktree moves; the daemon still falls back to
             // derivation + sweep when absent/stale (conversation registry §3.3).
-            ...(await this.transcriptPathHint(reader, session) ?? {}),
+            ...((await this.transcriptPathHint(reader, session)) ?? {}),
             ...(input.anchor ? { anchor: input.anchor } : {}),
             direction: input.direction,
             limit: input.limit,
@@ -1580,7 +1802,8 @@ export class DaemonRpcService {
   ): Promise<Omit<FileReadResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = await this.deps.getSession(input.sessionId)
-      if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      if (!session)
+        return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return await this.request(
         FILE_READ,
@@ -1625,7 +1848,8 @@ export class DaemonRpcService {
   ): Promise<Omit<FileAssetResultMessage, 'type' | 'requestId'>> {
     if ('sessionId' in input) {
       const session = await this.deps.getSession(input.sessionId)
-      if (!session) return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
+      if (!session)
+        return await Promise.resolve({ ok: false, path: input.path, error: 'no session' })
       const knownPath = knownPathsFor(session.transcriptItems()).has(input.path)
       return await this.request(
         FILE_ASSET,
@@ -1784,11 +2008,15 @@ export class DaemonRpcService {
       })
     const manifest = input.manifest as ServerTransferManifest
     const placement = this.deps.serverPlacement
-    if (placement?.kind !== 'fleet') return {
-      transferId: input.transferId, operation: 'prepare', ok: false, state: 'aborted',
-      error: 'server is external or its placement is unavailable; no source machine for transfer',
-      errorCode: 'identity-mismatch',
-    }
+    if (placement?.kind !== 'fleet')
+      return {
+        transferId: input.transferId,
+        operation: 'prepare',
+        ok: false,
+        state: 'aborted',
+        error: 'server is external or its placement is unavailable; no source machine for transfer',
+        errorCode: 'identity-mismatch',
+      }
     const sourceMachineId = placement.machineId
     if (
       manifest.transferId !== input.transferId ||
@@ -1929,6 +2157,8 @@ export class DaemonRpcService {
     bindHost: ServerBindHost,
     machineId: MachineId,
     port: number,
+    // SECRET when it holds a key: the request is built here and sent, never logged or kept.
+    vault: { vaultDataKey?: string | null; vaultCheck?: string } = {},
   ): Promise<Payload<ServerTransferResultMessage>> {
     this.serverTransferDigests.set(machineId + ':' + transferId, manifestDigest)
     return await this.request(
@@ -1952,6 +2182,7 @@ export class DaemonRpcService {
         port,
         targetMode: 'server',
         idempotencyKey: transferId,
+        ...vault,
       }),
       machineId,
     )
@@ -2063,7 +2294,11 @@ export class DaemonRpcService {
    * writing it twenty-three times, which is how it came to be missing.
    */
   settleDaemonReply(machineId: MachineId, msg: RpcDaemonFrame): void {
-    const settle = RPC_REPLY_SETTLERS[msg.type] as ReplySettler<RpcDaemonFrameType>
+    if (msg.type === 'oauthLoopbackCallback') {
+      this.onLoopbackCallback(machineId, msg)
+      return
+    }
+    const settle = RPC_REPLY_SETTLERS[msg.type] as ReplySettler<SettledFrameType>
     settle(this.broker, machineId, msg)
   }
 }

@@ -1,7 +1,10 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { BuiltinHarnessKind } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { testAccount, testHarnessContext } from '../../driver/testing/harness-context.js'
+import { declaredValue } from '../../manifest.js'
 import {
   AGENT_MANIFESTS,
   assertDeclinedReasonsValid,
@@ -10,10 +13,16 @@ import {
   manifestFor,
   registerTestManifest,
 } from '../../registry.js'
-import { declaredValue } from '../../manifest.js'
 import { transcriptSourceFromGrammar } from '../../store/store.js'
 import { fixtureManifest } from './index.js'
 import { fixtureChainPaths, fixtureSessionPath } from './transcript.js'
+
+/** No account folders exist: the payloads below name everything they need. */
+const NO_ACCOUNT = {
+  home: '/nonexistent-podium-home',
+  env: {},
+  roots: fixtureManifest.roots('/nonexistent-podium-home', {}),
+}
 
 /**
  * THE FIXTURE HARNESS, PROVING A SEVENTH MANIFEST LANDS CLEANLY (POD-4474,
@@ -101,15 +110,23 @@ describe('fixture harness mechanisms (through the registered manifest)', () => {
     expect(runtime.select({ auth: 'unknown', platform: 'linux', available: [] })).toBe(
       'generic-pty',
     )
-    expect(
-      runtime.select({ auth: 'unknown', platform: 'linux', available: ['generic-pty'] }),
-    ).toBe('generic-pty')
-    const launch = manifest().launch({ cwd: '/work', initialPrompt: '- list files' })
-    expect(launch.cmd).toBe('fixture-agent')
+    expect(runtime.select({ auth: 'unknown', platform: 'linux', available: ['generic-pty'] })).toBe(
+      'generic-pty',
+    )
+    const launch = manifest().launch({
+      cwd: '/work',
+      initialPrompt: '- list files',
+      harnessContext: testHarnessContext({
+        kind: 'fixture' as BuiltinHarnessKind,
+        roots: manifest().roots('/home/podium-test', {}),
+      }),
+    })
+    // argv only (POD-6536): the adapter names no command.
+    expect(launch).not.toHaveProperty('cmd')
     // The POD-1317 `--` boundary: an option-looking prompt rides verbatim.
     expect(launch.args.slice(-2)).toEqual(['--', '- list files'])
     const exec = declaredValue(manifest().exec)?.({ prompt: 'do it' })
-    expect(exec?.cmd).toBe('fixture-agent')
+    expect(exec).not.toHaveProperty('cmd')
     const headless = declaredValue(manifest().headless)
     expect(headless?.driver).toBe('resume-exec')
     const built = declaredValue(headless!.buildExec)?.({ prompt: 'do it', sessionId: 's1' })
@@ -124,8 +141,14 @@ describe('fixture harness mechanisms (through the registered manifest)', () => {
       RECORDS.map((record) => JSON.stringify(record)).join('\n'),
     )
     // No resume value names no conversation — the file-harness contract.
-    expect(await fixtureChainPaths({ cwd: '/work', homeDir: home })).toEqual([])
-    const chained = await fixtureChainPaths({ cwd: '/work', resumeValue, homeDir: home })
+    expect(
+      await fixtureChainPaths({ cwd: '/work', account: testAccount('fixture', home) }),
+    ).toEqual([])
+    const chained = await fixtureChainPaths({
+      cwd: '/work',
+      resumeValue,
+      account: testAccount('fixture', home),
+    })
     expect(chained).toHaveLength(1)
 
     // The Store read, through the manifest's transcript section — the same
@@ -135,7 +158,7 @@ describe('fixture harness mechanisms (through the registered manifest)', () => {
     const source = await transcriptSourceFromGrammar(transcript, {
       cwd: '/work',
       resumeValue,
-      homeDir: home,
+      account: testAccount('fixture', home),
     })
     const slice = await source.readSlice({ direction: 'before', limit: 10 })
     expect(slice.items.map((item) => [item.role, item.text])).toEqual([
@@ -149,35 +172,32 @@ describe('fixture harness mechanisms (through the registered manifest)', () => {
 
   it('detects login from its auth file: in, out, unknown', async () => {
     const inventory = manifest().inventory
-    expect(inventory.detectLogin(home)).toEqual({ state: 'out' })
+    expect(inventory.detectLogin(home, {})).toEqual({ state: 'out' })
     await mkdir(join(home, '.fixture'), { recursive: true })
     await writeFile(join(home, '.fixture', 'auth.json'), JSON.stringify({ account: 'tester' }))
-    expect(inventory.detectLogin(home)).toEqual({ state: 'in', account: 'tester' })
+    expect(inventory.detectLogin(home, {})).toEqual({ state: 'in', account: 'tester' })
     const identity = declaredValue(inventory.loginIdentity)?.(home)
     expect(identity?.fingerprint).toBe('fixture:tester')
     await writeFile(join(home, '.fixture', 'auth.json'), '{malformed')
-    expect(inventory.detectLogin(home)).toEqual({ state: 'unknown' })
+    expect(inventory.detectLogin(home, {})).toEqual({ state: 'unknown' })
     expect(inventory.foreignCredentialEnv).toEqual(['FIXTURE_API_KEY'])
   })
 
   it('translates its own phase markers and nothing else', async () => {
     const state = declaredValue(manifest().state)
     if (!state) throw new Error('fixture state declined')
-    expect(await state.translate({ fixture: true, phase: 'working' })).toHaveLength(1)
-    const done = await state.translate({ fixture: true, phase: 'idle' })
+    expect(await state.translate({ fixture: true, phase: 'working' }, NO_ACCOUNT)).toHaveLength(1)
+    const done = await state.translate({ fixture: true, phase: 'idle' }, NO_ACCOUNT)
     expect(done[0]).toMatchObject({ kind: 'turn_completed' })
     // Another harness's payload shape is not state here.
-    expect(await state.translate({ hook_event_name: 'SessionStart' })).toEqual([])
-    expect(await state.translate(undefined)).toEqual([])
-    expect(await state.bootEvents?.({ cwd: '/work' })).toHaveLength(1)
+    expect(await state.translate({ hook_event_name: 'SessionStart' }, NO_ACCOUNT)).toEqual([])
+    expect(await state.translate(undefined, NO_ACCOUNT)).toEqual([])
+    expect(await state.bootEvents?.({ cwd: '/work', account: NO_ACCOUNT })).toHaveLength(1)
   })
 
   it('discovers the session it chains', async () => {
     await mkdir(join(home, '.fixture', 'sessions'), { recursive: true })
-    await writeFile(
-      fixtureSessionPath(home, 'sess-9'),
-      JSON.stringify(RECORDS[0]),
-    )
+    await writeFile(fixtureSessionPath(home, 'sess-9'), JSON.stringify(RECORDS[0]))
     const provider = manifest().discovery
     const scanned = await provider.scanRoot(join(home, '.fixture'))
     expect(scanned.conversations.map((conversation) => conversation.id)).toEqual(['sess-9'])
@@ -189,15 +209,12 @@ describe('fixture harness mechanisms (through the registered manifest)', () => {
 
   it('observes by binding the resume value and tailing its chain file', async () => {
     await mkdir(join(home, '.fixture', 'sessions'), { recursive: true })
-    await writeFile(
-      fixtureSessionPath(home, 'sess-2'),
-      JSON.stringify(RECORDS[0]),
-    )
+    await writeFile(fixtureSessionPath(home, 'sess-2'), JSON.stringify(RECORDS[0]))
     const observer = declaredValue(manifest().observer)
     if (!observer) throw new Error('fixture observer declined')
     const seen: { resume?: string; tails: string[] } = { tails: [] }
     const observation = observer(
-      { cwd: '/work', resumeValue: 'sess-2', homeDir: home },
+      { cwd: '/work', resumeValue: 'sess-2', account: testAccount('fixture', home) },
       {
         tailFile: (path) => {
           seen.tails.push(path)

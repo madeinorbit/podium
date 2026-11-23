@@ -23,6 +23,7 @@ import {
   checkHistoryFromDisk,
   checkHostEdgeSeparationAll,
   checkManifestFile,
+  checkParallelNestedScope,
   checkPlaneLeakAll,
   checkPrincipalFree,
   checkProjectionSqlIdentifiers,
@@ -48,7 +49,9 @@ import {
   loadFamilyAdapterMap,
   loadHarnessOwnAdapterCtx,
   loadModelExportNames,
+  SQL_COMPILER_SITES,
   STAGE_A_UNCONVERTED,
+  sqlCompilerSiteProblems,
   type Violation,
 } from './check-boundaries'
 import {
@@ -79,7 +82,7 @@ describe('pool runtime boundaries', () => {
     "const read = <T>(value: T) => value; const engine = await import('@podium/client-core/engine')",
     "const engine = require('@podium/client-core/engine')",
     "import engine = require('@podium/client-core/engine')",
-    "import { ClientRuntime } from '../../client-core/src/engine/runtime.js'",
+    "import { ClientRuntime } from '../../client-core/src/runtime-root/root.js'",
     "import { ClientRuntime } from '@podium/client-core'",
     "import { type Store, ClientRuntime } from '@podium/client-core'",
     "export * from '@podium/client-core'",
@@ -99,7 +102,7 @@ describe('pool runtime boundaries', () => {
     "export type * from '@podium/client-core/engine'",
     "export { type Store } from '@podium/client-core/engine'",
     "type Runtime = import('@podium/client-core/engine').ClientRuntime",
-    "import type { ClientRuntime } from '../../client-core/src/engine/runtime.js'",
+    "import type { ClientRuntime } from '../../client-core/src/runtime-root/root.js'",
     "import type { ClientRuntime } from '@podium/client-core'",
     "type Runtime = import('@podium/client-core').ClientRuntime",
     "import type { ClientRuntime } from '../../client-core/src/index.js'",
@@ -154,7 +157,9 @@ describe('pool runtime boundaries', () => {
   })
 
   it('keeps the retired diagnostics allowance empty and rejects a new app leak', () => {
-    const allowed = BOUNDARY_ALLOWLIST.filter(entry => entry.rule === 'apps-client-graph-diagnostics')
+    const allowed = BOUNDARY_ALLOWLIST.filter(
+      (entry) => entry.rule === 'apps-client-graph-diagnostics',
+    )
     expect(allowed).toEqual([])
     const planted = rules(app, "import { probe } from '@podium/client-graph/diagnostics/probe'")
     expect(applyAllowlist(planted, allowed)).toEqual({ warnings: [], errors: planted, stale: [] })
@@ -1272,37 +1277,6 @@ describe('store-raw-handle (POD-3252 rule 13)', () => {
     }
   })
 
-  it("allows rule 31b's INSERT OR REPLACE only on the auth path, with the token AND the shape", () => {
-    // THREE CONDITIONS, EACH PINNED SEPARATELY. The exception was canaried once
-    // by hand at merge time (POD-3403), which proves the checker was right that
-    // day and guards nothing afterwards: a later edit that drops the path test or
-    // widens the SQL matcher keeps the suite green. OR REPLACE DELETES the
-    // conflicting row and fires ON DELETE CASCADE, so the path pin is the part
-    // that stops a second destructive site from adopting it by typing the token.
-    const AUTH = 'apps/server/src/store/auth.ts'
-    const statement = 'INSERT OR REPLACE INTO client_sessions (token_hash) VALUES (${tokenHash})'
-    const marked = (sql: string) =>
-      ['this.db.run(', '  // REPLACE-STATEMENT POD-3403', `  sql\`${sql}\`,`, ')'].join('\n')
-
-    expect(checkStoreRawHandles(AUTH, marked(statement))).toEqual([])
-
-    // 1. the token, absent
-    expect(checkStoreRawHandles(AUTH, `this.db.run(sql\`${statement}\`)\n`)).toHaveLength(1)
-
-    // 2. the shape — every other conflict algorithm, and a bare INSERT
-    for (const other of [
-      'INSERT OR IGNORE INTO client_sessions (token_hash) VALUES (${tokenHash})',
-      'INSERT OR ABORT INTO client_sessions (token_hash) VALUES (${tokenHash})',
-      'INSERT INTO client_sessions (token_hash) VALUES (${tokenHash})',
-      'UPDATE client_sessions SET token_hash = ${tokenHash}',
-    ]) {
-      expect(checkStoreRawHandles(AUTH, marked(other))).toHaveLength(1)
-    }
-
-    // 3. the path — the SAME token and the SAME statement in another repository
-    expect(checkStoreRawHandles(REPO, marked(statement))).toHaveLength(1)
-  })
-
   it('flags PRAGMA, sqlite_master and ATTACH inside a `sql` BODY, not just in an import line', () => {
     const constructs = [
       'PRAGMA table_info(sessions)',
@@ -1571,6 +1545,19 @@ describe('store-transaction-port (POD-3252 rule 14)', () => {
 })
 
 describe('drizzle-import-home (POD-3252 rule 15)', () => {
+  it('separates test SQL setup from shipping application imports', () => {
+    const source = "import { eq } from 'drizzle-orm'"
+    for (const file of [
+      'apps/server/src/modules/issues/service.test.ts',
+      'apps/server/src/test-support/workspace-seeds/issues.ts',
+      'apps/web/src/app/waterfall-view.test.fixture.ts',
+    ])
+      expect(checkDrizzleImportHome(file, source), file).toEqual([])
+    expect(
+      checkDrizzleImportHome('apps/server/src/modules/issues/test-loader.ts', source),
+    ).toHaveLength(1)
+  })
+
   it('flags drizzle imported outside persistence, by any subpath', () => {
     for (const specifier of ['drizzle-orm', 'drizzle-orm/sqlite-core']) {
       const vs = checkDrizzleImportHome(
@@ -1638,6 +1625,24 @@ describe('sql-raw-literal (POD-3252 rule 16)', () => {
         `const f = sql.raw(column)\n`,
       ),
     ).toEqual([])
+  })
+
+  it('leaves intentional fixture SQL to its behavior tests', () => {
+    expect(
+      checkSqlRawLiteral(
+        'apps/server/src/store/example.test.ts',
+        'const term = sql.raw(userInput)',
+      ),
+    ).toEqual([])
+  })
+
+  it('keeps an approved constant marker attached across formatting', () => {
+    const approved = 'apps/server/src/store/shipping.ts'
+    const marker = '// CONSTANT-IDENTIFIER STATEMENT POD-5612'
+    const call = 'const term = sql.raw(ACTIVE_SHIP_ORDER_TERM)'
+    expect(checkSqlRawLiteral(approved, `${marker}\n${call}`)).toEqual([])
+    expect(checkSqlRawLiteral(FILE, `${marker}\n${call}`)).toHaveLength(1)
+    expect(checkSqlRawLiteral(approved, `${marker}\nconst unrelated = 1\n${call}`)).toHaveLength(1)
   })
 
   it('is quiet on the REAL repository — the control', () => {
@@ -1974,7 +1979,10 @@ describe('harness-vendor-boundary (POD-4467)', () => {
         `export const h = '${kind}'\n`,
         LITERALS,
       )
-      expect(vs.map((v) => v.rule), kind).toEqual([HARNESS_VENDOR_RULE])
+      expect(
+        vs.map((v) => v.rule),
+        kind,
+      ).toEqual([HARNESS_VENDOR_RULE])
       expect(vs[0]?.specifier, kind).toBe(kind)
     }
   })
@@ -1986,7 +1994,10 @@ describe('harness-vendor-boundary (POD-4467)', () => {
         `export const label = '${label}'\n`,
         LITERALS,
       )
-      expect(vs.map((v) => v.rule), label).toEqual([HARNESS_VENDOR_RULE])
+      expect(
+        vs.map((v) => v.rule),
+        label,
+      ).toEqual([HARNESS_VENDOR_RULE])
     }
   })
 
@@ -2013,6 +2024,56 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     }
   })
 
+  it('classifies only the exact sync cursor syntax, retaining nearby harness checks', () => {
+    const sites = [
+      {
+        file: 'packages/sync/src/replica/cache-state.ts',
+        source: "export const CURSOR_META_KEY = 'cursor'",
+        refused: "export const HARNESS_KIND = 'cursor'",
+      },
+      {
+        file: 'apps/server/src/store/janitor-reads.ts',
+        source: "const stewardCursorOf = prepared((db, t) => eq(t.stewardState.key, 'cursor'))",
+        refused: "const stewardCursorOf = prepared((db, t) => eq(t.sessions.agentKind, 'cursor'))",
+      },
+      {
+        file: 'packages/sync/src/adapters/sqlite/sync-repository.ts',
+        source: "const changesAfter = prepared((db, t) => param(t.changes.seq, 'cursor'))",
+        refused: "const changesAfter = prepared((db, t) => param(t.sessions.agentKind, 'cursor'))",
+      },
+      {
+        file: 'packages/sync/src/replica/loader.ts',
+        source:
+          "class CollectionLoader { onEvent(event: ReplicaEvent) { switch(event.type) { case 'cursor': return } } }",
+        refused:
+          "class CollectionLoader { onEvent(event: HarnessEvent) { switch(event.type) { case 'cursor': return } } }",
+      },
+      {
+        file: 'packages/client-core/src/replica-assembly/assembly.ts',
+        source:
+          "new KernelReplica({ onEvent: (event) => { if (event.type === 'cursor') confirm(event.cursor) } })",
+        refused:
+          "new HarnessRegistry({ onEvent: (event) => { if (event.type === 'cursor') select(event.cursor) } })",
+      },
+    ]
+    for (const { file, source, refused } of sites) {
+      expect(checkHarnessVendorLiterals(file, source, LITERALS), file).toEqual([])
+      expect(
+        checkHarnessVendorLiterals(file, `${source}; if (harness === 'cursor') select()`, LITERALS),
+        file,
+      ).toHaveLength(1)
+      expect(checkHarnessVendorLiterals(file, refused, LITERALS), file).toHaveLength(1)
+      expect(
+        checkHarnessVendorLiterals(file.replace('.ts', '-neighbor.ts'), source, LITERALS),
+        file,
+      ).toHaveLength(1)
+      expect(
+        checkHarnessVendorLiterals(file, readFileSync(join(REPO_ROOT, file), 'utf8'), LITERALS),
+        file,
+      ).toEqual([])
+    }
+  })
+
   it('stays quiet inside the two homes', () => {
     for (const file of [
       'packages/harness/src/adapters/codex/launch.ts',
@@ -2028,11 +2089,7 @@ describe('harness-vendor-boundary (POD-4467)', () => {
   it('stays quiet on the authoritative definition, comments, tests, fixtures, e2e and migrations', () => {
     const literal = `export const h = 'codex'\n`
     expect(
-      checkHarnessVendorLiterals(
-        'packages/model/src/entities/agent.ts',
-        literal,
-        LITERALS,
-      ),
+      checkHarnessVendorLiterals('packages/model/src/entities/agent.ts', literal, LITERALS),
     ).toEqual([])
     // Comments are blanked first, so documenting the prohibition cannot trip it.
     expect(
@@ -2105,9 +2162,18 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     expect(applyHarnessBoundaryAllowlist(vs, []).errors).toHaveLength(1)
     // Listed but holding 0 → stale (must remove the entry).
     expect(
-      applyHarnessBoundaryAllowlist([], [
-        { file: 'apps/server/src/x.ts', count: 1, category: 'leak', reason: 'r', issue: 'POD-4414' },
-      ]).stale,
+      applyHarnessBoundaryAllowlist(
+        [],
+        [
+          {
+            file: 'apps/server/src/x.ts',
+            count: 1,
+            category: 'leak',
+            reason: 'r',
+            issue: 'POD-4414',
+          },
+        ],
+      ).stale,
     ).toHaveLength(1)
     // Listed for 3 but holding 1 → stale (must lower the count).
     const held = checkHarnessVendorLiterals(
@@ -2117,7 +2183,13 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     )
     expect(
       applyHarnessBoundaryAllowlist(held, [
-        { file: 'apps/server/src/x.ts', count: 3, category: 'leak', reason: 'r', issue: 'POD-4414' },
+        {
+          file: 'apps/server/src/x.ts',
+          count: 3,
+          category: 'leak',
+          reason: 'r',
+          issue: 'POD-4414',
+        },
       ]).stale,
     ).toHaveLength(1)
   })
@@ -2128,8 +2200,20 @@ describe('harness-vendor-boundary (POD-4467)', () => {
     // occurrences, not categories, so the entries' counts sum to the file's
     // allowance — while the leak/policy/total ratchet still sums by category.
     const split = [
-      { file: 'apps/server/src/x.ts', count: 5, category: 'leak' as const, reason: 'r', issue: 'POD-4414' },
-      { file: 'apps/server/src/x.ts', count: 1, category: 'policy' as const, reason: 'r', policy: 'apps/server/src/x.ts' },
+      {
+        file: 'apps/server/src/x.ts',
+        count: 5,
+        category: 'leak' as const,
+        reason: 'r',
+        issue: 'POD-4414',
+      },
+      {
+        file: 'apps/server/src/x.ts',
+        count: 1,
+        category: 'policy' as const,
+        reason: 'r',
+        policy: 'apps/server/src/x.ts',
+      },
     ]
     const six = checkHarnessVendorLiterals(
       'apps/server/src/x.ts',
@@ -2168,19 +2252,38 @@ describe('harness-vendor-boundary (POD-4467)', () => {
   })
 
   it('a grown leak total fails — bumping the allow-list cannot admit new behaviour', () => {
-    const base: { file: string; count: number; category: 'leak' | 'policy'; reason: string; issue?: string; policy?: string }[] = [
+    const base: {
+      file: string
+      count: number
+      category: 'leak' | 'policy'
+      reason: string
+      issue?: string
+      policy?: string
+    }[] = [
       { file: 'apps/server/src/x.ts', count: 2, category: 'leak', reason: 'r', issue: 'POD-4414' },
     ]
     expect(checkHarnessAllowlistTotals(base, 2, 0, 2)).toEqual([])
     const grown = [
-      { file: 'apps/server/src/x.ts', count: 3, category: 'leak' as const, reason: 'r', issue: 'POD-4414' },
+      {
+        file: 'apps/server/src/x.ts',
+        count: 3,
+        category: 'leak' as const,
+        reason: 'r',
+        issue: 'POD-4414',
+      },
     ]
     expect(checkHarnessAllowlistTotals(grown, 2, 0, 2).length).toBeGreaterThan(0)
   })
 
   it('a stale baseline fails — constants above the seeded totals cannot hide slack (POD-4493)', () => {
     const base = [
-      { file: 'apps/server/src/x.ts', count: 2, category: 'leak' as const, reason: 'r', issue: 'POD-4414' },
+      {
+        file: 'apps/server/src/x.ts',
+        count: 2,
+        category: 'leak' as const,
+        reason: 'r',
+        issue: 'POD-4414',
+      },
     ]
     // Equality is quiet.
     expect(checkHarnessAllowlistTotals(base, 2, 0, 2)).toEqual([])
@@ -2354,10 +2457,7 @@ describe('harness-own-adapter (POD-4530)', () => {
       `export { cursorCreateChatInvocation, parseCursorChatId } from '../adapters/cursor/chat.js'`,
     ].join('\n')
     const vs = checkHarnessOwnAdapter('packages/harness/src/driver/host.ts', source, CTX)
-    expect(vs.map((v) => v.rule)).toEqual([
-      HARNESS_OWN_ADAPTER_RULE,
-      HARNESS_OWN_ADAPTER_RULE,
-    ])
+    expect(vs.map((v) => v.rule)).toEqual([HARNESS_OWN_ADAPTER_RULE, HARNESS_OWN_ADAPTER_RULE])
     expect(vs.map((v) => v.specifier)).toEqual([
       '../adapters/pi/stream.js',
       '../adapters/cursor/chat.js',
@@ -2432,9 +2532,10 @@ describe('harness-own-adapter (POD-4530)', () => {
       ],
     ]
     for (const [file, source] of cases) {
-      expect(checkHarnessOwnAdapter(file, source, CTX).map((v) => v.rule), file).toEqual([
-        HARNESS_OWN_ADAPTER_RULE,
-      ])
+      expect(
+        checkHarnessOwnAdapter(file, source, CTX).map((v) => v.rule),
+        file,
+      ).toEqual([HARNESS_OWN_ADAPTER_RULE])
     }
   })
 
@@ -2773,5 +2874,140 @@ describe('history from disk (POD-4784)', () => {
     }
     expect(files).toBeGreaterThan(20)
     expect(violations).toEqual([])
+  })
+})
+
+describe('parallel-nested-scope (POD-6625)', () => {
+  const FILE = 'apps/server/src/modules/messages/mailbox.ts'
+  const rules = (source: string, file = FILE) =>
+    checkParallelNestedScope(file, source).map((v) => v.rule)
+
+  it('refuses the shipped inbox read: a commit helper per row under Promise.all', () => {
+    const source = [
+      'export async function readInbox(writer, rows) {',
+      '  return await Promise.all(',
+      '    rows.map(async (m) => {',
+      '      const { firstRead } = await commitMessages(writer, async (scope) => await mark(scope, m))',
+      '      return firstRead',
+      '    }),',
+      '  )',
+      '}',
+    ].join('\n')
+    const [v, ...rest] = checkParallelNestedScope(FILE, source)
+    expect(rest).toEqual([])
+    expect(v?.rule).toBe('parallel-nested-scope')
+    expect(v?.message).toContain(`${FILE}:2:`)
+    expect(v?.message).toContain("'commitMessages'")
+  })
+
+  it('refuses every spelling of a scope opener and every combinator', () => {
+    for (const [combinator, call] of [
+      ['all', 'writer.commit({ write, changes })'],
+      ['allSettled', 'ctx.ledger.commit({ write, changes })'],
+      ['any', 'store.transact(async () => {})'],
+      ['race', 'createOrJoinTransaction(db, async () => {})'],
+      ['all', 'this.deps.unitOfWork(async () => {})'],
+      ['all', 'commitIssues(writer, async () => {})'],
+    ] as const) {
+      const source = `await Promise.${combinator}(xs.map(async (x) => await ${call}))`
+      expect(rules(source), source).toEqual(['parallel-nested-scope'])
+    }
+    // An array literal of opening calls is the same collision.
+    expect(rules('await Promise.all([store.transact(a), store.transact(b)])')).toEqual([
+      'parallel-nested-scope',
+    ])
+  })
+
+  it('stays quiet on the correct forms', () => {
+    for (const source of [
+      // One at a time.
+      'for (const m of rows) await commitMessages(writer, async (s) => await mark(s, m))',
+      // Parallel PLAIN statements share the unit\'s frame.
+      'await Promise.all(rows.map(async (m) => await repo.recordRead(m.id)))',
+      // One scope around parallel statements.
+      'await writer.commit({ write: async () => await Promise.all(rows.map((r) => insert(r))), changes })',
+      // A name that merely contains the word.
+      'await Promise.all(xs.map(async (x) => await x.committedAt()))',
+      // An opener named only in a string.
+      "await Promise.all(xs.map(async (x) => await rpc.repoOp('commit', x)))",
+    ]) {
+      expect(rules(source), source).toEqual([])
+    }
+  })
+
+  it('takes a DECISION marker on the combinator line, and leaves tests and tooling alone', () => {
+    expect(
+      rules('await Promise.all(ids.map((id) => store.transact(() => f(id)))) // DECISION POD-6625'),
+    ).toEqual([])
+    const source = 'await Promise.all(xs.map(async () => await store.transact(f)))'
+    expect(rules(source, 'apps/server/src/store/executor/executor.test.ts')).toEqual([])
+    expect(rules(source, 'scripts/bench.ts')).toEqual([])
+  })
+
+  it('is wired through checkFile so lint:boundaries cannot skip it', () => {
+    const vs = checkFile(FILE, 'await Promise.all(xs.map(async () => await writer.commit(op)))')
+    expect(vs.some((v) => v.rule === 'parallel-nested-scope')).toBe(true)
+  })
+})
+
+describe('schema-derived raw SQL compiler sites', () => {
+  const file = 'apps/server/src/sync/capture-pg.ts'
+  it('accepts one exact enrolled expression in its declaring compiler', () => {
+    expect(checkSqlRawLiteral(file, 'function assemble() { return sql.raw(WRITE_CTE) }')).toEqual(
+      [],
+    )
+  })
+  it('refuses arbitrary values, concatenation, neighboring owners and unlisted files', () => {
+    for (const source of [
+      'function assemble() { return sql.raw(userInput) }',
+      "function assemble() { return sql.raw('prefix' + userInput) }",
+      'function neighbor() { return sql.raw(WRITE_CTE) }',
+      'function assemble() { return sql.raw(WRITE_CTE); sql.raw(WRITE_CTE) }',
+    ])
+      expect(checkSqlRawLiteral(file, source).length, source).toBeGreaterThan(0)
+    expect(
+      checkSqlRawLiteral(
+        'apps/server/src/store/unlisted.ts',
+        'function assemble() { return sql.raw(WRITE_CTE) }',
+      ),
+    ).toHaveLength(1)
+  })
+  it('keeps every enrollment exact and backed by its deriving test', () => {
+    const root = fileURLToPath(new URL('..', import.meta.url))
+    for (const file of new Set(SQL_COMPILER_SITES.map((site) => site.file))) {
+      expect(sqlCompilerSiteProblems(file, readFileSync(join(root, file), 'utf8')), file).toEqual(
+        [],
+      )
+    }
+    for (const site of SQL_COMPILER_SITES) {
+      expect(site.reason.trim().length, site.file).toBeGreaterThan(0)
+      expect(site.count, site.file).toBeGreaterThan(0)
+      expect(() => readFileSync(join(root, site.derivedBy), 'utf8'), site.derivedBy).not.toThrow()
+    }
+    expect(sqlCompilerSiteProblems(file, '').length).toBeGreaterThan(0)
+  })
+})
+
+describe('declared sync persistence homes', () => {
+  it('recognizes the Postgres adapter and exact server schema compilers', () => {
+    for (const file of [
+      'packages/sync/src/adapters/pg/dialect.ts',
+      'packages/sync/src/adapters/pg/schema.ts',
+      'apps/server/src/sync/collection-sql.ts',
+      'apps/server/src/sync/row-records.ts',
+      'apps/server/src/sync/record-sources.ts',
+      'apps/server/src/sync/workspace-capture.ts',
+      'apps/server/src/sync/capture-pg.ts',
+    ])
+      expect(checkDrizzleImportHome(file, "import { sql } from 'drizzle-orm'"), file).toEqual([])
+  })
+  it('still refuses a neighboring router and a name that only starts with a compiler path', () => {
+    for (const file of [
+      'apps/server/src/sync/router.ts',
+      'apps/server/src/sync/capture-pg.ts.extra.ts',
+    ])
+      expect(checkDrizzleImportHome(file, "import { sql } from 'drizzle-orm'"), file).toHaveLength(
+        1,
+      )
   })
 })

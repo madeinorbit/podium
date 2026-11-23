@@ -143,12 +143,12 @@ vi.mock('@/app/store', () => {
     archiveIssue,
     deleteIssue: vi.fn(async () => {}),
     setIssueTucked: vi.fn(async () => {}),
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
   })
   return {
     useStore,
-    useRuntimeSelector: (selector: (state: unknown) => unknown) => selector(useStore() as never),
+    readFixture: (selector: (state: unknown) => unknown) => selector(useStore() as never),
   }
 })
 
@@ -180,7 +180,9 @@ describe('closed issue fold lifecycle', () => {
       returned.closest('[data-testid=unified-issue-row]')?.querySelector('[data-testid=row-grip]'),
     ).toBeTruthy()
 
-    await act(async () => { fireEvent.click(toggle) })
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
     const foldedRow = screen.getByTestId('snoozed-fold-row')
     expect(screen.getByText('Snoozed issue')).toBeTruthy()
     expect(screen.queryByText('Returned issue')).toBeNull()
@@ -190,11 +192,15 @@ describe('closed issue fold lifecycle', () => {
 
   it('archives a closed issue from its hover/focus action', async () => {
     render(<SidebarUnified />)
-    await act(async () => { fireEvent.click(screen.getByTestId('work-lane-closed')) })
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('work-lane-closed'))
+    })
     const archiveButton = screen.getByRole('button', {
       name: 'Archive POD-42',
     })
-    await act(async () => { fireEvent.click(archiveButton) })
+    await act(async () => {
+      fireEvent.click(archiveButton)
+    })
     expect(archiveIssue).toHaveBeenCalledWith('closed')
     expect(archiveMutate).not.toHaveBeenCalled()
     // NO in-flight state to assert any more (POD-781). This used to check that

@@ -26,88 +26,7 @@
  * `OutboxSyncSpan` is deliberately NOT re-introduced as an alias: a second name
  * for one type is how the drift starts again.
  */
-export * from './span'
-/**
- * The AUTHORITY role (POD-305, 2.1) — the write funnel and the Ledger, joined.
- * `./ledger` remains exported beside it during the cutover: POD-306 and POD-308
- * still consume it, and deleting it in the same commit that introduced its
- * replacement would have made this issue's diff the migration of every call site.
- */
-export * from './authority/index'
-// The per-principal visibility seam (POD-1077). Exported from the package barrel
-// because a composition root outside this package has to NAME the policy it is
-// wiring — `feed/visibility.ts` explains why the device-grade one is exported at
-// all, and `bun run audit:scoped-feed` holds its site list to the allowlist.
-export {
-  DeviceGradeNoAnchors,
-  DeviceGradeUnscopedPolicy,
-  DEVICE_GRADE_PRINCIPAL,
-  GrantEdgeVisibilityPolicy,
-  NoDelegationsGranted,
-  kernelVisibilityResolver,
-  type DelegationScopePort,
-  entityKey,
-  humanOf,
-  keyOfRef,
-  type DelegatedScope,
-  type EntityKey,
-  type EntityRef,
-  type FeedScopingGrade,
-  type FeedVisibilityPolicy,
-  type VisibilityAnchorPort,
-  type VisibilityEdge,
-  type VisibilityDecision,
-  type VisibilityReason,
-  type VisibilityStatePort,
-} from './feed/visibility'
-/**
- * The feed's PRODUCING half (POD-306/POD-1077, consumed at POD-1203).
- *
- * Named exports rather than a barrel re-export, because `./feed/index` also
- * re-exports the visibility seam above and a `export *` would give two paths to
- * the same symbols. A serving composition root outside this package needs
- * exactly these: the publisher that frames per connection, the identity registry
- * that persists `(feedId, epoch)`, and the two port shapes it must satisfy.
- */
-export {
-  FeedIdentityRegistry,
-  FeedPublisher,
-  type FeedConnection,
-  type FeedIdentity,
-  type FeedIdentityStore,
-  type FeedPublisherDeps,
-  type FeedRetentionPort,
-} from './feed/index'
-export * from './ledger'
-export * from './mirror'
-/**
- * Framework idempotency (POD-382): the ONE implementation of mutationId dedup,
- * relocated out of `SessionsService.withMutation`. Exported because it is a
- * framework property every command envelope shares — the session session-state class,
- * the session command plane and the issue registry all call it — and a property
- * reachable only through one app's service graph is a property the next transport
- * can forget.
- */
-export * from './mutation-ledger'
-export * from './outbox'
-export * from './replica/index'
-export * from './adapters/sqlite/sync-repository'
-/**
- * The shape of the two server-owned tables `SyncRepository` takes (POD-3249).
- * `queued_messages` and `upstream_outbox` are declared in `apps/server`'s
- * schema, which stays the one declaration; a package cannot import that, so this
- * describes only what the adapter reads and the composition root supplies the
- * objects.
- */
-export * from './adapters/sqlite/server-tables'
-/**
- * The narrow port for the store's QUERY CAPABILITY (POD-3338 for the port,
- * POD-3416 for what it carries; spec §6 rule 20), by the same reasoning and one
- * step further: the seam lives in `apps/server` too, so the package declares the
- * two members the adapter uses — a drizzle instance and a transaction — and the
- * server's `StoreQueries` satisfies them structurally.
- */
-export * from './adapters/sqlite/store-queries'
+
 /**
  * The WEB replica storage adapter (POD-374) — ADR 6 D1's transactional
  * IndexedDB, as a sibling of the SQLite adapter and held to the same rule 11:
@@ -125,6 +44,98 @@ export * from './adapters/sqlite/store-queries'
 export * from './adapters/indexeddb/idb'
 export * from './adapters/indexeddb/schema'
 export * from './adapters/indexeddb/store'
+/**
+ * The shape of the two server-owned tables `SyncRepository` takes (POD-3249).
+ * `queued_messages` and `upstream_outbox` are declared in `apps/server`'s
+ * schema, which stays the one declaration; a package cannot import that, so this
+ * describes only what the adapter reads and the composition root supplies the
+ * objects.
+ */
+export * from './adapters/sqlite/server-tables'
+/**
+ * The narrow port for the store's QUERY CAPABILITY (POD-3338 for the port,
+ * POD-3416 for what it carries; spec §6 rule 20), by the same reasoning and one
+ * step further: the seam lives in `apps/server` too, so the package declares the
+ * two members the adapter uses — a drizzle instance and a transaction — and the
+ * server's `StoreQueries` satisfies them structurally.
+ */
+export * from './adapters/sqlite/store-queries'
+export * from './adapters/sqlite/sync-repository'
+/**
+ * The AUTHORITY role (POD-305, 2.1) — the write funnel and the Ledger, joined.
+ * `./ledger` remains exported beside it during the cutover: POD-306 and POD-308
+ * still consume it, and deleting it in the same commit that introduced its
+ * replacement would have made this issue's diff the migration of every call site.
+ */
+export * from './authority/index'
+/**
+ * The feed's PRODUCING half (POD-306/POD-1077, consumed at POD-1203).
+ *
+ * Named exports rather than a barrel re-export, because `./feed/index` also
+ * re-exports the visibility seam above and a `export *` would give two paths to
+ * the same symbols. A serving composition root outside this package needs
+ * exactly these: the publisher that frames per connection, the identity registry
+ * that persists `(feedId, epoch)`, and the two port shapes it must satisfy.
+ */
+export {
+  type FeedConnection,
+  type FeedIdentity,
+  FeedIdentityRegistry,
+  type FeedIdentityStore,
+  FeedPublisher,
+  type FeedPublisherDeps,
+  type FeedRetentionPort,
+} from './feed/index'
+// The per-principal visibility seam (POD-1077). Exported from the package barrel
+// because a composition root outside this package has to NAME the policy it is
+// wiring — `feed/visibility.ts` explains why the device-grade one is exported at
+// all, and `bun run audit:scoped-feed` holds its site list to the allowlist.
+export {
+  type AnchorRef,
+  CHANGE_LOG_OBSERVER,
+  DEVICE_GRADE_PRINCIPAL,
+  type DelegatedScope,
+  type DelegationScopePort,
+  DeviceGradeNoAnchors,
+  DeviceGradeUnscopedPolicy,
+  type EntityKey,
+  type EntityRef,
+  entityKey,
+  type FeedScopingGrade,
+  type FeedVisibilityPolicy,
+  GrantEdgeVisibilityPolicy,
+  humanOf,
+  kernelVisibilityResolver,
+  keyOfRef,
+  NoDelegationsGranted,
+  shapedValue,
+  type VisibilityAnchorPort,
+  type VisibilityDecision,
+  type VisibilityEdge,
+  type VisibilityReason,
+  type VisibilityStatePort,
+} from './feed/visibility'
+export * from './lake-parted'
+export * from './ledger'
+export * from './mirror'
+/**
+ * Framework idempotency (POD-382): the ONE implementation of mutationId dedup,
+ * relocated out of `SessionsService.withMutation`. Exported because it is a
+ * framework property every command envelope shares — the session session-state class,
+ * the session command plane and the issue registry all call it — and a property
+ * reachable only through one app's service graph is a property the next transport
+ * can forget.
+ */
+export * from './mutation-ledger'
+export * from './outbox'
+export * from './replica/index'
+export * from './span'
+export {
+  ForeignWriteScope,
+  type WriteScope,
+  type WriteScopeMint,
+  type WriteScopeOrigin,
+} from './write-scope'
 // RETIRED at POD-309: `./upstream` (UpstreamSync — the node→hub dialer) and
 // `./upstream-forwarder` (UpstreamForwarder — the node→hub issue write path) were
 // exported here. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1), and

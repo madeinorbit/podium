@@ -1,14 +1,20 @@
+import type { Capabilities } from '@podium/identity'
 import { UserId } from '@podium/model'
-import { NativeClientLoginResponse } from '@podium/protocol'
+import {
+  httpsRequiredRefusal,
+  NativeClientLoginResponse,
+  readHttpsRequiredRefusal,
+} from '@podium/protocol'
+import { z } from 'zod'
 import { parseReplicaNamespaceKey } from '../replica/principal-storage'
 import {
   classifyAuthStatus,
-  ReplicaGateError,
   type ReplicaFailure,
+  ReplicaGateError,
 } from '../replica-assembly/failure'
-import { workspaceRequestInit, type WorkspaceSelector } from '../transport'
-import type { AccountCredentials } from './storage'
+import { type WorkspaceSelector, workspaceRequestInit } from '../transport'
 import type { ServerProfile } from './server-profiles'
+import type { AccountCredentials } from './storage'
 
 export interface AuthStatus {
   needsAuth: boolean
@@ -16,10 +22,64 @@ export interface AuthStatus {
   userId: UserId | null
   syncBoundaryId?: string
   memberId?: string
-  mode?: 'local' | 'cloud'
-  signInUrl?: string
-  providerSignedIn?: boolean
-  deniedReason?: string
+  capabilities?: AuthCapabilities
+  prompt?: SignInPrompt
+  denied?: 'not_workspace_member'
+}
+
+export type AuthCapabilities = Capabilities
+export type SignInPrompt = 'password' | 'email-password'
+
+const capabilitiesSchema: z.ZodType<AuthCapabilities> = z.object({
+  version: z.literal(1),
+  passwordSignIn: z.boolean(),
+  providers: z.array(z.enum(['google', 'github'])),
+  selfSignUp: z.boolean(),
+  invitationDelivery: z.enum(['link', 'mail']),
+  passwordReset: z.enum(['admin-link', 'mail']),
+  emailVerification: z.boolean(),
+  organisations: z.boolean(),
+  sameMachineSignIn: z.boolean(),
+  adminSignOutEverywhere: z.boolean(),
+  adminEndDeviceSignIn: z.boolean(),
+  accountUrl: z
+    .string()
+    .url()
+    .refine((url) => new URL(url).protocol === 'https:')
+    .nullable(),
+})
+
+/**
+ * An invitation secret is in the requested page's fragment. Encoding that
+ * fragment inside a query parameter would put the token in the account page's
+ * request URL, its logs, the edge and any Referer, so the whole return value
+ * travels in the account page's fragment instead. Other return paths keep the
+ * query form they have always used.
+ */
+function carriesInvitationToken(value: string): boolean {
+  if (/(?:^|[#&])invite=/.test(value)) return true
+  try {
+    const url = new URL(value, 'https://account.invalid')
+    return url.pathname === '/workspace-invitation' && url.hash.length > 1
+  } catch {
+    return false
+  }
+}
+
+/** Account pages are rooted at the server-reported URL, including its path. */
+export function accountPageUrl(
+  capabilities: AuthCapabilities,
+  page: 'sign-in' | 'sign-up' | 'forgot-password' | 'workspaces' | 'devices' | '',
+  returnTo?: string,
+): string | undefined {
+  if (!capabilities.accountUrl) return undefined
+  const base = capabilities.accountUrl.replace(/\/$/, '')
+  const url = new URL(page ? `${base}/${page}` : base)
+  if (returnTo) {
+    if (carriesInvitationToken(returnTo)) url.hash = new URLSearchParams({ returnTo }).toString()
+    else url.searchParams.set('returnTo', returnTo)
+  }
+  return url.href
 }
 
 export type AuthBootstrap =
@@ -43,7 +103,7 @@ export type LoginResult =
 
 export const MEMBERSHIP_DENIED_COPY = {
   title: 'Workspace access is missing',
-  body: 'Use another Podium Cloud account, or accept an invitation to this workspace in your browser.',
+  body: 'Use another account, or accept an invitation to this workspace in your browser.',
   action: 'Use another account',
 } as const
 
@@ -64,7 +124,14 @@ class UnreadableAuthResponse extends ReplicaGateError {
 function failure(failure: ReplicaFailure): AccountDecision {
   return {
     kind: 'ready',
-    auth: { kind: 'failure', message: 'authenticated account is unavailable', failure },
+    auth: {
+      kind: 'failure',
+      message:
+        failure.kind === 'auth-insecure'
+          ? (failure.guidance ?? httpsRequiredRefusal()).message
+          : 'authenticated account is unavailable',
+      failure,
+    },
   }
 }
 
@@ -89,27 +156,37 @@ export function parseAuthStatus(body: unknown): AuthStatus {
   return projectAuthStatus(row)
 }
 
+function readCapabilities(value: unknown): AuthCapabilities {
+  const parsed = capabilitiesSchema.safeParse(value)
+  if (!parsed.success)
+    throw new ReplicaGateError('auth capabilities response was invalid', {
+      kind: 'auth-intercepted',
+    })
+  return parsed.data
+}
+
 function projectAuthStatus(row: Record<string, unknown>): AuthStatus {
   return {
     needsAuth: row.needsAuth === true,
     authed: row.authed === true,
     userId: typeof row.userId === 'string' ? UserId.parse(row.userId) : null,
-    ...(row.mode === 'cloud' || row.mode === 'local' ? { mode: row.mode } : {}),
+    ...(row.capabilities === undefined ? {} : { capabilities: readCapabilities(row.capabilities) }),
+    ...(row.prompt === 'password' || row.prompt === 'email-password' ? { prompt: row.prompt } : {}),
     ...(typeof row.syncBoundaryId === 'string' && row.syncBoundaryId
       ? { syncBoundaryId: row.syncBoundaryId }
       : {}),
     ...(typeof row.memberId === 'string' && row.memberId ? { memberId: row.memberId } : {}),
-    ...(typeof row.signInUrl === 'string' ? { signInUrl: row.signInUrl } : {}),
-    ...(row.providerSignedIn === true ? { providerSignedIn: true } : {}),
-    ...(typeof row.deniedReason === 'string' && row.deniedReason
-      ? { deniedReason: row.deniedReason }
-      : {}),
+    ...(row.denied === 'not_workspace_member' ? { denied: row.denied } : {}),
   }
 }
 
 export function decideAccount(status: AuthStatus): AccountDecision {
-  if (!status.authed && status.providerSignedIn === true && status.deniedReason)
-    return { kind: 'membership-denied', reason: status.deniedReason, status }
+  if (!status.authed && status.denied === 'not_workspace_member')
+    return {
+      kind: 'membership-denied',
+      reason: 'This account is not a member of this workspace.',
+      status,
+    }
   if (status.needsAuth && !status.authed) return { kind: 'login', status }
   const outcome = classifyAuthStatus(status)
   return 'principal' in outcome
@@ -122,9 +199,7 @@ function browserProbeDecision(body: unknown): AccountDecision {
   const row = body !== null && typeof body === 'object' ? (body as Record<string, unknown>) : {}
   const status = projectAuthStatus(row)
   if (status.needsAuth && !status.authed) {
-    if (status.mode === 'cloud' && status.providerSignedIn === true && status.deniedReason)
-      return { kind: 'membership-denied', reason: status.deniedReason, status }
-    return { kind: 'login', status }
+    return decideAccount(status)
   }
   const outcome = classifyAuthStatus(body as Parameters<typeof classifyAuthStatus>[0])
   return 'principal' in outcome
@@ -178,6 +253,7 @@ export async function resolveAccountPrincipal(args: {
   } catch {
     return resolveOfflinePrincipal(args.inspectNamespaces())
   }
+  if (!response.ok) await throwHttpsRequired(response)
   if (!response.ok)
     throw new ReplicaGateError(
       'authenticated account is unavailable',
@@ -215,8 +291,9 @@ export function createAuthClient(options: {
     extra: RequestInit = {},
   ): RequestInit => {
     if (bearer && !origin.startsWith('https://'))
-      throw new ReplicaGateError('refusing to send a bearer over cleartext HTTP', {
+      throw new ReplicaGateError(httpsRequiredRefusal().message, {
         kind: 'auth-insecure',
+        guidance: httpsRequiredRefusal(),
       })
     const headers = new Headers(extra.headers)
     if (!browser && bearer) headers.set('Authorization', `Bearer ${bearer}`)
@@ -239,10 +316,27 @@ export function createAuthClient(options: {
     bearer: string | null = null,
     workspaceId?: string,
   ): Promise<unknown> {
-    const response = await request(
-      origin + '/auth/status',
-      init(origin, '/auth/status', bearer, workspaceId ? { workspaceId } : undefined),
-    )
+    let response: Response
+    try {
+      response = await request(
+        origin + '/auth/status',
+        // Discovery carries no native credential over HTTP. It can still read the
+        // server's HTTPS refusal and advertised address before refusing that bearer.
+        init(
+          origin,
+          '/auth/status',
+          origin.startsWith('https://') ? bearer : null,
+          workspaceId ? { workspaceId } : undefined,
+        ),
+      )
+    } catch (cause) {
+      if (!browser && !origin.startsWith('https://')) {
+        const guidance = httpsRequiredRefusal()
+        throw new ReplicaGateError(guidance.message, { kind: 'auth-insecure', guidance })
+      }
+      throw cause
+    }
+    if (!response.ok) await throwHttpsRequired(response)
     if (!response.ok)
       throw new ReplicaGateError(
         'auth status failed: ' + response.status,
@@ -250,6 +344,11 @@ export function createAuthClient(options: {
           ? { kind: 'auth-insecure' }
           : { kind: 'auth-refused', status: response.status },
       )
+    if (bearer && !origin.startsWith('https://'))
+      throw new ReplicaGateError(httpsRequiredRefusal().message, {
+        kind: 'auth-insecure',
+        guidance: httpsRequiredRefusal(),
+      })
     return response.json().catch(() => {
       throw new UnreadableAuthResponse()
     })
@@ -310,9 +409,17 @@ export function createAuthClient(options: {
     device?: { id: string; name: string },
     email = '',
     workspaceId?: string,
+    deviceKind?: 'desktop',
   ): Promise<LoginResult> {
-    if (!browser && !origin.startsWith('https://'))
-      return { ok: false, error: 'Native sign-in requires trusted HTTPS. No password was sent.' }
+    if (!browser && !origin.startsWith('https://')) {
+      try {
+        await fetchStatusBody(origin, null, workspaceId)
+      } catch (cause) {
+        if (cause instanceof ReplicaGateError && cause.failure.kind === 'auth-insecure')
+          return { ok: false, error: cause.message }
+      }
+      return { ok: false, error: httpsRequiredRefusal().message }
+    }
     const platform = options.platform ?? 'unknown'
     const response = await request(
       origin + '/auth/login',
@@ -320,7 +427,7 @@ export function createAuthClient(options: {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          email: email.trim() || 'user:sole',
+          ...(email.trim() ? { email: email.trim() } : {}),
           password,
           ...(!browser
             ? {
@@ -329,7 +436,9 @@ export function createAuthClient(options: {
                 deviceName: device?.name ?? `${platform} phone`,
                 platform: platform === 'ios' || platform === 'android' ? platform : 'unknown',
               }
-            : {}),
+            : deviceKind
+              ? { deviceKind }
+              : {}),
         }),
       }),
     )
@@ -346,6 +455,8 @@ export function createAuthClient(options: {
         ? { ok: true, bearer: parsed.data.token }
         : { ok: false, error: 'Server did not return a native session. Update the server.' }
     }
+    const guidance = readHttpsRequiredRefusal(await response.json().catch(() => null))
+    if (guidance) return { ok: false, error: guidance.message }
     if (options.loginRefusalMessage)
       return { ok: false, error: options.loginRefusalMessage(response.status) }
     if (response.status === 401) return { ok: false, error: 'Wrong email or password.' }
@@ -358,22 +469,7 @@ export function createAuthClient(options: {
     origin: string,
     bearer: string | null = null,
     workspaceId?: string,
-    knownMode?: 'local' | 'cloud',
   ): Promise<void> {
-    const mode = knownMode ?? (await fetchAuthStatus(origin, bearer, workspaceId)).mode ?? 'local'
-    if (mode === 'cloud') {
-      const response = await request(
-        origin + '/platform/auth/sign-out',
-        init(origin, '/platform/auth/sign-out', bearer, workspaceId ? { workspaceId } : undefined, {
-          method: 'POST',
-          redirect: 'error',
-          headers: { 'content-type': 'application/json' },
-          body: '{}',
-        }),
-      )
-      if (!response.ok) throw new Error(`Cloud sign-out failed: ${response.status}`)
-      if (browser) return
-    }
     const response = await request(
       origin + '/auth/logout',
       init(origin, '/auth/logout', bearer, workspaceId ? { workspaceId } : undefined, {
@@ -384,4 +480,9 @@ export function createAuthClient(options: {
   }
 
   return { fetchAuthStatus, probeAuth, checkLiveAuth, login, logout }
+}
+
+async function throwHttpsRequired(response: Response): Promise<void> {
+  const guidance = readHttpsRequiredRefusal(await response.json().catch(() => null))
+  if (guidance) throw new ReplicaGateError(guidance.message, { kind: 'auth-insecure', guidance })
 }

@@ -1,12 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { ROW, type IssueId } from '@podium/model'
+import { type IssueId, ROW } from '@podium/model'
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import {
   AuthorityArbitrationRejected,
   type EntityChangeSpec,
-  type Ledger,
   type LedgerCommitOp,
   type LedgerCommitResult,
+  type LedgerWriter,
 } from '@podium/sync'
 import { throwIssueRevisionConflict } from './conflict'
 
@@ -38,18 +38,11 @@ export class IssueAuthorityArbitration {
 
   readonly ledger: {
     commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-    capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
-    reconcile(
-      entity: MetadataEntityKind,
-      rows: { id: string; value: unknown }[],
-    ): Promise<MetadataChange[]>
   }
 
-  constructor(private readonly source: Ledger) {
+  constructor(private readonly source: Omit<LedgerWriter, 'scope'>) {
     this.ledger = {
-      commit: async (op) => await this.commit(op),
-      capture: async (specs) => await this.source.capture(specs),
-      reconcile: async (entity, rows) => await this.source.reconcile(entity, rows),
+      commit: async (op) => await this.commit(this.source, op),
     }
   }
 
@@ -65,13 +58,28 @@ export class IssueAuthorityArbitration {
   // wrapper's type boundary [POD-3366]. The spread below always carried it at
   // runtime; only the type refused it, which is the quietest way for a
   // post-commit install to go missing.
-  private async commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>> {
+  /**
+   * `writer` under this arbitration (ADR 12 D9, POD-6594): a command's own
+   * writer, or a server origin's, gets the same revision check as the shared
+   * ledger did, so moving a write onto its command's writer changes nothing
+   * about how it is arbitrated.
+   */
+  wrap(writer: Pick<LedgerWriter, 'commit'>): Pick<LedgerWriter, 'commit'> {
+    return {
+      commit: async (op) => await this.commit(writer, op),
+    }
+  }
+
+  private async commit<T>(
+    source: Pick<LedgerWriter, 'commit'>,
+    op: LedgerCommitOp<T>,
+  ): Promise<LedgerCommitResult<T>> {
     const active = this.scope.getStore()
-    if (active === undefined || active.commitClaimed) return await this.source.commit(op)
+    if (active === undefined || active.commitClaimed) return await source.commit(op)
     active.commitClaimed = true
 
     try {
-      return await this.source.commit({
+      return await source.commit({
         ...op,
         arbitrate: {
           rowId: ROW.issueCore,

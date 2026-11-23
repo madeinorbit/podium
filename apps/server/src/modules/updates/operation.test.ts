@@ -1,24 +1,30 @@
 import { mkdtempSync, rmSync } from 'node:fs'
+import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createServer } from 'node:http'
-import { MachineUpdateExecutor, updateFingerprint } from '@podium/runtime/machine-update'
-import { requestMachineUpdate, startMachineUpdateControl } from '@podium/runtime/machine-update-control'
-import { createInstalledCoordinatorUpdate } from './installed-restart'
-import { UpdateRecoveryStore } from './recovery-store'
 import { asMachineId, type UpdateChannel } from '@podium/model'
-import type { Operation, UpdateGrantMessage, UpdateStatusMessage, UpdateTarget } from '@podium/protocol'
+import type {
+  Operation,
+  UpdateGrantMessage,
+  UpdateStatusMessage,
+  UpdateTarget,
+} from '@podium/protocol'
 import {
   CODE_FOR_UPDATE_FAILURE_TOKEN,
   UPDATE_FAILURE_EXAMPLES,
   UPDATE_FAILURE_TOKENS,
 } from '@podium/protocol'
+import { MachineUpdateExecutor, updateFingerprint } from '@podium/runtime/machine-update'
+import {
+  requestMachineUpdate,
+  startMachineUpdateControl,
+} from '@podium/runtime/machine-update-control'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { HTTP_IDLE_TIMEOUT_S } from '../../gateway/ws-server'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
-import { syncQueriesOver } from '../../store/executor/sync-drizzle'
+import { selfHostedQueriesOver } from '../../test-support/self-hosted-queries'
 import {
   DEFAULT_WAITING_GRACE_MS,
   type OperationClock,
@@ -26,10 +32,11 @@ import {
   type OperationTimerHandle,
 } from '../operations/engine'
 import { OperationKindRegistry } from '../operations/kinds'
-import { OperationStore } from '../operations/store'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
+import { OperationStore } from '../operations/store'
 import { DevBundleUnavailableError } from './dev-bundle'
 import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
+import { createInstalledCoordinatorUpdate, SupervisorUpdateFailure } from './installed-restart'
 import {
   admissibleDeferredPlaces,
   classifyMachineFailure,
@@ -61,10 +68,12 @@ import {
   updateOperationDetails,
   updateOperationKind,
 } from './operation'
-import { UpdatesService, type UpdatesDeps } from './service'
-import { updateStartability } from './trpc'
-import { refreshTargetsOnBoot } from './target-refresh'
+import { updateOperationObserver } from './operation-observer'
 import { UpdateReconciler } from './reconciler'
+import { UpdateRecoveryStore } from './recovery-store'
+import { type UpdatesDeps, UpdatesService } from './service'
+import { refreshTargetsOnBoot } from './target-refresh'
+import { updateStartability } from './trpc'
 import { offeredDeliveries, type WaveMachine, type WaveRound } from './wave'
 
 /**
@@ -1341,6 +1350,7 @@ function fakeClock() {
 }
 
 interface HarnessOptions {
+  observeOperationChanges?: boolean
   recordGrant?: UpdatesDeps['recordGrant']
   resolveTarget?: (channel: UpdateChannel) => Promise<UpdateTarget>
   approvedTarget?: () => Promise<UpdateTarget | undefined>
@@ -1370,7 +1380,9 @@ interface HarnessOptions {
 async function harness(options: HarnessOptions = {}) {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  const store = new OperationStore(syncQueriesOver(db))
+  const queries = selfHostedQueriesOver(db)
+  const store = new OperationStore(queries)
+  const recoveryStore = new UpdateRecoveryStore(queries)
   const clock = fakeClock()
   const sent: Array<{ machineId: string; message: UpdateGrantMessage }> = []
   const fleet = options.machines ?? [machine({ id: 'vmi' })]
@@ -1385,14 +1397,10 @@ async function harness(options: HarnessOptions = {}) {
   /**
    * WHAT A FIRE-AND-FORGET NOTIFICATION LEFT BEHIND.
    *
-   * `UpdatesService.onTargetChanged` is a `Promise<void>` port, and this
-   * harness's implementation of it resolves without waiting for the listener —
-   * the composition root hands the real port the fleet bridge, so the service
-   * announces the change and carries straight on while the bridge is still
-   * reading history and restating promises. That is the production ordering and
-   * this harness keeps it. What a test cannot do is assert on work that has not
-   * happened yet, so the promise is kept here and `settleTargetChanges()` is how
-   * a test says "and then the listener finished".
+   * The composition root awaits the fleet bridge from this port; the service
+   * owns deferring it. The harness must return that same promise, or it hides
+   * circular waits between target withdrawal and an operation's serial queue.
+   * Keep the promise here as well so tests can await the resulting observation.
    */
   const targetNotifications: Promise<void>[] = []
   const requireEngine = (): OperationEngine => {
@@ -1414,6 +1422,7 @@ async function harness(options: HarnessOptions = {}) {
     seedProvided = false,
   ) => {
     const initialTarget = seedProvided ? seed : (options.target ?? devTarget())
+    const savedRecovery = options.durableRecovery ? await recoveryStore.read() : undefined
     const service = new UpdatesService({
       machines: async () => fleet,
       send: (machineId, message) => sent.push({ machineId, message }),
@@ -1421,7 +1430,15 @@ async function harness(options: HarnessOptions = {}) {
       nextGrantId: () => `grant_${++issuedGrants}`,
       concurrency: 3,
       ...(options.approvedTarget ? { approvedTarget: options.approvedTarget } : {}),
-      ...(options.durableRecovery ? { recovery: new UpdateRecoveryStore(db) } : {}),
+      ...(options.durableRecovery
+        ? {
+            recovery: {
+              read: () => savedRecovery,
+              write: async (snapshot: () => import('./recovery-store').UpdateRecoverySnapshot) =>
+                await recoveryStore.write(snapshot),
+            },
+          }
+        : {}),
       fleetChannel: () => 'dev',
       ...(options.resolveTarget ? { resolveTarget: options.resolveTarget } : {}),
       ...(options.recordGrant ? { recordGrant: options.recordGrant } : {}),
@@ -1429,14 +1446,11 @@ async function harness(options: HarnessOptions = {}) {
         (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       exclusiveOperationVersion: async (channel) =>
         exclusiveUpdateVersion(await driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
-      // Resolves IMMEDIATELY and keeps the listener's promise aside, which is
-      // the production ordering this harness exists to reproduce: the service
-      // announces the change and carries on while the bridge is still reading.
-      // Awaiting the listener here instead would make every drill in this file
-      // observe an ordering production never has.
+      // Match relay.ts: return the bridge's promise, leaving deferral to the service.
       onTargetChanged: async (channel) => {
         const settled = targetChanged?.(channel)
         if (settled !== undefined) targetNotifications.push(settled)
+        await settled
       },
     })
     if (initialTarget) await service.setTarget('dev', initialTarget)
@@ -1499,6 +1513,9 @@ async function harness(options: HarnessOptions = {}) {
     registry,
     clock: clock.clock,
     newId: () => `op_${++minted}`,
+    ...(options.observeOperationChanges
+      ? { onChanged: updateOperationObserver(updates, () => undefined) }
+      : {}),
   })
 
   return {
@@ -1752,13 +1769,22 @@ describe('the step runners', () => {
       preflightDatabaseBackup: preflight,
       prepareCoordinatorUpdate: prepare,
     })
-    const step = { id: UPDATE_STEP_SERVER, title: 'Updating your server', state: 'running' as const }
+    const step = {
+      id: UPDATE_STEP_SERVER,
+      title: 'Updating your server',
+      state: 'running' as const,
+    }
     const operation: Operation = {
-      id: 'old-fleet-operation', kind: UPDATE_OPERATION_KIND, state: 'running',
-      details: { target: packedTarget(), channel: 'dev' }, steps: [step],
+      id: 'old-fleet-operation',
+      kind: UPDATE_OPERATION_KIND,
+      state: 'running',
+      details: { target: packedTarget(), channel: 'dev' },
+      steps: [step],
     }
     const outcome = await updateOperationKind().runners[UPDATE_STEP_SERVER]!.ensure({
-      operation, step, context: h.context(),
+      operation,
+      step,
+      context: h.context(),
     })
     expect(outcome).toEqual({ state: 'skipped' })
     expect(restart).not.toHaveBeenCalled()
@@ -1953,6 +1979,39 @@ describe('the step runners', () => {
     expect((await h.read()).error?.message).toContain('Supervisor control endpoint missing')
   })
 
+  // POD-6618: the supervisor's slow-boot handover timeout, and the rollback it
+  // then could not do, both reached the download default and withdrew the
+  // target fleet-wide as "couldn't be downloaded" with the new version running.
+  it.each([
+    ['handover-timeout', 'handover-timeout'],
+    ['rollback-refused-migrations', 'handover-failed'],
+    ['daemon-silent', 'handover-failed'],
+    ['update-failed', 'download-failed'],
+  ])('server: names a supervisor verdict %s as %s', async (reasonCode, expected) => {
+    const detail =
+      reasonCode === 'update-failed'
+        ? 'fetch failed'
+        : 'rollback unavailable: this update applied migrations 20261104144533_accounts-per-user-owner — forward-fix required'
+    const h = await harness({
+      machines: [],
+      durableRecovery: true,
+      approvedTarget: async () => packedTarget(),
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async () => {
+        throw new SupervisorUpdateFailure(detail, reasonCode)
+      },
+      preflightDatabaseBackup: async () => ({ ok: true }),
+      requestCoordinatorRestart: async () => {},
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    const error = (await h.read()).error
+    expect(error?.code).toBe(expected)
+    expect(error?.detail).toContain(detail)
+    if (expected !== 'download-failed') expect(error?.message).not.toMatch(/download/i)
+  })
+
   it('server: keeps the cause in the detail without moving the failure code', async () => {
     // POD-3824. The DETAIL half is what this guards: flattening the throw back
     // to `error.message` reds it.
@@ -1989,6 +2048,30 @@ describe('the step runners', () => {
     expect((await h.read()).error?.detail).toBe(
       'signature verification FAILED ← artifact address unreachable: https://missing.example/a.tgz',
     )
+    expect(preflight).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
+  })
+
+  it('server: reports an unpublished named artifact as retry-later without restarting', async () => {
+    const preflight = vi.fn(async () => ({ ok: true as const }))
+    const restart = vi.fn()
+    const h = await harness({
+      machines: [],
+      durableRecovery: true,
+      approvedTarget: async () => packedTarget(),
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      prepareCoordinatorUpdate: async () => {
+        throw new Error('artifact download returned 404 — not published yet; retry later')
+      },
+      preflightDatabaseBackup: preflight,
+      requestCoordinatorRestart: restart,
+    })
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+    expect((await h.read()).error?.code).toBe('artifact-not-published')
+    expect((await h.read()).error?.message).toContain('not published yet')
+    expect((await h.read()).error?.message).toContain('retry')
     expect(preflight).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })
@@ -3012,7 +3095,7 @@ describe('a version published mid-operation', () => {
   it('does not grant anything just because a descriptor was re-published', async () => {
     const { updates, sent } = service(() => false)
     await updates.setTargetFromProducer('dev', devTarget())
-    updates.markAuthorized('dev')
+    await updates.markAuthorized('dev')
     const before = sent.length
     await updates.setTargetFromProducer('dev', packedTarget())
     expect(sent.length).toBe(before)
@@ -3023,7 +3106,7 @@ describe('a version published mid-operation', () => {
     await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.3' }))
     await updates.setTargetFromProducer('dev', devTarget({ version: '0.4.4' }))
     expect(updates.nextTarget('dev')).toBeDefined()
-    updates.setTargetUnavailable('dev', 'nothing published for this commit')
+    await updates.setTargetUnavailable('dev', 'nothing published for this commit')
     expect(updates.nextTarget('dev')).toBeUndefined()
   })
 })
@@ -3378,6 +3461,41 @@ describe('the fleet bridge', () => {
    * nothing is driving any more is exactly the thing that cannot correct it on
    * its own. The target change is what corrects it.
    */
+  it('settles a failed update without deadlocking its target notification', async () => {
+    const h = await harness({
+      machines: [machine({ id: 'online' }), machine({ id: 'laptop', online: false })],
+      target: packedTarget(),
+      servedWebDigest: () => WEB_DIGEST,
+      observeOperationChanges: true,
+    })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: () => h.clock.clock.now(),
+    })
+    h.setTargetChanged(() => bridge.onTargetChanged())
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    // Failure withdraws the target while holding this operation's serial queue.
+    // Restating its offline promise must queue behind it without being awaited.
+    await h.engine.recordProgress('op_1', UPDATE_STEP_MACHINES, {
+      state: 'failed',
+      error: { code: 'download-failed', message: 'artifact download timed out' },
+    })
+    await h.settleTargetChanges()
+    await h.engine.whenSettled('op_1')
+    expect((await h.read()).state).toBe('failed')
+    expect((await h.read()).deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'target-unavailable' },
+    ])
+
+    // The next build's feed refresh must not inherit the blocked old queue.
+    await h.updates.setTargetFromProducer('dev', { ...packedTarget(), version: 'dev+def5678' })
+    await h.settleTargetChanges()
+    expect(h.updates.target('dev')?.version).toBe('dev+def5678')
+  }, 2_000)
+
   it('restates an all-offline update promise once a newer target supersedes it', async () => {
     const fleet = [machine({ id: 'laptop', online: false })]
     const h = await harness({
@@ -3503,7 +3621,7 @@ describe('the fleet bridge', () => {
     })
     h.setTargetChanged(() => bridge.onTargetChanged())
 
-    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+    await h.updates.setTargetUnavailable('dev', 'the source checkout moved')
     await h.settleTargetChanges()
     await h.engine.whenSettled('op_1')
 
@@ -3551,7 +3669,7 @@ describe('the fleet bridge', () => {
     } as Operation
     const details = { target: packedTarget(), channel: 'dev' as const }
 
-    h.updates.setTargetUnavailable('dev', 'the source checkout moved')
+    await h.updates.setTargetUnavailable('dev', 'the source checkout moved')
 
     expect(await admissibleDeferredPlaces(operation, details, h.updates)).toEqual([])
     expect(supersededDeferredPlaces(operation, details, h.updates)).toEqual([
@@ -4602,7 +4720,9 @@ describe('the wave rounds an update writes down', () => {
 describe('coordinator backup preflight activation boundary', () => {
   function latch<T>() {
     let resolve!: (value: T) => void
-    const promise = new Promise<T>((done) => { resolve = done })
+    const promise = new Promise<T>((done) => {
+      resolve = done
+    })
     return { promise, resolve }
   }
 
@@ -4617,10 +4737,17 @@ describe('coordinator backup preflight activation boundary', () => {
     const releasePreflight = latch<void>()
     const activated = latch<void>()
     const receiptSettled = latch<void>()
-    const fleet = online ? [machine({
-      id: 'host', coordinator: true, presenceSource: 'supervisor',
-      deliveryCaps: FEED_CAPS, platform: 'linux-x64',
-    })] : []
+    const fleet = online
+      ? [
+          machine({
+            id: 'host',
+            coordinator: true,
+            presenceSource: 'supervisor',
+            deliveryCaps: FEED_CAPS,
+            platform: 'linux-x64',
+          }),
+        ]
+      : []
     let failPreflight = false
     const preflight = vi.fn(async (): Promise<{ ok: true } | { ok: false; detail: string }> => {
       preflighting.resolve()
@@ -4640,19 +4767,31 @@ describe('coordinator backup preflight activation boundary', () => {
     })
     const fallbackRestart = vi.fn()
     const prepare = createInstalledCoordinatorUpdate({
-      runtimeDir, hasParent: () => true, env: { PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
+      runtimeDir,
+      hasParent: () => true,
+      env: { PODIUM_MACHINE_UPDATE_OWNER: 'supervisor' },
     })!
     const h = await harness({
-      machines: fleet, target, serverPlacement: { kind: 'fleet', machineId: 'host' }, durableRecovery: true,
-      approvedTarget: async () => approved, servedWebDigest: () => WEB_DIGEST,
+      machines: fleet,
+      target,
+      serverPlacement: { kind: 'fleet', machineId: 'host' },
+      durableRecovery: true,
+      approvedTarget: async () => approved,
+      servedWebDigest: () => WEB_DIGEST,
       legacyTransferActive: () => transfer,
       prepareCoordinatorUpdate: async (target, grant) => {
         const receipt = await prepare(target, grant)
         if (!receipt) throw new Error('Expected a supervisor preparation receipt')
         return {
           committed: receipt.committed,
-          activate: async () => { await receipt.activate(); receiptSettled.resolve() },
-          cancel: async (reason) => { await receipt.cancel(reason); receiptSettled.resolve() },
+          activate: async () => {
+            await receipt.activate()
+            receiptSettled.resolve()
+          },
+          cancel: async (reason) => {
+            await receipt.cancel(reason)
+            receiptSettled.resolve()
+          },
         }
       },
       requestCoordinatorRestart: fallbackRestart,
@@ -4674,28 +4813,60 @@ describe('coordinator backup preflight activation boundary', () => {
       restart: vi.fn(async () => 'handover-pending' as const),
     }
     const reports: UpdateStatusMessage[] = []
-    const executor = new MachineUpdateExecutor({ runtimeDir, adapter, report: (status) => reports.push(status) })
+    const executor = new MachineUpdateExecutor({
+      runtimeDir,
+      adapter,
+      report: (status) => reports.push(status),
+    })
     const control = await startMachineUpdateControl(runtimeDir, executor)
     // Observable old-coordinator availability, separate from the control endpoint.
     const serving = createServer((_req, res) => res.end('old coordinator serving'))
     await new Promise<void>((resolve) => serving.listen(0, '127.0.0.1', resolve))
     const address = serving.address() as { port: number }
-    const oldServer = () => fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())
+    const oldServer = () =>
+      fetch(`http://127.0.0.1:${address.port}`).then((response) => response.text())
     const start = async () => {
       await h.engine.start(UPDATE_OPERATION_KIND, h.context())
       await preparing.promise
     }
     const repeat = async () => {
       const operation = await h.read()
-      const step = operation.steps!.find((candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER))!
-      return updateOperationKind().runners[step.id]!.ensure({ operation, step, context: h.context() })
+      const step = operation.steps!.find(
+        (candidate) => candidate.id === (online ? UPDATE_STEP_MACHINES : UPDATE_STEP_SERVER),
+      )!
+      return updateOperationKind().runners[step.id]!.ensure({
+        operation,
+        step,
+        context: h.context(),
+      })
     }
     return {
-      h, target, executor, adapter, reports, preflight, preflighting, preparing, activated, receiptSettled,
-      releasePreparation, releasePreflight, fallbackRestart, start, repeat, oldServer, runtimeDir,
-      failPreflight: () => { failPreflight = true },
-      transfer: () => { transfer = true },
-      supersede: () => { approved = { ...target, artifacts: { ...target.artifacts, web: { digest: 'replaced' } } } },
+      h,
+      target,
+      executor,
+      adapter,
+      reports,
+      preflight,
+      preflighting,
+      preparing,
+      activated,
+      receiptSettled,
+      releasePreparation,
+      releasePreflight,
+      fallbackRestart,
+      start,
+      repeat,
+      oldServer,
+      runtimeDir,
+      failPreflight: () => {
+        failPreflight = true
+      },
+      transfer: () => {
+        transfer = true
+      },
+      supersede: () => {
+        approved = { ...target, artifacts: { ...target.artifacts, web: { digest: 'replaced' } } }
+      },
       async close() {
         releasePreparation.resolve()
         releasePreflight.resolve()
@@ -4707,7 +4878,10 @@ describe('coordinator backup preflight activation boundary', () => {
     }
   }
 
-  it.each([true, false])('joins repeated ensures while preparing, preflighting and committed (online=%s)', async (online) => {
+  it.each([
+    true,
+    false,
+  ])('joins repeated ensures while preparing, preflighting and committed (online=%s)', async (online) => {
     const f = await fixture(online)
     try {
       await f.start()
@@ -4733,43 +4907,57 @@ describe('coordinator backup preflight activation boundary', () => {
       expect(f.adapter.activate).toHaveBeenCalledTimes(1)
       expect(f.h.sent).toEqual([])
       expect(f.fallbackRestart).not.toHaveBeenCalled()
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
 
-  it.each(['disk-space', 'persistence', 'transfer', 'approval', 'cancellation', 'activation-refusal'] as const)(
-    'keeps the old coordinator serving after %s while the grant is held', async (failure) => {
-      const f = await fixture()
-      try {
-        await f.start()
-        f.releasePreparation.resolve()
-        await f.preflighting.promise
-        if (failure === 'disk-space') f.failPreflight()
-        if (failure === 'persistence') vi.spyOn(f.h.engine, 'recordDetailsLocked').mockImplementation(() => { throw new Error('preflight receipt disk full') })
-        if (failure === 'transfer') f.transfer()
-        if (failure === 'approval') f.supersede()
-        if (failure === 'cancellation') expect((await f.h.engine.cancel('op_1')).canceled).toBe(true)
-        if (failure === 'activation-refusal') await f.executor.cancel(f.executor.snapshot()!.grant.grantId)
-        f.releasePreflight.resolve()
-        await f.receiptSettled.promise
-        // The machines runner reports its asynchronous coordinator failure to the engine.
-        await new Promise<void>((resolve) => setImmediate(resolve))
-        await f.h.engine.whenSettled('op_1')
-        expect(f.adapter.activate).not.toHaveBeenCalled()
-        expect(f.fallbackRestart).not.toHaveBeenCalled()
-        expect(await f.oldServer()).toBe('old coordinator serving')
-        expect(f.executor.snapshot()!.phase).toBe('canceled')
-        if (failure === 'disk-space') {
-          expect(f.executor.snapshot()!.detail).toContain('Not enough disk space')
-          expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
-        }
-        if (failure === 'persistence') {
-          expect(f.executor.snapshot()!.detail).toContain('preflight receipt disk full')
-          expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
-        }
-        if (failure !== 'cancellation') expect((await f.h.read()).state).toBe('failed')
-      } finally { vi.restoreAllMocks(); await f.close() }
-    },
-  )
+  it.each([
+    'disk-space',
+    'persistence',
+    'transfer',
+    'approval',
+    'cancellation',
+    'activation-refusal',
+  ] as const)('keeps the old coordinator serving after %s while the grant is held', async (failure) => {
+    const f = await fixture()
+    try {
+      await f.start()
+      f.releasePreparation.resolve()
+      await f.preflighting.promise
+      if (failure === 'disk-space') f.failPreflight()
+      if (failure === 'persistence')
+        vi.spyOn(f.h.engine, 'recordDetailsLocked').mockImplementation(() => {
+          throw new Error('preflight receipt disk full')
+        })
+      if (failure === 'transfer') f.transfer()
+      if (failure === 'approval') f.supersede()
+      if (failure === 'cancellation') expect((await f.h.engine.cancel('op_1')).canceled).toBe(true)
+      if (failure === 'activation-refusal')
+        await f.executor.cancel(f.executor.snapshot()!.grant.grantId)
+      f.releasePreflight.resolve()
+      await f.receiptSettled.promise
+      // The machines runner reports its asynchronous coordinator failure to the engine.
+      await new Promise<void>((resolve) => setImmediate(resolve))
+      await f.h.engine.whenSettled('op_1')
+      expect(f.adapter.activate).not.toHaveBeenCalled()
+      expect(f.fallbackRestart).not.toHaveBeenCalled()
+      expect(await f.oldServer()).toBe('old coordinator serving')
+      expect(f.executor.snapshot()!.phase).toBe('canceled')
+      if (failure === 'disk-space') {
+        expect(f.executor.snapshot()!.detail).toContain('Not enough disk space')
+        expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
+      }
+      if (failure === 'persistence') {
+        expect(f.executor.snapshot()!.detail).toContain('preflight receipt disk full')
+        expect(f.executor.snapshot()!.reasonCode).toBe('coordinator-preparation-failed')
+      }
+      if (failure !== 'cancellation') expect((await f.h.read()).state).toBe('failed')
+    } finally {
+      vi.restoreAllMocks()
+      await f.close()
+    }
+  })
 
   it('preserves a preflight failure when cancellation reports reach the fleet first [POD-5290]', async () => {
     const f = await fixture()
@@ -4788,16 +4976,23 @@ describe('coordinator backup preflight activation boundary', () => {
       f.releasePreflight.resolve()
       await f.receiptSettled.promise
       await runnerReported.promise
-      const canceled = f.reports.findLast(status => status.phaseDetail === 'canceled')!
+      const canceled = f.reports.findLast((status) => status.phaseDetail === 'canceled')!
       await f.h.updates.onStatus(asMachineId('host'), canceled)
       report.mockRestore()
-      await createUpdateFleetBridge({ engine: f.h.engine, updates: f.h.updates, now: () => f.h.clock.clock.now() }).onFleetChanged()
+      await createUpdateFleetBridge({
+        engine: f.h.engine,
+        updates: f.h.updates,
+        now: () => f.h.clock.clock.now(),
+      }).onFleetChanged()
       await f.h.engine.whenSettled('op_1')
       expect((await f.h.read()).state).toBe('failed')
       expect((await f.h.read()).error?.detail).toContain('Not enough disk space')
       expect(f.adapter.activate).not.toHaveBeenCalled()
       expect(await f.oldServer()).toBe('old coordinator serving')
-    } finally { vi.restoreAllMocks(); await f.close() }
+    } finally {
+      vi.restoreAllMocks()
+      await f.close()
+    }
   })
 
   /**
@@ -4839,16 +5034,20 @@ describe('coordinator backup preflight activation boundary', () => {
       // `canceled` detail and not a bare inactive code.
       const retry = await f.repeat()
       expect(retry.state).toBe('failed')
-      const detail = retry.error && 'detail' in retry.error
-        ? String((retry.error as { detail?: unknown }).detail ?? '')
-        : ''
-      const message = retry.error && 'message' in retry.error
-        ? String((retry.error as { message?: unknown }).message ?? '')
-        : ''
+      const detail =
+        retry.error && 'detail' in retry.error
+          ? String((retry.error as { detail?: unknown }).detail ?? '')
+          : ''
+      const message =
+        retry.error && 'message' in retry.error
+          ? String((retry.error as { message?: unknown }).message ?? '')
+          : ''
       expect(`${message} ${detail}`).toContain('Not enough disk space')
       expect(`${message} ${detail}`).not.toContain('canceled before activation')
       expect(retry.error?.code).not.toBe('coordinator-update-inactive')
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
 
   it('never cancels a replacement grant after authority changes during the backup preflight', async () => {
@@ -4869,7 +5068,9 @@ describe('coordinator backup preflight activation boundary', () => {
       expect(f.executor.snapshot()!.phase).toBe('prepared')
       expect(f.adapter.activate).not.toHaveBeenCalled()
       expect((await f.h.read()).state).toBe('failed')
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
 
   it('restores the exact committed grant and preflight receipt through the production recovery store', async () => {
@@ -4886,10 +5087,15 @@ describe('coordinator backup preflight activation boundary', () => {
       f.h.engine.stop()
       resetUpdateOperationState()
       const boot = await f.h.reboot()
-      await boot.engine.adoptOnBoot(() => ({
-        appVersion: '0.4.1', servedWebDigest: WEB_DIGEST,
-        machineDirectory: [], now: f.h.clock.clock.now(),
-      }), () => boot.context())
+      await boot.engine.adoptOnBoot(
+        () => ({
+          appVersion: '0.4.1',
+          servedWebDigest: WEB_DIGEST,
+          machineDirectory: [],
+          now: f.h.clock.clock.now(),
+        }),
+        () => boot.context(),
+      )
       await boot.engine.whenSettled('op_1')
       expect(f.executor.snapshot()!.grant).toEqual(grant)
       expect(f.adapter.prepare).toHaveBeenCalledTimes(1)
@@ -4897,34 +5103,54 @@ describe('coordinator backup preflight activation boundary', () => {
       expect(f.preflight).toHaveBeenCalledTimes(1)
       expect(f.h.sent).toEqual([])
       boot.engine.stop()
-    } finally { await f.close() }
+    } finally {
+      await f.close()
+    }
   })
 
   it('holds boot and reconnect auto-grants before any plan or handler exists', async () => {
     const target = releaseFor(['linux-x64'])
     const fleet: WaveMachine[] = []
     const send = vi.fn()
-    const service = new UpdatesService({ machines: async () => fleet, send, now: () => 1,
-      nextGrantId: () => 'unheld', concurrency: 1, fleetChannel: () => 'dev', approvedTarget: async () => target })
-    service.setTarget('dev', target)
-    service.markAuthorized('dev')
+    const service = new UpdatesService({
+      machines: async () => fleet,
+      send,
+      now: () => 1,
+      nextGrantId: () => 'unheld',
+      concurrency: 1,
+      fleetChannel: () => 'dev',
+      approvedTarget: async () => target,
+    })
+    await service.setTarget('dev', target)
+    await service.markAuthorized('dev')
     await service.tick('dev')
-    fleet.push(machine({ id: 'host', coordinator: true, presenceSource: 'supervisor',
-      deliveryCaps: FEED_CAPS, platform: 'linux-x64' }))
+    fleet.push(
+      machine({
+        id: 'host',
+        coordinator: true,
+        presenceSource: 'supervisor',
+        deliveryCaps: FEED_CAPS,
+        platform: 'linux-x64',
+      }),
+    )
     await service.tick('dev')
     await service.fleet()
     expect(send).not.toHaveBeenCalled()
   })
 })
 
-
 describe('boot target hydration observation boundary (POD-4257)', () => {
-  async function checkAdoptedTarget(scenario: 'own target' | 'different version' | 'different fingerprint' | 'withdrawn channel') {
+  async function checkAdoptedTarget(
+    scenario: 'own target' | 'different version' | 'different fingerprint' | 'withdrawn channel',
+  ) {
     const target = packedTarget()
     const fleet = [machine({ id: 'a' }), machine({ id: 'b' })]
-    const hydrated = scenario === 'different version'
-      ? { ...target, version: 'dev+def5678' }
-      : scenario === 'different fingerprint' ? { ...target, critical: true } : target
+    const hydrated =
+      scenario === 'different version'
+        ? { ...target, version: 'dev+def5678' }
+        : scenario === 'different fingerprint'
+          ? { ...target, critical: true }
+          : target
     const resolveTarget = vi.fn(async () => hydrated)
     const recordGrant = vi.fn<NonNullable<UpdatesDeps['recordGrant']>>()
     let approvalStore: OperationStore | undefined
@@ -4946,8 +5172,11 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       const grant = h.sent[0]!.message
       fleet[0] = machine({ id: 'a', version: target.version })
       await h.updates.onStatus(asMachineId('a'), {
-        type: 'updateStatus', state: 'current', version: target.version,
-        targetVersion: target.version, grantId: grant.grantId,
+        type: 'updateStatus',
+        state: 'current',
+        version: target.version,
+        targetVersion: target.version,
+        grantId: grant.grantId,
       })
       h.engine.stop()
       fleet[0]!.online = false
@@ -4955,8 +5184,12 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       boot = await h.reboot({ seedTarget: undefined })
       const successor = boot
       await successor.engine.adoptOnBoot(
-        () => ({ appVersion: target.version, servedWebDigest: WEB_DIGEST,
-          machineDirectory: fleet, now: h.clock.clock.now() }),
+        () => ({
+          appVersion: target.version,
+          servedWebDigest: WEB_DIGEST,
+          machineDirectory: fleet,
+          now: h.clock.clock.now(),
+        }),
         () => successor.context(),
       )
       await successor.engine.whenSettled('op_1')
@@ -4965,12 +5198,15 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
         await successor.updates.withdrawFailedTarget('dev', target, 'test withdrawal')
       }
       const bridge = createUpdateFleetBridge({
-        engine: successor.engine, updates: successor.updates, now: h.clock.clock.now,
+        engine: successor.engine,
+        updates: successor.updates,
+        now: h.clock.clock.now,
       })
       successor.setTargetChanged(() => bridge.onTargetChanged())
       const reconciler = new UpdateReconciler({
         updates: successor.updates,
-        operationActive: async () => (await successor.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
+        operationActive: async () =>
+          (await successor.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       })
       // server.ts opens the listener before awaiting its feed. A directory can
       // already show a participant online when that feed finishes resolving.
@@ -4979,9 +5215,11 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       fleet[1]!.online = true
       const before = await h.read()
       const grantsBefore = h.sent.length
-      const states = (operation: Operation) => operation.steps?.map(({ id, state }) => ({ id, state }))
+      const states = (operation: Operation) =>
+        operation.steps?.map(({ id, state }) => ({ id, state }))
       await refreshTargetsOnBoot({
-        channels: ['dev'], refresh: (channel) => successor.updates.refreshTarget(channel),
+        channels: ['dev'],
+        refresh: (channel) => successor.updates.refreshTarget(channel),
       })
       await h.settleTargetChanges()
       await reconciler.onBoot()
@@ -4993,8 +5231,11 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
         for (const { message } of issued) {
           expect(message.target.version).toBe(target.version)
           expect(updateFingerprint(message.target)).toBe(updateFingerprint(target))
-          expect(recordGrant.mock.calls.find(([record]) => record.grantId === message.grantId)?.[0])
-            .toMatchObject({ initiator: { kind: 'operation', operationId: before.id, step: UPDATE_STEP_MACHINES } })
+          expect(
+            recordGrant.mock.calls.find(([record]) => record.grantId === message.grantId)?.[0],
+          ).toMatchObject({
+            initiator: { kind: 'operation', operationId: before.id, step: UPDATE_STEP_MACHINES },
+          })
         }
       } else {
         expect.soft(issued, 'unapproved or withdrawn hydration must not issue grants').toEqual([])
@@ -5004,19 +5245,23 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
           code: 'published-target-changed',
           detail: 'published target changed under the running operation; approve again to continue',
         }
-        expect((await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES))
-          .toMatchObject({ state: 'running', detail: blocker.detail, error: blocker })
+        expect((await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES)).toMatchObject(
+          { state: 'running', detail: blocker.detail, error: blocker },
+        )
         // Fleet events and explicit runner retries must not bypass the refusal.
         await bridge.onFleetChanged()
         await successor.engine.reensure(before.id, UPDATE_STEP_MACHINES)
         await successor.engine.whenSettled(before.id)
         expect(h.sent.slice(grantsBefore)).toEqual([])
-        expect((await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES)?.error)
-          .toEqual(blocker)
+        expect(
+          (await h.read()).steps?.find(({ id }) => id === UPDATE_STEP_MACHINES)?.error,
+        ).toEqual(blocker)
       }
       expect((await h.read()).id).toBe(before.id)
       expect(await h.store.history(UPDATE_OPERATION_KIND)).toHaveLength(1)
-      expect.soft(states(await h.read()), 'boot hydration must not advance step states').toEqual(states(before))
+      expect
+        .soft(states(await h.read()), 'boot hydration must not advance step states')
+        .toEqual(states(before))
       expect(h.clock.clock.now()).toBe(0)
     } finally {
       h.engine.stop()
@@ -5024,9 +5269,12 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
     }
   }
 
-  it.each(['own target', 'different version', 'different fingerprint', 'withdrawn channel'] as const)(
-    'resumes only an adopted operation’s exact approved target: %s', checkAdoptedTarget,
-  )
+  it.each([
+    'own target',
+    'different version',
+    'different fingerprint',
+    'withdrawn channel',
+  ] as const)('resumes only an adopted operation’s exact approved target: %s', checkAdoptedTarget)
 
   it('hydrates without starting an operation or granting when none is running', async () => {
     const target = packedTarget()
@@ -5040,14 +5288,21 @@ describe('boot target hydration observation boundary (POD-4257)', () => {
       serverPlacement: { kind: 'external' },
     })
     approvalStore = h.store
-    const bridge = createUpdateFleetBridge({ engine: h.engine, updates: h.updates, now: h.clock.clock.now })
+    const bridge = createUpdateFleetBridge({
+      engine: h.engine,
+      updates: h.updates,
+      now: h.clock.clock.now,
+    })
     h.setTargetChanged(() => bridge.onTargetChanged())
     const reconciler = new UpdateReconciler({
       updates: h.updates,
       operationActive: async () => (await h.engine.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
     })
     try {
-      await refreshTargetsOnBoot({ channels: ['dev'], refresh: (channel) => h.updates.refreshTarget(channel) })
+      await refreshTargetsOnBoot({
+        channels: ['dev'],
+        refresh: (channel) => h.updates.refreshTarget(channel),
+      })
       await h.settleTargetChanges()
       await reconciler.onBoot()
       expect(h.updates.target('dev')).toEqual(target)

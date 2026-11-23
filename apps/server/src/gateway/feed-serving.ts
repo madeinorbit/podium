@@ -1,7 +1,7 @@
 /** Live WebSocket feed admission and publication. Snapshots and catch-up are HTTP reads. */
 
 import { createLogger } from '@podium/logger'
-import type { ConversationDiagnosticWire } from '@podium/model'
+import type { ChangeProvenanceFields, ConversationDiagnosticWire, WorkspaceId } from '@podium/model'
 import {
   asSubscriberId,
   type FeedChange,
@@ -27,7 +27,7 @@ import type {
   ScopedDelivery,
   ServerFrame,
 } from '@podium/sync'
-import { FeedPublisher } from '@podium/sync'
+import { extendBatch, FeedPublisher } from '@podium/sync'
 import { perfPrincipal } from '../modules/perf/principal'
 import { perf } from '../modules/perf/registry'
 import { createFrameFlusher, runAtRoot, withReadScope } from '../publication-scope'
@@ -124,6 +124,8 @@ export function scheduleFeedFlush(
 
 export interface FeedServingDeps {
   readonly onPublicationIdle?: OnPublicationIdle
+  /** The workspace this feed serves: its perf partitions are keyed by it. */
+  readonly workspaceId: WorkspaceId
   /** The kernel role. Both reads come from it, which is the whole point. */
   readonly authority: AuthorityPort
 
@@ -178,6 +180,10 @@ export class FeedServing {
   >()
   private cancelScheduledFlush: (() => void) | undefined
   private pendingFlush: Promise<void> = Promise.resolve()
+  /** Every publication runs behind this, so a principal's ranges leave in order. */
+  private publishTail: Promise<void> = Promise.resolve()
+  /** What a failed publication still owes each principal, oldest first. */
+  private readonly owed = new Map<string, OwedPublication>()
 
   constructor(private readonly deps: FeedServingDeps) {
     this.publisher = new FeedPublisher({
@@ -404,7 +410,7 @@ export class FeedServing {
     resyncRequired = false,
   ): Promise<void> {
     const t0 = performance.now()
-    const perfKey = perfPrincipal(principal)
+    const perfKey = perfPrincipal(this.deps.workspaceId, principal)
     await this.deps.identity.resolve()
     if (this.abandoned(peer)) return
     const identity = this.deps.identity.current()
@@ -559,14 +565,18 @@ export class FeedServing {
     this.pendingByPrincipal.clear()
     // An earlier flush may still be framing asynchronously. Preserve batch order
     // and give advisories a barrier that includes work already taken off the queue.
+    // At the root: a flush requested from inside a write transaction must not
+    // read through that transaction once it has closed (POD-6779).
     const flush = this.pendingFlush.then(() =>
-      withReadScope(async () => {
-        for (const { principal, deliveries } of pending) {
-          for (const delivery of coalesceScopedDeliveries(deliveries)) {
-            await this.publish(principal, delivery)
+      runAtRoot(() =>
+        withReadScope(async () => {
+          for (const { principal, deliveries } of pending) {
+            for (const delivery of coalesceScopedDeliveries(deliveries)) {
+              await this.publishInOrder(principal, delivery)
+            }
           }
-        }
-      }),
+        }),
+      ),
     )
     this.pendingFlush = flush.catch((err) => {
       log.warn('coalesced feed publication failed', { err })
@@ -581,9 +591,99 @@ export class FeedServing {
    * not a schedule: a frame left in it is a frame a connection has not been told
    * about, and there is no other tick in this server that would come back for it.
    */
-  async publish(principal: Principal, delivery: ScopedDelivery): Promise<void> {
+  publish(principal: Principal, delivery: ScopedDelivery): Promise<void> {
+    // A publication never belongs to its caller's transaction. A caller that
+    // asks from a continuation of a write that has since closed would otherwise
+    // send the frame's reads to that dead transaction (POD-6779).
+    return runAtRoot(() => this.publishInOrder(principal, delivery))
+  }
+
+  /**
+   * One publication at a time, and what an earlier one still owes goes first.
+   *
+   * A FAILED PUBLICATION IS OWED, NEVER DROPPED (POD-6779). A frame certifies
+   * the whole range from the connection's position to `throughSeq`. If the rows
+   * of a failed delivery were dropped, the next frame would certify their range
+   * without them: the client would hold a cursor past rows it never received,
+   * and retire an optimistic write whose truth it does not have. So the rows
+   * stay here and leave ahead of anything newer, on the next publication for
+   * that principal or on a timer.
+   *
+   * Recovery is loud on purpose. It hides nothing: every failure is an error
+   * record with the cause and the range, because a publication that fails is a
+   * defect somewhere else.
+   */
+  private publishInOrder(principal: Principal, delivery?: ScopedDelivery): Promise<void> {
+    const run = this.publishTail.then(() => this.publishOwedThen(principal, delivery))
+    this.publishTail = run.catch(() => {})
+    return run
+  }
+
+  private async publishOwedThen(principal: Principal, delivery?: ScopedDelivery): Promise<void> {
+    const key = principalRoutingId(principal)
+    const owed = this.owed.get(key)
+    const queued = [...(owed?.deliveries ?? []), ...(delivery ? [delivery] : [])]
+    const deliveries = owed ? coalesceScopedDeliveries(queued) : queued
+    for (let index = 0; index < deliveries.length; index += 1) {
+      const next = deliveries[index]
+      if (next === undefined) continue
+      try {
+        await this.publishOnce(principal, next)
+      } catch (err) {
+        this.owe(key, principal, deliveries.slice(index), (owed?.attempts ?? 0) + 1, err)
+        return
+      }
+    }
+    if (!owed) return
+    clearTimeout(owed.retry)
+    this.owed.delete(key)
+    log.warn('owed feed publication delivered', {
+      principal: key,
+      attempts: owed.attempts,
+      throughSeq: deliveries.at(-1)?.throughSeq,
+    })
+  }
+
+  private owe(
+    key: string,
+    principal: Principal,
+    deliveries: readonly ScopedDelivery[],
+    attempts: number,
+    err: unknown,
+  ): void {
+    const previous = this.owed.get(key)
+    if (previous) clearTimeout(previous.retry)
+    const throughSeq = deliveries.at(-1)?.throughSeq ?? 0
+    const changes = deliveries.reduce(
+      (count, delivery) => count + (delivery.kind === 'batch' ? delivery.changes.length : 0),
+      0,
+    )
+    // Bounded: past the limit the rows are not kept, the connections are told to
+    // fetch the truth themselves, which covers the same range.
+    const kept: readonly ScopedDelivery[] =
+      changes > OWED_CHANGE_LIMIT
+        ? [{ kind: 'rescope', throughSeq, reason: 'publication-recovery' }]
+        : deliveries
+    const retryInMs = Math.min(OWED_RETRY_BASE_MS * 2 ** (attempts - 1), OWED_RETRY_MAX_MS)
+    const retry = setTimeout(() => {
+      void runAtRoot(() => this.publishInOrder(principal))
+    }, retryInMs)
+    retry.unref?.()
+    this.owed.set(key, { deliveries: kept, attempts, retry })
+    log.error('feed publication failed; its rows are owed and will be republished', {
+      err,
+      principal: key,
+      attempt: attempts,
+      deliveries: deliveries.length,
+      changes,
+      throughSeq,
+      retryInMs,
+    })
+  }
+
+  private async publishOnce(principal: Principal, delivery: ScopedDelivery): Promise<void> {
     const totalStartedAt = performance.now()
-    const perfKey = perfPrincipal(principal)
+    const perfKey = perfPrincipal(this.deps.workspaceId, principal)
     // Scoping has already been evaluated by Authority for this principal. Record
     // the handoff under that same principal so bootstrap and publication remain
     // comparable after per-user transport authentication.
@@ -600,7 +700,11 @@ export class FeedServing {
     const key = principalRoutingKeyFromId(principalRoutingId(principal))
     const subscribers = this.deps.subscriptions.subscribers(key)
     const targets = subscribers.map((sub) => String(sub.subscriberId))
-    if (delivery.kind === 'rescope' || delivery.changes.some((change) => change.op === 'evict')) {
+    // THE ACCESS MOVE IS ONE FACT (POD-6947): a rescope, or a batch whose
+    // range names this principal in a visibility edge, granted or taken. Rooms
+    // and topics are re-checked here; the frame carries it to the client, which
+    // asks again for what it was refused.
+    if (delivery.kind === 'rescope' || delivery.access === true) {
       await this.deps.onVisibilityChanged?.(subscribers.map((sub) => sub.subscriberId))
     }
     await this.publisher.publishTo(targets, principal, delivery)
@@ -679,16 +783,23 @@ export class FeedServing {
   }
 }
 
+interface OwedPublication {
+  readonly deliveries: readonly ScopedDelivery[]
+  readonly attempts: number
+  readonly retry: ReturnType<typeof setTimeout>
+}
+
+const OWED_RETRY_BASE_MS = 100
+const OWED_RETRY_MAX_MS = 5_000
+/** Owed rows kept per principal before recovery falls back to a rescope. */
+const OWED_CHANGE_LIMIT = 10_000
+
 function coalesceScopedDeliveries(deliveries: readonly ScopedDelivery[]): ScopedDelivery[] {
   const coalesced: ScopedDelivery[] = []
   for (const delivery of deliveries) {
     const previous = coalesced.at(-1)
     if (delivery.kind === 'batch' && previous?.kind === 'batch') {
-      coalesced[coalesced.length - 1] = {
-        kind: 'batch',
-        throughSeq: delivery.throughSeq,
-        changes: [...previous.changes, ...delivery.changes],
-      }
+      coalesced[coalesced.length - 1] = extendBatch(previous, delivery)
     } else {
       coalesced.push(delivery)
     }
@@ -719,7 +830,9 @@ function toWireFrame(frame: ServerFrame, atSeq: number): FeedFrame {
         entityId: change.entityId,
         op: change.op,
         ...(change.op === 'upsert' ? { value: change.payload } : {}),
+        ...provenanceOf(change),
       })) as FeedDeltaMessage['changes'],
+      ...(frame.access ? { access: true } : {}),
     }
     return delta
   }
@@ -769,7 +882,22 @@ export function toFeedChange(change: ScopedChange): FeedChange {
   const base = { seq: change.seq, entity: change.entity, entityId: change.entityId }
   return (
     change.op === 'upsert'
-      ? { ...base, op: 'upsert', value: change.value }
-      : { ...base, op: change.op }
+      ? { ...base, op: 'upsert', value: change.value, ...provenanceOf(change) }
+      : { ...base, op: change.op, ...provenanceOf(change) }
   ) as FeedChange
+}
+
+/**
+ * The command that caused a row (ADR 2 D8, POD-6274), in the wire's key order
+ * after `value`. Only DEFINED fields are written: an `undefined` key would make a
+ * row the Authority made on its own behalf differ from the same row before this
+ * change, and JSON would drop it anyway, so the two paths would disagree on what
+ * a frame contains.
+ */
+function provenanceOf(change: ChangeProvenanceFields): ChangeProvenanceFields {
+  return {
+    ...(change.originId === undefined ? {} : { originId: change.originId }),
+    ...(change.causationId === undefined ? {} : { causationId: change.causationId }),
+    ...(change.mutationId === undefined ? {} : { mutationId: change.mutationId }),
+  }
 }

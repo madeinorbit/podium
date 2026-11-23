@@ -33,7 +33,29 @@ describe('harness descriptor wire (POD-4475)', () => {
     expect(HarnessDescriptorWire.parse(descriptor)).toEqual({
       ...descriptor,
       login: { command: 'future login', installHint: 'Install Future.', signedOutHint: null },
+      accepts: [],
     })
+  })
+
+  it('parses a descriptor received without accepts as an empty list', () => {
+    // A daemon from before the credential types (plan Task 1) sends no field.
+    expect('accepts' in descriptor).toBe(false)
+    expect(HarnessDescriptorWire.parse(descriptor).accepts).toEqual([])
+  })
+
+  it('keeps accepted credential lines, including a type and delivery this build does not know', () => {
+    const accepts = [
+      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      {
+        type: 'openai.chatgpt-plan',
+        deliver: { kind: 'env', variable: 'ACCESS_TOKEN' },
+        drivers: ['codex-app-server'],
+      },
+      { type: 'anthropic.claude-login', deliver: { kind: 'home' } },
+      // A newer daemon's type id and delivery kind still parse; readers match known ids only.
+      { type: 'future.api-key', deliver: { kind: 'endpoint' } },
+    ]
+    expect(HarnessDescriptorWire.parse({ ...descriptor, accepts }).accepts).toEqual(accepts)
   })
 
   it('ignores an extra field from a newer daemon', () => {
@@ -79,7 +101,7 @@ describe('harness descriptor wire (POD-4475)', () => {
       type: 'inventoryReport' as const,
       machineId: asMachineId('m1'),
       inventory,
-      descriptors: [descriptor],
+      descriptors: [{ ...descriptor, accepts: [] }],
     }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })

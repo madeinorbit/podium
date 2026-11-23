@@ -25,7 +25,6 @@ describe('issue tracker capability composition', () => {
         normalizeSettings({
           gitWorkflow: {
             defaultParentBranch: '',
-            mergeStyle: 'ff-only',
             autoRebaseBeforeMerge: true,
           },
           sessionDefaults: { agent: 'claude-code' },
@@ -35,7 +34,7 @@ describe('issue tracker capability composition', () => {
         machine: 'machine-under-test',
       }),
       repoOp: async () => ({ ok: true, output: '' }),
-      ...issueTestPlumbing(),
+      ...issueTestPlumbing(undefined, { store }),
     }
     const tracker = await IssueService.create(deps)
     expect(types.isProxy(tracker)).toBe(false)
@@ -53,7 +52,7 @@ describe('issue tracker capability composition', () => {
     expect(new Set(capabilities.map((capability) => capability.store)).size).toBe(1)
 
     expect(await tracker.reports.list()).toEqual([])
-    const created = await tracker.crud.create({ repoPath: '/repo', title: 'one store', startNow: false })
+    const created = await tracker.crud.create(tracker.reports.store.serverWriter, { repoPath: '/repo', title: 'one store', startNow: false })
     expect((await tracker.reports.get(created.id))?.title).toBe('one store')
     await deps.store.close()
   })

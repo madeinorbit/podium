@@ -28,10 +28,6 @@ function idleSess(id: string, issueId: string) {
     cwd: '/repo',
     title: id,
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-07-06T12:00:00.000Z',
     lastActiveAt: '2026-07-06T12:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -119,7 +115,7 @@ vi.mock('@/app/store', () => {
     fileTabs: [],
     view: 'workspace',
     setView: vi.fn(),
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
     uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
     spawnDraftAgent: vi.fn(),
@@ -129,7 +125,7 @@ vi.mock('@/app/store', () => {
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 

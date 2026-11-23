@@ -10,8 +10,10 @@
  * the issue map, these reads were also compared with it.
  */
 
-import { asIssueId, asSessionId, firstAdminMemberId, type RepoId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { asIssueId, asSessionId, firstAdminMemberId, type RepoId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
 import { type CorpusIssue, rawSql, seededStore } from '../../../test-support/issue-corpus'
@@ -31,7 +33,7 @@ async function serviceOver(store: SessionStore): Promise<IssueService> {
     getSettings: async () => normalizeSettings({}),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'm' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(() => {}),
+    ...issueTestPlumbing(() => {}, { store }),
     setSessionArchived: vi.fn(),
   } as IssueDeps)
 }
@@ -41,7 +43,9 @@ type SortScopes = {
     repoId: RepoId | null,
     repoPath: string,
     parentId: string | null,
-    opts?: { includePinned?: boolean },
+    // Whose pins leave the unpinned key space is named, never the first admin
+    // by default (POD-6291 9dd00e1e43: markers are per member).
+    opts: { includePinned: true } | { unpinnedFor: UserId },
   ): Promise<{ id: string }[]>
 }
 
@@ -71,9 +75,10 @@ describe('issue hierarchy reads over the database', () => {
     const store = await seededStore(rows, ['/a', '/b'])
     stores.push(store)
     // A parent cycle: no write path makes one, so it is planted.
-    rawSql(store, "UPDATE issues SET parent_id = 'iss_c2' WHERE id = 'iss_c1'")
+    await rawSql(store, sql`UPDATE issues SET parent_id = 'iss_c2' WHERE id = 'iss_c1'`)
     const viewer = await firstAdminMemberId(store)
-    await store.issues.setIssueUserState(viewer, asIssueId('iss_8'), { pinnedAt: '2026-10-01T00:00:00.000Z' })
+    // The viewer's pin is a `pins` row of kind 'issue' (POD-6692).
+    await store.sessions.addPin(viewer, 'issue', 'iss_8', '2026-10-01T00:00:00.000Z')
     const svc = await serviceOver(store)
     const issues = svc.reports.store
     const crud = svc.crud as unknown as SortScopes
@@ -107,11 +112,11 @@ describe('issue hierarchy reads over the database', () => {
     expect(await svc.hierarchy.inProposedSubtree('iss_2')).toBe(false)
 
     // The manual-order key spaces: live rows only, in no particular order.
-    expect(ids(await crud.sortScopeRows(null, '', 'iss_1')).sort()).toEqual(['iss_2', 'iss_7', 'iss_b1'])
+    expect(ids(await crud.sortScopeRows(null, '', 'iss_1', { includePinned: true })).sort()).toEqual(['iss_2', 'iss_7', 'iss_b1'])
     const a = resolve('/a')!
     const b = resolve('/b')!
     expect(ids(await crud.sortScopeRows(a, '/a', null, { includePinned: true })).sort()).toEqual(['iss_1', 'iss_8'])
-    expect(ids(await crud.sortScopeRows(a, '/a', null))).toEqual(['iss_1'])
+    expect(ids(await crud.sortScopeRows(a, '/a', null, { unpinnedFor: viewer }))).toEqual(['iss_1'])
     expect(ids(await crud.sortScopeRows(b, '/b', null, { includePinned: true }))).toEqual(['iss_b2'])
   })
 })

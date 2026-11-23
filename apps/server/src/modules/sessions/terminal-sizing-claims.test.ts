@@ -1,4 +1,5 @@
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 /**
  * SIZING PLAN ASSUMPTION TESTS — server half (POD-3235, spec artifact SPEC-0b.md rev 2).
  *
@@ -22,7 +23,7 @@ import {
   type SessionId,
   SessionMeta,
 } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import { type ServerMessage, SessionTerminalStatePayload } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientPrincipal } from '../../gateway/client-principal'
@@ -50,6 +51,7 @@ function makeClient(id: string): Sent {
     id,
     principal: userClientPrincipal(id, OWNER, 'admin'),
     send: (m: ServerMessage) => sent.push(m),
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
@@ -108,6 +110,10 @@ const registries: SessionRegistry[] = []
 afterEach(async () => {
   for (const r of registries.splice(0)) await r.dispose()
 })
+
+/** A session's size as a client learns it: the `session.terminalState` topic (POD-6764). */
+const terminalState = async (reg: SessionRegistry, sessionId: SessionId) =>
+  await reg.modules.sessions.liveTopics.snapshot('session.terminalState', sessionId)
 
 async function registryFor(): Promise<{ reg: SessionRegistry; daemon: ControlMessage[] }> {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
@@ -489,7 +495,7 @@ describe('C13 (REWRITTEN for POD-4771): a statement at the size last asked for i
 // ---------------------------------------------------------------------------
 
 describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, wake uses the stored one', () => {
-  it('DEFAULT_GEOMETRY is 80x24 and is what a spawn frame and the published row both carry', async () => {
+  it('DEFAULT_GEOMETRY is 80x24 and is what a spawn frame and the terminal state both carry', async () => {
     expect(DEFAULT_GEOMETRY).toEqual({ cols: 80, rows: 24 })
     const { reg, daemon } = await registryFor()
     const { sessionId } = await reg.modules.sessions.createSession({
@@ -498,10 +504,7 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
     })
 
     expect(spawns(daemon).at(-1)?.geometry).toEqual({ cols: 80, rows: 24 })
-    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
-      (s) => s.sessionId === sessionId,
-    )
-    expect(row?.geometry).toEqual({ cols: 80, rows: 24 })
+    expect(await terminalState(reg, sessionId)).toMatchObject({ geometry: { cols: 80, rows: 24 } })
   })
 
   it('create() has no geometry parameter: an extra key is not read, and the spawn is still 80x24', async () => {
@@ -514,10 +517,7 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
     const { sessionId } = await reg.modules.sessions.createSession(input)
 
     expect(spawns(daemon).at(-1)?.geometry).toEqual({ cols: 80, rows: 24 })
-    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
-      (s) => s.sessionId === sessionId,
-    )
-    expect(row?.geometry).toEqual({ cols: 80, rows: 24 })
+    expect(await terminalState(reg, sessionId)).toMatchObject({ geometry: { cols: 80, rows: 24 } })
   })
 
   it('wake carries the STORED geometry, not the default', async () => {
@@ -564,8 +564,8 @@ describe('C15: spawn hardcodes DEFAULT_GEOMETRY, create() accepts no geometry, w
 // C10 (server + wire half; the "nobody reads it" half is in terminal-client)
 // ---------------------------------------------------------------------------
 
-describe('C10: SessionMeta.geometry is a required field carrying the server value to the client row', () => {
-  it('the schema REFUSES a session row without geometry', async () => {
+describe('C10: the terminal state topic carries the server size to the client; the record has none (POD-6764)', () => {
+  it('the record carries no geometry, and the topic value REFUSES to go without one', async () => {
     const { reg } = await registryFor()
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
@@ -576,14 +576,17 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
     )
     expect(row).toBeDefined()
     expect(SessionMeta.safeParse(row).success).toBe(true)
+    expect(row).not.toHaveProperty('geometry')
 
-    const { geometry: _dropped, ...withoutGeometry } = row as SessionMeta
-    const refused = SessionMeta.safeParse(withoutGeometry)
+    const value = await terminalState(reg, sessionId)
+    expect(SessionTerminalStatePayload.safeParse(value).success).toBe(true)
+    const { geometry: _dropped, ...withoutGeometry } = value as SessionTerminalStatePayload
+    const refused = SessionTerminalStatePayload.safeParse(withoutGeometry)
     expect(refused.success).toBe(false)
     expect(refused.error?.issues.some((i) => i.path.join('.') === 'geometry')).toBe(true)
   })
 
-  it('the published row tracks the terminal geometry, so the value the panel could read is the server W', async () => {
+  it('the topic value tracks the terminal geometry, so the value the panel reads is the server W', async () => {
     const { reg } = await registryFor()
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -600,10 +603,7 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
     const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(sessionId)
     session?.terminal.applyDaemonGeometry({ cols: 132, rows: 43 })
 
-    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
-      (s) => s.sessionId === sessionId,
-    )
-    expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
+    expect(await terminalState(reg, sessionId)).toMatchObject({ geometry: { cols: 132, rows: 43 } })
   })
 })
 
@@ -667,20 +667,22 @@ describe('POD-3279: a bind without geometry keeps the copy and announces nothing
     agentKind: 'claude-code',
   })
 
-  it('after markReconnecting, a bare bind keeps the copy — same grid, no frame', async () => {
+  it('after a detach, a bare bind keeps the copy — same grid, no frame', async () => {
     const { reg, sessionId, session, watcher } = await boundSession()
 
     // The daemon holding the bridge went away.
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
-    expect(session.status).toBe('reconnecting')
+    expect(session.status).toBe('live')
+    expect(session.awaitingRebind).toBe(true)
     watcher.sent.length = 0
 
     const send: ControlMessage[] = []
     await attachHostDaemon(reg, (m) => send.push(m))
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
-    // The session comes back LIVE — the bind is still proof the agent is there.
+    // The session is bound again — the bind is still proof the agent is there.
     expect(session.status).toBe('live')
+    expect(session.awaitingRebind).toBe(false)
     // Nothing reported a size, so the last-known copy stands and nothing moved.
     expect(session.terminal.geometry).toEqual({ cols: 132, rows: 43 })
     expect(geometryFrames(watcher)).toEqual([])
@@ -701,16 +703,12 @@ describe('POD-3279: a bind without geometry keeps the copy and announces nothing
     expect(geometryFrames(watcher)).toEqual([{ type: 'geometry', sessionId, cols: 200, rows: 60 }])
   })
 
-  it('the published row carries the last-known copy after a bare bind', async () => {
+  it('the terminal state carries the last-known copy after a bare bind', async () => {
     const { reg, sessionId } = await boundSession()
     reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
     await attachHostDaemon(reg, () => {})
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
 
-    const row = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
-      (s) => s.sessionId === sessionId,
-    )
-    expect(SessionMeta.safeParse(row).success).toBe(true)
-    expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
+    expect(await terminalState(reg, sessionId)).toMatchObject({ geometry: { cols: 132, rows: 43 } })
   })
 })

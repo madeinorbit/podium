@@ -1,19 +1,20 @@
 // Compile-harness fixture for apps/daemon/test/control-compiled.bun.test.ts.
 // It exercises the standalone Bun-compiled daemon websocket path: after the daemon
-// receives helloOk, a control frame sent immediately after must be processed.
+// receives peerHelloOk, a control frame sent immediately after must be processed.
 import { mkdtempSync, rmSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { shellCommand } from '@podium/harness'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
 import { startDaemon } from '../apps/daemon/src/daemon.js'
-import type { DaemonHandshakeReply } from '../packages/protocol/src/index.js'
 import {
   type DaemonMessage,
   encodeDaemonMessage as encode,
   parseDaemonMessage,
 } from '../packages/protocol/src/daemon.js'
+import { DAEMON_WIRE_VERSION, type PeerHelloReply } from '../packages/protocol/src/index.js'
 
 const FIXTURE = fileURLToPath(
   new URL('../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
@@ -48,8 +49,13 @@ try {
       ws.on('message', (raw) => {
         if (!authed) {
           authed = true
-          const ok: DaemonHandshakeReply = { type: 'helloOk', name: 'compiled-smoke' }
-          ws.send(encode(ok))
+          const ok: PeerHelloReply = {
+            type: 'peerHelloOk',
+            v: DAEMON_WIRE_VERSION,
+            caps: [],
+            name: 'compiled-smoke',
+          }
+          ws.send(JSON.stringify(ok))
           ws.send(
             encode({
               type: 'dirListRequest',
@@ -74,7 +80,8 @@ try {
     backend: 'none',
     discovery: { background: false, cachePath: ':memory:' },
     metrics: { background: false },
-    launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+    launch: (_kind, opts) =>
+      shellCommand({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
   })
   await connected
   const started = Date.now()
@@ -82,7 +89,7 @@ try {
     if (Date.now() - started > 3000) throw new Error('dirListResult timed out')
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
-  if (malformedControlWarnings.length > 0) throw new Error('helloOk was parsed as control')
+  if (malformedControlWarnings.length > 0) throw new Error('peerHelloOk was parsed as control')
   const result = received.find(
     (m): m is Extract<DaemonMessage, { type: 'dirListResult' }> => m.type === 'dirListResult',
   )

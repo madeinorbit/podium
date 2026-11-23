@@ -21,12 +21,13 @@
  * runner hosts the thread the way production does.
  */
 
+import { describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asThreadId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { describe, expect, it } from 'bun:test'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
 import type { MessageRow } from '../apps/server/src/store'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
@@ -59,6 +60,7 @@ async function waitFor<T>(
 }
 
 function dueMessage(): MessageRow {
+  const now = Date.now()
   return {
     id: 'msg_due',
     threadId: asThreadId('thread_due'),
@@ -73,8 +75,10 @@ function dueMessage(): MessageRow {
     urgency: 'fyi',
     lifecycle: 'wait',
     body: 'due',
-    expiresAt: '2026-07-01T00:00:00.000Z',
-    createdAt: '2026-06-30T00:00:00.000Z',
+    // Due now, but still inside retention: a fixed historical timestamp lets
+    // retention delete the row before this test can observe its expiry.
+    expiresAt: new Date(now - 1_000).toISOString(),
+    createdAt: new Date(now - 60_000).toISOString(),
     deliveryStatus: 'stored',
     deliveredAt: null,
     deliveredTo: null,
@@ -107,7 +111,7 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
 
     try {
       const seed = await openTestStore(dbPath)
-      await seed.messages.addMessage(dueMessage())
+      await seed.messages.addMessage(fixtureWriteScope(), dueMessage())
       await seed.close()
 
       // No `janitorWorkerForTests`, no injection, no env: exactly what a plain
@@ -131,15 +135,28 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
             dbPath,
             (db) =>
               (
-                db.prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_due'").get() as
-                  | { status: string }
-                  | undefined
+                db
+                  .prepare("SELECT delivery_status AS status FROM messages WHERE id = 'msg_due'")
+                  .get() as { status: string } | undefined
               )?.status,
           ) === 'expired'
             ? 'expired'
             : undefined,
         'the due message to expire',
-      )
+      ).catch(async (cause) => {
+        const evidence = readOnly(dbPath, (db) => ({
+          message: db
+            .prepare(
+              "SELECT workspace_id, delivery_status, lifecycle, expires_at, created_at FROM messages WHERE id = 'msg_due'",
+            )
+            .get(),
+          commands: db.prepare('SELECT * FROM maintenance_commands LIMIT 5').all(),
+        }))
+        throw new Error(
+          `Message expiry did not settle: ${JSON.stringify({ ...evidence, janitor: await janitorComponent(port) })}`,
+          { cause },
+        )
+      })
       expect(status).toBe('expired')
 
       // One janitor, fenced: the lease is what makes a second one harmless.

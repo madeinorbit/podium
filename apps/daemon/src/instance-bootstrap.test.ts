@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
 import { INSTANCE_UUID_PATTERN, instanceSocketRuntimeDir } from '@podium/runtime/instance'
+import { afterEach, describe, expect, it } from 'vitest'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
 
 const roots: string[] = []
@@ -68,6 +68,47 @@ describe('bootstrapDaemonInstance', () => {
     expect(bootstrapDaemonInstance({ platform: 'win32' }).hookSocketPath).toBeUndefined()
   })
 
+  it('fences a concurrent legacy start and commits the admitted UUID once', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-daemon-legacy-'))
+    roots.push(root)
+    process.env.PODIUM_INSTANCE = 'blue'
+    process.env.PODIUM_STATE_DIR = root
+    const path = join(root, 'instance.json')
+    const bytes = '{"version":1,"instanceId":"blue"}\n'
+    writeFileSync(path, bytes)
+    let pid = 101
+    const io = {
+      pidAlive: () => true,
+      bootId: () => 'boot-1',
+      startTime: (candidate: number) => String(candidate),
+      now: () => 1,
+      selfPid: () => pid,
+    }
+    const options = { acquireGuards: true, guardDir: join(root, 'guards'), guardIo: io }
+    const first = bootstrapDaemonInstance(options)
+    try {
+      expect(readFileSync(path, 'utf8')).toBe(bytes)
+      pid = 202
+      expect(() => bootstrapDaemonInstance(options)).toThrow(/already holds the state root/)
+      expect(readFileSync(path, 'utf8')).toBe(bytes)
+      first.commitIdentity()
+      const marker = JSON.parse(readFileSync(path, 'utf8'))
+      expect(marker).toEqual({ version: 2, instanceId: 'blue', instanceUuid: first.instanceUuid })
+      const inode = statSync(path).ino
+      first.commitIdentity()
+      expect(statSync(path).ino).toBe(inode)
+    } finally {
+      first.releaseGuards()
+    }
+    const second = bootstrapDaemonInstance(options)
+    try {
+      expect(second.instanceUuid).toBe(first.instanceUuid)
+      second.commitIdentity()
+    } finally {
+      second.releaseGuards()
+    }
+  })
+
   it('acquires one root/UUID owner and refuses a second daemon', () => {
     const root = mkdtempSync(join(tmpdir(), 'podium-daemon-guards-'))
     roots.push(root)
@@ -103,7 +144,7 @@ describe('bootstrapDaemonInstance', () => {
     let zombie = false
     const io = {
       pidAlive: () => true,
-      processState: (candidate: number) => candidate === 101 && zombie ? 'Z' : 'S',
+      processState: (candidate: number) => (candidate === 101 && zombie ? 'Z' : 'S'),
       bootId: () => 'boot-1',
       startTime: (candidate: number) => String(candidate),
       now: () => 1,
@@ -138,8 +179,8 @@ describe('bootstrapDaemonInstance', () => {
     roots.push(root)
     process.env.PODIUM_INSTANCE = 'blue'
     process.env.PODIUM_STATE_DIR = root
-    expect(() =>
-      bootstrapDaemonInstance({ socketPath: `/tmp/${'x'.repeat(104)}` }),
-    ).toThrow(/instance 'blue'.*108 bytes.*107 pathname bytes/)
+    expect(() => bootstrapDaemonInstance({ socketPath: `/tmp/${'x'.repeat(104)}` })).toThrow(
+      /instance 'blue'.*108 bytes.*107 pathname bytes/,
+    )
   })
 })

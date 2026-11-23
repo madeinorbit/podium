@@ -1,8 +1,9 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
+import { knownReading } from '@podium/client-core/live'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { SessionCardModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
@@ -140,15 +141,11 @@ vi.mock('../components/TaskSheet', () => ({
   TaskSheet: (props: TaskSheetProps) => {
     seams.sheet = props
     const { issue } = props
-    return issue ? (
-      <aside>
-        {issue.title}:{issue.description}
-      </aside>
-    ) : null
+    return issue ? <aside>{issue.title}</aside> : null
   },
 }))
 // SessionActionCard reaches OfferArtifactStrip -> ArtifactViewer -> the native
-// expo graph (linear-gradient/video) outside the six phone readers under test.
+// expo graph (linear-gradient/video) outside the phone readers under test.
 // The sibling machine-offline suite stubs the same boundary; keep it stubbed
 // here so this file collects without loading native-only modules.
 vi.mock('../components/ArtifactViewer', () => ({ ArtifactViewer: () => null }))
@@ -216,7 +213,6 @@ const { createMobilePool, useMobilePool } = await import('./mobile-pool')
 const hooks = await import('./use-session-context')
 const { SessionScreen } = await import('../screens/SessionScreen')
 const { SessionConversation } = await import('../components/SessionConversation')
-const { SessionsScreen } = await import('../screens/SessionsScreen')
 const { TerminalPane: WebPane } = await import('../terminal/TerminalPane.web')
 const { TerminalPane: NativePane } = await import('../terminal/TerminalPane.native')
 const { default: TerminalRoute } = await import('../../app/session/[sessionId]/terminal')
@@ -241,19 +237,6 @@ afterEach(() => {
   vi.restoreAllMocks()
   expect(reactErrors).toEqual([])
 })
-
-// React adds newly resolved attributes in commit order. Compare their values,
-// text and DOM order without treating attribute insertion order as rendering.
-function rendered(node: Node): unknown {
-  if (!(node instanceof Element)) return node.textContent
-  return {
-    tag: node.tagName,
-    attributes: [...node.attributes]
-      .map(({ name, value }) => [name, value] as const)
-      .sort(([a], [b]) => a.localeCompare(b)),
-    children: [...node.childNodes].map(rendered),
-  }
-}
 
 async function mount(
   screen: 'all' | 'probe' | 'conversation' = 'all',
@@ -370,7 +353,7 @@ async function mount(
     ) : null
   }
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
 
     seen.push(useMobilePool())
     return screen === 'probe' ? (
@@ -380,7 +363,6 @@ async function mount(
     ) : (
       <>
         <SessionScreen />
-        <SessionsScreen />
         <TerminalRoute />
         <WebPane sessionId={SID} active />
         <SafeAreaInsetsContext.Provider value={{ top: 0, right: 0, bottom: 0, left: 0 }}>
@@ -400,8 +382,14 @@ async function mount(
         routerWindow={createMemoryRouterWindow()}
         onFatalError={(error) => errors.push(error)}
         attachRuntime={(owner) => {
-          data.bindHub(owner.hub)
+          data.bindHub(owner.services.connection.hub, undefined, owner.live)
           data.publishMachines()
+          // Terminal geometry arrives on its topic after the P9 record split.
+          owner.live.applyTopic(
+            'session.terminalState',
+            SID,
+            knownReading({ controller: null, geometry: { cols: 80, rows: 24 } }, NOW),
+          )
           referenceState(owner).setSessionDraft(SID, 'Saved synthetic draft')
           const stop = host.host.attach(owner, (error) => errors.push(error))
           return stop
@@ -487,18 +475,12 @@ it('resolves a cold terminal reference without building either conversation cata
   references.mockRestore()
 }, 30_000)
 
-it('renders the same six phone readers through real late attachment with no React errors', async () => {
+it('renders the phone readers through real late attachment with no React errors', async () => {
   const enabled = await mount()
-  const roster = () => {
-    const screen = enabled.view.getByRole('heading', { name: 'Agents' }).closest('section')!
-    return [...screen.querySelectorAll('[data-session]')].map((row) =>
-      row.getAttribute('data-session'),
-    )
-  }
-  expect(roster()[0]).toBe('synthetic-session-1')
-  // 54fc47e122 enlarged the initial list batch; the snapshot now includes
-  // the full roster while the assertions keep draft recency live.
-  expect(rendered(enabled.view.container)).toMatchSnapshot('last green pilot-ON session readers')
+  // The sessions screen and its all-sessions roster are gone (POD-7088).
+  expect((enabled.view.getByLabelText('Draft') as HTMLInputElement).value).toBe(
+    'Saved synthetic draft',
+  )
   expect(enabled.errors).toEqual([])
   expect(enabled.seen[0]).toBeNull()
   expect(enabled.seen.some((pool) => pool !== null)).toBe(true)
@@ -509,17 +491,16 @@ it('renders the same six phone readers through real late attachment with no Reac
   })
   expect(seams.nativeInputs.at(-1)).toMatchObject({ spawnPending: false, cols: 80, rows: 24 })
   await act(async () =>
-    enabled.data.patch('session', 'synthetic-session-2', {
-      draftUpdatedAt: '2026-10-03T00:02:00Z',
-    }),
+    enabled.runtime.live.applyTopic(
+      'session.terminalState',
+      SID,
+      knownReading({ controller: null, geometry: { cols: 132, rows: 37 } }, NOW),
+    ),
   )
-  await waitFor(() =>
-    expect(roster().slice(0, 2)).toEqual(['synthetic-session-2', 'synthetic-session-1']),
-  )
-  await act(async () =>
-    enabled.data.patch('session', 'synthetic-session-2', { draftUpdatedAt: undefined }),
-  )
-  await waitFor(() => expect(roster()[0]).toBe('synthetic-session-1'))
+  await waitFor(() => {
+    expect(seams.terminalInputs.at(-1)).toMatchObject({ initialGeometry: { cols: 132, rows: 37 } })
+    expect(seams.nativeInputs.at(-1)).toMatchObject({ cols: 132, rows: 37 })
+  })
 })
 
 it('updates conversation ports without a whole-record store or whole-kind reads', async () => {
@@ -528,7 +509,7 @@ it('updates conversation ports without a whole-record store or whole-kind reads'
   expect(enabled.runtime).not.toHaveProperty('getSnapshot')
   await act(async () => {
     enabled.data.activity(1)
-    enabled.runtime.services.setSessionDraft(SID, 'Changed draft')
+    enabled.runtime.commands.sessions.setSessionDraft(SID, 'Changed draft')
   })
   await waitFor(() =>
     expect((enabled.view.getByLabelText('Draft') as HTMLInputElement).value).toBe('Changed draft'),
@@ -539,9 +520,6 @@ it('updates conversation ports without a whole-record store or whole-kind reads'
 
 it('compares roster, addressed context, read state, geometry and ports with a planted mismatch', async () => {
   const enabled = await mount('probe')
-  expect(enabled.pool().row('session', 'synthetic-session-11', 'summary')).not.toHaveProperty(
-    'privateBody',
-  )
   const state = referenceState(enabled.runtime)
   const ids = [SID, 'synthetic-session-11', 'missing-session']
   // The mounted probe asks only for SID. The complete frozen output also asks
@@ -555,9 +533,16 @@ it('compares roster, addressed context, read state, geometry and ports with a pl
     if (loaded === 0) break
     if (turn === 63) throw new Error('Complete session fixture did not settle')
   }
-  expect(mobileSessionSnapshot(enabled.pool(), ids, state.coarseNow)).toMatchSnapshot(
-    'last green pilot-ON complete session output',
-  )
+  const complete = mobileSessionSnapshot(enabled.pool(), ids, state.coarseNow)
+  expect(complete).toMatchObject({
+    booting: false,
+    contexts: [
+      { id: SID, session: { sessionId: SID }, ready: true },
+      { id: 'synthetic-session-11', session: { sessionId: 'synthetic-session-11' } },
+      { id: 'missing-session', session: undefined, issue: undefined },
+    ],
+  })
+  expect(complete.machines).toHaveLength(3)
   const before = mobileSessionSnapshot(enabled.pool(), [SID], state.coarseNow)
   await act(async () =>
     enabled.data.patch('session', SID, { title: 'Planted session output error' }),
@@ -618,7 +603,10 @@ it('borrows each shared source once and keeps the conversation bridge across dra
   await act(async () => {
     enabled.data.patch('message', 'notice-message-0', { body: 'Updated replicated message' })
     enabled.data.patch('pendingInteraction', 'notice-ask-2', { status: 'answered' })
-    await enabled.runtime.outbox.enqueue('sendText', { sessionId: SID, text: 'Held owner send' })
+    await enabled.runtime.services.outbox.queue.enqueue('sendText', {
+      sessionId: SID,
+      text: 'Held owner send',
+    })
     referenceState(enabled.runtime).setSessionDraft(SID, 'Later draft')
   })
   await waitFor(() => expect(outbox.held()).toMatchObject([{ text: 'Held owner send' }]))
@@ -640,7 +628,7 @@ it('keeps the original mutation owner when the pool conversation edits its draft
   await waitFor(() => expect(enabled.runtime.drafts.get(SID)).toBe('Draft by operator'))
   fireEvent.click(enabled.view.getByText('Send'))
   await waitFor(() =>
-    expect(enabled.runtime.outbox.pending()).toContainEqual(
+    expect(enabled.runtime.services.outbox.queue.pending()).toContainEqual(
       expect.objectContaining({
         kind: 'sendText',
         input: expect.objectContaining({ sessionId: SID, text: 'New synthetic prompt' }),

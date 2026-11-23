@@ -17,7 +17,7 @@ import queued283 from '../../../../../docs/measurements/pod-4982-claude-pasted-c
 import measured285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-boundaries.jsonl?raw'
 import queued285 from '../../../../../docs/measurements/pod-4982-claude-pasted-content/claude-2.1.285-gate-on-queued.jsonl?raw'
 import './test-support/client-core-mock'
-import { resetFakeStore, setFakeStore } from './test-support/fake-store-handle'
+import { fakeStoreHandle, resetFakeStore, setFakeStore } from './test-support/fake-store-handle'
 import { outboxChatSendActions } from './test-support/outbox-chat-send'
 
 // ---------------------------------------------------------------------------
@@ -94,21 +94,28 @@ const chatSend = outboxChatSendActions(() => fakeTrpc)
 const storeActions = {
   setPanelMode: vi.fn((_sessionId: SessionId, _mode: 'chat' | 'native') => {}),
   setSessionDraft: vi.fn(),
+  // Stop is a `session.interrupt` effect record naming the turn (POD-6397).
+  interruptTurn: vi.fn(
+    async (_sessionId: SessionId, _args: { turn?: string; messageId?: string }) => 'eff_1',
+  ),
+  endSession: vi.fn(async () => ({ ok: true })),
+  dismissEffect: vi.fn(async () => {}),
 }
 
 let storeSessions: SessionMeta[] = []
 let storeDrafts: Record<string, string> = {}
 let storeExitKind: 'evicted' | 'removed' | undefined
 const fakeUiValues = new Map<string, string>()
-const fakeUiListeners = new Set<() => void>()
+const fakeUiListeners = new Set<(changed: ReadonlySet<string>) => void>()
 const fakeUiState = {
   get: (key: string) => fakeUiValues.get(key) ?? null,
   set: (key: string, value: string | null) => {
+    if ((fakeUiValues.get(key) ?? null) === value) return
     if (value === null) fakeUiValues.delete(key)
     else fakeUiValues.set(key, value)
-    for (const listener of fakeUiListeners) listener()
+    for (const listener of [...fakeUiListeners]) listener(new Set([key]))
   },
-  subscribe: (listener: () => void) => {
+  subscribe: (listener: (changed: ReadonlySet<string>) => void) => {
     fakeUiListeners.add(listener)
     return () => fakeUiListeners.delete(listener)
   },
@@ -122,8 +129,6 @@ const fakeReplica = {
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
 }
 
 vi.mock('@/app/store', () => {
@@ -138,6 +143,9 @@ vi.mock('@/app/store', () => {
     chatSendsFor: chatSend.chatSendsFor,
     discardChat: chatSend.discardChat,
     setPanelMode: storeActions.setPanelMode,
+    interruptTurn: storeActions.interruptTurn,
+    endSession: storeActions.endSession,
+    dismissEffect: storeActions.dismissEffect,
     openFile: vi.fn(),
     httpOrigin: 'http://x',
     uiState: fakeUiState,
@@ -149,7 +157,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (storeDrafts[id] ?? '')),
     useSessionExitKind: () => storeExitKind,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -195,10 +203,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -242,6 +246,9 @@ beforeEach(() => {
   // The chat reads its sent messages' records and the outbox off the store
   // handle (POD-4764); the outbox here is the real one the sends drain from.
   resetFakeStore()
+  // The UI port survives the conversations. Publish the fixture's default
+  // through it so a previous preference-off case cannot leave a cached read.
+  fakeStoreHandle.ui.setDevicePref('podium.chat.stickyPrompts', 'true')
   setFakeStore({ chatSendsFor: chatSend.chatSendsFor })
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -292,6 +299,7 @@ describe('ChatView read-then-subscribe', () => {
           phase: 'working',
           since: '2026-06-03T00:00:01.000Z',
           nativeSubagentCount: 0,
+          turnStartedAt: '2026-06-03T00:00:01.000Z',
         },
       }),
     ]
@@ -315,7 +323,10 @@ describe('ChatView read-then-subscribe', () => {
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
 
-    expect(fakeTrpc.sessions.interrupt.mutate).toHaveBeenCalledWith({ sessionId: 's1' })
+    // The Stop names the turn on screen, so it can never stop the next one.
+    expect(storeActions.interruptTurn).toHaveBeenCalledWith('s1', {
+      turn: '2026-06-03T00:00:01.000Z',
+    })
     expect(storeActions.setSessionDraft).toHaveBeenCalledWith('s1', 'tighten the copy')
   })
 
@@ -345,7 +356,8 @@ describe('ChatView read-then-subscribe', () => {
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
 
-    expect(fakeTrpc.sessions.interrupt.mutate).toHaveBeenCalledWith({ sessionId: 's1' })
+    // No observed turn to name: the Stop is for whatever turn runs.
+    expect(storeActions.interruptTurn).toHaveBeenCalledWith('s1', {})
   })
 
   it('leaves the chord inert on a session that is not running', async () => {
@@ -365,16 +377,15 @@ describe('ChatView read-then-subscribe', () => {
       textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
 
-    expect(fakeTrpc.sessions.interrupt.mutate).not.toHaveBeenCalled()
+    expect(storeActions.interruptTurn).not.toHaveBeenCalled()
   })
 
-  // A refusal RESOLVES `{ ok: false }` — it does not throw. Swallowing it made a
-  // stop that never reached the agent look exactly like one that worked.
-  it('shows why a refused stop did not stop anything', async () => {
-    fakeTrpc.sessions.interrupt.mutate.mockResolvedValueOnce({
-      ok: false,
-      reason: 'Codex only takes an interrupt while it is working',
-    })
+  // A Stop that could not even be queued says so at once. A refusal by the
+  // agent arrives later on the record, as the stuck notice with Kill.
+  it('shows why a stop that could not be queued did not stop anything', async () => {
+    storeActions.interruptTurn.mockRejectedValueOnce(
+      new Error('Codex only takes an interrupt while it is working'),
+    )
     storeSessions = [meta({ status: 'live', agentKind: 'codex', agentState: undefined })]
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
@@ -621,7 +632,7 @@ This is agent mail, not the operator's latest prompt.
   })
 
   it('keeps operator prompts in normal flow when the device preference is disabled', async () => {
-    fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+    fakeStoreHandle.ui.setDevicePref('podium.chat.stickyPrompts', 'false')
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
@@ -688,6 +699,7 @@ This is agent mail, not the operator's latest prompt.
     // viewport. Give this DOM-order fixture a visible viewport and an actually
     // scrolled-off prompt, then deliver its position notification.
     const prompt = scroller.querySelector<HTMLElement>('[data-operator-prompt="true"]')!
+    expect(prompt.dataset.pinnable).toBe('true')
     Object.defineProperties(scroller, {
       clientHeight: { configurable: true, value: 600 },
       scrollHeight: { configurable: true, value: 900 },
@@ -758,7 +770,7 @@ describe('ChatView composer', () => {
     if (!entry) throw new Error('no prompt entry')
     entry.cursor = encodeCursor({ fileId: 'claude-paste', offset: 100, uuid: entry.id, sub: 0 })
     const id = 'msg-person-paste'
-    fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+    fakeStoreHandle.ui.setDevicePref('podium.chat.stickyPrompts', 'false')
     setFakeStore({ messageRecords: [sentRecord(id, measured.input, { status: 'typed' })] })
     act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
     await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))
@@ -823,7 +835,7 @@ describe('ChatView composer', () => {
       sub: 0,
     })
     const id = 'msg-person-queued-paste'
-    fakeUiValues.set('podium.chat.stickyPrompts', 'false')
+    fakeStoreHandle.ui.setDevicePref('podium.chat.stickyPrompts', 'false')
     setFakeStore({ messageRecords: [sentRecord(id, measured.input, { status: 'typed' })] })
     act(() => root.render(<ChatView sessionId={asSessionId('s1')} />))
     await act(async () => reads[0]?.resolve({ items: [], hasMore: false }))
@@ -1336,18 +1348,15 @@ describe('ChatView composer', () => {
       configurable: true,
       value: [new File(['pixels'], 'shot.png', { type: 'image/png' })],
     })
-    await act(async () => {
-      input.dispatchEvent(new Event('change', { bubbles: true }))
+    fireEvent.change(input)
+    await vi.waitFor(() => {
+      expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1)
+      const strip = container.querySelector('[data-testid="attachment-strip"]')
+      expect(strip?.textContent).toContain('shot.png')
+      expect(strip?.textContent).not.toContain('Uploading')
     })
-    await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
-    await act(async () => Promise.resolve())
-    await act(async () => {
-      textarea.dispatchEvent(
-        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-      )
-      await Promise.resolve()
-    })
-
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    await vi.waitFor(() => expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledTimes(1))
     expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: asSessionId('s1'),

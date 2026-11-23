@@ -1,10 +1,11 @@
+import { loginCondition } from '@podium/client-core/session-values'
 import { formatSessionRef } from '@podium/protocol'
 
 type Row = Readonly<Record<string, unknown>>
 export type CompanionRead = (kind: 'machine' | 'repo', id: string) => Row | undefined
 const SESSION_JOINS: Readonly<Record<string, readonly string[]>> = {
   machineName: ['machineId'],
-  condition: ['machineId', 'agentKind'],
+  condition: ['machineId', 'agentKind', 'credentialId', 'accountId'],
   handoffTarget: ['handoffTargetMachineId'],
   displayRef: ['refRepoId', 'refSeq', 'refLetter', 'refDraft'],
 }
@@ -37,7 +38,14 @@ export function joinedFields(entity: string, row: Row, fields: readonly string[]
         if (field === 'condition') {
           if (typeof row.machineId !== 'string') return row[field]
           const machine = read('machine', row.machineId)
-          return (machine?.loggedOutHarnesses as readonly string[] | undefined)?.includes(String(row.agentKind ?? '')) ? 'logged-out' : undefined
+          return loginCondition(
+            {
+              agentKind: typeof row.agentKind === 'string' ? row.agentKind : undefined,
+              credentialId: typeof row.credentialId === 'string' ? row.credentialId : undefined,
+              accountId: typeof row.accountId === 'string' ? row.accountId : undefined,
+            },
+            machine?.loggedOutHarnesses as readonly string[] | undefined,
+          )
         }
         if (field === 'handoffTarget')
           return typeof row.handoffTargetMachineId === 'string' ? read('machine', row.handoffTargetMachineId)?.name : row[field]

@@ -80,6 +80,13 @@
  * owner/grant check (POD-1079) is what refuses a member who is neither owner nor
  * admin. So machine `manage` and the repo/discovery family are `member`.
  *
+ * THE ACTION FOLLOWS THE FLOOR (POD-6417). `policy.action` is ADR 3 D2's
+ * issue-role vocabulary, and the sync write entry point's coarse check reads it
+ * that way: `manage` is admin-only. So a `member`-floor machine command declares
+ * `write`, or the owning member would be refused before the machine verb is
+ * asked; the verb (`machineVerb: 'manage'`) and the owner/grant check decide
+ * the row. The admin-floor commands keep `manage`.
+ *
  * `machines.pairingCode` is the exception, and the asymmetry is the argument
  * rather than an inconsistency: it mints a credential for a machine that does
  * not exist yet, so there is NO row to own and no ownership check that could
@@ -106,7 +113,7 @@
  * is that a transport is served because a contract NAMES it.
  */
 
-import { MachineIdField, MachineServiceAssignment, UpdateChannel, UserIdField } from '@podium/model'
+import { MachineIdField, MachineServiceAssignment, UserIdField } from '@podium/model'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -159,25 +166,19 @@ export interface FleetCommandContract<In extends z.ZodTypeAny = z.ZodTypeAny, Ou
  *  shipped procedures resolve it (`machines.defaultMachine()`). */
 const machineSelector = MachineIdField.optional()
 
-export const machineRenameInput = z.object({
-  id: z.string(),
-  name: z.string().min(1).max(80),
-})
-
-export const machineSetUpdateChannelInput = z.object({
-  id: z.string(),
-  /** `null` clears the per-machine pin: the machine returns to the fleet default (POD-1882). */
-  channel: UpdateChannel.nullable(),
-})
-
 export const machineApplyUpdateInput = z.object({ id: z.string() })
-export const machineShareInput = z.object({
+export const machineUnshareInput = z.object({
   id: z.string(),
   grantee: z.string().min(1),
   verb: z.enum(['see', 'use', 'manage']),
 })
 
-export const machineUnshareInput = machineShareInput
+/** Sharing `use` with someone other than the machine's custodian puts their
+ *  agents under the same OS account as the custodian's (POD-6300, Q1), so the
+ *  grantor acknowledges that warning; there is no accept step for the grantee. */
+export const machineShareInput = machineUnshareInput.extend({
+  acknowledgeSharedMachine: z.boolean().optional(),
+})
 
 export const machineRevokeInput = z.object({ id: z.string() })
 export const machineMoveServerInput = z.object({
@@ -212,7 +213,18 @@ export const machineSupersedeInput = z.object({
 })
 
 export const machinePairingCodeInput = z
-  .object({ copyAgentCredentials: z.boolean().optional(), podiumManaged: z.boolean().optional(), replaceMachineId: z.string().optional() })
+  .object({
+    copyAgentCredentials: z.boolean().optional(),
+    podiumManaged: z.boolean().optional(),
+    replaceMachineId: z.string().optional(),
+    clientRegistration: z
+      .object({ machineId: MachineIdField, publicKey: z.string().optional() })
+      .optional(),
+  })
+  .refine(
+    (input) => !input.clientRegistration || !input.replaceMachineId,
+    'choose client registration or explicit replacement',
+  )
   .optional()
 
 export const repoAddInput = z.object({
@@ -410,20 +422,13 @@ const REPO_ROW_NOTE =
 // machines.* — the hub-role fleet admin surface
 // ---------------------------------------------------------------------------
 
-/**
- * Rename a machine. ADR 9 D6 M1's `manage` verb, first entry in its list.
- *
- * `visibility: 'owned-compute'` and `policy.resource: 'machine'` are coupled by
- * `classificationErrors` and both are true here for the same reason: what it
- * writes IS the machine row, and there is nothing else its grants could hang on.
- */
-export const machineRenameContract = {
-  name: 'machines.rename',
+/** The cells every desired-state edit of a machine row shares (once the
+ *  rename's; renames are generic `machine` record edits since POD-6644). */
+const MACHINE_ROW_EDIT = {
   version: 1,
   visibility: 'owned-compute',
-  input: machineRenameInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -455,66 +460,31 @@ export const machineRenameContract = {
       'would leak liveness about a row the caller may not see.',
   },
   serverRole: 'hub',
-  cli: { summary: 'Rename a machine in the fleet' },
   conflict: 'cmd',
   conflictRule:
     'Owner-or-admin edit of the name field alone; no precondition, and two concurrent renames resolve to the later Authority commit',
-} as const satisfies FleetCommandContract<typeof machineRenameInput>
+} as const
 
 const machineSetAssignmentInput = z.object({
-  id: MachineIdField, assignment: MachineServiceAssignment, requestId: z.string().min(1),
+  id: MachineIdField,
+  assignment: MachineServiceAssignment,
+  requestId: z.string().min(1),
 })
 export const machineSetAssignmentContract = {
-  ...machineRenameContract,
-  name: 'machines.setAssignment', input: machineSetAssignmentInput,
-  policy: { ...machineRenameContract.policy, roleFloor: 'admin',
-    rationale: 'Only an administrator changes desired services; availability is observed independently.' },
+  ...MACHINE_ROW_EDIT,
+  name: 'machines.setAssignment',
+  input: machineSetAssignmentInput,
+  policy: {
+    ...MACHINE_ROW_EDIT.policy,
+    roleFloor: 'admin',
+    rationale:
+      'Only an administrator changes desired services; availability is observed independently.',
+  },
   cli: { summary: 'Assign or remove agent execution on a machine' },
   ownership: { creates: [], note: 'Replaces desired assignment on an enrolled machine.' },
-  conflictRule: 'Idempotent replacement; moving the server uses the generation-fenced transfer transition.',
-} as const satisfies FleetCommandContract<typeof machineSetAssignmentInput>
-
-/** Select the centrally controlled update authority for one managed machine. */
-export const machineSetUpdateChannelContract = {
-  name: 'machines.setUpdateChannel',
-  version: 1,
-  visibility: 'owned-compute',
-  input: machineSetUpdateChannelInput,
-  policy: {
-    action: 'manage',
-    roleFloor: 'member',
-    resource: 'machine',
-    machineVerb: 'manage',
-    confirmation: 'none',
-    rationale:
-      'The selected authority controls which signed target may be granted to this machine. The ' +
-      'machine owner or an administrator with manage authority may change it; the daemon cannot ' +
-      'choose its own source and changing the value runs no arbitrary machine command. Clearing ' +
-      'it (null) is the same authority decision in the other direction: the machine goes back to ' +
-      'following the instance-wide fleet default.',
-  },
-  exposure: SERVED_ON,
-  delivery: FLEET_DELIVERY,
-  redaction: PUBLIC_REDACTION,
-  ownership: {
-    creates: [],
-    note: 'Creates nothing; it updates the authority field on the existing machine row.',
-  },
-  attribution: FLEET_ATTRIBUTION,
-  errorConsistency: {
-    callerSuppliedTargetId: true,
-    invisibleFailsAs: 'nonexistent',
-    distinguishesUnauthorizedFromUnreachable: false,
-    note:
-      'An invisible machine and an unknown id share one refusal. The selection is durable while ' +
-      'offline; target availability and convergence are reported separately.',
-  },
-  serverRole: 'hub',
-  cli: { summary: 'Select a managed machine update authority' },
-  conflict: 'cmd',
   conflictRule:
-    'Last Authority commit wins for this field; an old grant remains scoped to the authority under which it was issued',
-} as const satisfies FleetCommandContract<typeof machineSetUpdateChannelInput>
+    'Idempotent replacement; moving the server uses the generation-fenced transfer transition.',
+} as const satisfies FleetCommandContract<typeof machineSetAssignmentInput>
 
 /** Apply the selected trusted target to exactly one managed machine. */
 export const machineApplyUpdateContract = {
@@ -523,7 +493,7 @@ export const machineApplyUpdateContract = {
   visibility: 'owned-compute',
   input: machineApplyUpdateInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -559,7 +529,7 @@ export const machineShareContract = {
   visibility: 'owned-compute',
   input: machineShareInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -599,7 +569,7 @@ export const machineUnshareContract = {
   visibility: 'owned-compute',
   input: machineUnshareInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -634,7 +604,7 @@ export const machineTransferOwnershipContract = {
   visibility: 'owned-compute',
   input: machineTransferOwnershipInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -713,9 +683,13 @@ export const machineSupersedeContract = {
   name: 'machines.supersede',
   input: machineSupersedeInput,
   policy: {
-    action: 'manage', roleFloor: 'admin', resource: 'machine', machineVerb: 'manage',
+    action: 'manage',
+    roleFloor: 'admin',
+    resource: 'machine',
+    machineVerb: 'manage',
     confirmation: 'none',
-    rationale: 'An admin explicitly identifies both machines and must manage both. Supersession cancels the old grants and queued work; replacement authority is unchanged.',
+    rationale:
+      'An admin explicitly identifies both machines and must manage both. Supersession cancels the old grants and queued work; replacement authority is unchanged.',
   },
   ownership: {
     ...machineAdoptContract.ownership,
@@ -727,7 +701,8 @@ export const machineSupersedeContract = {
     note: 'Admin and manage gates apply to both supplied ids. Unknown or invisible targets share a refusal; self replacement and retired replacements are rejected.',
   },
   cli: { summary: 'Supersede an old machine identity with an explicitly named replacement' },
-  conflictRule: 'Serialize both machine transitions; retire the old credential, cancel grants and append the audit in one database transaction',
+  conflictRule:
+    'Serialize both machine transitions; retire the old credential, cancel grants and append the audit in one database transaction',
 } as const satisfies FleetCommandContract<typeof machineSupersedeInput>
 
 /**
@@ -740,7 +715,7 @@ export const machineRevokeContract = {
   visibility: 'owned-compute',
   input: machineRevokeInput,
   policy: {
-    action: 'manage',
+    action: 'write',
     roleFloor: 'member',
     resource: 'machine',
     machineVerb: 'manage',
@@ -834,14 +809,20 @@ export const machinePairingCodeContract = {
   visibility: 'secret',
   input: machinePairingCodeInput,
   policy: {
-    action: 'manage',
+    // `write`, not `manage`: the coarse check reads `manage` as admin-only, and a
+    // retained machine's member grantee may mint its replacement code. Who may
+    // mint which code is the fleet gate's (POD-6593), as the rationale says.
+    action: 'write',
     roleFloor: 'member',
     resource: 'secret',
     confirmation: 'confirm',
     rationale:
-      'New enrollment requires an administrator at the fleet gate and handler. An explicit ' +
+      'New enrollment is any signed-in member’s, never an agent’s, at the fleet gate and handler; ' +
+      'the code is bound to the minter, whose custody and `use` the machine gets, and redeem refuses it ' +
+      'once the minter is disabled, removed or re-roled (POD-6883). An explicit ' +
       'replacement may also be authorized by the retained machine personal grantee; the code ' +
-      'is scoped to that machine id, and active-id collisions are refused before redemption.',
+      'is scoped to that machine id, and active-id collisions are refused before redemption. ' +
+      'Client recovery requires a current administrator login and binds authority to the retained public identity.',
   },
   exposure: SERVED_ON,
   delivery: PAIRING_DELIVERY,
@@ -853,8 +834,8 @@ export const machinePairingCodeContract = {
       'THE OUTPUT IS THE SECRET. `code` is the bearer credential and `joinCommand` embeds it verbatim ' +
       '(`buildJoinCommand`), so redacting one and not the other would be theatre. They are returned to ' +
       'the minting principal — that is the command’s only purpose — and must not be logged, echoed ' +
-      'into an event, persisted client-side, or included in any error. `copyAgentCredentials` is a ' +
-      'boolean intent flag and carries no material.',
+      'into an event or included in any error. Native enrollment keeps the code only in the selected private ' +
+      'config until supervisor acknowledgement. The input flags and retained public identity carry no secret material.',
   },
   ownership: {
     creates: [],
@@ -868,8 +849,10 @@ export const machinePairingCodeContract = {
   },
   attribution: FLEET_ATTRIBUTION,
   errorConsistency: {
-    callerSuppliedTargetId: false,
-    note: 'Takes no target id: the mint is addressed to this server, and its only input is a boolean intent flag. There is nothing an error could disclose the existence of.',
+    callerSuppliedTargetId: true,
+    invisibleFailsAs: 'nonexistent',
+    distinguishesUnauthorizedFromUnreachable: false,
+    note: 'Optional registration and replacement requests name a machine. Current administrators may see its recovery decision; unauthenticated machine handshakes retain the uniform denial.',
   },
   serverRole: 'hub',
   cli: { summary: 'Mint a pairing code for a new machine' },
@@ -1357,9 +1340,7 @@ export const discoveryScanMachineContract = {
  * name. It is named in POD-384's report as deliberately not done.
  */
 export const FLEET_CONTRACTS = {
-  'machines.rename': machineRenameContract,
   'machines.setAssignment': machineSetAssignmentContract,
-  'machines.setUpdateChannel': machineSetUpdateChannelContract,
   'machines.share': machineShareContract,
   'machines.unshare': machineUnshareContract,
   'machines.transferOwnership': machineTransferOwnershipContract,

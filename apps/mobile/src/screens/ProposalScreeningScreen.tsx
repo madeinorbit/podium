@@ -1,7 +1,10 @@
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { issueRepoName } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/loading'
 import { ProposalScreening } from '@podium/client-graph/mobile-triage'
+import { issueWrites } from '@podium/commands/issues-synced'
+import type { IssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -14,8 +17,9 @@ import {
   View,
 } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useStoreActions, useTrpc } from '../client/hooks'
+import { useTrpc } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { Icon } from '../components/Icon'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
@@ -54,7 +58,8 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
   const { text = '' } = useLocalSearchParams<{ text?: string }>()
   const pool = useMobilePool()
   const trpc = useTrpc()
-  const { closeIssue } = useStoreActions()
+  const { close: closeIssue } = useCommands<MobileTrpc>().issues,
+    { startIssueSession } = useCommands<MobileTrpc>().sessions
   const insets = useSafeAreaInsets()
   const expanded = useWindowDimensions().fontScale >= 1.6
   const CardStack = expanded ? ScrollView : View
@@ -82,8 +87,12 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
       try {
         await applyScreeningDecision(
           {
-            promoteIssue: (id) => trpc.issues.promote.mutate({ id }),
-            startIssue: (id) => trpc.issues.start.mutate({ id }),
+            promoteIssue: (id) => issueWrites(trpc).promote.mutate({ id }),
+            // An `issue.begin` record (POD-6526), started once durably queued.
+            startIssue: async (id) => {
+              const { settled } = startIssueSession({ issueId: id as IssueId, mode: 'begin' })
+              if (!(await settled)) throw new Error("Couldn't start the task")
+            },
             closeIssue,
           },
           issue,
@@ -106,7 +115,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
         setPending((p) => p.filter((id) => id !== issue.id))
       }
     },
-    [trpc, closeIssue],
+    [trpc, closeIssue, startIssueSession],
   )
 
   const decide = useCallback(
@@ -270,7 +279,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
         !deck || deck.order.length === 0
           ? undefined
           : current && current !== LOADING
-            ? `${deck.index + 1} of ${deck.order.length} · ${repoName(current)}`
+            ? `${deck.index + 1} of ${deck.total === LOADING ? deck.order.length : Math.max(deck.total, deck.order.length)} · ${repoName(current)}`
             : `${tally.total} decided`
       }
       onBack={() => leave()}

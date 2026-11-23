@@ -1,6 +1,7 @@
-import { shallowEqual } from '@podium/client-core/shallow-equal'
+import { useCommands, useRequestClient, useUiValue } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import { omitGone } from '@podium/client-graph/lookup'
+import { issueWrites } from '@podium/commands/issues-synced'
 import { machinePathBasename } from '@podium/model'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
@@ -30,8 +31,9 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { IssueChipLiveness } from '@/features/chat/IssueChipLiveness'
 import { useChatReferenceMachines } from '@/features/chat/use-chat-context'
@@ -44,6 +46,7 @@ import type { LaunchMachine } from '@/features/issues/LaunchBox'
 import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { setKnownRefPrefixes } from '@/lib/markdown-references'
+import { MemberName } from '@/lib/member-roster'
 import {
   closeMiniview,
   getMiniviewState,
@@ -80,14 +83,11 @@ export function RefMiniviewHost(): JSX.Element | null {
 function PoolRefMiniviewHost(): JSX.Element {
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
   const pool = useWorklistPool()
-  const { setOpenIssueId, setView, navigateToSession } = useRuntimeSelector(
-    (s) => ({
-      setOpenIssueId: s.setOpenIssueId,
-      setView: s.setView,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  const { setOpenIssueId, setView, navigateToSession } = {
+    setOpenIssueId: useUiValue('setOpenIssueId'),
+    setView: useUiValue('setView'),
+    navigateToSession: useUiValue('navigateToSession'),
+  }
   // The activator stays registered while the card is closed. Session browsing
   // is needed only for a card or an explicit direct session activation.
   useEffect(() => {
@@ -166,13 +166,11 @@ function RefMiniviewContents({
   loading?: boolean
 }): JSX.Element | null {
   const machines = useChatReferenceMachines()
-  const { trpc, navigateToSession } = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  const { trpc, navigateToSession, startIssueSession } = {
+    trpc: useRequestClient<Trpc>(),
+    navigateToSession: useUiValue('navigateToSession'),
+    startIssueSession: useCommands<Trpc>().sessions.startIssueSession,
+  }
   const { show } = useDockIssue()
   const loadComments = useCallback((id: IssueId) => trpc.issues.comments.query({ id }), [trpc])
 
@@ -218,8 +216,12 @@ function RefMiniviewContents({
         closeMiniview()
         navigateToSession(sessionId)
       }}
-      onStart={(issueId) => trpc.issues.start.mutate({ id: issueId })}
-      onPromote={(issueId) => trpc.issues.promote.mutate({ id: issueId })}
+      onStart={(issueId) =>
+        startIssueSession({ issueId, mode: 'begin' }).settled.then((queued) => {
+          if (!queued) throw new Error("Couldn't start the task")
+        })
+      }
+      onPromote={(issueId) => issueWrites(trpc).promote.mutate({ id: issueId })}
       loadComments={loadComments}
     />,
     document.body,
@@ -270,7 +272,8 @@ export function RefCard({
   onOpenFull: () => void
   /** Jump to the session running this task (or the ancestor's that covers it). */
   onGoToSession?: (sessionId: SessionId) => void
-  /** Start an agent on the issue (POD-110) — `trpc.issues.start` in the host. */
+  /** Start an agent on the issue (POD-110): an `issue.begin` record in the
+   *  host (POD-6526), resolved once durably queued. */
   onStart?: (issueId: IssueId) => Promise<unknown>
   /** Approve an agent proposal into backlog without starting it. */
   onPromote?: (issueId: IssueId) => Promise<unknown>
@@ -756,6 +759,7 @@ function ExpandableText({
       />
       {(overflows || open) && (
         <button
+          data-pressable
           type="button"
           className="ref-miniview-text-toggle"
           aria-expanded={open}
@@ -788,7 +792,9 @@ function IssueSummary({ issue }: { issue: RefIssueLike }): JSX.Element {
     meta.push(
       <span key="a" className="inline-flex min-w-0 items-center gap-1">
         <User size={11} className="flex-none" aria-hidden="true" />
-        <span className="truncate">{issue.assignee}</span>
+        <span className="truncate">
+          <MemberName memberId={issue.assignee} />
+        </span>
       </span>,
     )
   if (parentRef)

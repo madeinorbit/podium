@@ -10,6 +10,8 @@ import {
   poolShellSnapshot,
 } from '../../../tests/worklist/diagnostics/shell-check'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
+import { headerEntities } from './header-entities'
+import { seedFixtureMachines } from './live-fixture'
 import { omitGone } from './lookup'
 import { loadSyncedModels } from './models'
 import { SHELL_ENTITIES, SHELL_SOURCE_KEY } from './shell-schema'
@@ -54,10 +56,6 @@ describe('shell pool', () => {
         demand.push(
           row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session').length,
         )
-        expect(questions.mock.calls.some(([question]) => question.kind === 'shellIssues')).toBe(
-          false,
-        )
-        expect(views.chrome()).toHaveProperty('sessionCount', count)
         const context = dockSnapshot(views)
         expect(context && context !== LOADING ? context.active?.sessionId : null).toBe(
           f.sessions[0]!.sessionId,
@@ -75,8 +73,14 @@ describe('shell pool', () => {
           ] as never,
         })
         expect(outputs).toHaveLength(before)
+        // POD-7112: every device row is in the pool (POD-7094), so the pool's
+        // own filing maintenance marks the updated row ('mark', inside its
+        // action). Chrome and dock demand no issue or session row.
         expect(
-          row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session'),
+          row.mock.calls.filter(
+            ([kind, , absent]) =>
+              (kind === 'issue' || kind === 'session') && !['mark', 'peek'].includes(String(absent)),
+          ),
         ).toHaveLength(0)
       } finally {
         stop()
@@ -107,11 +111,13 @@ describe('shell pool', () => {
     }
   })
 
-  it('matches window, approval, file, close, chrome, dock, shipping, machine and link inputs', () => {
+  it('matches window, file, close, chrome, dock, shipping, machine and link inputs', () => {
     const f = shellFixture()
     try {
       expect(settled(f)).toMatchObject({ differences: 0, pending: 0, first: null })
-      expect(settled(f).positions).toBeGreaterThan(90)
+      // The shell lists no sessions or issues any more (POD-7088): the
+      // window, files, chrome, dock, shipping, orders, lanes and machines.
+      expect(settled(f).positions).toBeGreaterThan(10)
     } finally {
       f.pool.dispose()
     }
@@ -129,30 +135,31 @@ describe('shell pool', () => {
         { online: false },
         { availability: { daemon: false, server: true, supervisor: false, epoch: 'changed' } },
       ]) {
-        f.pool.ingestLiveMachines([{ id: machine.id, value: { ...machine, ...patch } }])
+        // The record and the live condition (POD-6644): each fault is planted
+        // where that fact lives.
+        headerEntities(f.pool).apply(seedFixtureMachines(f.pool, [{ ...machine, ...patch } as never]) as never)
         const report = settled(f)
         expect(report).toMatchObject({
           differences: 1,
           pending: 0,
-          first: { sectionIndex: 9, rowIndex: 0, field: `value.${Object.keys(patch)[0]}` },
+          first: { sectionIndex: 8, rowIndex: 0, field: `value.${Object.keys(patch)[0]}` },
         })
         expect(JSON.stringify(report)).not.toContain('private-machine-name')
+        headerEntities(f.pool).apply(seedFixtureMachines(f.pool, [machine]) as never)
       }
     } finally {
       f.pool.dispose()
     }
   })
-  it('preserves approval queue order and prompt/palette/super-open changes without session derivation', () => {
+  it('preserves prompt/palette/super-open changes without session derivation', () => {
     const f = shellFixture()
     try {
       settled(f)
       f.change({
-        approvals: [...f.approvals].reverse(),
         autoContinuePromptSessionId: null,
         paletteOpen: false,
         superOpen: false,
       })
-      expect(shellViews(f.pool).approvals()).toEqual([...f.approvals].reverse())
       expect(shellViews(f.pool).window()).toMatchObject({
         autoContinuePromptSessionId: null,
         paletteOpen: false,
@@ -236,7 +243,7 @@ describe('shell pool', () => {
         isDraftVessel: true,
         worktreePath: null,
       })
-      expect(omitGone(f.pool.row('session', f.sessions[2]!.sessionId, 'summary'))).toMatchObject({
+      expect(omitGone(f.pool.row('session', f.sessions[2]!.sessionId))).toMatchObject({
         archived: true,
       })
       expect(shellViews(f.pool).chrome()).toHaveProperty('missionRoot', undefined)
@@ -257,25 +264,6 @@ describe('shell pool', () => {
       f.lane(undefined)
       expect(f.pool.sources.related('shellShipLane', 'shell-repo', 'shipLanes')).toEqual([])
       expect(settled(f).differences).toBe(0)
-    } finally {
-      f.pool.dispose()
-    }
-  })
-  it('keeps cold manifests out of summaries and batches repeated artifact demand through the one reader', () => {
-    const f = shellFixture()
-    try {
-      const id = f.issues[30]!.id
-      expect(f.pool.tables.issue.has(id)).toBe(false)
-      expect(omitGone(f.pool.row('issue', id, 'summary'))).not.toHaveProperty('panel')
-      expect(shellViews(f.pool).issue(id, true)).toBe(LOADING)
-      expect(shellViews(f.pool).issue(id, true)).toBe(LOADING)
-      expect(f.loads).toEqual([])
-      expect(f.pool.hydrate()).toBe(1)
-      expect(f.loads).toEqual([`issue:${id}`])
-      expect(shellViews(f.pool).issue(id, true)).toHaveProperty(
-        'panel.artifacts.0.artifactId',
-        'synthetic-artifact',
-      )
     } finally {
       f.pool.dispose()
     }
@@ -308,10 +296,10 @@ describe('shell pool', () => {
       f.pool.dispose()
     }
   })
-  it('isolates unchanged chrome, shipping and approval observers and disposes every source subscription', () => {
+  it('isolates unchanged chrome, shipping and file observers and disposes every source subscription', () => {
     const f = shellFixture()
     settled(f)
-    const read = vi.fn(() => shellViews(f.pool).approvals()),
+    const read = vi.fn(() => shellViews(f.pool).files()),
       stop = autorun(read)
     const chrome = vi.fn(() => shellViews(f.pool).chrome()),
       stopChrome = autorun(chrome)
@@ -333,7 +321,7 @@ describe('shell pool', () => {
       f.change({ paletteOpen: false })
       expect(read).toHaveBeenCalledTimes(1)
       expect(chrome).toHaveBeenCalledTimes(2)
-      f.change({ approvals: f.approvals.slice(1) })
+      f.change({ fileTabs: [] })
       expect(read).toHaveBeenCalledTimes(2)
       f.pool.dispose()
       expect(f.listeners.size).toBe(0)
@@ -372,10 +360,10 @@ describe('shell pool', () => {
       const changed = {
         ...actual,
         sections: actual.sections.map((section) =>
-          section.key === 'approvals' ? { ...section, rows: [...section.rows].reverse() } : section,
+          section.key === 'orders' ? { ...section, rows: [...section.rows].reverse() } : section,
         ),
       }
-      expect(compareShellSnapshots(expected, changed).differences).toBe(2)
+      expect(compareShellSnapshots(expected, changed).differences).toBe(f.shipOrders.length)
     } finally {
       f.pool.dispose()
     }

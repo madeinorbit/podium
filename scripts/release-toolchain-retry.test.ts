@@ -10,21 +10,24 @@ type Step = {
   'continue-on-error'?: boolean
   with?: Record<string, unknown>
 }
-type Workflow = { jobs: Record<string, { steps: Step[] }> }
+type Workflow = { jobs: Record<string, { steps?: Step[]; uses?: string }> }
 const groups = ['release.yml', 'desktop-release.yml'].flatMap((file) => {
   const config = Bun.YAML.parse(
     readFileSync(join(__dirname, '../.github/workflows', file), 'utf8'),
   ) as Workflow
-  return Object.entries(config.jobs).flatMap(([job, { steps }]) =>
-    steps.flatMap((initial, index) => {
+  return Object.entries(config.jobs).flatMap(([job, definition]) => {
+    if (definition.uses) return []
+    const steps = definition.steps
+    if (!steps) throw new Error(`${file}/${job} has neither steps nor a reusable workflow`)
+    return steps.flatMap((initial, index) => {
       if (!initial.id?.match(/^mise_setup_\d+$/)) return []
       const [waitFirst, fallback, waitSecond, final] = steps.slice(index + 1, index + 5)
       if (!waitFirst || !fallback || !waitSecond || !final) throw new Error('incomplete mise retry')
       return [
         { name: `${file}/${job}/${initial.id}`, initial, waitFirst, fallback, waitSecond, final },
       ]
-    }),
-  )
+    })
+  })
 })
 
 function shouldRun(step: Step, outcomes: Record<string, string>) {

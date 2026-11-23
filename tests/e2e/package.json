@@ -7,13 +7,15 @@
     "typecheck": "bun ../../scripts/typecheck-project.ts && bun --conditions=@podium/source ../../scripts/check-loadable-imports.ts"
   },
   "dependencies": {
+    "@podium/blob-store": "workspace:*",
     "@podium/client-core": "workspace:*",
+    "@podium/client-graph": "workspace:*",
     "@podium/commands": "workspace:*",
     "@podium/harness": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
-    "@podium/protocol": "workspace:*",
     "@podium/process": "workspace:*",
+    "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
     "@podium/terminal-client": "workspace:*",
@@ -25,6 +27,8 @@
     "@playwright/test": "^1.60.0",
     "@types/ws": "^8.5.13",
     "fake-indexeddb": "^6.2.5",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "react-native-web": "0.21.2",
     "vite": "^8.0.16",
     "vitest": "5.0.0-beta.6"

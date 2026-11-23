@@ -16,10 +16,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type PeerHelloReply, DAEMON_WIRE_VERSION } from '@podium/protocol'
+import { DAEMON_WIRE_VERSION, type PeerHelloReply } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type WebSocket, WebSocketServer } from 'ws'
 import { startDaemon } from './daemon'
+import { saveToken } from './identity'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -63,8 +64,6 @@ describe('unknown repo op is answered, not dropped (POD-1464)', () => {
           type: 'peerHelloOk',
           v: DAEMON_WIRE_VERSION,
           caps: [],
-          issuedToken: 'tok-1',
-          assignedId: 'm-1',
           name: 'box',
         }
         ws.send(JSON.stringify(reply))
@@ -75,6 +74,7 @@ describe('unknown repo op is answered, not dropped (POD-1464)', () => {
         } catch {}
       })
     })
+    saveToken('tok-1', { dir })
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       identityDir: dir,
@@ -83,7 +83,6 @@ describe('unknown repo op is answered, not dropped (POD-1464)', () => {
       agentRelay: { port: 0 },
       discovery: { background: false as const, cachePath: ':memory:' },
       metrics: { background: false as const },
-      pairCode: 'CODE-1',
     })
     try {
       // An op this build genuinely does not have. Nothing about the frame is malformed

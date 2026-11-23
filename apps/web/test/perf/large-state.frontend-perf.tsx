@@ -32,8 +32,7 @@ type Counter = { gets: number; ownKeys: number }
 const bench = vi.hoisted(() => ({ store: {} as Record<string, unknown> }))
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (store: Record<string, unknown>) => unknown) =>
-    selector(bench.store),
+  readFixture: (selector: (store: Record<string, unknown>) => unknown) => selector(bench.store),
 }))
 
 vi.mock('@/lib/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
@@ -57,7 +56,7 @@ function worktreePath(index: number): string {
   return slot === 0 ? `/srv/repos/repo-${repo}` : `/srv/worktrees/wt-${index}`
 }
 
-function issueAt(index: number): IssueViewModel {
+function issueAt(index: number): IssueViewModel & { description: string } {
   const stage = ISSUE_STAGES[index % ISSUE_STAGES.length] ?? 'backlog'
   const worktree = index % (SCALE.repositories * SCALE.worktreesPerRepository)
   return {
@@ -93,7 +92,7 @@ function issueAt(index: number): IssueViewModel {
     ready: true,
     blocked: false,
     deferred: false,
-  } as unknown as IssueViewModel
+  } as unknown as IssueViewModel & { description: string }
 }
 
 function metric(name: string, values: Record<string, number>): void {

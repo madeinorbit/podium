@@ -5,11 +5,10 @@ import { autorun, Reaction } from 'mobx'
 import { ARM_CODE, insideArm, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { enableDebugNames } from './debug-name'
 import { MobxPool } from './pool'
-import { SettingsSource, type SettingsOwner } from './settings-source'
-import { settingsRepositoryId, type SettingsRows } from './settings-schema'
+import { settingsOwnerFixture } from './settings-owner-fixture'
+import { SettingsSource } from './settings-source'
+import type { SettingsRows } from './settings-schema'
 import type { RowRecord } from './shared/source'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 
 enableDebugNames()
 const old = '2020-01-01T00:00:00Z'
@@ -32,22 +31,9 @@ function fixture(scale: 1 | 4) {
     lastSeenAt: stamp, use: 'granted', availability: { daemon: true, server: false, supervisor: false, epoch: 'test' },
     serviceAssignment: { server: false, agentExecution: true },
   }]
-  const lists = {
-    repos: new Map(repos.map(repo => [settingsRepositoryId(repo), repo])),
-    machines: new Map(machines.map(machine => [machine.id as string, machine])),
-  }
-  const ids = { repos: [...lists.repos.keys()], machines: [...lists.machines.keys()] }
-  const listeners = new Map<string, Set<(change: { ids: readonly string[]; order: boolean }) => void>>()
-  const owner = {
-    listIds: (name: keyof typeof lists) => ids[name],
-    listRow: (name: keyof typeof lists, id: string) => lists[name].get(id),
-    onList(name: string, listener: (change: { ids: readonly string[]; order: boolean }) => void) {
-      let group = listeners.get(name)
-      if (!group) listeners.set(name, group = new Set())
-      group.add(listener)
-      return () => { group!.delete(listener) }
-    },
-  } as unknown as SettingsOwner
+  // Repositories and machines are checkout and machine records (POD-6644).
+  const settings = settingsOwnerFixture({ repos, machines: machines as never })
+  const owner = settings.owner
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
     load: () => undefined, schedule: () => () => {},
   })
@@ -60,10 +46,9 @@ function fixture(scale: 1 | 4) {
     session('visible', worktrees[0]!.path, stamp),
     ...worktrees.map((tree, index) => session(`history-${index}`, tree.path)),
   ] })
-  const publish = (name: keyof typeof lists, id: string, order = false) => {
-    for (const listener of listeners.get(name) ?? []) listener({ ids: [id], order })
-  }
-  return { pool, repos, lists, ids, listeners, publish, session }
+  // After the replace (which installs the whole pool): my machines (POD-6644).
+  settings.seed(pool)
+  return { pool, repos, settings, session }
 }
 
 async function measured(scale: 1 | 4, demand: boolean) {
@@ -106,18 +91,17 @@ const session = (id: string, cwd: string, patch: object = {}): RowRecord => ({
     agentKind: 'codex', status: 'live', archived: false, ...patch },
 } as RowRecord)
 
-function suppliedPool(external: boolean, rows: RowRecord[]) {
-  const index = external ? createColdIndex(SCHEMA) : undefined
+function suppliedPool(rows: RowRecord[]) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    ...(index ? { cold: () => index } : {}), load: () => undefined, schedule: () => () => {},
+    load: () => undefined, schedule: () => () => {},
   })
-  const apply = (event: Parameters<MobxPool['apply']>[0]) => { index?.apply(event); pool.apply(event) }
+  const apply = (event: Parameters<MobxPool['apply']>[0]) => { pool.apply(event) }
   apply({ type: 'replace', rows })
   return { pool, apply }
 }
 
-it.each([false, true])('tracks only addressed activity paths, exact matches and agent membership (external source: %s)', external => {
-  const f = suppliedPool(external, [session('moving', '/target/child', { agentKind: 'shell' })])
+it('tracks only addressed activity paths, exact matches and agent membership', () => {
+  const f = suppliedPool([session('moving', '/target/child', { agentKind: 'shell' })])
   const base = { kind: 'commandRootActivity' as const, roots: ['/target'] }
   const values = { within: [] as number[], exact: [] as number[], agents: [] as number[], other: [] as number[] }
   const stops = [
@@ -153,11 +137,11 @@ it.each([false, true])('tracks only addressed activity paths, exact matches and 
   } finally { for (const stop of stops) stop(); f.pool.dispose() }
 })
 
-it.each([false, true])('restores activity subscriptions when a parked session becomes visible (external source: %s)', external => {
+it('restores activity subscriptions when a parked session becomes visible', () => {
   const resume = { kind: 'codex-thread', value: 'activity-twins' }
   const parked = session('parked', '/target/child', { resume, issueId: 'selected', status: 'exited', stoppedAt: old })
   const winner = session('winner', '/other', { resume, issueId: 'selected', status: 'hibernated' })
-  const f = suppliedPool(external, [parked, winner])
+  const f = suppliedPool([parked, winner])
   const values: number[] = []
   const stop = autorun(() => values.push(f.pool.queries.activity({ kind: 'commandRootActivity', roots: ['/target'] })))
   try {

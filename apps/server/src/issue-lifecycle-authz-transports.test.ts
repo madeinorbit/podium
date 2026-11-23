@@ -33,10 +33,11 @@ async function fixture(registry: SessionRegistry): Promise<LifecycleFixture> {
   // so the fixture repo is reported by the host machine.
   await registry.sessionStore.repos.addRepo('/repo', registry.sessionStore.hostMachineId)
   const create = async (title: string, parentId?: IssueId) =>
-    await registry.issues.crud.create({
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title,
       startNow: false,
+      parentBranch: 'main',
       ...(parentId ? { parentId } : {}),
     })
   const root = await create('root')
@@ -50,7 +51,12 @@ async function fixture(registry: SessionRegistry): Promise<LifecycleFixture> {
   const depFrom = await create('dep from', root.id)
   const depTo = await create('dep to', root.id)
   const archived = await create('archived', root.id)
-  await registry.issues.hierarchy.addDep(depFrom.id, depTo.id, 'blocked-by')
+  await registry.issues.hierarchy.addDep(
+    registry.issues.reports.store.serverWriter,
+    depFrom.id,
+    depTo.id,
+    'blocked-by',
+  )
   return {
     root,
     moving,
@@ -188,11 +194,15 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
           if (msg.type === 'agentRelayResult') hub.onResult(msg)
         }),
       )
-      await registry.issues.crud.update(f.root.id, { worktreePath: '/wt/lifecycle-root' })
-      const sessionId = (await registry.modules.sessions.createSession({
-        cwd: '/wt/lifecycle-root',
-        agentKind: 'shell',
-      })).sessionId
+      await registry.issues.crud.update(registry.issues.reports.store.serverWriter, f.root.id, {
+        worktreePath: '/wt/lifecycle-root',
+      })
+      const sessionId = (
+        await registry.modules.sessions.createSession({
+          cwd: '/wt/lifecycle-root',
+          agentKind: 'shell',
+        })
+      ).sessionId
       relayServer = await startAgentRelayServer({ port: 0, relay: (req) => hub.relay(req) })
       const client = makeRelayIssueClient(relayServer.endpointFor(sessionId))
 

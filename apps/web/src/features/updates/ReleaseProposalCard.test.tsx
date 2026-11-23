@@ -26,9 +26,10 @@ describe('ReleaseProposalCard', () => {
       />,
     )
     expect(screen.getByText(/feature\/branch-release/)).toBeTruthy()
-    expect(screen.getByText(/Build dev\.7 \(abcdef1\) for the fleet/)).toBeTruthy()
+    expect(screen.getByText('Podium 0.1.2-dev.7')).toBeTruthy()
+    expect(screen.getByText('Build for the fleet')).toBeTruthy()
     expect(screen.getByTestId('release-proposal-server-transition').textContent).toContain(
-      '0.1.1-edge.1 → dev.7 (abcdef1)',
+      "You're on 0.1.1-edge.1 · 1 new commit on feature/branch-release",
     )
     expect(screen.getByText(/Add approval flow/)).toBeTruthy()
     expect(screen.getByTestId('release-proposal-migration-warning').textContent).toMatch(

@@ -2,64 +2,64 @@
 
 exports[`keeps native reference underlines equal and live without legacy issue reads on the pool path > reference underlines 1`] = `
 {
-  "bytes": 1172,
-  "sha256": "842e7792b210173bf7d1e7ed939f968144f807464cb8c55688375286811ec537",
+  "bytes": 1342,
+  "sha256": "8e5dd894eba8c18ce0b2bef1732201d526bc5155967cd7094165e0a2238131be",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-0 1`] = `
 {
-  "bytes": 881,
-  "sha256": "be93dae9b39c8561dae768bddf2285b493af1e33ad20a8306d84d1becbb35f88",
+  "bytes": 1051,
+  "sha256": "cfc98d3f7d2ae211fb3c86bc7819e90491bd70b78e803c9f07dfae200ef5931e",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-1 1`] = `
 {
-  "bytes": 789,
-  "sha256": "5d7184eeda92390991070ba323be52d3c70783042ce260053f42dd33eef616d8",
+  "bytes": 959,
+  "sha256": "6fa8e5104274fe9ec3dbc8a4ecf3d07b94eea76bb43672eef6fa669db6a53eda",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-2 1`] = `
 {
-  "bytes": 789,
-  "sha256": "b2a9911dc29d7e6a696f6ff1af39cd7ecc05350ff35c2cb4319498d7265f9364",
+  "bytes": 959,
+  "sha256": "a8cf4683d6756db77b743fbd07b1b9845f7a05c3bbf767c7c3cd56024fe5511e",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-3 1`] = `
 {
-  "bytes": 881,
-  "sha256": "ab1d2abcbbe1cc5a042a293b87d04924260efd594e29c36a9a9727a8c961d386",
+  "bytes": 1051,
+  "sha256": "262c0cec4ffea9f9c1f7b409eb980c9dfd0be23a8ffb36c53a5bb62039419153",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-4 1`] = `
 {
-  "bytes": 881,
-  "sha256": "df4d40176528da8b81a67bf7e2ca234955f89219d31f430f2249d465ad15d7a1",
+  "bytes": 1051,
+  "sha256": "52a26cff8e933c58e652a770cb7bc42b07bd1e57c99f9e80b5f89ed190ab707a",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-5 1`] = `
 {
-  "bytes": 343,
-  "sha256": "1952db1e4b0871928ac01ab9d89a50815281097a0ed3f31a87bc2fdc0161d5da",
+  "bytes": 513,
+  "sha256": "1ee8f04dca77c7559dca422038894d93ac74b3fb24ff85e4b1efd88a12945236",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-6 1`] = `
 {
-  "bytes": 259,
-  "sha256": "4c7e6efb58a2ac71fbb784500e203f48ec690b9b1d9949e56d88d8a148156729",
+  "bytes": 429,
+  "sha256": "40f1fc3131ba202730926f76b34a89b046cb11c2af5fc11895a9e89c20d569ca",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-7 1`] = `
 {
-  "bytes": 348,
-  "sha256": "9da48bc06e8238df7e8bad5ba7ac8a2a9c298da65fc10b4b318dbf0824365856",
+  "bytes": 518,
+  "sha256": "c5d69310afccd960e95978ec1bcba6e2b083071089aff22fde519cb5d696b7d6",
 }
 `;
 
@@ -72,71 +72,64 @@ exports[`renders the same real AgentPanel header, lifecycle text and controls fo
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-9 1`] = `
 {
-  "bytes": 360,
-  "sha256": "1e3d412d6e8a3dd4ab0fc5544849077c96944c3f172a61b608003667b9a91de3",
+  "bytes": 530,
+  "sha256": "070d5eddf621234346fde9ab0aeb96f7c0d60803e0c4b8abd5073527ecec4582",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-10 1`] = `
 {
-  "bytes": 351,
-  "sha256": "3ad051abc5aa0f369976ab78901481828fedf5075e56e9e949e9211b306db2a3",
+  "bytes": 521,
+  "sha256": "289b85c4d8d55bbad3a4f41c8f3c0c8342d53ec413c47af1391b42da2c93e7e7",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-11 1`] = `
 {
-  "bytes": 882,
-  "sha256": "0d176054bb82173d08a92f005a35deb56e66718f016a94e89ec984e6f468a96f",
-}
-`;
-
-exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-12 1`] = `
-{
-  "bytes": 882,
-  "sha256": "2725fbf62476725f05b58ffe42779a88795480534b55123a3810234da910061b",
+  "bytes": 1052,
+  "sha256": "0993b57af4f269ac699f0577b64b4bcd7065cd79896c9f726ac756e4f5b130b4",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-13 1`] = `
 {
-  "bytes": 890,
-  "sha256": "cf9303599f0f09df4dd939ad5258da54a139dd232861aedd1db0ce38d7173566",
+  "bytes": 1060,
+  "sha256": "ba88e83289b1f4b825305e68f4794a991555811d39a7a31b643396a05773126b",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-14 1`] = `
 {
-  "bytes": 708,
-  "sha256": "5ecb89ceb4ee6e1af32d05e4975361b59b2183a6b07b716954269dff8a16c485",
+  "bytes": 878,
+  "sha256": "cbfa4e6f534303353cda4b02a51e68e03edc1adaed7c306edf917efd1d8106ec",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-15 1`] = `
 {
-  "bytes": 882,
-  "sha256": "3d275d795dac4c4a0935cc3d5d34e1c4b005bcf340ae1fa23eb906a2a1ea28b2",
+  "bytes": 1052,
+  "sha256": "ee8e5335bcf8836c81d42f893237ca4ef645e9bda2b35348f88c2b37278d3d62",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-16 1`] = `
 {
-  "bytes": 882,
-  "sha256": "ec31ea5d6a61a51c8068edc3fd7c3a9ba6edf7394c6f189c886b924dcb3b5706",
+  "bytes": 1052,
+  "sha256": "ec233f113303ba4821be6999fe3a75873c40a14bec113b16a9208babbdb4fecc",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-17 1`] = `
 {
-  "bytes": 882,
-  "sha256": "828a174a30e66edd1f9c9a43f71d1e915db5a9295acd0102a1c08b6f062a060d",
+  "bytes": 1052,
+  "sha256": "716928b9fea969c430c617f972b1bb0766f28a523345615a6aae9eb885d8d46c",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-18 1`] = `
 {
-  "bytes": 2086,
-  "sha256": "659c17e731f05c695d526cb796a0355e94cfc1409ae4b5ecbff4a1e0a8cc54b8",
+  "bytes": 2256,
+  "sha256": "941869e7709184f2d5da8031f919f3f2a8b29499c0fef0b5249b83b4b1934102",
 }
 `;
 
@@ -149,21 +142,21 @@ exports[`renders the same real AgentPanel header, lifecycle text and controls fo
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-20 1`] = `
 {
-  "bytes": 882,
-  "sha256": "7e457064fcf26d4fc2a08005953d057ca444b3364d431cab7ab94f3b45be04e6",
+  "bytes": 1052,
+  "sha256": "ba0343374bfc14ef07c38c0c64828fc8aaea73b397157d338f18d4bd1f8d146f",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-21 1`] = `
 {
-  "bytes": 890,
-  "sha256": "50a3b7dbbbc4eb4d764addb22cd3b16925e7481899765fa594a0e84ce46e72cf",
+  "bytes": 1060,
+  "sha256": "958dd5b320a22e74ceb45abec8a8d2cbdaf113ca1d65dfd12fafc9656c7c9cde",
 }
 `;
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-22 1`] = `
 {
-  "bytes": 351,
-  "sha256": "ff781d37f4a3730aacf90a3759ab984bb0ee3cf5470c6f946454451d10af2d15",
+  "bytes": 521,
+  "sha256": "8e3bbe0124431a0b6d57815a20a61370fe452bb1fc6a4485609c638345c8fe58",
 }
 `;

@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { asArtifactId, asIssueId, type IssuePanelArtifact, type SessionOffer } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { offerArtifactRows, resolveOfferArtifacts } from './offer-artifacts'
@@ -9,7 +9,7 @@ import { offerArtifactRows, resolveOfferArtifacts } from './offer-artifacts'
 
 const ORIGIN = 'https://podium.local'
 
-function issue(artifacts: IssuePanelArtifact[]): IssueViewModel {
+function issue(artifacts: IssuePanelArtifact[]): IssueWithBodies {
   return {
     id: asIssueId('iss_offer'),
     seq: 1,
@@ -17,7 +17,7 @@ function issue(artifacts: IssuePanelArtifact[]): IssueViewModel {
     repoPath: '/repo',
     worktreePath: '/repo/.worktrees/POD-1',
     panel: { todos: [], artifacts, deferred: [] },
-  } as unknown as IssueViewModel
+  } as unknown as IssueWithBodies
 }
 
 const art = (
@@ -167,7 +167,7 @@ it('matches curated Windows artifact paths across absolute and relative spelling
     path: 'C:\\repo\\shots\\final.png',
     addedAt: '2026-07-21T09:00:00.000Z',
   } as IssuePanelArtifact
-  const issue = { panel: { artifacts: [artifact] } } as IssueViewModel
+  const issue = { panel: { artifacts: [artifact] } } as unknown as IssueWithBodies
   const offer = { artifacts: ['shots/final.png', 'c:/repo/shots/final.png'] } as SessionOffer
   expect(resolveOfferArtifacts({ issue, offer })).toEqual([artifact])
 })

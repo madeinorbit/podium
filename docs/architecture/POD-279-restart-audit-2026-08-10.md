@@ -148,7 +148,7 @@ Work in compiler/audit-driven batches, keeping the ratchet flat or decreasing af
 
 1. POD-1636 is the most serious open architecture decision: multi-user authorization is not a
    host boundary while every agent process shares the OS user and can write `podium.db`. It needs
-   a human-selected host isolation mechanism; code inside `session-mint.ts` cannot solve it.
+   a human-selected host isolation mechanism; sign-in code cannot solve it.
 2. POD-1423 and POD-1651 are the concrete live-scale performance blockers. Fix them before the
    broad POD-1590 shipped-performance profile, which should consolidate the final numbers rather
    than rediscover known stalls.

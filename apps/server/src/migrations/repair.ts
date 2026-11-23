@@ -42,6 +42,8 @@ interface RequiredColumn {
    * that adds it has run.
    */
   addedBy: string
+  /** A known historical rebuild that drops this column when applied late. */
+  rebuiltBy: string
   /** Why this column is at risk — the incident, for whoever reads a repair log. */
   why: string
 }
@@ -53,6 +55,7 @@ const REQUIRED_COLUMNS: RequiredColumn[] = [
     // 20260802111446_label-client-sessions, verbatim.
     ddl: "ALTER TABLE `client_sessions` ADD `label` text DEFAULT 'login' NOT NULL;",
     addedBy: '20260802111446_label-client-sessions',
+    rebuiltBy: '20260730173834_user-accounts-first-admin',
     why:
       'POD-1621: 20260730173834_user-accounts-first-admin rebuilds client_sessions from a ' +
       'column list that predates the main-lineage label migration. A database that tracked ' +
@@ -60,6 +63,15 @@ const REQUIRED_COLUMNS: RequiredColumn[] = [
       'rebuild, which dropped the column. Auth queries then throw `no such column: label`.',
   },
 ]
+
+/** Restore a known late rebuild inside its migration transaction, before the
+ * next migration can index or read the lost column. An in-order install still
+ * lets the original column migration add it exactly once. */
+export function schemaRepairsAfter(migration: string, applied: ReadonlySet<string>): string[] {
+  return REQUIRED_COLUMNS.filter(
+    (required) => required.rebuiltBy === migration && applied.has(required.addedBy),
+  ).map((required) => required.ddl)
+}
 
 function tableExists(db: SqlDatabase, name: string): boolean {
   return (

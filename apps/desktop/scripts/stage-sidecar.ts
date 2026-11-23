@@ -14,8 +14,8 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
@@ -56,8 +56,9 @@ execFileSync('bun', ['run', 'package:headless'], {
 })
 
 // 2. Stage the complete headless bundle as the immutable first-run seed. The native
-//    shell copies this directory to Application Support exactly once; every later
-//    payload change is the ordinary fleet grant swap against that external install.
+//    shell seeds Application Support on first install. A later eligible cold start
+//    may also use the complete bundle as a lower-priority runtime fallback; ongoing
+//    updates remain ordinary fleet grants against that external install.
 const resourcesDir = `${desktopDir}src-tauri/resources`
 mkdirSync(resourcesDir, { recursive: true })
 const payloadSrc = `${repoRoot}/dist-bun/headless`

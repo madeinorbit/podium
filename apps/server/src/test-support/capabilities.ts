@@ -49,7 +49,9 @@ import { firstAdminMemberId } from '@podium/model'
  */
 export const OPERATOR: Capability = {
   role: 'admin',
-  scope: { kind: 'all' },
+  // A person carries the member scope, admins included (design §4.1,
+  // POD-6288): this fixture is the first admin as production mints it.
+  scope: { kind: 'owned', userId: firstAdminMemberId() },
   actorUser: firstAdminMemberId(),
   onBehalfOf: firstAdminMemberId(),
 }

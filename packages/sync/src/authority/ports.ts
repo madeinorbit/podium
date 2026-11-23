@@ -20,15 +20,15 @@
  * the kernel does not own the tables, and the adapter does not own the semantics.
  */
 
-import type { MetadataEntityKind } from '@podium/protocol'
-import { type Principal } from '@podium/protocol'
-import type { ArbitrationAttempt, ArbitrationRejection, ArbitrationRequest } from './arbitration'
+import type { ChangeProvenanceFields } from '@podium/model'
+import type { MetadataEntityKind, Principal } from '@podium/protocol'
 import type { FeedScopingGrade } from '../feed/visibility'
+import type { BuiltRecord, RecordIdsByKind, RecordPage } from '../record-builders'
+import type { ArbitrationAttempt, ArbitrationRejection, ArbitrationRequest } from './arbitration'
 import type {
   ChangeLogReadRow,
   ChangeLogWriteRow,
   SequencedChange,
-  StagedChangeSpec,
   StoredChangeRow,
 } from './change-lifecycle'
 import type { ScopedBootstrap, ScopedDelivery } from './scoping'
@@ -58,33 +58,6 @@ export interface ChangeStorePort {
   /** Plain range read: rows with seq > cursor, in seq order. The CALLER decides
    *  whether the cursor is still inside the retained range. */
   changesSince(cursor: number): Promise<readonly SequencedChange[]>
-  /**
-   * THE INSTALLED WORLD — the latest live state per (entity, id): the boot seed
-   * for the dedup baseline, and the ONLY honest source for a bootstrap
-   * ({@link AuthorityPort.bootstrap}).
-   *
-   * `seq` is that state's position in the one global sequence, and it is here
-   * because a bootstrap is a set of feed rows and a feed row has a position.
-   * Reading the current state out of `changesSince(0)` instead would look
-   * equivalent and would be wrong the moment anything is pruned: head-pruning
-   * drops old rows, so an entity whose last change fell below the retention floor
-   * would simply be MISSING from the installed world.
-   *
-   * SO THIS READ MUST NOT BE A FOLD OVER THE RETAINED LOG, which is what it was
-   * until POD-678 and is the whole bug: "per (entity, id) over the whole table" is
-   * no protection when the whole table is what retention deletes from. On the live
-   * install it returned 66 of 631 issues after ~27 hours, and every client that
-   * attached then rendered the other 565 as unknown references. An adapter answers
-   * this from state it never prunes; the row budget bounds what `changesSince` can
-   * serve and nothing else.
-   *
-   * ONLY `upsert` ROWS. A removed entity is absent from the world rather than
-   * present as a tombstone — every caller skipped non-upsert rows already.
-   *
-   * Shape is {@link ChangeLogReadRow} — the composed store-read form, not a
-   * hand-restated field list.
-   */
-  latestChangeStates(): Promise<readonly ChangeLogReadRow[]>
 }
 
 /** Re-export so adapters and tests name the composed write/read forms once. */
@@ -112,6 +85,76 @@ export type TransactPort = <T>(fn: () => Promise<T>) => Promise<T>
  * pass has consumed the resolved snapshot.
  */
 export type PostCommitFollowUpPort = (step: () => Promise<void>, label: string) => void
+
+/**
+ * WHICH COMMAND IS APPENDING NOW (ADR 2 D8, ADR 12; POD-6272).
+ *
+ * The write entry point opens a provenance scope around each command's handler
+ * (in the caller's async context, so two calls in one HTTP batch cannot see each
+ * other's). The Authority reads it once per commit, at the call, and stamps every
+ * row it appends with the answer.
+ *
+ * A spec that names any provenance field of its own keeps its own group whole;
+ * the ambient answer fills only rows that named none. `undefined` (no scope
+ * open) stamps nothing, and a field reported as `undefined` is not written, so
+ * an absent field stays an absent key all the way to the reader.
+ *
+ * Provenance never feeds dedup: a no-op write under a new mutation id still
+ * appends nothing (the reply's receipt confirms those writes, ADR 12).
+ */
+export interface ProvenancePort {
+  /** The provenance of the command now appending, read once per commit in the caller's async context. */
+  current(): ChangeProvenanceFields | undefined
+}
+
+/**
+ * RECORDS AS THE DATABASE HOLDS THEM NOW, AND WHICH ONES A WRITE CHANGED
+ * (POD-6253 design §3, POD-6920).
+ *
+ * Writers name no records. The database layer captures which model rows each
+ * write transaction changed (generated triggers over every table a kind
+ * reads), and {@link drainCapture} turns the rows captured so far in the
+ * caller's transaction into the ids of the records they can have changed. A
+ * transaction that changed a model row and was not drained before it commits
+ * is refused by the database, so no write reaches the tables without its log
+ * entry.
+ *
+ * `build` runs inside the commit's span, so it sees the span's own writes, and
+ * answers exactly the asked ids that have a record, once each.
+ */
+export interface RecordSourcePort {
+  /**
+   * Take every change captured so far in the caller's transaction, and answer
+   * the records those changes can have changed, by kind, each id once, in the
+   * order first captured. An id may name a record the write removed or never
+   * had: the caller builds it to find out.
+   */
+  drainCapture(after?: number): Promise<RecordIdsByKind>
+  /**
+   * Where a commit starts in the capture, taken before its span opens: 0 when
+   * no transaction is open (the capture is empty), else the newest captured
+   * row so far. The commit drains only what was captured after it, so a commit
+   * nested in another write's transaction takes its own write's changes and
+   * leaves the enclosing write's to the enclosing commit. Absent: 0.
+   */
+  captureMark?(): Promise<number>
+  /**
+   * Runs a commit's body (the write, the drain, the append) inside its span,
+   * so the source can tell a write inside a commit from one outside any: a
+   * repository hook that commits its own writes joins an open commit instead
+   * (POD-6920). Absent: the body runs as is.
+   */
+  inCommit?<T>(body: () => Promise<T>): Promise<T>
+  build(kind: MetadataEntityKind, ids: readonly string[]): Promise<readonly BuiltRecord[]>
+  /** Build several kinds at once, sharing reads across kinds. */
+  buildMany(idsByKind: RecordIdsByKind): AsyncIterable<RecordPage>
+  /** Every kind this source builds, in the order a start-up load streams them (POD-6770). */
+  kinds(): readonly MetadataEntityKind[]
+  /** Every record of a kind as the database holds it now, a page at a time. */
+  streamAll(kind: MetadataEntityKind): AsyncIterable<readonly BuiltRecord[]>
+  /** Every record in the start-up load, a page of one kind at a time. */
+  streamAllKinds(): AsyncIterable<RecordPage>
+}
 
 /**
  * The seam the BASELINE FOLD hangs off [POD-3328, spec §3.3 mechanism 1].
@@ -209,24 +252,6 @@ export interface AuthorityPort {
   commit<T>(op: AuthorityCommit<T>): Promise<AuthorityCommitOutcome<T>>
 
   /**
-   * An explicitly owned mutation with no durable entity-row write to bind to
-   * (volatile session view state, an upstream mirror). The caller supplies the
-   * exact upserts and removes; this never diffs a list.
-   */
-  capture(specs: readonly StagedChangeSpec[]): Promise<readonly SequencedChange[]>
-
-  /**
-   * BOOT-ONLY reconciliation: `rows` is the FULL truth for one entity kind.
-   * The only surviving full-list diff path, INCLUDING removes, so anything that
-   * changed or vanished while the Authority was down lands in the log before the
-   * first reader sees it.
-   */
-  reconcile(
-    entity: MetadataEntityKind,
-    rows: readonly { readonly id: string; readonly value: unknown }[],
-  ): Promise<readonly SequencedChange[]>
-
-  /**
    * Catch-up read, FOR ONE PRINCIPAL. `null` means "I cannot serve you a delta —
    * re-bootstrap" (bootstrap / compacted-past-cursor / future cursor / corrupt
    * row).
@@ -317,17 +342,20 @@ export interface AuthorityCommit<T> {
     /** Read CURRENT state inside the transaction that performs the write. */
     readonly current?: () => Promise<ArbitrationRequest['current']>
   }
-  /** The entity write, awaited inside the same transaction as the change append. */
+  /**
+   * The entity write, awaited inside the same transaction as the change
+   * append. The Authority drains the capture right after it and appends one
+   * row for every record the captured changes reach: an upsert of the record
+   * as it is now, or a remove when it is gone (POD-6920).
+   */
   write: () => Promise<T>
-  /** What the write touched, declared by the writer. Never diffed from a list. */
-  changes: (result: T) => readonly StagedChangeSpec[] | Promise<readonly StagedChangeSpec[]>
 }
 
 export type AuthorityCommitOutcome<T> =
   | {
       readonly outcome: 'committed'
       readonly result: T
-      /** The appended rows. EMPTY when every declared change deduped away. */
+      /** The appended rows. Empty when the write changed no column a record reads. */
       readonly changes: readonly SequencedChange[]
     }
   /** Arbitration refused. Nothing was written — the entity write never ran. */

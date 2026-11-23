@@ -1,5 +1,5 @@
 /**
- * THE ISSUE-EVENT FEED PUBLISHER (POD-1772) — `podium_events` onto the metadata
+ * THE ISSUE-EVENT FEED (POD-1772) — `podium_events` onto the metadata
  * feed, as a BOUNDED WINDOW.
  *
  * ---------------------------------------------------------------------------
@@ -23,26 +23,27 @@
  *
  * So the publisher owns a WINDOW of the most recent {@link FEED_WINDOW} events:
  * entering it is an `upsert`, leaving it is a `remove`. Both ops travel on the
- * same ordered pipe as one capture, so a replica can never observe the window's
+ * same ordered pipe as one commit, so a replica can never observe the window's
  * top without its bottom. The window is a fact about what the FEED carries, not
  * about what the log retains — `issues.events` still reads the full table, and
  * the log's own retention job is unaffected.
  *
- * The window is rebuilt from the Authority during registry hydration rather than
- * from the events table: the Authority is what the feed actually holds, and seeding from
- * the table would re-publish rows a restart had not lost (and, worse, would
- * disagree with the snapshot a connected replica already has).
+ * THE WINDOW IS A QUERY ON THE EVENTS TABLE (POD-6766, design POD-6253 §1):
+ * the newest {@link FEED_WINDOW} feed-kind events with a subject that EXIST
+ * (`EventsRepository.feedWindow`), the same read the record builder streams.
+ * Nothing keeps a copy of it. Every append and every retention batch is
+ * captured by the database and drained into the log in its own transaction
+ * (`EventsRepository.setLogCommit`), and the capture's mapping
+ * (`sync/record-sources.ts`) names the events that entered or left the
+ * window: an arrival and the one it pushed out, the deleted events that were
+ * inside it and the older ones it now reaches (POD-6920). Before POD-6766 the
+ * window lived in memory, seeded from the log, and never learned of
+ * retention: on 2026-11-09 the feed still carried 73 events the table no
+ * longer had.
  */
 
-import {
-  type IssueEventWire,
-  isFeedEventKind,
-  issueEventRowId,
-  parseIssueEventRowId,
-  type IssueId,
-} from '@podium/model'
-import type { EntityChangeSpec, Ledger } from '@podium/sync'
-import type { PodiumEventRecord } from '../../store/events'
+import { type IssueEventWire, issueEventRowId } from '@podium/model'
+import type { EventsRepository, PodiumEventRecord } from '../../store/events'
 
 /**
  * How many events the feed carries. The chat pane keeps a tail of 40 and the
@@ -52,98 +53,24 @@ import type { PodiumEventRecord } from '../../store/events'
  */
 export const FEED_WINDOW = 200
 
-export interface IssueEventFeedDeps {
-  /** Write-seam ledger. Rows ride entity kind `issueEvent`. */
-  readonly ledger: Pick<Ledger, 'capture'>
-  /** What the Authority already holds for this kind when async boot resolves it. */
-  readonly seed: () => readonly IssueEventWire[] | Promise<readonly IssueEventWire[]>
-  readonly windowSize?: number
+/** The feed record of one stored event. */
+export function issueEventRecordOf(event: PodiumEventRecord): IssueEventWire {
+  const id = issueEventRowId(event.id, event.subject)
+  return {
+    id,
+    eventId: event.id,
+    ts: event.ts,
+    kind: event.kind,
+    subject: event.subject,
+    repoPath: event.repoPath ?? null,
+    payload: event.payload ?? {},
+  } as IssueEventWire
 }
 
-export class IssueEventFeedPublisher {
-  /** Row ids currently in the window, oldest first (by durable event id). */
-  private window: string[] = []
-  private readonly windowSize: number
-  private resolved = false
-  private resolving: Promise<void> | undefined
-
-  constructor(private readonly deps: IssueEventFeedDeps) {
-    this.windowSize = deps.windowSize ?? FEED_WINDOW
-  }
-
-  /** Read the authority's existing window after composition and before serving. */
-  async resolve(): Promise<void> {
-    if (this.resolved) return
-    if (!this.resolving) {
-      this.resolving = (async () => {
-        this.window = [...await this.deps.seed()]
-          .sort((a, b) => a.eventId - b.eventId)
-          .map((row) => row.id)
-          // A seed longer than the window (the size was lowered across a restart)
-          // is trimmed on the first publish, not here: resolving must not capture
-          // deletes before the composition root has finished wiring.
-          .slice(-Math.max(this.windowSize, 1) * 2)
-        this.resolved = true
-      })()
-    }
-    await this.resolving
-  }
-
-  /**
-   * Publish one appended event, if the feed carries its kind.
-   *
-   * NEVER THROWS INTO THE APPEND. The durable write has already happened by the
-   * time this runs, and a publisher fault must not turn a recorded event into a
-   * failed command — a feed row that never arrives is a stale pane, a rolled
-   * back `issues.close` is a lie about the world.
-   */
-  async publish(eventId: number, record: Omit<PodiumEventRecord, 'id'>): Promise<void> {
-    await this.resolve()
-    if (!isFeedEventKind(record.kind)) return
-    if (record.subject === '') return
-    try {
-      const id = issueEventRowId(eventId, record.subject)
-      const value: IssueEventWire = {
-        id,
-        eventId,
-        ts: record.ts,
-        kind: record.kind,
-        subject: record.subject,
-        repoPath: record.repoPath ?? null,
-        payload: record.payload ?? {},
-      }
-      const specs: EntityChangeSpec[] = [{ entity: 'issueEvent', id, op: 'upsert', value }]
-      this.window.push(id)
-      while (this.window.length > this.windowSize) {
-        const evicted = this.window.shift()
-        if (evicted !== undefined) {
-          specs.push({ entity: 'issueEvent', id: evicted, op: 'remove' })
-        }
-      }
-      // ONE capture: the arrival and the eviction it caused are the same
-      // observation, and a replica must never see the window grow past its own
-      // bound because the two halves were separately ordered.
-      await this.deps.ledger.capture(specs)
-    } catch {
-      // Publishing is best-effort by design (see the doc comment above).
-    }
-  }
-
-  /** The feed rows currently carried for one issue — the subject list an
-   *  authorization change has to re-scope alongside the issue itself. Answered
-   *  from the window, so a grant costs no table read. */
-  subjectsFor(issueId: IssueId): { entity: 'issueEvent'; entityId: string }[] {
-    if (!this.resolved) throw new Error('IssueEventFeedPublisher is unresolved')
-    const subjects: { entity: 'issueEvent'; entityId: string }[] = []
-    for (const id of this.window) {
-      try {
-        if (parseIssueEventRowId(id).subject === issueId) {
-          subjects.push({ entity: 'issueEvent', entityId: id })
-        }
-      } catch {
-        // A row id the current build cannot parse is not this issue's.
-      }
-    }
-    return subjects
-  }
+/** The window the feed carries, read from the table, oldest first. */
+export async function issueEventWindow(
+  events: Pick<EventsRepository, 'feedWindow'>,
+  windowSize = FEED_WINDOW,
+): Promise<IssueEventWire[]> {
+  return (await events.feedWindow({ limit: windowSize })).reverse().map(issueEventRecordOf)
 }

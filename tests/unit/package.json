@@ -1,0 +1,8 @@
+{
+  "name": "@podium/unit-tests",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "vitest": "5.0.0-beta.6"
+  }
+}

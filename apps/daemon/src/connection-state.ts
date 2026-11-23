@@ -1,47 +1,50 @@
-import { requestParentHelloSignature } from '@podium/runtime/parent-control'
-import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
-import type { BindingConfirmations } from '@podium/protocol'
 import { spawn } from 'node:child_process'
 import { hostname } from 'node:os'
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
+import { isNotInConversationCause } from '@podium/model'
+import type { BindingConfirmations } from '@podium/protocol'
 import {
+  CAP_CHECKOUT_CHANGED_V1,
+  CAP_CONVERSATION_PREPARE,
+  CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
+  CAP_HARNESS_HOMES,
+  CAP_MACHINE_PROCESSES_V1,
+  CAP_OAUTH_LOOPBACK,
+  CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
+  CAP_TOPICS_V1,
   createHandshakeDialer,
-  DAEMON_WIRE_VERSION,
-  MIN_DAEMON_WIRE_VERSION,
-  MachineChallenge,
-  type PeerHello,
   DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
+  DAEMON_WIRE_VERSION,
   DaemonPtyInputMetadata,
   type DaemonPtyOutputBatch,
   decodeBinaryEnvelope,
   encodeBinaryEnvelope,
   type LocalDaemonAttachment,
+  MachineChallenge,
+  MIN_DAEMON_WIRE_VERSION,
   type PeerBuild,
   type PeerCredential,
+  type PeerHello,
   type PeerHelloRejected,
 } from '@podium/protocol'
-import { isNotInConversationCause } from '@podium/model'
 import {
   CAP_DELIVERY_ACCEPTED,
   CAP_DELIVERY_NOT_IN_CONVERSATION,
-  isDurableRuntimeEvent,
   type DaemonMessage,
+  isDurableRuntimeEvent,
 } from '@podium/protocol/daemon'
-import { stateDir, loadConfig, resolveConnectBaseUrl, saveConfig } from '@podium/runtime/config'
+import { loadConfig, resolveConnectBaseUrl, saveConfig, stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { requestParentHelloSignature } from '@podium/runtime/parent-control'
 import { locateDelayMs, locateServer, proveServer } from '@podium/runtime/server-follow'
-import {
-  applyServerUrl,
-  consumePairCode,
-  fetchTargetAppUrl,
-  wssFrom,
-} from '@podium/runtime/setup'
+import { applyServerUrl, consumePairCode, fetchTargetAppUrl, wssFrom } from '@podium/runtime/setup'
 import {
   acceptsUpdateKeyRotation,
   type UpdateKeyRotation,
@@ -52,8 +55,9 @@ import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
+import { plainRemoteServerWarning } from './link-warning'
 import type { QueueDrainOutbox } from './queue-drain-outbox'
-import type { RuntimeEventOutbox } from './runtime-event-outbox'
+import type { DurableRuntimeEvent, RuntimeEventOutbox } from './runtime-event-outbox'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
 const log = createLogger('daemon:connection')
@@ -101,6 +105,17 @@ const RECONNECT_MAX_MS = 5_000
 const SOCKET_OPEN_DEADLINE_MS = 10_000
 const PEER_HELLO_ACK_DEADLINE_MS = 10_000
 const QUEUE_DRAIN_RETRY_MS = 500
+/*
+ * RUNTIME EVENT RETRY ON A LIVE LINK. A link delivers frames in order, so an
+ * event without an ack is either still queued at the server or met a server
+ * failure. Resending the whole pending set every tick turned slow acks into a
+ * storm: a server L ms behind received each event about L/500 times, fell
+ * further behind, missed the handshake deadline and dropped the link. A tick
+ * now resends only events that went a full interval without an ack, and each
+ * resend doubles the interval up to the cap. A new link still replays everything.
+ */
+const RUNTIME_EVENT_RETRY_MIN_MS = 500
+const RUNTIME_EVENT_RETRY_MAX_MS = 30_000
 /** Drops in a row before the link is called flapping and logged above info. */
 const FLAPPING_DROP_THRESHOLD = 3
 /*
@@ -172,6 +187,14 @@ export interface DaemonConnectionDeps {
     bindingConfirmations?: BindingConfirmations,
   ) => { convergedVersion?: string } | void
   readonly onTerminal: () => void | Promise<void>
+  /**
+   * An established link ended: the socket closed, the local attachment was
+   * dropped, or the connection was closed. Once per link that reached
+   * `connected`, before any reconnect; never for a dial that never connected.
+   * Per-link daemon state (ADR 7 Amendment 2 D22: topic watches) is released
+   * here, so nothing runs for the server while there is no server to hear it.
+   */
+  readonly onLinkLost?: () => void
   readonly openSocket?: (url: string) => SocketLike
   /**
    * Fetch for the Podium Connect locator read and the candidates' locate
@@ -194,6 +217,8 @@ export interface DaemonConnection {
    * picture items and serves viewers from them. False while disconnected.
    */
   acceptsPictures(): boolean
+  /** The live link accepted topics.v1 (ADR 7 Amendment 2). False while disconnected. */
+  acceptsTopics(): boolean
   send(msg: DaemonMessage): void
   quiesceEndpoint(transferId: string): void
   resumeEndpoint(transferId: string): void
@@ -266,6 +291,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let acknowledgementDeadline: { generation: number; handle: unknown } | undefined
   let queueDrainRetryTimer: unknown | undefined
   let runtimeEventRetryTimer: unknown | undefined
+  let runtimeEventRetryMs = RUNTIME_EVENT_RETRY_MIN_MS
+  /** Retry ticks fired on this link; each send records the tick it went out in. */
+  let runtimeEventRetryTick = 0
+  const runtimeEventSentAtTick = new Map<string, number>()
   let reconnectBackoffMs = RECONNECT_MIN_MS
   /**
    * Consecutive drops with no successful connect in between (POD-4261).
@@ -278,6 +307,17 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
    */
   let consecutiveDrops = 0
   let closing = false
+  /** The current link reached `connected` and its loss has not been reported. */
+  let linkEstablished = false
+  const linkLost = (): void => {
+    if (!linkEstablished) return
+    linkEstablished = false
+    try {
+      deps.onLinkLost?.()
+    } catch (err) {
+      log.warn('link-loss cleanup failed', { err })
+    }
+  }
   let started = false
   /**
    * How many times the locator was consulted since the last successful
@@ -362,8 +402,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const credential = (): PeerCredential | null => {
     const supervisor = loadSupervisorState(options.identityDir ?? stateDir())
     if (supervisor.enrolledPublicKey) return { kind: 'machineKey', machineHint: deps.machineId }
-    if (options.machineToken) return { kind: 'machineToken', token: options.machineToken, machineHint: deps.machineId }
-    if (identity.token) return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
+    if (options.machineToken)
+      return { kind: 'machineToken', token: options.machineToken, machineHint: deps.machineId }
+    if (identity.token)
+      return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
     return null
   }
   const hellos = new WeakMap<ReturnType<typeof createHandshakeDialer>, PeerHello>()
@@ -373,16 +415,34 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     hellos.set(dialer, hello)
     return hello
   }
-  const signChallenge = async (dialer: ReturnType<typeof createHandshakeDialer>, challenge: import('@podium/protocol').MachineChallenge): Promise<PeerHello> => {
+  const signChallenge = async (
+    dialer: ReturnType<typeof createHandshakeDialer>,
+    challenge: import('@podium/protocol').MachineChallenge,
+  ): Promise<PeerHello> => {
     const hello = hellos.get(dialer)
-    if (!hello || hello.credential.kind !== 'machineKey' || challenged.has(dialer)
-      || challenge.machineId !== deps.machineId) throw new Error('unexpected machine key challenge')
+    if (
+      !hello ||
+      hello.credential.kind !== 'machineKey' ||
+      challenged.has(dialer) ||
+      challenge.machineId !== deps.machineId
+    )
+      throw new Error('unexpected machine key challenge')
     challenged.add(dialer)
-    const signature = await requestParentHelloSignature(challenge, { stateDir: options.identityDir ?? stateDir() })
-    return { ...hello, credential: { ...hello.credential, proof: {
-      nonce: challenge.nonce, installationId: challenge.installationId,
-      connectionId: challenge.connectionId, signature,
-    } } }
+    const signature = await requestParentHelloSignature(challenge, {
+      stateDir: options.identityDir ?? stateDir(),
+    })
+    return {
+      ...hello,
+      credential: {
+        ...hello.credential,
+        proof: {
+          nonce: challenge.nonce,
+          installationId: challenge.installationId,
+          connectionId: challenge.connectionId,
+          signature,
+        },
+      },
+    }
   }
 
   const clearOpenDeadline = (generation?: number): void => {
@@ -480,13 +540,38 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     runtimeEventRetryTimer = timers.setTimeout(() => {
       runtimeEventRetryTimer = undefined
-      replayRuntimeEvents()
-    }, QUEUE_DRAIN_RETRY_MS)
+      resendOverdueRuntimeEvents()
+    }, runtimeEventRetryMs)
   }
 
+  const sendRuntimeEvent = (event: DurableRuntimeEvent): void => {
+    sendConnected(event)
+    runtimeEventSentAtTick.set(event.deliveryId, runtimeEventRetryTick)
+  }
+
+  /** A new link: nothing sent on the old one is in flight, so replay it all. */
   const replayRuntimeEvents = (): void => {
     if (state !== 'connected') return
-    for (const event of deps.runtimeEventOutbox.pending()) sendConnected(event)
+    runtimeEventSentAtTick.clear()
+    runtimeEventRetryMs = RUNTIME_EVENT_RETRY_MIN_MS
+    for (const event of deps.runtimeEventOutbox.pending()) sendRuntimeEvent(event)
+    scheduleRuntimeEventRetry()
+  }
+
+  /** A retry tick: resend only events sent before the previous tick. */
+  const resendOverdueRuntimeEvents = (): void => {
+    if (state !== 'connected') return
+    runtimeEventRetryTick += 1
+    let resent = false
+    for (const event of deps.runtimeEventOutbox.pending()) {
+      const sentAt = runtimeEventSentAtTick.get(event.deliveryId)
+      if (sentAt !== undefined && sentAt >= runtimeEventRetryTick - 1) continue
+      sendRuntimeEvent(event)
+      resent = true
+    }
+    if (resent) {
+      runtimeEventRetryMs = Math.min(runtimeEventRetryMs * 2, RUNTIME_EVENT_RETRY_MAX_MS)
+    }
     scheduleRuntimeEventRetry()
   }
 
@@ -566,6 +651,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     if (applied.serverUrl === activeServerUrl) return
     activeServerUrl = applied.serverUrl
     log.info('daemon adopted the resolved server URL', { serverUrl: applied.serverUrl })
+    const plain = plainRemoteServerWarning(applied.serverUrl)
+    if (plain !== undefined) log.warn(plain, { serverUrl: applied.serverUrl })
     if (reconnectTimer !== undefined) {
       timers.clearTimeout(reconnectTimer)
       reconnectTimer = undefined
@@ -705,6 +792,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   ): void => {
     state = kind
     closing = true
+    linkLost()
     const guidance =
       kind === 'unauthorized'
         ? 'Pairing will not be retried. On the server, open Machines → Add machine, create a new one-use code, then pair this machine with that new code.'
@@ -754,42 +842,52 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     legacyBindingOwners?: Readonly<Record<string, string>>,
     bindingConfirmations?: BindingConfirmations,
   ): void => {
+    const rotation =
+      !issuedToken &&
+      updatePubkey !== undefined &&
+      identity.updatePubkey !== undefined &&
+      updatePubkey !== identity.updatePubkey
+        ? { from: identity.updatePubkey, to: updatePubkey }
+        : undefined
+    if (
+      rotation &&
+      !acceptsUpdateKeyRotation(rotation.from, rotation.to, updateKeyRotations ?? [])
+    ) {
+      terminal(
+        'blocked',
+        'server-update-key',
+        'the publisher update key was replaced after this machine enrolled, and no valid ' +
+          'old-key-signed rotation reaches it. The existing pin was kept. After verifying ' +
+          updateKeyFingerprint(rotation.to) +
+          ' out of band with the publisher, recover on this machine with: ' +
+          'podium update-key trust ' +
+          rotation.to,
+        active,
+      )
+      return
+    }
+    // Admission and the update-key pin must both be valid before publishing
+    // startup migrations or credentials. A losing ownership claim dispatches
+    // no application work and leaves the winner's identity intact.
+    try {
+      options.onAdmitted?.()
+    } catch (error) {
+      terminal('blocked', 'instance-identity', String(error), active)
+      return
+    }
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
-    } else if (updatePubkey !== undefined) {
-      // No pin at all — learn it. This is the bootstrap handshake's first contact,
-      // and equally a daemon that paired before the pin existed: an ABSENT pin
-      // cannot be a CHANGED key, and blocking one bricks every daemon enrolled
-      // before this guard shipped. The connection is already authenticated to the
-      // configured server, so pinning here is no weaker than pinning at pairing.
-      if (identity.updatePubkey === undefined) {
-        persistBootstrapPin(updatePubkey)
-      } else if (updatePubkey !== identity.updatePubkey) {
-        if (
-          acceptsUpdateKeyRotation(identity.updatePubkey, updatePubkey, updateKeyRotations ?? [])
-        ) {
-          persistBootstrapPin(updatePubkey)
-          log.info('accepted signed server update-key rotation', {
-            fingerprint: updateKeyFingerprint(updatePubkey),
-          })
-        } else {
-          terminal(
-            'blocked',
-            'server-update-key',
-            'the publisher update key was replaced after this machine enrolled, and no valid ' +
-              'old-key-signed rotation reaches it. The existing pin was kept. After verifying ' +
-              updateKeyFingerprint(updatePubkey) +
-              ' out of band with the publisher, recover on this machine with: ' +
-              'podium update-key trust ' +
-              updatePubkey,
-            active,
-          )
-          return
-        }
+    } else if (updatePubkey !== undefined && updatePubkey !== identity.updatePubkey) {
+      persistBootstrapPin(updatePubkey)
+      if (rotation) {
+        log.info('accepted signed server update-key rotation', {
+          fingerprint: updateKeyFingerprint(updatePubkey),
+        })
       }
     }
     const from = state
     state = 'connected'
+    linkEstablished = true
     acceptedCaps = new Set(caps)
     const recoveredAfterMs =
       reconnectBackoffMs === RECONNECT_MIN_MS ? undefined : reconnectBackoffMs
@@ -922,6 +1020,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     localAttachment?.close()
     localAttachment = undefined
     state = 'closed'
+    linkLost()
   }
   const receiveReply = (
     dialer: ReturnType<typeof createHandshakeDialer>,
@@ -929,6 +1028,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     active: SocketLike | undefined,
     isBinary = false,
   ): void => {
+    if (closing) return
     if (isBinary) {
       if (dialer.state !== 'established' || !acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
         closeForInvalidBinary(
@@ -949,12 +1049,22 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     let decoded: unknown
-    try { decoded = JSON.parse(normalizeRawData(raw).toString()) } catch { decoded = undefined }
+    try {
+      decoded = JSON.parse(normalizeRawData(raw).toString())
+    } catch {
+      decoded = undefined
+    }
     const challenge = MachineChallenge.safeParse(decoded)
     if (challenge.success && active) {
-      void signChallenge(dialer, challenge.data).then((hello) => {
-        if (!closing && socket === active && state === 'awaiting-ack') active.send(JSON.stringify(hello))
-      }).catch((error) => { lastSocketError = describeSocketError(error); active.terminate() })
+      void signChallenge(dialer, challenge.data)
+        .then((hello) => {
+          if (!closing && socket === active && state === 'awaiting-ack')
+            active.send(JSON.stringify(hello))
+        })
+        .catch((error) => {
+          lastSocketError = describeSocketError(error)
+          active.terminate()
+        })
       return
     }
     const step = dialer.receive(normalizeRawData(raw).toString())
@@ -1013,12 +1123,30 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // session's geometry from the request side. Offered from the commit that
         // makes it true, so the advertisement is never ahead of the behaviour.
         CAP_DAEMON_GEOMETRY_APPLIED,
+        CAP_CREDENTIAL_IDENTITY_GUARD,
+        // Credential management §8: this daemon keeps a session's credential
+        // from `access` in memory and applies it at every process start.
+        CAP_SESSION_ACCESS,
+        // Credential management §11: this daemon listens on its loopback address
+        // for a ChatGPT sign-in's callback and relays only its query fields.
+        CAP_OAUTH_LOOPBACK,
+        // Credential management §10: this daemon keeps harness homes, runs
+        // sessions in them and answers the home and credential-removal requests.
+        CAP_HARNESS_HOMES,
+        // Credential management §9: this daemon places a conversation for
+        // another credential's home before a resume (`conversationPrepareRequest`).
+        CAP_CONVERSATION_PREPARE,
         // POD-4886: this daemon reports `accepted` for a held row. Offered so
         // a server that reads it can say so; sent only once it has.
         CAP_DELIVERY_ACCEPTED,
         // POD-4887: this daemon reports a proven "not delivered" cause. Sent
         // only once the server accepts it; otherwise as `unconfirmed`.
         CAP_DELIVERY_NOT_IN_CONVERSATION,
+        // ADR 7 Amendment 2 (POD-5800): this daemon samples host metrics only on
+        // demand (topicWatch) and publishes them as topicPublish.
+        CAP_TOPICS_V1,
+        CAP_CHECKOUT_CHANGED_V1,
+        CAP_MACHINE_PROCESSES_V1,
       ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {
@@ -1174,6 +1302,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       clearHandshakeDeadlines(generation)
       stopQueueDrainRetry()
       stopRuntimeEventRetry()
+      linkLost()
       if (closing) return
       if (endpointActivationPending) {
         endpointActivationPending = false
@@ -1224,12 +1353,18 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       candidate.on('message', (raw) => {
         if (!dialer || settled) return
         let decoded: unknown
-        try { decoded = JSON.parse(raw.toString()) } catch { decoded = undefined }
+        try {
+          decoded = JSON.parse(raw.toString())
+        } catch {
+          decoded = undefined
+        }
         const challenge = MachineChallenge.safeParse(decoded)
         if (challenge.success) {
-          void signChallenge(dialer, challenge.data).then((hello) => {
-            if (!settled) candidate.send(JSON.stringify(hello))
-          }).catch((error) => finish(socketError(error)))
+          void signChallenge(dialer, challenge.data)
+            .then((hello) => {
+              if (!settled) candidate.send(JSON.stringify(hello))
+            })
+            .catch((error) => finish(socketError(error)))
           return
         }
         const step = dialer.receive(raw.toString())
@@ -1291,6 +1426,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     },
     acceptsPictures() {
       return state === 'connected' && acceptedCaps.has(CAP_TERMINAL_PICTURE_V1)
+    },
+    acceptsTopics() {
+      return state === 'connected' && acceptedCaps.has(CAP_TOPICS_V1)
     },
     sendOutput(batch) {
       if (socket && invalidSockets.has(socket)) return
@@ -1356,6 +1494,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       else {
         localAttachment?.close()
         localAttachment = undefined
+        linkLost()
         scheduleReconnect()
       }
     },
@@ -1402,9 +1541,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         }
         return
       }
-      sendConnected(msg)
+      if (msg.type === 'runtimeEvent' && isRetainedRuntimeEvent && msg.deliveryId) {
+        sendRuntimeEvent({ ...msg, deliveryId: msg.deliveryId })
+        scheduleRuntimeEventRetry()
+      } else sendConnected(msg)
       if (isQueueDrainReport) scheduleQueueDrainRetry()
-      if (isRetainedRuntimeEvent) scheduleRuntimeEventRetry()
     },
     quiesceEndpoint(transferId) {
       // A final snapshot may replace the target stage (and therefore transfer id)
@@ -1444,7 +1585,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     },
     acknowledgeRuntimeEvent(deliveryId) {
       deps.runtimeEventOutbox.acknowledge(deliveryId)
-      if (deps.runtimeEventOutbox.pending().length === 0) stopRuntimeEventRetry()
+      runtimeEventSentAtTick.delete(deliveryId)
+      if (deps.runtimeEventOutbox.pending().length === 0) {
+        stopRuntimeEventRetry()
+        runtimeEventRetryMs = RUNTIME_EVENT_RETRY_MIN_MS
+      }
     },
     async close() {
       closing = true
@@ -1459,6 +1604,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       clearHandshakeDeadlines()
       localAttachment?.close()
       localAttachment = undefined
+      linkLost()
       const active = socket
       acceptedCaps.clear()
       socket = undefined

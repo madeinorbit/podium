@@ -1,3 +1,4 @@
+import { ModelRecords } from '@podium/sync/testing'
 /**
  * THE LIVE-UPGRADE TEST for the solo-user retirement (A2, spec §8).
  *
@@ -43,7 +44,7 @@
  */
 
 import { MemberId, UserId } from '@podium/model'
-import { type ServerMessage, SubscriptionRegistry, CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, type ServerMessage, SubscriptionRegistry } from '@podium/protocol'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL, FeedIdentityRegistry, Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
@@ -54,7 +55,14 @@ import {
 } from '../../../../packages/sync/src/adapters/sqlite/test-support'
 import { userClientPrincipal } from '../gateway/client-principal'
 import { FeedServing } from '../gateway/feed-serving'
-import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
+import { DRIZZLE_MIGRATIONS as ALL_MIGRATIONS } from './drizzle-manifest.generated'
+
+const DRIZZLE_MIGRATIONS = ALL_MIGRATIONS.slice(
+  0,
+  ALL_MIGRATIONS.findIndex((m) => m.name.endsWith('_retire-the-solo-user')) + 1,
+)
+
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { mintIdsIn, runDrizzleMigrations } from './index'
 
 const MIGRATION = 'retire-the-solo-user'
@@ -80,6 +88,11 @@ const cutIndex = () => {
   expect(cut).toBeGreaterThan(0)
   return cut
 }
+
+// These witnesses test one historical, one-shot migration, including a
+// deliberate replay. Later migrations retire its tables and change payloads;
+// the complete current chain is covered by customer-upgrade-fixture.test.ts.
+const throughRetirement = () => DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1)
 
 interface ColumnInfo {
   name: string
@@ -186,7 +199,9 @@ function seedRow(db: SqlDatabase, table: string, column: string): boolean {
       values.push(`seed-${c.name}-${seedCounter}`)
       continue
     }
-    if (c.notnull === 0 || c.dflt_value !== null) continue
+    // SQLite permits NULL in a TEXT PRIMARY KEY unless NOT NULL was spelled.
+    // A real machine still has an id; later custody migrations need it.
+    if ((c.notnull === 0 && c.pk === 0) || c.dflt_value !== null) continue
     if (c.pk === 1 && /INTEGER/i.test(c.type)) continue
     names.push(c.name)
     values.push(
@@ -251,7 +266,7 @@ const firstAdminId = (db: SqlDatabase): string =>
 describe('retire-the-solo-user: the first member gets a minted id', () => {
   it('replaces the literal with a well-formed mem_ id', () => {
     const db = preMigrationDb()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const rows = db.prepare('SELECT id, role, disabled_at FROM users').all() as {
       id: string
@@ -288,7 +303,7 @@ describe('retire-the-solo-user: the first member gets a minted id', () => {
       'INSERT OR REPLACE INTO user_credentials (user_id, source, password_hash, updated_at) VALUES (?, ?, ?, ?)',
     ).run(RETIRED, 'per-user-scrypt', 'scrypt:hash', '2026-08-01T00:00:00.000Z')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const after = db.prepare('SELECT id, display_name, created_at FROM users').get() as {
       id: string
@@ -316,7 +331,7 @@ describe('retire-the-solo-user: the first member gets a minted id', () => {
       'INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, ?, NULL)',
     ).run('anna', 'Anna', 'member', '2026-08-01T00:00:00.000Z')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const ids = (
       db.prepare('SELECT id FROM users ORDER BY created_at').all() as { id: string }[]
@@ -381,7 +396,7 @@ describe('retire-the-solo-user: shipping approval custody', () => {
         /immutable/,
       )
 
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      runDrizzleMigrations(db, throughRetirement())
 
       expect(db.prepare('SELECT * FROM ship_orders').get()).toEqual({
         ...before,
@@ -459,7 +474,7 @@ describe('retire-the-solo-user: shipping approval custody', () => {
       expect(() => db.exec("UPDATE ship_orders SET requested_by_actor_id = 'tampered'")).toThrow(
         /immutable/,
       )
-      runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+      runDrizzleMigrations(db, throughRetirement())
       expect(firstAdminId(db)).not.toBe(RETIRED)
     } finally {
       db.close()
@@ -477,7 +492,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     expect(seeded).toBeGreaterThan(40)
     expect(survivingLiterals(db).length).toBeGreaterThan(40)
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     // Named, not counted: a failure has to say WHICH column was missed, because
     // "63 of 66" is a five-minute search and `issues.assignee` is not.
@@ -490,7 +505,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     // owns anything.
     const db = preMigrationDb()
     seedEveryOwnerColumn(db)
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const id = firstAdminId(db)
     const owners = db
@@ -507,7 +522,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
       'INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)',
     ).run('hash-laptop', RETIRED, '2026-07-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const row = db.prepare('SELECT token_hash, user_id, expires_at FROM client_sessions').get() as {
       token_hash: string
@@ -526,133 +541,139 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
       'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
     ).run('session', 'sess-1', 'upsert', `{"id":"sess-1","ownerUserId":"${RETIRED}"}`, 1)
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const payload = (db.prepare('SELECT payload FROM changes').get() as { payload: string }).payload
     expect(payload).toBe(`{"id":"sess-1","ownerUserId":"${firstAdminId(db)}"}`)
   })
+
+  // The feed as this migration found it: the singleton identity and the log
+  // in their pre-tenant shapes, written as the server of the time wrote them.
+  // Today's repository reads the tenant feed of a migrated database only.
+  const seedOldFeed = (db: SqlDatabase, payload: string): void => {
+    db.prepare(
+      'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, 1)',
+    ).run('installation-feed', 'before-retirement')
+    db.prepare(
+      'INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)',
+    ).run('session', 'sess-1', 'upsert', payload, 1)
+    db.exec(`INSERT OR REPLACE INTO change_latest (entity, entity_id, seq, payload)
+      SELECT entity, entity_id, seq, payload FROM changes WHERE op = 'upsert' AND payload IS NOT NULL ORDER BY seq`)
+  }
+  const oldIdentity = (db: SqlDatabase) =>
+    db.prepare('SELECT feed_id AS feedId, epoch FROM feed_identity WHERE singleton = 1').get() as {
+      feedId: string
+      epoch: string
+    }
 
   it.each([
     false,
     true,
   ])('reconnects an old cursor with rewritten owners (compacted: %s)', async (compacted) => {
     const db = preMigrationDb()
-    const queries = createTestSyncQueries(db)
-    const repo = new SyncRepository(queries, testSyncServerTables)
-    await repo.writeFeedIdentity({ feedId: 'installation-feed', epoch: 'before-retirement' }, 1)
-    await repo.appendChanges(
-      [
-        {
-          entity: 'session',
-          entityId: 'sess-1',
-          op: 'upsert',
-          payload: JSON.stringify({ sessionId: 'sess-1', ownerUserId: RETIRED }),
-        },
-      ],
-      1,
-    )
-    const makeServing = () => {
-      const bootRepo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
-      const ledger = new Ledger({
-        repo: bootRepo,
-        now: () => 1,
-        transact: queries.createOrJoinTransaction,
-      })
-      const serving = new FeedServing({
-        authority: ledger.authority,
-        identity: new FeedIdentityRegistry(
-          {
-            readIdentity: () => bootRepo.readFeedIdentity(),
-            writeIdentity: (identity) => bootRepo.writeFeedIdentity(identity, 1),
-          },
-          () => 'unexpected-mint',
-        ),
-        retention: { minAvailableSeq: () => bootRepo.minChangeSeq() },
-        subscriptions: new SubscriptionRegistry(),
-        diagnostics: () => [],
-      })
-      return { serving, authority: ledger.authority }
-    }
-    const connect = async (
-      serving: FeedServing,
-      id: string,
-      cursor?: { feedId: string; epoch: string; seq: number },
-    ) => {
-      const received: ServerMessage[] = []
-      const peer = {
-        id,
-        wireVersion: CLIENT_WIRE_VERSION,
-        acceptsDelta: true,
-        send: (message: ServerMessage) => {
-          received.push(message)
-        },
-      }
-      serving.attach(
-        peer,
-        DEVICE_GRADE_PRINCIPAL,
-        userClientPrincipal(id, UserId.parse(mintIdsIn('{{mint:mem_}}')), 'admin'),
-        cursor,
-      )
-      await serving.admissionSettled()
-      return received
-    }
+    seedOldFeed(db, JSON.stringify({ sessionId: 'sess-1', ownerUserId: RETIRED }))
     // This client has consumed the old owner at the current head.
-    const before = makeServing()
-    const cold = await connect(before.serving, 'cold')
-    expect(cold.map(frame => frame.type)).toEqual(['feedResume'])
-    const oldWorld = await before.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
-    expect(oldWorld.changes.map(change => change.value)).toEqual([
-      { sessionId: 'sess-1', ownerUserId: RETIRED },
-    ])
-    const held = { ...(await before.serving.identity()), seq: await repo.maxChangeSeq() }
+    const held = {
+      ...oldIdentity(db),
+      seq: (db.prepare('SELECT max(seq) AS seq FROM changes').get() as { seq: number }).seq,
+    }
     const oldPayload = JSON.parse(
       (db.prepare('SELECT payload FROM change_latest').get() as { payload: string }).payload,
     )
     expect(oldPayload.ownerUserId).toBe(RETIRED)
     if (compacted) db.exec('DELETE FROM changes')
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
-    const after = makeServing() // boot reads the committed generation afresh
-    expect((await after.serving.identity()).feedId).toBe(held.feedId)
-    expect((await after.serving.identity()).epoch).not.toBe(held.epoch)
-    const received = await connect(after.serving, 'reconnected', held)
-    expect(received.map(frame => frame.type)).toEqual(['feedResyncRequired'])
-    const bootstrap = await after.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
-    expect(bootstrap.changes.map(change => change.value)).toEqual([
-      { sessionId: 'sess-1', ownerUserId: firstAdminId(db) },
-    ])
-    expect((db.prepare('SELECT seq FROM change_latest').get() as { seq: number }).seq).toBe(
-      held.seq,
-    )
-    const identity = await repo.readFeedIdentity()
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    expect(await repo.readFeedIdentity()).toEqual(identity)
+    // The same feed, a new generation, and the owner rewritten where catch-up
+    // and the start-up load of the time read it.
+    expect(oldIdentity(db).feedId).toBe(held.feedId)
+    expect(oldIdentity(db).epoch).not.toBe(held.epoch)
+    const rewritten = db.prepare('SELECT seq, payload FROM change_latest').get() as {
+      seq: number
+      payload: string
+    }
+    expect(rewritten.seq).toBe(held.seq)
+    expect(JSON.parse(rewritten.payload).ownerUserId).toBe(firstAdminId(db))
+    const identity = oldIdentity(db)
+    runDrizzleMigrations(db, throughRetirement())
+    expect(oldIdentity(db)).toEqual(identity)
     // Even a direct replay of this migration finds no old payload to invalidate.
     runDrizzleMigrations(db, [
-      ...DRIZZLE_MIGRATIONS,
+      ...throughRetirement(),
       { ...retirementMigration(), name: '20990101000000_retirement-replay' },
     ])
-    expect(await repo.readFeedIdentity()).toEqual(identity)
+    expect(oldIdentity(db)).toEqual(identity)
+
     db.close()
+
+    // Today's server on a database upgraded through the whole chain (the
+    // replay above is no migration of this build): the client holding the old
+    // generation is told to reload, and the load carries the new owner.
+    const upgraded = preMigrationDb()
+    seedOldFeed(upgraded, JSON.stringify({ sessionId: 'sess-1', ownerUserId: RETIRED }))
+    if (compacted) upgraded.exec('DELETE FROM changes')
+    runDrizzleMigrations(upgraded, ALL_MIGRATIONS)
+    const queries = createTestSyncQueries(upgraded)
+    const bootRepo = new SyncRepository(queries, testSyncServerTables, SELF_HOSTED_WORKSPACE_ID)
+    const records = new ModelRecords()
+    records.set([
+      {
+        entity: 'session',
+        entityId: 'sess-1',
+        op: 'upsert',
+        value: { sessionId: 'sess-1', ownerUserId: firstAdminId(upgraded) },
+      },
+    ])
+    const ledger = new Ledger({
+      repo: bootRepo,
+      records,
+      now: () => 1,
+      transact: queries.createOrJoinTransaction,
+    })
+    const serving = new FeedServing({
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+      authority: ledger.authority,
+      identity: new FeedIdentityRegistry(
+        {
+          readIdentity: () => bootRepo.readFeedIdentity(),
+          writeIdentity: (next) => bootRepo.writeFeedIdentity(next, 1),
+        },
+        () => 'unexpected-mint',
+      ),
+      retention: { minAvailableSeq: () => bootRepo.minChangeSeq() },
+      subscriptions: new SubscriptionRegistry(),
+      diagnostics: () => [],
+    })
+    expect((await serving.identity()).feedId).toBe(held.feedId)
+    expect((await serving.identity()).epoch).not.toBe(held.epoch)
+    const received: ServerMessage[] = []
+    serving.attach(
+      {
+        id: 'reconnected',
+        wireVersion: CLIENT_WIRE_VERSION,
+        acceptsDelta: true,
+        send: (message: ServerMessage) => {
+          received.push(message)
+        },
+      },
+      DEVICE_GRADE_PRINCIPAL,
+      userClientPrincipal('reconnected', UserId.parse(mintIdsIn('{{mint:mem_}}')), 'admin'),
+      held,
+    )
+    await serving.admissionSettled()
+    expect(received.map((frame) => frame.type)).toEqual(['feedResyncRequired'])
+    const bootstrap = await ledger.authority.bootstrap(DEVICE_GRADE_PRINCIPAL)
+    expect(bootstrap.changes.map((change) => change.value)).toEqual([
+      { sessionId: 'sess-1', ownerUserId: firstAdminId(upgraded) },
+    ])
+    upgraded.close()
   })
 
   it('rolls the epoch back with the owner rewrite when the migration fails', async () => {
     const db = preMigrationDb()
-    const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
-    const identity = { feedId: 'installation-feed', epoch: 'before-retirement' }
-    await repo.writeFeedIdentity(identity, 1)
-    await repo.appendChanges(
-      [
-        {
-          entity: 'session',
-          entityId: 'sess-1',
-          op: 'upsert',
-          payload: JSON.stringify({ ownerUserId: RETIRED }),
-        },
-      ],
-      1,
-    )
+    seedOldFeed(db, JSON.stringify({ ownerUserId: RETIRED }))
+    const identity = oldIdentity(db)
     const migration = retirementMigration()
     expect(() =>
       runDrizzleMigrations(db, [
@@ -663,7 +684,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
         },
       ]),
     ).toThrow('retirement_failure')
-    expect(await repo.readFeedIdentity()).toEqual(identity)
+    expect(oldIdentity(db)).toEqual(identity)
     expect(firstAdminId(db)).toBe(RETIRED)
     for (const table of ['changes', 'change_latest']) {
       expect(
@@ -681,7 +702,7 @@ describe('retire-the-solo-user: every reference moves, in one transaction', () =
     // refute.
     const db = preMigrationDb()
     seedEveryOwnerColumn(db)
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
     expect(survivingLiterals(db)).toEqual([])
 
     db.prepare('UPDATE pins SET user_id = ?').run(RETIRED)
@@ -701,7 +722,7 @@ describe('retire-the-solo-user: the defaults are gone', () => {
     )
     expect(defaulted.length).toBeGreaterThan(10)
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const still = tablesOf(db).flatMap((table) =>
       columnsOf(db, table)
@@ -720,7 +741,7 @@ describe('retire-the-solo-user: the defaults are gone', () => {
     seedEveryOwnerColumn(db)
     const before = db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    runDrizzleMigrations(db, throughRetirement())
 
     const after = db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number }
     expect(after.n).toBe(before.n)

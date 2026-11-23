@@ -1,4 +1,4 @@
-import type { SessionId, IssueId, MachineId, TranscriptItem } from '@podium/model'
+import type { CredentialId, SessionId, IssueId, MachineId, TranscriptItem } from '@podium/model'
 import { compareProviderCursor } from '@podium/harness/metadata'
 import type { RuntimeEvent, SessionMetadataChange, SessionMetadataObservation, SessionSnapshot } from '@podium/protocol/daemon'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -11,6 +11,7 @@ import {
   stripSpinnerFrame,
   titleFromPrompt,
 } from '../../title-filter'
+import { type ChosenCredential, judgeEffectiveAuth } from './effective-auth'
 import type { SessionBindingReceipts } from './session-binding'
 import type { Session, SessionDurableState } from './session'
 
@@ -20,7 +21,9 @@ export type SessionProjectionDaemonFrame = Extract<
     type:
       | 'agentColor'
       | 'agentModel'
+      | 'agentMode'
       | 'agentContext'
+      | 'sessionAuth'
       | 'title'
       | 'sessionResumeRef'
       | 'sessionCwd'
@@ -47,6 +50,10 @@ export interface SessionDaemonProjectionPorts {
   draft(session: Session): SessionDurableState
   persistDraft(session: Session, draft: SessionDurableState): Promise<void>
   broadcastSessions(): void
+  /** The credential a session was given, as its record holds it (epic Task 10). */
+  credentialOf?(
+    id: CredentialId,
+  ): Promise<{ type: string; identity: ChosenCredential['identity'] } | undefined>
   transcriptDelta(sessionId: SessionId, items: TranscriptItem[], reset?: boolean): void
   adoptWorktree(
     issueId: IssueId,
@@ -166,15 +173,45 @@ export class SessionDaemonProjection {
         }
         break
       }
-      case 'agentContext': {
+      case 'agentMode': {
         const session = this.ports.sessions.get(message.sessionId)
         if (!session) break
         const draft = this.ports.draft(session)
-        if (session.setContextUsagePercent(message.percent, draft)) {
+        if (session.setObservedMode(message.mode, draft)) {
           const result: Promise<void> = this.ports.persistDraft(session, draft)
           await result
           this.ports.broadcastSessions()
         }
+        break
+      }
+      // WHAT THE HARNESS SAID IT AUTHENTICATED WITH (credential management §9).
+      // Only the machine the session runs on may say so for it.
+      case 'sessionAuth': {
+        const session = this.ports.sessions.get(message.sessionId)
+        if (!session || session.machineId !== machineId) break
+        const { type: _type, sessionId: _sessionId, ...report } = message
+        const record = session.credentialId
+          ? await this.ports.credentialOf?.(session.credentialId)
+          : undefined
+        const chosen =
+          session.credentialId && record
+            ? { credentialId: session.credentialId, type: record.type, identity: record.identity }
+            : null
+        const judged = judgeEffectiveAuth(report, chosen)
+        const draft = this.ports.draft(session)
+        if (session.setEffectiveAuth(judged.effectiveAuth, judged.credentialMismatch, draft)) {
+          const result: Promise<void> = this.ports.persistDraft(session, draft)
+          await result
+          this.ports.broadcastSessions()
+        }
+        break
+      }
+      case 'agentContext': {
+        const session = this.ports.sessions.get(message.sessionId)
+        if (!session) break
+        // A live reading (POD-6764): nothing to persist. The broadcast
+        // rechecks the session's held `session.condition` key.
+        if (session.setContextUsagePercent(message.percent)) this.ports.broadcastSessions()
         break
       }
       case 'title': {

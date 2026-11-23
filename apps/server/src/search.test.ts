@@ -1,5 +1,6 @@
 import { asIssueId, asMachineId, asThreadId, asUserId, firstAdminMemberId } from '@podium/model'
 import { SearchResultWire } from '@podium/protocol'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
@@ -8,10 +9,13 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
+import { memberFacts } from './store/fixtures/test-support'
 import { OPERATOR } from './test-support/capabilities'
+import { fixtureInventory } from './test-support/daemon-inventory'
 import { forceFeature } from './test-support/features'
 import { attachHostDaemon, confirmingRetirement } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { seedRows } from './test-support/seed-rows'
 import { countStatements, quietShipping, type StatementTally } from './test-support/statement-count'
 
 // Omni-search reads the full-text index, and whether a boot HAS one is the
@@ -30,18 +34,49 @@ const READER = { kind: 'user' as const, id: firstAdminMemberId() }
  * fixture repos (POD-4631): placement refuses a machine with no row assigned
  * `agentExecution`, and an issue's repo resolves only through a reporting machine.
  */
-async function attachFixtureDaemon(registry: SessionRegistry): Promise<void> {
+async function attachFixtureDaemon(
+  registry: SessionRegistry,
+  machine = 'm1',
+  custodian = firstAdminMemberId(),
+): Promise<void> {
   const store = registry.sessionStore
   await store.machines.upsertMachine({
-    id: 'm1',
-    name: 'm1',
-    hostname: 'm1',
-    tokenHash: 'm1',
-    ownerUserId: firstAdminMemberId(),
+    id: machine,
+    name: machine,
+    hostname: machine,
+    tokenHash: machine,
+    ownerUserId: custodian,
     assignment: { server: false, agentExecution: true },
   })
-  for (const path of ['/repo', '/private']) await store.repos.addRepo(path, asMachineId('m1'))
-  await registry.gateway.attachDaemon('m1', confirmingRetirement(registry, 'm1', () => {}))
+  for (const path of ['/repo', '/private']) await store.repos.addRepo(path, asMachineId(machine))
+  await registry.gateway.attachDaemon(
+    machine,
+    confirmingRetirement(registry, machine, () => {}),
+  )
+}
+
+/** Bob's own machine, in his custody: his agents run on his own login there
+ *  (MU-28, POD-6300), the way the two-member fixture places them. */
+const BOB_MACHINE = 'm-bob'
+
+/** Admin's `m1` and Bob's own machine, both with an installed harness, so each
+ *  member's agent session is placed on a machine they look after. */
+async function attachBothMembersMachines(
+  registry: SessionRegistry,
+  bob: ReturnType<typeof asUserId>,
+) {
+  await memberFacts(registry.sessionStore).create({
+    id: bob,
+    displayName: 'Bob',
+    role: 'member',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    disabledAt: null,
+  })
+  await attachFixtureDaemon(registry)
+  await attachFixtureDaemon(registry, BOB_MACHINE, bob)
+  for (const machine of ['m1', BOB_MACHINE]) {
+    await registry.modules.machines.recordInventory(asMachineId(machine), fixtureInventory())
+  }
 }
 
 /** The statements of `tally` that read `table`, and the queries for a failure message. */
@@ -65,7 +100,10 @@ async function settle(registry: SessionRegistry): Promise<void> {
   await quietShipping(registry)
   registry.modules.funnel.flushDeltas()
   for (let attempt = 0; attempt < 40; attempt++) {
-    const window = await countStatements(registry.sessionStore, () => new Promise((resolve) => setTimeout(resolve, 25)))
+    const window = await countStatements(
+      registry.sessionStore,
+      () => new Promise((resolve) => setTimeout(resolve, 25)),
+    )
     if (window.statements === 0) return
   }
   throw new Error('the fixture kept running statements')
@@ -93,7 +131,10 @@ describe('MemoryService omni-search', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'capacitor refactor' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'capacitor refactor',
+    })
     await registry.gateway.routeDaemonFrame('m1', {
       type: 'sessionResumeRef',
       sessionId,
@@ -101,19 +142,23 @@ describe('MemoryService omni-search', () => {
     })
 
     // Issue with the phrase in the title; a second issue matching only via comment.
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'replace the flux capacitor',
       description: 'it drifts',
       startNow: false,
     })
-    const commentIssue = await registry.issues.crud.create({
-      repoPath: '/repo',
-      title: 'unrelated title',
-      description: 'nothing relevant',
-      startNow: false,
-    })
+    const commentIssue = await registry.issues.crud.create(
+      registry.issues.reports.store.serverWriter,
+      {
+        repoPath: '/repo',
+        title: 'unrelated title',
+        description: 'nothing relevant',
+        startNow: false,
+      },
+    )
     await registry.issues.commentsMail.addComment(
+      registry.issues.reports.store.serverWriter,
       commentIssue.id,
       'operator',
       'the capacitor comment trail',
@@ -131,16 +176,20 @@ describe('MemoryService omni-search', () => {
       sessionId: conversationSessionId,
       resume: { kind: 'claude-session', value: 'native-conv' },
     })
-    await store.conversations.index.upsert([
-      {
-        id: 'native-conv',
-        agentKind: 'claude-code',
-        providerId: 'claude-code-jsonl',
-        title: 'capacitor deep dive',
-        updatedAt: '2026-07-01T09:00:00.000Z',
-        machineId: asMachineId('m1'),
-      },
-    ])
+    await seedRows(
+      store,
+      async () =>
+        await store.conversations.index.upsert(fixtureWriteScope(), [
+          {
+            id: 'native-conv',
+            agentKind: 'claude-code',
+            providerId: 'claude-code-jsonl',
+            title: 'capacitor deep dive',
+            updatedAt: '2026-07-01T09:00:00.000Z',
+            machineId: asMachineId('m1'),
+          },
+        ]),
+    )
 
     // Lake-indexed transcript messages (what the mirror-fed indexer writes).
     await store.conversations.registry.ensure({
@@ -202,9 +251,9 @@ describe('MemoryService omni-search', () => {
 
   it('transcript hits carry an FTS snippet with match markers and registry refs', async () => {
     const { store, registry } = await seed()
-    const hit = (await registry.modules.memory
-      .search(READER, { text: 'capacitor' }))
-      .find((r) => r.kind === 'transcript')
+    const hit = (await registry.modules.memory.search(READER, { text: 'capacitor' })).find(
+      (r) => r.kind === 'transcript',
+    )
     expect(hit?.snippet).toContain('**capacitor**')
     expect(hit?.machineId).toBe('m1')
     expect(hit?.podiumId).toMatch(/^conv_/)
@@ -212,9 +261,9 @@ describe('MemoryService omni-search', () => {
 
   it('resolves a live sessionId on a transcript hit when a session resumes that native id', async () => {
     const { registry, sessionId } = await seed()
-    const hit = (await registry.modules.memory
-      .search(READER, { text: 'engine.ts' }))
-      .find((r) => r.kind === 'transcript')
+    const hit = (await registry.modules.memory.search(READER, { text: 'engine.ts' })).find(
+      (r) => r.kind === 'transcript',
+    )
     expect(hit?.sessionId).toBe(sessionId)
   })
 
@@ -233,7 +282,7 @@ describe('MemoryService omni-search', () => {
     // The limit trims the tail, not the head: the best hits survive.
     expect(results[0]?.score).toBeGreaterThanOrEqual(results[1]?.score ?? 0)
   })
-  it('uses one live-session snapshot and reads issue owners and grants in one batch per pass', async () => {
+  it('uses one live-session snapshot and reads issues in one batch per pass, and no grants', async () => {
     const { store, registry } = await seed()
     // A second transcript candidate, so a segment read per candidate shows.
     await store.conversations.registry.ensure({
@@ -262,7 +311,9 @@ describe('MemoryService omni-search', () => {
 
     let counted: StatementTally
     try {
-      counted = await countStatements(store, () => registry.modules.memory.search(READER, { text: 'capacitor' }))
+      counted = await countStatements(store, () =>
+        registry.modules.memory.search(READER, { text: 'capacitor' }),
+      )
     } finally {
       store.sessions.loadSessions = loadSessions
     }
@@ -278,14 +329,15 @@ describe('MemoryService omni-search', () => {
     // those asks only inside a scope; without the search's own read scope
     // (POD-6214) this fixture ran a statement per candidate: 4 issue reads and
     // 4 grant reads. Now the issue text match, the commented issues and the
-    // candidate issues are one read each, and the grants are one read for the
-    // live sessions and one for the candidate issues. Several issues are
-    // resolved, so a read per candidate would show:
+    // candidate issues are one read each. No grant is read: sessions are
+    // their owner's since POD-6284, and tasks every member's since POD-6288,
+    // both decided from their own rows. Several issues are resolved, so a read
+    // per candidate would show:
     expect(issueRows.filter((row) => !row.deletedAt).length).toBeGreaterThan(1)
     const issues = readsOf(counted, 'issues')
     const grants = readsOf(counted, 'grants')
     expect(issues.count, issues.queries).toBe(3)
-    expect(grants.count, grants.queries).toBe(2)
+    expect(grants.count, grants.queries).toBe(0)
     // The conversation and transcript candidates' segments are read once per
     // source pass, two reads each (podium ids, then segments), and every check
     // is answered from them (POD-6215). Asked per candidate, the one
@@ -294,7 +346,7 @@ describe('MemoryService omni-search', () => {
     expect(segments.count, segments.queries).toBe(4)
   })
 
-  it('reads issue ownership and grants in one batch each for the native conversation list', async () => {
+  it('reads no task and no grant to decide the native conversation list', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
@@ -302,27 +354,17 @@ describe('MemoryService omni-search', () => {
 
     const issueIds: string[] = []
     const conversationIds: string[] = []
-    const issueOwner = asUserId('usr_issue_owner')
+    // The reader's own tasks and sessions: a conversation is readable by its
+    // session's owner alone (POD-6284), so these are the ones it may list.
+    const issueOwner = READER.id
     for (let i = 0; i < 4; i++) {
-      const issue = await registry.issues.crud.create({
+      const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: `conversation issue ${i}`,
         startNow: false,
         ownerUserId: issueOwner,
       })
       issueIds.push(issue.id)
-      await store.grants.upsert({
-        resourceKind: 'issue',
-        resourceId: issue.id,
-        grantee: READER.id,
-        verb: 'read',
-        owner: issueOwner,
-        visibility: 'personal',
-        createdAt: '2026-08-05T00:00:00.000Z',
-        actorKind: 'user',
-        actorId: READER.id,
-        onBehalfOf: READER.id,
-      })
       const { sessionId } = await registry.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: `/repo/session-${i}`,
@@ -335,15 +377,19 @@ describe('MemoryService omni-search', () => {
         sessionId,
         resume: { kind: 'claude-session', value: nativeId },
       })
-      await store.conversations.index.upsert([
-        {
-          id: nativeId,
-          agentKind: 'claude-code',
-          providerId: 'claude-code-jsonl',
-          projectPath: '/repo',
-          machineId: asMachineId('m1'),
-        },
-      ])
+      await seedRows(
+        store,
+        async () =>
+          await store.conversations.index.upsert(fixtureWriteScope(), [
+            {
+              id: nativeId,
+              agentKind: 'claude-code',
+              providerId: 'claude-code-jsonl',
+              projectPath: '/repo',
+              machineId: asMachineId('m1'),
+            },
+          ]),
+      )
       await store.conversations.registry.ensure({
         machineId: asMachineId('m1'),
         nativeId,
@@ -357,17 +403,16 @@ describe('MemoryService omni-search', () => {
     )
 
     expect(counted.result.map((row) => row.id).sort()).toEqual([...conversationIds].sort())
-    // THE DEFECT IS THE CONSERVED SQL COUNT, not a duration. POD-3892 served
-    // the issue owners from the issue map; since POD-6195 they are one live
-    // batch for the four distinct issues again, and since POD-6158 that batch
-    // goes through the issue loader, not getIssues, so the count is taken at
-    // the driver. Grants have no copy since POD-6155: the four issues' edges
-    // are one batch. A read per owner or per grant edge runs four.
+    // THE DEFECT IS THE CONSERVED SQL COUNT, not a duration. Until POD-6284
+    // the pass read the four sessions' issue owners and grant edges (one batch
+    // each), because a session's readers came from its task. A session is now
+    // its own owner's alone, so the pass reads neither: a task or grant read
+    // here means session visibility is being derived from the task again.
     expect(issueIds).toHaveLength(4)
     const issues = readsOf(counted, 'issues')
     const grants = readsOf(counted, 'grants')
-    expect(issues.count, issues.queries).toBe(1)
-    expect(grants.count, grants.queries).toBe(1)
+    expect(issues.count, issues.queries).toBe(0)
+    expect(grants.count, grants.queries).toBe(0)
     // Each row's check asks for the segments of its conversation. Asked per
     // row, that was the segment's podium id and then its siblings: two reads
     // per row (POD-6215). The pass now reads them for every row together: one
@@ -378,11 +423,15 @@ describe('MemoryService omni-search', () => {
     // CONTROL ARM: the same checks asked one row at a time, with no batch read
     // first, run the two reads per row the pin above would show if the pass
     // stopped batching, and allow the same rows.
-    const perRow = await new MemoryVisibilityPolicy(store).forRequest(await store.sessions.loadSessions())
+    const perRow = await new MemoryVisibilityPolicy(store).forRequest(
+      await store.sessions.loadSessions(),
+    )
     const unbatched = await countStatements(store, () =>
-      Promise.all(conversationIds.map((nativeId) =>
-        perRow.mayRead(READER, { class: 'conversation', machineId: asMachineId('m1'), nativeId }),
-      )),
+      Promise.all(
+        conversationIds.map((nativeId) =>
+          perRow.mayRead(READER, { class: 'conversation', machineId: asMachineId('m1'), nativeId }),
+        ),
+      ),
     )
     expect(unbatched.result).toEqual([true, true, true, true])
     const perRowSegments = readsOf(unbatched, 'conversation_segments')
@@ -401,34 +450,42 @@ describe('search.query tRPC', () => {
     for (const r of registries.splice(0)) await r.dispose()
   })
 
-  it('excludes every private memory source owned by another user', async () => {
+  it('excludes every private memory source owned by another user, and shares the task', async () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    await attachFixtureDaemon(registry)
     const bob = asUserId('usr_bob')
+    await attachBothMembersMachines(registry, bob)
     const { sessionId } = await registry.modules.sessions.createSession({
       ownerUserId: bob,
       agentKind: 'claude-code',
       cwd: '/classifiedneedle',
+      machineId: asMachineId(BOB_MACHINE),
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'classifiedneedle session' })
-    registry.gateway.routeDaemonFrame('m1', {
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'classifiedneedle session',
+    })
+    registry.gateway.routeDaemonFrame(BOB_MACHINE, {
       type: 'sessionResumeRef',
       sessionId,
       resume: { kind: 'claude-session', value: 'classified-native' },
     })
-    await store.conversations.index.upsert([
-      {
-        id: 'classified-native',
-        agentKind: 'claude-code',
-        providerId: 'claude-code-jsonl',
-        machineId: asMachineId('m1'),
-        title: 'classifiedneedle conversation',
-      },
-    ])
+    await seedRows(
+      store,
+      async () =>
+        await store.conversations.index.upsert(fixtureWriteScope(), [
+          {
+            id: 'classified-native',
+            agentKind: 'claude-code',
+            providerId: 'claude-code-jsonl',
+            machineId: asMachineId(BOB_MACHINE),
+            title: 'classifiedneedle conversation',
+          },
+        ]),
+    )
     await store.conversations.transcriptIndex.append(
-      asMachineId('m1'),
+      asMachineId(BOB_MACHINE),
       'classified-native',
       [
         {
@@ -438,7 +495,7 @@ describe('search.query tRPC', () => {
       ],
       100,
     )
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/private',
       title: 'fixture template',
       description: 'private issue body',
@@ -446,13 +503,17 @@ describe('search.query tRPC', () => {
     })
     const issueRow = await store.issues.getIssue(issue.id)
     if (!issueRow) throw new Error('issue seed missing')
-    await store.issues.upsertIssue({
-      ...issueRow,
-      id: asIssueId('iss_bob_private'),
-      seq: issueRow.seq + 1,
-      ownerUserId: bob,
-      title: 'classifiedneedle issue',
-    })
+    await seedRows(
+      store,
+      async () =>
+        await store.issues.upsertIssue(fixtureWriteScope(), {
+          ...issueRow,
+          id: asIssueId('iss_bob_private'),
+          seq: issueRow.seq + 1,
+          ownerUserId: bob,
+          title: 'classifiedneedle issue',
+        }),
+    )
     await store.superagent.upsertSuperagentThread({
       id: 'private-thread',
       ownerUserId: bob,
@@ -464,7 +525,13 @@ describe('search.query tRPC', () => {
       content: 'classifiedneedle private thread body',
     })
 
-    expect(await registry.modules.memory.search(READER, { text: 'classifiedneedle' })).toEqual([])
+    // Bob's TASK is shared (design §2.2, POD-6288): it is the one hit another
+    // member gets. His session, conversation, transcript and thread stay his.
+    expect(
+      (await registry.modules.memory.search(READER, { text: 'classifiedneedle' })).map(
+        (hit) => hit.kind,
+      ),
+    ).toEqual(['issue'])
     const bobHits = await registry.modules.memory.search(
       { kind: 'user', id: bob },
       { text: 'classifiedneedle' },
@@ -479,16 +546,18 @@ describe('search.query tRPC', () => {
     const store = await openTestStore(':memory:')
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
-    await attachFixtureDaemon(registry)
     const bob = asUserId('usr_bob')
+    await attachBothMembersMachines(registry, bob)
+    const machineOf = (ownerUserId: typeof bob) => (ownerUserId === bob ? BOB_MACHINE : 'm1')
     const bind = async (ownerUserId: typeof bob, nativeId: string, cwd: string) => {
       const { sessionId } = await registry.modules.sessions.createSession({
         ownerUserId,
         agentKind: 'claude-code',
         cwd,
+        machineId: asMachineId(machineOf(ownerUserId)),
       })
       // The visibility snapshot needs the persisted native-session binding.
-      await registry.gateway.routeDaemonFrame('m1', {
+      await registry.gateway.routeDaemonFrame(machineOf(ownerUserId), {
         type: 'sessionResumeRef',
         sessionId,
         resume: { kind: 'claude-session', value: nativeId },
@@ -506,13 +575,13 @@ describe('search.query tRPC', () => {
       ],
       100,
     )
-    const before = (await registry.modules.memory
-      .search(READER, { text: 'rankneedle' }))
-      .find((hit) => hit.kind === 'transcript')
+    const before = (await registry.modules.memory.search(READER, { text: 'rankneedle' })).find(
+      (hit) => hit.kind === 'transcript',
+    )
     expect(before?.id).toBe('visible-rank-message')
     await bind(bob, 'hidden-rank', '/hidden')
     await store.conversations.transcriptIndex.append(
-      asMachineId('m1'),
+      asMachineId(BOB_MACHINE),
       'hidden-rank',
       [
         {
@@ -522,16 +591,18 @@ describe('search.query tRPC', () => {
       ],
       100,
     )
-    const after = (await registry.modules.memory
-      .search(READER, { text: 'rankneedle' }))
-      .find((hit) => hit.kind === 'transcript')
+    const after = (await registry.modules.memory.search(READER, { text: 'rankneedle' })).find(
+      (hit) => hit.kind === 'transcript',
+    )
     expect(after?.id).toBe(before?.id)
     expect(after?.score).toBe(before?.score)
   })
 
   it('defaults unknown memory classes closed and counts to the visible slice', async () => {
     const store = await openTestStore(':memory:')
-    expect(await new MemoryVisibilityPolicy(store).mayRead(READER, { class: 'future-kind' })).toBe(false)
+    expect(await new MemoryVisibilityPolicy(store).mayRead(READER, { class: 'future-kind' })).toBe(
+      false,
+    )
     expect(MEMORY_EXISTENCE_POLICY).toEqual({ counts: 'visible-slice', facets: 'visible-slice' })
     await store.close()
   })
@@ -541,7 +612,11 @@ describe('search.query tRPC', () => {
     registries.push(registry)
     await attachHostDaemon(registry, () => {})
     const repos = new RepoRegistry(registry, registry.sessionStore)
-    const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
+    const superagent = await SuperagentService.create(
+      registry.modules,
+      repos,
+      registry.sessionStore,
+    )
     return {
       registry,
       trpc: appRouter.createCaller({
@@ -565,7 +640,10 @@ describe('search.query tRPC', () => {
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    await registry.modules.sessions.renameSession({ sessionId, name: 'quantum toaster' })
+    await registry.modules.sessions.renameSession(registry.modules.sessions.serverWriter, {
+      sessionId,
+      name: 'quantum toaster',
+    })
     const results = await trpc.search.query({ text: 'quantum' })
     expect(results.map((r) => SearchResultWire.parse(r))).toHaveLength(1)
     expect(results[0]?.sessionId).toBe(sessionId)

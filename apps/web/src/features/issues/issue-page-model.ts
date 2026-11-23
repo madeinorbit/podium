@@ -1,33 +1,37 @@
+import { useRequestClient, useCommands } from '@podium/client-core/react'
+import { useUiValue } from '@podium/client-core/react'
 import { issueRepoName } from '@podium/client-core/values'
 /**
  * Navigation and mutation ports for the issue page. Record facts are read by
  * observer sections; the activity section owns its shared request history.
  */
 
-import { shallowEqual } from '@podium/client-core'
 import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import type { Store } from '@/app/store'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import { type IssueViewModel } from '@/app/store'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
+import { tellIssueActionEnding } from './issue-action-ending'
 import { issueNeighbors } from './issue-page'
 import type { RunMutation } from './issue-page-commands'
 
 export interface IssuePageModel {
   trpc: Trpc
-  issueWrites: Pick<
-    Store,
-    | 'updateIssue'
-    | 'deleteIssue'
-    | 'closeIssue'
-    | 'deferIssue'
-    | 'undeferIssue'
-    | 'setIssueLabels'
-    | 'restoreIssue'
-  >
+  issueWrites: {
+    updateIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['update']
+    setPinned: import('@podium/client-core/commands').Commands<Trpc>['preferences']['setPinned']
+    deleteIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['delete']
+    closeIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['close']
+    deferIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['defer']
+    undeferIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['undefer']
+    setIssueLabels: import('@podium/client-core/commands').Commands<Trpc>['issues']['setLabels']
+    restoreIssue: import('@podium/client-core/commands').Commands<Trpc>['issues']['restore']
+    startIssueSession: import('@podium/client-core/commands').Commands<Trpc>['sessions']['startIssueSession']
+    issueAction: import('@podium/client-core/commands').Commands<Trpc>['sessions']['issueAction']
+  }
   busy: boolean
   run: RunMutation
   prev?: IssueId
@@ -39,20 +43,21 @@ export interface IssuePageModel {
 /** Navigation and command ports only. History/editor/roster state belongs to
  * the section that uses it, so typing and clock ticks never rebuild the page. */
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
-  const ports = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      updateIssue: s.updateIssue,
-      deleteIssue: s.deleteIssue,
-      closeIssue: s.closeIssue,
-      deferIssue: s.deferIssue,
-      undeferIssue: s.undeferIssue,
-      setIssueLabels: s.setIssueLabels,
-      restoreIssue: s.restoreIssue,
-      navigateToSession: s.navigateToSession,
-    }),
-    shallowEqual,
-  )
+  const ports = {
+    trpc: useRequestClient<Trpc>(),
+    updateIssue: useCommands<Trpc>().issues.update,
+    setPinned: useCommands<Trpc>().preferences.setPinned,
+    deleteIssue: useCommands<Trpc>().issues.delete,
+    closeIssue: useCommands<Trpc>().issues.close,
+    deferIssue: useCommands<Trpc>().issues.defer,
+    undeferIssue: useCommands<Trpc>().issues.undefer,
+    setIssueLabels: useCommands<Trpc>().issues.setLabels,
+    restoreIssue: useCommands<Trpc>().issues.restore,
+    startIssueSession: useCommands<Trpc>().sessions.startIssueSession,
+    issueAction: useCommands<Trpc>().sessions.issueAction,
+    navigateToSession: useUiValue('navigateToSession'),
+  }
+  const pool = useWorklistPool()
   const [busy, setBusy] = useState(false)
   const run: RunMutation = async (fn) => {
     setBusy(true)
@@ -66,7 +71,15 @@ export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]):
   }
   return {
     trpc: ports.trpc,
-    issueWrites: ports,
+    issueWrites: {
+      ...ports,
+      // The action answers on its record; this device says how it ended.
+      issueAction: async (id, action, opts) => {
+        const effectId = await ports.issueAction(id, action, opts)
+        tellIssueActionEnding(pool, effectId, action)
+        return effectId
+      },
+    },
     busy,
     run,
     ...issueNeighbors(orderedIds, issue.id),

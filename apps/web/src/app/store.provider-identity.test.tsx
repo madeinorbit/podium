@@ -1,16 +1,26 @@
-import { asUserId } from '@podium/model'
 // @vitest-environment happy-dom
 // (the ROOT vitest run executes web tests under node; client-core/react pulls
 // terminal-client → xterm addons that need a browser-ish global at import time)
 import type { PodiumClientApi } from '@podium/client-core/api'
-import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal, type ClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useRuntimeSelector } from '@podium/client-core/react'
+import {
+  StoreProvider,
+  useLive,
+  useReplica,
+  useSocketHub,
+  useUi,
+  useUiValue,
+} from '@podium/client-core/react'
+import { loadRecordDeclarations } from '@podium/client-core/records'
 import { memoryStorage } from '@podium/client-core/replica'
+import { ClientRuntime } from '@podium/client-core/runtime-root'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { asUserId } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { FeedCursor } from '../../../../packages/client-core/src/replica/feed'
 
 /** `MemoryStorage` is not on the package's public surface; the observable
  *  key-set seam is what this suite needs, so it is named structurally. */
@@ -31,7 +41,9 @@ type MemoryStorage = ReturnType<typeof memoryStorage>
 const makeApi = (): PodiumClientApi =>
   ({
     sync: { changesSince: { query: () => new Promise(() => {}) } },
-    discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) } },
+    discovery: {
+      refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) },
+    },
     pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
     tabs: { listOrders: { query: async () => ({}) } },
     settings: {
@@ -58,7 +70,7 @@ class FakeWS {
 
 let lastHub: unknown = null
 function Probe(): null {
-  lastHub = useRuntimeSelector(s => s).hub
+  lastHub = useSocketHub()
   return null
 }
 
@@ -160,10 +172,10 @@ describe('provider runtime identity (#262 review)', () => {
 // "nothing leaked", and prove nothing because nothing was there to leak. So the
 // switch below happens with all four carriers LOADED at that instant —
 //
-//   a QUEUED WRITE   principal A's layoutSet, persisted in A's namespace
+//   a QUEUED WRITE   principal A's layout edit, persisted in A's namespace
 //   a LIVE CURSOR    A's feed cursor, advanced past zero
 //   a LIVE SOCKET    A's WebSocket, open
-//   a WARM CACHE     a mounted useRuntimeSelector holding A's selected value
+//   a WARM CACHE     a mounted useUiValue holding A's selected value
 //
 // — and each is asserted separately afterwards. The counterfactuals are
 // recorded in `docs/architecture/pod-404-provider-principal-binding.md`: which
@@ -179,8 +191,9 @@ const BOB = asClientPrincipal(asUserId('bob'))
 interface Seen {
   hub: unknown
   replica: { getFeedCursor(): unknown } | null
-  /** Read through useRuntimeSelector — this is the CACHE under test. */
+  /** Read through useUiValue — this is the CACHE under test. */
   dockTab: string
+  /** The LiveStore's unsent-write count (POD-5798). */
   outboxSize: number
   setDockTab: (tab: string) => void
 }
@@ -188,22 +201,24 @@ interface Seen {
 let seen: Seen
 
 function PrincipalProbe(): null {
-  const store = useRuntimeSelector(s => s)
+  const store = useUi()
   // A SELECTOR with a stable identity across renders, so its per-component
   // cache genuinely survives the switch instead of being reset by a new
   // closure. That is the only version of this assertion that can fail.
-  const dockTab = useRuntimeSelector(selectDockTab)
+  const dockTab = useUiValue('dockTab')
+  const live = useLive()
   seen = {
-    hub: store.hub,
-    replica: store.replica as unknown as { getFeedCursor(): unknown },
+    hub: useSocketHub(),
+    replica: useReplica() as unknown as { getFeedCursor(): unknown },
     dockTab,
-    outboxSize: store.outboxSize,
+    // Read when asserted: the LiveStore applies with the next frame.
+    get outboxSize() {
+      return live.outbox.pending
+    },
     setDockTab: store.setDockTab as unknown as (tab: string) => void,
   }
   return null
 }
-
-const selectDockTab = (s: { dockTab: string }): string => s.dockTab
 
 describe('the principal boundary tears down and rebuilds (POD-404)', () => {
   const config: Config = { httpOrigin: 'http://p', wsClientUrl: 'ws://p' }
@@ -231,6 +246,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
   })
 
   const renderAs = async (principal: ClientPrincipal, api: PodiumClientApi): Promise<void> => {
+    await loadRecordDeclarations()
     act(() => {
       root.render(
         <StoreProvider
@@ -242,6 +258,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
             closedWhenOpened.set(p.userId, FakeWS.closed)
             return createReplicaFixture({ storage: storageFor(p.userId) })
           }}
+          attachRuntime={(runtime) => createRuntimeWorklistPool(runtime).dispose}
         >
           <PrincipalProbe />
         </StoreProvider>,
@@ -272,8 +289,8 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     // Capture the instances that get torn down, so the guard itself — not just
     // the fact that teardown was CALLED — can be measured.
     const torn: ClientRuntime[] = []
-    const realDestroy = ClientRuntime.prototype.destroy
-    const destroySpy = vi.spyOn(ClientRuntime.prototype, 'destroy').mockImplementation(function (
+    const realDestroy = ClientRuntime.prototype.dispose
+    const destroySpy = vi.spyOn(ClientRuntime.prototype, 'dispose').mockImplementation(function (
       this: ClientRuntime,
     ) {
       torn.push(this)
@@ -285,10 +302,14 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     const hubAlice = seen.hub
     const replicaAlice = seen.replica
     // (1) a LIVE CURSOR: alice's replica is caught up to 42.
-    ;(replicaAlice as unknown as { setFeedCursor(c: number): void }).setFeedCursor(42)
+    ;(replicaAlice as unknown as { setFeedCursor(c: FeedCursor): void }).setFeedCursor({
+      feedId: 'alice-feed',
+      epoch: 'alice-epoch',
+      seq: 42,
+    })
     // (2) a QUEUED WRITE: a layout command with no server to answer it.
     act(() => seen.setDockTab('git'))
-    await settle()
+    await vi.waitFor(() => expect(seen.outboxSize).toBeGreaterThan(0))
     // (3) a WARM CACHE: the selector held a value across at least one render.
     const dockTabAlice = seen.dockTab
 
@@ -296,7 +317,11 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     // that never opened would make every claim below vacuously true.
     expect(hubAlice, "alice's transport must actually exist").toBeTruthy()
     expect(seen.outboxSize, "alice's queued write must actually be queued").toBeGreaterThan(0)
-    expect(replicaAlice?.getFeedCursor(), "alice's cursor must actually be live").toBe(42)
+    expect(replicaAlice?.getFeedCursor(), "alice's cursor must actually be live").toEqual({
+      feedId: 'alice-feed',
+      epoch: 'alice-epoch',
+      seq: 42,
+    })
     expect(dockTabAlice, "alice's cached selection must actually differ from the default").toBe(
       'git',
     )
@@ -306,7 +331,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     expect(
       JSON.stringify(storageFor('alice').snapshot()),
       "alice's queued command must actually be durable",
-    ).toContain('layoutSet')
+    ).toContain('userLayout')
 
     // ---- THE SWITCH -------------------------------------------------------
     await renderAs(BOB, api)
@@ -316,7 +341,7 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
   it('destroys the previous principal’s runtime rather than re-rendering it', async () => {
     const { destroySpy, torn } = await switchAliceToBob()
     expect(destroySpy, 'the previous principal’s runtime must be destroyed').toHaveBeenCalled()
-    expect(torn[0]?.isDestroyed, 'it must be inert, not merely stopped').toBe(true)
+    expect(torn[0]?.isDisposed, 'it must be inert, not merely stopped').toBe(true)
   })
 
   it('reconstructs the transport, and alice’s socket is already down when bob’s store opens', async () => {
@@ -340,7 +365,11 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     // never ask for the rows it has never seen.
     const { replicaAlice } = await switchAliceToBob()
     expect(seen.replica, 'bob must not share alice’s replica').not.toBe(replicaAlice)
-    expect(seen.replica?.getFeedCursor(), 'bob must not inherit alice’s cursor').not.toBe(42)
+    expect(seen.replica?.getFeedCursor(), 'bob must not inherit alice’s cursor').toEqual({
+      feedId: null,
+      epoch: null,
+      seq: 0,
+    })
   })
 
   it('does not inherit the previous principal’s queued write, and does not destroy it either', async () => {
@@ -353,11 +382,11 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     expect(
       JSON.stringify(storageFor('alice').snapshot()),
       'alice’s queued command must survive in her own namespace',
-    ).toContain('layoutSet')
+    ).toContain('userLayout')
     expect(
       JSON.stringify(storageFor('bob').snapshot()),
       'bob’s namespace must not contain alice’s queued command',
-    ).not.toContain('layoutSet')
+    ).not.toContain('userLayout')
   })
 
   it('does not replay the previous principal’s cached selector value', async () => {
@@ -377,13 +406,14 @@ describe('the principal boundary tears down and rebuilds (POD-404)', () => {
     const { torn } = await switchAliceToBob()
     const stale = torn[0]
     expect(stale, 'the switch must have torn down alice’s runtime').toBeDefined()
-    const staleSnapshot = stale?.access
+    const previousView = stale!.ui.view
+    const currentDockTab = seen.dockTab
     act(() => {
-      ;(staleSnapshot as unknown as { setPaletteOpen(v: boolean): void }).setPaletteOpen(true)
+      stale!.ui.setView('settings')
     })
-    expect(stale?.access, 'a previous principal’s late callback must publish nothing').toBe(
-      staleSnapshot,
-    )
+    expect(stale!.isDisposed).toBe(true)
+    expect(stale!.ui.view).toBe(previousView)
+    expect(seen.dockTab).toBe(currentDockTab)
   })
 
   it('a re-render with an equal-valued principal object keeps the same runtime', async () => {

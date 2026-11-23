@@ -17,7 +17,7 @@ export const claudeCodeInstall: HarnessInstall = {
   url: (env) => env.PODIUM_CLAUDE_INSTALL_URL ?? 'https://claude.ai/install.sh',
   runInstaller(scriptPath, binDir, ports) {
     try {
-      ports.run('bash', [scriptPath, 'stable'], ports.env)
+      ports.runTool('bash', [scriptPath, 'stable'], ports.env)
     } catch {
       // Not a failure the operator has to act on yet — say what we are doing instead.
       ports.note?.(

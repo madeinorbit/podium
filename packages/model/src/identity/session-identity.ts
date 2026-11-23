@@ -36,7 +36,7 @@ export interface ResumableSession extends HeadlessFields {
 /**
  * Collapse duplicate session rows that point at the SAME underlying agent
  * conversation (same resume ref) — e.g. a Codex thread that surfaced twice on
- * resume. Keeps the most useful row per ref (live > starting/reconnecting >
+ * resume. Keeps the most useful row per ref (live > starting >
  * hibernated > exited; ties break to the most-recently-active) and preserves
  * order. Sessions with no resume ref are distinct and never merged. Any resume
  * group containing an active row is preserved in full because native identity
@@ -48,7 +48,6 @@ export function dedupeSessionsByResume<S extends ResumableSession>(sessions: S[]
       case 'live':
         return 3
       case 'starting':
-      case 'reconnecting':
         return 2
       case 'hibernated':
         return 1
@@ -67,7 +66,7 @@ export function dedupeSessionsByResume<S extends ResumableSession>(sessions: S[]
   const activeRefs = new Set<string>()
   for (const session of sessions) {
     if (!session.resume || isHeadlessSession(session)) continue
-    if (!['live', 'starting', 'reconnecting'].includes(session.status)) continue
+    if (session.status !== 'live' && session.status !== 'starting') continue
     activeRefs.add(resumeKey(session.resume.kind, session.resume.value))
   }
   const indexByRef = new Map<string, number>()

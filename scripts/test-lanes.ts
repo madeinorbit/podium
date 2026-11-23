@@ -13,13 +13,13 @@
  * Two facts the table encodes that are easy to get wrong by hand:
  *
  *   - apps/server suites import `bun:` builtins and collect ZERO files under Node's
- *     vitest; they must run as `bun --bun`. Web too. Mobile runs under Node (its
- *     package script is a bare `vitest run`) and keeps that.
+ *     vitest; they must run as `bun --bun`. Web too. Mobile runs under Node,
+ *     even when the parent runner's PATH contains a `node` alias for Bun.
  *   - A lane is `focused` (takes a validation slot) or `heavy` (takes the host-wide
  *     `test:heavy` lease), matching the root script that already owns it.
  */
-import { existsSync, statSync } from 'node:fs'
-import { join, relative, resolve, sep } from 'node:path'
+import { existsSync, realpathSync, statSync } from 'node:fs'
+import { delimiter, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseCLI } from 'vitest/node'
 import { processIntegrationTests } from '../vitest.integration.config'
@@ -79,6 +79,15 @@ export const LANES: Record<string, Lane> = {
     admission: 'focused',
     summary: '@podium/server store shard',
   },
+  // The store shard's Postgres leg (POD-6980). `focused` like the SQLite store shard:
+  // the Postgres server is one shared container per host, started on demand by the
+  // config's globalSetup under its own host lock, so the lane itself needs no lease.
+  'server-store-pg': {
+    cwd: 'apps/server',
+    command: bunVitest('vitest.store-pg.config.ts'),
+    admission: 'focused',
+    summary: '@podium/server store shard on Postgres (starts the shared podium-test-pg container)',
+  },
   'server-services': {
     cwd: 'apps/server',
     command: bunVitest('vitest.services.config.ts'),
@@ -105,7 +114,7 @@ export const LANES: Record<string, Lane> = {
   },
   mobile: {
     cwd: 'apps/mobile',
-    command: ['<vitest>', 'run'],
+    command: ['node', '<vitest>', 'run'],
     admission: 'focused',
     summary: '@podium/mobile under node',
   },
@@ -148,28 +157,49 @@ export function laneNames(): string[] {
   return Object.keys(LANES)
 }
 
-/** The vitest entry as seen from a lane's cwd; mobile runs the Node bin, everything else the module. */
+/** The Vitest module entry as seen from a lane's cwd. */
 export function vitestEntry(lane: Lane, root: string): string {
-  const entry =
-    lane.cwd === 'apps/mobile' ? 'node_modules/.bin/vitest' : 'node_modules/vitest/vitest.mjs'
-  const rel = relative(resolve(root, lane.cwd), join(root, entry))
+  const rel = relative(resolve(root, lane.cwd), join(root, 'node_modules/vitest/vitest.mjs'))
   return rel.startsWith('.') ? rel : `./${rel}`
 }
 
-export function laneCommand(lane: Lane, root: string, extra: string[]): string[] {
+function nodeExecutable(): string {
+  // A shebang or a bare `node` can select Bun again via an inherited alias.
+  // Keep PATH precedence among Node installs, but skip links to this Bun runtime.
+  const bun = process.versions.bun ? realpathSync(process.execPath) : undefined
+  for (const directory of (process.env.PATH ?? '').split(delimiter)) {
+    const node = Bun.which('node', { PATH: directory || '.' })
+    if (node && realpathSync(node) !== bun) return node
+  }
+  throw new Error('mobile test lane requires Node on PATH; Bun aliases do not qualify')
+}
+
+export function laneCommand(lane: Lane, root: string, given: string[]): string[] {
+  const extra = withoutSeparators(given)
   const entry = vitestEntry(lane, root)
   const filters = fileFilters(extra).length > 0 ? [] : (lane.filters ?? [])
-  return [
-    ...lane.command.map((part) => (part === '<vitest>' ? entry : part)),
-    ...filters,
-    ...extra,
-    '--passWithNoTests=false',
-  ]
+  const command = lane.command.map((part) => (part === '<vitest>' ? entry : part))
+  if (command[0] === 'node') command[0] = nodeExecutable()
+  return [...command, ...filters, ...extra, '--passWithNoTests=false']
+}
+
+/**
+ * The caller's arguments without a bare `--` (POD-6980).
+ *
+ * `bun run test:lane -- <lane> -- <file>` is the natural way to write a lane call, and
+ * the second `--` used to reach vitest, whose parser ends option parsing there: the
+ * file became no filter at all, the focused runner's `--reporter=json` after it was
+ * ignored too, and the "focused" run executed the whole lane before failing to find
+ * its report. Vitest takes nothing after a `--`, so dropping it loses nothing.
+ */
+export function withoutSeparators(argv: string[]): string[] {
+  return argv.filter((arg) => arg !== '--')
 }
 
 /** Use the runner's parser so flag values (for example `-t name`) are not paths. */
 export function fileFilters(argv: string[]): string[] {
-  return parseCLI(['vitest', 'run', ...argv], { allowUnknownOptions: true }).filter
+  return parseCLI(['vitest', 'run', ...withoutSeparators(argv)], { allowUnknownOptions: true })
+    .filter
 }
 
 export type FileRunner = { kind: 'vitest'; lane: string } | { kind: 'bun-test' }
@@ -193,7 +223,6 @@ export function runnerFor(path: string): FileRunner | { error: string } {
   const parts = path.split(sep)
   const [top, second] = parts
   if (top === 'tests' && second === 'e2e') return { kind: 'vitest', lane: 'e2e' }
-  if (top === 'tests' && second === 'worklist') return { kind: 'vitest', lane: 'worklist' }
   if (
     path === 'scripts/loop-split-load.integration.test.ts' ||
     /\.acceptance\.(test|spec)\./.test(path)
@@ -205,6 +234,7 @@ export function runnerFor(path: string): FileRunner | { error: string } {
     processIntegrationTests.includes(path)
   )
     return { kind: 'vitest', lane: 'integration' }
+  if (top === 'tests' && second === 'worklist') return { kind: 'vitest', lane: 'worklist' }
   if (top === 'apps' && second === 'server') return { kind: 'vitest', lane: 'server' }
   if (top === 'apps' && second === 'web') return { kind: 'vitest', lane: 'web' }
   if (top === 'apps' && second === 'mobile') return { kind: 'vitest', lane: 'mobile' }
@@ -228,7 +258,7 @@ export function splitFileArgs(
   const extra: string[] = []
   const errors: string[] = []
   const filters = fileFilters(argv)
-  for (const arg of argv) {
+  for (const arg of withoutSeparators(argv)) {
     if (!filters.includes(arg)) {
       extra.push(arg)
       continue

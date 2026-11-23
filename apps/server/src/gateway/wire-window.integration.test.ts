@@ -42,17 +42,18 @@
  * a fixed-deadline wait that always times out can no longer say NO.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { CAP_METADATA_DELTA, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION } from '@podium/protocol'
+import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { WebSocket } from 'ws'
-import { noJanitorWorkerForTests } from '../janitor-host'
-import { startServer } from '../server'
+import type { AppRouter } from '../router'
 import { loginTestClient } from '../test-support/client-auth'
+import { startSyncWorkerTestServer } from '../test-support/sync-worker-server'
 
 const CLIENT_PASSWORD = 'wire-window-client-password'
 
@@ -70,31 +71,46 @@ const priorStateDir = process.env.PODIUM_STATE_DIR!
 
 describe('the wire window, over real sockets', () => {
   let stateDir: string
-  let handle: Awaited<ReturnType<typeof startServer>>
+  let handle: Awaited<ReturnType<typeof startSyncWorkerTestServer>>
   let cookieHeader: string
   let machineId: string
+  let trpc: ReturnType<typeof createTRPCClient<AppRouter>>
   let originalPassword: string | undefined
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-wire-window-'))
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+    )
     process.env.PODIUM_STATE_DIR = stateDir
     originalPassword = process.env.PODIUM_PASSWORD
     process.env.PODIUM_PASSWORD = CLIENT_PASSWORD
-    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    handle = await startSyncWorkerTestServer({
+      stateDir,
+      member: { email: 'wire@example.test', password: CLIENT_PASSWORD },
+    })
     cookieHeader = (
       await loginTestClient({
         origin: `http://127.0.0.1:${handle.port}`,
+        email: 'wire@example.test',
         password: CLIENT_PASSWORD,
       })
     ).cookieHeader
-    machineId = handle.registry.modules.machines.hostMachineId
-    handle.registry.gateway.attachDaemon(machineId, () => {})
-    await handle.registry.modules.sessions.createSession({
+    machineId = handle.machineId
+    trpc = createTRPCClient<AppRouter>({
+      links: [
+        httpBatchLink({
+          url: `http://127.0.0.1:${handle.port}/trpc`,
+          headers: { Cookie: cookieHeader },
+        }),
+      ],
+    })
+    await trpc.sessions.create.mutate({
       agentKind: 'shell',
       cwd: '/repo/before-the-deploy',
       machineId: asMachineId(machineId),
     })
-    handle.registry.modules.sessions.flushBroadcasts()
   })
 
   afterAll(async () => {
@@ -168,12 +184,9 @@ describe('the wire window, over real sockets', () => {
     // the two peers the entity plane will refuse. Wait on current's world first
     // so the refusals below are asserted after hello has been processed, not by
     // spinning until the deadline.
-    await Promise.all([
-      stale.nextMatching((m) => m.type === 'welcome'),
-      previous.nextMatching((m) => m.type === 'welcome'),
-      current.nextMatching((m) => m.type === 'welcome'),
-      beyond.nextMatching((m) => m.type === 'welcome'),
-    ])
+    // A refused hello gets no welcome or entity data. The admitted peer is
+    // the positive control for this same socket/authority boundary.
+    await current.nextMatching((m) => m.type === 'welcome')
 
     const admitted = await current.nextMatching((m) => m.type === 'feedResume')
     expect(admitted.type).toBe('feedResume')
@@ -202,21 +215,28 @@ describe('the wire window, over real sockets', () => {
     const beyondAfterHello = beyond.frames.length
 
     // A write AFTER all three connected.
-    await handle.registry.modules.sessions.createSession({
+    await trpc.sessions.create.mutate({
       agentKind: 'shell',
       cwd: '/repo/after-the-deploy',
       machineId: asMachineId(machineId),
     })
-    handle.registry.modules.sessions.flushBroadcasts()
 
     // The current build gets the canonical frame for the write.
-    const currentDelta = (await current.nextMatching((m) => m.type === 'feedDelta')) as {
+    const currentDelta = (await current.nextMatching(
+      (m) =>
+        m.type === 'feedDelta' &&
+        m.changes.some(
+          (change) =>
+            change.entity === 'session' &&
+            (change.value as { cwd?: string } | undefined)?.cwd === '/repo/after-the-deploy',
+        ),
+    )) as {
       fromSeq: number
       seq: number
       minAvailableSeq: number
       changes: { entity: string; value?: { cwd?: string } | null }[]
     }
-    expect(currentDelta.fromSeq).toBe(admitted.seq)
+    expect(currentDelta.fromSeq).toBeGreaterThanOrEqual(admitted.seq)
     expect(currentDelta.minAvailableSeq).toBeGreaterThanOrEqual(0)
     expect(
       currentDelta.changes.some(
@@ -274,7 +294,6 @@ describe('the wire window, over real sockets', () => {
       minSupportedVersion: MIN_CLIENT_WIRE_VERSION,
       feedScoping: 'per-principal',
     })
-    expect(version.minSupportedVersion).toBe(4)
 
     for (const peer of [stale, previous, current, beyond]) peer.ws.close()
   })

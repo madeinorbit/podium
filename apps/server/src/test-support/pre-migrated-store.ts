@@ -41,10 +41,12 @@
  */
 
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { primeFirstAdminMember } from '@podium/model'
+import { asUserId, primeFirstAdminMember } from '@podium/model'
 import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import { openDatabase, openDatabaseFromImage, type SqlDatabase } from '@podium/runtime/sqlite'
 import { installStoreDatabaseOpener, resetStoreDatabaseOpener } from '../store-database'
+import { PG_TEST_FIRST_ADMIN_ENV } from './pg-template-seed'
+import { testStoreEngine } from './pg-test-database'
 
 /**
  * Where `globalSetup` left the verified image for THIS run. Passed by environment
@@ -102,6 +104,17 @@ export function usesRealMigrationChain(testPath: string): boolean {
  * that never touches `SessionStore` pays nothing for this.
  */
 export function installPreMigratedStoreFixtureFor(testPath: string): boolean {
+  // A Postgres run's stores clone the run's template database instead of this image
+  // [POD-6980]. A SQLite store opened there means the file has not been converted,
+  // so the seam refuses it and says where the file belongs.
+  if (testStoreEngine() === 'pg') {
+    installStoreDatabaseOpener(refuseSqliteStore(testPath))
+    // The template holds a fresh SQLite store's rows, its first admin included
+    // (`pg-template-seed.ts`); the lane's globalSetup read its id once.
+    const firstAdmin = process.env[PG_TEST_FIRST_ADMIN_ENV]
+    if (firstAdmin) primeFirstAdminMember(asUserId(firstAdmin))
+    return false
+  }
   if (usesRealMigrationChain(testPath)) return false
   if (schemaImagePath() === undefined) return false
   installPreMigratedStoreFixture()
@@ -135,6 +148,24 @@ function primeFirstAdminFromImage(): void {
     if (id !== undefined) primeFirstAdminMember(id)
   } finally {
     db.close()
+  }
+}
+
+/**
+ * The opener a Postgres run installs: any SQLite store open fails, naming the test
+ * file and the list it belongs on. Only SQLite locations reach it: `openStoreDatabase`
+ * refuses a Postgres URL itself (`PostgresLocationError`) before any opener runs, and a
+ * store opened on a URL opens on Postgres through the store-lifecycle port (POD-6994).
+ */
+export function refuseSqliteStore(testPath: string): (path: string) => never {
+  const at = testPath.replaceAll('\\', '/').lastIndexOf('/apps/server/')
+  const file = at === -1 ? testPath : testPath.slice(at + 1)
+  return (path) => {
+    throw new Error(
+      `${file} opened a SQLite store (${path}) on the Postgres leg. Add the file to "pending" ` +
+        'in apps/server/test-store-engines.json; if it tests SQLite itself, list it under ' +
+        '"sqliteOnly" with the reason instead.',
+    )
   }
 }
 

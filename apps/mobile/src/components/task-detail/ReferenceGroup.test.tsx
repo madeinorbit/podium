@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
@@ -17,7 +17,7 @@ it('keeps description context and folded reference rows in one group, with More 
   const issue = {
     description: 'Context with **emphasis**.\n\n- First bullet\n- Second bullet',
     brief: 'Agent instructions',
-  } as IssueViewModel
+  } as IssueWithBodies
   render(
     <ReferenceGroup>
       <IssueDescriptionPreview

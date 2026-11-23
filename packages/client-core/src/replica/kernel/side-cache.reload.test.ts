@@ -1,9 +1,10 @@
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { describe, expect, it } from 'vitest'
 import { memoryStorage } from '../contract'
 import { createSideCache } from './side-cache'
 
 describe('draft storage checkpoint before reload', () => {
-  it('reports a refused ordinary UI write, retaining it in memory until a successful checkpoint', () => {
+  it('reports a refused ordinary UI write, retaining it in memory until a successful checkpoint', async () => {
     const storage = memoryStorage()
     let denied = true
     const side = createSideCache({
@@ -16,13 +17,15 @@ describe('draft storage checkpoint before reload', () => {
       },
       enumerateKeys: () => [],
     })
-    const ui = side.uiState()
+    const ui = openLegacyDeviceKeys(side.deviceStorage())
     ui.set('draft', 'keep the final keystroke')
-    expect(() => ui.flush?.()).toThrow('QuotaExceededError')
+    await expect(ui.flush?.()).rejects.toThrow('QuotaExceededError')
     expect(ui.get('draft')).toBe('keep the final keystroke')
     denied = false
-    ui.flush?.()
+    await ui.flush?.()
     const reopened = createSideCache({ storage, enumerateKeys: () => [] })
-    expect(reopened.uiState().get('draft')).toBe('keep the final keystroke')
+    expect(openLegacyDeviceKeys(reopened.deviceStorage()).get('draft')).toBe(
+      'keep the final keystroke',
+    )
   })
 })

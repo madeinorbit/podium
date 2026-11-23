@@ -19,21 +19,24 @@
  * warns about two directories away. So every path below ends in a send.
  */
 
+import type { AgentSessionHandle, LegacyTurnTerms, TurnInput } from '@podium/harness/driver/host'
 import { isDriverRefusal } from '@podium/harness/driver/host'
-import type { AgentSessionHandle } from '@podium/harness/driver/host'
-import type { SessionId } from '@podium/model'
+import { type AgentKind, hasTurnEnded, type SessionId } from '@podium/model'
+import type { SessionPosture } from '@podium/protocol'
 import type {
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
-  RuntimeSnapshotResultMessage,
   RuntimeHistoryResultMessage,
+  RuntimeSendRequestMessage,
+  RuntimeSnapshotResultMessage,
   TurnReceipt,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
+import { deliveryOverlay } from '../control/access'
+import type { ControlHandlers, DaemonContext } from '../control/context'
 import { stopSessionProcess } from '../control/session'
 import { runtimeAttachmentBelongsToSession } from './attachment-staging'
 import { driverTiming } from './driver-timing'
-import type { ControlHandlers, DaemonContext } from '../control/context'
 
 /**
  * ONE LOOKUP ACROSS EVERY RUNTIME THIS DAEMON HOLDS (POD-2023).
@@ -62,6 +65,42 @@ export function runtimeDriverIdFor(
   sessionId: SessionId,
 ): AgentSessionHandle['binding']['driver'] | undefined {
   return handleFor(ctx, sessionId)?.binding.driver
+}
+
+/**
+ * THE TURN'S LAUNCH TERMS FROM ITS FRAME (POD-6858 Task 9).
+ *
+ * A server that knows posture sends `posture`; the turn runs on it. An older
+ * server sends only the vendor-worded fields: a `permissionMode` is the
+ * person's native pick, and `structuredPermissions` alone (asks reach chat)
+ * is supervised. A frame with neither states no posture, so the session's
+ * applies. The old fields ride on as `legacyTerms`, the facts the server
+ * minted the headless digest over; nothing launches from them.
+ */
+export function turnTermsFromFrame(
+  msg: Pick<
+    RuntimeSendRequestMessage,
+    'posture' | 'permissionMode' | 'allowedTools' | 'structuredPermissions'
+  >,
+): Pick<TurnInput, 'posture' | 'legacyTerms'> {
+  const posture: SessionPosture | undefined =
+    msg.posture ??
+    // LEGACY(remove-after: 2027-02): pre-posture servers state the mode only in these; removing it drops their picks
+    (msg.permissionMode
+      ? { mode: { native: msg.permissionMode } }
+      : msg.structuredPermissions
+        ? { mode: 'supervised' }
+        : undefined)
+  // LEGACY(remove-after: 2027-02): the digest pre-posture servers mint covers these; removing it refuses their turns
+  const legacyTerms: LegacyTurnTerms = {
+    ...(msg.allowedTools ? { allowedTools: [...msg.allowedTools] } : {}),
+    ...(msg.permissionMode ? { permissionMode: msg.permissionMode } : {}),
+    ...(msg.structuredPermissions ? { structuredPermissions: msg.structuredPermissions } : {}),
+  }
+  return {
+    ...(posture ? { posture } : {}),
+    ...(Object.keys(legacyTerms).length > 0 ? { legacyTerms } : {}),
+  }
 }
 
 /**
@@ -191,80 +230,104 @@ export const runtimeHandlers: Pick<
       })
       return
     }
-    driverTiming.promptRequested(handle.binding, msg.turnId)
-    // Per-turn model/effort ride the wire as plain strings; the driver reads
-    // them as a supported() override (session sticky is the fallback there).
-    const modelEffort =
-      msg.model !== undefined || msg.effort !== undefined
-        ? {
-            overrides: {
-              supported: true as const,
-              value: {
-                ...(msg.model !== undefined ? { model: msg.model } : {}),
-                ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+    // THE TURN'S CREDENTIAL (credential management §8). A headless turn
+    // carries it; any other turn applies what the session holds. A daemon
+    // that restarted and has not had the server's refresh yet waits for it,
+    // then refuses the turn readably: it never runs on the machine's login.
+    // The binding's harness is a closed AgentKind written as a plain string.
+    const harness = handle.binding.harness as AgentKind
+    if (msg.access) ctx.access.remember(msg.sessionId, msg.access, harness)
+    const sendTurn = (credentialEnv: Record<string, string>): void => {
+      driverTiming.promptRequested(handle.binding, msg.turnId)
+      // Per-turn model/effort ride the wire as plain strings; the driver reads
+      // them as a supported() override (session sticky is the fallback there).
+      const modelEffort =
+        msg.model !== undefined || msg.effort !== undefined
+          ? {
+              overrides: {
+                supported: true as const,
+                value: {
+                  ...(msg.model !== undefined ? { model: msg.model } : {}),
+                  ...(msg.effort !== undefined ? { effort: msg.effort } : {}),
+                },
               },
-            },
+            }
+          : {}
+      void handle
+        .send(
+          {
+            id: msg.turnId,
+            rowId: msg.rowId,
+            deliveryRecovery: msg.deliveryRecovery,
+            // The program holds it durably (POD-4886): watch again, type nothing.
+            ...(msg.deliveryRecovery && msg.held === 'durable' ? { held: 'durable' as const } : {}),
+            initialPrompt: msg.initialPrompt,
+            text: msg.text,
+            attachments: msg.attachments,
+            ...turnTermsFromFrame(msg),
+            ...(msg.toolPolicy ? { toolPolicy: msg.toolPolicy } : {}),
+            ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
+            ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
+            ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
+            ...(msg.accountId ? { accountId: msg.accountId } : {}),
+            ...(msg.requestDigest ? { requestDigest: msg.requestDigest } : {}),
+            ...(Object.keys(credentialEnv).length > 0 ? { env: credentialEnv } : {}),
+            ...(msg.contextPrompt ? { contextPrompt: msg.contextPrompt } : {}),
+            ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+            ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
+            ...modelEffort,
+          },
+          { origin: msg.origin, delivery: msg.delivery },
+        )
+        .then((receipt) => {
+          driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
+          ctx.send({
+            type: 'runtimeSendResult',
+            requestId: msg.requestId,
+            sessionId: msg.sessionId,
+            receipt,
+          })
+        })
+        .catch(() => {
+          // A THROW IS NOT AN OUTCOME. The four outcomes are the contract's whole
+          // honesty commitment, so an unexpected failure is reported as the one
+          // that is true — we could not prove the send did anything — rather than
+          // as a silence the caller has to time out on.
+          //
+          // The throw may follow admission or a write, even for a direct send
+          // without a durable row (POD-4884). Only the pre-write guards above
+          // can prove a refusal; "could not prove" is `unverified`.
+          const receipt: TurnReceipt = {
+            outcome: 'unverified',
+            deliveredAs: msg.delivery,
+            verificationWindowMs: 0,
+            at: new Date().toISOString(),
           }
-        : {}
-    void handle
-      .send(
-        {
-          id: msg.turnId,
-          rowId: msg.rowId,
-          deliveryRecovery: msg.deliveryRecovery,
-          // The program holds it durably (POD-4886): watch again, type nothing.
-          ...(msg.deliveryRecovery && msg.held === 'durable' ? { held: 'durable' as const } : {}),
-          initialPrompt: msg.initialPrompt,
-          text: msg.text,
-          attachments: msg.attachments,
-          ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
-          ...(msg.permissionMode ? { permissionMode: msg.permissionMode } : {}),
-          ...(msg.toolPolicy ? { toolPolicy: msg.toolPolicy } : {}),
-          ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
-          ...(msg.resumeValue ? { resumeValue: msg.resumeValue } : {}),
-          ...(msg.sessionUuid ? { sessionUuid: msg.sessionUuid } : {}),
-          ...(msg.accountId ? { accountId: msg.accountId } : {}),
-          ...(msg.requestDigest ? { requestDigest: msg.requestDigest } : {}),
-          ...(msg.structuredPermissions ? { structuredPermissions: msg.structuredPermissions } : {}),
-          ...(msg.contextPrompt ? { contextPrompt: msg.contextPrompt } : {}),
-          ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
-          ...(msg.timeoutMs ? { timeoutMs: msg.timeoutMs } : {}),
-          ...modelEffort,
-        },
-        { origin: msg.origin, delivery: msg.delivery },
-      )
-      .then((receipt) => {
-        driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
-        ctx.send({
-          type: 'runtimeSendResult',
-          requestId: msg.requestId,
-          sessionId: msg.sessionId,
-          receipt,
+          driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
+          ctx.send({
+            type: 'runtimeSendResult',
+            requestId: msg.requestId,
+            sessionId: msg.sessionId,
+            receipt,
+          })
         })
-      })
-      .catch(() => {
-        // A THROW IS NOT AN OUTCOME. The four outcomes are the contract's whole
-        // honesty commitment, so an unexpected failure is reported as the one
-        // that is true — we could not prove the send did anything — rather than
-        // as a silence the caller has to time out on.
-        //
-        // The throw may follow admission or a write, even for a direct send
-        // without a durable row (POD-4884). Only the pre-write guards above
-        // can prove a refusal; "could not prove" is `unverified`.
+    }
+    void ctx.access.awaitAccess(msg.sessionId).then(
+      (access) => sendTurn(deliveryOverlay(harness, access).env),
+      (error: unknown) => {
+        const detail = error instanceof Error ? error.message : String(error)
         const receipt: TurnReceipt = {
-          outcome: 'unverified',
-          deliveredAs: msg.delivery,
-          verificationWindowMs: 0,
-          at: new Date().toISOString(),
+          outcome: 'refused',
+          refusal: { reason: 'not_running', detail },
         }
-        driverTiming.promptReceipt(handle.binding, msg.turnId, receipt)
         ctx.send({
           type: 'runtimeSendResult',
           requestId: msg.requestId,
           sessionId: msg.sessionId,
           receipt,
         })
-      })
+      },
+    )
   },
 
   runtimeInterruptRequest: (ctx, msg) => {
@@ -272,7 +335,7 @@ export const runtimeHandlers: Pick<
     // `interrupt()` REQUESTS a fence and returns nothing to await, so its reply
     // is the lifecycle result shape: the request was accepted, or it was refused.
     // The fence itself arrives — or does not — on the causal stream.
-    const answer = (result: { ok: true } | { reason: 'not_running' }): void => {
+    const answer = (result: { ok: true } | { reason: 'not_running' | 'turn_ended' }): void => {
       ctx.send({
         type: 'runtimeLifecycleResult',
         requestId: msg.requestId,
@@ -285,10 +348,30 @@ export const runtimeHandlers: Pick<
       return
     }
     if (msg.cancelRowId) {
-      if (!handle.cancelDelivery) { answer({ reason: 'not_running' }); return }
-      void handle.cancelDelivery(msg.cancelRowId).then((result) => {
-        ctx.send({ type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
-      }).catch(() => answer({ reason: 'not_running' }))
+      if (!handle.cancelDelivery) {
+        answer({ reason: 'not_running' })
+        return
+      }
+      void handle
+        .cancelDelivery(msg.cancelRowId)
+        .then((result) => {
+          ctx.send({
+            type: 'runtimeLifecycleResult',
+            requestId: msg.requestId,
+            sessionId: msg.sessionId,
+            result,
+          })
+        })
+        .catch(() => answer({ reason: 'not_running' }))
+      return
+    }
+    // TURN-SCOPED (POD-6397): this daemon owns the turn marker, so it alone
+    // says whether the named turn is over. Over means nothing is sent: a late
+    // or replayed stop never reaches the turn that runs now. A session whose
+    // state was never seen here cannot say, and gets the stop.
+    const turnState = ctx.sessions.get(msg.sessionId)?.turnState
+    if (msg.turn !== undefined && turnState !== undefined && hasTurnEnded(turnState, msg.turn)) {
+      answer({ reason: 'turn_ended' })
       return
     }
     void handle
@@ -330,8 +413,17 @@ export const runtimeHandlers: Pick<
 
   runtimeLifecycleRequest: (ctx, msg) => {
     const handle = handleFor(ctx, msg.sessionId)
-    const answer = (result: { ok: true; retirement: 'confirmed' } | { reason: 'not_running' | 'no_resume_ref'; detail?: string }): void => {
-      ctx.send({ type: 'runtimeLifecycleResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
+    const answer = (
+      result:
+        | { ok: true; retirement: 'confirmed' }
+        | { reason: 'not_running' | 'no_resume_ref'; detail?: string },
+    ): void => {
+      ctx.send({
+        type: 'runtimeLifecycleResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result,
+      })
     }
     // Refusal is checked before touching any process. Registry loss is not
     // proof of death: stop/kill must still reach the host's orphan reapers.
@@ -340,12 +432,24 @@ export const runtimeHandlers: Pick<
       return
     }
     void (async () => {
-      const retired = handle?.binding.family === 'terminal'
-        ? await (msg.verb === 'hibernate' ? handle.hibernate() : msg.verb === 'kill' ? handle.kill() : handle.stop()).then((result) => !result || 'ok' in result)
-        : await stopSessionProcess(ctx, { sessionId: msg.sessionId }, { retire: msg.verb === 'kill' })
-      answer(retired
-        ? { ok: true, retirement: 'confirmed' }
-        : { reason: 'not_running', detail: 'process retirement was not confirmed' })
+      const retired =
+        handle?.binding.family === 'terminal'
+          ? await (msg.verb === 'hibernate'
+              ? handle.hibernate()
+              : msg.verb === 'kill'
+                ? handle.kill()
+                : handle.stop()
+            ).then((result) => !result || 'ok' in result)
+          : await stopSessionProcess(
+              ctx,
+              { sessionId: msg.sessionId },
+              { retire: msg.verb === 'kill' },
+            )
+      answer(
+        retired
+          ? { ok: true, retirement: 'confirmed' }
+          : { reason: 'not_running', detail: 'process retirement was not confirmed' },
+      )
     })().catch((error) => answer({ reason: 'not_running', detail: String(error) }))
   },
 
@@ -419,26 +523,38 @@ export const runtimeHandlers: Pick<
    */
   runtimeDraftRequest: (ctx, msg) => {
     const answer = (result: RuntimeDraftResultMessage['result']): void => {
-      ctx.send({ type: 'runtimeDraftResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
+      ctx.send({
+        type: 'runtimeDraftResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result,
+      })
     }
     const handle = handleFor(ctx, msg.sessionId)
     if (!handle) {
       answer({ reason: 'not_running' })
       return
     }
-    void Promise.resolve().then(async () => {
-      if (msg.operation.verb === 'get') {
-        const result = await handle.draft.get()
-        answer(typeof result === 'string' ? { text: result } : result)
-      } else {
-        answer(await handle.draft.set(msg.operation.text))
-      }
-    }).catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
+    void Promise.resolve()
+      .then(async () => {
+        if (msg.operation.verb === 'get') {
+          const result = await handle.draft.get()
+          answer(typeof result === 'string' ? { text: result } : result)
+        } else {
+          answer(await handle.draft.set(msg.operation.text))
+        }
+      })
+      .catch((err: unknown) => answer({ reason: 'not_running', detail: String(err) }))
   },
 
   runtimeHistoryRequest: (ctx, msg) => {
     const answer = (result: RuntimeHistoryResultMessage['result']): void => {
-      ctx.send({ type: 'runtimeHistoryResult', requestId: msg.requestId, sessionId: msg.sessionId, result })
+      ctx.send({
+        type: 'runtimeHistoryResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        result,
+      })
     }
     const handle = handleFor(ctx, msg.sessionId)
     if (!handle) {
@@ -448,7 +564,9 @@ export const runtimeHandlers: Pick<
     void Promise.resolve()
       .then(() => handle.transcript.history(msg.range))
       .then((page) => answer({ page }))
-      .catch((err: unknown) => answer(isDriverRefusal(err) ? err.refusal : { reason: 'not_running' }))
+      .catch((err: unknown) =>
+        answer(isDriverRefusal(err) ? err.refusal : { reason: 'not_running' }),
+      )
   },
 
   runtimeSnapshotRequest: (ctx, msg) => {

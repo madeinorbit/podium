@@ -6,17 +6,14 @@
  * machineId still resolves to one machine rather than a global singleton.
  */
 
-import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
+import type { FamilyProcedures } from '../derived-family'
+import { plainFamilyProcedures } from '../plain-command/family'
+import { MODEL_PLAIN_FAMILY } from './plain-family'
 import { MODEL_QUERIES } from './queries'
-import { MODEL_COMMANDS_TRPC, selectModelState } from './registry'
+import type { MODEL_COMMANDS_TRPC } from './registry'
 
 export type ModelProcedures = FamilyProcedures<typeof MODEL_COMMANDS_TRPC, typeof MODEL_QUERIES>
 
 /** THE DERIVED PROCEDURES, spread into `router.ts`'s `models` router. */
 export const modelFamilyProcedures = (): ModelProcedures =>
-  derivedFamilyProcedures({
-    family: 'models',
-    service: (state) => selectModelState(state.modules),
-    commands: MODEL_COMMANDS_TRPC,
-    queries: MODEL_QUERIES,
-  })
+  plainFamilyProcedures(MODEL_PLAIN_FAMILY, MODEL_QUERIES)

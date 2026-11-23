@@ -28,20 +28,22 @@
  * | PODIUM_HOST                   | config.bindHost → loopback | apps/server bindHost (promotion config is explicit)    |
  * | PODIUM_PASSWORD               | — (env-only, one-shot)  | apps/server applyEnvPassword (headless deploy seam)    |
  * | PODIUM_UPDATE_CHANNEL         | config.updateChannel    | `resolveUpdateChannel()`                               |
- * | PODIUM_AUTH_MODE | config.auth.mode | `resolveAuthMode()` — local or cloud |
- * | PODIUM_AUTH_SIGN_IN_URL | config.auth.signInUrl | `resolveAuthSignInUrl()` — hosted login destination |
  * | PODIUM_MODE                   | config.mode             | `resolveMode()` — the deployment owns the mode          |
  * | PODIUM_PUBLIC_URL             | config.publicUrl        | `resolvePublicUrl()` — https unless loopback, immutable |
  * | PODIUM_APP_URL                | config.appUrl           | `resolveAppUrl()` — where the web UI is served from     |
  * | PODIUM_ALLOWED_ORIGINS        | config.allowedOrigins   | `resolveAllowedOrigins()` — credentialed CORS list      |
  * | PODIUM_UPDATE_SCOPE           | config.updateScope      | `resolveUpdateScope()` — 'fleet-only' = CI owns server  |
  * | PODIUM_TRANSCRIPT_LAKE        | config.transcriptLake   | `resolveTranscriptLake()` — 'off' = no mirroring        |
+ * | PODIUM_FILE_STORAGE_BACKEND   | config.fileStorage      | `resolveFileStorage()` — 'local' (default) or 's3'     |
+ * | PODIUM_FILE_STORAGE_ENDPOINT/_BUCKET/_REGION | config.fileStorage.* | `resolveFileStorage()` — the bucket, for 's3' |
+ * | PODIUM_FILE_STORAGE_ACCESS_KEY_ID/_SECRET_ACCESS_KEY | — (env-only secret) | `resolveFileStorage()` — the bucket's key pair |
  * | PODIUM_CONNECT                | config.connect.enabled  | `resolveConnectEnabled()` — 'off' = never publish      |
  * | PODIUM_CONNECT_URL            | config.connect.baseUrl  | `resolveConnectBaseUrl()`                              |
  * | PODIUM_CONNECT_PROBE_KEYS     | config.connect.trustedProbeKeys | `resolveConnectProbeKeys()` — extra verifiers  |
  * | DO_NOT_TRACK                  | — (env-only kill switch)| @podium/telemetry `telemetrySuppressedBy()` [SP-f933]  |
  * | PODIUM_TELEMETRY              | — (env-only kill switch)| `=off` suppresses sending AND the setup prompt         |
  * | PODIUM_TELEMETRY_ENDPOINT     | config.telemetry.endpoint| @podium/telemetry `resolveTelemetryEndpoint()`         |
+ * | PODIUM_UPDATE_FEED_POLLING    | config.updateFeedPolling | `resolveUpdateFeedPolling()` — on by default           |
  * | PODIUM_UPDATE_FEED            | config.updateFeed       | `resolveUpdateFeed()`                                  |
  * | PODIUM_DEV_ARTIFACT_BASE_URL  | config.publicUrl        | `resolveDevArtifactOrigin()` (source publisher only)   |
  * | PODIUM_DEV_SOURCE_ROOT        | — (env-only opt-in)     | installed development publisher checkout              |
@@ -138,6 +140,7 @@
  * | allowedOrigins         | BOOT  | a trust decision; must not move under an open   |
  * |                        |       | socket (apps/server/src/server.ts says so)      |
  * | loopProfile            | BOOT  | the sampler is armed once, at startup           |
+ * | fileStorage            | BOOT  | the server builds its blob storage once         |
  * | updateChannel          | LIVE  | every machine listing; `podium channel` writes  |
  * |                        |       | it from another process entirely                |
  * | publicUrl / appUrl     | LIVE  | thunks, per request (`serverIdentity`, the      |
@@ -149,29 +152,35 @@
  * NO WATCHER AND NO TIMER back any of this. A live field is fresh because the
  * reader asked, and the loader's stat saw a different file.
  */
+import { randomUUID } from 'node:crypto'
 import {
-  copyFileSync,
   constants,
-  readdirSync,
+  copyFileSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  renameSync,
   statSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import { z } from 'zod'
-import { liveRecord } from './run-registry'
-import { desiredParentUnit, legacyUnitNames, userUnitDir } from './topology-migration'
+import { withConfigWriteLock } from './config-write-lock'
+import { fsyncPath } from './fsync'
 import {
   assertInstanceStateIdentity,
+  claimInstanceStateRoot,
   defaultInstancePorts,
-  ensureInstanceStateIdentity,
   instanceStateDir,
   resolveInstanceId,
 } from './instance'
+import { liveRecord } from './run-registry'
+import { desiredParentUnit, legacyUnitNames, userUnitDir } from './topology-migration'
 
+export { withConfigWriteLock } from './config-write-lock'
 export { resolveInstanceId, selectInstance } from './instance'
 
 const log = createLogger('runtime:config')
@@ -260,11 +269,13 @@ export const PodiumConfig = z.object({
     .optional(),
   /** Base URL of the self-update feed (`podium update`). Env PODIUM_UPDATE_FEED wins. */
   updateFeed: z.string().optional(),
+  /** Automatic release feed reads. Env PODIUM_UPDATE_FEED_POLLING=on|off wins. */
+  updateFeedPolling: z.boolean().optional(),
   /**
    * The FLEET DEFAULT update channel (desktop is always stable). Default 'stable'.
    * It governs this instance's own self-update AND every joined machine that has
    * not pinned an override of its own (POD-1882). `dev` is a Podium-development
-   * channel: reachable only while Settings → Experimental has "Podium development"
+   * channel: reachable only while Settings → Labs has "Podium development"
    * on, but honoured here whatever the UI is currently showing.
    */
   updateChannel: z.enum(['stable', 'edge', 'dev']).optional(),
@@ -350,6 +361,27 @@ export const PodiumConfig = z.object({
    * cursors rather than re-fetching history.
    */
   transcriptLake: z.enum(['on', 'off']).optional(),
+  /**
+   * WHERE USER FILES LIVE (POD-6963 design 2.8): issue artifacts, uploads and
+   * the transcript lake. `local` (the default) keeps them under the state
+   * directory; `s3` keeps them in one S3-compatible bucket, under a prefix per
+   * workspace. Hosted sets it through `PODIUM_FILE_STORAGE_*`; a self-hosted
+   * operator may choose `s3` as well (supported, not advertised).
+   *
+   * The key pair is deliberately NOT a field: it comes from
+   * `PODIUM_FILE_STORAGE_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` only, so a secret
+   * is never written to this file (zod strips an unknown key on load). The shape
+   * is lenient here and checked by {@link resolveFileStorage} at server boot,
+   * so a mistyped bucket fails the server's start, not every CLI command.
+   */
+  fileStorage: z
+    .object({
+      backend: z.enum(['local', 's3']),
+      endpoint: z.string().optional(),
+      bucket: z.string().optional(),
+      region: z.string().optional(),
+    })
+    .optional(),
   /** How the reachable URL is exposed. Saved so Settings can restore the operator's choice. */
   networkOption: z
     .enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual'])
@@ -408,18 +440,6 @@ export const PodiumConfig = z.object({
   auth: z
     .object({
       openMode: z.boolean().optional(),
-      mode: z.enum(['local', 'cloud']).optional(),
-      signInUrl: z
-        .string()
-        .refine((value) => {
-          try {
-            parseAuthSignInUrl(value, 'auth.signInUrl')
-            return true
-          } catch {
-            return false
-          }
-        }, 'must be an https:// URL (or http:// for loopback)')
-        .optional(),
     })
     .optional(),
   /**
@@ -984,6 +1004,52 @@ function notifyConfigChanged(change: ConfigChange): void {
   }
 }
 
+/** Consume one acknowledged code from fresh bytes, never the live-read cache.
+ * Native can replace a code inside the cache freshness window. Keep all other
+ * raw fields, and publish durably before the supervisor retires its receipt. */
+export function consumeConfigPairCode(code: string, path = configPath()): void {
+  assertInstanceStateIdentity(resolveInstanceId(), dirname(path))
+  withConfigWriteLock(path, () => {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const bytes = readFileSync(path, 'utf8')
+      const raw: unknown = JSON.parse(bytes)
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw))
+        throw new Error('invalid pairing config')
+      const config = raw as Record<string, unknown>
+      if (config.pairCode !== code) {
+        forgetConfig(path)
+        return
+      }
+      const previous = PodiumConfig.parse(migrateConfig(config).config)
+      delete config.pairCode
+      const next = PodiumConfig.parse(migrateConfig(config).config)
+      const temporary = `${path}.consume-${randomUUID()}`
+      try {
+        writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, {
+          mode: 0o600,
+          flag: 'wx',
+        })
+        fsyncPath(temporary)
+        // Do not overwrite a replacement or another config edit observed during IO.
+        if (readFileSync(path, 'utf8') !== bytes) continue
+        renameSync(temporary, path)
+        fsyncPath(dirname(path))
+        forgetConfig(path)
+        notifyConfigChanged({ path, previous, next })
+        return
+      } finally {
+        try {
+          unlinkSync(temporary)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+            log.warn('could not remove transient pairing config', { err: error })
+        }
+      }
+    }
+    throw new Error('config changed while consuming acknowledged pairing code')
+  })
+}
+
 /** Validate + write the config (pretty JSON). Throws on an invalid config — including a
  *  daemon/client mode without a serverUrl, which would exit-2 crash-loop at boot under
  *  Restart=always; catch it at SAVE time instead (#21). */
@@ -992,7 +1058,7 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
   // re-migrated. Callers do not pass it — a caller that had to remember would
   // eventually forget, and the forgotten case is silent.
   const parsed = PodiumConfig.parse({ ...config, configVersion: CURRENT_CONFIG_VERSION })
-  ensureInstanceStateIdentity({ dir: dirname(path) })
+  claimInstanceStateRoot({ dir: dirname(path) })
   if (
     (parsed.mode === 'daemon' || parsed.mode === 'client' || parsed.mode === 'supervisor') &&
     !parsed.serverUrl
@@ -1002,36 +1068,40 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
         'would crash-loop at boot. Provide a server URL (join code) first.',
     )
   }
-  // BEFORE the write, and through the cache, so the pair this announces is the
-  // real one. On the hot path this is the one `statSync` a cached load costs.
-  const previous = loadConfig(path)
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`)
-  // PRIME, so a process reads its own write without going back to disk. The
-  // entry is a `write` entry: it is believed for exactly as long as the file's
-  // signature cannot yet have been re-stamped by anyone else — see
-  // {@link isTrustworthy}. A stat that fails here leaves the cache alone rather
-  // than storing bytes under a signature nothing can invalidate.
-  const stat = configSignature(path)
-  if (stat && stat.signature !== ABSENT_SIGNATURE) {
-    rememberConfig(path, {
-      signature: stat.signature,
-      config: parsed,
-      source: 'write',
-      statAt: stat.at,
-      // A write entry is trusted by the mirrored rule below and never by this
-      // flag; it is stated so the field is never absent on an entry.
-      settledAtRead: stat.settled,
-    })
-  } else {
-    configCache.delete(path)
-  }
-  // Only on a real difference, for the reason `settings.changed` gives: several
-  // boot paths persist the config they just loaded, and an identical write must
-  // not make every subscriber re-run.
-  if (JSON.stringify(previous) !== JSON.stringify(parsed)) {
-    notifyConfigChanged({ path, previous, next: parsed })
-  }
+  withConfigWriteLock(path, () => {
+    // Another owner may have published while this writer waited for the lock.
+    forgetConfig(path)
+    // BEFORE the write, and through the cache, so the pair this announces is the
+    // real one. On the hot path this is the one `statSync` a cached load costs.
+    const previous = loadConfig(path)
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, `${JSON.stringify(parsed, null, 2)}\n`)
+    // PRIME, so a process reads its own write without going back to disk. The
+    // entry is a `write` entry: it is believed for exactly as long as the file's
+    // signature cannot yet have been re-stamped by anyone else — see
+    // {@link isTrustworthy}. A stat that fails here leaves the cache alone rather
+    // than storing bytes under a signature nothing can invalidate.
+    const stat = configSignature(path)
+    if (stat && stat.signature !== ABSENT_SIGNATURE) {
+      rememberConfig(path, {
+        signature: stat.signature,
+        config: parsed,
+        source: 'write',
+        statAt: stat.at,
+        // A write entry is trusted by the mirrored rule below and never by this
+        // flag; it is stated so the field is never absent on an entry.
+        settledAtRead: stat.settled,
+      })
+    } else {
+      configCache.delete(path)
+    }
+    // Only on a real difference, for the reason `settings.changed` gives: several
+    // boot paths persist the config they just loaded, and an identical write must
+    // not make every subscriber re-run.
+    if (JSON.stringify(previous) !== JSON.stringify(parsed)) {
+      notifyConfigChanged({ path, previous, next: parsed })
+    }
+  })
 }
 
 /**
@@ -1047,16 +1117,22 @@ export function saveConfig(config: PodiumConfig, path = configPath()): void {
  * would destroy whatever the operator had).
  */
 export function migrateConfigFile(path = configPath()): string[] {
-  const res = inspectConfig(path)
-  if (res.state !== 'ok' || res.migrated.length === 0) return []
-  // Keep the pre-upgrade bytes beside the config, without replacing an earlier backup.
-  try {
-    copyFileSync(path, `${path}.v${CURRENT_CONFIG_VERSION}-backup`, constants.COPYFILE_EXCL)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-  }
-  saveConfig(res.config, path)
-  return res.migrated
+  // Diagnostics and already-current configs remain read-only. Recheck under
+  // ownership only when an actual migration needs to publish.
+  const initial = inspectConfig(path)
+  if (initial.state !== 'ok' || initial.migrated.length === 0) return []
+  return withConfigWriteLock(path, () => {
+    const res = inspectConfig(path)
+    if (res.state !== 'ok' || res.migrated.length === 0) return []
+    // Keep the pre-upgrade bytes beside the config, without replacing an earlier backup.
+    try {
+      copyFileSync(path, `${path}.v${CURRENT_CONFIG_VERSION}-backup`, constants.COPYFILE_EXCL)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+    saveConfig(res.config, path)
+    return res.migrated
+  })
 }
 
 /** True until a deployment mode has been chosen. */
@@ -1387,6 +1463,14 @@ export function resolveUpdateFeed(
   return resolveSetting('updateFeed', config, env).value
 }
 
+/** Explicit per-instance release feed polling policy; normal installs poll by default. */
+export function resolveUpdateFeedPolling(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): boolean {
+  return resolveSetting('updateFeedPolling', config, env).value
+}
+
 /** Which machines this instance's updater may replace. See `config.updateScope`. */
 export type UpdateScope = 'all' | 'fleet-only'
 
@@ -1443,12 +1527,11 @@ export const LAYERED_KEYS = [
   'agentHome',
   'updateChannel',
   'updateFeed',
+  'updateFeedPolling',
   'mode',
   'publicUrl',
   'appUrl',
   'allowedOrigins',
-  'authMode',
-  'authSignInUrl',
   'updateScope',
   'transcriptLake',
   'connectEnabled',
@@ -1470,12 +1553,11 @@ export const LAYERED_ENV: Readonly<Record<LayeredKey, string | undefined>> = {
   agentHome: 'PODIUM_AGENT_HOME',
   updateChannel: 'PODIUM_UPDATE_CHANNEL',
   updateFeed: 'PODIUM_UPDATE_FEED',
+  updateFeedPolling: 'PODIUM_UPDATE_FEED_POLLING',
   mode: 'PODIUM_MODE',
   publicUrl: 'PODIUM_PUBLIC_URL',
   appUrl: 'PODIUM_APP_URL',
   allowedOrigins: 'PODIUM_ALLOWED_ORIGINS',
-  authMode: 'PODIUM_AUTH_MODE',
-  authSignInUrl: 'PODIUM_AUTH_SIGN_IN_URL',
   updateScope: 'PODIUM_UPDATE_SCOPE',
   transcriptLake: 'PODIUM_TRANSCRIPT_LAKE',
   connectEnabled: 'PODIUM_CONNECT',
@@ -1499,11 +1581,10 @@ export interface LayeredValues {
   agentHome: string
   updateChannel: FleetUpdateChannel
   updateFeed: string | undefined
+  updateFeedPolling: boolean
   mode: PodiumMode | undefined
   publicUrl: string | undefined
   appUrl: string | undefined
-  authMode: 'local' | 'cloud'
-  authSignInUrl: string | undefined
   allowedOrigins: string[]
   updateScope: UpdateScope
   transcriptLake: TranscriptLakeMode
@@ -1542,39 +1623,6 @@ function isLoopbackHostname(hostname: string): boolean {
     hostname === '[::1]' ||
     hostname.endsWith('.localhost')
   )
-}
-
-/** Login destinations may include paths and query parameters. */
-function parseAuthSignInUrl(raw: string, name: string): string {
-  const value = raw.trim()
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    return envError(name, 'must be an https:// URL (or http:// for loopback)')
-  }
-  if (
-    url.protocol !== 'https:' &&
-    !(url.protocol === 'http:' && isLoopbackHostname(url.hostname))
-  ) {
-    envError(name, 'must be an https:// URL (or http:// for loopback)')
-  }
-  if (url.username || url.password) envError(name, 'must not contain credentials')
-  return value
-}
-
-export function resolveAuthMode(
-  config: PodiumConfig = loadConfig(),
-  env: EnvSource = process.env,
-): 'local' | 'cloud' {
-  return resolveSetting('authMode', config, env).value
-}
-
-export function resolveAuthSignInUrl(
-  config: PodiumConfig = loadConfig(),
-  env: EnvSource = process.env,
-): string | undefined {
-  return resolveSetting('authSignInUrl', config, env).value
 }
 
 /**
@@ -1758,6 +1806,18 @@ const LAYERED_READERS: {
     file: (config) => config.updateFeed,
     default: () => undefined,
   },
+  updateFeedPolling: {
+    env: (env) =>
+      env.PODIUM_UPDATE_FEED_POLLING === undefined
+        ? undefined
+        : parseEnum(
+            env.PODIUM_UPDATE_FEED_POLLING,
+            ['on', 'off'] as const,
+            'PODIUM_UPDATE_FEED_POLLING',
+          ) === 'on',
+    file: (config) => config.updateFeedPolling,
+    default: () => true,
+  },
   mode: {
     env: (env) =>
       env.PODIUM_MODE === undefined
@@ -1779,28 +1839,6 @@ const LAYERED_READERS: {
         : parseAppUrl(env.PODIUM_APP_URL, 'PODIUM_APP_URL'),
     file: (config) =>
       config.appUrl === undefined ? undefined : parseAppUrl(config.appUrl, 'appUrl'),
-    default: () => undefined,
-  },
-  authMode: {
-    env: (env) =>
-      env.PODIUM_AUTH_MODE === undefined
-        ? undefined
-        : parseEnum(env.PODIUM_AUTH_MODE, ['local', 'cloud'] as const, 'PODIUM_AUTH_MODE'),
-    file: (config) =>
-      config.auth?.mode === undefined
-        ? undefined
-        : parseEnum(config.auth.mode, ['local', 'cloud'] as const, 'auth.mode'),
-    default: () => 'local',
-  },
-  authSignInUrl: {
-    env: (env) =>
-      env.PODIUM_AUTH_SIGN_IN_URL === undefined
-        ? undefined
-        : parseAuthSignInUrl(env.PODIUM_AUTH_SIGN_IN_URL, 'PODIUM_AUTH_SIGN_IN_URL'),
-    file: (config) =>
-      config.auth?.signInUrl === undefined
-        ? undefined
-        : parseAuthSignInUrl(config.auth.signInUrl, 'auth.signInUrl'),
     default: () => undefined,
   },
   allowedOrigins: {
@@ -1943,9 +1981,8 @@ export const LAYERED_SCOPES = {
   publicUrl: 'bootstrap',
   appUrl: 'bootstrap',
   updateFeed: 'operator',
+  updateFeedPolling: 'operator',
   allowedOrigins: 'operator',
-  authMode: 'operator',
-  authSignInUrl: 'operator',
   updateScope: 'operator',
   connectBaseUrl: 'operator',
   connectProbeKeys: 'operator',
@@ -2144,6 +2181,158 @@ export function resolveTranscriptLakeSetting(
   return resolveSetting('transcriptLake', config, env, {
     transcriptLake: settings === undefined ? undefined : settings ? 'on' : 'off',
   })
+}
+
+/** Where user files live: the state directory, or one S3-compatible bucket. See `config.fileStorage`. */
+export type FileStorageConfig =
+  | { backend: 'local' }
+  | {
+      backend: 's3'
+      /** A bare https origin (http only on loopback), e.g. `https://<account>.r2.cloudflarestorage.com`. */
+      endpoint: string
+      bucket: string
+      /** `auto` on R2. */
+      region: string
+      accessKeyId: string
+      secretAccessKey: string
+    }
+
+/** The file storage variables, by the field each one sets. */
+export const FILE_STORAGE_ENV = {
+  backend: 'PODIUM_FILE_STORAGE_BACKEND',
+  endpoint: 'PODIUM_FILE_STORAGE_ENDPOINT',
+  bucket: 'PODIUM_FILE_STORAGE_BUCKET',
+  region: 'PODIUM_FILE_STORAGE_REGION',
+  accessKeyId: 'PODIUM_FILE_STORAGE_ACCESS_KEY_ID',
+  secretAccessKey: 'PODIUM_FILE_STORAGE_SECRET_ACCESS_KEY',
+} as const
+
+/** S3 bucket names: 3 to 63 lower-case letters, digits, dots and hyphens. */
+const S3_BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/
+const S3_REGION = /^[a-z0-9-]+$/
+
+function fileStorageError(detail: string): never {
+  throw new Error(`file storage is misconfigured: ${detail}`)
+}
+
+function parseFileStorageEndpoint(raw: string, from: string): string {
+  const trimmed = raw.trim()
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return fileStorageError(`${from} is not a valid URL: ${JSON.stringify(raw)}`)
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    fileStorageError(`${from} must start with https:// (got ${trimmed})`)
+  }
+  if (url.protocol === 'http:' && !isLoopbackHostname(url.hostname)) {
+    fileStorageError(`${from} must use https:// unless the host is loopback (got ${trimmed})`)
+  }
+  if (url.username !== '' || url.password !== '') {
+    fileStorageError(`${from} must not carry credentials; use ${FILE_STORAGE_ENV.accessKeyId}`)
+  }
+  // The bucket is appended as a path (path-style requests), so the endpoint is a bare origin.
+  if (url.search !== '' || url.hash !== '' || (url.pathname !== '' && url.pathname !== '/')) {
+    fileStorageError(
+      `${from} must be a bare origin with no path, query or fragment (got ${trimmed})`,
+    )
+  }
+  return url.origin
+}
+
+/**
+ * Where user files live: `PODIUM_FILE_STORAGE_*` → `config.fileStorage` → `local`.
+ *
+ * Each location field (backend, endpoint, bucket, region) takes the variable
+ * when it is set and the file otherwise. The key pair is environment-only.
+ * Resolved once, at server boot, and every problem fails that boot with a
+ * message naming what to set or unset; no secret value is ever quoted.
+ *
+ * A bucket field or key pair that is set while the backend resolves to `local`
+ * is refused rather than ignored: it is a deployment that meant `s3` and would
+ * otherwise keep its users' files on a disk it does not keep.
+ */
+export function resolveFileStorage(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): FileStorageConfig {
+  const file = config.fileStorage
+  const fromEnv = (field: keyof typeof FILE_STORAGE_ENV): string | undefined => {
+    const value = env[FILE_STORAGE_ENV[field]]
+    return value === undefined || value.trim() === '' ? undefined : value.trim()
+  }
+  const rawBackend = fromEnv('backend')
+  const backend =
+    rawBackend !== undefined
+      ? parseEnum(rawBackend, ['local', 's3'] as const, FILE_STORAGE_ENV.backend)
+      : (file?.backend ?? 'local')
+  const location = (field: 'endpoint' | 'bucket' | 'region') => {
+    const value = fromEnv(field)
+    if (value !== undefined) return { value, from: FILE_STORAGE_ENV[field] }
+    const fileValue = file?.[field]?.trim()
+    return fileValue === undefined || fileValue === ''
+      ? undefined
+      : { value: fileValue, from: `config.fileStorage.${field}` }
+  }
+  const endpoint = location('endpoint')
+  const bucket = location('bucket')
+  const region = location('region')
+  const accessKeyId = fromEnv('accessKeyId')
+  const secretAccessKey = fromEnv('secretAccessKey')
+  if (backend === 'local') {
+    const stray = [
+      endpoint?.from,
+      bucket?.from,
+      region?.from,
+      accessKeyId === undefined ? undefined : FILE_STORAGE_ENV.accessKeyId,
+      secretAccessKey === undefined ? undefined : FILE_STORAGE_ENV.secretAccessKey,
+    ].filter((name) => name !== undefined)
+    if (stray.length > 0) {
+      fileStorageError(
+        `${stray.join(', ')} ${stray.length === 1 ? 'is' : 'are'} set but the backend is local; set ${FILE_STORAGE_ENV.backend}=s3 (or config.fileStorage.backend) or unset ${stray.length === 1 ? 'it' : 'them'}`,
+      )
+    }
+    return { backend: 'local' }
+  }
+  const required = (
+    value: { value: string; from: string } | undefined,
+    field: 'endpoint' | 'bucket' | 'region',
+  ) =>
+    value ??
+    fileStorageError(
+      `the s3 backend needs ${field}: set ${FILE_STORAGE_ENV[field]} or config.fileStorage.${field}`,
+    )
+  const endpointValue = required(endpoint, 'endpoint')
+  const bucketValue = required(bucket, 'bucket')
+  const regionValue = required(region, 'region')
+  if (!S3_BUCKET.test(bucketValue.value)) {
+    fileStorageError(
+      `${bucketValue.from} is not an S3 bucket name (3-63 lower-case letters, digits, dots and hyphens): ${JSON.stringify(bucketValue.value)}`,
+    )
+  }
+  if (!S3_REGION.test(regionValue.value)) {
+    fileStorageError(
+      `${regionValue.from} is not a region (lower-case letters, digits and hyphens, e.g. auto or us-east-1): ${JSON.stringify(regionValue.value)}`,
+    )
+  }
+  const missingKeys = [
+    accessKeyId === undefined ? FILE_STORAGE_ENV.accessKeyId : undefined,
+    secretAccessKey === undefined ? FILE_STORAGE_ENV.secretAccessKey : undefined,
+  ].filter((name) => name !== undefined)
+  if (missingKeys.length > 0) {
+    fileStorageError(
+      `the s3 backend needs its key pair from the environment: set ${missingKeys.join(' and ')}`,
+    )
+  }
+  return {
+    backend: 's3',
+    endpoint: parseFileStorageEndpoint(endpointValue.value, endpointValue.from),
+    bucket: bucketValue.value,
+    region: regionValue.value,
+    accessKeyId: accessKeyId as string,
+    secretAccessKey: secretAccessKey as string,
+  }
 }
 
 /**

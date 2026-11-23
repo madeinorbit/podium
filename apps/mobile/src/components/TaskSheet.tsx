@@ -1,19 +1,17 @@
+import { childProgressOf } from '@podium/client-graph/lookup'
 import { relativeTime } from '@podium/client-core/focus'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import { useCommands } from '@podium/client-core/react'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import {
-  groupRelations,
-  operationalState,
-  presenceNote,
-  sessionTitle,
-  subIssuesOf,
-} from '@podium/client-core/values'
+import { operationalState, sessionTitle } from '@podium/client-core/values'
 import type { DetailSession } from '@podium/client-graph/issue-page'
 import { type PageIssue, readPageIssue } from '@podium/client-graph/issue-page'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
   type IssueCloseReason,
+  type IssueId,
   type IssuePanelArtifact,
   issueStatusControlLabel,
   issueStatusMenuEntries,
@@ -23,13 +21,14 @@ import {
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
+import { useHttpOrigin, useTrpc } from '../client/hooks'
 import { issueObserver as observer } from '../client/issue-observer'
 import { IssueOpening, useIssueOpening } from '../client/issue-opening'
 import { useMobilePool } from '../client/mobile-pool'
 import { useOptionalServerProfile } from '../client/server-profile-context'
+import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { resolveEdgeFromPool } from '../client/use-issue-model'
 import { issueArtifactHref, issueArtifactLabel } from '../lib/issue-artifacts'
@@ -93,11 +92,12 @@ export const TaskSheet = observer(function TaskSheet({
   onOpenIssue,
 }: {
   pool?: MobxPool | null
+  /** Which task; the sheet reads it from the pool as its model. */
   issue: IssueViewModel | null
   onClose: () => void
   onOpenSession: (session: SessionView) => void
   /** Retarget the sheet at another task (a subtask row). Absent = navigate. */
-  onOpenIssue?: (issue: IssueViewModel) => void
+  onOpenIssue?: (issue: IssueWithBodies) => void
 }) {
   const trpc = useTrpc()
   const attachedPool = useMobilePool()
@@ -108,7 +108,9 @@ export const TaskSheet = observer(function TaskSheet({
 
   const post = (body: string) => {
     if (!issue) return
-    void trpc.issues.addComment.mutate({ id: issue.id, body }).catch(() => {})
+    void issueWrites(trpc)
+      .addComment.mutate({ id: issue.id, body })
+      .catch(() => {})
   }
 
   /**
@@ -141,9 +143,7 @@ export const TaskSheet = observer(function TaskSheet({
           mode="detented"
           testID="task-sheet"
           head={
-            issue ? (
-              <SheetHead pool={pool} issue={issue} onOpenSession={onOpenSession} />
-            ) : null
+            issue ? <SheetHead pool={pool} issue={issue} onOpenSession={onOpenSession} /> : null
           }
           footer={issue ? <Composer placeholder="Comment on this task…" onSend={post} /> : null}
           footerRule={false}
@@ -184,11 +184,11 @@ const SheetHead = observer(function SheetHead({
   onOpenSession,
 }: {
   pool?: MobxPool | null
-  issue: IssueViewModel
+  issue: IssueWithBodies
   onOpenSession: (session: SessionView) => void
 }) {
-  const trpc = useTrpc()
-  const { updateIssue, closeIssue } = useStoreActions()
+  const { update: updateIssue, close: closeIssue } = useCommands<MobileTrpc>().issues,
+    { startIssueSession } = useCommands<MobileTrpc>().sessions
   const hasCloseBlockers = useIssueCloseGuard()
   const [stageOpen, setStageOpen] = useState(false)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
@@ -249,7 +249,9 @@ const SheetHead = observer(function SheetHead({
           onPress={() => {
             const target = asking[0]
             if (target) return onOpenSession(target)
-            void trpc.issues.start.mutate({ id: issue.id }).catch(() => {})
+            // An `issue.begin` record (POD-6526): the session paints at once and
+            // a failure is told once, on the shell's banner.
+            startIssueSession({ issueId: issue.id as IssueId, mode: 'begin' })
           }}
         >
           <Text style={styles.primaryText}>{asking.length > 0 ? 'Answer' : 'Run now'}</Text>
@@ -327,11 +329,11 @@ const SheetBody = observer(function SheetBody({
   onOpenIssue,
 }: {
   pool?: MobxPool | null
-  issue: IssueViewModel
+  issue: IssueWithBodies
   /** Hands the artifact up: the viewer must present ABOVE this sheet's modal. */
   onOpenArtifact: (artifact: IssuePanelArtifact, url: string) => void
   onOpenSession: (s: SessionView) => void
-  onOpenIssue: (issue: IssueViewModel) => void
+  onOpenIssue: (issue: IssueWithBodies) => void
 }) {
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
@@ -387,7 +389,7 @@ const SheetBody = observer(function SheetBody({
         </Part>
       ) : null}
       {children.length > 0 ? (
-        <Part title="Subtasks" meta={`${issue.childDoneCount} / ${issue.childCount}`}>
+        <Part title="Subtasks" meta={subtaskMeta(issue)}>
           {children.map((child) => (
             <SheetChildRow key={child.id} child={child} onOpenIssue={onOpenIssue} />
           ))}
@@ -456,7 +458,7 @@ const SheetChildRow = observer(function SheetChildRow({
   onOpenIssue,
 }: {
   child: PageIssue
-  onOpenIssue: (issue: IssueViewModel) => void
+  onOpenIssue: (issue: IssueWithBodies) => void
 }) {
   return (
     <PressableScale
@@ -637,3 +639,9 @@ const styles = StyleSheet.create({
   branch: { ...mono(400), fontSize: font.micro, color: color.accentTint },
   gitLine: { ...mono(400), fontSize: font.micro, color: color.textFaint, marginTop: 4 },
 })
+
+/** "done / total" over all history; empty while the stubs are on their way (POD-7088). */
+function subtaskMeta(issue: { childCount: number; childDoneCount: number }): string {
+  const progress = childProgressOf(issue)
+  return progress ? `${progress.childDoneCount} / ${progress.childCount}` : ''
+}

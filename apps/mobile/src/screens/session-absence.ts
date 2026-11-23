@@ -30,8 +30,8 @@ export interface SessionAbsence {
 }
 
 /**
- * The copy per state. A `pending` row may also wear a loader while the local
- * optimistic-spawn set proves that a launch is in flight. The copy itself stays
+ * The copy per state. A `pending` row may also wear a loader while the start's
+ * launch record proves that a launch is in flight. The copy itself stays
  * complete because an arbitrary absent route can remain `pending` forever when
  * a replica does not retain exit records.
  */

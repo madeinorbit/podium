@@ -1,23 +1,29 @@
-import { join } from 'node:path'
-import type { AgentKind, HarnessAgent } from '@podium/model'
+import { join, normalize } from 'node:path'
+import type { AcceptedCredential, AgentKind, HarnessAgent } from '@podium/model'
 import {
   type BuiltinHarnessKind,
   isBuiltinHarnessKind,
   type ObservationProvider,
 } from '@podium/protocol'
-import type { TranscriptColorReader, TranscriptRecordMapper, TranscriptRuntimeReader } from './store/index.js'
+import { claudeCodeManifest } from './adapters/claude-code/index.js'
+import { codexManifest } from './adapters/codex/index.js'
+import { cursorManifest } from './adapters/cursor/index.js'
+import { grokManifest } from './adapters/grok/index.js'
+import { opencodeManifest } from './adapters/opencode/index.js'
+import { piManifest } from './adapters/pi/index.js'
 import type { AgentStateProvider } from './agent-state/types.js'
 import {
+  type AcceptedDriverId,
   type AgentManifest,
   type AgentRuntimeAxis,
   type ClientTerminalSpec,
-  declaredValue,
+  canonicalDriverId,
   type Declared,
   type DeclaredKeys,
-  declinedReasonIsValid,
-  canonicalDriverId,
   type DriverFamily,
   type DriverId,
+  declaredValue,
+  declinedReasonIsValid,
   type HarnessCapabilities,
   type HarnessCredentials,
   type HarnessEnvironment,
@@ -26,16 +32,15 @@ import {
   type HarnessLogin,
   type HarnessTranscript,
   type HarnessUsage,
+  type HideFromCommands,
   type PortableCredential,
-  type AcceptedDriverId,
   type ServerRuntimeSpec,
 } from './manifest.js'
-import { claudeCodeManifest } from './adapters/claude-code/index.js'
-import { codexManifest } from './adapters/codex/index.js'
-import { cursorManifest } from './adapters/cursor/index.js'
-import { grokManifest } from './adapters/grok/index.js'
-import { opencodeManifest } from './adapters/opencode/index.js'
-import { piManifest } from './adapters/pi/index.js'
+import type {
+  TranscriptColorReader,
+  TranscriptRecordMapper,
+  TranscriptRuntimeReader,
+} from './store/index.js'
 
 /**
  * THE harness registry (#158/POD-303): one manifest per driveable harness kind.
@@ -175,10 +180,7 @@ export function harnessPortableCredential(
  * and this is the only other place that knows it. A harness with no declared
  * siblings resolves alone.
  */
-export function harnessTranscriptSiblingPaths(
-  kind: AgentKind | string,
-  path: string,
-): string[] {
+export function harnessTranscriptSiblingPaths(kind: AgentKind | string, path: string): string[] {
   const usage = manifestFor(kind)?.usage
   const transcripts = usage ? declaredValue(usage) : undefined
   const section = transcripts ? declaredValue(transcripts.transcripts) : undefined
@@ -191,6 +193,20 @@ const PROPAGATABLE_HARNESSES: Partial<Record<AgentKind, true>> = {
 }
 
 /** Native logins whose guarded credential files may be propagated between machines. */
+/**
+ * The credential types this harness accepts and how each is delivered
+ * (credential management spec §5). Empty for a harness this build has never
+ * heard of: an unknown harness accepts nothing rather than borrowing a row.
+ */
+export function harnessAccepts(kind: AgentKind | string): readonly AcceptedCredential[] {
+  return manifestFor(kind)?.inventory.accepts ?? []
+}
+
+/** What a launch adds to keep credentials out of the agent's commands, if the harness has a switch. */
+export function harnessHideFromCommands(kind: AgentKind | string): HideFromCommands | undefined {
+  return manifestFor(kind)?.inventory.hideFromCommands
+}
+
 export function harnessSupportsCredentialPropagation(
   kind: AgentKind | string,
 ): kind is 'claude-code' | 'codex' {
@@ -205,8 +221,9 @@ export function harnessSupportsCredentialPropagation(
  * runtime); registry.test.ts pins the exact pair, so extending the predicate
  * without updating the surface — or vice versa — fails loudly.
  */
-export const CREDENTIAL_PROPAGATION_HARNESSES: readonly HarnessAgent[] =
-  HARNESS_KINDS.filter(harnessSupportsCredentialPropagation)
+export const CREDENTIAL_PROPAGATION_HARNESSES: readonly HarnessAgent[] = HARNESS_KINDS.filter(
+  harnessSupportsCredentialPropagation,
+)
 
 export function harnessSupportsInitialPrompt(kind: AgentKind | string): boolean {
   return harnessCapabilitiesFor(kind)?.argvPrompt ?? false
@@ -333,6 +350,20 @@ export function harnessPremintsHeadlessResumeId(kind: AgentKind | string): boole
   )
 }
 
+export { cursorCreateChatInvocation, parseCursorChatId } from './adapters/cursor/index.js'
+
+/**
+ * The headless turn-output fold (pi) and chat allocation (cursor),
+ * RE-EXPORTED from their adapters' own indexes (POD-4530). The daemon's
+ * supervisor machinery consumes them through this registry — driver/host.ts
+ * must not name specific adapters (spec §5 rule 4, 3.R D6).
+ */
+export {
+  createPiStreamReducer,
+  type PiStreamEffect,
+  type PiStreamReducer,
+  type PiStreamResult,
+} from './adapters/pi/index.js'
 /**
  * True only when the adapter has a native all-tools-off mechanism. Unknown and
  * merely sandboxed harnesses fail closed.
@@ -347,20 +378,6 @@ export function harnessPremintsHeadlessResumeId(kind: AgentKind | string): boole
  * what the manifests declare.
  */
 export { harnessSupportsNoTools } from './browser.js'
-
-/**
- * The headless turn-output fold (pi) and chat allocation (cursor),
- * RE-EXPORTED from their adapters' own indexes (POD-4530). The daemon's
- * supervisor machinery consumes them through this registry — driver/host.ts
- * must not name specific adapters (spec §5 rule 4, 3.R D6).
- */
-export {
-  createPiStreamReducer,
-  type PiStreamEffect,
-  type PiStreamReducer,
-  type PiStreamResult,
-} from './adapters/pi/index.js'
-export { cursorCreateChatInvocation, parseCursorChatId } from './adapters/cursor/index.js'
 
 export function harnessDisplayName(kind: AgentKind | string): string {
   // The ONE short-label statement (POD-4538): the adapter's descriptor row,
@@ -610,7 +627,7 @@ export function harnessKindForResumeKind(resumeKind: string): HarnessAgent | und
 export function harnessDetectLogin(
   kind: AgentKind | string,
   homeDir: string,
-  env?: HarnessEnvironment,
+  env: HarnessEnvironment,
 ): HarnessLogin | undefined {
   return manifestFor(kind)?.inventory.detectLogin(homeDir, env)
 }
@@ -630,6 +647,20 @@ export function harnessInstanceHomeEnv(
   if (!kind || !homeDir) return {}
   const selector = manifestFor(kind)?.environment.instanceHome
   return selector ? { [selector.variable]: join(homeDir, selector.relativeDir) } : {}
+}
+
+/**
+ * The variable that moves `kind`'s whole configuration directory, its login
+ * file included (credential management §10): `CLAUDE_CONFIG_DIR` for Claude
+ * Code, `CODEX_HOME` for Codex. A Podium home is that directory. Read from the
+ * harness's own declaration of its propagatable login file, so the home and
+ * the login file can never name different variables. Undefined for a harness
+ * whose login cannot be held in a directory of Podium's choosing.
+ */
+export function harnessHomeVariable(kind: AgentKind | string): string | undefined {
+  const manifest = manifestFor(kind)
+  const credentials = manifest ? declaredValue(manifest.credentials) : undefined
+  return credentials?.files.find((file) => file.propagatable && file.homeEnvVar)?.homeEnvVar
 }
 
 /**
@@ -659,8 +690,8 @@ export function harnessInstanceHomeEnv(
  * key selects, while the child, which strips that key, runs as the login on disk.
  *
  * NOT FOR VERSION PROBES. `<binary> --version` answers "what can this MACHINE
- * run" and reads no per-user auth; `serverChildEnv` in apps/daemon already draws
- * that line and it stays drawn. This composition is only for reads that name an
+ * run" and reads no per-user auth; they run under the machine command env
+ * (design §3.3 machine scope), and that line stays drawn. This composition is only for reads that name an
  * account.
  */
 export function harnessLoginReadEnv<Value extends string | undefined>(
@@ -672,12 +703,30 @@ export function harnessLoginReadEnv<Value extends string | undefined>(
   const stripped = new Set([
     ...(manifest?.inventory.foreignCredentialEnv ?? []),
     ...(manifest?.environment.removeInherited ?? []),
+    // The operator's own folder selectors never follow a named account into
+    // its environment (POD-6604): the folders then derive from its HOME.
+    ...(isMachineHome(credentialHome, machineEnv.HOME)
+      ? []
+      : (manifest?.environment.operatorSelectors ?? [])),
   ])
   const env: Record<string, Value | string> = {}
   for (const [key, value] of Object.entries(machineEnv)) {
     if (!stripped.has(key)) env[key] = value
   }
   return { ...env, HOME: credentialHome, ...harnessInstanceHomeEnv(kind, credentialHome) }
+}
+
+/**
+ * Whether `home` is the machine's own home: the command environment's `HOME`
+ * (POD-6604), which the command environment always sets to the machine home.
+ * Path text only (a trailing separator aside), never the filesystem. An env
+ * without a `HOME` names no machine home, so `home` is a named account's.
+ */
+function isMachineHome(home: string, machineHome: string | undefined): boolean {
+  const trimmed = (path: string) => normalize(path).replace(/(.)[\\/]+$/, '$1')
+  return (
+    machineHome !== undefined && machineHome.trim() !== '' && trimmed(home) === trimmed(machineHome)
+  )
 }
 
 /**

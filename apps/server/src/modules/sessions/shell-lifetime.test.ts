@@ -16,6 +16,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ClientConn } from '../../gateway/client-registry'
 import { SessionRegistry } from '../../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { attachHostDaemon } from '../../test-support/host-daemon'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -86,6 +87,7 @@ function stubClient(id: string): ClientConn & { sent: ServerMessage[] } {
     id,
     principal: testClientPrincipal(id),
     send: (m: ServerMessage) => sent.push(m),
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     viewports: new Map(),
     attached: new Set(),
     caps: new Set(),
@@ -168,12 +170,12 @@ describe('releaseShellTab (tab-release trigger)', () => {
 describe('stopSession shell upgrade (issue-close / worktree-free trigger)', () => {
   it('tombstones an untouched, unheld shell on a closed issue instead of parking it', async () => {
     const { reg } = await makeRegistry()
-    const issue = await reg.modules.issues.crud.create({
+    const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Closed work',
       startNow: false,
     })
-    await reg.modules.issues.crud.update(issue.id, { stage: 'done' })
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, { stage: 'done' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r',
@@ -188,12 +190,12 @@ describe('stopSession shell upgrade (issue-close / worktree-free trigger)', () =
 
   it('still parks a touched shell on a closed issue', async () => {
     const { reg } = await makeRegistry()
-    const issue = await reg.modules.issues.crud.create({
+    const issue = await reg.modules.issues.crud.create(reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Closed work',
       startNow: false,
     })
-    await reg.modules.issues.crud.update(issue.id, { stage: 'done' })
+    await reg.modules.issues.crud.update(reg.modules.issues.reports.store.serverWriter, issue.id, { stage: 'done' })
     const { sessionId } = await reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r',
@@ -238,7 +240,6 @@ describe('tabRelease client frame', () => {
       sessions,
       state: { replayDrafts: vi.fn(), handleDraftEdit: vi.fn() } as never,
       inbox: {} as SessionInbox as never,
-      machinesForPrincipal: async () => [],
       browserOpen: { submitCallback: vi.fn(), dismiss: vi.fn() } as never,
       mutate: () => {},
       broadcastSessions: vi.fn(),
@@ -282,7 +283,6 @@ describe('tabRelease client frame', () => {
       sessions,
       state: { replayDrafts: vi.fn(), handleDraftEdit: vi.fn() } as never,
       inbox: {} as SessionInbox as never,
-      machinesForPrincipal: async () => [],
       browserOpen: { submitCallback: vi.fn(), dismiss: vi.fn() } as never,
       mutate: () => {},
       broadcastSessions: vi.fn(),

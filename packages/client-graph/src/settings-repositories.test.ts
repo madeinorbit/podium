@@ -1,3 +1,4 @@
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import type { GitRepositoryWire } from '@podium/model'
 import { asMachineId, asRepoId } from '@podium/model/browser'
 import { autorun } from 'mobx'
@@ -7,7 +8,7 @@ import { MobxPool } from './pool'
 import { SettingsRepositories } from './settings-repositories'
 
 /**
- * POD-6267: Settings → Repositories lists REPOSITORY RECORDS, and takes their
+ * POD-6267: Settings → Projects lists REPOSITORY RECORDS, and takes their
  * checkouts from what the machines publish. Every fixture below is built the way
  * the producer builds it (see `published`), because the first two landings were
  * tested on fixtures the producer never sends.
@@ -81,16 +82,10 @@ function scene(repos: Repo[], scans: GitRepositoryWire[]) {
     })),
   })
   headerEntities(p).apply([
-    {
-      kind: 'machine',
-      id: ludovico,
-      value: { id: ludovico, name: 'ludovico', online: true } as never,
-    },
-    {
-      kind: 'machine',
-      id: flatblock,
-      value: { id: flatblock, name: 'flatblock', online: false } as never,
-    },
+    ...seedFixtureMachines(p, [
+      { id: ludovico, name: 'ludovico', online: true },
+      { id: flatblock, name: 'flatblock', online: false },
+    ] as never),
     ...scans.map((value, i) => ({ kind: 'repository' as const, id: `scan${i}`, value })),
   ])
   headerEntities(p).order(

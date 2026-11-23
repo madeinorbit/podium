@@ -1,10 +1,11 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { claudeRecordToItems } from './adapters/claude-code/transcript.js'
-import { decodeCursor, fileIdFor } from './store/index'
 import { expect, it } from 'vitest'
+import { claudeRecordToItems } from './adapters/claude-code/transcript.js'
+import { testAccount } from './driver/testing/harness-context.js'
 import { fileTranscript } from './manifest'
+import { decodeCursor, fileIdFor } from './store/index'
 import { transcriptSourceFromGrammar } from './store/store.js'
 
 it('file sources share the native session namespace across paths and repeated parses', async () => {
@@ -21,6 +22,7 @@ it('file sources share the native session namespace across paths and repeated pa
       (
         await transcriptSourceFromGrammar(transcript, {
           cwd: dir,
+          account: testAccount('claude-code', dir),
           pathHint,
           ...(resumeValue ? { resumeValue } : {}),
         })

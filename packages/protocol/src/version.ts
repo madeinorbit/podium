@@ -44,7 +44,16 @@
  *
  * Concrete translators carry mechanical expiry. When the support floor passes
  * their version, remove them and keep the registry, telemetry and 426 backstop
- * for the next rollout. The current window is [4, 4].
+ * for the next rollout. The current window is [5, 5]. Version 5 is the one
+ * breaking release for the whole POD-6253 sync log and bootstrap epic; every
+ * lane in it stays on 5 and clients update with the server, with no capability
+ * gate or fallback. Against version 4 it takes the live plane off the session
+ * record (POD-6764), the issue bodies (brief, panel, description, activity notes)
+ * off the issue record (POD-6767; as records of their own, POD-6921), stores issue panel items as records of their
+ * own (POD-6778), builds the start-up load from the model tables so every row
+ * carries the head number (POD-6770), requires per-kind shape tokens at connect
+ * and in HTTP transfer headers (POD-6772), and slims the conversation record
+ * (POD-6768).
  */
 
 import { z } from 'zod'
@@ -52,7 +61,7 @@ import { z } from 'zod'
 /** Client framing evolves independently of daemon framing. Bump only for breaking
  * changes; additive features negotiate capabilities. Each floor retains the edge
  * adapters needed for cached clients and rolling daemon upgrades. */
-export const CLIENT_WIRE_VERSION = 4
+export const CLIENT_WIRE_VERSION = 5
 
 /**
  * @deprecated Use {@link versionSupport}. This equality check is NOT what the
@@ -80,7 +89,7 @@ export function isProtocolCompatible(a: number, b: number): boolean {
  * fails while an adapter for a version below this floor still exists, so the
  * floor and the adapter set cannot drift apart.
  */
-export const MIN_CLIENT_WIRE_VERSION = 4
+export const MIN_CLIENT_WIRE_VERSION = 5
 
 /**
  * Every version inside the window, ascending.

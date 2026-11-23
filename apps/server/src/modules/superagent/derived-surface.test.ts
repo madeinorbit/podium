@@ -1,14 +1,11 @@
 /**
- * THE RUNTIME ARM of the superagent-surface audit (POD-383).
+ * THE SUPERAGENT SURFACE, AGAINST THE RUNNING SYSTEM (POD-383).
  *
- * `scripts/audit-superagent-commands.ts` reads source TEXT and resolves no
- * modules. This reads the RUNNING system: the real `appRouter` object, actually
- * assembled at import time, and its actual procedure map. Neither instrument is
- * sufficient alone, and the pairing is the point — POD-732's standard is that
- * "an empty router satisfies every absence claim perfectly", so:
- *
- *  · the source arm can be fooled by a file nothing imports;
- *  · this arm can be fooled by a router that was never assembled.
+ * This reads the real `appRouter` object, actually assembled at import time,
+ * and its actual procedure map. That modules cannot hand-write a write route is
+ * a type (`write-routes.typecheck.ts`); POD-732's standard is that "an empty
+ * router satisfies every absence claim perfectly", and this file can be fooled
+ * by a router that was never assembled.
  *
  * So this file asserts the POSITIVE first, on the same object: `sendTurn` IS
  * served, as a MUTATION, and there are exactly eight superagent writes. An
@@ -18,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { appRouter } from '../../router'
-import { SUPERAGENT_COMMANDS, isSuperagentProcExposedOn } from './registry'
+import { isSuperagentProcExposedOn, SUPERAGENT_COMMANDS } from './registry'
 
 /** The assembled procedure map, keyed by dotted path — what tRPC dispatches on. */
 const procedures = (): Record<string, { _def?: { type?: string } }> =>
@@ -44,10 +41,12 @@ describe('the assembled superagent router', () => {
     expect(Object.keys(SUPERAGENT_COMMANDS)).toHaveLength(8)
   })
 
-  it('serves the three reads as QUERIES — a write cannot hide among them', () => {
-    expect(typeOf('superagent.listThreads')).toBe('query')
+  it('serves the one read as a QUERY — a write cannot hide behind it', () => {
     expect(typeOf('superagent.history')).toBe('query')
-    expect(typeOf('superagent.latestTurnFailure')).toBe('query')
+    // The thread list and the last failure are the synced `superagentThread`
+    // record since POD-6675: their reads are gone.
+    expect(typeOf('superagent.listThreads')).toBeUndefined()
+    expect(typeOf('superagent.latestTurnFailure')).toBeUndefined()
   })
 
   /**
@@ -58,18 +57,15 @@ describe('the assembled superagent router', () => {
   it('does not serve the deleted `send` alias', () => {
     expect(superagentPaths()).not.toContain('superagent.send')
     expect(superagentPaths()).toContain('superagent.sendTurn')
-    // Nothing else crept onto the router either: the eleven paths are the eight
-    // derived writes plus the three hand-written reads, and no twelfth.
-    // `ensureSession` is POD-782's eighth write; `latestTurnFailure` is
-    // POD-4806's durable-failure read.
+    // Nothing else crept onto the router either: the nine paths are the eight
+    // derived writes plus the one hand-written read, and no tenth.
+    // `ensureSession` is POD-782's eighth write.
     expect(superagentPaths()).toEqual([
       'superagent.clear',
       'superagent.concierge',
       'superagent.ensureSession',
       'superagent.history',
       'superagent.interruptTurn',
-      'superagent.latestTurnFailure',
-      'superagent.listThreads',
       'superagent.openInTerminal',
       'superagent.restart',
       'superagent.sendTurn',
@@ -102,7 +98,7 @@ describe('the assembled superagent router', () => {
     Object.defineProperty(entry.contract, 'exposure', { value: [], configurable: true })
     try {
       const { superagentFamilyProcedures } = await import('./trpc')
-      expect(() => superagentFamilyProcedures()).toThrow(/does not declare the trpc transport/)
+      expect(() => superagentFamilyProcedures()).toThrow(/is not served on tRPC/)
     } finally {
       Object.defineProperty(entry.contract, 'exposure', {
         value: original,

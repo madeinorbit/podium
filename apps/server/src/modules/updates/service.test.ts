@@ -5,15 +5,17 @@ import {
   resolveMachineChannel,
   type UpdateChannel,
 } from '@podium/model'
+import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
 import { resolveUpdateChannel } from '@podium/runtime/config'
 import { updateFingerprint } from '@podium/runtime/machine-update'
-import type { UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { syncQueriesOver } from '../../store/executor/sync-drizzle'
+import { ReleasePublicationPendingError } from './feed-errors'
 import type { GrantCause } from './grant-cause'
 import { classifyMachineFailure } from './operation'
-import { UpdatesService, type UpdatesDeps } from './service'
-import { UpdateRecoveryStore, type UpdateRecoverySnapshot } from './recovery-store'
-import { openDatabase } from '@podium/runtime/sqlite'
+import { type UpdateRecoverySnapshot, UpdateRecoveryStore } from './recovery-store'
+import { type UpdatesDeps, UpdatesService } from './service'
 
 /**
  * The causes these cases state. Every granting method REQUIRES one (POD-2907),
@@ -64,10 +66,46 @@ const m = (id: string, over: Record<string, unknown> = {}) => ({
 })
 
 describe('UpdatesService', () => {
+  it('keeps unchanged fleet reads and ticks out of the recovery write lane', async () => {
+    const db = openDatabase(':memory:')
+    db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+    const queries = syncQueriesOver(db)
+    const transactions = vi.spyOn(queries, 'createOrJoinTransaction')
+    const recovery = new UpdateRecoveryStore(queries)
+    const { svc } = make([m('a')], {
+      recovery: { read: () => undefined, write: (snapshot) => recovery.write(snapshot) },
+    })
+    try {
+      const target: UpdateTarget = {
+        version: '0.4.2',
+        critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } },
+      }
+      await svc.setTarget(target)
+      expect(transactions).toHaveBeenCalledTimes(1)
+      // The first tick creates the channel's rollout state; later ticks are unchanged.
+      await svc.tick()
+      transactions.mockClear()
+      expect(await svc.fleet()).toHaveLength(1)
+      await svc.tick()
+      await svc.fleet()
+      expect(transactions).not.toHaveBeenCalled()
+      await svc.setTarget({ ...target, version: '0.4.3' })
+      expect(transactions).toHaveBeenCalledTimes(1)
+      expect((await recovery.read())?.targets[0]?.[1].version).toBe('0.4.3')
+    } finally {
+      transactions.mockRestore()
+      db.close()
+    }
+  })
+
   it('keeps rollback reports sticky and only an operator grant lifts the local veto', async () => {
     const { svc, send } = make([m('a')])
-    svc.setTarget({ version: '0.4.2', critical: false,
-      artifacts: { headless: { delivery: 'feed', platforms: {} } } })
+    await svc.setTarget({
+      version: '0.4.2',
+      critical: false,
+      artifacts: { headless: { delivery: 'feed', platforms: {} } },
+    })
     await svc.authorize()
     expect(send.mock.calls[0]?.[1].retryRollback).toBeUndefined()
     await svc.onStatus(asMachineId('a'), { type: 'updateStatus', grantId: 'g1',
@@ -95,7 +133,7 @@ describe('UpdatesService', () => {
       concurrency: 3,
     })
 
-    svc.setTarget('edge', target)
+    await svc.setTarget('edge', target)
 
     expect(await svc.targetFor(asMachineId('a'))).toBe(target)
     expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
@@ -110,14 +148,14 @@ describe('UpdatesService', () => {
 
   it('grants one canary on the first tick', async () => {
     const { svc, send } = make([m('a'), m('b')])
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
 
   it('does not widen until the canary reports current AT the target', async () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.tick()
     await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.1' })
     await svc.tick()
@@ -126,7 +164,7 @@ describe('UpdatesService', () => {
 
   it('does not widen when the canary only reports target before reconnecting', async () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.tick()
     await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
     await svc.tick()
@@ -137,7 +175,7 @@ describe('UpdatesService', () => {
   it('carries one authorization from the canary into the wider wave', async () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc, send } = make(machines)
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
 
     expect(await svc.authorize()).toEqual(['a'])
     expect(send).toHaveBeenCalledTimes(1)
@@ -155,7 +193,7 @@ describe('UpdatesService', () => {
         m('b'),
       ]
       const { svc, send } = make(machines, overrides)
-      svc.setTarget({
+      await svc.setTarget({
         version: '0.4.2',
         critical: false,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
@@ -176,8 +214,11 @@ describe('UpdatesService', () => {
     it.each(['daemon', 'supervisor'])('confirms the first legacy grant with %s presence', async (presenceSource) => {
       const machines = [{ ...m('a', { deliveryCaps: ['update.delivery.feed'] }), presenceSource: 'daemon' }]
       const { svc, send } = make(machines)
-      svc.setTarget({ version: '0.4.2', critical: false,
-        artifacts: { headless: { delivery: 'feed', platforms: {} } } })
+      await svc.setTarget({
+        version: '0.4.2',
+        critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } },
+      })
       await svc.authorizeMachine(asMachineId('a'), TEST_APPLY)
       expect(send).toHaveBeenCalledTimes(1)
       machines[0]!.presenceSource = presenceSource
@@ -197,8 +238,11 @@ describe('UpdatesService', () => {
     ])('keeps legacy takeover fenced without exact confirmation: %j', async (override) => {
       const machines = [{ ...m('a', { deliveryCaps: ['update.delivery.feed'] }), presenceSource: 'daemon' }]
       const { svc, send } = make(machines)
-      svc.setTarget({ version: '0.4.2', critical: false,
-        artifacts: { headless: { delivery: 'feed', platforms: {} } } })
+      await svc.setTarget({
+        version: '0.4.2',
+        critical: false,
+        artifacts: { headless: { delivery: 'feed', platforms: {} } },
+      })
       await svc.authorizeMachine(asMachineId('a'), TEST_APPLY)
       machines[0]!.presenceSource = 'supervisor'
       machines[0]!.version = '0.4.2'
@@ -211,8 +255,8 @@ describe('UpdatesService', () => {
       let saved: UpdateRecoverySnapshot | undefined
       return {
         read: () => saved && structuredClone(saved),
-        write: (value: UpdateRecoverySnapshot) => {
-          saved = structuredClone(value)
+        write: (value: () => UpdateRecoverySnapshot) => {
+          saved = structuredClone(value())
         },
       }
     }
@@ -220,10 +264,18 @@ describe('UpdatesService', () => {
     it('lets late machine words replace inference and persists their provenance across restart', async () => {
       const db = openDatabase(':memory:')
       db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-      const recovery = new UpdateRecoveryStore(db)
+      const recoveryStore = new UpdateRecoveryStore(syncQueriesOver(db))
+      const recovery = async () => {
+        const saved = await recoveryStore.read()
+        return {
+          read: () => saved,
+          write: async (snapshot: () => UpdateRecoverySnapshot) =>
+            await recoveryStore.write(snapshot),
+        }
+      }
       try {
         let now = 1_000
-        const h = await start({ recovery, now: () => now })
+        const h = await start({ recovery: await recovery(), now: () => now })
         await h.svc.onStatus(asMachineId('a'), {
           ...confirmed,
           state: 'restarting',
@@ -238,7 +290,7 @@ describe('UpdatesService', () => {
           message:
             'No report for 60 s after it said restarting; last phase: activating. The machines step deadline expired.',
         })
-        const boot = make(h.machines, { recovery, now: () => now })
+        const boot = make(h.machines, { recovery: await recovery(), now: () => now })
         const inferred = (await boot.svc.fleet())[0]?.reason
         expect(inferred?.source).toBe('coordinator')
         await boot.svc.onStatus(asMachineId('a'), { ...confirmed, state: 'stuck' })
@@ -260,7 +312,7 @@ describe('UpdatesService', () => {
         await boot.svc.abandonWait(['a'], 'Another deadline expired.')
         await boot.svc.setTargetUnavailable('dev', 'Publication failed.')
         expect((await boot.svc.fleet())[0]?.reason).toEqual(reason)
-        const reboot = make(h.machines, { recovery })
+        const reboot = make(h.machines, { recovery: await recovery() })
         expect((await reboot.svc.fleet())[0]?.reason).toEqual(reason)
       } finally {
         db.close()
@@ -384,7 +436,7 @@ describe('UpdatesService', () => {
         recovery,
         ...(replacement === 'approval' ? { approvedTarget: async () => changed } : {}),
       })
-      if (replacement === 'publication') boot.svc.setTarget(changed)
+      if (replacement === 'publication') await boot.svc.setTarget(changed)
       await boot.svc.onStatus(asMachineId('a'), confirmed)
       await boot.svc.authorize()
       expect((await boot.svc.fleet())[0]?.state).toBe('restarting')
@@ -415,41 +467,45 @@ describe('UpdatesService', () => {
     })
 
     describe('retired supervised grants', () => {
-      it.each(['abandon', 'release', 'stuck', 'rejected'] as const)(
-        'records late exact completion after %s, live and after reconstruction, without widening',
-        async (retirement) => {
-          for (const reboot of [false, true]) {
-            const recovery = memoryRecovery()
-            const h = await start({ recovery })
-            if (retirement === 'abandon') await h.svc.abandonWait(['a'], 'Deadline expired')
-            else if (retirement === 'release') {
-              h.svc.withdrawAuthorization()
-              await h.svc.releaseInFlightGrants('Canceled')
-            } else await h.svc.onStatus(asMachineId('a'), { ...confirmed, state: retirement })
-            expect(recovery.read()?.grants).toEqual([])
-            expect(recovery.read()?.retiredGrants?.[0]?.[1].grantId).toBe('g1')
-            const { svc, send } = reboot ? make(h.machines, { recovery }) : h
-            const sentBefore = send.mock.calls.length
-            expect(await svc.operationActive('dev')).toBe(false)
-            expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
+      it.each([
+        'abandon',
+        'release',
+        'stuck',
+        'rejected',
+      ] as const)('records late exact completion after %s, live and after reconstruction, without widening', async (retirement) => {
+        for (const reboot of [false, true]) {
+          const recovery = memoryRecovery()
+          const h = await start({ recovery })
+          if (retirement === 'abandon') await h.svc.abandonWait(['a'], 'Deadline expired')
+          else if (retirement === 'release') {
+            h.svc.withdrawAuthorization()
+            await h.svc.releaseInFlightGrants('Canceled')
+          } else await h.svc.onStatus(asMachineId('a'), { ...confirmed, state: retirement })
+          expect(recovery.read()?.grants).toEqual([])
+          expect(recovery.read()?.retiredGrants?.[0]?.[1].grantId).toBe('g1')
+          const { svc, send } = reboot ? make(h.machines, { recovery }) : h
+          const sentBefore = send.mock.calls.length
+          expect(await svc.operationActive('dev')).toBe(false)
+          expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
+          await svc.onStatus(asMachineId('a'), confirmed)
+          expect(recovery.read()?.machines[0]?.[1]).toMatchObject({
+            state: 'current',
+            grantId: 'g1',
+            projectedCurrent: true,
+          })
+          for (let replay = 0; replay < 3; replay++) {
             await svc.onStatus(asMachineId('a'), confirmed)
-            expect(recovery.read()?.machines[0]?.[1]).toMatchObject({
-              state: 'current', grantId: 'g1', projectedCurrent: true,
-            })
-            for (let replay = 0; replay < 3; replay++) {
-              await svc.onStatus(asMachineId('a'), confirmed)
-              expect((await svc.fleet())[0]?.state).toBe('current')
-              expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
-              expect(await svc.operationActive('dev')).toBe(false)
-            }
-            expect(send).toHaveBeenCalledTimes(sentBefore)
-            const boot = make(h.machines, { recovery })
-            expect((await boot.svc.fleet())[0]?.state).toBe('current')
-            expect(await boot.svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
-            expect(boot.send).not.toHaveBeenCalled()
+            expect((await svc.fleet())[0]?.state).toBe('current')
+            expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
+            expect(await svc.operationActive('dev')).toBe(false)
           }
-        },
-      )
+          expect(send).toHaveBeenCalledTimes(sentBefore)
+          const boot = make(h.machines, { recovery })
+          expect((await boot.svc.fleet())[0]?.state).toBe('current')
+          expect(await boot.svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
+          expect(boot.send).not.toHaveBeenCalled()
+        }
+      })
 
       it.each([
         { grantId: undefined },
@@ -471,46 +527,57 @@ describe('UpdatesService', () => {
         expect(send).toHaveBeenCalledTimes(1)
       })
 
-      it.each(['publication', 'approval', 'approval-version', 'channel'] as const)(
-        'fences retired proof when %s changes, before or after confirmation',
-        async (replacement) => {
-          for (const confirmFirst of [false, true]) {
-            const recovery = memoryRecovery()
-            const h = await start({ recovery })
-            await h.svc.abandonWait(['a'], 'Deadline expired')
-            if (confirmFirst) {
-              await h.svc.onStatus(asMachineId('a'), confirmed)
-              await h.svc.fleet()
-            }
-            const changed = {
-              ...h.svc.target()!,
-              ...(replacement === 'approval-version' ? { version: '0.4.3' } : {}),
-              artifacts: { headless: { delivery: 'feed' as const, platforms: {
-                'linux-x64': { url: 'https://example.test/replaced', digest: 'different-bytes', signature: 'signature' },
-              } } },
-            }
-            const { svc, send } = make(h.machines, {
-              recovery,
-              ...(replacement.startsWith('approval') ? { approvedTarget: async () => changed } : {}),
-            })
-            if (replacement === 'publication') svc.setTarget(changed)
-            if (replacement === 'channel') {
-              Object.assign(h.machines[0]!, { channel: 'edge' })
-              svc.setTarget('edge', h.svc.target()!)
-            }
-            await svc.onStatus(asMachineId('a'), confirmed)
-            // A channel change must not consume dev proof, even if edge offers
-            // the same version. Observe the durable execution record directly.
-            if (replacement === 'channel') {
-              expect(recovery.read()?.machines[0]?.[1].channel).toBe('dev')
-            }
-            expect((await svc.fleet())[0]?.state).not.toBe('current')
-            expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
-            expect(await svc.operationActive('dev')).toBe(false)
-            expect(send).not.toHaveBeenCalled()
+      it.each([
+        'publication',
+        'approval',
+        'approval-version',
+        'channel',
+      ] as const)('fences retired proof when %s changes, before or after confirmation', async (replacement) => {
+        for (const confirmFirst of [false, true]) {
+          const recovery = memoryRecovery()
+          const h = await start({ recovery })
+          await h.svc.abandonWait(['a'], 'Deadline expired')
+          if (confirmFirst) {
+            await h.svc.onStatus(asMachineId('a'), confirmed)
+            await h.svc.fleet()
           }
-        },
-      )
+          const changed = {
+            ...h.svc.target()!,
+            ...(replacement === 'approval-version' ? { version: '0.4.3' } : {}),
+            artifacts: {
+              headless: {
+                delivery: 'feed' as const,
+                platforms: {
+                  'linux-x64': {
+                    url: 'https://example.test/replaced',
+                    digest: 'different-bytes',
+                    signature: 'signature',
+                  },
+                },
+              },
+            },
+          }
+          const { svc, send } = make(h.machines, {
+            recovery,
+            ...(replacement.startsWith('approval') ? { approvedTarget: async () => changed } : {}),
+          })
+          if (replacement === 'publication') await svc.setTarget(changed)
+          if (replacement === 'channel') {
+            Object.assign(h.machines[0]!, { channel: 'edge' })
+            await svc.setTarget('edge', h.svc.target()!)
+          }
+          await svc.onStatus(asMachineId('a'), confirmed)
+          // A channel change must not consume dev proof, even if edge offers
+          // the same version. Observe the durable execution record directly.
+          if (replacement === 'channel') {
+            expect(recovery.read()?.machines[0]?.[1].channel).toBe('dev')
+          }
+          expect((await svc.fleet())[0]?.state).not.toBe('current')
+          expect(await svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
+          expect(await svc.operationActive('dev')).toBe(false)
+          expect(send).not.toHaveBeenCalled()
+        }
+      })
 
       it('supersedes retired correlation with a new repair grant', async () => {
         const recovery = memoryRecovery()
@@ -551,7 +618,7 @@ describe('UpdatesService', () => {
         [m('a', { presenceSource: 'supervisor', deliveryCaps: ['update.delivery.feed'] })],
         { recovery },
       )
-      svc.setTarget({
+      await svc.setTarget({
         version: '0.4.2',
         critical: false,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
@@ -595,7 +662,7 @@ describe('UpdatesService', () => {
           expect(recovery.read()?.machines[0]?.[1].state).toBe('current')
         },
       })
-      svc.setTarget({
+      await svc.setTarget({
         version: '0.4.2',
         critical: false,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
@@ -612,7 +679,7 @@ describe('UpdatesService', () => {
         }),
       )
       const { svc, send } = make(machines, { concurrency: 1, recovery: memoryRecovery() })
-      svc.setTarget({
+      await svc.setTarget({
         version: '0.4.2',
         critical: false,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
@@ -709,29 +776,29 @@ describe('UpdatesService', () => {
       expect(send).toHaveBeenCalledTimes(1)
     })
 
-    it.each(['publication', 'approval'] as const)(
-      'does not use a grant to confirm a different same-version %s descriptor',
-      async (replacement) => {
-        const changed = {
-          version: '0.4.2',
-          critical: true,
-          artifacts: { headless: { delivery: 'feed' as const, platforms: {} } },
-        }
-        let approved: ReturnType<UpdatesService['target']>
-        const { svc, send } = await start({ approvedTarget: async () => approved })
-        if (replacement === 'publication') svc.setTarget(changed)
-        else approved = changed
-        await svc.onStatus(asMachineId('a'), confirmed)
-        expect((await svc.fleet())[0]?.state).not.toBe('current')
-        await svc.tick()
-        expect(send).toHaveBeenCalledTimes(1)
-      },
-    )
+    it.each([
+      'publication',
+      'approval',
+    ] as const)('does not use a grant to confirm a different same-version %s descriptor', async (replacement) => {
+      const changed = {
+        version: '0.4.2',
+        critical: true,
+        artifacts: { headless: { delivery: 'feed' as const, platforms: {} } },
+      }
+      let approved: ReturnType<UpdatesService['target']>
+      const { svc, send } = await start({ approvedTarget: async () => approved })
+      if (replacement === 'publication') await svc.setTarget(changed)
+      else approved = changed
+      await svc.onStatus(asMachineId('a'), confirmed)
+      expect((await svc.fleet())[0]?.state).not.toBe('current')
+      await svc.tick()
+      expect(send).toHaveBeenCalledTimes(1)
+    })
 
     it('rechecks the exact descriptor when projection follows accepted confirmation', async () => {
       const { svc, send } = await start()
       await svc.onStatus(asMachineId('a'), confirmed)
-      svc.setTarget({
+      await svc.setTarget({
         version: '0.4.2',
         critical: true,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
@@ -743,7 +810,7 @@ describe('UpdatesService', () => {
 
     it('accepts an equivalent descriptor and repeated exact terminal replay', async () => {
       const { svc, send } = await start()
-      svc.setTarget({
+      await svc.setTarget({
         artifacts: { headless: { platforms: {}, delivery: 'feed' } },
         critical: false,
         version: '0.4.2',
@@ -769,7 +836,7 @@ describe('UpdatesService', () => {
       const { svc } = make(machines, {
         send: (_id, grant) => svc.onStatus(asMachineId('a'), { ...confirmed, grantId: grant.grantId }),
       })
-      svc.setTarget({
+      await svc.setTarget({
         version: '0.4.2',
         critical: false,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
@@ -781,8 +848,12 @@ describe('UpdatesService', () => {
 
     it('keeps already-current healthy machines current without inventing a grant', async () => {
       const { svc, send } = make([m('a', { presenceSource: 'supervisor', version: '0.4.2' })])
-      svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} })
-      await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
+      await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} })
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        state: 'current',
+        version: '0.4.2',
+      })
       expect((await svc.fleet())[0]?.state).toBe('current')
       expect(await svc.authorize()).toEqual([])
       expect(send).not.toHaveBeenCalled()
@@ -804,7 +875,7 @@ describe('UpdatesService', () => {
 
   it('a rejected canary halts the wave entirely', async () => {
     const { svc, send } = make([m('a'), m('b'), m('c')])
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.tick()
     await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
     await svc.tick()
@@ -813,7 +884,7 @@ describe('UpdatesService', () => {
 
   it('treats a second global Apply as authority to retry a failed canary', async () => {
     const { svc, send } = make([m('a'), m('b')])
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     expect(await svc.authorize()).toEqual(['a'])
     await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'rejected', version: '0.4.1' })
     send.mockClear()
@@ -825,12 +896,12 @@ describe('UpdatesService', () => {
 
   it('issues no grants when authorization is only remembered', async () => {
     const { svc, send } = make([m('a')])
-    svc.setTarget({
+    await svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
     } as never)
-    svc.markAuthorized()
+    await svc.markAuthorized()
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -848,15 +919,15 @@ describe('UpdatesService', () => {
    */
   it('swaps a same-version descriptor in place without granting anything', async () => {
     const { svc, send } = make([m('a')])
-    svc.setTarget({
+    await svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
     } as never)
-    svc.markAuthorized()
+    await svc.markAuthorized()
     expect(send).not.toHaveBeenCalled()
 
-    svc.setTarget({
+    await svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: {
@@ -877,12 +948,12 @@ describe('UpdatesService', () => {
 
   it('does not auto-grant when a same-version tarball appears without authorization', async () => {
     const { svc, send } = make([m('a')])
-    svc.setTarget({
+    await svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: { web: { digest: '47a01e3' } },
     } as never)
-    svc.setTarget({
+    await svc.setTarget({
       version: 'dev+47a01e3',
       critical: false,
       artifacts: {
@@ -899,12 +970,12 @@ describe('UpdatesService', () => {
   it('resets canary health when the target changes', async () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc, send } = make(machines)
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.tick()
     const canary = machines[0]
     if (canary) canary.version = '0.4.2'
     await svc.fleet()
-    svc.setTarget({ version: '0.4.3', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.3', critical: false, artifacts: {} } as never)
     send.mockClear()
     await svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
@@ -913,7 +984,7 @@ describe('UpdatesService', () => {
   it('reconciles a restarted machine from its reported target version', async () => {
     const machines = [m('a'), m('b')]
     const { svc } = make(machines)
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.tick()
 
     const first = machines[0]
@@ -925,7 +996,7 @@ describe('UpdatesService', () => {
   it('continues an authorized wave when the canary proves current by reconnecting', async () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc, send } = make(machines)
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
 
     expect(await svc.authorize()).toEqual(['a'])
     expect(send).toHaveBeenCalledTimes(1)
@@ -955,7 +1026,7 @@ describe('UpdatesService', () => {
   it('grants each widened machine exactly once', async () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc, send } = make(machines)
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
 
     expect(await svc.authorize()).toEqual(['a'])
     const canary = machines[0]
@@ -981,7 +1052,7 @@ describe('UpdatesService', () => {
   it('reports the grants it issued from inside a fleet read', async () => {
     const machines = [m('a'), m('b'), m('c')]
     const { svc } = make(machines)
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.authorize()
 
     const canary = machines[0]
@@ -997,7 +1068,7 @@ describe('UpdatesService', () => {
   it('requires the raw reconnect identity instead of optimistic current status', async () => {
     const machines = [m('a')]
     const { svc } = make(machines)
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.authorize()
     await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
@@ -1013,7 +1084,7 @@ describe('UpdatesService', () => {
   it('proves a restart handoff only after a correlated restart report and disconnect', async () => {
     const machines = [m('a')]
     const { svc } = make(machines)
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.authorize()
 
     await svc.onStatus(asMachineId('a'), {
@@ -1047,7 +1118,7 @@ describe('UpdatesService', () => {
         m('offline', { online: false }),
         m('flying'),
       ])
-      svc.setTarget(target)
+      await svc.setTarget(target)
 
       expect(await svc.authorizeMachine(asMachineId('current'), TEST_APPLY)).toEqual({
         result: 'already-current',
@@ -1066,7 +1137,7 @@ describe('UpdatesService', () => {
 
     it('refuses a source checkout explicitly without issuing a grant', async () => {
       const { svc, send } = make([m('source', { installKind: 'source' })])
-      svc.setTarget(target)
+      await svc.setTarget(target)
 
       expect(await svc.authorizeMachine(asMachineId('source'), TEST_APPLY)).toEqual({
         result: 'source-checkout',
@@ -1076,7 +1147,7 @@ describe('UpdatesService', () => {
 
     it('grants an equal-version payload when the operator requests repair', async () => {
       const { svc, send } = make([m('current', { version: '0.4.2' })])
-      svc.setTarget(target)
+      await svc.setTarget(target)
 
       expect(await svc.repairMachine(asMachineId('current'), TEST_REPAIR)).toEqual({
         result: 'granted',
@@ -1096,7 +1167,7 @@ describe('UpdatesService', () => {
     /** The regression behind repro 2: retry was permanently impossible. */
     it('lets a human retry a machine the planner had excluded forever', async () => {
       const { svc, send } = make([m('a')])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       await svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
@@ -1133,7 +1204,7 @@ describe('UpdatesService', () => {
     it('keeps widening after a human applies one refused machine', async () => {
       const machines = [m('a'), m('b'), m('c'), m('d'), m('e'), m('f')]
       const { svc } = make(machines)
-      svc.setTarget(target)
+      await svc.setTarget(target)
 
       expect(await svc.tick()).toEqual(['a'])
       // The canary holds the target: the bundle is proven for this channel.
@@ -1173,7 +1244,7 @@ describe('UpdatesService', () => {
     it('still re-proves a canary when the retry is fleet-wide', async () => {
       const machines = [m('a'), m('b'), m('c'), m('d'), m('e'), m('f')]
       const { svc } = make(machines)
-      svc.setTarget(target)
+      await svc.setTarget(target)
 
       expect(await svc.tick()).toEqual(['a'])
       const canary = machines[0]
@@ -1222,7 +1293,7 @@ describe('UpdatesService', () => {
 
     it('does not age a grant from a fleet read, however long it is left silent', async () => {
       const { svc, tick } = makeClock([m('a')])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       expect((await svc.fleet())[0]).toMatchObject({ state: 'granted' })
 
@@ -1234,7 +1305,7 @@ describe('UpdatesService', () => {
 
     it('records an abandoned wait so giving up is visible, not silent', async () => {
       const { svc } = makeClock([m('a'), m('b', { version: '0.4.2' })])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
 
       expect(await svc.abandonWait(['a', 'b'], 'the server stopped waiting')).toEqual(['a'])
@@ -1245,7 +1316,7 @@ describe('UpdatesService', () => {
       // Otherwise deleting the ageing would strand the row forever: excluded
       // from every future wave, and `operationActive` true for good.
       const { svc } = makeClock([m('a'), m('b')])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       // One canary first, so exactly one machine is mid-grant here.
       await svc.authorize()
       expect(await svc.operationActive('dev')).toBe(true)
@@ -1262,7 +1333,7 @@ describe('UpdatesService', () => {
       // The one automatic retry. `tick()` cannot do this: the planner excludes
       // a machine it believes is mid-grant, so the retry would grant nobody.
       const { svc, send } = make([m('a')])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       await svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
@@ -1289,14 +1360,14 @@ describe('UpdatesService', () => {
         detail: 'belongs to another release',
       })
 
-      svc.setTarget(target)
+      await svc.setTarget(target)
 
       expect((await svc.fleet())[0]).toMatchObject({ state: 'current', version: '0.4.1' })
     })
 
     it('keeps a packaged crash report after the coordinator replaced its grant', async () => {
       const { svc } = make([m('a')])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       await svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
@@ -1330,7 +1401,7 @@ describe('UpdatesService', () => {
 
     it('does not apply a recovered crash report to a different packaged target', async () => {
       const { svc } = make([m('a')])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       await svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
@@ -1357,10 +1428,85 @@ describe('UpdatesService', () => {
       expect(await svc.operationActive('dev')).toBe(true)
     })
 
+    // POD-6529: the executor cancels its unfinished grant BEFORE it accepts the
+    // replacement, so that cancellation always arrives while the replacement is
+    // pending. It is the predecessor's ending, not the replacement's verdict.
+    it.each([
+      ['the default cancel', { reasonCode: 'update-canceled', detail: 'Update canceled before activation.' }],
+      ['a cancel with a supplied cause', {
+        reasonCode: 'coordinator-preparation-failed',
+        detail: 'Coordinator activation refused: authority moved',
+      }],
+    ])('keeps the replacement grant after its predecessor reports %s', async (_name, cancel) => {
+      const { svc, send } = make([m('a')])
+      await svc.setTarget(target)
+      await svc.authorize()
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.2',
+        state: 'downloading',
+        phaseDetail: 'downloading',
+        version: '0.4.1',
+      })
+      expect(await svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
+      expect(send.mock.calls.at(-1)?.[1]).toMatchObject({ grantId: 'g2' })
+
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g1',
+        targetVersion: '0.4.2',
+        version: '0.4.1',
+        state: 'rejected',
+        phaseDetail: 'canceled',
+        ...cancel,
+      })
+
+      expect((await svc.fleet())[0]).toMatchObject({ state: 'granted' })
+      expect((await svc.fleet())[0]).not.toHaveProperty('detail')
+      expect(await svc.operationActive('dev')).toBe(true)
+
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g2',
+        targetVersion: '0.4.2',
+        version: '0.4.1',
+        state: 'downloading',
+        phaseDetail: 'downloading',
+        percent: 5,
+      })
+      expect((await svc.fleet())[0]).toMatchObject({ state: 'downloading', percent: 5 })
+      expect(await svc.operationActive('dev')).toBe(true)
+    })
+
+    it('still fails the pending grant when that grant itself is canceled', async () => {
+      const { svc } = make([m('a')])
+      await svc.setTarget(target)
+      await svc.authorize()
+      expect(await svc.reissueGrants('dev', undefined, TEST_RETRY)).toEqual(['a'])
+
+      await svc.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        grantId: 'g2',
+        targetVersion: '0.4.2',
+        version: '0.4.1',
+        state: 'rejected',
+        phaseDetail: 'canceled',
+        reasonCode: 'update-canceled',
+        detail: 'Update canceled before activation.',
+      })
+
+      expect((await svc.fleet())[0]).toMatchObject({
+        state: 'rejected',
+        detail: 'Update canceled before activation.',
+      })
+      expect(await svc.operationActive('dev')).toBe(false)
+    })
+
     it('does not re-grant a source checkout from legacy in-flight state', async () => {
       const source = { ...m('a'), installKind: 'installed' }
       const { svc, send } = make([source])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       source.installKind = 'source'
       send.mockClear()
@@ -1371,7 +1517,7 @@ describe('UpdatesService', () => {
 
     it('does not re-grant a machine that is offline or already at the target', async () => {
       const { svc, send } = make([m('a', { online: false }), m('b', { version: '0.4.2' })])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       send.mockClear()
 
@@ -1386,7 +1532,7 @@ describe('UpdatesService', () => {
 
     it('carries a percentage from the daemon onto the fleet projection', async () => {
       const { svc } = make([m('a')])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       await svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
@@ -1406,7 +1552,7 @@ describe('UpdatesService', () => {
 
     it('accepts a repeat of the same state as a new report', async () => {
       const { svc } = make([m('a')])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       for (const percent of [10, 35, 90]) {
         await svc.onStatus(asMachineId('a'), {
@@ -1424,7 +1570,7 @@ describe('UpdatesService', () => {
     it('drops the percentage when the phase moves on', async () => {
       // A stale 62% sitting under `restarting` is worse than no number at all.
       const { svc } = make([m('a')])
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       await svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
@@ -1446,7 +1592,7 @@ describe('UpdatesService', () => {
     it('converges a daemon that reports no percentage at all', async () => {
       const machines = [m('a')]
       const { svc } = make(machines)
-      svc.setTarget(target)
+      await svc.setTarget(target)
       await svc.authorize()
       await svc.onStatus(asMachineId('a'), {
         type: 'updateStatus',
@@ -1471,7 +1617,7 @@ describe('UpdatesService', () => {
 
   it('is idempotent: a second tick with nothing changed grants nothing new', async () => {
     const { svc, send } = make([m('a'), m('b')])
-    svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
+    await svc.setTarget({ version: '0.4.2', critical: false, artifacts: {} } as never)
     await svc.tick()
     await svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
@@ -1481,7 +1627,7 @@ describe('UpdatesService', () => {
 describe('setTargetUnavailable', () => {
   it('withdraws the stale target and explains why the channel has none', async () => {
     const { svc } = make([m('a', { channel: 'dev' })])
-    svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
+    await svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
     expect(svc.target('dev')?.version).toBe('dev+aaaaaaa')
 
     await svc.setTargetUnavailable('dev', 'The source checkout has 2 uncommitted changes.')
@@ -1497,7 +1643,7 @@ describe('setTargetUnavailable', () => {
   it('ends an in-flight rollout observably instead of stranding it', async () => {
     const machines = [m('a', { channel: 'dev' })]
     const { svc } = make(machines)
-    svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
+    await svc.setTarget('dev', { version: 'dev+aaaaaaa', critical: false, artifacts: {} } as never)
     await svc.authorize('dev')
     expect((await svc.fleet()).find((machine) => machine.id === 'a')?.state).toBe('granted')
 
@@ -1527,7 +1673,7 @@ describe('setTargetUnavailable', () => {
   it('is cleared by the next successful publication', async () => {
     const { svc } = make([m('a', { channel: 'dev' })])
     await svc.setTargetUnavailable('dev', 'Building the development bundle for dev+bbbbbbb.')
-    svc.setTarget('dev', { version: 'dev+bbbbbbb', critical: false, artifacts: {} } as never)
+    await svc.setTarget('dev', { version: 'dev+bbbbbbb', critical: false, artifacts: {} } as never)
 
     expect(svc.target('dev')?.version).toBe('dev+bbbbbbb')
     expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toBeUndefined()
@@ -1652,6 +1798,74 @@ describe('target refresh bookkeeping', () => {
     expect(svc.target('stable')).toBeUndefined()
     expect(await svc.targetUnavailableReasonFor(asMachineId('a'))).toContain('does not overlap running server')
     expect(svc.channelChecks()[0]?.outcome).toMatchObject({ status: 'unavailable', reason: expect.stringContaining('99–100') })
+  })
+
+  it('distinguishes an incomplete publication from a failing feed', async () => {
+    let incomplete = true
+    const { svc } = build(async () => {
+      if (incomplete) throw new ReleasePublicationPendingError('desktop files are still publishing')
+      throw new Error('feed unreachable')
+    })
+    expect(await svc.refreshTargetForPolling('stable')).toBe('incomplete')
+    incomplete = false
+    expect(await svc.refreshTargetForPolling('stable')).toBe(false)
+  })
+
+  it('does not resolve feeds when polling is explicitly off, including a forced check', async () => {
+    const resolve = vi.fn(async () => target)
+    const svc = new UpdatesService({
+      machines: async () => [],
+      send: vi.fn(),
+      now: () => 1000,
+      nextGrantId: () => 'g',
+      concurrency: 1,
+      resolveTarget: resolve,
+      feedPollingEnabled: () => false,
+    })
+    expect(await svc.refreshTarget('stable')).toBe(false)
+    await svc.checkNow()
+    expect(resolve).not.toHaveBeenCalled()
+    expect(svc.channelChecks()[0]?.outcome).toEqual({
+      status: 'unavailable',
+      reason: 'Release feed polling is disabled for this instance.',
+    })
+  })
+
+  it('allows a local development publisher to resolve its own feed with public polling off', async () => {
+    const resolve = vi.fn(async () => target)
+    const svc = new UpdatesService({ machines: async () => [], send: vi.fn(), now: () => 1000,
+      nextGrantId: () => 'g', concurrency: 1, resolveTarget: resolve, feedPollingEnabled: () => false,
+      locallyPublished: (channel) => channel === 'dev' })
+    expect(await svc.refreshTarget('dev')).toBe(true)
+    expect(await svc.refreshTarget('edge')).toBe(false)
+    expect(resolve.mock.calls).toEqual([['dev']])
+  })
+
+  it('stops unchanged refreshes before producer work while recording the successful check', async () => {
+    const resolve = vi.fn(async () => target)
+    const { svc, advance } = build(resolve)
+    const publish = vi.spyOn(svc, 'setTargetFromProducer')
+    await svc.refreshTarget('stable')
+    expect(publish).toHaveBeenCalledTimes(1)
+    advance(1000)
+    await svc.refreshTarget('stable')
+    expect(resolve).toHaveBeenLastCalledWith('stable', target)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(svc.channelChecks()[0]?.checkedAt).toBe(2000)
+  })
+
+  it('accepts changed digests even if a standing release keeps the same version', async () => {
+    let digest = 'sha256-old'
+    const resolve = async () => ({ version: '1.0.0', critical: false,
+      artifacts: { headless: { delivery: 'feed', platforms: { 'linux-x86_64': {
+        url: 'https://feed.example/a.tar.gz', signature: 'sig', digest,
+      } } } } }) as never
+    const { svc } = build(resolve)
+    const publish = vi.spyOn(svc, 'setTargetFromProducer')
+    await svc.refreshTarget('stable')
+    digest = 'sha256-new'
+    await svc.refreshTarget('stable')
+    expect(publish).toHaveBeenCalledTimes(2)
   })
 
   it('records when a channel was checked and that it succeeded', async () => {
@@ -1968,7 +2182,7 @@ describe('target refresh bookkeeping', () => {
 
     it('is true while a grant is outstanding on that channel, and only that channel', async () => {
       const { svc } = make([m('a')])
-      svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
+      await svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
       await svc.authorize('dev')
 
       expect(await svc.operationActive('dev')).toBe(true)
@@ -1978,7 +2192,7 @@ describe('target refresh bookkeeping', () => {
     it('is false again once the machine reconnects at the target', async () => {
       const machines = [m('a')]
       const { svc } = make(machines)
-      svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
+      await svc.setTarget('dev', { version: '0.4.2', critical: false, artifacts: {} } as never)
       await svc.authorize('dev')
       await svc.onStatus(asMachineId('a'), { type: 'updateStatus', state: 'current', version: '0.4.2' })
 
@@ -2012,7 +2226,7 @@ describe('withdrawAuthorization', () => {
   it('stops the wave continuing after a machine finishes a cancelled grant', async () => {
     const machines = [m('a'), m('b')]
     const { svc, send } = make(machines)
-    svc.setTarget('dev', target)
+    await svc.setTarget('dev', target)
     await svc.authorize('dev')
     expect(send).toHaveBeenCalledTimes(1)
 
@@ -2033,7 +2247,7 @@ describe('withdrawAuthorization', () => {
   it('is safe to call before releaseInFlightGrants, which is a fleet read', async () => {
     const machines = [m('a', { version: '0.4.2', state: 'downloading' }), m('b')]
     const { svc, send } = make(machines)
-    svc.setTarget('dev', target)
+    await svc.setTarget('dev', target)
     await svc.authorize('dev')
     const granted = send.mock.calls.length
 
@@ -2050,7 +2264,7 @@ describe('withdrawAuthorization', () => {
   it('is restored by the next deliberate authorization', async () => {
     const machines = [m('a'), m('b')]
     const { svc, send } = make(machines)
-    svc.setTarget('dev', target)
+    await svc.setTarget('dev', target)
     await svc.authorize('dev')
     svc.withdrawAuthorization()
 
@@ -2167,15 +2381,15 @@ describe('UpdatesService.advertisedTarget', () => {
   /** THE DEFECT: a stable-pinned host, a published stable release, no offer. */
   it("advertises the host's own stable authority to a stable-pinned host", async () => {
     const svc = shipped([m('host', { channel: 'stable' })])
-    svc.setTarget('stable', t('0.1.3'))
+    await svc.setTarget('stable', t('0.1.3'))
 
     expect((await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))?.version).toBe('0.1.3')
   })
 
   it('does not let a development feed speak for a stable-pinned host', async () => {
     const svc = shipped([m('host', { channel: 'stable' })])
-    svc.setTarget('stable', t('0.1.3'))
-    svc.setTarget('dev', t('0.1.2-dev.3+03a2892'))
+    await svc.setTarget('stable', t('0.1.3'))
+    await svc.setTarget('dev', t('0.1.2-dev.3+03a2892'))
 
     expect((await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))?.version).toBe('0.1.3')
   })
@@ -2199,8 +2413,8 @@ describe('UpdatesService.advertisedTarget', () => {
         },
       },
     } as unknown as never
-    svc.setTarget('dev', packed)
-    const advertised = (await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))
+    await svc.setTarget('dev', packed)
+    const advertised = await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' })
     expect(advertised?.artifacts.headless).toBeDefined()
     expect(advertised?.version).toBe('0.1.2-dev.5+bbbbbbb')
   })
@@ -2234,9 +2448,9 @@ describe('UpdatesService.advertisedTarget', () => {
       },
     } as unknown as never
     const svc = shipped([m('host', { channel: 'dev' })])
-    svc.setTarget('dev', packed)
+    await svc.setTarget('dev', packed)
 
-    const advertised = (await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))
+    const advertised = await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' })
     const advertisedUrl = advertised?.artifacts.headless?.platforms['linux-x86_64']?.url
     expect(advertisedUrl).toBeDefined()
     expect(advertisedUrl).not.toContain('token=')
@@ -2248,8 +2462,8 @@ describe('UpdatesService.advertisedTarget', () => {
 
   it('follows an edge-pinned host onto edge', async () => {
     const svc = shipped([m('host', { channel: 'edge' })])
-    svc.setTarget('edge', t('0.2.0'))
-    svc.setTarget('dev', t('dev+aaaaaaa'))
+    await svc.setTarget('edge', t('0.2.0'))
+    await svc.setTarget('dev', t('dev+aaaaaaa'))
 
     expect((await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))?.version).toBe('0.2.0')
   })
@@ -2261,7 +2475,7 @@ describe('UpdatesService.advertisedTarget', () => {
    */
   it('agrees with operationChannel, including before the host is registered', async () => {
     const svc = shipped([], 'stable')
-    svc.setTarget('stable', t('0.1.3'))
+    await svc.setTarget('stable', t('0.1.3'))
 
     expect(await svc.operationChannel({ kind: 'fleet', machineId: 'host' })).toBe('stable')
     expect((await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' }))?.version).toBe('0.1.3')
@@ -2272,7 +2486,7 @@ describe('UpdatesService.advertisedTarget', () => {
    *  target must not fall back to some other channel's version. */
   it('advertises nothing rather than another channel when its own has none', async () => {
     const svc = shipped([m('host', { channel: 'stable' })])
-    svc.setTarget('dev', t('dev+aaaaaaa'))
+    await svc.setTarget('dev', t('dev+aaaaaaa'))
 
     expect(await svc.advertisedTarget({ kind: 'fleet', machineId: 'host' })).toBeUndefined()
   })
@@ -2311,7 +2525,7 @@ describe('a channel this server also publishes into', () => {
 
   it('holds its own newer identity against an older release from the feed', async () => {
     const svc = publisherHost(async () => versioned('0.1.2-dev.4+aaaaaaa'))
-    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+    await svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
 
     expect(await svc.refreshTarget('dev')).toBe(true)
 
@@ -2323,7 +2537,7 @@ describe('a channel this server also publishes into', () => {
 
   it('takes a NEWER release from the feed, which is the whole point of pulling', async () => {
     const svc = publisherHost(async () => versioned('0.1.2-dev.6+ccccccc'))
-    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+    await svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
 
     await svc.refreshTarget('dev')
 
@@ -2344,7 +2558,7 @@ describe('a channel this server also publishes into', () => {
       },
     } as unknown as never
     const svc = publisherHost(async () => packed)
-    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+    await svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
 
     await svc.refreshTarget('dev')
 
@@ -2377,8 +2591,8 @@ describe('a channel this server also publishes into', () => {
     } as unknown as never
     const { svc } = make([m('a', { channel: 'dev' })])
 
-    svc.setTarget('dev', packed)
-    svc.setTarget('dev', identity)
+    await svc.setTarget('dev', packed)
+    await svc.setTarget('dev', identity)
 
     expect(svc.target('dev')?.artifacts.headless).toBeDefined()
     expect(svc.target('dev')?.artifacts.headless?.platforms['linux-x86_64']?.url).toBe(
@@ -2388,7 +2602,7 @@ describe('a channel this server also publishes into', () => {
 
   it('holds against an UNORDERABLE answer too, rather than guessing', async () => {
     const svc = publisherHost(async () => versioned('not-a-version'))
-    svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
+    await svc.setTarget('dev', versioned('0.1.2-dev.5+bbbbbbb'))
 
     await svc.refreshTarget('dev')
 
@@ -2407,7 +2621,7 @@ describe('a channel this server also publishes into', () => {
       locallyPublished: (channel) => channel === 'dev',
       fleetChannel: () => 'stable',
     })
-    svc.setTarget('stable', versioned('0.4.2'))
+    await svc.setTarget('stable', versioned('0.4.2'))
 
     await svc.refreshTarget('stable')
 
@@ -2446,14 +2660,14 @@ describe('a release that predates a machine', () => {
 
   it('is never granted to that machine by the standing wave', async () => {
     const { svc, send } = make([mac()])
-    svc.setTarget(linuxOnly)
+    await svc.setTarget(linuxOnly)
     await svc.tick()
     expect(send).not.toHaveBeenCalled()
   })
 
   it('still waves the machines it was built for', async () => {
     const { svc, send } = make([m('vps', { platform: 'linux-x86_64' }), mac()])
-    svc.setTarget(linuxOnly)
+    await svc.setTarget(linuxOnly)
     await svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0]?.[0]).toBe('vps')
@@ -2463,7 +2677,7 @@ describe('a release that predates a machine', () => {
    *  rather than a grant the machine will refuse minutes later. */
   it('answers a per-row Apply with the platform fact instead of granting', async () => {
     const { svc, send } = make([mac()])
-    svc.setTarget(linuxOnly)
+    await svc.setTarget(linuxOnly)
     expect(await svc.authorizeMachine(asMachineId('mac'), TEST_APPLY)).toEqual({
       result: 'platform-not-in-release',
       platform: 'darwin-aarch64',
@@ -2473,7 +2687,7 @@ describe('a release that predates a machine', () => {
 
   it('answers a per-row Repair the same way, for the same reason', async () => {
     const { svc, send } = make([mac()])
-    svc.setTarget(linuxOnly)
+    await svc.setTarget(linuxOnly)
     expect(await svc.repairMachine(asMachineId('mac'), TEST_REPAIR)).toMatchObject({
       result: 'platform-not-in-release',
     })
@@ -2482,7 +2696,7 @@ describe('a release that predates a machine', () => {
 
   it('leaves a machine that has reported no platform alone', async () => {
     const { svc, send } = make([m('mute', { deliveryCaps: ['update.delivery.feed'] })])
-    svc.setTarget(linuxOnly)
+    await svc.setTarget(linuxOnly)
     await svc.tick()
     expect(send).toHaveBeenCalledTimes(1)
   })
@@ -2511,14 +2725,14 @@ describe('a machine that predates channel-keyed trust', () => {
 
   it('is never granted the instance-trusted feed by the standing wave', async () => {
     const { svc, send } = make([flatblock()])
-    svc.setTarget(instanceTarget)
+    await svc.setTarget(instanceTarget)
     await svc.tick()
     expect(send).not.toHaveBeenCalled()
   })
 
   it('answers direct Apply with the verifier-generation fact', async () => {
     const { svc, send } = make([flatblock()])
-    svc.setTarget(instanceTarget)
+    await svc.setTarget(instanceTarget)
     expect(await svc.authorizeMachine(asMachineId('flatblock'), TEST_APPLY)).toEqual({
       result: 'legacy-instance-trust',
       version: '0.4.2',
@@ -2528,7 +2742,7 @@ describe('a machine that predates channel-keyed trust', () => {
 
   it('does not pretend an in-band Repair can bypass the same verifier', async () => {
     const { svc, send } = make([flatblock()])
-    svc.setTarget(instanceTarget)
+    await svc.setTarget(instanceTarget)
     expect(await svc.repairMachine(asMachineId('flatblock'), TEST_REPAIR)).toEqual({
       result: 'legacy-instance-trust',
       version: '0.4.2',
@@ -2540,8 +2754,10 @@ describe('a machine that predates channel-keyed trust', () => {
     const { svc, send } = make([
       m('current', { platform: 'linux-x86_64', deliveryCaps: ['update.delivery.feed'] }),
     ])
-    svc.setTarget(instanceTarget)
-    expect(await svc.authorizeMachine(asMachineId('current'), TEST_APPLY)).toMatchObject({ result: 'granted' })
+    await svc.setTarget(instanceTarget)
+    expect(await svc.authorizeMachine(asMachineId('current'), TEST_APPLY)).toMatchObject({
+      result: 'granted',
+    })
     expect(send).toHaveBeenCalledOnce()
   })
 })
@@ -2568,8 +2784,8 @@ describe('the machine this coordinator runs on', () => {
 
   it('is not the canary while a remote machine could prove the bundle instead', async () => {
     const { svc } = make([coordinator, m('b-flatblock', { name: 'flatblock' })])
-    svc.setTarget('dev', target)
-    svc.markAuthorized('dev')
+    await svc.setTarget('dev', target)
+    await svc.markAuthorized('dev')
 
     expect(await svc.tick('dev')).toEqual(['b-flatblock'])
   })
@@ -2586,8 +2802,8 @@ describe('the machine this coordinator runs on', () => {
       // Already at the target, so the canary gate is proved and the round widens.
       m('c-mac', { version: '0.4.2' }),
     ])
-    svc.setTarget('dev', target)
-    svc.markAuthorized('dev')
+    await svc.setTarget('dev', target)
+    await svc.markAuthorized('dev')
 
     const granted = await svc.tick('dev')
     expect(granted).toEqual(['b-flatblock'])
@@ -2596,8 +2812,8 @@ describe('the machine this coordinator runs on', () => {
 
   it('takes the update once the rest of the fleet is at the target', async () => {
     const { svc } = make([coordinator, m('b-flatblock', { version: '0.4.2' })])
-    svc.setTarget('dev', target)
-    svc.markAuthorized('dev')
+    await svc.setTarget('dev', target)
+    await svc.markAuthorized('dev')
 
     expect(await svc.tick('dev')).toEqual(['a-ludovico'])
   })
@@ -2662,8 +2878,8 @@ describe('deferred target-change notification', () => {
   it('logs the rejection the sync setTarget shim cannot await', async () => {
     const { svc, warnings, onTargetChanged } = withFailingListener()
 
-    // Synchronous by contract: it returns before the listener has rejected.
-    svc.setTarget('edge', target)
+    // Publication awaits its checkpoint. The listener settles independently.
+    await svc.setTarget('edge', target)
     expect(onTargetChanged).toHaveBeenCalledWith('edge')
     await settle()
 
@@ -2680,7 +2896,7 @@ describe('deferred target-change notification', () => {
     const { svc, warnings, onTargetChanged } = withFailingListener({
       exclusiveOperationActive: async () => active,
     })
-    svc.setTarget('dev', target)
+    await svc.setTarget('dev', target)
     await settle()
     onTargetChanged.mockClear()
 
@@ -2694,7 +2910,7 @@ describe('deferred target-change notification', () => {
 
     active = false
     warnings.length = 0
-    expect(svc.publishNextTargets()).toEqual(['dev'])
+    expect(await svc.publishNextTargets()).toEqual(['dev'])
     expect(onTargetChanged).toHaveBeenCalledWith('dev')
     await settle()
 
@@ -2730,7 +2946,7 @@ describe('deferred target-change notification', () => {
         },
       } as never)
 
-      svc.setTarget('edge', target)
+      await svc.setTarget('edge', target)
       expect(called).toBe(1)
       await settle()
       await settle()
@@ -2781,7 +2997,9 @@ describe('coordinator approval guards', () => {
     expect(await restored({ approvedTarget: async () => undefined })
       .coordinatorUpdateApproved('dev', target)).toBe(false)
     expect(await restored().coordinatorUpdateApproved('dev', changed)).toBe(false)
-    const svc = restored({ approvedTarget: async (channel) => channel === 'dev' ? target : undefined })
+    const svc = restored({
+      approvedTarget: async (channel) => (channel === 'dev' ? target : undefined),
+    })
     expect(await svc.coordinatorUpdateApproved('stable', target)).toBe(false)
     expect(await restored({ recoveryOnly: true }).coordinatorUpdateApproved('dev', target)).toBe(false)
   })

@@ -62,11 +62,10 @@
     "mobx-react-lite": "5.0.3"
   },
   "scripts": {
-    "//build": "The ONE production build of this site, and a Turbo task (POD-3053): every caller goes through `turbo run build`, so there is no second recipe dev and CI can diverge on. The stamp is written LAST of the steps that WRITE, and that order is load-bearing (POD-1986): `podium-build.json` is what every reader \u2014 assertDevWebDistMatchesVersion, the dev publisher, the bundle copy \u2014 takes to mean `dist is complete`. Written earlier, it named a dist that precompression was still writing into, and a headless bundle copied in that window shipped without its .br/.gz files. The stamp is therefore written BEFORE the bundle placement check (scripts/web-bundle-budget.ts), which reads dist and writes nothing: a red check fails the build for everyone (the dest-rebuild exemption that `build:dist` used to grant ended with POD-3053 \u2014 fix the import edge, do not route around it).",
-    "build": "vite build && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-budget.ts dist --check",
+    "//build": "The ONE production build of this site, and a Turbo task (POD-3053): every caller goes through `turbo run build`, so there is no second recipe dev and CI can diverge on. The stamp is written LAST of the steps that WRITE, and that order is load-bearing (POD-1986): `podium-build.json` is what every reader \u2014 assertDevWebDistMatchesVersion, the dev publisher, the bundle copy \u2014 takes to mean `dist is complete`. Written earlier, it named a dist that precompression was still writing into, and a headless bundle copied in that window shipped without its .br/.gz files. The stamp is therefore written BEFORE the bundle correctness check (scripts/web-bundle-correctness.ts), which reads dist and writes nothing. It fails the build only for a bundle that would break in a browser (a host-only source in a browser chunk, a singleton package bundled twice); it sets no size limit (POD-6423). A red check fails the build for everyone \u2014 fix the import edge, do not route around it.",
+    "build": "vite build && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-correctness.ts dist",
     "//build:dev": "Same artefact layout as `build`, but unminified, with linked source maps and React's DEVELOPMENT build \u2014 so a crash on a locally-served bundle reports the real error sentence and real component names instead of `Minified React error #185` (POD-1954). Slower and much larger; never what you hand to someone else.",
-    "build:dev": "vite build --mode development && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist",
-    "bundle:budget": "bun ../../scripts/web-bundle-budget.ts dist --check",
+    "build:dev": "vite build --mode development && bun ../../scripts/archive-web-sourcemaps.ts dist && bun ../../scripts/precompress-dist.ts dist && bun --conditions=@podium/source ../../scripts/write-web-build-stamp.ts dist && bun ../../scripts/web-bundle-correctness.ts dist",
     "dev": "vite --host 0.0.0.0",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "bun ../../scripts/typecheck-project.ts",
@@ -75,7 +74,6 @@
     "test:perf:large-state": "bun ../../scripts/validation-admission.ts focused --label @podium/web:test:perf -- bun --bun vitest --config vitest.frontend-perf.config.ts run"
   },
   "devDependencies": {
-    "mobx": "7.0.3",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.3.1",
     "@testing-library/react": "^16.3.2",
@@ -86,14 +84,20 @@
     "@types/react-dom": "^19.0.0",
     "@vite-pwa/assets-generator": "^1.0.2",
     "@vitejs/plugin-react": "^6.0.2",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-webgl": "^0.18.0",
+    "@xterm/xterm": "^5.5.0",
+    "fake-indexeddb": "^6.2.5",
+    "mobx": "7.0.3",
+    "playwright": "^1.60.0",
+    "pngjs": "^7.0.0",
+    "sharp": "^0.33.5",
     "tailwindcss": "^4.3.1",
     "tw-animate-css": "^1.4.0",
     "typescript": "^6.0.3",
-    "vitest": "5.0.0-beta.6",
     "vite": "^8.0.16",
     "vite-plugin-pwa": "^1.3.0",
-    "workbox-window": "^7.4.1",
-    "fake-indexeddb": "^6.2.5",
-    "sharp": "^0.33.5"
+    "vitest": "5.0.0-beta.6",
+    "workbox-window": "^7.4.1"
   }
 }

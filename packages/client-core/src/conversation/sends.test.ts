@@ -5,8 +5,8 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { type OutboxChatSend } from '../conversation/sends'
 import { claudeRecordToItems } from '../../../harness/src/adapters/claude-code/transcript'
-import type { OutboxChatSend } from '../engine/chat-send'
 import { createSendsFixture } from './model-test-support'
 import type { ConversationPendingTurn } from './projection'
 

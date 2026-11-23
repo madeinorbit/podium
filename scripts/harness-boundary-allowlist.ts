@@ -231,35 +231,161 @@ export interface HarnessBoundaryAllowlistEntry {
  *  name agent profiles now), and EXECUTION_PROFILE_DEFAULT_HARNESS with it:
  *  harness-defaults 7 → 6, policy 37 → 36, total 61 → 60.
  */
-// POD-5544: deleting the legacy replica retired its two cursor homonyms.
-export const HARNESS_BASELINE_LEAK_COUNT = 24
+// POD-5544 retired two cursor homonyms; POD-7196 removes five obsolete entries.
+export const HARNESS_BASELINE_LEAK_COUNT = 19
 export const HARNESS_BASELINE_POLICY_COUNT = 36
-export const HARNESS_BASELINE_TOTAL = 60
+export const HARNESS_BASELINE_TOTAL = 55
 
 export const HARNESS_BOUNDARY_ALLOWLIST: readonly HarnessBoundaryAllowlistEntry[] = [
-  { file: 'apps/cli/src/session-cli.ts', count: 1, category: 'leak', reason: 'homonym: read-command cursor arg (pagination vocabulary), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'apps/daemon/src/binding-store.ts', count: 2, category: 'leak', reason: 'historical migration of legacy Codex receipts (ADR 10 excludes historical migrations; the scan has no migration exemption yet, see D4)', issue: 'POD-4737' },
-  { file: 'apps/daemon/src/runtime/opencode-attach.ts', count: 1, category: 'policy', reason: 'kind-less adoption assumes opencode (legacy attach default that stays); the per-harness labels are one generic composition', policy: 'apps/daemon/src/runtime/opencode-attach.ts' },
-  { file: 'apps/server/src/llm.ts', count: 1, category: 'leak', reason: 'homonym: Codex ApiProvider check, not the harness id; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'apps/server/src/modules/sessions/session-lifecycle-types.ts', count: 1, category: 'leak', reason: 'homonym: sync-cursor Omit member (feed pagination key), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'apps/server/src/steward.ts', count: 1, category: 'leak', reason: 'homonym: steward_state cursor key (durable poll-window spelling), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'apps/server/src/store/events.ts', count: 1, category: 'leak', reason: 'homonym: steward_state cursor key write, not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'apps/web/src/lib/agent-tone.ts', count: 1, category: 'leak', reason: 'bundled brand-component key for harnesses this build knows (4.1 amendment: bundled CODE stays)', issue: 'POD-4414/4.1' },
-  { file: 'packages/harness/src/driver/headless-interrupt.ts', count: 2, category: 'policy', reason: 'driver FAMILY names (codex/opencode/claude-sdk), not harness names — stays', policy: 'packages/harness/src/driver/headless-interrupt.ts' },
-  { file: 'packages/harness/src/browser.ts', count: 2, category: 'policy', reason: 'browser-safe no-tools table + bundled composer rules stay in browser entry; tested against manifests', policy: 'packages/harness/src/browser.ts' },
-  { file: 'packages/harness/src/registry.ts', count: 7, category: 'policy', reason: 'registry is the allowed closed-set home; lookups degrade for unknown harnesses', policy: 'packages/harness/src/registry.ts' },
-  { file: 'packages/janitor/src/janitor.ts', count: 1, category: 'leak', reason: 'homonym: steward_state cursor key in SQL, not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'packages/runtime/src/harness-defaults.ts', count: 6, category: 'policy', reason: 'superagent harness order + shipwright eval choice are Podium policy, stay; must not move into an adapter (spec §5)', policy: 'packages/runtime/src/harness-defaults.ts' },
-  { file: 'packages/runtime/src/settings.ts', count: 5, category: 'leak', reason: 'homonym: Codex ApiProvider id + provider-selected account (provider collision class), not harness branching; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'packages/sync/src/adapters/indexeddb/schema.ts', count: 1, category: 'leak', reason: 'homonym: meta-table cursor key (adapter DDL spelling), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'packages/sync/src/adapters/mobile-sqlite/schema.ts', count: 1, category: 'leak', reason: 'homonym: meta-table cursor key (adapter DDL spelling), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'packages/sync/src/conformance/suite.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'packages/sync/src/replica/replica.ts', count: 1, category: 'leak', reason: 'homonym: sync event discriminant (cursor frame type), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'packages/sync/src/replica/types.ts', count: 1, category: 'leak', reason: 'homonym: sync event union member (cursor frame type), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)', issue: 'POD-4437' },
-  { file: 'packages/telemetry/src/example.ts', count: 3, category: 'leak', reason: 'vendor literal outside adapters/families; move into adapter or family', issue: 'POD-4414' },
-  { file: 'scripts/agent-smoke-reporter.ts', count: 9, category: 'policy', reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier', policy: 'scripts/agent-smoke-reporter.ts' },
-  { file: 'scripts/audit-god-objects.ts', count: 1, category: 'policy', reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier', policy: 'scripts/audit-god-objects.ts' },
-  { file: 'scripts/bun-session-smoke.ts', count: 1, category: 'policy', reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier', policy: 'scripts/bun-session-smoke.ts' },
-  { file: 'scripts/harness-environment-container-probe.ts', count: 4, category: 'policy', reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier', policy: 'scripts/harness-environment-container-probe.ts' },
-  { file: 'scripts/lint-harness-versions.ts', count: 3, category: 'policy', reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier', policy: 'scripts/lint-harness-versions.ts' },
+  {
+    file: 'apps/cli/src/session-cli.ts',
+    count: 1,
+    category: 'leak',
+    reason:
+      'homonym: read-command cursor arg (pagination vocabulary), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)',
+    issue: 'POD-4437',
+  },
+  {
+    file: 'apps/daemon/src/binding-store.ts',
+    count: 2,
+    category: 'leak',
+    reason:
+      'historical migration of legacy Codex receipts (ADR 10 excludes historical migrations; the scan has no migration exemption yet, see D4)',
+    issue: 'POD-4737',
+  },
+  {
+    file: 'apps/daemon/src/runtime/opencode-attach.ts',
+    count: 1,
+    category: 'policy',
+    reason:
+      'kind-less adoption assumes opencode (legacy attach default that stays); the per-harness labels are one generic composition',
+    policy: 'apps/daemon/src/runtime/opencode-attach.ts',
+  },
+  {
+    file: 'apps/server/src/steward.ts',
+    count: 1,
+    category: 'leak',
+    reason:
+      'homonym: steward_state cursor key (durable poll-window spelling), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)',
+    issue: 'POD-4437',
+  },
+  {
+    file: 'apps/server/src/store/events.ts',
+    count: 1,
+    category: 'leak',
+    reason:
+      'homonym: steward_state cursor key write, not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)',
+    issue: 'POD-4437',
+  },
+  {
+    file: 'apps/web/src/lib/agent-tone.ts',
+    count: 1,
+    category: 'leak',
+    reason:
+      'bundled brand-component key for harnesses this build knows (4.1 amendment: bundled CODE stays)',
+    issue: 'POD-4414/4.1',
+  },
+  {
+    file: 'packages/harness/src/driver/headless-interrupt.ts',
+    count: 2,
+    category: 'policy',
+    reason: 'driver FAMILY names (codex/opencode/claude-sdk), not harness names — stays',
+    policy: 'packages/harness/src/driver/headless-interrupt.ts',
+  },
+  {
+    file: 'packages/harness/src/browser.ts',
+    count: 2,
+    category: 'policy',
+    reason:
+      'browser-safe no-tools table + bundled composer rules stay in browser entry; tested against manifests',
+    policy: 'packages/harness/src/browser.ts',
+  },
+  {
+    file: 'packages/harness/src/registry.ts',
+    count: 7,
+    category: 'policy',
+    reason: 'registry is the allowed closed-set home; lookups degrade for unknown harnesses',
+    policy: 'packages/harness/src/registry.ts',
+  },
+  {
+    file: 'packages/runtime/src/harness-defaults.ts',
+    count: 6,
+    category: 'policy',
+    reason:
+      'superagent harness order + shipwright eval choice are Podium policy, stay; must not move into an adapter (spec §5)',
+    policy: 'packages/runtime/src/harness-defaults.ts',
+  },
+  {
+    file: 'packages/runtime/src/settings.ts',
+    count: 5,
+    category: 'leak',
+    reason:
+      'homonym: Codex ApiProvider id + provider-selected account (provider collision class), not harness branching; needs a lint rule for non-harness spellings (POD-4437)',
+    issue: 'POD-4437',
+  },
+  {
+    file: 'packages/sync/src/conformance/suite.ts',
+    count: 3,
+    category: 'leak',
+    reason: 'vendor literal outside adapters/families; move into adapter or family',
+    issue: 'POD-4414',
+  },
+  {
+    file: 'packages/sync/src/replica/replica.ts',
+    count: 1,
+    category: 'leak',
+    reason:
+      'homonym: sync event discriminant (cursor frame type), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)',
+    issue: 'POD-4437',
+  },
+  {
+    file: 'packages/sync/src/replica/types.ts',
+    count: 1,
+    category: 'leak',
+    reason:
+      'homonym: sync event union member (cursor frame type), not the Cursor harness; needs a lint rule for non-harness spellings (POD-4437)',
+    issue: 'POD-4437',
+  },
+  {
+    file: 'packages/telemetry/src/example.ts',
+    count: 3,
+    category: 'leak',
+    reason: 'vendor literal outside adapters/families; move into adapter or family',
+    issue: 'POD-4414',
+  },
+  {
+    file: 'scripts/agent-smoke-reporter.ts',
+    count: 9,
+    category: 'policy',
+    reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier',
+    policy: 'scripts/agent-smoke-reporter.ts',
+  },
+  {
+    file: 'scripts/audit-god-objects.ts',
+    count: 1,
+    category: 'policy',
+    reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier',
+    policy: 'scripts/audit-god-objects.ts',
+  },
+  {
+    file: 'scripts/bun-session-smoke.ts',
+    count: 1,
+    category: 'policy',
+    reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier',
+    policy: 'scripts/bun-session-smoke.ts',
+  },
+  {
+    file: 'scripts/harness-environment-container-probe.ts',
+    count: 4,
+    category: 'policy',
+    reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier',
+    policy: 'scripts/harness-environment-container-probe.ts',
+  },
+  {
+    file: 'scripts/lint-harness-versions.ts',
+    count: 3,
+    category: 'policy',
+    reason: 'build/lint tooling enumerates harnesses; stays in scripts build tier',
+    policy: 'scripts/lint-harness-versions.ts',
+  },
 ]

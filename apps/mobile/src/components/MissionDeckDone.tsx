@@ -15,7 +15,7 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
     <Pressable
       accessibilityRole="switch"
       aria-checked={full.showDone}
-      accessibilityLabel={`Done tasks, ${full.counts.done}`}
+      accessibilityLabel={`Done tasks, ${full.phoneCounts.done}`}
       testID="deck-filter-done"
       onPress={() => full.toggleShowDone()}
       style={({ pressed }) => [styles.toggle, pressed && styles.dimmed]}
@@ -27,7 +27,7 @@ export const DoneToggle = observer(function DoneToggle({ full }: { full: FullDec
 })
 
 export const DoneHidden = observer(function DoneHidden({ full }: { full: FullDeck }) {
-  const done = settled(() => (full.ready ? full.doneLine : null))
+  const done = settled(() => (full.ready ? full.phoneDoneLine : null))
   if (!done || done === LOADING) return null
   const label = done.tasks
     ? `${done.tasks} done hidden`

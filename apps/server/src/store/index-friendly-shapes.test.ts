@@ -10,9 +10,10 @@
 import { asMachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { TranscriptIndexRepository } from './conversations/transcript-index'
-import { syncQueriesOver } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, syncQueriesOver } from './executor/sync-drizzle'
 import { NotificationFactsRepository } from './notification-facts'
 import { prefixUpperBound } from './prefix-range'
 
@@ -35,7 +36,9 @@ describe('NotificationFactsRepository.retireFactKeyPrefix', () => {
   let facts: NotificationFactsRepository
 
   beforeEach(() => {
-    facts = new NotificationFactsRepository(syncQueriesOver(openMigratedTestDatabase()))
+    facts = new NotificationFactsRepository(
+      legacyWorkspaceQueries(syncQueriesOver(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    )
   })
 
   const claim = async (factKey: string) =>
@@ -71,7 +74,10 @@ describe('TranscriptIndexRepository keys', () => {
 
   beforeEach(() => {
     database = openMigratedTestDatabase()
-    index = new TranscriptIndexRepository(syncQueriesOver(database))
+    // The self-hosted workspace keys every FTS row, segment or not (POD-7022).
+    index = new TranscriptIndexRepository(
+      legacyWorkspaceQueries(syncQueriesOver(database), SELF_HOSTED_WORKSPACE_ID),
+    )
   })
 
   /** An FTS row as a build from before the key table wrote it: no key. */
@@ -97,7 +103,9 @@ describe('TranscriptIndexRepository keys', () => {
     expect(await contents('b')).toEqual(['b1'])
     // The FTS rows went with their keys: nothing of `a` is left to search.
     expect(database.prepare('SELECT count(*) AS n FROM transcript_fts').get()).toEqual({ n: 1 })
-    expect(database.prepare('SELECT count(*) AS n FROM transcript_fts_keys').get()).toEqual({ n: 1 })
+    expect(database.prepare('SELECT count(*) AS n FROM transcript_fts_keys').get()).toEqual({
+      n: 1,
+    })
   })
 
   it('keys the rows a table from before the keys holds when search opens', async () => {

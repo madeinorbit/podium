@@ -9,14 +9,12 @@
  * geometry until `attached`. C3 is unchanged and is what B2 rests on.
  */
 
+import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { asSessionId } from '@podium/model'
 import { encode, type ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { type CreateHub, createEngineHub } from '../engine/wiring'
-import { applyLegacyMetadataState } from '../replica/legacy-wire-v1-binding'
-import type { LegacyMetadataAppliedState } from '../replica/legacy-wire-v1-feed'
 import { memoryStorage } from '../replica/contract'
-import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { type CreateHub, createEngineHub } from '../runtime-root/connection/hub'
 import { type ConnectionState, SocketHub, type WebSocketLike } from './socket-hub'
 
 const SESSION = asSessionId('s-sizing')
@@ -139,7 +137,7 @@ describe('C1 (REWRITTEN for POD-3239 B2/B8): a SessionConnection has NO geometry
       onAttached: () => events.push('attached'),
     })
 
-    socket.deliver({ type: 'welcome', clientId: 'client-1' } as ServerMessage)
+    socket.deliver({ type: 'welcome', kindTokens: {}, clientId: 'client-1' } as ServerMessage)
 
     expect(events).toEqual(['state:undefinedxundefined'])
   })
@@ -208,45 +206,5 @@ describe('C3: the `attached` handler sets cols/rows and emits BEFORE onAttached'
       outputSeen: true,
     } as ServerMessage)
     expect(events).toEqual(['state:80x24', 'attached'])
-  })
-})
-
-// ---------------------------------------------------------------------------
-// C10 (replica half)
-// ---------------------------------------------------------------------------
-
-describe('C10: the server geometry reaches the client session row through the replica', () => {
-  it('a session row keeps the server value verbatim', () => {
-    const replica = createReplicaFixture({ storage: memoryStorage() })
-    const state = {
-      cursor: 1,
-      sessions: [
-        {
-          sessionId: 'sess-1',
-          cwd: '/w',
-          status: 'live',
-          controllerId: null,
-          geometry: { cols: 132, rows: 43 },
-          epoch: 0,
-          clientCount: 0,
-          createdAt: '2026-06-03T00:00:00.000Z',
-          lastActiveAt: '2026-06-03T00:00:00.000Z',
-          origin: { kind: 'spawn' },
-          machineId: 'm-1',
-        },
-      ],
-      issues: [],
-      issueProjections: [],
-      issueDeps: [],
-      repos: [],
-      conversations: [],
-      automations: [],
-      automationRuns: [],
-    } as unknown as LegacyMetadataAppliedState
-
-    applyLegacyMetadataState(replica, state)
-
-    const row = replica.rows('sessions')[0] as unknown as { geometry: unknown }
-    expect(row.geometry).toEqual({ cols: 132, rows: 43 })
   })
 })

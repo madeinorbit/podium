@@ -15,8 +15,9 @@
  * live database.
  */
 
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { relative } from 'node:path'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { is, Param, Placeholder } from 'drizzle-orm'
 import type { QueryClient } from '../store/executor/driver'
 import { type StoreDrizzle, storeQueriesOver } from '../store/executor/sync-drizzle'
 
@@ -57,6 +58,23 @@ function isQueryLike(value: unknown): value is QueryLike {
 export interface BuiltStatement {
   readonly sql: string
   readonly params: number
+  /**
+   * The placeholder name behind each bound value, in binding order; undefined
+   * for a value the definition fixed (a literal). The workspace-scope audit
+   * (POD-7014) reads which `?` is the `workspaceId` placeholder from it.
+   */
+  readonly placeholders: readonly (string | undefined)[]
+}
+
+/**
+ * The name of one bound value of a built query: drizzle keeps a
+ * `sql.placeholder(name)` as a `Placeholder`, and a `param(column, name)` (or a
+ * `.values()` entry, which the builder wraps) as a column `Param` around one.
+ */
+function placeholderName(value: unknown): string | undefined {
+  if (is(value, Placeholder)) return value.name
+  if (is(value, Param) && is(value.value, Placeholder)) return value.value.name
+  return undefined
 }
 
 /**
@@ -66,7 +84,13 @@ export interface BuiltStatement {
 export function statementsOf(built: unknown, depth = 0): BuiltStatement[] {
   if (isQueryLike(built)) {
     const query = built.getQuery()
-    return [{ sql: query.sql, params: query.params.length }]
+    return [
+      {
+        sql: query.sql,
+        params: query.params.length,
+        placeholders: query.params.map(placeholderName),
+      },
+    ]
   }
   if (depth < 2 && built !== null && typeof built === 'object') {
     return Object.values(built).flatMap((value) => statementsOf(value, depth + 1))
@@ -76,10 +100,10 @@ export function statementsOf(built: unknown, depth = 0): BuiltStatement[] {
 
 /**
  * The position a definition's stack names: the first frame outside
- * `prepared.ts`, as `file`, `line` and `column` of the code that RAN. Under the
- * test runner that is the transformed module, so the line is not the source
- * line; the transform keeps statements in source order, so positions within
- * one file sort the way the source does (see {@link matchSites}).
+ * `prepared.ts`, as `file`, `line` and `column` of the call. The registry formats
+ * each stack when the definition is made [POD-7064], so under the test runner
+ * every frame went through its source map and `line` is the SOURCE line: the
+ * line a definition site's call is on (see {@link siteContaining}).
  */
 export function definitionFrame(
   site: Error,
@@ -90,42 +114,34 @@ export function definitionFrame(
     if (!match) continue
     const file = relative(repoRoot, match[1]!).split('\\').join('/')
     if (file.endsWith('adapters/sqlite/prepared.ts')) continue
+    // A two-form definition registers through `prepared` from here [POD-6995].
+    if (file.endsWith('store/executor/dialect-prepared.ts')) continue
+    // The sync package's two-form definitions register from its own helper [POD-6984].
+    if (file.endsWith('adapters/pg/dialect.ts')) continue
     return { file, line: Number(match[2]), column: Number(match[3]) }
   }
   return undefined
 }
 
 /**
- * Pair the distinct definition positions seen in one file with that file's
- * definition sites. Both lists are in source order, so when every site was
- * reached the k-th position is the k-th site. When the counts differ even by
- * line the pairing is unknowable and nothing is returned; the caller reports
- * the file.
+ * The definition site whose call spans `line` of its file, or undefined. A
+ * definition is identified by WHERE its call is in the source, its line, and so
+ * by the site's name; never by its rank among the positions an engine reported,
+ * nor by a column (one call can report two, and the order of positions depends
+ * on how each stack was formatted) [POD-7064]. Sites do not share lines; where
+ * one call spans another (a definition inside a definition's callback) the
+ * innermost wins.
  */
-export function matchSites<S>(
-  positions: readonly { line: number; column: number }[],
+export function siteContaining<S extends { readonly startLine: number; readonly endLine: number }>(
   sites: readonly S[],
-): Map<string, S> | undefined {
-  const ordered = [...new Map(positions.map((p) => [`${p.line}:${p.column}`, p])).values()].sort(
-    (a, b) => a.line - b.line || a.column - b.column,
-  )
-  if (ordered.length === sites.length) {
-    return new Map(
-      ordered.map((position, index) => [`${position.line}:${position.column}`, sites[index]!]),
-    )
+  line: number,
+): S | undefined {
+  let found: S | undefined
+  for (const site of sites) {
+    if (line < site.startLine || line > site.endLine) continue
+    if (!found || site.endLine - site.startLine < found.endLine - found.startLine) found = site
   }
-  // A site evaluated more than once can report a second column for the same
-  // call (the engine's tiers do not always agree). Lines alone, when they
-  // pair one to one, are still unambiguous.
-  const lines = [...new Set(ordered.map((position) => position.line))].sort((a, b) => a - b)
-  if (lines.length !== sites.length) return undefined
-  const siteOfLine = new Map(lines.map((line, index) => [line, sites[index]!]))
-  return new Map(
-    ordered.map((position) => [
-      `${position.line}:${position.column}`,
-      siteOfLine.get(position.line)!,
-    ]),
-  )
+  return found
 }
 
 /** What the audit objects to in one plan. */
@@ -146,7 +162,10 @@ export function tablesOf(database: SqlDatabase): Set<string> {
 }
 
 /** `EXPLAIN QUERY PLAN` of one statement, every unbound value NULL. */
-export function explain(database: SqlDatabase, statement: BuiltStatement): string[] {
+export function explain(
+  database: SqlDatabase,
+  statement: Pick<BuiltStatement, 'sql' | 'params'>,
+): string[] {
   const nulls = Array.from({ length: statement.params }, () => null)
   const rows = database.prepare(`EXPLAIN QUERY PLAN ${statement.sql}`).all(...nulls) as {
     detail: string

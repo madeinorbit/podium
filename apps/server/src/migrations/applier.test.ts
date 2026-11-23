@@ -11,18 +11,22 @@
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { reportLifecycleProgress } from '@podium/runtime/lifecycle-channel'
 import {
   beginMachineUpdateMigrations,
   MACHINE_UPDATE_GRANT_ENV,
   MachineUpdateExecutor,
-  readMachineUpdateJournal,
   readAppliedUpdateMigrations,
+  readMachineUpdateJournal,
 } from '@podium/runtime/machine-update'
 import { rollbackDecision } from '@podium/runtime/parent-supervisor'
-import { migrateStoreConnection } from './store-lifecycle'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { appliedDrizzleNames, type DrizzleMigration, runDrizzleMigrations } from './index'
+import { migrateStoreConnection } from './store-lifecycle'
+
+vi.mock('@podium/runtime/lifecycle-channel', () => ({ reportLifecycleProgress: vi.fn() }))
 
 const A: DrizzleMigration = {
   name: '20260101000000_a',
@@ -56,6 +60,38 @@ function tmpDbFile(name: string): string {
 }
 
 describe('runDrizzleMigrations', () => {
+  it('reports distinct lifecycle stages for rebuilt tables and indexes', () => {
+    const db = openDatabase(':memory:')
+    try {
+      runDrizzleMigrations(db, [A])
+      vi.mocked(reportLifecycleProgress).mockClear()
+      const rebuild = {
+        name: '20260101000003_rebuild',
+        sql: [
+          'CREATE TABLE "__new_a" (id TEXT PRIMARY KEY);',
+          'INSERT INTO "__new_a" SELECT * FROM a;',
+          'DROP TABLE a;',
+          'ALTER TABLE "__new_a" RENAME TO "a";',
+          'CREATE INDEX a_id ON a (id);',
+          'CREATE UNIQUE INDEX a_unique ON a (id);',
+        ].join('\n--> statement-breakpoint\n'),
+      }
+      runDrizzleMigrations(db, [A, rebuild])
+      expect(vi.mocked(reportLifecycleProgress).mock.calls.map(([stage]) => stage)).toEqual([
+        'migration table 1/1: a',
+        'migration index 1',
+        'migration index 2',
+      ])
+      expect(appliedDrizzleNames(db)).toContain(rebuild.name)
+      expect(
+        db
+          .prepare('SELECT name FROM sqlite_master WHERE type = ? AND tbl_name = ?')
+          .all('index', 'a'),
+      ).toHaveLength(3)
+    } finally {
+      db.close()
+    }
+  })
   it('fresh apply: builds the tables and writes matching __drizzle_migrations rows', () => {
     const db = openDatabase(':memory:')
     const applied = runDrizzleMigrations(db, [A, B, C])
@@ -165,6 +201,122 @@ describe('runDrizzleMigrations', () => {
     expect(backupsIn().length).toBeGreaterThan(0)
 
     db.close()
+  })
+
+  it.each([
+    { scoped: false, stepId: 'machines' },
+    { scoped: true, stepId: 'server' },
+  ])('retains a disk refusal for the installed grant before migration (%j)', ({
+    scoped,
+    stepId,
+  }) => {
+    const file = tmpDbFile('refusal.db')
+    const db = openDatabase(file)
+    try {
+      runDrizzleMigrations(db, [A])
+      db.exec(`CREATE TABLE operations (
+        ${scoped ? 'workspace_id TEXT NOT NULL,' : ''}
+        id TEXT NOT NULL, kind TEXT NOT NULL, exclusion_group TEXT NOT NULL,
+        state TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+        finished_at INTEGER, payload TEXT NOT NULL,
+        PRIMARY KEY (${scoped ? 'workspace_id,' : ''} id))`)
+      const operation = {
+        id: 'op_update',
+        kind: 'update',
+        state: 'running',
+        exclusionGroup: 'lifecycle',
+        createdAt: 1,
+        updatedAt: 2,
+        details: { coordinatorSnapshotGrantId: 'installed', preserved: 'receipt' },
+        steps: [{ id: stepId, state: 'stalled', startedAt: 2 }],
+        futureField: 'preserved',
+      }
+      const payload = JSON.stringify(operation)
+      const insert = db.prepare(
+        `INSERT INTO operations VALUES (${scoped ? '?,' : ''} ?, 'update', 'lifecycle', 'running', 1, 2, NULL, ?)`,
+      )
+      if (scoped) insert.run('another-workspace', operation.id, payload)
+      insert.run(...(scoped ? [SELF_HOSTED_WORKSPACE_ID] : []), operation.id, payload)
+      expect(() =>
+        runDrizzleMigrations(db, [A, B], {
+          dbPath: file,
+          freeBytes: () => 0,
+          update: { grantId: 'installed', runtimeDir: join(dirname(file), 'runtime') },
+        }),
+      ).toThrow(/not enough free disk space/)
+      const rows = db.prepare('SELECT * FROM operations').all() as {
+        workspace_id?: string
+        state: string
+        updated_at: number
+        finished_at: number
+        payload: string
+      }[]
+      const row = rows.find((r) => !scoped || r.workspace_id === SELF_HOSTED_WORKSPACE_ID)
+      if (!row) throw new Error('missing local operation')
+      const refused = JSON.parse(row.payload)
+      expect(row.state).toBe('failed')
+      expect(row.finished_at).toBe(row.updated_at)
+      expect(refused).toMatchObject({
+        ...operation,
+        state: 'failed',
+        futureField: 'preserved',
+        finishedAt: row.finished_at,
+        error: {
+          code: 'handover-failed',
+          message: expect.stringContaining('not enough free disk space'),
+        },
+        updatedAt: row.updated_at,
+        steps: [
+          {
+            id: stepId,
+            state: 'failed',
+            error: { message: expect.stringContaining('not enough free disk space') },
+          },
+        ],
+      })
+      if (scoped)
+        expect(rows.find((r) => r.workspace_id === 'another-workspace')?.payload).toBe(payload)
+      expect(hasTable(db, 'b')).toBe(false)
+      expect(appliedDrizzleNames(db)).toEqual(new Set([A.name]))
+      expect(readdirSync(dirname(file)).some((n) => n.includes('.backup-v'))).toBe(false)
+    } finally {
+      db.close()
+    }
+  })
+
+  it.each([
+    { grantId: 'queued-later', state: 'running', steps: [{ id: 'server', state: 'running' }] },
+    { grantId: 'installed', state: 'done', steps: [{ id: 'server', state: 'done' }] },
+    { grantId: undefined, state: 'running', steps: [{ id: 'machines', state: 'running' }] },
+  ])('does not rewrite an unrelated or completed update on disk refusal: %j', (details) => {
+    const file = tmpDbFile('unrelated.db')
+    const db = openDatabase(file)
+    try {
+      runDrizzleMigrations(db, [A])
+      db.exec(
+        'CREATE TABLE operations (id TEXT PRIMARY KEY, kind TEXT, exclusion_group TEXT, state TEXT, created_at INTEGER, updated_at INTEGER, finished_at INTEGER, payload TEXT)',
+      )
+      const payload = JSON.stringify({
+        id: 'op_update',
+        kind: 'update',
+        state: details.state,
+        details: { coordinatorSnapshotGrantId: details.grantId },
+        steps: details.steps,
+      })
+      db.prepare(
+        "INSERT INTO operations VALUES ('op_update', 'update', 'lifecycle', ?, 1, 2, NULL, ?)",
+      ).run(details.state, payload)
+      expect(() =>
+        runDrizzleMigrations(db, [A, B], {
+          dbPath: file,
+          freeBytes: () => 0,
+          update: { grantId: 'installed', runtimeDir: join(dirname(file), 'runtime') },
+        }),
+      ).toThrow(/not enough free disk space/)
+      expect(db.prepare('SELECT payload FROM operations').get()).toEqual({ payload })
+    } finally {
+      db.close()
+    }
   })
 })
 

@@ -1,13 +1,13 @@
-import { asIssueId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
+import { asIssueId } from '@podium/model'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
+import { attachHostDaemon } from '../../test-support/host-daemon'
+import { openTestStore } from '../../test-support/open-test-store'
+import { sessionReadPorts } from '../../test-support/session-facts'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { SessionReadToolkit } from './read-toolkit'
-import { openTestStore } from '../../test-support/open-test-store'
-import { sessionReadPorts } from '../../test-support/session-facts'
-import { attachHostDaemon } from '../../test-support/host-daemon'
 import { readSessionRefs } from './refs'
 
 const ISSUE = {
@@ -63,7 +63,9 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
     effort: 'high',
   })
 
-  const row = (await store.sessions.loadSessions()).find((candidate) => candidate.id === spawned.sessionId)
+  const row = (await store.sessions.loadSessions()).find(
+    (candidate) => candidate.id === spawned.sessionId,
+  )
   expect(row).toMatchObject({
     model: 'spawn-selected-model',
     effort: 'high',
@@ -72,20 +74,21 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   expect(row?.model).not.toBe(ISSUE.defaultModel)
   expect(row?.effort).not.toBe(ISSUE.defaultEffort)
 
-  const meta = (await registry.modules.sessions
-    .listSessions(undefined, 'rpc'))
-    .find((candidate) => candidate.sessionId === spawned.sessionId)
+  const meta = (await registry.modules.sessions.listSessions(undefined, 'rpc')).find(
+    (candidate) => candidate.sessionId === spawned.sessionId,
+  )
   expect(meta).toMatchObject({
     model: 'spawn-selected-model',
     effort: 'high',
     observedModel: 'observed-model',
     observedEffort: 'xhigh',
-    contextUsagePercent: 37.5,
-    machineName: expect.any(String),
   })
 
   const toolkit = new SessionReadToolkit({
     ...sessionReadPorts(() => [meta as SessionMeta]),
+    // Context is a running-session fact. The durable metadata projection no
+    // longer carries the LiveStore/topic reading or the machine-name join.
+    readSessionFactsByIds: (ids) => registry.modules.sessions.readSessionFactsByIds(ids),
     sessionById: async (sessionId) =>
       sessionId === (meta as SessionMeta).sessionId ? (meta as SessionMeta) : undefined,
     sessionsById: async (sessionIds) => {
@@ -94,15 +97,16 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
     },
     sessionRefs: async (sessions) => await readSessionRefs(store, sessions),
     machineName: async (machineId) => await registry.modules.machines.machineName(machineId),
-    issues: ({
+    machineOnline: (machineId) => registry.modules.machines.hasDaemon(machineId),
+    issues: {
       reports: {
         resolveRef: async () => ISSUE.id,
         getMeta: async () => ISSUE,
         get: async () => ISSUE,
         issueForCwd: async () => ISSUE.id,
       },
-    }) as unknown as IssueService,
-    messages: ({ deliveredUnacked: async () => [] }) as unknown as MessageDeliveryService,
+    } as unknown as IssueService,
+    messages: { deliveredUnacked: async () => [] } as unknown as MessageDeliveryService,
     events: { appendEvent: async () => 1 },
     watermarks: {
       getRecapWatermark: async () => null,

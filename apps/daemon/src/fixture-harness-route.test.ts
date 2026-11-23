@@ -157,11 +157,9 @@ describe('fixture harness through the server→daemon route', () => {
 
   it('answers the login argv from the fixture inventory section', () => {
     // The exact seam control/session.ts reads before opening the login
-    // Terminal: Inventory owns the command, the session owns the process.
-    expect(managementLoginCommandFor('fixture')).toEqual({
-      cmd: 'fixture-agent',
-      args: ['login'],
-    })
+    // Terminal: Inventory owns the argv, the session owns the process. Argv
+    // only (POD-6536): the session binds argv[0] to the login context.
+    expect(managementLoginCommandFor('fixture')).toEqual({ args: ['login'] })
     expect(managementLoginCommandFor('some-future-cli')).toBeUndefined()
   })
 

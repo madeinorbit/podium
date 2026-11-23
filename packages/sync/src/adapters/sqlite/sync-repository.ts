@@ -1,6 +1,7 @@
+// workspace-scoped (POD-6959)
 /**
  * Sync aggregate — owns the durable read/write sync machinery:
- * the feed's identity (`feed_identity`, ADR 2 D1), the metadata oplog (`changes`,
+ * the tenant feed (`sync_feed`, ADR 2 D1), the metadata oplog (`changes`,
  * docs/spec/oplog-read-path.md), the outbox write path (`applied_mutations` +
  * `queued_messages`, docs/spec/outbox-write-path.md) and the node⇄hub
  * issue-write outbox (`upstream_outbox` — ARCHIVED at POD-309: read-only, see
@@ -23,216 +24,292 @@
  * now; this file names no connection and imports no raw handle. Two of them keep
  * a `sql` fragment for a construct the builder has no form for, and each says so
  * at its site.
+ *
+ * ONE WORKSPACE'S FEED (POD-7021, POD-6959 design 2.7). The repository is built
+ * over one workspace's query handle and takes its workspace from it: every
+ * statement below names the `workspaceId` placeholder, which the handle fills,
+ * and constrains each workspace table it touches to it (`inWorkspace`, and
+ * `sameWorkspace` for a self-join), so the feed row, the change log, the kind
+ * generations, the mutation receipts and the two injected server tables are all
+ * this workspace's. A caller cannot name another workspace, and a statement run
+ * inside another workspace's transaction is refused by the fill. The change
+ * capture table is per transaction, not per workspace: the drain
+ * (`apps/server/src/sync/record-source.ts`) refuses a captured row of another
+ * workspace.
  */
 
-import type { MutationId, SessionId } from '@podium/model'
+import type { MutationId, SessionId, WorkspaceId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { and, asc, count, eq, gt, gte, inArray, isNull, lt, lte, max, min, or, sql } from 'drizzle-orm'
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { and, asc, count, eq, gt, inArray, isNull, lt, lte, max, or, sql } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
-import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
-import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
+import type { AppliedMutationFallback } from '../../mutation-ledger'
+import { type DialectForms, dialectPrepared as dialectPreparedOn } from '../pg/dialect'
+import type { SyncTables } from './binding'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
+  type PreparedAccessor,
+  type PreparedFamilyAccessor,
   param,
-  prefixUpperBound,
-  prepared,
-  preparedFamily,
+  preparedFamily as preparedFamilyOn,
+  prepared as preparedOn,
+  sameWorkspace,
+  WORKSPACE,
+  type WorkspaceHandle,
 } from './prepared'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './store-queries'
+import type {
+  CaptureWrite,
+  QueuedMessagesTable,
+  SyncServerTables,
+  UpstreamOutboxTable,
+} from './server-tables'
+import type { StoreDrizzle, SyncQueries, TransactionRunner } from './store-queries'
 
-/**
- * SQLite's OWN autoincrement bookkeeping table, declared so that
- * {@link SyncRepository.maxChangeSeq} can read it through the builder rather
- * than as a whole raw statement.
- *
- * DELIBERATELY NOT IN `./schema.ts`. That file is named in `drizzle.config.ts`,
- * so a table declared there is a table drizzle-kit will try to CREATE — and
- * `sqlite_sequence` is the engine's, created and dropped by SQLite itself the
- * first time an AUTOINCREMENT table is written. Declaring it here keeps it out of
- * the journal while still giving the read the schema's names and types.
- *
- * It is not `sqlite_master` and it is not a `PRAGMA`: this is ordinary table data
- * on SQLite and on Turso alike (measured for the append spike,
- * `store/spike/turso-append/`), which is why the boundary lint's driver-only list
- * does not name it and why the read survives the remote backend.
- */
-const sqliteSequence = sqliteTable('sqlite_sequence', {
-  name: text().notNull(),
-  seq: integer().notNull(),
-})
+export { type SyncTables, sqliteSyncTables } from './binding'
 
-// Every query this repository runs, prepared once per store [POD-6147]. A
-// prepared query closes over the store's ONE drizzle instance, whose ambient
-// router resolves the enclosing span on every execution; the two
-// `change_latest` statements have relied on that since POD-3494.
+// The shared helpers, typed for this adapter's instance and tables. The same
+// functions, so each definition's registered site is still its own line.
+const prepared: <P>(
+  build: (db: StoreDrizzle, t: SyncTables) => P,
+) => PreparedAccessor<StoreDrizzle, P> = preparedOn
+const dialectPrepared: () => <P>(
+  forms: DialectForms<StoreDrizzle, SyncTables, P>,
+) => PreparedAccessor<StoreDrizzle, P> = dialectPreparedOn
+const preparedFamily: <K extends string | number, P>(
+  build: (db: StoreDrizzle, t: SyncTables, key: K) => P,
+) => PreparedFamilyAccessor<StoreDrizzle, K, P> = preparedFamilyOn
 
-const upsertLatestChangeState = prepared((db: StoreDrizzle) =>
+/** Take the current transaction's captured rows above a mark (POD-6920).
+ *  The table holds only what this transaction wrote since its last drain. */
+const drainCaptureRows = prepared((db, t) =>
   db
-    .insert(changeLatest)
-    .values({
-      entity: sql.placeholder('entity'),
-      entityId: sql.placeholder('entityId'),
-      seq: sql.placeholder('seq'),
-      payload: sql.placeholder('payload'),
-    })
-    .onConflictDoUpdate({
-      target: [changeLatest.entity, changeLatest.entityId],
-      set: { seq: sql`excluded.seq`, payload: sql`excluded.payload` },
+    .delete(t.syncCapture)
+    .where(gt(t.syncCapture.id, sql.placeholder('after')))
+    .returning({
+      id: t.syncCapture.id,
+      kind: t.syncCapture.kind,
+      source: t.syncCapture.source,
+      op: t.syncCapture.op,
+      oldKey: t.syncCapture.oldKey,
+      newKey: t.syncCapture.newKey,
     })
     .prepare(),
 )
 
-const deleteLatestChangeState = prepared((db: StoreDrizzle) =>
+/** One captured change: the model row a kind's source table lost, gained or
+ *  changed, as the old and new values of the source's key columns. */
+export interface CapturedRow {
+  readonly id: number
+  readonly kind: string
+  readonly source: number
+  readonly op: 'i' | 'u' | 'd'
+  readonly oldKey: readonly unknown[] | null
+  readonly newKey: readonly unknown[] | null
+}
+
+/** The newest captured row of the current transaction, 0 when none. */
+const captureHead = prepared((db, t) =>
   db
-    .delete(changeLatest)
-    .where(
-      and(
-        eq(changeLatest.entity, sql.placeholder('entity')),
-        eq(changeLatest.entityId, sql.placeholder('entityId')),
-      ),
+    .select({ head: sql<number>`coalesce(max(${t.syncCapture.id}), 0)` })
+    .from(t.syncCapture)
+    .prepare(),
+)
+
+/**
+ * Raise the generation of every kind captured after a mark, once per kind,
+ * in one statement: the kinds' rows come from `sync_capture` itself, so the
+ * statement count does not depend on what was written (POD-7100). A kind
+ * with no row yet starts at generation 1 (absent reads as 0).
+ */
+const bumpCapturedKindGenerations = prepared((db, t) =>
+  db
+    .insert(t.syncKind)
+    .select(
+      db
+        .selectDistinct({
+          workspaceId: sql<string>`${WORKSPACE}`.as('workspace_id'),
+          kind: t.syncCapture.kind,
+          generation: sql<number>`1`.as('generation'),
+        })
+        .from(t.syncCapture)
+        .where(gt(t.syncCapture.id, sql.placeholder('after'))),
     )
+    .onConflictDoUpdate({
+      target: [t.syncKind.workspaceId, t.syncKind.kind],
+      set: { generation: sql`${t.syncKind.generation} + 1` },
+    })
+    .prepare(),
+)
+
+// One row per registered kind in this tenant, independent of record count.
+const kindGenerations = prepared((db, t) =>
+  db
+    .select({ kind: t.syncKind.kind, generation: t.syncKind.generation })
+    .from(t.syncKind)
+    .where(inWorkspace(t.syncKind))
+    .prepare(),
+)
+
+/** UPDATE holds this tenant's row lock until the surrounding write commits.
+ * Postgres uses the same UPDATE ... RETURNING contract; it must never use a
+ * sequence, whose numbers can commit in a different order or survive rollback. */
+const reserveChangeSeqs = prepared((db, t) =>
+  db
+    .update(t.syncFeed)
+    .set({ headSeq: sql`${t.syncFeed.headSeq} + ${sql.placeholder('count')}` })
+    .where(inWorkspace(t.syncFeed))
+    .returning({ headSeq: t.syncFeed.headSeq })
+    .prepare(),
+)
+
+const currentFeedState = prepared((db, t) =>
+  db
+    .select({ headSeq: t.syncFeed.headSeq, floorSeq: t.syncFeed.floorSeq })
+    .from(t.syncFeed)
+    .where(inWorkspace(t.syncFeed))
+    .prepare(),
+)
+
+/** An empty feed's head 0 -> 1; the floor stays 1. Seq 0
+ * is the reserved cold-start cursor and a row at seq 0 is malformed (ADR 2 D12),
+ * so a start-up load stamped at head 0 cannot carry the model rows a fresh
+ * install may already hold (setup, migrations, backfills). Head 1 with no row
+ * at 1 is an ordinary empty range (0, 1]; a floor of 2 would sit above the
+ * load's head and refuse both the load and a delta from 0. Only a head of 0
+ * moves; it never renumbers. */
+const raiseEmptyHead = prepared((db, t) =>
+  db
+    .update(t.syncFeed)
+    .set({ headSeq: 1 })
+    .where(inWorkspace(t.syncFeed, eq(t.syncFeed.headSeq, 0)))
+    .prepare(),
+)
+
+const advanceFloor = prepared((db, t) =>
+  db
+    .update(t.syncFeed)
+    .set({
+      floorSeq: sql`coalesce((select min(${t.changes.seq}) from ${t.changes} where ${t.changes.workspaceId} = ${WORKSPACE}), ${t.syncFeed.headSeq} + 1)`,
+    })
+    .where(inWorkspace(t.syncFeed))
     .prepare(),
 )
 
 /**
  * One append chunk, keyed by its ROW COUNT (1 to the 100-row chunk of
  * {@link SyncRepository.appendChanges}): a VALUES list cannot be padded the way
- * an IN list can. Row `i` fills `entity${i}`, `entityId${i}`, `op${i}` and
- * `payload${i}`; every row shares `eventTime`.
+ * an IN list can. Row `i` fills `entity${i}`, `entityId${i}`, `op${i}`,
+ * `payload${i}` and the provenance triple `originId${i}`, `causationId${i}`,
+ * `mutationId${i}` (POD-6272); every row shares `eventTime`.
  */
-const insertChangeRows = preparedFamily((db: StoreDrizzle, rows: number) =>
+const insertChangeRows = preparedFamily((db, t, rows: number) =>
   db
-    .insert(changes)
+    .insert(t.changes)
     .values(
       Array.from({ length: rows }, (_, i) => ({
+        workspaceId: WORKSPACE,
+        seq: sql.placeholder(`seq${i}`),
         entity: sql.placeholder(`entity${i}`),
         entityId: sql.placeholder(`entityId${i}`),
         op: sql.placeholder(`op${i}`),
         payload: sql.placeholder(`payload${i}`),
         eventTime: sql.placeholder('eventTime'),
+        originId: sql.placeholder(`originId${i}`),
+        causationId: sql.placeholder(`causationId${i}`),
+        mutationId: sql.placeholder(`mutationId${i}`),
       })),
     )
     .prepare(),
 )
 
-const highestAssignedSeq = prepared((db: StoreDrizzle) =>
-  db
-    .select({ seq: sqliteSequence.seq })
-    .from(sqliteSequence)
-    .where(eq(sqliteSequence.name, 'changes'))
-    .prepare(),
-)
-
-const lowestRetainedSeq = prepared((db: StoreDrizzle) =>
-  db
-    .select({ seq: min(changes.seq) })
-    .from(changes)
-    .prepare(),
-)
-
-// FIVE COLUMNS OF NINE, named rather than spread [spec rule 39]: the original
-// statement projected a subset, and a spread would read the four provenance
-// and clock columns nobody here asks for.
-const changesAfter = prepared((db: StoreDrizzle) =>
+// EIGHT COLUMNS OF NINE, named rather than spread [spec rule 39]: the five the
+// original statement projected plus the provenance triple a reader now needs to
+// confirm a client's write (POD-6272). `event_time` stays unread: no range
+// reader asks for the clock.
+const changesAfter = prepared((db, t) =>
   db
     .select({
-      seq: changes.seq,
-      entity: changes.entity,
-      entityId: changes.entityId,
-      op: changes.op,
-      payload: changes.payload,
+      seq: t.changes.seq,
+      entity: t.changes.entity,
+      entityId: t.changes.entityId,
+      op: t.changes.op,
+      payload: t.changes.payload,
+      originId: t.changes.originId,
+      causationId: t.changes.causationId,
+      mutationId: t.changes.mutationId,
     })
-    .from(changes)
-    .where(gt(changes.seq, param(changes.seq, 'cursor')))
-    .orderBy(asc(changes.seq))
+    .from(t.changes)
+    .where(inWorkspace(t.changes, gt(t.changes.seq, param(t.changes.seq, 'cursor'))))
+    .orderBy(asc(t.changes.seq))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-const changesBetween = prepared((db: StoreDrizzle) =>
+const changesBetween = prepared((db, t) =>
   db
     .select({
-      seq: changes.seq,
-      entity: changes.entity,
-      entityId: changes.entityId,
-      op: changes.op,
-      payload: changes.payload,
+      seq: t.changes.seq,
+      entity: t.changes.entity,
+      entityId: t.changes.entityId,
+      op: t.changes.op,
+      payload: t.changes.payload,
+      originId: t.changes.originId,
+      causationId: t.changes.causationId,
+      mutationId: t.changes.mutationId,
     })
-    .from(changes)
-    .where(and(gt(changes.seq, param(changes.seq, 'from')), lte(changes.seq, param(changes.seq, 'through'))))
-    .orderBy(asc(changes.seq))
-    .limit(sql.placeholder('limit'))
-    .prepare(),
-)
-
-// `INDEXED BY` HAS NO BUILDER FORM, so the FROM clause is an `sql` fragment —
-// see {@link SyncRepository.planChangePrune}.
-const newestAgedSeq = prepared((db: StoreDrizzle) =>
-  db
-    .select({ seq: max(changes.seq) })
-    .from(sql`${changes} indexed by ${sql.identifier('changes_event_time')}`)
-    .where(lt(changes.eventTime, param(changes.eventTime, 'before')))
-    .prepare(),
-)
-
-const deleteChangeHead = prepared((db: StoreDrizzle) =>
-  db
-    .delete(changes)
+    .from(t.changes)
     .where(
-      inArray(
-        changes.seq,
-        db
-          .select({ seq: changes.seq })
-          .from(changes)
-          .where(lte(changes.seq, param(changes.seq, 'thresholdSeq')))
-          .orderBy(asc(changes.seq))
-          .limit(sql.placeholder('batchSize')),
+      inWorkspace(
+        t.changes,
+        gt(t.changes.seq, param(t.changes.seq, 'from')),
+        lte(t.changes.seq, param(t.changes.seq, 'through')),
       ),
     )
+    .orderBy(asc(t.changes.seq))
+    .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
-// FOUR COLUMNS OF FOUR — the whole table, named rather than spread so the
-// projection stays a statement about what this read wants [spec rule 39].
-const installedWorld = prepared((db: StoreDrizzle) =>
-  db
-    .select({
-      seq: changeLatest.seq,
-      entity: changeLatest.entity,
-      entityId: changeLatest.entityId,
-      payload: changeLatest.payload,
-    })
-    .from(changeLatest)
-    .prepare(),
-)
+const agedBefore = (t: SyncTables) =>
+  inWorkspace(t.changes, lt(t.changes.eventTime, param(t.changes.eventTime, 'before')))
 
-/**
- * Installed rows by key, `size` keys per statement [POD-6156]: one primary-key
- * seek per `(entity, entity_id)` pair. Each arm of the OR names both key
- * columns, so every arm is a seek on the primary key and the arms are read
- * together (SQLite's multi-index OR, a bitmap OR on Postgres). Never built at
- * size 0: an OR of nothing is no condition at all.
- */
-const installedRowsOfKeys = preparedFamily((db: StoreDrizzle, size: number) =>
+// `INDEXED BY` HAS NO BUILDER FORM, so the SQLite FROM clause is an `sql`
+// fragment — see {@link SyncRepository.planChangePrune}. Postgres has no index
+// hints: its planner takes `changes_event_time (workspace_id, event_time, seq)`
+// for the range on its own, and the Postgres query-plan audit (POD-6992) proves it.
+const newestAgedSeq = dialectPrepared()({
+  sqlite: (db, t) =>
+    db
+      .select({ seq: max(t.changes.seq) })
+      .from(sql`${t.changes} indexed by ${sql.identifier('changes_event_time')}`)
+      .where(agedBefore(t))
+      .prepare(),
+  pg: (db, t) =>
+    db
+      .select({ seq: max(t.changes.seq) })
+      .from(t.changes)
+      .where(agedBefore(t))
+      .prepare(),
+})
+
+const deleteChangeHead = prepared((db, t) =>
   db
-    .select({
-      seq: changeLatest.seq,
-      entity: changeLatest.entity,
-      entityId: changeLatest.entityId,
-      payload: changeLatest.payload,
-    })
-    .from(changeLatest)
+    .delete(t.changes)
     .where(
-      or(
-        ...Array.from({ length: Math.max(size, 1) }, (_, i) =>
-          and(
-            eq(changeLatest.entity, param(changeLatest.entity, `entity${i}`)),
-            eq(changeLatest.entityId, param(changeLatest.entityId, `entityId${i}`)),
-          ),
+      inWorkspace(
+        t.changes,
+        inArray(
+          t.changes.seq,
+          db
+            .select({ seq: t.changes.seq })
+            .from(t.changes)
+            .where(inWorkspace(t.changes, lte(t.changes.seq, param(t.changes.seq, 'thresholdSeq'))))
+            .orderBy(asc(t.changes.seq))
+            .limit(sql.placeholder('batchSize')),
         ),
       ),
     )
@@ -240,60 +317,92 @@ const installedRowsOfKeys = preparedFamily((db: StoreDrizzle, size: number) =>
 )
 
 /**
- * Installed ids of one kind under `size` key prefixes [POD-6156]: one primary-key
- * range per prefix, `entity = ? AND entity_id >= prefix AND entity_id < bound`,
- * the same OR-of-seeks shape as {@link installedRowsOfKeys}. Keys and seqs only;
- * no payload is read.
+ * Each of `size` changes by seq, with the change of the same row just before it
+ * (POD-6834). The earlier change is one primary-key seek through a correlated
+ * `max(seq)` on `changes_entity (workspace_id, entity, entity_id, seq)`; a row with
+ * no earlier change in the log (first write, or pruned) comes back with a NULL
+ * prior. Catch-up reads the log here only to compare two logged records of one
+ * row; a pruned prior answers "moved", which costs a re-send, never a fact.
  */
-const installedIdsUnderPrefixes = preparedFamily((db: StoreDrizzle, size: number) =>
+const priorChange = (t: SyncTables) => alias(t.changes, 'prior')
+const earlierChange = (t: SyncTables) => alias(t.changes, 'earlier')
+const changesWithPrior = preparedFamily((db, t, size: number) =>
   db
-    .select({ seq: changeLatest.seq, entityId: changeLatest.entityId })
-    .from(changeLatest)
+    .select({
+      seq: t.changes.seq,
+      op: t.changes.op,
+      payload: t.changes.payload,
+      // Named apart: the row reader keys columns by name, so a second `op` and
+      // `payload` would overwrite the change's own.
+      priorOp: sql<string | null>`${priorChange(t).op}`.as('prior_op'),
+      priorPayload: sql<string | null>`${priorChange(t).payload}`.as('prior_payload'),
+    })
+    .from(t.changes)
+    .leftJoin(
+      priorChange(t),
+      and(
+        sameWorkspace(priorChange(t), t.changes),
+        eq(
+          priorChange(t).seq,
+          db
+            .select({ seq: max(earlierChange(t).seq) })
+            .from(earlierChange(t))
+            .where(
+              and(
+                sameWorkspace(earlierChange(t), t.changes),
+                eq(earlierChange(t).entity, t.changes.entity),
+                eq(earlierChange(t).entityId, t.changes.entityId),
+                lt(earlierChange(t).seq, t.changes.seq),
+              ),
+            ),
+        ),
+      ),
+    )
+    .where(inWorkspace(t.changes, inListOf(t.changes.seq, size)))
+    .prepare(),
+)
+
+/** Seqs per grouped prior-change read: one parameter each. */
+const SEQ_CHUNK = 500
+const appliedMutationResult = prepared((db, t) =>
+  db
+    .select({ result: t.appliedMutations.result })
+    .from(t.appliedMutations)
     .where(
-      or(
-        ...Array.from({ length: Math.max(size, 1) }, (_, i) =>
-          and(
-            eq(changeLatest.entity, param(changeLatest.entity, `entity${i}`)),
-            gte(changeLatest.entityId, param(changeLatest.entityId, `from${i}`)),
-            lt(changeLatest.entityId, param(changeLatest.entityId, `below${i}`)),
-          ),
+      inWorkspace(
+        t.appliedMutations,
+        eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'mutationId')),
+      ),
+    )
+    .prepare(),
+)
+
+/** At most two primary-key hits; choose the current key before the legacy key. */
+const appliedMutationWithFallback = prepared((db, t) =>
+  db
+    .select({
+      mutationId: t.appliedMutations.mutationId,
+      result: t.appliedMutations.result,
+      appliedAt: t.appliedMutations.appliedAt,
+    })
+    .from(t.appliedMutations)
+    .where(
+      inWorkspace(
+        t.appliedMutations,
+        or(
+          eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'mutationId')),
+          eq(t.appliedMutations.mutationId, param(t.appliedMutations.mutationId, 'fallbackId')),
         ),
       ),
     )
     .prepare(),
 )
 
-/** Every installed row of one kind: a range of the primary key's first column [POD-6156]. */
-const installedRowsOfKind = prepared((db: StoreDrizzle) =>
+const insertAppliedMutation = prepared((db, t) =>
   db
-    .select({
-      seq: changeLatest.seq,
-      entity: changeLatest.entity,
-      entityId: changeLatest.entityId,
-      payload: changeLatest.payload,
-    })
-    .from(changeLatest)
-    .where(eq(changeLatest.entity, param(changeLatest.entity, 'entity')))
-    .prepare(),
-)
-
-/** Pairs per grouped key read: two parameters each, under SQLite's 999. */
-const KEY_CHUNK = 250
-/** Prefixes per grouped range read: three parameters each. */
-const PREFIX_CHUNK = 160
-
-const appliedMutationResult = prepared((db: StoreDrizzle) =>
-  db
-    .select({ result: appliedMutations.result })
-    .from(appliedMutations)
-    .where(eq(appliedMutations.mutationId, param(appliedMutations.mutationId, 'mutationId')))
-    .prepare(),
-)
-
-const insertAppliedMutation = prepared((db: StoreDrizzle) =>
-  db
-    .insert(appliedMutations)
+    .insert(t.appliedMutations)
     .values({
+      workspaceId: WORKSPACE,
       mutationId: sql.placeholder('mutationId'),
       proc: sql.placeholder('proc'),
       result: sql.placeholder('result'),
@@ -303,32 +412,64 @@ const insertAppliedMutation = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const deleteAppliedMutationsBefore = prepared((db: StoreDrizzle) =>
+/**
+ * ONE BATCH OF THE RECEIPT PRUNE (POD-7035): the oldest `batchSize` receipts
+ * applied before the cutoff, read off the front of
+ * `idx_applied_mutations_applied_at`. The janitor sends one batch per command;
+ * the boot path's single unbatched `DELETE … WHERE applied_at < ?` is gone, so a
+ * long uptime never turns into hundreds of megabytes deleted in one statement.
+ * The batch is named by its key, `(workspace_id, mutation_id)`, not by SQLite's
+ * rowid, so the one text runs on both engines.
+ */
+const deleteAppliedMutationsBatch = prepared((db, t) => {
+  const oldest = db
+    .select({ mutationId: t.appliedMutations.mutationId })
+    .from(t.appliedMutations)
+    .where(
+      inWorkspace(
+        t.appliedMutations,
+        lt(t.appliedMutations.appliedAt, param(t.appliedMutations.appliedAt, 'before')),
+      ),
+    )
+    .orderBy(asc(t.appliedMutations.appliedAt))
+    .limit(sql.placeholder('batchSize'))
+  return db
+    .delete(t.appliedMutations)
+    .where(inWorkspace(t.appliedMutations, inArray(t.appliedMutations.mutationId, oldest)))
+    .prepare()
+})
+
+const currentFeedIdentity = prepared((db, t) =>
   db
-    .delete(appliedMutations)
-    .where(lt(appliedMutations.appliedAt, param(appliedMutations.appliedAt, 'before')))
+    .select({ feedId: t.syncFeed.feedId, epoch: t.syncFeed.epoch })
+    .from(t.syncFeed)
+    .where(inWorkspace(t.syncFeed))
     .prepare(),
 )
 
-const currentFeedIdentity = prepared((db: StoreDrizzle) =>
-  db
-    .select({ feedId: feedIdentity.feedId, epoch: feedIdentity.epoch })
-    .from(feedIdentity)
-    .where(eq(feedIdentity.singleton, 1))
-    .prepare(),
+const initialFeedValues = {
+  workspaceId: WORKSPACE,
+  feedId: sql.placeholder('feedId'),
+  epoch: sql.placeholder('epoch'),
+  mintedAt: sql.placeholder('mintedAt'),
+  headSeq: 0,
+  floorSeq: 1,
+}
+
+/** Created inside an append, whose reservation moves the head past 0 in the
+ *  same transaction, so this row is never observed at head 0. */
+const ensureFeedIdentity = prepared((db, t) =>
+  db.insert(t.syncFeed).values(initialFeedValues).onConflictDoNothing().prepare(),
 )
 
-const upsertFeedIdentity = prepared((db: StoreDrizzle) =>
+/** An identity minted before any append creates the feed at head 1, never 0:
+ *  see `raiseEmptyHead` (ADR 2 D12). An existing row keeps its counters. */
+const upsertFeedIdentity = prepared((db, t) =>
   db
-    .insert(feedIdentity)
-    .values({
-      singleton: 1,
-      feedId: sql.placeholder('feedId'),
-      epoch: sql.placeholder('epoch'),
-      mintedAt: sql.placeholder('mintedAt'),
-    })
+    .insert(t.syncFeed)
+    .values({ ...initialFeedValues, headSeq: 1 })
     .onConflictDoUpdate({
-      target: feedIdentity.singleton,
+      target: t.syncFeed.workspaceId,
       set: {
         feedId: sql`excluded.feed_id`,
         epoch: sql`excluded.epoch`,
@@ -344,12 +485,16 @@ const upsertFeedIdentity = prepared((db: StoreDrizzle) =>
  * in, so they are defined per repository rather than at module level; each
  * definition still prepares once per drizzle instance.
  */
-function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutboxTable) {
+function serverTableQueries(
+  queued: QueuedMessagesTable,
+  upstream: UpstreamOutboxTable,
+  captureWrite: CaptureWrite,
+) {
   return {
-    insertQueued: prepared((db: StoreDrizzle) =>
-      db
-        .insert(queued)
-        .values({
+    insertQueued: prepared((db) =>
+      captureWrite(
+        db.insert(queued).values({
+          workspaceId: WORKSPACE,
           id: sql.placeholder('id'),
           sessionId: sql.placeholder('sessionId'),
           text: sql.placeholder('text'),
@@ -364,16 +509,25 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
           sourceMessageId: sql.placeholder('sourceMessageId'),
           delivery: sql.placeholder('delivery'),
           attachmentsJson: sql.placeholder('attachmentsJson'),
-        })
+          // THE QUEUE'S ORDER, TAKEN IN THIS STATEMENT (POD-7075): one more than the
+          // session's highest. One workspace's writers are serialised (SQLite's one
+          // writer; on Postgres the workspace lock every write takes first), so no two
+          // enqueues of a session read the same maximum, and the order is the order
+          // the rows were queued on both engines: no wall clock, no engine row order.
+          // A replay that inserts nothing takes no number.
+          queueOrder: sql`(select coalesce(max(${queued.queueOrder}), 0) + 1 from ${queued} where ${queued.workspaceId} = ${WORKSPACE} and ${queued.sessionId} = ${sql.placeholder('sessionId')})`,
+        }),
+      )
         .onConflictDoNothing()
         .prepare(),
     ),
 
-    // SIXTEEN COLUMNS OF SEVENTEEN, named [spec rule 39]: `session_id` is the
-    // predicate, not part of the answer. `queued_at` is the ordering AND an
-    // answer since POD-4360: the inbox compares it against the transcript to
-    // recognise a row a previous server process already delivered.
-    queuedOfSession: prepared((db: StoreDrizzle) =>
+    // SIXTEEN COLUMNS OF EIGHTEEN, named [spec rule 39]: `session_id` is the
+    // predicate and `queue_order` the ordering, not part of the answer. `queued_at`
+    // is an answer since POD-4360: the inbox compares it against the transcript to
+    // recognise a row a previous server process already delivered. It is no longer
+    // the order: a clock can step back, and two rows can share a millisecond.
+    queuedOfSession: prepared((db) =>
       db
         .select({
           id: queued.id,
@@ -394,87 +548,140 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
           retractRequestedAt: queued.retractRequestedAt,
         })
         .from(queued)
-        .where(eq(queued.sessionId, param(queued.sessionId, 'sessionId')))
-        .orderBy(asc(queued.queuedAt), asc(sql`rowid`))
+        .where(inWorkspace(queued, eq(queued.sessionId, param(queued.sessionId, 'sessionId'))))
+        .orderBy(asc(queued.queueOrder))
         .prepare(),
     ),
 
     /** Keyed by the restriction: none, one session, or a set of sessions as a
      *  portable `IN` list keyed by its prepared size ({@link inListSize}). */
-    queuedCounts: preparedFamily((db: StoreDrizzle, scope: 'all' | 'one' | number) =>
+    queuedCounts: preparedFamily((db, _t, scope: 'all' | 'one' | number) =>
       db
         .select({ sessionId: queued.sessionId, n: count() })
         .from(queued)
-        .where(scope === 'all' ? undefined : scope === 'one'
-          ? eq(queued.sessionId, param(queued.sessionId, 'sessionId'))
-          : inListOf(queued.sessionId, scope, 'ids'))
+        .where(
+          inWorkspace(
+            queued,
+            scope === 'all'
+              ? undefined
+              : scope === 'one'
+                ? eq(queued.sessionId, param(queued.sessionId, 'sessionId'))
+                : inListOf(queued.sessionId, scope, 'ids'),
+          ),
+        )
         .groupBy(queued.sessionId)
         .prepare(),
     ),
 
-    deleteQueued: prepared((db: StoreDrizzle) =>
-      db.delete(queued).where(eq(queued.id, param(queued.id, 'id'))).prepare(),
-    ),
-
-    deleteUnreservedQueued: prepared((db: StoreDrizzle) =>
+    queuedSessionOf: prepared((db) =>
       db
-        .delete(queued)
-        .where(and(eq(queued.id, param(queued.id, 'id')), isNull(queued.deliveryOwner)))
+        .select({ sessionId: queued.sessionId })
+        .from(queued)
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
+        .prepare(),
+    ),
+    deleteQueued: prepared((db) =>
+      captureWrite(db.delete(queued))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
-    requestQueuedRetract: prepared((db: StoreDrizzle) =>
+    deleteUnreservedQueued: prepared((db) =>
+      captureWrite(db.delete(queued))
+        .where(
+          inWorkspace(queued, eq(queued.id, param(queued.id, 'id')), isNull(queued.deliveryOwner)),
+        )
+        .prepare(),
+    ),
+
+    requestQueuedRetract: prepared((db) =>
       db
         .update(queued)
-        .set({ retractRequestedAt: sql`coalesce(${queued.retractRequestedAt}, ${sql.placeholder('at')})` })
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .set({
+          retractRequestedAt: sql`coalesce(${queued.retractRequestedAt}, ${sql.placeholder('at')})`,
+        })
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
-    clearQueuedRetract: prepared((db: StoreDrizzle) =>
+    clearQueuedRetract: prepared((db) =>
       db
         .update(queued)
         .set({ retractRequestedAt: null })
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
-    reserveQueuedDelivery: prepared((db: StoreDrizzle) =>
-      db.update(queued)
-        .set({ deliveryOwner: 'daemon', attempts: sql`max(${queued.attempts}, 1)` })
-        .where(eq(queued.id, param(queued.id, 'id'))).prepare(),
-    ),
+    // Two-argument `MAX` is SQLite's scalar maximum; Postgres spells it `GREATEST`.
+    reserveQueuedDelivery: dialectPrepared()({
+      sqlite: (db) =>
+        db
+          .update(queued)
+          .set({ deliveryOwner: 'daemon', attempts: sql`max(${queued.attempts}, 1)` })
+          .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
+          .prepare(),
+      pg: (db) =>
+        db
+          .update(queued)
+          .set({ deliveryOwner: 'daemon', attempts: sql`greatest(${queued.attempts}, 1)` })
+          .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
+          .prepare(),
+    }),
 
-    releaseQueuedDelivery: prepared((db: StoreDrizzle) =>
-      db.update(queued)
+    releaseQueuedDelivery: prepared((db) =>
+      db
+        .update(queued)
         .set({ deliveryOwner: null, attempts: sql.placeholder('attempts') })
-        .where(and(eq(queued.id, param(queued.id, 'id')), eq(queued.deliveryOwner, 'daemon'))).prepare(),
+        .where(
+          inWorkspace(
+            queued,
+            eq(queued.id, param(queued.id, 'id')),
+            eq(queued.deliveryOwner, 'daemon'),
+          ),
+        )
+        .prepare(),
     ),
 
-    bumpQueuedAttempts: prepared((db: StoreDrizzle) =>
+    bumpQueuedAttempts: prepared((db) =>
       db
         .update(queued)
         .set({ attempts: sql`${queued.attempts} + 1` })
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
-    resetQueuedAttempts: prepared((db: StoreDrizzle) =>
+    resetQueuedAttempts: prepared((db) =>
       db
         .update(queued)
         .set({ attempts: 0 })
-        .where(eq(queued.id, param(queued.id, 'id')))
+        .where(inWorkspace(queued, eq(queued.id, param(queued.id, 'id'))))
         .prepare(),
     ),
 
-    deleteQueuedOfSession: prepared((db: StoreDrizzle) =>
-      db.delete(queued).where(eq(queued.sessionId, param(queued.sessionId, 'sessionId'))).prepare(),
+    deleteQueuedOfSession: prepared((db) =>
+      captureWrite(db.delete(queued))
+        .where(inWorkspace(queued, eq(queued.sessionId, param(queued.sessionId, 'sessionId'))))
+        .prepare(),
     ),
 
-    // THREE COLUMNS OF FIVE, named [spec rule 39]: `input` is the parked payload
-    // this report deliberately does not read, and `attempts` belongs to the
-    // retired forwarder.
-    parkedUpstream: prepared((db: StoreDrizzle) =>
+    // The expiry of one session's rows queued at or before a time (POD-7035):
+    // a range of one session on `queued_messages_session`.
+    deleteQueuedOfSessionThrough: prepared((db) =>
+      captureWrite(db.delete(queued))
+        .where(
+          inWorkspace(
+            queued,
+            eq(queued.sessionId, param(queued.sessionId, 'sessionId')),
+            lte(queued.queuedAt, sql.placeholder('through')),
+          ),
+        )
+        .prepare(),
+    ),
+
+    // THREE COLUMNS OF SIX, named [spec rule 39]: `input` is the parked payload
+    // this report deliberately does not read, `attempts` belongs to the retired
+    // forwarder, and `queue_order` (numbered by its migration, POD-7075) is the order.
+    parkedUpstream: prepared((db) =>
       db
         .select({
           mutationId: upstream.mutationId,
@@ -482,7 +689,8 @@ function serverTableQueries(queued: QueuedMessagesTable, upstream: UpstreamOutbo
           queuedAt: upstream.queuedAt,
         })
         .from(upstream)
-        .orderBy(asc(upstream.queuedAt), asc(sql`rowid`))
+        .where(inWorkspace(upstream))
+        .orderBy(asc(upstream.queueOrder))
         .prepare(),
     ),
   }
@@ -503,17 +711,37 @@ function mapChangeLogReadRow(r: {
   entityId: string
   op: string
   payload: string | null
+  originId?: string | null
+  causationId?: string | null
+  mutationId?: MutationId | null
 }): ChangeLogReadRow {
-  return {
+  const row: ChangeLogReadRow = {
     seq: r.seq,
     entity: r.entity as ChangeLogReadRow['entity'],
     entityId: r.entityId,
     op: r.op as ChangeLogReadRow['op'],
     payload: r.payload,
   }
+  // A NULL provenance column is an ABSENT key, never `null` (POD-6272): the
+  // row had no causing command, and the model's fields are optional, not nullable.
+  if (r.originId != null) row.originId = r.originId
+  if (r.causationId != null) row.causationId = r.causationId
+  if (r.mutationId != null) row.mutationId = r.mutationId
+  return row
 }
 
 export class SyncRepository {
+  /**
+   * Queue membership changes the dependent session record: a queue write runs
+   * as a change-log commit, which drains the database's change capture in the
+   * source transaction (POD-6920). Installed by composition.
+   */
+  sessionRecordWrite?: <T>(write: () => Promise<T>) => Promise<T>
+
+  private async writeQueue<T>(write: () => Promise<T>): Promise<T> {
+    return this.sessionRecordWrite ? await this.sessionRecordWrite(write) : await write()
+  }
+
   /**
    * The two server-owned tables, as the drizzle objects the composition root
    * hands in rather than spelled out in the SQL below. That is the whole point of
@@ -529,123 +757,166 @@ export class SyncRepository {
    * this adapter OWNS get rule 3's names and types through `./schema.ts`.
    */
   private readonly serverTables: ReturnType<typeof serverTableQueries>
-  /** The store's one drizzle instance; the executor routes each statement to the current transaction. */
-  private readonly rootDb: StoreDrizzle
+  /**
+   * The workspace's query handle over the store's one drizzle instance: the
+   * executor routes each statement to the current transaction, and the handle
+   * fills each statement's `workspaceId`.
+   */
+  private readonly db: WorkspaceHandle<StoreDrizzle>
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  private get db() {
-    return this.rootDb
+  /**
+   * Built over one workspace's queries (a workspace's store, POD-7010): every
+   * statement takes its workspace from the handle, so there is no default and no
+   * statement a caller can point at another workspace. The transaction runner
+   * opens that workspace's transaction. `workspaceId` is the workspace the
+   * builder means; it must be the handle's, so a repository built over another
+   * workspace's queries is refused here rather than at its first statement.
+   */
+  constructor(queries: SyncQueries, tables: SyncServerTables, workspaceId: string) {
+    const context = queries.db.context
+    if (context.kind !== 'workspace' || !context.workspaceId) {
+      throw new Error('a sync repository requires a workspace handle')
+    }
+    if (context.workspaceId !== workspaceId) {
+      throw new Error(
+        `a sync repository for workspace ${workspaceId} was built over the queries of workspace ${context.workspaceId}`,
+      )
+    }
+    this.db = queries.db
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+    this.serverTables = serverTableQueries(
+      tables.queuedMessages,
+      tables.upstreamOutbox,
+      tables.captureWrite,
+    )
   }
 
-  constructor(queries: StoreQueries, tables: SyncServerTables) {
-    this.rootDb = queries.rootDb
-    this.createOrJoinTransaction = queries.createOrJoinTransaction
-    this.serverTables = serverTableQueries(tables.queuedMessages, tables.upstreamOutbox)
+  /** The workspace whose feed this is. */
+  get workspaceId(): WorkspaceId {
+    return this.db.context.workspaceId
   }
 
   // ---- metadata oplog (docs/spec/oplog-read-path.md) ----
 
   /**
    * Append a batch of change rows in one transaction and return their assigned seqs
-   * (contiguous — the whole batch commits inside BEGIN IMMEDIATE, so no interleaving).
-   * The caller (Ledger) has already deduped; rows arrive only for real changes.
+   * (contiguous — reservation and append commit together under the tenant row lock).
+   * The Authority sends one row per record the drained capture reached.
    *
    * Row type is {@link ChangeLogWriteRow} — composed from the lifecycle shape,
    * not restated here (POD-1251).
    */
   async appendChanges(rows: readonly ChangeLogWriteRow[], eventTime: number): Promise<number[]> {
     if (rows.length === 0) return []
+    // Ten bound values per row including repeated tenant/event time placeholders:
+    // 100 rows fit SQLite's supported builds (the previous batch already repeated
+    // eventTime per row). Never pad a VALUES list: every action gets one number.
     const seqs: number[] = []
-    // Stay below SQLite's conservative 999-parameter builds (100 × 5 = 500)
-    // while collapsing a live-scale reconcile from hundreds of statements to a
-    // handful. One outer transaction preserves the contiguous, non-interleaved
-    // sequence contract across every chunk.
-    //
-    // STILL FIVE PARAMETERS PER ROW after the conversion, verified by printing
-    // the statement: drizzle names all nine columns but emits a literal `null`
-    // for `seq` and for the three provenance columns rather than binding them,
-    // so the chunk size still buys the same headroom it was chosen for.
     const chunkSize = 100
     await this.createOrJoinTransaction(async () => {
+      let reserved = await reserveChangeSeqs(this.db).get({ count: rows.length })
+      if (!reserved) {
+        // A first writer can precede client admission. A competing first writer
+        // must keep the winner's identity, so initialization never updates it.
+        await ensureFeedIdentity(this.db).run({
+          feedId: crypto.randomUUID(),
+          epoch: crypto.randomUUID(),
+          mintedAt: eventTime,
+        })
+        reserved = await reserveChangeSeqs(this.db).get({ count: rows.length })
+      }
+      if (!reserved) throw new Error('tenant feed reservation failed')
+      const first = reserved.headSeq - rows.length + 1
       for (let start = 0; start < rows.length; start += chunkSize) {
         const chunk = rows.slice(start, start + chunkSize)
-        // AN EXPLICIT NULL WHERE THE ORIGINAL OMITTED [spec rule 43], and it is
-        // safe on this table for both shapes it takes. `seq` is INTEGER PRIMARY
-        // KEY AUTOINCREMENT, where an explicit null auto-assigns exactly as an
-        // omission does; the three provenance columns are nullable with no
-        // DEFAULT clause, so null IS what the omission stored. No column of
-        // `changes` carries a default for an explicit null to defeat.
         const values: Record<string, unknown> = { eventTime }
         chunk.forEach((row, i) => {
+          values[`seq${i}`] = first + start + i
           values[`entity${i}`] = row.entity
           values[`entityId${i}`] = row.entityId
           values[`op${i}`] = row.op
           values[`payload${i}`] = row.payload
+          values[`originId${i}`] = row.originId ?? null
+          values[`causationId${i}`] = row.causationId ?? null
+          values[`mutationId${i}`] = row.mutationId ?? null
         })
-        const result = await insertChangeRows(this.db, chunk.length).run(values)
-        const last = Number(result.lastInsertRowid)
-        const first = last - chunk.length + 1
-        for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
-        await this.applyLatestChangeStates(chunk, first)
+        await insertChangeRows(this.db, chunk.length).run(values)
       }
+      for (let i = 0; i < rows.length; i++) seqs.push(first + i)
     })
     return seqs
   }
 
   /**
-   * Advance the installed world (`change_latest`) for one appended chunk, INSIDE
-   * the append's transaction — so the world can never describe a change the log
-   * does not hold, or miss one it does.
-   *
-   * ROW BY ROW, IN ORDER, and that is not a missed batching opportunity: a batch
-   * may legitimately carry `upsert` then `remove` for one entity (a first-sight
-   * row that is gone by the end of the same reconcile), and grouping the two ops
-   * into bulk statements would apply them in op order rather than log order —
-   * leaving the removed entity installed. Sequenced statements inside one
-   * transaction are what make "last write in the batch wins" true here for the
-   * same reason it is true in the log.
+   * DERIVED CHANGE CAPTURE (POD-6920): every row the capture triggers wrote
+   * in the current transaction since its last drain and after `after` (a
+   * {@link captureMark}), oldest first, taken off the table. A transaction
+   * may commit once the table is empty. One statement.
    */
-  private async applyLatestChangeStates(rows: readonly ChangeLogWriteRow[], firstSeq: number): Promise<void> {
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i] as ChangeLogWriteRow
-      // A payload-less upsert is the corrupt row every reader of the fold already
-      // skips, so the world it describes is "this entity is not installed" — which
-      // is what the delete arm writes. Storing it instead would put a NULL where
-      // the column says NOT NULL; keeping the PREVIOUS state would be worse still,
-      // since the folded log never showed it once a corrupt row landed on top.
-      if (row.op === 'upsert' && row.payload !== null) {
-        // TARGETED ON THE PRIMARY KEY, which is `change_latest`'s ONLY uniqueness
-        // constraint — checked with `pragma index_list` on the migrated table, so
-        // no conflict can arrive on a constraint this target does not cover
-        // [spec rule 31a].
-        await upsertLatestChangeState(this.db).run({
-          entity: row.entity,
-          entityId: row.entityId,
-          seq: firstSeq + i,
-          payload: row.payload,
-        })
-      } else {
-        await deleteLatestChangeState(this.db).run({ entity: row.entity, entityId: row.entityId })
-      }
-    }
+  async drainCapture(after = 0): Promise<CapturedRow[]> {
+    const rows = await drainCaptureRows(this.db).all({ after })
+    if (rows.length === 0) return []
+    return rows
+      .sort((a, b) => a.id - b.id)
+      .map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        source: row.source,
+        op: row.op as CapturedRow['op'],
+        oldKey: row.oldKey === null ? null : (JSON.parse(row.oldKey) as unknown[]),
+        newKey: row.newKey === null ? null : (JSON.parse(row.newKey) as unknown[]),
+      }))
   }
 
-  /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */
+  /**
+   * A write that no change log can take (one made while no server runs, such
+   * as a transfer target's offline promotion) retires its capture instead of
+   * draining it into the log: the generation of each kind it captured after
+   * `after` goes up, as a data migration's does, and the captured rows go.
+   * A client whose kind token names the older generation refetches the kind,
+   * so it does not keep a record the log never heard about (POD-7100).
+   * Returns the kinds, sorted. Two statements.
+   */
+  async retireCapture(after = 0): Promise<string[]> {
+    await bumpCapturedKindGenerations(this.db).run({ after })
+    const kinds = new Set((await this.drainCapture(after)).map((row) => row.kind))
+    return [...kinds].sort()
+  }
+
+  /**
+   * Where a commit nested in an open transaction starts: the newest row
+   * captured before it, which belongs to whoever wrote it (POD-6920).
+   */
+  async captureMark(): Promise<number> {
+    return (await captureHead(this.db).get())?.head ?? 0
+  }
+
+  /** Raise this tenant's head from 0 to 1 at writable boot, after migrations, so
+   *  every start-up load is stamped at a positive seq (ADR 2 D12). No-op otherwise. */
+  async raiseEmptyHead(): Promise<void> {
+    await raiseEmptyHead(this.db).run()
+  }
+
+  /** One snapshot read of this tenant's durable cursor bounds. */
+  async readFeedState(): Promise<{ headSeq: number; floorSeq: number }> {
+    return (
+      (await currentFeedState(this.db).get()) ?? {
+        headSeq: 0,
+        floorSeq: 1,
+      }
+    )
+  }
+
+  /** Highest committed seq for this tenant, surviving a fully pruned log. */
   async maxChangeSeq(): Promise<number> {
-    // ABSENT ROW, NOT ZERO, is the empty case: SQLite creates the
-    // `sqlite_sequence` entry on the first insert, so a log that has never been
-    // written has no row here at all.
-    const row = await highestAssignedSeq(this.db).get()
-    return row?.seq ?? 0
+    return (await this.readFeedState()).headSeq
   }
 
   /** Lowest RETAINED seq, or null when the log is empty. */
   async minChangeSeq(): Promise<number | null> {
-    // An aggregate over an empty table is still ONE row carrying NULL, which is
-    // the `null` this returns; the `?? null` is for `.get()`'s optional type, not
-    // for a case SQLite produces.
-    const row = await lowestRetainedSeq(this.db).get()
-    return row?.seq ?? null
+    const { headSeq, floorSeq } = await this.readFeedState()
+    return floorSeq <= headSeq ? floorSeq : null
   }
 
   /**
@@ -660,7 +931,11 @@ export class SyncRepository {
 
   /** Read exactly (from, through], with a bounded page size. */
   async changesInRange(from: number, through: number, limit: number): Promise<ChangeLogReadRow[]> {
-    const rows = await changesBetween(this.db).all({ from, through, limit })
+    const rows = await changesBetween(this.db).all({
+      from,
+      through,
+      limit,
+    })
     return rows.map((r) => mapChangeLogReadRow(r))
   }
 
@@ -674,143 +949,102 @@ export class SyncRepository {
    * recur inside every bounded delete unit. Rows appended after the snapshot are
    * intentionally handled by the next job.
    */
-  async planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): Promise<ChangePrunePlan> {
-    const rowCapSeq = await this.maxChangeSeq() - opts.keepRows
-    // `INDEXED BY` HAS NO BUILDER FORM, so the FROM clause is an `sql` fragment —
-    // which rule 1 allows inside a builder query, and which keeps the WHERE, the
-    // aggregate and the row decoding on the builder where the rest of this file
-    // is. The hint is load-bearing rather than decoration: measured on the
-    // fixture, `EXPLAIN QUERY PLAN` reports `SEARCH changes` without it against
-    // `SEARCH changes USING COVERING INDEX changes_event_time` with it, and this
-    // read runs once per prune job.
-    const aged = await newestAgedSeq(this.db).get({ before: opts.now - opts.maxAgeMs })
+  async planChangePrune(opts: {
+    keepRows: number
+    maxAgeMs: number
+    now: number
+  }): Promise<ChangePrunePlan> {
+    const rowCapSeq = (await this.maxChangeSeq()) - opts.keepRows
+    // Force the covering (workspace_id, event_time, seq) index: the age lookup
+    // seeks this tenant's time range and reads seq without loading log payloads.
+    // seq must be explicit because the composite primary key is not the rowid.
+    // `INDEXED BY` has no builder form, hence newestAgedSeq's SQL FROM fragment.
+    const aged = await newestAgedSeq(this.db).get({
+      before: opts.now - opts.maxAgeMs,
+    })
     return { thresholdSeq: Math.max(rowCapSeq, aged?.seq ?? 0) }
   }
 
   /**
    * [spec:SP-c29e] One bounded DELETE using the indexed seq primary key.
    *
-   * Touches `changes` ONLY. The installed world is not retained data — see
-   * {@link latestChangeStates} — so a prune that also swept it would be deleting
-   * the answer to "what is there?" in order to bound the answer to "what changed?".
+   * Trimming the catch-up log never changes the model tables used by bootstrap.
    */
   async pruneChangeBatch(plan: ChangePrunePlan, batchSize = 500): Promise<number> {
     if (!Number.isInteger(batchSize) || batchSize <= 0) {
       throw new RangeError('batchSize must be a positive integer')
     }
     if (plan.thresholdSeq <= 0) return 0
-    const result = await deleteChangeHead(this.db).run({ thresholdSeq: plan.thresholdSeq, batchSize })
-    return Number(result.changes)
+    return await this.createOrJoinTransaction(async () => {
+      // Take the same tenant lock as appends before changing the floor.
+      await reserveChangeSeqs(this.db).get({ count: 0 })
+      const result = await deleteChangeHead(this.db).run({
+        thresholdSeq: plan.thresholdSeq,
+        batchSize,
+      })
+      if (Number(result.changes) > 0) await advanceFloor(this.db).run()
+      return Number(result.changes)
+    })
   }
 
   /**
-   * THE INSTALLED WORLD — the latest state per (entity, id): the bootstrap read a
-   * client's whole world is built from.
-   *
-   * Read from `change_latest`, NOT folded from `changes` (POD-678). The fold over
-   * the log was only ever as complete as retention left it, and retention is a
-   * WINDOW: on the live install the 20k row budget bit after ~27 hours, so this
-   * returned 66 of 631 issues and every client that attached afterwards resolved
-   * the other 565 as unknown references. The projection is maintained by the one
-   * writer that appends the log and is never pruned, so "what is there?" stops
-   * depending on how recently it was written.
-   *
-   * ONLY LIVE UPSERTS come back, where the fold used to also return `remove`
-   * tombstones. No consumer read them: the bootstrap skips non-upsert rows
-   * before doing anything.
-   *
-   * READ AFRESH ON EVERY CALL [POD-6156]. It used to be kept in memory between
-   * appends for the visibility anchors, and parsed whole at boot into the
-   * Authority's dedup baseline. The anchors and dedup now read the rows they
-   * need by key ({@link installedStates}); the bootstrap is the one caller left.
+   * These changes by seq, each with the change of the same row just before it
+   * (POD-6834): what a visibility anchor compares to tell a write that MOVED a
+   * fact from one that rewrote it unchanged. One statement per
+   * {@link SEQ_CHUNK} seqs. A seq not in the log is absent; a change with no
+   * earlier change in the log has `prior` undefined.
    */
-  async latestChangeStates(): Promise<ChangeLogReadRow[]> {
-    const rows = await installedWorld(this.db).all()
-    // Read payload pages in table order. ORDER BY seq chooses change_latest_seq
-    // and scatters a full-world read across the DB (14.9s on the 1GB incident
-    // copy). Preserve the public sequence order with an in-memory numeric sort.
-    rows.sort((a, b) => a.seq - b.seq)
-    return rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
-  }
-
-  /**
-   * THE INSTALLED ROWS FOR THESE KEYS, and nothing else [POD-6156].
-   *
-   * What a visibility check reads after a write: the current value of each
-   * subject it re-scopes. Grouped, so a batch of any size costs one statement per
-   * {@link KEY_CHUNK} keys, never one per key. A key with no installed row is
-   * simply absent; the rows come back in no particular order.
-   */
-  async installedStates(
-    keys: readonly { readonly entity: string; readonly entityId: string }[],
-  ): Promise<ChangeLogReadRow[]> {
-    const distinct = [...new Map(keys.map((key) => [`${key.entity}\u0000${key.entityId}`, key])).values()]
-    const out: ChangeLogReadRow[] = []
-    for (let start = 0; start < distinct.length; start += KEY_CHUNK) {
-      const chunk = distinct.slice(start, start + KEY_CHUNK)
-      const size = inListSize(chunk.length)
-      const values: Record<string, unknown> = {}
-      for (let i = 0; i < size; i++) {
-        // Padding repeats the last key: a duplicate arm matches nothing new.
-        const key = chunk[Math.min(i, chunk.length - 1)] as (typeof chunk)[number]
-        values[`entity${i}`] = key.entity
-        values[`entityId${i}`] = key.entityId
+  async changesWithPrior(seqs: readonly number[]): Promise<
+    Map<
+      number,
+      {
+        readonly op: string
+        readonly payload: string | null
+        readonly prior?: { readonly op: string; readonly payload: string | null }
       }
-      const rows = await installedRowsOfKeys(this.db, size).all(values)
-      for (const row of rows) out.push(mapChangeLogReadRow({ ...row, op: 'upsert' }))
+    >
+  > {
+    const distinct = [...new Set(seqs)]
+    const out = new Map<
+      number,
+      {
+        op: string
+        payload: string | null
+        prior?: { op: string; payload: string | null }
+      }
+    >()
+    for (let start = 0; start < distinct.length; start += SEQ_CHUNK) {
+      const chunk = distinct.slice(start, start + SEQ_CHUNK)
+      const size = inListSize(chunk.length)
+      const values = inListValues(chunk, size, 'in')
+      for (const row of await changesWithPrior(this.db, size).all(values)) {
+        out.set(row.seq, {
+          op: row.op,
+          payload: row.payload,
+          ...(row.priorOp == null ? {} : { prior: { op: row.priorOp, payload: row.priorPayload } }),
+        })
+      }
     }
     return out
   }
 
-  /**
-   * Every installed row of one entity kind, in seq order [POD-6156]: what the
-   * Authority reconciles a kind's full truth against, and what a feed
-   * publisher seeds its carried set from. Sorted here, as
-   * {@link latestChangeStates} is, so the read walks the primary key.
-   */
-  async installedStatesOf(entity: string): Promise<ChangeLogReadRow[]> {
-    const rows = await installedRowsOfKind(this.db).all({ entity })
-    rows.sort((a, b) => a.seq - b.seq)
-    return rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
-  }
-
-  /**
-   * The installed ids of one kind that start with any of these prefixes, with
-   * their seqs [POD-6156]. Each prefix must end in an ASCII separator (see
-   * {@link prefixUpperBound}); the caller still checks that a returned id parses
-   * the way it expects, since a prefix only bounds the range.
-   */
-  async installedIdsWithPrefixes(
-    entity: string,
-    prefixes: readonly string[],
-  ): Promise<{ entityId: string; seq: number }[]> {
-    const distinct = [...new Set(prefixes)]
-    const out: { entityId: string; seq: number }[] = []
-    for (let start = 0; start < distinct.length; start += PREFIX_CHUNK) {
-      const chunk = distinct.slice(start, start + PREFIX_CHUNK)
-      const size = inListSize(chunk.length)
-      const values: Record<string, unknown> = {}
-      for (let i = 0; i < size; i++) {
-        const prefix = chunk[Math.min(i, chunk.length - 1)] as string
-        values[`entity${i}`] = entity
-        values[`from${i}`] = prefix
-        values[`below${i}`] = prefixUpperBound(prefix)
-      }
-      // Overlapping prefixes would return a key twice; the map keeps it once.
-      for (const row of await installedIdsUnderPrefixes(this.db, size).all(values)) {
-        out.push({ entityId: row.entityId, seq: row.seq })
-      }
-    }
-    return [...new Map(out.map((row) => [row.entityId, row])).values()]
-  }
-
-
   // ---- outbox write path (docs/spec/outbox-write-path.md) ----
 
   /** The stored result of an already-applied mutation, or undefined if new. */
-  async getAppliedMutation(mutationId: MutationId): Promise<string | undefined> {
-    const row = await appliedMutationResult(this.db).get({ mutationId })
-    return row?.result
+  async getAppliedMutation(
+    mutationId: MutationId,
+    fallback?: AppliedMutationFallback,
+  ): Promise<string | undefined> {
+    if (fallback === undefined)
+      return (await appliedMutationResult(this.db).get({ mutationId }))?.result
+    const rows = await appliedMutationWithFallback(this.db).all({
+      mutationId,
+      fallbackId: fallback.mutationId,
+    })
+    const current = rows.find((row) => row.mutationId === mutationId)
+    if (current !== undefined) return current.result
+    const legacy = rows.find((row) => row.mutationId === fallback.mutationId)
+    return legacy !== undefined && legacy.appliedAt < fallback.before ? legacy.result : undefined
   }
 
   async recordAppliedMutation(
@@ -829,8 +1063,14 @@ export class SyncRepository {
     await insertAppliedMutation(this.db).run({ mutationId, proc, result, appliedAt })
   }
 
-  async pruneAppliedMutations(opts: { maxAgeMs: number; now: number }): Promise<void> {
-    await deleteAppliedMutationsBefore(this.db).run({ before: opts.now - opts.maxAgeMs })
+  /** Delete at most `batchSize` of the oldest receipts applied before `before`;
+   *  returns how many went. */
+  async pruneAppliedMutationsBatch(before: number, batchSize: number): Promise<number> {
+    if (!Number.isInteger(batchSize) || batchSize <= 0) {
+      throw new RangeError('batchSize must be a positive integer')
+    }
+    const result = await deleteAppliedMutationsBatch(this.db).run({ before, batchSize })
+    return Number(result.changes)
   }
 
   /** Enqueue a message; the id IS the mutationId, so a replayed enqueue is a no-op.
@@ -866,23 +1106,25 @@ export class SyncRepository {
     // injected table object, not a null. That holds because the declaration
     // agrees with the shipped DDL, which is what `schema.test.ts` pins. Printed
     // to confirm, rather than reasoned from the builder.
-    const r = await this.serverTables.insertQueued(this.db).run({
-      id: row.id,
-      sessionId: row.sessionId,
-      text: row.text,
-      queuedAt: row.queuedAt,
-      inputOrigin: row.inputOrigin ?? 'unknown',
-      principalKind: row.principalKind ?? 'system',
-      principalRef: row.principalRef ?? 'legacy-session-inbox',
-      delegationRef: row.delegationRef ?? null,
-      actorKind: row.actorKind ?? 'system',
-      actorId: row.actorId ?? 'legacy-session-inbox',
-      onBehalfOf: row.onBehalfOf ?? null,
-      sourceMessageId: row.sourceMessageId ?? null,
-      delivery: row.delivery ?? 'when-ready',
-      attachmentsJson: row.attachmentsJson ?? null,
+    return await this.writeQueue(async () => {
+      const r = await this.serverTables.insertQueued(this.db).run({
+        id: row.id,
+        sessionId: row.sessionId,
+        text: row.text,
+        queuedAt: row.queuedAt,
+        inputOrigin: row.inputOrigin ?? 'unknown',
+        principalKind: row.principalKind ?? 'system',
+        principalRef: row.principalRef ?? 'legacy-session-inbox',
+        delegationRef: row.delegationRef ?? null,
+        actorKind: row.actorKind ?? 'system',
+        actorId: row.actorId ?? 'legacy-session-inbox',
+        onBehalfOf: row.onBehalfOf ?? null,
+        sourceMessageId: row.sourceMessageId ?? null,
+        delivery: row.delivery ?? 'when-ready',
+        attachmentsJson: row.attachmentsJson ?? null,
+      })
+      return Number(r.changes) > 0
     })
-    return Number(r.changes) > 0
   }
 
   /** FIFO head-first queue for one session. */
@@ -931,11 +1173,14 @@ export class SyncRepository {
   }
 
   /** Read current queue sizes, optionally restricted to one session or one set. */
-  async queuedMessageCounts(sessionId?: SessionId | readonly SessionId[]): Promise<Map<SessionId, number>> {
+  async queuedMessageCounts(
+    sessionId?: SessionId | readonly SessionId[],
+  ): Promise<Map<SessionId, number>> {
     if (sessionId === undefined || typeof sessionId === 'string') {
-      const rows = sessionId === undefined
-        ? await this.serverTables.queuedCounts(this.db, 'all').all()
-        : await this.serverTables.queuedCounts(this.db, 'one').all({ sessionId })
+      const rows =
+        sessionId === undefined
+          ? await this.serverTables.queuedCounts(this.db, 'all').all()
+          : await this.serverTables.queuedCounts(this.db, 'one').all({ sessionId })
       return new Map(rows.map((r) => [r.sessionId, r.n]))
     }
     // One query per 500 ids keeps a fleet-sized set below SQLite's parameter limit.
@@ -944,7 +1189,9 @@ export class SyncRepository {
     for (let i = 0; i < unique.length; i += 500) {
       const chunk = unique.slice(i, i + 500)
       const size = inListSize(chunk.length)
-      for (const r of await this.serverTables.queuedCounts(this.db, size).all(inListValues(chunk, size, 'ids'))) {
+      for (const r of await this.serverTables
+        .queuedCounts(this.db, size)
+        .all(inListValues(chunk, size, 'ids'))) {
         out.set(r.sessionId, r.n)
       }
     }
@@ -952,15 +1199,19 @@ export class SyncRepository {
   }
 
   async deleteQueuedMessage(id: string): Promise<void> {
-    await this.serverTables.deleteQueued(this.db).run({ id })
+    await this.writeQueue(async () => {
+      await this.serverTables.deleteQueued(this.db).run({ id })
+    })
   }
 
   /** Delete a row only while no daemon has custody of it (POD-4776): the one
    *  statement a retract and {@link reserveQueuedDelivery} race through, so
    *  exactly one of them wins. Answers whether THIS call deleted it. */
   async deleteUnreservedQueuedMessage(id: string): Promise<boolean> {
-    const r = await this.serverTables.deleteUnreservedQueued(this.db).run({ id })
-    return Number(r.changes) > 0
+    return await this.writeQueue(async () => {
+      const r = await this.serverTables.deleteUnreservedQueued(this.db).run({ id })
+      return Number(r.changes) > 0
+    })
   }
 
   /** A retract of a daemon-held row is on its way (POD-4776): until the daemon
@@ -1000,7 +1251,22 @@ export class SyncRepository {
 
   /** Drop a dead session's queue (kill without resume ref, permanent delete). */
   async deleteQueuedMessagesForSession(sessionId: SessionId): Promise<void> {
-    await this.serverTables.deleteQueuedOfSession(this.db).run({ sessionId })
+    await this.writeQueue(async () => {
+      await this.serverTables.deleteQueuedOfSession(this.db).run({ sessionId })
+    })
+  }
+
+  /**
+   * Expire one session's queued rows queued at or before `through` (epoch ms),
+   * as the session record's queue write (POD-7035). Returns how many went.
+   */
+  async expireQueuedMessagesOfSession(sessionId: SessionId, through: number): Promise<number> {
+    return await this.writeQueue(async () => {
+      const result = await this.serverTables
+        .deleteQueuedOfSessionThrough(this.db)
+        .run({ sessionId, through })
+      return Number(result.changes)
+    })
   }
 
   // ---- ARCHIVED: the retired node→hub issue-write outbox (POD-309) ----
@@ -1016,13 +1282,19 @@ export class SyncRepository {
    * boot) tells the operator they exist. A read with no writer cannot resurrect the
    * forwarding path; a table quietly dropped would have taken the evidence with it.
    */
-  async listParkedUpstreamMutations(): Promise<{ mutationId: MutationId; proc: string; queuedAt: number }[]> {
+  async listParkedUpstreamMutations(): Promise<
+    { mutationId: MutationId; proc: string; queuedAt: number }[]
+  > {
     const rows = await this.serverTables.parkedUpstream(this.db).all()
     return rows.map((r) => ({
       mutationId: r.mutationId,
       proc: r.proc as string,
       queuedAt: Number(r.queuedAt),
     }))
+  }
+
+  async readKindGenerations(): Promise<{ kind: string; generation: number }[]> {
+    return await kindGenerations(this.db).all()
   }
 
   // ---- feed identity (ADR 2 D1) ----
@@ -1043,15 +1315,22 @@ export class SyncRepository {
   }
 
   /**
-   * Persist the identity. UPSERT on the singleton key, so a bump REPLACES rather
+   * Persist the identity. UPSERT on the tenant key, so a bump REPLACES rather
    * than appends: there is exactly one current generation, and a table that could
    * hold two would leave "which epoch is this feed on?" answered by whichever row
    * a query happened to return first.
    */
-  async writeFeedIdentity(identity: { feedId: string; epoch: string }, mintedAt: number): Promise<void> {
-    // TARGETED ON THE PRIMARY KEY, which is `feed_identity`'s ONLY uniqueness
+  async writeFeedIdentity(
+    identity: { feedId: string; epoch: string },
+    mintedAt: number,
+  ): Promise<void> {
+    // TARGETED ON THE PRIMARY KEY, which is `sync_feed`'s ONLY uniqueness
     // constraint — checked with `pragma index_list` on the migrated table
     // [spec rule 31a].
-    await upsertFeedIdentity(this.db).run({ feedId: identity.feedId, epoch: identity.epoch, mintedAt })
+    await upsertFeedIdentity(this.db).run({
+      feedId: identity.feedId,
+      epoch: identity.epoch,
+      mintedAt,
+    })
   }
 }

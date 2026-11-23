@@ -1,7 +1,6 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { loadingNavigationProvider } from '@podium/client-core/navigation-provider'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { PoolScreen } from './host'
-import { NAVIGATION_SUMMARIES } from './navigation-schema'
 
 const generations = new WeakMap<ClientRuntime, object>()
 
@@ -18,11 +17,10 @@ export const navigationPoolScreen: PoolScreen = {
       runtime.setNavigationProvider(loadingNavigationProvider)
     }
   },
-  options: () => ({ summaries: NAVIGATION_SUMMARIES }),
   async attach(runtime, pool) {
     const generation = generations.get(runtime)
     const { createPoolNavigationProvider } = await import('./navigation-provider')
-    if (!generation || generations.get(runtime) !== generation || runtime.isDestroyed) return
+    if (!generation || generations.get(runtime) !== generation || runtime.isDisposed) return
     runtime.setNavigationProvider(createPoolNavigationProvider(pool))
     return () => {
       if (generations.get(runtime) === generation)

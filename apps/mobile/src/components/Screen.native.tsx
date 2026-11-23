@@ -4,7 +4,7 @@ import type { SFSymbol } from 'expo-symbols'
 import { memo, type ReactNode, use, useMemo, useState } from 'react'
 import { type LayoutChangeEvent, Platform, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
-import { useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
+import { UPDATING_SUBTITLE, useWorkspaceRefreshSubtitle } from '../client/workspace-refresh'
 import { HeaderInsetContext } from '../navigation/header-inset'
 import {
   headerSubtitleOptions,
@@ -50,6 +50,7 @@ export function Screen({
   monoSubtitle,
   underHeader,
   onTitlePress,
+  refreshing,
 }: {
   title?: string
   /** Use the system grouped-list ground beneath content and navigation. */
@@ -94,8 +95,12 @@ export function Screen({
    * Messages opens the contact card from the name in its bar.
    */
   onTitlePress?: () => void
+  refreshing?: boolean
 }) {
-  const refreshSubtitle = useWorkspaceRefreshSubtitle()
+  // A screen reloading data it already shows (POD-7157 `refreshing`) speaks
+  // through the same large-title subtitle as a workspace refresh, not a mark.
+  const refreshSubtitle =
+    useWorkspaceRefreshSubtitle() ?? (refreshing ? UPDATING_SUBTITLE : undefined)
   const subtitle = large ? (refreshSubtitle ?? normalSubtitle) : normalSubtitle
   const insets = useSafeAreaInsets()
   // Root tabs already float a transparent bar (the large title path); pushed

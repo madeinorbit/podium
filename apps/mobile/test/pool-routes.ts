@@ -1,10 +1,10 @@
-import { referenceView } from '@podium/client-graph/issue-reference'
 /** Fully resident synthetic address fixtures; route and chip outputs come from the production pool. */
 import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { PodiumTarget } from '@podium/protocol'
 import { parseAnyRef, parseSessionRef } from '@podium/protocol'
+import { autorun } from 'mobx'
 
 interface AddressIssue {
   id: string
@@ -29,17 +29,20 @@ export function poolRouteFixture(input: {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   // Historical route fixtures sometimes supplied displayRef alone. Feed
   // their normalized identity through the same repo composition as production.
-  const issues = input.issues.map(row => {
+  const issues = input.issues.map((row) => {
     const ref = parseAnyRef(row.displayRef ?? '')
-    return { ...row, seq: row.seq ?? (ref?.kind === 'issue' ? ref.seq : 0),
-      prefix: row.prefix ?? (ref?.kind === 'issue' ? ref.prefix : undefined) }
+    return {
+      ...row,
+      seq: row.seq ?? (ref?.kind === 'issue' ? ref.seq : 0),
+      prefix: row.prefix ?? (ref?.kind === 'issue' ? ref.prefix : undefined),
+    }
   })
   // Sessions need the same normalized identity: the indexed sessionReference
   // question keys on (refRepoId, refSeq/refLetter or refDraft), resolved
   // through the prefix→repo composition. Preserve caller-supplied normalized
   // fields (the corpus `after` rows carry real refRepoIds); derive synthetic
   // ones from displayRef when only the human ref is given.
-  const sessions: AddressSession[] = input.sessions.map(row => {
+  const sessions: AddressSession[] = input.sessions.map((row) => {
     if (
       row.refRepoId !== undefined ||
       row.refSeq !== undefined ||
@@ -51,7 +54,12 @@ export function poolRouteFixture(input: {
     const ref = parseSessionRef(row.displayRef ?? '')
     if (!ref) return { sessionId: row.sessionId, displayRef: row.displayRef }
     if (ref.draft !== undefined) {
-      return { sessionId: row.sessionId, displayRef: row.displayRef, refRepoId: ref.prefix, refDraft: ref.draft }
+      return {
+        sessionId: row.sessionId,
+        displayRef: row.displayRef,
+        refRepoId: ref.prefix,
+        refDraft: ref.draft,
+      }
     }
     return {
       sessionId: row.sessionId,
@@ -77,7 +85,9 @@ export function poolRouteFixture(input: {
       } as never,
     })),
   ]
-  const seenPairs = new Set(issues.flatMap((row) => (row.prefix ? [`${row.prefix}\0${row.prefix}`] : [])))
+  const seenPairs = new Set(
+    issues.flatMap((row) => (row.prefix ? [`${row.prefix}\0${row.prefix}`] : [])),
+  )
   for (const row of sessions) {
     const parsed = parseSessionRef(row.displayRef ?? '')
     const prefix = parsed?.prefix
@@ -171,15 +181,17 @@ export function poolRouteFixture(input: {
     pool,
     views,
     route(target: PodiumTarget): string | null {
-      let route = views.route(target)
-      if (route === LOADING && target.kind === 'issue') {
-        // This fixture declares that every visible row is resident. A missing
-        // identity query therefore has an authoritative empty answer.
-        referenceView(pool).resolved(target.issue, null)
+      let route: ReturnType<typeof views.route> = LOADING
+      // As on screen, retain reference demand until its answer arrives.
+      const stop = autorun(() => {
         route = views.route(target)
+      })
+      try {
+        if (route === LOADING) throw new Error('Resident address fixture unexpectedly cold')
+        return route ?? null
+      } finally {
+        stop()
       }
-      if (route === LOADING) throw new Error('Resident address fixture unexpectedly cold')
-      return route ?? null
     },
     dispose() {
       views.dispose()

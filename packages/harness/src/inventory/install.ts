@@ -4,7 +4,8 @@
  *
  * WHAT IS GENERIC LIVES HERE: the temp-dir lifecycle, the installer fetch,
  * the `--version` verification that proves the install actually runs, and the
- * host-operation defaults (curl/wget fetch, execFileSync run, the musl probe).
+ * host-operation defaults (curl/wget fetch, the musl probe and installer shells
+ * through the OS-tool port, an absolute-path run for the verify).
  * WHAT IS VENDOR-SPECIFIC LIVES IN `adapters/<harness>/install.ts`: the
  * installer URL, the shell and env it needs, and the binary it produces.
  * This module iterates supported sections and never names a harness — kinds
@@ -13,7 +14,8 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
+import { type HostTools, hostTools } from '../host-tools.js'
 import { declaredValue, type HarnessInstallPorts } from '../manifest.js'
 import { AGENT_MANIFESTS, manifestFor } from '../registry.js'
 
@@ -22,6 +24,8 @@ export interface InstallRequestPorts {
   fetch?: (url: string, out: string) => void
   /** Run a command, returning its combined output; throws with that output on failure. */
   run?: (cmd: string, args: string[], env: NodeJS.ProcessEnv) => string
+  /** Run an OS tool (an installer's shell) by name; see {@link HarnessInstallPorts.runTool}. */
+  runTool?: HarnessInstallPorts['runTool']
   env?: NodeJS.ProcessEnv
   arch?: string
   /** Whether this box's libc is musl — Claude ships a separate build for it. */
@@ -45,36 +49,48 @@ export interface InstallTarget {
 }
 
 function defaultRun(cmd: string, args: string[], env: NodeJS.ProcessEnv): string {
+  // Only an absolute path: a bare name would be looked up on the daemon's PATH.
+  if (!isAbsolute(cmd)) throw new Error(`podium install: refusing to run ${cmd} by name`)
   return execFileSync(cmd, args, { env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
-function defaultFetch(url: string, out: string): void {
-  // curl or wget, whichever this box has — the same fallback install.sh made.
-  try {
-    execFileSync('curl', ['-fsSL', url, '-o', out], { stdio: 'ignore' })
-  } catch {
-    execFileSync('wget', ['-qO', out, url], { stdio: 'ignore' })
+/** curl or wget, whichever the environment has — the same fallback install.sh
+ *  made — by absolute path through the OS-tool port (POD-6536). */
+function defaultFetch(tools: HostTools): (url: string, out: string) => void {
+  return (url, out) => {
+    try {
+      tools.execFileSync('curl', ['-fsSL', url, '-o', out], { stdio: 'ignore' })
+    } catch {
+      tools.execFileSync('wget', ['-qO', out, url], { stdio: 'ignore' })
+    }
   }
 }
 
-function defaultIsMusl(): boolean {
-  try {
-    return execFileSync('ldd', ['/bin/ls'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    }).includes('musl')
-  } catch {
-    return false
+function defaultIsMusl(tools: HostTools): () => boolean {
+  return () => {
+    try {
+      return tools.execFileSync('ldd', ['/bin/ls'], {}).includes('musl')
+    } catch {
+      return false
+    }
   }
+}
+
+/** An installer's shell (`sh`, `bash`) by absolute path, through the port. */
+function defaultRunTool(tools: HostTools): HarnessInstallPorts['runTool'] {
+  return (tool, args, env) => tools.execFileSync(tool, args, { env })
 }
 
 function resolvePorts(request: InstallRequestPorts = {}): HarnessInstallPorts {
+  const env = request.env ?? process.env
+  const tools = hostTools(env)
   return {
-    fetch: request.fetch ?? defaultFetch,
+    fetch: request.fetch ?? defaultFetch(tools),
     run: request.run ?? defaultRun,
-    env: request.env ?? process.env,
+    runTool: request.runTool ?? defaultRunTool(tools),
+    env,
     arch: request.arch ?? process.arch,
-    isMusl: request.isMusl ?? defaultIsMusl,
+    isMusl: request.isMusl ?? defaultIsMusl(tools),
     ...(request.note ? { note: request.note } : {}),
   }
 }
@@ -96,7 +112,11 @@ export function installTargetFor(kind: string): InstallTarget {
   }
   const section = declaredValue(declared)
   if (!section) throw new Error(`podium install: unsupported agent '${kind}'`)
-  return { kind: manifest.kind, displayName: manifest.descriptor.shortLabel, binary: section.binary }
+  return {
+    kind: manifest.kind,
+    displayName: manifest.descriptor.shortLabel,
+    binary: section.binary,
+  }
 }
 
 /** Every harness with a supported install section — kinds flow as values. */

@@ -6,14 +6,15 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import ts from 'typescript'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PodiumClientApi } from '../../../packages/client-core/src/api'
-import { openKernelEngineOutbox } from '../../../packages/client-core/src/engine/kernel-outbox'
-import type { StoreNotices } from '../../../packages/client-core/src/engine/types'
+import type { NoticeSink } from '../../../packages/client-core/src/notices'
 import { classifyRefusal } from '../../../packages/client-core/src/outbox'
 import type { Replica } from '../../../packages/client-core/src/replica/contract'
+import { openKernelEngineOutbox } from '../../../packages/client-core/src/runtime-root/outbox/kernel-outbox'
 import { resolvePrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 // Step 0's boundary is the actual fetch adapter and the shipped client's
 // classifier/submit adapter. No browser, pool, or second partition policy.
@@ -31,10 +32,11 @@ describe('definitive issue refusals (POD-5429)', () => {
   })
 
   const seed = async () => {
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'subject',
       startNow: false,
+      parentBranch: 'main',
     })
     if (issue.revision === undefined)
       throw new Error('a seeded issue must carry its server revision')
@@ -91,12 +93,15 @@ describe('definitive issue refusals (POD-5429)', () => {
     )
     expect(status).toBe(409)
     expect(body.error).toMatchObject({ message, data: { code: 'CONFLICT', httpStatus: 409 } })
-    expect(refusal).toEqual({ kind: 'conflict' })
+    expect(refusal).toEqual({ kind: 'conflict', message })
   }
 
   it('refuses an already-deleted issue without writing another revision', async () => {
     const issue = await seed()
-    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await registry.modules.issueSessionLifecycle.deleteIssue(
+      registry.issues.reports.store.serverWriter,
+      issue.id,
+    )
     const before = await registry.issues.crud.store.rowOrThrow(issue.id)
     await preparationRefusal(
       () => registry.issues.crud.prepareSoftDelete(issue.id),
@@ -118,15 +123,17 @@ describe('definitive issue refusals (POD-5429)', () => {
 
   it('refuses an update to a soft-deleted issue before any shared or per-user write', async () => {
     const issue = await seed()
-    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await registry.modules.issueSessionLifecycle.deleteIssue(
+      registry.issues.reports.store.serverWriter,
+      issue.id,
+    )
     const before = await registry.issues.crud.store.rowOrThrow(issue.id)
     await refuse(
       'update',
-      { id: issue.id, patch: { title: 'must survive locally', pinned: true } },
+      { id: issue.id, patch: { title: 'must survive locally' } },
       `issue ${issue.id} is deleted and cannot be updated`,
     )
     expect(await registry.issues.crud.store.rowOrThrow(issue.id)).toEqual(before)
-    expect((await registry.issues.crud.store.issueUserState(issue.id))?.pinnedAt ?? null).toBeNull()
   })
 
   it('refuses entering shipping through an ordinary update', async () => {
@@ -147,12 +154,19 @@ describe('definitive issue refusals (POD-5429)', () => {
     'addSession',
     'addShell',
   ] as const)('refuses %s while shipping owns the issue', async (command) => {
+    if (['start', 'addSession', 'addShell'].includes(command)) {
+      await registry.sessionStore.machines.addMachineComponent(
+        registry.sessionStore.hostMachineId,
+        'daemon',
+      )
+      await attachHostDaemon(registry)
+    }
     const issue = await seed()
     const row = await registry.issues.crud.store.draftOrThrow(issue.id)
     row.stage = 'shipping'
     row.suggestedStage = 'review'
     row.suggestedReason = 'keep this on refusal'
-    await registry.issues.crud.store.persistRow(row)
+    await registry.issues.crud.store.persistRow(registry.issues.crud.store.serverWriter, row)
     const before = await registry.issues.crud.store.rowOrThrow(issue.id)
     const messages = {
       update: 'shipping stage is system-owned and cannot be changed by an issue update',
@@ -172,7 +186,7 @@ describe('definitive issue refusals (POD-5429)', () => {
 
   it('types the internal shipping-create guard (the public create schema has no stage)', async () => {
     await expect(
-      registry.issues.crud.create({
+      registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
         repoPath: '/repo',
         title: 'x',
         startNow: false,
@@ -188,7 +202,7 @@ describe('definitive issue refusals (POD-5429)', () => {
     const issue = await seed()
     const row = await registry.issues.crud.store.draftOrThrow(issue.id)
     row.stage = 'shipping'
-    await registry.issues.crud.store.persistRow(row)
+    await registry.issues.crud.store.persistRow(registry.issues.crud.store.serverWriter, row)
     await preparationRefusal(
       () => registry.issues.gitWorkflow.ensureWorktree(issue.id),
       issue.id,
@@ -240,7 +254,10 @@ describe('definitive issue refusals (POD-5429)', () => {
   it('refuses recording a repository root as an issue worktree', async () => {
     const issue = await seed()
     await preparationRefusal(
-      () => registry.issues.crud.update(issue.id, { worktreePath: '/repo' }),
+      () =>
+        registry.issues.crud.update(registry.issues.reports.store.serverWriter, issue.id, {
+          worktreePath: '/repo',
+        }),
       issue.id,
       'refusing worktree path /repo: a repository root cannot be recorded as an issue worktree',
     )
@@ -258,7 +275,7 @@ describe('definitive issue refusals (POD-5429)', () => {
 
   it('refuses a blocked-by edge on a phase at either end, but not other edge types', async () => {
     const task = await seed()
-    const phase = await registry.issues.crud.create({
+    const phase = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'Build',
       type: 'phase',
@@ -275,7 +292,12 @@ describe('definitive issue refusals (POD-5429)', () => {
         `${ref} is a phase; ${hint}. Link the tasks instead: dep-add <later-task> <earlier-task>, from each task to the task whose output it needs`,
       )
     }
-    await registry.issues.hierarchy.addDep(task.id, phase.id, 'related')
+    await registry.issues.hierarchy.addDep(
+      registry.issues.reports.store.serverWriter,
+      task.id,
+      phase.id,
+      'related',
+    )
     expect(await registry.issues.crud.store.deps.store.issues.listIssueDeps(task.id)).toEqual([
       expect.objectContaining({ toId: phase.id, type: 'related' }),
     ])
@@ -284,7 +306,11 @@ describe('definitive issue refusals (POD-5429)', () => {
   it('refuses retyping an issue with a blocked-by edge to a phase', async () => {
     const earlier = await seed()
     const later = await seed()
-    await registry.issues.hierarchy.addDep(later.id, earlier.id)
+    await registry.issues.hierarchy.addDep(
+      registry.issues.reports.store.serverWriter,
+      later.id,
+      earlier.id,
+    )
     for (const id of [later.id, earlier.id]) {
       await refuse(
         'update',
@@ -298,13 +324,13 @@ describe('definitive issue refusals (POD-5429)', () => {
   it('refuses dependency and containment cycles', async () => {
     const a = await seed()
     const b = await seed()
-    await registry.issues.hierarchy.addDep(a.id, b.id)
+    await registry.issues.hierarchy.addDep(registry.issues.reports.store.serverWriter, a.id, b.id)
     await refuse(
       'depAdd',
       { fromId: b.id, toId: a.id },
       `dependency ${b.id} -> ${a.id} would create a dependency cycle: ${b.id} -> ${a.id} -> ${b.id}`,
     )
-    await registry.issues.hierarchy.reparent(b.id, a.id)
+    await registry.issues.hierarchy.reparent(registry.issues.reports.store.serverWriter, b.id, a.id)
     await refuse(
       'reparent',
       { id: a.id, parentId: b.id },
@@ -323,7 +349,7 @@ describe('definitive issue refusals (POD-5429)', () => {
     await refuse(
       'panelApply',
       { id: issue.id, op: 'artifact-remove' },
-      'artifact-remove requires an index',
+      'artifact-remove requires an index or itemId',
     )
   })
 
@@ -331,10 +357,10 @@ describe('definitive issue refusals (POD-5429)', () => {
     const issue = await seed()
     const row = await registry.issues.crud.store.draftOrThrow(issue.id)
     row.stage = 'shipping'
-    await registry.issues.crud.store.persistRow(row)
+    await registry.issues.crud.store.persistRow(registry.issues.crud.store.serverWriter, row)
     await preparationRefusal(
       () =>
-        registry.issues.gitWorkflow.rehome(issue.id, {
+        registry.issues.gitWorkflow.rehome(registry.issues.reports.store.serverWriter, issue.id, {
           repoPath: '/other',
           machineId: registry.sessionStore.hostMachineId,
           worktreePath: '/other/wt',
@@ -386,7 +412,7 @@ describe('definitive issue refusals (POD-5429)', () => {
     const outbox = create({
       api,
       replica: {} as Replica,
-      notices: { error: () => {}, info: () => {} } as unknown as StoreNotices,
+      notices: { error: () => {}, info: () => {} } as unknown as NoticeSink,
       isOnline: () => true,
     })
     return {
@@ -437,7 +463,9 @@ describe('definitive issue refusals (POD-5429)', () => {
   it('forwards an opt-in envelope revision and refuses its stale write', async () => {
     const issue = await seed()
     const base = issue.revision
-    await registry.issues.crud.update(issue.id, { title: 'accepted first' })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, issue.id, {
+      title: 'accepted first',
+    })
     // A recovery token lives on the envelope, independently of the command
     // input. Its current value must take precedence over a stale input copy.
     const { outbox, inputs } = await engine(
@@ -471,7 +499,9 @@ describe('definitive issue refusals (POD-5429)', () => {
 
   it('the envelope revision overrides an older input copy on recovery', async () => {
     const issue = await seed()
-    await registry.issues.crud.update(issue.id, { title: 'accepted first' })
+    await registry.issues.crud.update(registry.issues.reports.store.serverWriter, issue.id, {
+      title: 'accepted first',
+    })
     const current = await projection(issue.id)
     const { outbox, inputs } = await engine(
       { id: issue.id, patch: { title: 'recovered' }, expectedRevision: issue.revision },
@@ -522,7 +552,15 @@ describe('definitive issue refusals (POD-5429)', () => {
     // Every issue-row read the repository serves (POD-6158: there is no issue
     // map to count reads of any more).
     const issues = registry.sessionStore.issues
-    const reads = ['getIssue', 'getIssueLive', 'getIssues', 'loadIssue', 'loadIssues', 'listIssueRows', 'listIssueRowsWhere'] as const
+    const reads = [
+      'getIssue',
+      'getIssueLive',
+      'getIssues',
+      'loadIssue',
+      'loadIssues',
+      'listIssueRows',
+      'listIssueRowsWhere',
+    ] as const
     for (const size of [16, 64]) {
       while (seeded < size) {
         await seed()
@@ -564,7 +602,13 @@ it('the issue refusal audit admits only declared genuine bare-error sites', () =
       .map((name) => `service/${name}`),
   ]
   const faults: Record<string, string[]> = {
-    'service/core.ts': ['persist(', 'IssueStore read before init()'],
+    'service/core.ts': [
+      'persist(',
+      'IssueStore read before init()',
+      // A caller bug, not a precondition (POD-6287, design §4.3): a reassignment
+      // is only ever written from a draft pinned to the revision it was cut from.
+      'issue ${row.id}: a reassignment must be written from a pinned draft',
+    ],
     'service/crud.ts': [
       'illegal shipping issue-stage transition',
       'shipping batch requires an affected issue',
@@ -574,6 +618,9 @@ it('the issue refusal audit admits only declared genuine bare-error sites', () =
       'prepareSoftDelete(',
       'prepareRestore(',
     ],
+    // Missing entries in the deck's already-joined maps are an internal graph
+    // invariant, never a user precondition (POD-7196 construction audit repair).
+    'service/deck.ts': ['issue deck invariant: missing '],
     'service/attention.ts': ['attachSession unavailable:'],
     'service/workflow.ts': ['ensured.output', 'worktree add failed:'],
     'registry.ts': ['mail sending is not wired on this server'],

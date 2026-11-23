@@ -24,17 +24,17 @@ import {
   assertSourceMatchesHead,
   createDevBundlePublisher,
 } from '../apps/server/src/modules/updates/dev-bundle'
+import type { GrantRecord } from '../apps/server/src/modules/updates/grant-cause'
+import { startLocalUpdateParticipant } from '../apps/server/src/modules/updates/local-participant'
+import { UpdateReconciler } from '../apps/server/src/modules/updates/reconciler'
 import {
   desktopManifestFeedChannel,
   resolveReleaseTarget,
 } from '../apps/server/src/modules/updates/release-target'
-import type { GrantRecord } from '../apps/server/src/modules/updates/grant-cause'
-import { startLocalUpdateParticipant } from '../apps/server/src/modules/updates/local-participant'
-import { UpdateReconciler } from '../apps/server/src/modules/updates/reconciler'
 import { UpdatesService } from '../apps/server/src/modules/updates/service'
-import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
 import { readOrCreateDevArtifactToken } from '../apps/server/src/modules/updates/signing-key'
 import { refreshTargetsOnBoot } from '../apps/server/src/modules/updates/target-refresh'
+import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
 import { beginFreshClientPackagingSession } from './build-bun'
 import { buildClients, CLIENT_BUILD_TASKS, readRunSummary } from './build-clients'
 import { prepareHeadlessCross } from './release'
@@ -698,7 +698,7 @@ describe('named-instance development releases', () => {
      * One run of the whole path. `knowsItsOwnIdentity: false` is the control —
      * the fleet projection as it stood before POD-3170 put `coordinator` on it.
      */
-    const run = async (knowsItsOwnIdentity: boolean, approve = false) => {
+    const run = async (knowsItsOwnIdentity: boolean, approve = false, apply = false) => {
       const granted: string[] = []
       const recorded: GrantRecord[] = []
       const restarts: string[] = []
@@ -780,6 +780,15 @@ describe('named-instance development releases', () => {
         schedule: () => {},
       })
       await reconciler.onMachineConnected(HOST)
+      expect(granted).toEqual([])
+      if (apply) {
+        expect(
+          await updates.authorizeMachine(asMachineId(HOST), {
+            initiator: { kind: 'operator-apply' },
+            eligibility: 'explicitly selected machine',
+          }),
+        ).toMatchObject({ result: 'granted' })
+      }
       for (let turn = 0; turn < 8; turn += 1) await Promise.resolve()
       return { granted, recorded, restarts, installed }
     }
@@ -790,23 +799,15 @@ describe('named-instance development releases', () => {
     expect(offered.recorded).toEqual([])
     expect(offered.restarts).toEqual([])
 
-    // ARMED CONTROL: an approved fleet target with missing coordinator identity.
-    const control = await run(false, true)
+    // ARMED CONTROL: the current explicit Apply path can issue and record a grant.
+    const control = await run(false, true, true)
     expect(control.granted).toEqual([HOST])
     expect(control.restarts).toEqual([built.version])
-    /**
-     * …and even in the failure, the record now names who did it. `handover` is
-     * FALSE here and that is the control being honest rather than a gap: this
-     * arm is the projection as it stood on the day, which did not know the row
-     * was this server — the very ignorance that let the reconciler grant it.
-     * The `handover: true` label is asserted where the flag exists, in
-     * `coordinator-convergence.test.ts`.
-     */
     expect(control.recorded).toHaveLength(1)
     expect(control.recorded[0]).toMatchObject({
       machineId: HOST,
       targetVersion: built.version,
-      initiator: { kind: 'reconciliation', event: 'machine-connected' },
+      initiator: { kind: 'operator-apply' },
       handover: false,
     })
 

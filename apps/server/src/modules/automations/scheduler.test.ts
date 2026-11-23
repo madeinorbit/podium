@@ -1,31 +1,36 @@
-import { asAutomationId, firstAdminMemberId, asIssueId, asSessionId } from '@podium/model'
+import { asAutomationId, asIssueId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { automationOccurrenceRunId } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
+import { fixtureWriteScope, testLedgerWriter } from '@podium/sync/testing'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
+import { openTestStore } from '../../test-support/open-test-store'
+import { logStoreRecords } from '../../test-support/record-writer'
+import { seedRows } from '../../test-support/seed-rows'
 import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from './decide'
 import type { AutomationPrompt } from './prompt'
-import { AutomationsService, type AutomationInput } from './service'
-import { openTestStore } from '../../test-support/open-test-store'
+import { type AutomationCommandWriter, type AutomationInput, AutomationsService } from './service'
 
 const TEST_PRINCIPAL = userCommandPrincipal(firstAdminMemberId(), 'admin')
 
-class TestAutomationsService extends AutomationsService {
-  override create(input: AutomationInput) {
-    return super.create(input, TEST_PRINCIPAL)
+/**
+ * The service with its four commands bound to the operator and one command
+ * writer (ADR 12 D9: a command writes through its own writer, passed per call).
+ * Everything else — the scheduler's tick, the reads — is the service itself.
+ */
+function asOperator(service: AutomationsService, writer: AutomationCommandWriter) {
+  const commands = {
+    create: (input: AutomationInput) => service.create(writer, input, TEST_PRINCIPAL),
+    update: (id: string, patch: Partial<AutomationInput>) =>
+      service.update(writer, id, patch, TEST_PRINCIPAL),
+    setEnabled: (id: string, enabled: boolean) =>
+      service.setEnabled(writer, id, enabled, TEST_PRINCIPAL),
+    remove: async (id: string) => await service.remove(writer, id, TEST_PRINCIPAL),
   }
-
-  override update(id: string, patch: Partial<AutomationInput>) {
-    return super.update(id, patch, TEST_PRINCIPAL)
-  }
-
-  override setEnabled(id: string, enabled: boolean) {
-    return super.setEnabled(id, enabled, TEST_PRINCIPAL)
-  }
-
-  override async remove(id: string) {
-    return await super.remove(id, TEST_PRINCIPAL)
-  }
+  return Object.assign(
+    Object.create(service) as Omit<AutomationsService, keyof typeof commands>,
+    commands,
+  )
 }
 
 const NOW = new Date(2026, 6, 14, 9, 0, 0) // local time — cron is server-local
@@ -193,6 +198,7 @@ async function harness(
   let authorized = true
   const ledger = new Ledger({
     repo: store.sync,
+    records: await logStoreRecords(store),
     now: () => clock.getTime(),
     transact: async (fn) => await store.transact(fn),
   })
@@ -210,18 +216,22 @@ async function harness(
   const prompts = (resume: boolean) =>
     deliverPrompt.mock.calls.map(([p]) => p).filter((p) => p.resume === resume)
   const createIssue = vi.fn(() => ({ id: asIssueId(`iss_${++issueN}`) }))
-  const service = new TestAutomationsService({
-    store: store.automations,
-    ledger,
-    createSession,
-    deliverPrompt,
-    createIssue,
-    liveSessionIds: () => new Set((opts.live ?? []).map(asSessionId)),
-    principalForOwner: () => (authorized ? TEST_PRINCIPAL : undefined),
-    mayUseDefaultMachine: () => true,
-    now: () => clock,
-    homeDir: () => '/home/tester',
-  })
+  const writer = testLedgerWriter(ledger)
+  const service = asOperator(
+    new AutomationsService({
+      store: store.automations,
+      ledger: writer,
+      createSession,
+      deliverPrompt,
+      createIssue,
+      liveSessionIds: () => new Set((opts.live ?? []).map(asSessionId)),
+      principalForOwner: () => (authorized ? TEST_PRINCIPAL : undefined),
+      mayUseDefaultMachine: () => true,
+      now: () => clock,
+      homeDir: () => '/home/tester',
+    }),
+    writer,
+  )
   return {
     store,
     service,
@@ -241,7 +251,10 @@ async function harness(
 }
 
 /** A daily-at-09:00 automation, enabled and armed for today's 09:00. */
-async function daily(h: Awaited<ReturnType<typeof harness>>, over: { repoPath?: string | null } = {}) {
+async function daily(
+  h: Awaited<ReturnType<typeof harness>>,
+  over: { repoPath?: string | null } = {},
+) {
   const created = await h.service.create({
     name: 'Nightly sweep',
     cron: '0 9 * * *',
@@ -441,10 +454,14 @@ describe('AutomationsService.tick — spawn', () => {
       enabled: true,
       sessionMode: 'fresh',
     })
-    await h.store.automations.update({
-      ...(await h.store.automations.get(a.id))!,
-      agentKind: 'not-a-harness',
-    })
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.automations.update(fixtureWriteScope(), {
+          ...(await h.store.automations.get(a.id))!,
+          agentKind: 'not-a-harness',
+        }),
+    )
 
     h.setNow(new Date(runAt.getTime() + 1_000))
     await h.service.tick()
@@ -571,16 +588,18 @@ describe('AutomationsService.tick — spawn', () => {
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     // Materialize crash gap: reserved run, nextRunAt NOT re-armed.
     const runId = automationOccurrenceRunId(a.id, firedAt)
-    await h.store.automations.addRun({
-      id: runId,
-      automationId: a.id,
-      firedAt,
-      sessionId: null,
-      outcome: 'error',
-      detail: 'reserved',
-      actor: `automation:${a.id}`,
-      onBehalfOf: firstAdminMemberId(),
-    })
+    await seedRows(h.store, () =>
+      h.store.automations.addRun(fixtureWriteScope(), {
+        id: runId,
+        automationId: a.id,
+        firedAt,
+        sessionId: null,
+        outcome: 'error',
+        detail: 'reserved',
+        actor: `automation:${a.id}`,
+        onBehalfOf: firstAdminMemberId(),
+      }),
+    )
     // nextRunAt still the original occurrence
     expect((await h.store.automations.get(a.id))?.nextRunAt).toBe(firedAt)
 
@@ -600,22 +619,41 @@ describe('AutomationsService.tick — spawn', () => {
     expect((await h.store.automations.get(a.id))?.nextRunAt).not.toBe(firedAt)
   })
 
+  it("a disabled owner's schedule does not fire: no run, no spawn, nothing re-armed (POD-6293)", async () => {
+    const h = await harness()
+    const a = await daily(h)
+    const armed = (await h.store.automations.get(a.id))?.nextRunAt
+    h.revokeOwner()
+    h.setNow(new Date(2026, 6, 15, 9, 0, 10))
+    await h.service.tick()
+    await h.service.tick()
+    expect(h.createIssue).not.toHaveBeenCalled()
+    expect(h.createSession).not.toHaveBeenCalled()
+    expect(h.deliverPrompt).not.toHaveBeenCalled()
+    expect(await h.service.runs(a.id)).toEqual([])
+    expect((await h.store.automations.get(a.id))?.nextRunAt).toBe(armed)
+  })
+
   it('re-authorizes a reserved occurrence on replay after its owner is revoked', async () => {
     const h = await harness()
     const a = await daily(h)
     const firedAt = iso(new Date(2026, 6, 15, 9, 0))
     h.setNow(new Date(2026, 6, 15, 9, 0, 10))
     const runId = automationOccurrenceRunId(a.id, firedAt)
-    await h.store.automations.addRun({
-      id: runId,
-      automationId: a.id,
-      firedAt,
-      sessionId: null,
-      outcome: 'error',
-      detail: 'reserved',
-      actor: `automation:${a.id}`,
-      onBehalfOf: firstAdminMemberId(),
-    })
+    await seedRows(
+      h.store,
+      async () =>
+        await h.store.automations.addRun(fixtureWriteScope(), {
+          id: runId,
+          automationId: a.id,
+          firedAt,
+          sessionId: null,
+          outcome: 'error',
+          detail: 'reserved',
+          actor: `automation:${a.id}`,
+          onBehalfOf: firstAdminMemberId(),
+        }),
+    )
 
     // Revocation happens after durable reservation and before startup replay.
     h.revokeOwner()
@@ -657,7 +695,11 @@ describe('AutomationsService.tick — spawn', () => {
     expect(h.createSession).toHaveBeenCalledTimes(1)
     expect(h.freshPrompts()).toHaveLength(1)
     expect(h.resumePrompts()).toMatchObject([
-      { sessionId: asSessionId('sess_1'), text: 'Continue the sweep.', runId: expect.stringMatching(/^arun_/) },
+      {
+        sessionId: asSessionId('sess_1'),
+        text: 'Continue the sweep.',
+        runId: expect.stringMatching(/^arun_/),
+      },
     ])
     expect(await h.service.runs(a.id)).toHaveLength(2)
     expect((await h.service.runs(a.id)).every((run) => run.sessionId === 'sess_1')).toBe(true)
@@ -745,7 +787,7 @@ describe('AutomationsService.tick — the missed / overlap / error policy', () =
     const live = await harness({ live: ['sess_1'] })
     const service = new AutomationsService({
       store: h.store.automations,
-      ledger: h.ledger,
+      ledger: testLedgerWriter(h.ledger),
       createSession: live.createSession,
       deliverPrompt: live.deliverPrompt,
       createIssue: live.createIssue,

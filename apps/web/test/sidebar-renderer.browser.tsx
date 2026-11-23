@@ -1,13 +1,12 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { deadlineClock, setClockWakeSource } from '@podium/mobx-helpers'
 import { asIssueId, asUserId } from '@podium/model/browser'
 import { useEffect } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { CommandPaletteBoundary } from '../src/app/CommandPaletteBoundary'
 import {
   attachWorklistPool,
@@ -37,15 +36,12 @@ const failures: string[] = []
 const root = createRoot(document.getElementById('root')!)
 
 function Fixture() {
-  const owner = useStoreHandle() as ClientRuntime
+  const owner = useClientRuntime() as ClientRuntime
   const pool = useWorklistPool()
   useEffect(() => {
     runtime = owner
-    void referenceState(owner)
-      .refreshRepos()
-      .then(() => {
-        ready = pool !== null
-      })
+    // Repositories are in the fixture's checkout records (POD-6644).
+    ready = pool !== null
     return () => {
       runtime = undefined
       ready = false
@@ -91,14 +87,13 @@ const fixture = {
   ready: () => ready,
   failures: () => [...failures],
   show,
-  palette: (value: boolean) => runtime?.access.setPaletteOpen(value),
+  palette: (value: boolean) => runtime?.palette.setOpen(value),
   update: (patch: Record<string, unknown>) =>
     synthetic.patch('issueProjection', `synthetic-${count - 1}`, patch),
-  select: (id: string) => runtime?.access.setSelectedIssueId(asIssueId(id)),
+  select: (id: string) => runtime?.ui.setSelectedIssueId(asIssueId(id)),
   state: () => ({
-    selected: runtime?.access.selectedIssueId,
-    pane: runtime?.access.paneA,
-    projectOrder: runtime?.access.sidebarSettings.repoOrder,
+    selected: runtime?.ui.selectedIssueId,
+    pane: runtime?.ui.paneA,
     coarseNow: deadlineClock.peekNow(),
   }),
   stats: (): {

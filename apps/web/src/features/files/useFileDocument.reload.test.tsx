@@ -4,9 +4,12 @@ import { registerReloadPreparation, withReloadPreparation } from '@/lib/reload-p
 import { useFileDocument } from './useFileDocument'
 
 const { read, write } = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn() }))
-vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({ access: { readFileScoped: read, writeFileScoped: write } }),
-}))
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({ access: { readFileScoped: read, writeFileScoped: write } })),
+  }
+})
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
 beforeEach(() => {

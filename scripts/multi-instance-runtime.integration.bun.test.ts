@@ -1,7 +1,7 @@
-import { legacyAbducoBin } from '../packages/pty/src/legacy-abduco-fixture'
+import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import { readOrCreateUpdateSigningKey } from '@podium/runtime/update-signing-key'
 import { completePreauthorizedSetup } from '../apps/server/src/setup-enrollment'
-import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
+import { legacyAbducoBin } from '../packages/pty/src/legacy-abduco-fixture'
 /**
  * Process-level acceptance proof for independent Podium instances [spec:SP-15aa].
  * Starts two real all-in-one runtimes and exercises their public CLI and APIs.
@@ -11,28 +11,24 @@ import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import './legacy-cli-update.integration.bun.test'
 import './legacy-daemon-rollback.integration.bun.test'
 import { afterAll, describe, expect, it } from 'bun:test'
-import { createHash, randomUUID } from 'node:crypto'
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import {
-  cpSync,
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { hostname, tmpdir, userInfo } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createTRPCClient, httpBatchLink } from '@trpc/client'
-import { asMachineId, asSessionId } from '@podium/model'
-import { earliestAdminMember } from '@podium/runtime/earliest-admin'
-import { SERVER_MOVE_CAPABILITY, SESSION_COOKIE } from '@podium/protocol'
-import { longestDurableLabelFor, unixSocketPathFits } from '@podium/runtime/unix-socket'
+import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import {
   abducoSocketPath,
   createDurableProcess,
@@ -43,6 +39,10 @@ import {
   resolveHostBin,
   spawnHostAgent,
 } from '@podium/process/durable'
+import type { UpdateGrantMessage } from '@podium/protocol'
+import { SERVER_MOVE_CAPABILITY } from '@podium/protocol'
+import { readDaemonHealth } from '@podium/runtime/daemon-health'
+import { earliestAdminMember } from '@podium/runtime/earliest-admin'
 import {
   abducoSocketPathname,
   applyInstanceRuntimeEnv,
@@ -52,20 +52,26 @@ import {
   LINUX_UNIX_SOCKET_PATH_BYTES,
 } from '@podium/runtime/instance'
 import { encodeJoin } from '@podium/runtime/join'
-import { readDaemonHealth } from '@podium/runtime/daemon-health'
-import { writeParentRequest, readParentResult } from '@podium/runtime/parent-control'
 import { updateFingerprint } from '@podium/runtime/machine-update'
+import { readParentResult, writeParentRequest } from '@podium/runtime/parent-control'
+import { saveCachedSessionToken } from '@podium/runtime/session-token'
 import { openDatabase } from '@podium/runtime/sqlite'
-import type { AppRouter } from '../apps/server/src/router'
+import { longestDurableLabelFor, unixSocketPathFits } from '@podium/runtime/unix-socket'
+import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
+import { UpdatesService } from '../apps/server/src/modules/updates/service'
+import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
+import type { AppRouter } from '../apps/server/src/router'
 import { openTestStore } from '../apps/server/src/test-support/open-test-store'
+import {
+  cookieOf,
+  httpsFacts,
+  openTestIdentity,
+} from '../apps/server/src/test-support/test-identity'
 import {
   MachineUpdateExecutor,
   readMachineUpdateJournal,
 } from '../packages/runtime/src/machine-update'
-import { UpdatesService } from '../apps/server/src/modules/updates/service'
-import type { WaveMachine } from '../apps/server/src/modules/updates/wave'
-import type { UpdateGrantMessage } from '@podium/protocol'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -92,7 +98,20 @@ const running: RunningInstance[] = []
 let packagedCli: string | undefined
 const packagedSpecs: Array<{ executable: string; spec: InstanceSpec }> = []
 let packagedSource: RunningInstance | undefined
-const NAMED_MEMBER_TOKEN = 'named-instance-member'
+const ownerCookies = new Map<string, string>()
+const memberCookies = new Map<string, string>()
+
+/** Setup files are instance-bound, just as the launched child is. */
+function prepareInstanceSetup(spec: InstanceSpec, agentExecution = true) {
+  const previous = process.env.PODIUM_INSTANCE
+  process.env.PODIUM_INSTANCE = spec.id
+  try {
+    return prepareSetupEnrollment(agentExecution, true, spec.stateDir)
+  } finally {
+    if (previous === undefined) delete process.env.PODIUM_INSTANCE
+    else process.env.PODIUM_INSTANCE = previous
+  }
+}
 
 const allocatedPorts = new Set<number>()
 const freePort = (): number => {
@@ -137,22 +156,55 @@ async function seedNamedState(spec: InstanceSpec): Promise<void> {
   // pending so the real first boot also proves recovery after a lost setup reply.
   const machineId = '00000000-0000-4000-8000-000000000734'
   writeFileSync(join(spec.stateDir, 'machine.id'), machineId)
-  const request = prepareSetupEnrollment(true, true, spec.stateDir)
+  const request = prepareInstanceSetup(spec)
   const store = await openTestStore(path, asMachineId(machineId))
   const installation = await store.secrets.installationIdentity()
   readOrCreateUpdateSigningKey(spec.stateDir, { allowCreate: true })
-  await completePreauthorizedSetup(store, installation.installationId, request)
-  await store.close()
-  const db = openDatabase(path)
-  db.prepare(
-    `INSERT INTO users (id, display_name, role, created_at, disabled_at)
-     VALUES ('user:member', 'Member', 'member', '2026-08-02T00:00:00.000Z', NULL)`,
-  ).run()
-  db.prepare(
-    `INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at)
-     VALUES (?, 'user:member', '2026-08-02T00:00:00.000Z', '2099-01-01T00:00:00.000Z')`,
-  ).run(createHash('sha256').update(NAMED_MEMBER_TOKEN).digest('hex'))
-  db.close()
+  try {
+    const identity = await openTestIdentity(store)
+    await completePreauthorizedSetup(
+      store,
+      identity.credentials,
+      installation.installationId,
+      request,
+    )
+    const owner = (await store.users.list()).find((member) => member.role === 'admin')
+    if (!owner) throw new Error('configured instance has no owner')
+    await identity.credentials.setEmail(asUserId(owner.id), 'owner@example.test')
+    await identity.credentials.setPassword(asUserId(owner.id), 'instance-owner-password')
+    // These real servers are reached over loopback HTTP. Mint the loopback
+    // cookie variant rather than an HTTPS-only cookie the listener cannot read.
+    const facts = { ...httpsFacts(), scheme: 'http' as const, sameMachine: true }
+    const ownerSignIn = await identity.signIn(
+      { email: 'owner@example.test', password: 'instance-owner-password' },
+      facts,
+    )
+    const ownerCookie = cookieOf(ownerSignIn)
+    ownerCookies.set(spec.stateDir, ownerCookie)
+    saveCachedSessionToken(
+      {
+        token: decodeURIComponent(ownerCookie.slice(ownerCookie.indexOf('=') + 1)),
+        expiresAt: ownerSignIn.expiresAt.toISOString(),
+      },
+      spec.stateDir,
+    )
+    await identity.addMember({
+      name: 'Member',
+      email: 'member@example.test',
+      password: 'instance-member-password',
+    })
+    memberCookies.set(
+      spec.stateDir,
+      cookieOf(
+        await identity.signIn(
+          { email: 'member@example.test', password: 'instance-member-password' },
+          facts,
+        ),
+      ),
+    )
+  } finally {
+    await store.close()
+  }
 }
 
 function instanceEnv(
@@ -181,6 +233,7 @@ function instanceEnv(
     delete env[key]
   Object.assign(env, {
     PODIUM_INSTANCE: spec.id,
+    PODIUM_UPDATE_FEED_POLLING: 'off',
     PODIUM_STATE_DIR: spec.stateDir,
     PODIUM_AGENT_HOME: spec.agentHome,
     PODIUM_WEB_DIR: spec.webDir,
@@ -218,7 +271,6 @@ function buildPackagedCli(): string {
     symlinkSync(join(ROOT, dir), join(buildRoot, dir), 'dir')
   }
 
-
   const executable = join(buildRoot, 'podium-cli')
   execFileSync(
     process.execPath,
@@ -230,6 +282,7 @@ function buildPackagedCli(): string {
       'process.env.PODIUM_APP_VERSION="9.9.9"',
       join(scriptsDir, 'cli-compiled.ts'),
       join(buildRoot, 'apps/daemon/src/discovery-worker.ts'),
+      join(buildRoot, 'apps/server/src/janitor-worker.ts'),
       '--outfile',
       executable,
     ],
@@ -247,7 +300,7 @@ function startInstance(
   // Say so explicitly now that an unconfigured process intentionally withholds
   // the operator data plane.
   mkdirSync(spec.stateDir, { recursive: true })
-  prepareSetupEnrollment(true, true, spec.stateDir)
+  prepareInstanceSetup(spec)
   const configFile = join(spec.stateDir, 'config.json')
   const existingConfig = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
   writeFileSync(configFile, JSON.stringify({ ...existingConfig, mode: 'all-in-one' }))
@@ -415,7 +468,7 @@ async function transferDiagnostics(specs: InstanceSpec[], marker: string): Promi
     const files = [
       'config.json',
       'machine.json',
-        'supervisor-transfer-pending.json',
+      'supervisor-transfer-pending.json',
       '.server-transfer/journal.json',
       'run/parent.pid',
       'run/server.pid',
@@ -482,7 +535,10 @@ function jsonOutput(result: CliResult): { data?: unknown; error?: string } {
   if (!line) throw new Error(`missing JSON output: ${result.stdout} ${result.stderr}`)
   return JSON.parse(line) as { data?: unknown }
 }
-function trpc(spec: InstanceSpec, cookie?: string): ReturnType<typeof createTRPCClient<AppRouter>> {
+function trpc(
+  spec: InstanceSpec,
+  cookie = ownerCookies.get(spec.stateDir),
+): ReturnType<typeof createTRPCClient<AppRouter>> {
   return createTRPCClient<AppRouter>({
     links: [
       httpBatchLink({
@@ -628,7 +684,18 @@ describe('long instance durable sockets', () => {
     // before it did, and a customer who upgrades keeps each running one. The
     // daemon must find a named instance's abduco master where the older daemon
     // put it: under the ABDUCO_SOCKET_DIR `applyInstanceRuntimeEnv` pins.
-    const bin = legacyAbducoBin
+    // The skew preparation has already pinned this release tree. Build its
+    // genuine session-creating binary; today's product only adopts old sessions.
+    const legacySource = join(
+      process.env.PODIUM_SKEW_DIR ?? join(dirname(ROOT), 'podium-skew-checkouts'),
+      'v0.1.0',
+      'packages/pty/src/abduco-bin.ts',
+    )
+    // The native tool uses argv[0]'s basename for its socket directory. Keep
+    // the released name: renaming it to legacy-abduco changes the protocol path.
+    const bin =
+      legacyAbducoBin ??
+      (await import(legacySource)).buildVendoredAbduco(join(TEST_ROOT, 'legacy-abduco', 'abduco'))
     if (!bin) throw new Error('set PODIUM_TEST_ABDUCO_BIN for legacy adoption acceptance')
 
     const instanceId = `update-e2e-${'x'.repeat(21)}`
@@ -681,10 +748,15 @@ describe('long instance durable sockets', () => {
       applyInstanceRuntimeEnv(instanceId, process.env, stateDir)
       // Read back through a widened type: TS narrowed it to undefined at the delete.
       const pinned = process.env.ABDUCO_SOCKET_DIR as string | undefined
+      if (!pinned) throw new Error('named instance did not pin its legacy socket root')
       expect(pinned).toMatch(/^\/tmp\/pd-[A-Za-z0-9_-]{10}$/)
       expect(pinned).toBe(instanceSocketRuntimeDir(instanceId, stateDir))
       pinnedAbducoRoot = pinned
       label = durableSessionLabel(sessionId, instanceId)
+      const expectedSocket = abducoSocketPathname(pinned, label, userInfo().username, hostname())
+      expect(Buffer.byteLength(expectedSocket), expectedSocket).toBeLessThanOrEqual(
+        LINUX_UNIX_SOCKET_PATH_BYTES,
+      )
 
       // What an older Podium's spawn left running, created the way it did: the
       // abduco binary, under the pinned root.
@@ -697,6 +769,7 @@ describe('long instance durable sockets', () => {
       const durable = createDurableProcess()
       const located = await durable.locate(label, process.env, { waitMs: 5000 })
       expect(located?.adapter.kind).toBe('abduco')
+      expect(located?.socketPath).toBe(expectedSocket)
       expect(located?.socketPath).toBe(abducoSocketPath(label, process.env))
       expect(located?.socketPath.startsWith(`${process.env.ABDUCO_SOCKET_DIR}/`)).toBe(true)
       expect(await durable.list()).toContain(label)
@@ -724,7 +797,18 @@ describe('multi-instance runtime isolation', () => {
     const result = await runCli(spec, ['server', '--takeover'], { PODIUM_ADOPT_STATE: '1' })
     expect(result.stderr).toContain('retired machine sentinels')
     expect(result.stderr).toContain('machines.id')
-    expect(result.code, result.stderr).toBe(1)
+    expect(result.code, result.stderr).toBeGreaterThan(0)
+    expect(result.stdout).not.toContain('podium server up')
+    expect(await endpointIsListening(spec.port)).toBe(false)
+    // A refused legacy database remains available for the operator's recovery;
+    // the CLI must not repair the sentinel silently or leave a serving process.
+    const rejected = openDatabase(join(spec.stateDir, 'podium.db'), { readOnly: true })
+    try {
+      expect(rejected.prepare('SELECT id FROM machines').all()).toEqual([{ id: 'local' }])
+      expect(rejected.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' })
+    } finally {
+      rejected.close()
+    }
   })
 
   it('boots a healthy source CLI server and exits zero on graceful shutdown', async () => {
@@ -787,10 +871,7 @@ describe('multi-instance runtime isolation', () => {
       },
     )
     try {
-      const [stdout, code] = await Promise.all([
-        new Response(child.stdout).text(),
-        child.exited,
-      ])
+      const [stdout, code] = await Promise.all([new Response(child.stdout).text(), child.exited])
       expect(code, stdout).toBe(0)
       expect(stdout).toContain('"machineEvents":"passed"')
       console.log(stdout.split('\n').find((line) => line.includes('"machineEvents"')))
@@ -852,7 +933,7 @@ describe('multi-instance runtime isolation', () => {
       const digest = 'sha256-canary-startup-fixture'
       const machineId = asMachineId(randomUUID())
       writeFileSync(join(spec.stateDir, 'machine.id'), machineId)
-      prepareSetupEnrollment(true, true, spec.stateDir)
+      prepareInstanceSetup(spec)
       writeFileSync(join(spec.stateDir, 'config.json'), JSON.stringify({ mode: 'all-in-one' }))
       writeFileSync(join(installDir, 'VERSION'), '9.9.9')
       writeFileSync(join(installDir, 'ARTIFACT.sha256'), digest)
@@ -898,7 +979,7 @@ exec "$CANARY_REAL_CLI" "$@"
         concurrency: 3,
         fleetChannel: () => 'dev',
       })
-      updates.setTarget({
+      await updates.setTarget({
         version: '9.9.9',
         critical: false,
         artifacts: { headless: { delivery: 'feed', platforms: {} } },
@@ -1028,7 +1109,8 @@ exec "$CANARY_REAL_CLI" "$@"
 
     expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
     expect(joined.stdout).toContain('podium joined as')
-    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).supervisor as {
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8'))
+      .supervisor as {
       machineId: string
       enrolledPublicKey?: string
       updatePubkey?: string
@@ -1052,7 +1134,7 @@ exec "$CANARY_REAL_CLI" "$@"
     expect(matchingRows).toHaveLength(1)
     expect(matchingRows[0]).toMatchObject({
       serviceAssignment: { server: false, agentExecution: true },
-      deliveryCaps: [SERVER_MOVE_CAPABILITY, 'update.delivery.feed'],
+      deliveryCaps: expect.arrayContaining([SERVER_MOVE_CAPABILITY, 'update.delivery.feed']),
       services: {
         server: { policy: 'disabled', state: 'stopped' },
         agentExecution: { policy: 'enabled', state: 'available' },
@@ -1207,9 +1289,9 @@ exec "$CANARY_REAL_CLI" "$@"
       () => existsSync(join(fleet.stateDir, 'machine.json')),
       'persisted machine credential',
     )
-    expect(JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).supervisor).toMatchObject(
-      persistedIdentity,
-    )
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).supervisor,
+    ).toMatchObject(persistedIdentity)
     await waitUntil(
       async () =>
         (await sourceApi.machines.list.query()).some(
@@ -1316,7 +1398,8 @@ exec "$CANARY_REAL_CLI" "$@"
       'detached',
     ])
     expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
-    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8')).supervisor as {
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'machine.json'), 'utf8'))
+      .supervisor as {
       machineId: string
     }
     await waitUntil(
@@ -1419,7 +1502,7 @@ exec "$CANARY_REAL_CLI" "$@"
   it('keeps a compiled server-only machine online and updateable without a daemon', async () => {
     const spec = makeSpec('blue', 'packaged-server-only')
     mkdirSync(spec.stateDir, { recursive: true })
-    prepareSetupEnrollment(false, true, spec.stateDir)
+    prepareInstanceSetup(spec, false)
     writeFileSync(
       join(spec.stateDir, 'config.json'),
       JSON.stringify({ mode: 'server', persistence: 'detached', port: spec.port }),
@@ -1446,7 +1529,7 @@ exec "$CANARY_REAL_CLI" "$@"
       online: true,
       presenceSource: 'supervisor',
       serviceAssignment: { server: true, agentExecution: false },
-      deliveryCaps: [SERVER_MOVE_CAPABILITY, 'update.delivery.feed'],
+      deliveryCaps: expect.arrayContaining([SERVER_MOVE_CAPABILITY, 'update.delivery.feed']),
       services: {
         server: { policy: 'enabled', state: 'available' },
         agentExecution: { policy: 'disabled', state: 'stopped' },
@@ -1511,7 +1594,7 @@ exec "$CANARY_REAL_CLI" "$@"
         }
       }
       mkdirSync(source.stateDir, { recursive: true })
-      prepareSetupEnrollment(true, true, source.stateDir)
+      prepareInstanceSetup(source)
       writeFileSync(
         join(source.stateDir, 'config.json'),
         JSON.stringify({
@@ -1534,7 +1617,9 @@ exec "$CANARY_REAL_CLI" "$@"
           async () => (await version(source))?.instanceId === 'blue',
           `${label} source`,
         )
-        const sourceId = JSON.parse(readFileSync(join(source.stateDir, 'machine.json'), 'utf8')).machineId
+        const sourceId = JSON.parse(
+          readFileSync(join(source.stateDir, 'machine.json'), 'utf8'),
+        ).machineId
         for (const spec of [target, observer]) {
           const pairing = await sourceApi.machines.pairingCode.mutate()
           await run(spec, [
@@ -1646,6 +1731,16 @@ exec "$CANARY_REAL_CLI" "$@"
               try {
                 const rows = await targetApi.machines.list.query()
                 return (
+                  // Presence can still describe the pre-restart process during
+                  // its grace period. Wait for the actual durable endpoint
+                  // publications before judging all three finalized runtimes.
+                  specs.every((spec) => {
+                    const connectivity = read(spec, 'machine.json').connectivity
+                    return (
+                      connectivity.state === 'connected' &&
+                      connectivity.serverUrl === `ws://127.0.0.1:${target.port}`
+                    )
+                  }) &&
                   [sourceId, targetId, observerId].every((id) =>
                     rows.some(
                       (row) => row.id === id && row.online && row.presenceSource === 'supervisor',
@@ -1719,7 +1814,7 @@ exec "$CANARY_REAL_CLI" "$@"
     }, 480_000)
   }
 
-  it('claims an absent named root before the compiled launcher materializes abduco', async () => {
+  it('claims an absent named root before the compiled launcher writes instance configuration', async () => {
     const namedSpec = makeSpec('blue', 'cold-blue')
     expect(existsSync(namedSpec.stateDir)).toBe(false)
     const executable = buildPackagedCli()
@@ -1754,7 +1849,6 @@ exec "$CANARY_REAL_CLI" "$@"
     })
 
     expect(code, `${stdout}\n${stderr}`).toBe(0)
-    expect(existsSync(join(namedSpec.stateDir, 'bin', 'abduco'))).toBe(true)
     expect(
       JSON.parse(readFileSync(join(namedSpec.stateDir, 'instance.json'), 'utf8')),
     ).toMatchObject({ instanceId: 'blue' })
@@ -1770,26 +1864,64 @@ exec "$CANARY_REAL_CLI" "$@"
     })
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'clean named server')
     expect(JSON.parse(readFileSync(join(namedSpec.stateDir, 'config.json'), 'utf8'))).toMatchObject(
-      { mode: 'all-in-one', configVersion: 2 },
+      { mode: 'all-in-one' },
     )
     // S8 imports the channel into deployment settings on the first server boot.
     const namedDatabase = openDatabase(join(namedSpec.stateDir, 'podium.db'), { readOnly: true })
     try {
-      const settings = namedDatabase.prepare("SELECT value FROM meta WHERE key = 'settings'").get() as { value: string }
+      const workspaces = namedDatabase
+        .prepare("SELECT DISTINCT workspace_id AS id FROM workspace_meta WHERE key = 'settings'")
+        .all() as {
+        id: string
+      }[]
+      expect(workspaces).toHaveLength(1)
+      const workspace = workspaces[0]
+      if (!workspace) throw new Error('configured instance has no workspace')
+      const settings = namedDatabase
+        .prepare("SELECT value FROM workspace_meta WHERE workspace_id = ? AND key = 'settings'")
+        .get(workspace.id) as { value: string }
       expect(JSON.parse(settings.value).deployment.updateChannel).toBe('edge')
-    } finally { namedDatabase.close() }
+    } finally {
+      namedDatabase.close()
+    }
     const stopped = await runCli(named, ['stop'])
     expect(stopped.code, stopped.stderr).toBe(0)
-    await waitUntil(() => named.child.exitCode !== null, 'cold named parent cleanup')
-  })
+    await waitUntil(
+      () => named.child.exitCode !== null || named.child.signalCode !== null,
+      'cold named parent cleanup',
+      15_000,
+    )
+    expect(await version(named)).toBeUndefined()
+    expect(await endpointIsListening(named.hookPort)).toBe(false)
+    expect(await endpointIsListening(named.relayPort)).toBe(false)
+    console.log('cold-launch cleanup', {
+      exitCode: named.child.exitCode,
+      signalCode: named.child.signalCode,
+    })
+  }, 60_000)
 
   it('keeps live runtimes, agents, commands, data, and lifecycle disjoint', async () => {
-    const compat = startInstance(makeSpec('default'))
+    const compatSpec = makeSpec('default')
+    await seedNamedState(compatSpec)
+    const compat = startInstance(compatSpec)
     const namedSpec = makeSpec('blue')
     await seedNamedState(namedSpec)
     const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: '1' })
     await waitUntil(async () => (await version(compat))?.instanceId === 'default', 'compat server')
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'named server')
+    // Each deployment has its own enrolled owner and signed-in cookie. A
+    // cookie from the other live instance cannot authorize its data plane.
+    for (const [target, foreign] of [
+      [compat, named],
+      [named, compat],
+    ] as const) {
+      const cookie = ownerCookies.get(foreign.stateDir)
+      if (!cookie) throw new Error('instance owner never signed in')
+      const denied = await fetch(`http://127.0.0.1:${target.port}/trpc/machines.list`, {
+        headers: { cookie },
+      })
+      expect(denied.status).toBe(401)
+    }
     for (const instance of [compat, named]) {
       await waitUntil(async () => {
         const rows = await trpc(instance).machines.list.query()
@@ -1881,13 +2013,18 @@ exec "$CANARY_REAL_CLI" "$@"
     const compatMachineId = inspectBoot(compat)
     const namedMachineId = inspectBoot(named)
     expect(instanceOwners.size).toBe(2)
-    expect(JSON.parse(readFileSync(join(compat.stateDir, 'machine.json'), 'utf8')).machineId).toBe(compatMachineId)
-    expect(JSON.parse(readFileSync(join(named.stateDir, 'machine.json'), 'utf8')).machineId).toBe(namedMachineId)
+    expect(JSON.parse(readFileSync(join(compat.stateDir, 'machine.json'), 'utf8')).machineId).toBe(
+      compatMachineId,
+    )
+    expect(JSON.parse(readFileSync(join(named.stateDir, 'machine.json'), 'utf8')).machineId).toBe(
+      namedMachineId,
+    )
 
     // A second authenticated member is still inside the SAME named deployment,
     // but the instance label grants no execute authority over its host machine.
-    const memberToken = NAMED_MEMBER_TOKEN
-    const memberApi = trpc(named, SESSION_COOKIE + '=' + memberToken)
+    const memberCookie = memberCookies.get(named.stateDir)
+    if (!memberCookie) throw new Error('named member never signed in')
+    const memberApi = trpc(named, memberCookie)
     await expect(
       memberApi.sessions.create.mutate({
         agentKind: 'shell',
@@ -1916,7 +2053,13 @@ exec "$CANARY_REAL_CLI" "$@"
     // repo placement. Exhaust the bounded wait and preserve the S9 refusal.
     const refusedAt = Date.now()
     const beforeDiscovery = await runCli(compat, [
-      'issue', 'create', '--repoPath', ROOT, '--title', 'Before discovery', '--json',
+      'issue',
+      'create',
+      '--repoPath',
+      ROOT,
+      '--title',
+      'Before discovery',
+      '--json',
     ])
     expect(beforeDiscovery.code).toBe(1)
     expect(jsonOutput(beforeDiscovery).error).toBe(

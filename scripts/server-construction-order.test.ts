@@ -128,6 +128,8 @@ describe('composition site enrollment', () => {
 
   it('enrolls every site it claims to render', () => {
     expect(SITES.map((site) => site.id)).toContain('session-lifecycle-wiring')
-    for (const site of SITES) expect(() => auditSite(site)).not.toThrow()
+  })
+  it.each(SITES)('$id has a valid construction order', (site) => {
+    expect(() => auditSite(site)).not.toThrow()
   })
 })

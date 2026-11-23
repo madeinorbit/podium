@@ -16,26 +16,28 @@
  * assertion is about feed scoping, not SQLite.
  */
 
-import { asCapabilityRef, asDeviceId } from '@podium/protocol'
-import { type Principal } from '@podium/protocol'
 import {
   asUserId,
+  parseReadPositionRowId,
   type ReadPositionSnapshot,
   readPositionRowId,
-  parseReadPositionRowId,
   type UserId,
 } from '@podium/model'
+import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
   Authority,
+  type CapturedRow,
   DeviceGradeNoAnchors,
   GrantEdgeVisibilityPolicy,
-  type VisibilityStatePort,
   NoDelegationsGranted,
+  type VisibilityStatePort,
 } from '@podium/sync'
+import { authorityCommitWriter } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import type { StoredReadPosition } from '../../store/user-read-position'
+import { databaseRecords } from '../../sync/record-source'
 import { ReadPositionService } from './service'
-import { installedWorldOver } from '@podium/sync/testing'
 
 const ALICE: UserId = asUserId('user:alice')
 const BOB: UserId = asUserId('user:bob')
@@ -84,23 +86,35 @@ function memoryStore(): AuthorityStore {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    ...installedWorldOver(async () => {
-      const latest = new Map<string, (typeof rows)[number]>()
-      for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
-      return [...latest.values()]
-    }),
   } as AuthorityStore
 }
 
 /** Minimal cursor store — only what ReadPositionService calls, monotonic like the real one. */
 function memoryCursorRepo() {
   const byUser = new Map<string, Map<string, StoredReadPosition>>()
+  // The change capture the table's triggers keep (POD-6920), keyed as they key it:
+  // the workspace first (POD-7021), so the drain holds it to this repo's workspace.
+  let captured: CapturedRow[] = []
   return {
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    async drainCapture(): Promise<CapturedRow[]> {
+      const out = captured
+      captured = []
+      return out
+    },
+    async *allPositionPages(pageSize: number) {
+      const rows = [...byUser].flatMap(([user, positions]) =>
+        [...positions].map(([streamId, value]) => ({ userId: asUserId(user), streamId, ...value })),
+      )
+      for (let offset = 0; offset < rows.length; offset += pageSize)
+        yield rows.slice(offset, offset + pageSize)
+    },
     getSnapshot(userId: UserId): ReadPositionSnapshot {
       const m = byUser.get(userId)
       return m ? (Object.fromEntries(m) as ReadPositionSnapshot) : {}
     },
     advance(
+      _scope: unknown,
       userId: UserId,
       streamId: string,
       proposed: StoredReadPosition,
@@ -114,6 +128,14 @@ function memoryCursorRepo() {
       const current = m.get(streamId)
       if (current !== undefined && proposed.lastEventId <= current.lastEventId) return null
       m.set(streamId, proposed)
+      captured.push({
+        id: captured.length + 1,
+        kind: 'userReadPosition',
+        source: 0,
+        op: current === undefined ? 'i' : 'u',
+        oldKey: current === undefined ? null : [SELF_HOSTED_WORKSPACE_ID, userId, streamId],
+        newKey: [SELF_HOSTED_WORKSPACE_ID, userId, streamId],
+      })
       return proposed
     },
   }
@@ -132,37 +154,35 @@ function build() {
       }
     },
   }
+  const repo = memoryCursorRepo()
   const authority = new Authority({
     store: memoryStore(),
     now: () => 1_000,
     transact: (fn) => fn(),
     visibility: new GrantEdgeVisibilityPolicy(visibilityPort, new NoDelegationsGranted()),
     anchors: new DeviceGradeNoAnchors(),
-  })
-  const repo = memoryCursorRepo()
-  const service = new ReadPositionService({
-    cursors: repo as never,
-    ledger: {
-      capture: async (specs) => {
-        await authority.capture(
-          specs.map((s) => ({
-            entity: s.entity,
-            entityId: s.id,
-            op: s.op,
-            ...(s.value !== undefined ? { value: s.value } : {}),
-          })),
-        )
-        return [] as never
+    records: {
+      ...databaseRecords({ store: { readPositions: repo, sync: repo } } as never, [
+        'userReadPosition',
+      ]),
+      async *streamAllKinds() {
+        for await (const records of this.streamAll('userReadPosition'))
+          yield { entity: 'userReadPosition' as const, records }
       },
     },
   })
-  return { authority, service, repo }
+  const service = new ReadPositionService({ cursors: repo as never })
+  // The command's writer: each commit goes through the Authority, which builds
+  // the named records around the write (compare at save).
+  const writer = authorityCommitWriter(authority)
+  return { authority, service, repo, writer }
 }
 
 describe('read-cursor rows scope to the owning user on the Authority feed', () => {
   it("Alice's advance is on Alice's bootstrap, absent from Bob's, and durably stored", async () => {
-    const { authority, service, repo } = build()
+    const { authority, service, repo, writer } = build()
     await service.advance(
+      writer,
       ALICE,
       'issueEvents',
       { lastEventId: 42, seenAt: '2026-08-02T10:00:00Z' },
@@ -195,10 +215,10 @@ describe('read-cursor rows scope to the owning user on the Authority feed', () =
   })
 
   it("a later advance reaches Alice's changesSince and Bob receives no cursor delta", async () => {
-    const { authority, service } = build()
-    await service.advance(ALICE, 'issueEvents', { lastEventId: 10, seenAt: null }, 't1')
+    const { authority, service, writer } = build()
+    await service.advance(writer, ALICE, 'issueEvents', { lastEventId: 10, seenAt: null }, 't1')
     const before = await authority.cursor()
-    await service.advance(ALICE, 'issueEvents', { lastEventId: 20, seenAt: null }, 't2')
+    await service.advance(writer, ALICE, 'issueEvents', { lastEventId: 20, seenAt: null }, 't2')
 
     const delivery = await authority.changesSince(before, humanPrincipal(ALICE))
     expect(delivery?.kind).toBe('batch')
@@ -220,9 +240,9 @@ describe('read-cursor rows scope to the owning user on the Authority feed', () =
     // The shape of the bug this member exists to prevent: one shared cursor.
     // Both users read the SAME log, so a shared row would look correct for
     // whoever wrote last and would silently mark the other's unread events read.
-    const { authority, service, repo } = build()
-    await service.advance(ALICE, 'issueEvents', { lastEventId: 99, seenAt: null }, 't')
-    await service.advance(BOB, 'issueEvents', { lastEventId: 7, seenAt: null }, 't')
+    const { authority, service, repo, writer } = build()
+    await service.advance(writer, ALICE, 'issueEvents', { lastEventId: 99, seenAt: null }, 't')
+    await service.advance(writer, BOB, 'issueEvents', { lastEventId: 7, seenAt: null }, 't')
 
     expect(repo.getSnapshot(ALICE).issueEvents?.lastEventId).toBe(99)
     expect(repo.getSnapshot(BOB).issueEvents?.lastEventId).toBe(7)
@@ -236,12 +256,12 @@ describe('read-cursor rows scope to the owning user on the Authority feed', () =
   })
 
   it('a no-op advance publishes nothing — a feed row must mean the position moved', async () => {
-    const { authority, service } = build()
-    await service.advance(ALICE, 'issueEvents', { lastEventId: 30, seenAt: null }, 't1')
+    const { authority, service, writer } = build()
+    await service.advance(writer, ALICE, 'issueEvents', { lastEventId: 30, seenAt: null }, 't1')
     const before = await authority.cursor()
     // Behind the stored position: a second device that wrote before its
     // hydration landed. It must neither store nor publish.
-    await service.advance(ALICE, 'issueEvents', { lastEventId: 5, seenAt: null }, 't2')
+    await service.advance(writer, ALICE, 'issueEvents', { lastEventId: 5, seenAt: null }, 't2')
 
     const delivery = await authority.changesSince(before, humanPrincipal(ALICE))
     if (delivery?.kind !== 'batch') return

@@ -1,0 +1,28 @@
+diff --git a/dist/chunks/cli-api.cZcvaUFI.js b/dist/chunks/cli-api.cZcvaUFI.js
+--- a/dist/chunks/cli-api.cZcvaUFI.js
++++ b/dist/chunks/cli-api.cZcvaUFI.js
+@@ -13495,9 +13495,13 @@
+ 	}
+ 	filterFiles(testFiles, filters, dir) {
+ 		if (filters.length && process.platform === "win32") filters = filters.map((f) => slash(f));
++		// Existing file filters are exact; directories and partial names remain substrings.
++		const exactFiles = new Map(filters.map((f) => [f, existsSync(f) && statSync(f).isFile() ? resolve$1(f) : null]));
+ 		if (filters.length) return testFiles.filter((t) => {
+ 			const testFile = relative(dir, t).toLocaleLowerCase();
+ 			return filters.some((f) => {
++				const exact = exactFiles.get(f);
++				if (exact) return process.platform === "win32" ? t.toLocaleLowerCase() === exact.toLocaleLowerCase() : t === exact;
+ 				// if filter is a full file path, we should include it if it's in the same folder
+ 				if (isAbsolute(f) && t.startsWith(f)) return true;
+ 				const relativePath = f.endsWith("/") ? join(relative(dir, f), "/") : relative(dir, f);
+@@ -17654,7 +17658,9 @@
+ 				else error.stacks = parseErrorStacktrace(error, {
+ 					frameFilter: project.config.onStackTrace,
+ 					getSourceMap(file) {
+-						if (!project.vite.moduleGraph.getModuleById(file)?.transformResult && existsSync(file)) return extractSourcemapFromFile(readFileSync(file, "utf-8"), file)?.map;
++						// Bun native:1:11 frames can resolve to a directory named native.
++						// Read source maps only from regular files; preserve the frame and result.
++						if (!project.vite.moduleGraph.getModuleById(file)?.transformResult && existsSync(file) && statSync(file, { throwIfNoEntry: false })?.isFile()) return extractSourcemapFromFile(readFileSync(file, "utf-8"), file)?.map;
+ 					}
+ 				});
+ 			});

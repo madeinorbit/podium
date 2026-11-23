@@ -1,3 +1,4 @@
+import '@/test-support/mock-store-action-ports'
 // @vitest-environment happy-dom
 import type { SessionIssueOutcome } from '@podium/client-core/values'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -9,7 +10,7 @@ const store = vi.hoisted(() => ({
   updateIssue: vi.fn(async () => undefined),
 }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (read: (state: typeof store) => unknown) => read(store),
+  readFixture: (read: (state: typeof store) => unknown) => read(store),
 }))
 
 afterEach(() => {

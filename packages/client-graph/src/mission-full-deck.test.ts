@@ -1,3 +1,4 @@
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { autorun } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -5,8 +6,7 @@ import type { FullDeck } from './mission-full-deck'
 import { MissionScreen } from './mission-screen'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { settled } from './mission-view'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
-import { MobxPool } from './pool'
+import { MobxPool, type PoolLazyOptions } from './pool'
 import { attachPreferenceSource } from './preference-source'
 import { LOADING, unitsBelowPartOf } from './worklist/rollup'
 import { rollupInputsOf } from './worklist/visible'
@@ -133,7 +133,7 @@ const flush = async () => {
 }
 
 /** One opening of the fixture with a writable device preference, settled. */
-async function open(fixture = mission()) {
+async function open(fixture = mission(), lazy?: PoolLazyOptions) {
   const values = new Map<string, string>()
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const ui: RoutedUiState = {
@@ -148,9 +148,14 @@ async function open(fixture = mission()) {
       return () => listeners.delete(listener)
     },
   }
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const pool = new MobxPool(
+    { selectedIssueId: null, coarseNow: Date.parse(stamp) },
+    undefined,
+    lazy,
+  )
   pools.push(pool)
-  attachPreferenceSource(pool, ui)
+  // The product's device preferences are observable (UiStore); so is this port.
+  attachPreferenceSource(pool, observableFixtureKeys(ui))
   pool.apply({
     type: 'replace',
     rows: [
@@ -664,54 +669,6 @@ describe('dependencies', () => {
   })
 })
 
-describe('loading', () => {
-  it('stays unready while a cold row loads, then settles', async () => {
-    const fixture = mission()
-    const input = new Map<string, object>([
-      ...fixture.issues.map((row) => [`issue:${row['id'] as string}`, row] as const),
-      ...fixture.sessions.map((row) => [`session:${row['sessionId'] as string}`, row] as const),
-    ])
-    const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-      load,
-      summaries: MISSION_VIEW_SUMMARIES,
-      schedule: () => () => {},
-    })
-    pools.push(pool)
-    attachMissionTestPreferences(pool)
-    // Closed rows arrive as declared summaries only, as a long mission's history does.
-    pool.apply({
-      type: 'replace',
-      rows: [
-        ...fixture.issues.map((value) => ({
-          kind: 'issue' as const,
-          id: value['id'] as string,
-          value: value as never,
-        })),
-        ...fixture.sessions.map((value) => ({
-          kind: 'session' as const,
-          id: value['sessionId'] as string,
-          value: value as never,
-        })),
-      ],
-    })
-    const screen = new MissionScreen(pool, 'root')
-    screens.push(screen)
-    const full = screen.full
-    expect(tracked(() => full.ready)).toBe(false)
-    let rounds = 0
-    while (!tracked(() => full.ready) && rounds++ < 10) pool.hydrate()
-    expect(tracked(() => full.ready)).toBe(true)
-    expect(tracked(() => full.counts)).toEqual({
-      all: 10,
-      'needs-you': 2,
-      active: 3,
-      'up-next': 5,
-      done: 2,
-    })
-  })
-})
-
 describe('legacy modes', () => {
   /** What Waterfall, Timeline and the phone read from the same opening. */
   const legacy = (screen: MissionScreen) =>
@@ -773,12 +730,22 @@ describe('execution buckets', () => {
       sessions: [session('worker', 'leaf', 'working')],
     })
     expect(tracked(() => full.leafIds)).toEqual(['leaf'])
-    expect(tracked(() => full.buckets)).toEqual({ total: 1, done: 0, working: 1, waiting: 0, todo: 0 })
+    expect(tracked(() => full.buckets)).toEqual({
+      total: 1,
+      done: 0,
+      working: 1,
+      waiting: 0,
+      todo: 0,
+    })
     const expected = { total: 1, done: 0, working: 1, waiting: 0, todo: 0 }
     expect(tracked(() => screen.progress)).toEqual(expected)
     expect(tracked(() => pool.worklistRow('root')!.progress)).toEqual(expected)
     expect(tracked(() => pool.worklistRow('phase')!.progress)).toEqual(expected)
-    expect(tracked(() => unitsBelowPartOf(pool.rollupInputs, 'root'))).toMatchObject({ units: 1, done: 0, progress: { working: 1, waiting: 0 } })
+    expect(tracked(() => unitsBelowPartOf(pool.rollupInputs, 'root'))).toMatchObject({
+      units: 1,
+      done: 0,
+      progress: { working: 1, waiting: 0 },
+    })
     expect(tracked(() => pool.worklistRow('empty-phase')!.progress)).toMatchObject({ total: 0 })
   })
 
@@ -813,17 +780,31 @@ describe('execution buckets', () => {
     const original = session('worker', 'history', 'working', { refIssueId: 'history' })
     const { full, screen, pool } = await open({ issues, sessions: [original] })
     expect(tracked(() => full.buckets.working)).toBe(1)
-    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'worker',
-      value: { ...original, issueId: 'elsewhere' } as never }] })
-    expect(tracked(() => full.buckets)).toEqual({ total: 1, done: 0, working: 0, waiting: 1, todo: 0 })
-    expect(tracked(() => screen.progress)).toMatchObject({ total: 1,
+    pool.apply({
+      type: 'update',
+      rows: [
+        { kind: 'session', id: 'worker', value: { ...original, issueId: 'elsewhere' } as never },
+      ],
+    })
+    expect(tracked(() => full.buckets)).toEqual({
+      total: 1,
+      done: 0,
       working: 0,
       waiting: 1,
-      todo: 0 })
-    expect(tracked(() => pool.worklistRow('root')!.progress)).toMatchObject({ total: 1,
+      todo: 0,
+    })
+    expect(tracked(() => screen.progress)).toMatchObject({
+      total: 1,
       working: 0,
       waiting: 1,
-      todo: 0 })
+      todo: 0,
+    })
+    expect(tracked(() => pool.worklistRow('root')!.progress)).toMatchObject({
+      total: 1,
+      working: 0,
+      waiting: 1,
+      todo: 0,
+    })
     const rebuilt = rollupInputsOf({ ...pool.visibleInputs, missionBucket: undefined })
     expect(rebuilt.missionBucket?.('history')).toBe('waiting')
   })
@@ -892,4 +873,56 @@ describe('execution buckets', () => {
       todo: 1,
     })
   })
+})
+
+it('keeps shared launch defaults while Full uses only each member’s private roster', async () => {
+  const shared = issue('root', 1, null, {
+    ownerUserId: 'mem-alice',
+    description: 'Shared task content',
+    defaultAgent: 'codex',
+    defaultModel: 'gpt-6.1-sol',
+    defaultEffort: 'max',
+  })
+  // Separate member projections, as delivered by the server. D13 summaries
+  // never stand in for the private sessions that supply the deck’s controls.
+  const aliceLoad = vi.fn(() => undefined)
+  const bobLoad = vi.fn(() => undefined)
+  const alice = await open(
+    {
+      issues: [shared],
+      sessions: [
+        session('alice-run', 'root', 'working', {
+          ownerUserId: 'mem-alice',
+          agentState: { phase: 'working', nativeSubagentCount: 1 },
+        }),
+      ],
+    },
+    { load: aliceLoad, schedule: () => () => {} },
+  )
+  const bob = await open(
+    {
+      issues: [shared],
+      sessions: [session('bob-run', 'root', 'working', { ownerUserId: 'mem-bob' })],
+    },
+    { load: bobLoad, schedule: () => () => {} },
+  )
+
+  for (const member of [alice, bob]) {
+    expect(member.screen.root.description).toBe('Shared task content')
+    expect(member.screen.rootAgentTarget.defaultAgent).toBe('codex')
+    expect(member.screen.root.storedField('defaultModel')).toBe('gpt-6.1-sol')
+    expect(member.screen.root.storedField('defaultEffort')).toBe('max')
+  }
+  expect(tracked(() => alice.full.root.sessionIds)).toEqual(['alice-run'])
+  expect(tracked(() => bob.full.root.sessionIds)).toEqual(['bob-run'])
+
+  bob.pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'root', value: shared as never }] })
+  await flush()
+  expect(tracked(() => bob.full.root.sessionIds)).toEqual([])
+  expect(bob.screen.root.description).toBe('Shared task content')
+  expect(tracked(() => alice.full.root.sessionIds)).toEqual(['alice-run'])
+  alice.pool.hydrate()
+  bob.pool.hydrate()
+  expect(aliceLoad).not.toHaveBeenCalled()
+  expect(bobLoad).not.toHaveBeenCalled()
 })

@@ -14,10 +14,10 @@
  */
 
 import { createLogger } from '@podium/logger'
-import { type QuotaSample, quotaAccountKey } from '@podium/model'
+import { type QuotaSample, quotaAccountKey, type UserId } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
 import type { QuotaHistoryRepository } from '../../store/quota-history'
-import { QUOTA_HISTORY_RETENTION_MS, QUOTA_SAMPLE_INTERVAL_MS } from './service'
+import { QUOTA_HISTORY_RETENTION_MS, QUOTA_SAMPLE_INTERVAL_MS, type QuotaOwnerOf } from './service'
 
 const log = createLogger('server:quota-history')
 
@@ -53,15 +53,24 @@ export async function ingestBackfill(
   history: QuotaHistoryRepository,
   wires: QuotaHistorySampleWire[],
   intervalMs: number = QUOTA_SAMPLE_INTERVAL_MS,
+  ownerOf: QuotaOwnerOf = async () => null,
 ): Promise<{ recorded: number; skipped: number }> {
+  // A recovered window belongs to the custodian of the machine whose files it
+  // came from, as a live one does (POD-6300).
+  const owners = new Map<string, UserId | null>()
+  for (const wire of wires) {
+    if (!owners.has(wire.machineId)) {
+      owners.set(wire.machineId, await ownerOf(wire.machineId).catch(() => null))
+    }
+  }
   const samples = wires
-    .map(toQuotaSample)
-    .filter((s): s is QuotaSample => s !== undefined)
-    .sort((a, b) => a.atMs - b.atMs)
+    .map((wire) => ({ sample: toQuotaSample(wire), machineId: wire.machineId }))
+    .filter((s): s is { sample: QuotaSample; machineId: string } => s.sample !== undefined)
+    .sort((a, b) => a.sample.atMs - b.sample.atMs)
   let recorded = 0
-  for (const sample of samples) {
+  for (const { sample, machineId } of samples) {
     try {
-      await history.record(sample, intervalMs)
+      await history.record(sample, intervalMs, owners.get(machineId) ?? null)
       recorded += 1
     } catch (err) {
       log.debug('backfill sample not recorded', { err })
@@ -71,6 +80,8 @@ export async function ingestBackfill(
 }
 
 export interface QuotaBackfillOptions {
+  /** Whose a recovered window is: the reporting machine's custodian. */
+  ownerOf?: QuotaOwnerOf
   bootDelayMs?: number
   retentionMs?: number
   now?: () => number
@@ -91,6 +102,7 @@ export class QuotaBackfill {
   private readonly bootDelayMs: number
   private readonly retentionMs: number
   private readonly now: () => number
+  private readonly ownerOf: QuotaOwnerOf | undefined
 
   constructor(
     private readonly history: QuotaHistoryRepository,
@@ -98,6 +110,7 @@ export class QuotaBackfill {
     options: QuotaBackfillOptions = {},
   ) {
     this.bootDelayMs = options.bootDelayMs ?? QUOTA_BACKFILL_BOOT_DELAY_MS
+    this.ownerOf = options.ownerOf
     this.retentionMs = options.retentionMs ?? QUOTA_HISTORY_RETENTION_MS
     this.now = options.now ?? Date.now
   }
@@ -125,7 +138,7 @@ export class QuotaBackfill {
       return { recorded: 0, skipped: 0 }
     }
     if (this.disposed || wires.length === 0) return { recorded: 0, skipped: 0 }
-    const result = await ingestBackfill(this.history, wires)
+    const result = await ingestBackfill(this.history, wires, QUOTA_SAMPLE_INTERVAL_MS, this.ownerOf)
     log.info('quota history backfilled', {
       samples: wires.length,
       recorded: result.recorded,

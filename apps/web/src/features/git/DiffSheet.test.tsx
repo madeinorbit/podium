@@ -67,15 +67,15 @@ const readFileScoped = vi.fn(async (_scope: unknown, path: string) =>
  * so the sheet reads and writes it here rather than through storage of its own.
  */
 const uiRows = new Map<string, string>()
-const uiListeners = new Set<() => void>()
+const uiListeners = new Set<(changed: ReadonlySet<string>) => void>()
 const uiState = {
   get: (key: string): string | null => uiRows.get(key) ?? null,
   set: (key: string, value: string | null): void => {
     if (value === null) uiRows.delete(key)
     else uiRows.set(key, value)
-    for (const notify of [...uiListeners]) notify()
+    for (const notify of [...uiListeners]) notify(new Set([key]))
   },
-  subscribe: (notify: () => void): (() => void) => {
+  subscribe: (notify: (changed: ReadonlySet<string>) => void): (() => void) => {
     uiListeners.add(notify)
     return () => {
       uiListeners.delete(notify)
@@ -84,7 +84,7 @@ const uiState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) =>
+  readFixture: (sel: (s: unknown) => unknown) =>
     sel({ gitDiffFile, gitCommitDiffFile, readFileScoped, uiState }),
 }))
 

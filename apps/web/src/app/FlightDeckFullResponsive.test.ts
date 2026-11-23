@@ -3,10 +3,11 @@ import { expect, it } from 'vitest'
 
 const css = readFileSync('src/styles.css', 'utf8')
 const section = css.split('/* Full alone sheds')[1]!
-const full = section.slice(section.indexOf('*/') + 2)
+// Other surfaces have their own viewport queries after the next section divider.
+const full = section.slice(section.indexOf('*/') + 2).split(/^\/\* -{10,}$/m)[0]!
 const base = full.split('@container flight-full')[0]!
 const queries = [
-  ...css.matchAll(/@container flight-full \(width (<|>=) (\d+)px\) \{([\s\S]*?)\n\}/g),
+  ...full.matchAll(/@container flight-full \(width (<|>=) (\d+)px\) \{([\s\S]*?)\n\}/g),
 ]
 
 // This is a source contract, not a layout engine: evaluate only the named
@@ -84,7 +85,19 @@ it('keeps intrinsic identity/state, title minima and the edge gutter through wra
   expect(declaration(300, '.flight-v6-ref', 'overflow-wrap')).toBe('anywhere')
   expect(declaration(300, '.flight-v6-state', 'min-width')).toBe('max-content')
   expect(declaration(300, '.flight-v6-title', 'min-width')).toBe('var(--v6-title-min, 60px)')
-  expect(full).toContain('--v6-indent-limit: clamp(0px, calc(100cqi - 440px), 66px)')
+  expect(declaration(300, '.flight-full-panel', 'overflow-x')).toBe('auto')
+  expect(declaration(300, '.flight-full-panel > .deck-chrome', 'left')).toBe('0')
+  expect(declaration(300, '.flight-full-groups', 'min-width')).toBe('min-content')
+  for (const selector of [
+    '.flight-v6-card',
+    '.flight-full-phase-header',
+    '.flight-full-phase-section > [data-deck-placeholder]',
+  ]) {
+    expect(declaration(300, selector, 'margin-left')).toBe('var(--v6-indent, 0px)')
+    expect(declaration(300, selector, 'min-width')).toBe('240px')
+  }
+  expect(declaration(300, '.flight-v6-guide', 'left')).toBe('var(--v6-guide-left)')
+  expect(full).not.toContain('--v6-indent-limit')
   expect(full.replace(/\s+/g, ' ')).toContain(
     '.flight-full-phase-content { position: relative; margin-left: 0; padding-left: 0; border-left: 0; }',
   )

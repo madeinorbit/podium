@@ -463,6 +463,7 @@ export const DeckRowPlaceholder = observer(function DeckRowPlaceholder({
             {text}
           </div>
           <button
+            data-pressable
             type="button"
             className="sr-only"
             aria-label={text}

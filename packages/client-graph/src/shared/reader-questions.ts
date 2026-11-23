@@ -4,7 +4,7 @@ import { issueStatusOf, machinePathAncestors, machinePathKey, machinePathSeparat
 import { parseSessionRef } from '@podium/protocol'
 import { createIssueMentionIndex, type IssueMentionQuestion } from './issue-mention-question'
 import { isFinished } from './predicates'
-import { referenceKey, sessionReferenceKey } from './session-reference'
+import { directSessionReferenceKey, referenceKey, sessionReferenceKey } from './session-reference'
 import type { RowSourceEvent } from './source'
 
 export type ReaderQuestion =
@@ -15,21 +15,15 @@ export type ReaderQuestion =
         | 'commandIssues'
         | 'mentionIssues'
         | 'pageIssues'
-        | 'shellIssues'
-        | 'missionIssues'
-        | 'boardCatalog'
         | 'proposedIssues'
     }
   | {
       kind:
         | 'commandSessions'
-        | 'inboxSessions'
-        | 'setupSessions'
         | 'referenceSessions'
-        | 'explorerSessions'
-        | 'shellSessions'
         | 'headerSessions'
         | 'headerOccupancy'
+        | 'pausedSessions'
     }
   | { kind: 'headerRecentSession'; excluded?: readonly string[] | Pick<ReadonlySet<string>, 'has'> }
   | { kind: 'sessionReference'; ref: string }
@@ -116,7 +110,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   const prefixRepos = new Map<string, Set<string>>()
   const referenceKeys = (ref: string) => {
     const prefix = parseSessionRef(ref)?.prefix
-    return prefix ? [...(prefixRepos.get(prefix) ?? [])].map(id => `session:ref:${referenceKey(id, ref)}`) : []
+    return prefix ? [`session:ref:${directSessionReferenceKey(ref)}`, ...[...(prefixRepos.get(prefix) ?? [])].map(id => `session:ref:${referenceKey(id, ref)}`)] : []
   }
   const buckets = new Map<string, Set<string>>()
   const repos = new Set<string>()
@@ -225,21 +219,19 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       }
     } else if (kind === 'session') {
       updates.sessionFacets++
-      const { archived, headless, agentKind, status, issueId } = row
+      const { archived, agentKind, status, issueId } = row
       if (!previous || archived !== previous.archived) {
         if (!archived) out.add('session:unarchived')
         else out.delete('session:unarchived')
       }
-      if (!previous || archived !== previous.archived || headless !== previous.headless || agentKind !== previous.agentKind) {
-        if (!archived && !headless && agentKind !== 'shell') out.add('session:inbox')
-        else out.delete('session:inbox')
-      }
       if (!previous || status !== previous.status) {
-        if (['live', 'starting', 'reconnecting'].includes(status as string)) out.add('session:host')
+        if (['live', 'starting'].includes(status as string)) out.add('session:host')
         else out.delete('session:host')
+        if (status === 'hibernated') out.add('session:paused')
+        else out.delete('session:paused')
       }
       if (!previous || row.refRepoId !== previous.refRepoId || row.refSeq !== previous.refSeq ||
-        row.refLetter !== previous.refLetter || row.refDraft !== previous.refDraft) {
+        row.refLetter !== previous.refLetter || row.refDraft !== previous.refDraft || row.displayRef !== previous.displayRef) {
         const beforeRef = previous && sessionReferenceKey(previous)
         if (beforeRef) out.delete(`session:ref:${beforeRef}`)
         const reference = sessionReferenceKey(row)
@@ -481,12 +473,12 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'proposedIssues':
           keys.push('issue:proposed')
           break
-        case 'inboxSessions':
-          keys.push('session:inbox')
-          break
         case 'headerSessions':
         case 'headerOccupancy':
           keys.push('session:host')
+          break
+        case 'pausedSessions':
+          keys.push('session:paused')
           break
         case 'headerRecentSession':
           keys.push('session:recent')
@@ -589,9 +581,9 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           // Ordered windows are answered by their existing bounded indexes.
           return this.ids(question).includes(id)
         case 'proposedIssues': return has('issue:proposed')
-        case 'inboxSessions': return has('session:inbox')
         case 'headerSessions':
         case 'headerOccupancy': return has('session:host')
+        case 'pausedSessions': return has('session:paused')
         case 'sessionReference': return referenceKeys(question.ref).some(has)
         case 'commandIssueSessions': return has(commandIssueKey(question))
         case 'spawnIssues':
@@ -660,11 +652,11 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           return []
         case 'proposedIssues':
           return [...bucket('issue:proposed')]
-        case 'inboxSessions':
-          return [...bucket('session:inbox')]
         case 'headerSessions':
         case 'headerOccupancy':
           return [...bucket('session:host')]
+        case 'pausedSessions':
+          return [...bucket('session:paused')]
         case 'headerRecentSession': {
           const excluded = question.excluded && 'has' in question.excluded
             ? question.excluded : new Set(question.excluded),

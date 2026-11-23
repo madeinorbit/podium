@@ -2,7 +2,14 @@ import { execFileSync } from 'node:child_process'
 import { access, copyFile, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { asIssueId, asMachineId, asRepoId, asSessionId, asUserId } from '@podium/model'
+import {
+  asAgentIdentityId,
+  asIssueId,
+  asMachineId,
+  asRepoId,
+  asSessionId,
+  asUserId,
+} from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { BindingStore } from './binding-store'
 import {
@@ -60,6 +67,13 @@ describe('workspace package', () => {
       principal: { kind: 'user', userId: asUserId('user:alice') },
       issueId: asIssueId('issue-workspace-fetch'),
       attemptId: 'source-attempt',
+      delegation: {
+        actor: asAgentIdentityId('source-agent'),
+        onBehalfOf: asUserId('user:alice'),
+        grantedScope: { kind: 'owned', userId: asUserId('user:alice') },
+        parentBindingId: null,
+        revision: 1,
+      },
     })
     if (spawned.status !== 'applied') throw new Error('source binding setup failed')
     const sourceBefore = JSON.stringify(spawned.binding)

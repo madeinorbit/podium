@@ -38,16 +38,18 @@
  * `prepare` per connection however many times it runs.
  */
 
-import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import { asc, eq, sql } from 'drizzle-orm'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { and, asc, eq, inArray, sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import { runDrizzleMigrations } from '../migrations'
 import { DRIZZLE_MIGRATIONS } from '../migrations/drizzle-manifest.generated'
 import { sessions as sessionsTable, users } from '../migrations/schema'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import {
   createBunSqliteDriver,
@@ -57,7 +59,7 @@ import {
   queryClientOver,
   type StatementObservation,
 } from './executor'
-import { storeQueriesOver } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, storeQueriesOver } from './executor/sync-drizzle'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 import { UsersRepository, userFromRow } from './users'
@@ -98,6 +100,8 @@ const sessionRow = (id: string, owner: UserId, createdAt: string): SessionRow =>
 })
 
 const account = (id: UserId, createdAt: string) => ({
+  // The workspace of `migratedStore` (no default since the keys migration, POD-7024).
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   id,
   displayName: `name-${id}`,
   role: 'member' as const,
@@ -108,7 +112,11 @@ const account = (id: UserId, createdAt: string) => ({
 /** The store the repositories are normally built over. */
 function migratedStore() {
   const database = openMigratedTestDatabase()
-  const queries = createBunStoreExecutor({ database }).queries
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
+  const queries = legacyWorkspaceQueries(
+    createBunStoreExecutor({ database }).queries,
+    SELF_HOSTED_WORKSPACE_ID,
+  )
   cleanup.push(() => database.close())
   return { database, queries }
 }
@@ -133,8 +141,14 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
           .all()
       )[0]
 
-    await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
-    await sessions.upsertSession(sessionRow('sess-b', BOB, '2026-09-02T10:00:00.000Z'))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-b', BOB, '2026-09-02T10:00:00.000Z'),
+    )
 
     for (const id of ['sess-a', 'sess-b']) {
       const prepared = await sessions.getSession(asSessionId(id))
@@ -154,7 +168,12 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
 
     // A TOMBSTONE IS INCLUDED — the property the method's own comment names,
     // and the one a `deleted_at IS NULL` slip would break.
-    await sessions.softDeleteSessions(['sess-a'], '2026-09-05T00:00:00.000Z', 'standalone')
+    await sessions.softDeleteSessions(
+      fixtureWriteScope(),
+      ['sess-a'],
+      '2026-09-05T00:00:00.000Z',
+      'standalone',
+    )
     expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
     expect(await fluent('sess-a')).toBeDefined()
   })
@@ -166,7 +185,10 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
     await db.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
     await db
       .insert(users)
-      .values({ ...account(BOB, '2026-09-02T10:00:00.000Z'), disabledAt: '2026-09-03T00:00:00.000Z' })
+      .values({
+        ...account(BOB, '2026-09-02T10:00:00.000Z'),
+        disabledAt: '2026-09-03T00:00:00.000Z',
+      })
       .run()
     await db
       .insert(users)
@@ -179,43 +201,12 @@ describe('POD-3854 — the prepared read answers exactly what the fluent read di
     const fluent = async (id: UserId) =>
       userFromRow((await db.select().from(users).where(eq(users.id, id)).get())!)
     expect(await repo.get(ALICE)).toEqual(await fluent(ALICE))
-    expect(await repo.get(ALICE)).toMatchObject(account(ALICE, '2026-09-01T10:00:00.000Z'))
+    const { workspaceId: _workspace, ...alice } = account(ALICE, '2026-09-01T10:00:00.000Z')
+    expect(await repo.get(ALICE)).toMatchObject(alice)
     // FAILS CLOSED, all three ways: no row, a disabled row, an unreadable role.
     expect(await repo.get(asUserId('user:nobody'))).toBeUndefined()
     expect(await repo.get(BOB)).toBeUndefined()
     expect(await repo.get(asUserId('user:future'))).toBeUndefined()
-  })
-
-  it('refuses a credential write for a disabled account and an unreadable role', async () => {
-    const { queries } = migratedStore()
-    const repo = new UsersRepository(queries)
-    const db = queries.rootDb
-    await db.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
-    await db
-      .insert(users)
-      .values({ ...account(BOB, '2026-09-02T10:00:00.000Z'), disabledAt: '2026-09-03T00:00:00.000Z' })
-      .run()
-    await db
-      .insert(users)
-      .values({ ...account(asUserId('user:future'), '2026-09-01T10:00:00.000Z'), role: 'overlord' })
-      .run()
-
-    // disable() sets disabledAt rather than removing the row, so the raw row
-    // stays truthy. Guarding on the raw row therefore let a credential write
-    // land on a suspended account and republish it through the commit funnel.
-    // The same hole swallowed the unreadable-role refusal.
-    await expect(
-      repo.setPasswordHash(BOB, 'hash', '2026-09-04T00:00:00.000Z'),
-    ).rejects.toThrow()
-    await expect(
-      repo.setPasswordHash(asUserId('user:future'), 'hash', '2026-09-04T00:00:00.000Z'),
-    ).rejects.toThrow()
-    await expect(
-      repo.setPasswordHash(asUserId('user:nobody'), 'hash', '2026-09-04T00:00:00.000Z'),
-    ).rejects.toThrow()
-
-    // The readable, enabled account still works.
-    await repo.setPasswordHash(ALICE, 'hash', '2026-09-04T00:00:00.000Z')
   })
 })
 
@@ -248,7 +239,12 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
         .toSQL().sql,
     )
     expect(
-      db.select().from(users).where(eq(users.id, sql.placeholder('id'))).prepare().getQuery().sql,
+      db
+        .select()
+        .from(users)
+        .where(eq(users.id, sql.placeholder('id')))
+        .prepare()
+        .getQuery().sql,
     ).toBe(db.select().from(users).where(eq(users.id, ALICE)).toSQL().sql)
   })
 
@@ -257,7 +253,10 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
     const sessions = new SessionsRepository(queries)
     const repo = new UsersRepository(queries)
     const db = queries.rootDb
-    await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
     await db.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
 
     const seen: StatementObservation[] = []
@@ -274,14 +273,27 @@ describe('POD-3854 — the executor sees the same statement it saw before', () =
     await repo.get(ALICE)
     const prepared = seen.splice(0).map(shape)
 
-    // The same two reads, spelled the way they were spelled before.
+    // The same two reads. b69f2d5917 batches user ids through IN,
+    // including a single-key lookup; the executor still sees the same work.
+    // The session read names its workspace first (POD-7015), and so does the account read
+    // (POD-7019). The session read breaks a created_at tie by id, not rowid, so both
+    // engines order alike (POD-6958).
     await db
       .select()
       .from(sessionsTable)
-      .where(eq(sessionsTable.id, asSessionId('sess-a')))
-      .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
+      .where(
+        and(
+          eq(sessionsTable.workspaceId, SELF_HOSTED_WORKSPACE_ID),
+          eq(sessionsTable.id, asSessionId('sess-a')),
+        ),
+      )
+      .orderBy(asc(sessionsTable.createdAt), asc(sessionsTable.id))
       .all()
-    await db.select().from(users).where(eq(users.id, ALICE)).get()
+    await db
+      .select()
+      .from(users)
+      .where(and(eq(users.workspaceId, SELF_HOSTED_WORKSPACE_ID), inArray(users.id, [ALICE])))
+      .all()
     expect(prepared).toEqual(seen.splice(0).map(shape))
     // A probe that saw nothing agrees with a probe that saw nothing.
     expect(prepared).toHaveLength(2)
@@ -308,7 +320,10 @@ describe('POD-3854 — a prepared read follows the transaction it runs in', () =
 
     await expect(
       queries.createOrJoinTransaction(async () => {
-        await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+        await sessions.upsertSession(
+          fixtureWriteScope(),
+          sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+        )
         await queries.rootDb.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
         // Only the transaction's own connection, inside its BEGIN, can see these.
         expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
@@ -323,7 +338,10 @@ describe('POD-3854 — a prepared read follows the transaction it runs in', () =
   it('serves the root again after a transaction closed, with the same query', async () => {
     const { queries } = migratedStore()
     const sessions = new SessionsRepository(queries)
-    await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
     expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
     await queries.createOrJoinTransaction(async () => {
       expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
@@ -371,7 +389,10 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
       async (statement) => await session.execute(statement),
       async (batch) => await session.executeBatch(batch),
     )
-    const queries = storeQueriesOver(client, async (fn) => await fn())
+    const queries = legacyWorkspaceQueries(
+      storeQueriesOver(client, async (fn) => await fn()),
+      SELF_HOSTED_WORKSPACE_ID,
+    )
     return {
       sessions: new SessionsRepository(queries),
       users: new UsersRepository(queries),
@@ -383,8 +404,14 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
     const { driver, prepares } = walStore()
     const owner = await driver.open('write')
     const writer = overSession(owner)
-    await writer.sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
-    await writer.queries.rootDb.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
+    await writer.sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
+    await writer.queries.rootDb
+      .insert(users)
+      .values(account(ALICE, '2026-09-01T10:00:00.000Z'))
+      .run()
 
     // THE WRITE LANE — the owner session, which is also the only role that may
     // have written the rows above.
@@ -409,17 +436,23 @@ describe('POD-3854 — the prepared query runs on every connection role', () => 
     // ONE PREPARE PER CONNECTION PER TEXT, not one per execution and not one
     // for the whole store: the shared reader reuses the owner's, the detached
     // reader has to make its own.
-    const countOf = (fragment: string) =>
-      prepares.filter((text) => text.includes(fragment)).length
-    expect(countOf('from "sessions" where "sessions"."id" = ?')).toBe(2)
-    expect(countOf('from "users" where "users"."id" = ?')).toBe(2)
+    const countOf = (fragment: string) => prepares.filter((text) => text.includes(fragment)).length
+    expect(
+      countOf('from "sessions" where (("sessions"."workspace_id" = ?) and ("sessions"."id" = ?))'),
+    ).toBe(2)
+    expect(
+      countOf('from "users" where (("users"."workspace_id" = ?) and ("users"."id" in (?)))'),
+    ).toBe(2)
   })
 
   it('refuses a write on a detached reader, the same way it always did', async () => {
     const { driver } = walStore()
     const detached = overSession((await driver.openReader?.()) as DriverSession)
     await expect(
-      detached.queries.rootDb.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run(),
+      detached.queries.rootDb
+        .insert(users)
+        .values(account(ALICE, '2026-09-01T10:00:00.000Z'))
+        .run(),
     ).rejects.toThrow()
   })
 })

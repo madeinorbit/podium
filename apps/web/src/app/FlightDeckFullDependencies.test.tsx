@@ -1,19 +1,20 @@
 // @vitest-environment happy-dom
 
+import { observableFixtureKeys } from '@podium/client-core/test-support/ui'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
-import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { autorun } from 'mobx'
 import { createRef } from 'react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { fixtureRuntimeRender } from '@/test-support/fixture-runtime-render'
 import { FlightDeckFullGroups } from './FlightDeckFullGroups'
 
-vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (store: unknown) => unknown) => read({ renameSession: vi.fn() }),
-}))
+// The deck reads its commands from the runtime root (792821bc50).
+const render = fixtureRuntimeRender({ renameSession: vi.fn() })
 vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
@@ -141,7 +142,8 @@ async function open(rows = fixture(), sessions: Row[] = []) {
       return () => listeners.delete(listener)
     },
   }
-  attachPreferenceSource(pool, preferences)
+  // The product's device preferences are observable (UiStore); so is this port.
+  attachPreferenceSource(pool, observableFixtureKeys(preferences))
   pool.apply({
     type: 'replace',
     rows: [
@@ -375,8 +377,12 @@ it('ignores virtual placeholders and disconnects observers, listeners and queued
     ),
   ]
   const f = await open(rows)
+  // A deck this size draws its rows a step per task (POD-7168): the last
+  // row's placeholder follows the first rows.
+  await waitFor(() =>
+    expect(f.ui.container.querySelector('[data-deck-placeholder="task:task-99"]')).not.toBeNull(),
+  )
   expect(f.row('task-99')).toBeNull()
-  expect(f.ui.container.querySelector('[data-deck-placeholder="task:task-99"]')).not.toBeNull()
   expect(f.edges()).toHaveLength(0)
   const scrollRemove = vi.spyOn(f.scrollRef.current!, 'removeEventListener')
   const windowRemove = vi.spyOn(window, 'removeEventListener')

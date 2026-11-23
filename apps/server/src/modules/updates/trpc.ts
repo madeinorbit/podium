@@ -1,796 +1,144 @@
-import type { ServerPlacement } from './service'
-import type { PrepareCoordinatorUpdate } from './installed-restart'
-import { createLogger } from '@podium/logger'
-import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
-import { stateDir } from '@podium/runtime/config'
-import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
-import { buildsDiffer, targetPlatforms } from '@podium/protocol'
+import { type CommandDef, defineCommands } from '@podium/commands'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { serverBuildSourceDigest, serverBuildVersion } from '../../build-version'
-import { attributionOf } from '../../command-principal'
-import { type Context, t } from '../../trpc'
+import { serverBuildVersion } from '../../build-version'
+import {
+  canSeeMachine,
+  machineUseDecision,
+  ownershipSnapshotFromMachines,
+} from '../../machine-access'
+import { t } from '../../trpc'
 import { familyState } from '../derived-family'
-import { legacyTransferInProgress } from '../server-transfer/journal'
-import type { OperationsModule } from '../operations'
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
+import type { WriteRoute } from '../write-routes/builder'
+import { plainRoute } from '../write-routes/plain'
+import { syncRoute } from '../write-routes/sync'
 import {
-  fleetCanTakeTargetNow,
-  planInputFrom,
-  planUpdateOperation,
-  UPDATE_OPERATION_KIND,
-  UPDATE_STEP_MACHINES,
-  UPDATE_STEP_PREPARE,
-  type UpdateOperationContext,
-  type UpdatePlanInput,
-  type UpdateSurface,
-  updateOperationDetails,
-} from './operation'
-import { ReleaseApprovalRefusal } from './release-approval'
-import { type ChannelCheckRecord, legacyInstanceTrustMessage, type UpdatesService } from './service'
-import {
-  isPackagedRolloutTarget,
-  machineCanTakeTargetPlatform,
-  machineCanUseTargetTrust,
-  type WaveMachine,
-} from './wave'
+  assertMayUpdate,
+  legacyConvergeResult,
+  releaseProposalFor,
+  serverPlacementOf,
+  startUpdateOperation,
+  throwIfFailedOnStart,
+  updateFleet,
+} from './handlers'
+import { UPDATE_OPERATION_KIND, UPDATE_STEP_MACHINES, type UpdateSurface } from './operation'
+import type { UPDATE_PLAIN_HANDLERS, UpdateCommandName, updateCommands } from './plain-family'
+import { readUpdateSpacePreview } from './space-preview'
 
-const log = createLogger('server:updates')
+export * from './handlers'
+export { UPDATE_PLAIN_REGISTRATIONS } from './plain-family'
 
-function serverPlacementOf(ctx: Context): ServerPlacement {
-  if (!ctx.serverPlacement) throw new Error('Server placement is not configured for updates')
-  return ctx.serverPlacement
-}
+type PlainUpdateProcedure<N extends UpdateCommandName, Out> = WriteRoute<
+  z.input<(typeof updateCommands.defs)[N]['input']>,
+  Awaited<Out>
+>
 
-const IN_FLIGHT: ReadonlySet<ConvergenceState> = new Set(['granted', 'downloading', 'restarting'])
-const FAILED: ReadonlySet<ConvergenceState> = new Set(['rejected', 'stuck'])
-
-/**
- * ASKED, NOT ASSUMED (POD-2100). This used to default an unpinned machine to
- * `dev` on its own, so a machine the grant path resolved to the fleet default
- * could still be counted into the authority wave the dialog reports on.
- * `channelOf` is now the single resolution site for everyone.
- */
-function isOnChannel(
-  updates: UpdatesService,
-  machine: WaveMachine,
-  channel: UpdateChannel,
-): boolean {
-  return updates.channelOf(machine) === channel
-}
-
-/**
- * ONE WEBSITE, TWO DISTS (POD-1980).
- *
- * `podium-web` builds the desktop shell and the phone export in one run, and
- * `artifacts.web.digest` names one commit for both. So the website has an
- * identity only when both halves agree on it — otherwise a phone left on last
- * week's export reads as current because the desktop half is fresh.
- *
- * Answering `undefined` while the phone lags is what makes "is the website
- * behind" one question with one answer. It is deliberately NOT what the dest
- * tarball gate waits on: that gate protects the bytes it packs, and it packs
- * `apps/web/dist` only. Comparing the phone against the desktop rather than
- * against the expected commit is deliberate and equivalent — a desktop half that
- * is itself behind already fails the caller's `=== expected`.
- *
- * An ABSENT phone dist is not behind: an installation that never exported one
- * has nothing to rebuild, and reading its silence as staleness would leave
- * Update offering work forever.
- */
-export function websiteDigestReader(
-  readDesktop: (() => string | undefined) | undefined,
-  readPhone: (() => MobileWebIdentity) | undefined,
-): (() => string | undefined) | undefined {
-  if (!readDesktop) return undefined
-  if (!readPhone) return readDesktop
-  return () => {
-    const desktop = readDesktop()
-    if (desktop === undefined) return undefined
-    const phone = readPhone()
-    return phone.present && phone.digest !== desktop ? undefined : desktop
-  }
-}
-
-export interface UpdateFleetMachine {
-  id: MachineId
-  name?: string
-  version: string
-  state: ConvergenceState
-  online: boolean
-  busy: boolean
-  detail?: string
-  reason?: WaveMachine['reason']
-}
-
-export interface UpdateFleetBlocker {
-  id: MachineId
-  name?: string
-  reason: 'legacy-instance-trust'
-}
-
-export interface UpdateFleetSnapshot {
-  /** Running coordinator version; additive so an older web bundle can ignore it. */
-  appVersion?: string
-  /** Running coordinator source identity; authoritative when comparing build labels. */
-  sourceDigest?: string
-  /** Served desktop-web checkout identity. A digest is comparison evidence, not display copy. */
-  servedWebDigest?: string
-  /** Served phone bundle identity, absent when this installation has no phone export. */
-  servedMobileWeb?: MobileWebIdentity
-  targetVersion: string | null
-  total: number
-  behind: number
-  converging: number
-  failed: number
-  /** Machines that are behind but cannot safely join this wave without host-local repair. */
-  blocked?: number
-  /** Kept separate from the grantable machine set: visible, but never authorized. */
-  blockers?: UpdateFleetBlocker[]
-  preparation?: {
-    webReady: boolean
-    bundleReady: boolean
-    failureDetail?: string
-  }
-  machines: UpdateFleetMachine[]
-  /**
-   * Every registered machine, whatever its channel. `machines` above is the
-   * dev-authority wave the global dialog accounts for; Settings needs one row
-   * per machine so an edge/stable row can show its own convergence.
-   */
-  allMachines: UpdateFleetMachine[]
-  /**
-   * When each channel in use was last checked and what came back (POD-2100).
-   * ADDITIVE and tolerant of absence per the frozen-contract law (spec P8): an
-   * old bundle rendering a new server ignores it, and a channel that has never
-   * been checked has no entry rather than a fabricated one.
-   */
-  channelChecks: ChannelCheckRecord[]
-  /** Whether the server would accept the update action represented by this snapshot. */
-  startability?: UpdateStartability
-  /**
-   * The durable operation currently converging this fleet, if one is (POD-2098).
-   *
-   * ADDITIVE, and deliberately only an id: this payload is the OLD read model
-   * and it stays exactly as it was, so the current dialog and Settings do not
-   * change. The id is the thread from here to `operations.active`, which the
-   * update panel picks up in its own issue. An old bundle ignores it (P8).
-   */
-  operationId?: string
-  operation?: { id: string; failureReason?: string }
-  /**
-   * A version published while the operation ran, waiting its turn (§3.2). Shown
-   * so "0.4.4 arrived and will be offered when this finishes" is sayable rather
-   * than a target that silently changes underneath the panel.
-   */
-  nextTargetVersion?: string
-}
-
-/**
- * SCOPED TO THE OPERATION'S AUTHORITY, WHICH IS THE HOST'S (POD-2222/POD-2212).
- *
- * This was dev-scoped, and that was POD-2100's decision with a stated reason:
- * edge and stable machines carry their own per-row targets, so comparing them
- * against the DEV target would invent behind places the global action could not
- * grant. The reason was right; its premise expired. POD-2189 made the global
- * action's authority the HOST's own channel, and this read model was not moved
- * with it — so on a stable installation the offer and the action stopped
- * describing the same wave. `targetVersion` was null and `total`/`behind` were
- * zero while a published stable release sat one fetch away, which is why a
- * stable installation was never OFFERED an update at all.
- *
- * The widening is exactly one channel wide, and the invariant it preserves is
- * the one POD-2100 was protecting: the set counted here is the set
- * `updates.converge`/`updates.start` would grant, because both ask
- * {@link UpdatesService.operationChannel}. Machines pinned elsewhere are still
- * left out of these counts and still keep their own per-row target, action and
- * standing reconciliation — they remain in `allMachines`, which is where
- * Settings renders them.
- */
-export async function fleetSnapshot(
-  updates: UpdatesService,
-  serverPlacement: ServerPlacement,
-): Promise<UpdateFleetSnapshot> {
-  const channel = await updates.operationChannel(serverPlacement)
-  const allMachines = (await updates.fleet()).map((machine) => ({
-    ...machine,
-    id: asMachineId(machine.id),
-  }))
-  // `allMachines` remains the complete Settings inventory. The operation-facing
-  // projection is narrower: a source checkout has no packaged install to swap.
-  // Only the explicit source fact excludes; old/unknown reports stay visible.
-  const target = updates.target(channel)
-  /**
-   * …AND NOT A MACHINE THIS RELEASE CONTAINS NOTHING FOR (POD-2783).
-   *
-   * The invariant above is that this set is the set `updates.start` would
-   * grant. A release's platform list is fixed when it is minted, from the fleet
-   * that existed at that instant, so a machine that enrolled afterwards is not
-   * in it and never will be — the plan defers it, and counting it `behind` here
-   * is what put a button in front of a human whose Mac could never take the
-   * bytes behind it. The refusal they then got was correct; the offer was not.
-   *
-   * It stays in `allMachines`, which is the Settings inventory — the same split
-   * a source checkout gets. This is about what may be OFFERED.
-   */
-  const machines = allMachines.filter(
-    (machine) =>
-      isOnChannel(updates, machine, channel) &&
-      isPackagedRolloutTarget(machine) &&
-      (target === undefined ||
-        (machineCanUseTargetTrust(machine, target.trust) &&
-          machineCanTakeTargetPlatform(machine, targetPlatforms(target)))),
-  )
-  const targetVersion = target?.version
-  const blockers: UpdateFleetBlocker[] =
-    target?.trust === 'instance' && targetVersion !== undefined
-      ? allMachines
-          .filter(
-            (machine) =>
-              isOnChannel(updates, machine, channel) &&
-              isPackagedRolloutTarget(machine) &&
-              machine.version !== targetVersion &&
-              !machineCanUseTargetTrust(machine, target.trust),
-          )
-          .map((machine) => ({
-            id: machine.id,
-            ...(machine.name ? { name: machine.name } : {}),
-            reason: 'legacy-instance-trust' as const,
-          }))
-      : []
-  // PER MACHINE, not per target (POD-2195): a fleet that can take git delivery
-  // is converging on a bare `dev+<sha>` identity right now, and zeroing its live
-  // counts for the want of a tarball nobody is waiting for made Settings say
-  // nothing was happening while a machine fetched.
-  const grantable = target !== undefined && fleetCanTakeTargetNow(target, machines)
-  const behind = targetVersion
-    ? machines.filter((machine) => machine.version !== targetVersion).length
-    : 0
-
-  return {
-    targetVersion: targetVersion ?? null,
-    total: machines.length,
-    behind,
-    converging: grantable ? machines.filter((machine) => IN_FLIGHT.has(machine.state)).length : 0,
-    failed: grantable ? machines.filter((machine) => FAILED.has(machine.state)).length : 0,
-    blocked: blockers.length,
-    blockers,
-    machines,
-    allMachines,
-    channelChecks: updates.channelChecks(),
-  }
-}
-
-/**
- * THE UPDATE OPERATION'S CONTEXT, assembled from the request (POD-2098).
- *
- * Deliberately built here rather than at composition time: half of it (the
- * publisher, the redeploy request, the served stamps) is optional plumbing the
- * tRPC context already carries, and the OTHER half — `report` — needs the
- * engine, which is what turns a runner's "I handed this out" into a persisted
- * transition. Boot assembles the same shape from the same pieces (`server.ts`),
- * which is the point of it being a plain object and not a service.
- */
-export function updateOperationContext(input: {
-  updates: UpdatesService
-  operations: OperationsModule
-  channel: UpdateChannel
-  appVersion: () => string
-  sourceDigest?: () => string | undefined
-  serverInstallKind?: 'installed' | 'source'
-  serverPlacement: ServerPlacement
-  desktopSupervised?: boolean
-  surface?: UpdateSurface
-  onlyMachines?: readonly string[]
-  retryOf?: string
-  servedWebDigest?: () => string | undefined
-  servedMobileWeb?: () => MobileWebIdentity
-  prepareCoordinatorUpdate?: PrepareCoordinatorUpdate
-  preflightDatabaseBackup: NonNullable<UpdateOperationContext['preflightDatabaseBackup']>
-  latestDatabaseSnapshot?: () => string | undefined
-  legacyTransferActive?: () => boolean
-  requestCoordinatorRestart?: () => void | Promise<void>
-  requestWebRebuild?: () => void
-  requestDestBundle?: () => Promise<unknown>
-  preparation?: () => {
-    webReady: boolean
-    bundleReady: boolean
-    failureDetail?: string
-  }
-}): UpdateOperationContext {
-  // ONE WEBSITE, TWO DISTS: the operation's `web` step is about the WEBSITE, so
-  // it reads the same combined answer the old path did (POD-1980).
-  const website = websiteDigestReader(input.servedWebDigest, input.servedMobileWeb)
-  return {
-    updates: input.updates,
-    channel: input.channel,
-    appVersion: input.appVersion,
-    ...(input.sourceDigest ? { sourceDigest: input.sourceDigest } : {}),
-    ...(input.serverInstallKind ? { serverInstallKind: input.serverInstallKind } : {}),
-    serverPlacement: input.serverPlacement,
-    ...(input.desktopSupervised ? { desktopSupervised: true } : {}),
-    ...(input.surface ? { surface: input.surface } : {}),
-    ...(input.onlyMachines ? { onlyMachines: input.onlyMachines } : {}),
-    ...(input.retryOf ? { retryOf: input.retryOf } : {}),
-    ...(website ? { servedWebDigest: website } : {}),
-    ...(input.prepareCoordinatorUpdate
-      ? { prepareCoordinatorUpdate: input.prepareCoordinatorUpdate }
-      : {}),
-    preflightDatabaseBackup: input.preflightDatabaseBackup,
-    ...(input.latestDatabaseSnapshot
-      ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
-      : {}),
-    ...(input.legacyTransferActive ? { legacyTransferActive: input.legacyTransferActive } : {}),
-    // `…Locked`, and AWAITED: a runner is invoked from inside the operation's
-    // chain, so queueing here would be waiting for ourselves — and the server
-    // step has to have its preflight receipt durable before it asks this process to
-    // restart, which is the one thing this port exists for.
-    recordOperationDetails: async (operationId, patch) => {
-      await input.operations.engine.recordDetailsLocked(operationId, patch)
+/** One update command's route, answering a refusal as it always did. */
+function plainUpdate<N extends UpdateCommandName>(
+  name: N,
+): PlainUpdateProcedure<N, ReturnType<(typeof UPDATE_PLAIN_HANDLERS)[N]>> {
+  return plainRoute(`updates.${name}`, {
+    refused: (refusal) => {
+      if (refusal.kind === 'invalid') {
+        throw new TRPCError({ code: 'BAD_REQUEST', cause: refusal.error })
+      }
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: `updates.${name} is not permitted for this caller`,
+      })
     },
-    ...(input.requestCoordinatorRestart
-      ? { requestCoordinatorRestart: input.requestCoordinatorRestart }
-      : {}),
-    ...(input.requestWebRebuild ? { requestWebRebuild: input.requestWebRebuild } : {}),
-    ...(input.requestDestBundle ? { requestDestBundle: input.requestDestBundle } : {}),
-    ...(input.preparation ? { preparation: input.preparation } : {}),
-    report: (operationId, stepId, patch) => {
-      void input.operations.engine.recordProgress(operationId, stepId, patch)
-    },
-    // The other half of the same seam (POD-2173): `report` is how a watcher
-    // says something, and this is how it learns to stop.
-    stepActive: async (operationId, stepId) =>
-      await input.operations.engine.watching(operationId, stepId),
-  }
-}
-
-async function contextFor(
-  ctx: Context,
-  extra: {
-    onlyMachines?: readonly string[]
-    retryOf?: string
-    surface?: UpdateSurface
-  } = {},
-  options: { includeDatabaseSnapshot?: boolean } = {},
-): Promise<UpdateOperationContext> {
-  const state = familyState(ctx)
-  return updateOperationContext({
-    updates: state.modules.updates,
-    operations: state.modules.operations,
-    // THE HOST'S OWN CHANNEL, not the literal `'dev'` this used to write
-    // (POD-2189): on a shipped installation every machine resolves to `stable`,
-    // so a hardcoded dev authority meant `planInputFrom` threw and the fleet got
-    // no operation at all. A machine pinned elsewhere still keeps its own
-    // per-row action (POD-2100).
-    channel: await state.modules.updates.operationChannel(serverPlacementOf(ctx)),
-    appVersion: serverBuildVersion,
-    sourceDigest: serverBuildSourceDigest,
-    ...(ctx.serverInstallKind ? { serverInstallKind: ctx.serverInstallKind } : {}),
-    serverPlacement: serverPlacementOf(ctx),
-    ...(ctx.desktopSupervised ? { desktopSupervised: true } : {}),
-    ...extra,
-    // The server step's only pre-restart database work: room for the
-    // successor's boot backup, which is the recovery point (POD-6255).
-    preflightDatabaseBackup: async () => state.store.preflightUpdateBackup(),
-    // Snapshot DISCOVERY is now metadata + `stat` (POD-3068), so it is cheap
-    // enough for a request; it is still gated to the confirmed-operation path
-    // because a polled startability preview has no use for restore guidance.
-    ...(options.includeDatabaseSnapshot
-      ? { latestDatabaseSnapshot: () => state.store.latestDatabaseSnapshot() }
-      : {}),
-    legacyTransferActive: () => legacyTransferInProgress(stateDir()),
-    ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
-    ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
-    ...(ctx.prepareCoordinatorUpdate
-      ? { prepareCoordinatorUpdate: ctx.prepareCoordinatorUpdate }
-      : {}),
-    ...(ctx.requestCoordinatorRestart
-      ? { requestCoordinatorRestart: ctx.requestCoordinatorRestart }
-      : {}),
-    ...(ctx.requestWebRebuild ? { requestWebRebuild: ctx.requestWebRebuild } : {}),
-    ...(ctx.requestDestBundle ? { requestDestBundle: ctx.requestDestBundle } : {}),
-    ...(ctx.updatePreparation ? { preparation: ctx.updatePreparation } : {}),
   })
 }
 
 /**
- * The preconditions that must refuse BEFORE an operation exists (§6.3).
- *
- * "Never show an internal precondition as an error" cuts both ways: the panel
- * must not render one, and the server must not manufacture an operation that
- * exists only to fail with one. A refusal here is the same sentence the old
- * `startUpdate` produced, so the current dialog's copy is unchanged.
+ * The update writes that are effect records (POD-6358): the declarations their
+ * old routes are served under. Each reaches `effects.create`.
  */
-export type UpdateStartability = { startable: true } | { startable: false; reason: string }
+const updateEffectRoutes = defineCommands('updates', {
+  start: {
+    input: z.object({ surface: z.string().optional() }).optional(),
+    action: 'write',
+    exposure: ['trpc'],
+  },
+  retry: { input: z.object({ id: z.string() }), action: 'write', exposure: ['trpc'] },
+  converge: { input: z.undefined().optional(), action: 'write', exposure: ['trpc'] },
+} satisfies Record<'start' | 'retry' | 'converge', CommandDef>)
 
-export function updateStartability(input: UpdatePlanInput): UpdateStartability {
-  const plan = planUpdateOperation(input)
-  if (plan.steps.length === 0 && (plan.awaiting ?? []).length === 0) {
-    if ((plan.deferred ?? []).length > 0) {
-      const onlyLegacyTrust = plan.deferred?.every(
-        (place) => place.reason === 'legacy-instance-trust',
-      )
-      return {
-        startable: false,
-        reason: onlyLegacyTrust
-          ? 'This development update is not offered because every affected machine predates ' +
-            'channel-keyed update trust. Those updaters receive the feed but verify it with the ' +
-            'baked release key instead of their pinned instance key; use the supported host-local repair.'
-          : 'No online machine can apply this update right now.',
-      }
-    }
-    return {
-      startable: false,
-      reason: 'Podium is already at this version everywhere.',
-    }
-  }
-  const expectedWeb = input.target.artifacts.web?.digest
-  const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
-  const serverBehind = buildsDiffer(
-    { version: input.appVersion, digest: input.sourceDigest },
-    { version: input.target.version, digest: input.target.artifacts.web?.digest },
-  )
-  if (webBehind && !serverBehind && !input.canRebuildWeb && !input.canPrepare) {
-    return {
-      startable: false,
-      reason: 'This Podium installation cannot rebuild its web app automatically.',
-    }
-  }
-  return { startable: true }
-}
-
-export function assertUpdateStartable(input: UpdatePlanInput): void {
-  const verdict = updateStartability(input)
-  if (verdict.startable) return
-  throw new TRPCError({
-    code: 'PRECONDITION_FAILED',
-    message: verdict.reason,
-  })
-}
-
-const CHANNEL_PROSE: Record<UpdateChannel, string> = {
-  stable: 'stable',
-  edge: 'edge',
-  dev: 'development',
-}
-
-/**
- * WHY THERE IS NOTHING TO UPDATE TO, in a sentence the person who asked can use
- * (§6.3, POD-2197).
- *
- * "No update target is configured." is the internal precondition §6.3 set out to
- * make unreachable: it describes this server's bookkeeping and offers no next
- * action. Two things are actually true when a target is missing, and they are
- * different sentences. Either the publisher REFUSED and knows why — a dirty
- * checkout, a website not built for HEAD — in which case its own words are the
- * whole answer, including what to do about it. Or nothing has been published on
- * this channel at all, which is an ordinary state of the world and sayable as
- * one.
- *
- * Observed live (POD-2194): a checkout with two uncommitted changes produced the
- * useful sentence in `preparation.failureDetail` and the useless one at the
- * caller.
- */
-export function missingTargetReason(channel: UpdateChannel, failureDetail?: string): string {
-  if (failureDetail !== undefined && failureDetail.length > 0) return failureDetail
-  return `Nothing has been published on the ${CHANNEL_PROSE[channel] ?? channel} channel yet.`
-}
-
-/**
- * START ONE UPDATE (§3.2, P6) — the single-flight entry point.
- *
- * A second caller is not told "no": it is handed the operation that is already
- * running, which is what makes two tabs pressing Update render the same panel
- * instead of one of them seeing an error about the other.
- */
-export async function startUpdateOperation(
-  ctx: Context,
-  extra: {
-    onlyMachines?: readonly string[]
-    retryOf?: string
-    surface?: UpdateSurface
-  } = {},
-): Promise<{
-  operationId: string
-  operation: Operation | null
-  alreadyRunning: boolean
-}> {
-  const state = familyState(ctx)
-  const context = await contextFor(ctx, extra, { includeDatabaseSnapshot: true })
-  const updates = state.modules.updates
-  await updates.reapproveTarget(context.channel)
-  if (!updates.target(context.channel)) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: missingTargetReason(context.channel, ctx.updatePreparation?.().failureDetail),
-    })
-  }
-  assertUpdateStartable(await planInputFrom(context))
-
-  const engine = state.modules.operations.engine
-  const result = await engine.start(UPDATE_OPERATION_KIND, context, {
-    createdBy: 'user',
-  })
-  if (!result.started) {
-    if ('alreadyRunning' in result) {
-      const row = await engine.active(LIFECYCLE_EXCLUSION_GROUP)
-      return {
-        operationId: result.alreadyRunning,
-        operation: row?.operation ?? null,
-        alreadyRunning: true,
-      }
-    }
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'This server cannot run update operations.',
-    })
-  }
-  logWaveDecision(updates, context.channel, result.operation)
-  return {
-    operationId: result.operation.id,
-    operation: result.operation,
-    alreadyRunning: false,
-  }
-}
-
-/**
- * WHY EACH MACHINE ON THE CHANNEL IS, OR IS NOT, IN THIS WAVE.
- *
- * The plan already records two of the three verdicts: a machine it will update
- * is a place on the machines step, and a machine it will not is a `deferred`
- * entry carrying `offline` or `cannot-take-delivery`. The third is the one that
- * has cost the most and is written down nowhere — a machine judged ALREADY AT
- * THE TARGET simply never appears, because `behind` filtered it out before
- * either list was built.
- *
- * That silence is the same shape as POD-2732: a coordinator sat four days
- * without installing because "already current" and "never considered" look
- * identical from outside. The local participant now logs its own convergence
- * decisions for exactly that reason; this is the fleet-level half of it.
- *
- * Read off the plan the engine actually produced rather than recomputed, so
- * this line cannot drift from the decision it describes.
- */
-function logWaveDecision(
-  updates: UpdatesService,
-  channel: UpdateChannel,
-  operation: Operation | undefined,
-): void {
-  if (!operation) return
-  try {
-    describeWaveDecision(updates, channel, operation)
-  } catch (error) {
-    // A diagnostic must never be able to fail an update. The whole point of
-    // this line is the case where something is already wrong.
-    log.warn('could not describe the update wave decision', {
-      operationId: operation.id,
-      err: error,
-    })
-  }
-}
-
-async function describeWaveDecision(
-  updates: UpdatesService,
-  channel: UpdateChannel,
-  operation: Operation,
-): Promise<void> {
-  const target = updates.target(channel)
-  if (!target) return
-  const waved = new Set(
-    (operation.steps ?? [])
-      .filter((step) => step.id === UPDATE_STEP_MACHINES)
-      .flatMap((step) => (step.places ?? []).map((place) => place.id)),
-  )
-  const deferredReason = new Map(
-    (operation.deferred ?? []).map((place) => [place.id, place.reason]),
-  )
-  const decisions = (await updates.fleet())
-    .filter((machine) => isPackagedRolloutTarget(machine))
-    .map((machine) => ({
-      machine: machine.name ?? machine.id,
-      version: machine.version,
-      online: machine.online,
-      verdict: waved.has(machine.id)
-        ? 'waved'
-        : (deferredReason.get(machine.id) ??
-          (machine.version === target.version ? 'already-at-target' : 'not-on-this-channel')),
-    }))
-  log.info('update wave decision', {
-    operationId: operation.id,
-    channel,
-    targetVersion: target.version,
-    decisions,
-  })
-}
-
-/** The fleet read model used by the dialog and Settings. */
-export async function updateFleet(ctx: Context): Promise<UpdateFleetSnapshot> {
-  const state = familyState(ctx)
-  const updates = state.modules.updates
-  const fleet = await fleetSnapshot(
-    updates,
-    serverPlacementOf(ctx),
-  )
-  const preparation = ctx.updatePreparation?.()
-  const active = await state.modules.operations.engine.active(LIFECYCLE_EXCLUSION_GROUP)
-  // The queued version belongs to the same authority as the counts above: a dev
-  // publication is not what a stable host is waiting its turn for (POD-2222).
-  const hostChannel = await updates.operationChannel(serverPlacementOf(ctx))
-  const queued = updates.nextTarget(hostChannel)
-  const target = updates.target(hostChannel)
-  const startability = target
-    ? updateStartability(await planInputFrom(await contextFor(ctx)))
-    : {
-        startable: false as const,
-        reason: updates.targetUnavailableReasonForChannel(hostChannel) ?? missingTargetReason(hostChannel, preparation?.failureDetail),
-      }
-  let servedWebDigest: string | undefined
-  let servedMobileWeb: MobileWebIdentity | undefined
-  try {
-    servedWebDigest = ctx.servedWebDigest?.()
-  } catch {
-    servedWebDigest = undefined
-  }
-  try {
-    servedMobileWeb = ctx.servedMobileWeb?.()
-  } catch {
-    servedMobileWeb = undefined
-  }
-  const operationRow =
-    active?.kind === UPDATE_OPERATION_KIND
-      ? active
-      : (await state.modules.operations.engine.history(UPDATE_OPERATION_KIND, 1))[0]
-  const operation = operationRow?.operation
-  const failedStep = operation?.steps?.find((step) => step.state === 'failed')
-  const failure = failedStep?.error ?? operation?.error
-  const sourceDigest = serverBuildSourceDigest()
-  return {
-    ...fleet,
-    appVersion: serverBuildVersion(),
-    ...(sourceDigest ? { sourceDigest } : {}),
-    ...(servedWebDigest ? { servedWebDigest } : {}),
-    ...(servedMobileWeb ? { servedMobileWeb } : {}),
-    startability,
-    ...(preparation ? { preparation } : {}),
-    ...(active?.kind === UPDATE_OPERATION_KIND ? { operationId: active.id } : {}),
-    ...(operation
-      ? {
-          operation: {
-            id: operation.id,
-            ...(failure
-              ? {
-                  failureReason:
-                    failure.message ??
-                    failure.detail ??
-                    'The update failed without a recorded reason.',
-                }
-              : {}),
-          },
-        }
-      : {}),
-    ...(queued ? { nextTargetVersion: queued.version } : {}),
-  }
-}
-
-/**
- * THE LEGACY SHAPE, computed from the operation.
- *
- * `updates.converge` is kept for one release so the shipped dialog and Settings
- * keep working while the panel is built (its own issue). Every number here now
- * comes from the operation's plan — which is the point of P2: there is one
- * computation of update progress, and this is a projection of it rather than a
- * fourth opinion.
- */
-async function legacyConvergeResult(
-  updates: UpdatesService,
-  operation: Operation | null,
-  fallbackVersion: string,
-  serverPlacement: ServerPlacement,
-): Promise<{
-  state: 'in-progress'
-  version: string
-  done: number
-  total: number
-  fleet: UpdateFleetSnapshot
-  grantedMachineIds: string[]
-  includesBundle: boolean
-}> {
-  const steps = operation?.steps ?? []
-  const done = steps.filter((step) => step.state === 'done' || step.state === 'skipped').length
-  const fleet = await fleetSnapshot(updates, serverPlacement)
-  return {
-    state: 'in-progress',
-    version:
-      updateOperationDetails(operation ?? ({} as Operation))?.target.version ?? fallbackVersion,
-    done,
-    total: Math.max(1, steps.length),
-    fleet,
-    grantedMachineIds: fleet.machines
-      .filter((machine) => IN_FLIGHT.has(machine.state))
-      .map((machine) => machine.id),
-    includesBundle: steps.some((step) => step.id === UPDATE_STEP_PREPARE),
-  }
-}
-
-/**
- * A failure the FIRST PASS of the plan produced has to reach the OLD client as a
- * thrown error, because a thrown error is the only failure channel it has (see
- * `use-update-state.ts`'s catch → `describeUpdateFailure`). An operation that
- * failed that early failed before anything was handed out — a target the
- * transport cannot deliver, a publisher that refused outright — so throwing is
- * not losing it: it is recorded, retryable and in history either way.
- *
- * `updates.start`, the endpoint that replaces this one, never throws for a
- * failure: it answers the operation, and the panel renders the typed error.
- */
-function throwIfFailedOnStart(operation: Operation | null): void {
-  if (operation?.state !== 'failed') return
-  throw new TRPCError({
-    code: 'PRECONDITION_FAILED',
-    message: operation.error?.detail ?? operation.error?.message ?? 'The update could not start.',
-  })
-}
+const effectRoute = (name: keyof typeof updateEffectRoutes.defs) => ({
+  command: { name: `updates.${name}`, def: updateEffectRoutes.defs[name] },
+  registration: 'effects.create',
+})
 
 export function updateProcedures() {
   return {
-    proposal: t.procedure.query(async ({ ctx }) => await releaseProposalFor(ctx)),
-    approveProposal: t.procedure
-      .input(z.object({ headSha: z.string().min(1), version: z.string().min(1) }))
-      .mutation(async ({ ctx, input }) => await approveReleaseProposal(ctx, input)),
-    fleet: t.procedure.query(async ({ ctx }) => await updateFleet(ctx)),
-    /**
-     * "Check for updates now" (spec §9.2). The daily timer answers "is anything
-     * new"; this answers it for a human who is looking at the panel and does not
-     * want to wait a day. Rate-limited per channel inside the service, so a
-     * held-down button is one feed request, not a loop.
-     */
-    checkNow: t.procedure.mutation(
-      async ({ ctx }) => await familyState(ctx).modules.updates.checkNow(),
-    ),
-    /** Explicit byte repair: same target and same grant machinery, equality notwithstanding. */
-    repairPayload: t.procedure
-      .input(z.object({ id: z.string().min(1).optional() }).optional())
-      .mutation(async ({ ctx, input }) => {
-        const state = familyState(ctx)
-        const machineId = input?.id ? asMachineId(input.id) : state.store.hostMachineId
-        const outcome = await state.modules.updates.repairMachine(machineId, {
-          initiator: { kind: 'operator-repair' },
-          eligibility: "a person asked for this machine's payload to be re-delivered",
-        })
-        const machineName =
-          (await state.modules.updates.fleet()).find((machine) => machine.id === machineId)?.name ??
-          machineId
-        if (outcome.result !== 'granted' && outcome.result !== 'in-flight') {
-          throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
-            message:
-              outcome.result === 'no-target'
-                ? outcome.reason
-                : outcome.result === 'legacy-instance-trust'
-                  ? legacyInstanceTrustMessage(machineName)
-                  : `Payload repair is ${outcome.result}.`,
+    /** Separate informational request. Never called by start/retry/converge. */
+    checkSpace: t.procedure
+      .input(
+        z
+          .object({
+            scope: z.enum(['operation', 'all']).optional(),
+            expectedVersion: z.string().optional(),
           })
-        }
-        return { outcome, fleet: await updateFleet(ctx) }
-      }),
-    repairCompatibility: t.procedure.mutation(async ({ ctx }) => {
-      if (!ctx.requestCoordinatorRestart) {
-        throw new TRPCError({
-          code: 'PRECONDITION_FAILED',
-          message: 'This Podium installation cannot rebuild its web app automatically.',
+          .optional(),
+      )
+      .query(async ({ ctx, input }) => {
+        const state = familyState(ctx)
+        const rows = await state.store.machines.listMachines()
+        // Reuse the directory read: one grouped grant read supplies this call's
+        // existing SEE/USE policy, without querying separately for each machine.
+        const ownership = await ownershipSnapshotFromMachines({
+          ownershipRows: () => rows,
+          grantsForMachines: (ids) => state.store.grants.listForResources('machine', ids),
         })
-      }
-      await ctx.requestCoordinatorRestart()
-      return { state: 'in-progress' as const, version: serverBuildVersion() }
-    }),
+        return readUpdateSpacePreview(
+          {
+            machines: async () => rows,
+            // Keep the real host in the directory for operation-channel selection;
+            // invisible machines are removed before any supervisor is probed.
+            canSee: (id) => canSeeMachine(ctx.principal, id, ownership),
+            target: (channel) => state.modules.updates.target(channel),
+            fleetChannel: state.modules.updates.fleetDefaultChannel(),
+            placement: serverPlacementOf(ctx),
+            check: async (machineId, target, fingerprint) => {
+              const estimate = await state.modules.machines.checkUpdateSpace(
+                machineId,
+                target,
+                fingerprint,
+              )
+              if (machineUseDecision(ctx.principal, machineId, ownership) === 'granted')
+                return estimate
+              // SEE includes update health, not inventory paths, even for admins.
+              // Keep the required wire field schema-valid with public volume labels;
+              // freeform supervisor reasons can contain paths and stay private too.
+              return {
+                status: estimate.status,
+                checkedAt: estimate.checkedAt,
+                volumes: estimate.volumes.map((volume, index) => ({
+                  ...volume,
+                  path: `Volume ${index + 1}`,
+                })),
+              }
+            },
+          },
+          input,
+        )
+      }),
+    proposal: t.procedure.query(async ({ ctx }) => await releaseProposalFor(ctx)),
+    approveProposal: plainUpdate('approveProposal'),
+    fleet: t.procedure.query(async ({ ctx }) => await updateFleet(ctx)),
+    checkNow: plainUpdate('checkNow'),
+    repairPayload: plainUpdate('repairPayload'),
+    repairCompatibility: plainUpdate('repairCompatibility'),
     /**
      * The one human click, as a durable operation (§3.2). Answers the operation
      * itself so the caller can render it immediately and then follow
      * `operations.active` — there is no second endpoint to learn.
      */
-    start: t.procedure
-      .input(z.object({ surface: z.string().optional() }).optional())
-      .mutation(async ({ ctx, input }) => {
+    start: syncRoute({
+      ...effectRoute('start'),
+      input: updateEffectRoutes.defs.start.input,
+      run: async ({ ctx, input }) => {
         const started = await startUpdateOperation(ctx, {
           ...(input?.surface ? { surface: input.surface as UpdateSurface } : {}),
         })
@@ -799,39 +147,49 @@ export function updateProcedures() {
           alreadyRunning: started.alreadyRunning,
           operation: started.operation,
         }
-      }),
+      },
+    }),
 
     /**
      * RETRY (§3.2): a NEW operation whose plan is the remainder — the machines
      * that are still not at the target — linked to the one it retries. History
      * stays honest: the failure is not overwritten by its own second attempt.
      */
-    retry: t.procedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
-      const engine = familyState(ctx).modules.operations.engine
-      const row = (await engine.history(UPDATE_OPERATION_KIND, 100)).find((r) => r.id === input.id)
-      if (!row) {
-        throw new TRPCError({
-          code: 'NOT_FOUND',
-          message: 'That update is no longer on record.',
+    retry: syncRoute({
+      ...effectRoute('retry'),
+      input: updateEffectRoutes.defs.retry.input,
+      run: async ({ ctx, input }) => {
+        assertMayUpdate(ctx)
+        const engine = familyState(ctx).modules.operations.engine
+        const row = (await engine.history(UPDATE_OPERATION_KIND, 100)).find(
+          (r) => r.id === input.id,
+        )
+        if (!row) {
+          throw new TRPCError({
+            code: 'NOT_FOUND',
+            message: 'That update is no longer on record.',
+          })
+        }
+        const previous = row.operation
+        const machinesStep = (previous?.steps ?? []).find(
+          (step) => step.id === UPDATE_STEP_MACHINES,
+        )
+        // The REMAINDER, from the failed operation's own record of where each
+        // place got to. A place that reached the target is not retried — that is
+        // what makes "Try again" cheap after a half-applied update (§8).
+        const remainder = (machinesStep?.places ?? [])
+          .filter((place) => place.state !== 'current')
+          .map((place) => place.id)
+        const started = await startUpdateOperation(ctx, {
+          retryOf: input.id,
+          ...(remainder.length > 0 ? { onlyMachines: remainder } : {}),
         })
-      }
-      const previous = row.operation
-      const machinesStep = (previous?.steps ?? []).find((step) => step.id === UPDATE_STEP_MACHINES)
-      // The REMAINDER, from the failed operation's own record of where each
-      // place got to. A place that reached the target is not retried — that is
-      // what makes "Try again" cheap after a half-applied update (§8).
-      const remainder = (machinesStep?.places ?? [])
-        .filter((place) => place.state !== 'current')
-        .map((place) => place.id)
-      const started = await startUpdateOperation(ctx, {
-        retryOf: input.id,
-        ...(remainder.length > 0 ? { onlyMachines: remainder } : {}),
-      })
-      return {
-        operationId: started.operationId,
-        alreadyRunning: started.alreadyRunning,
-        operation: started.operation,
-      }
+        return {
+          operationId: started.operationId,
+          alreadyRunning: started.alreadyRunning,
+          operation: started.operation,
+        }
+      },
     }),
 
     /**
@@ -840,70 +198,40 @@ export function updateProcedures() {
      * UI while the operation panel is built in its own issue; the moment that
      * lands, this and its shape go.
      */
-    converge: t.procedure.mutation(async ({ ctx }) => {
-      const state = familyState(ctx)
-      const engine = state.modules.operations.engine
-      const started = await startUpdateOperation(ctx)
-      /**
-       * THE ONE PLACE THAT WAITS, and only because the OLD contract does.
-       *
-       * `engine.start` deliberately no longer awaits the drive: a click must not
-       * be held for the length of the first runner. But this endpoint's shipped
-       * caller reads `done`, `total` and `grantedMachineIds` out of the
-       * response, and it has no way to hear about a failure except a rejection
-       * — so it needs the answer the old `startUpdate` gave, which was "the
-       * plan has run until something is genuinely in flight".
-       *
-       * `whenSettled` is EXACTLY that and no more: every runner here hands its
-       * work out and answers `running`, so the queue empties as soon as the plan
-       * blocks. It is not a poll, it has no sleep, and it goes away with this
-       * endpoint when the panel lands.
-       */
-      await engine.whenSettled(started.operationId)
-      const operation =
-        (await engine.active(LIFECYCLE_EXCLUSION_GROUP))?.operation ??
-        (await engine.history(UPDATE_OPERATION_KIND, 1))[0]?.operation ??
-        started.operation
-      throwIfFailedOnStart(operation)
-      return legacyConvergeResult(
-        state.modules.updates,
-        operation,
-        serverBuildVersion(),
-        serverPlacementOf(ctx),
-      )
-    }),
-  }
-}
-
-/** Read policy: a non-admin sees absence, not a control they cannot use. */
-export async function releaseProposalFor(ctx: Context) {
-  if (ctx.capability.role !== 'admin') return null
-  return (await ctx.releaseProposal?.()) ?? null
-}
-
-/** Write policy: re-check admin grade and derive attribution from the transport. */
-export async function approveReleaseProposal(
-  ctx: Context,
-  expected: { headSha: string; version: string },
-) {
-  if (ctx.capability.role !== 'admin') {
-    throw new TRPCError({
-      code: 'FORBIDDEN',
-      message: 'Only an administrator may approve a development release.',
-    })
-  }
-  if (!ctx.approveReleaseProposal) {
-    throw new TRPCError({
-      code: 'PRECONDITION_FAILED',
-      message: 'This server does not publish development releases.',
-    })
-  }
-  try {
-    return (await ctx.approveReleaseProposal(attributionOf(ctx.principal).actor, expected)) ?? null
-  } catch (error) {
-    if (error instanceof ReleaseApprovalRefusal) {
-      throw new TRPCError({ code: 'PRECONDITION_FAILED', message: error.message })
-    }
-    throw error
+    converge: syncRoute({
+      ...effectRoute('converge'),
+      run: async ({ ctx }) => {
+        const state = familyState(ctx)
+        const engine = state.modules.operations.engine
+        const started = await startUpdateOperation(ctx)
+        /**
+         * THE ONE PLACE THAT WAITS, and only because the OLD contract does.
+         *
+         * `engine.start` deliberately no longer awaits the drive: a click must not
+         * be held for the length of the first runner. But this endpoint's shipped
+         * caller reads `done`, `total` and `grantedMachineIds` out of the
+         * response, and it has no way to hear about a failure except a rejection
+         * — so it needs the answer the old `startUpdate` gave, which was "the
+         * plan has run until something is genuinely in flight".
+         *
+         * `whenSettled` is EXACTLY that and no more: every runner here hands its
+         * work out and answers `running`, so the queue empties as soon as the plan
+         * blocks. It is not a poll, it has no sleep, and it goes away with this
+         * endpoint when the panel lands.
+         */
+        await engine.whenSettled(started.operationId)
+        const operation =
+          (await engine.active(LIFECYCLE_EXCLUSION_GROUP))?.operation ??
+          (await engine.history(UPDATE_OPERATION_KIND, 1))[0]?.operation ??
+          started.operation
+        throwIfFailedOnStart(operation)
+        return legacyConvergeResult(
+          state.modules.updates,
+          operation,
+          serverBuildVersion(),
+          serverPlacementOf(ctx),
+        )
+      },
+    }) as unknown as WriteRoute<void, Awaited<ReturnType<typeof legacyConvergeResult>>>,
   }
 }

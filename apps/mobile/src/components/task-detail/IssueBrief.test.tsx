@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { IssueBrief } from './IssueBody'
@@ -18,7 +18,7 @@ it('renders an expanded brief with the existing Markdown headings, emphasis and 
   const issue = {
     brief:
       '## Part 1\n\nRead **the checklist** and [the guide](https://example.com/guide).\n\n- First item\n- Second item',
-  } as IssueViewModel
+  } as IssueWithBodies
   const view = render(<IssueBrief issue={issue} />)
   fireEvent.click(screen.getByRole('button', { name: 'Brief' }))
   expect(screen.getByText('Part 1')).toBeTruthy()

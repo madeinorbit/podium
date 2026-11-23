@@ -5,7 +5,6 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { attachMobileScreens } from './mobile-screens'
 import { MissionScreen, missionRootId } from './mission-screen'
 import { MissionViewReader, settled } from './mission-view'
-import { MOBILE_SCREEN_SUMMARIES } from './mobile-screens-schema'
 import { missions } from './mission'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -84,7 +83,6 @@ async function setup(
   )
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
-    summaries: MOBILE_SCREEN_SUMMARIES,
     schedule: () => () => {},
   })
   pool.apply({
@@ -95,16 +93,14 @@ async function setup(
     ],
   })
   attachMissionTestPreferences(pool)
-  const scans = vi.spyOn(pool.residency!, 'ids')
   await attachMobileScreens(pool)
   disposals.push(() => {
-    scans.mockRestore()
     pool.dispose()
   })
   requireHere(pool.row('mobileScreenReader', 'reader'))
-  return { pool, reader: phone(pool), load, scans }
+  return { pool, reader: phone(pool), load }
 }
-it('reads archived mission crew display facts from declared summaries without loading their rows', async () => {
+it('counts an archived seat of a finished mission without putting it in the phone crew', async () => {
   const seat = {
     sessionId: 'seat',
     issueId: 'root',
@@ -122,7 +118,7 @@ it('reads archived mission crew display facts from declared summaries without lo
     refLetter: 'b',
     model: 'fixture-model',
   }
-  const { pool, reader, load } = await setup(
+  const { reader } = await setup(
     [
       issue('root', {
         stage: 'done',
@@ -132,17 +128,11 @@ it('reads archived mission crew display facts from declared summaries without lo
     ],
     [seat],
   )
-  expect(pool.tables.session.has('seat')).toBe(false)
-  expect(reader.mission('root')).toBe(LOADING)
-  expect(pool.hydrate()).toBe(1)
-  load.mockClear()
-  // The archived seat is counted from its declared summary; the phone's crew
-  // holds only seated senders, and no archived row is loaded to draw it.
+  // POD-7112: every row the device holds is in memory (POD-7094), so the
+  // finished mission answers at once. The phone's crew holds only seated
+  // senders; the archived seat is counted, not drawn.
   expect(reader.mission('root')).toMatchObject({ missionSessions: [] })
   expect(reader.open('root')).toMatchObject({ archivedCount: 1 })
-  expect(pool.tables.session.has('seat')).toBe(false)
-  expect(pool.hydrate()).toBe(0)
-  expect(load).not.toHaveBeenCalled()
 })
 it('does not resurrect a collapsed resume twin as a mission author', async () => {
   const seat = {
@@ -176,21 +166,7 @@ it('does not resurrect a collapsed resume twin as a mission author', async () =>
   if (!screen || screen === LOADING) throw new Error('Mission is still loading')
   expect(screen.proposalAuthor(screen.deck.model('root'))).toBeNull()
 })
-it('a known cold mission remains LOADING until one batched load supplies its row', async () => {
-  const { pool, reader, load } = await setup([issue('cold', { archived: true, stage: 'done' })])
-  expect(reader.mission('cold')).toBe(LOADING)
-  expect(reader.deck('cold')).toBe(LOADING)
-  expect(reader.mission('cold')).toBe(LOADING)
-  expect(load).not.toHaveBeenCalled()
-  expect(pool.hydrate()).toBe(1)
-  expect(load).toHaveBeenCalledTimes(1)
-  expect(reader.mission('cold')).toMatchObject({
-    root: { id: 'cold' },
-    missionSessions: [],
-    progress: { total: 0, done: 0 },
-  })
-})
-it('an archived root keeps its full header for the current session without loading hidden siblings', async () => {
+it('an archived root keeps its full header for the current session without preparing hidden siblings', async () => {
   const root = issue('cold', {
     archived: true,
     stage: 'done',
@@ -212,15 +188,14 @@ it('an archived root keeps its full header for the current session without loadi
     sessionId: 'starter', cwd: '/fixture', status: 'exited', archived: true,
     agentKind: 'codex', lastActiveAt: '2026-01-01T00:00:00Z',
   }
-  const { pool, reader, load } = await setup([
+  const { reader } = await setup([
     root,
     issue('hidden-child', { parentId: 'cold', archived: true, stage: 'done' }),
   ], [current, starter])
+  const headerReads = vi.spyOn(MissionViewReader.prototype, 'readIssue')
+  disposals.push(() => headerReads.mockRestore())
   disposals.push(autorun(() => reader.mission('cold')))
-  expect(reader.mission('cold')).toBe(LOADING)
-  expect(pool.hydrate()).toBe(1)
-  // Header roster/author questions join the same normal batched load window.
-  for (let round = 0; round < 8 && reader.mission('cold') === LOADING; round++) pool.hydrate()
+  // POD-7112: the archived mission is on the device, so it answers at once.
   const data = reader.mission('cold')
   expect(data).not.toBe(LOADING)
   if (data === LOADING) throw new Error('Archived mission is still loading')
@@ -229,11 +204,11 @@ it('an archived root keeps its full header for the current session without loadi
   // falling back to root. Every header field must borrow the full root.
   const header = data.header(data.missionSessions[0]?.issueId)
   expect(header).toBe(data.root)
-  expect(header).toMatchObject({ ...root, description: 'summary description' })
+  // The header carries no body (POD-6767); the description is the model's.
+  expect(header).toMatchObject(root)
   expect(header).toMatchObject({ memberSessionIds: ['current'] })
-  expect(load.mock.calls.filter(([kind]) => kind === 'issue')).toEqual([['issue', 'cold']])
-  expect(pool.tables.issue.has('hidden-child')).toBe(false)
-  expect(pool.hydrate()).toBe(0)
+  // The phone prepares no rich header for the hidden sibling.
+  expect(headerReads.mock.calls.filter(([id]) => id === 'hidden-child')).toEqual([])
 })
 it('an archived child keeps its full header when a current mission session belongs to it', async () => {
   const headerIssue = issue('header-child', {
@@ -252,7 +227,7 @@ it('an archived child keeps its full header when a current mission session belon
     sessionId: 'starter', issueId: 'root', cwd: '/fixture', status: 'exited', archived: true,
     agentKind: 'codex', lastActiveAt: '2026-01-01T00:00:00Z',
   }
-  const { pool, reader, load } = await setup([
+  const { reader } = await setup([
     issue('root'), headerIssue,
     issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter' }),
   ], [current, starter])
@@ -263,44 +238,25 @@ it('an archived child keeps its full header when a current mission session belon
     return data === LOADING ? LOADING : data.header(data.missionSessions[0]?.issueId)
   }
   disposals.push(autorun(shownHeader))
-  for (let round = 0; round < 8 && shownHeader() === LOADING; round++) pool.hydrate()
   const data = reader.mission('root')
   if (data === LOADING) throw new Error('Child header mission is still loading')
   expect(data.root?.id).toBe('root')
   expect(data.missionSessions).toMatchObject([{ sessionId: 'current', issueId: 'header-child' }])
   const header = data.header(data.missionSessions[0]?.issueId)
-  expect(header).toMatchObject({ ...headerIssue, description: 'summary description', memberSessionIds: ['current'] })
-  expect(load.mock.calls.filter(([kind, id]) => kind === 'issue' && id === 'header-child')).toEqual([['issue', 'header-child']])
-  // As in the original fixture, shared visibility can load a hidden member's
-  // payload. The phone still prepares no rich header for that hidden member.
+  expect(header).toMatchObject({ ...headerIssue, memberSessionIds: ['current'] })
+  // The phone prepares no rich header for the hidden member.
   expect(headerReads.mock.calls.filter(([id]) => id === 'hidden-child')).toEqual([])
-  expect(pool.hydrate()).toBe(0)
 })
 it('an explicitly opened archived mission counts accepted formal children without counting its root', async () => {
-  const { pool, reader } = await setup([
+  const { reader } = await setup([
     issue('cold', { archived: true, stage: 'done' }),
     issue('child', { parentId: 'cold' }),
   ])
-  expect(reader.mission('cold')).toBe(LOADING)
-  while (pool.hydrate()) {}
   expect(reader.mission('cold')).toMatchObject({
     root: { id: 'cold' },
     progress: { total: 1, done: 0, waiting: 1 },
   })
   expect(reader.deck('cold')).toMatchObject({ rows: [], presence: null })
-})
-it('an unknown mission stays loading until one failed lookup settles it as not visible', async () => {
-  const { pool, reader, load } = await setup([issue('root')])
-  expect(reader.mission('absent')).toBe(LOADING)
-  expect(reader.deck('absent')).toBe(LOADING)
-  expect(load).not.toHaveBeenCalled()
-  // A failed lookup settles without inserting a resident row.
-  expect(pool.hydrate()).toBe(0)
-  expect(reader.mission('absent')).toMatchObject({ root: undefined, missionSessions: [] })
-  expect(reader.deck('absent')).toMatchObject({ root: undefined, rows: [] })
-  expect(pool.hydrate()).toBe(0)
-  expect(load).toHaveBeenCalledTimes(1)
-  expect(load).toHaveBeenCalledWith('issue', 'absent')
 })
 it('observes an addressed mission without subscribing to unrelated issue content', async () => {
   const { pool, reader } = await setup([issue('root'), issue('unrelated')])

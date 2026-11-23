@@ -1,12 +1,261 @@
-/** Connection setup and migration bracket, owned by the exclusive boot lane. */
-import { join, resolve } from 'node:path'
+/**
+ * THE STORE-LIFECYCLE PORT [POD-6994, POD-6958 design 2.8, 2.9].
+ *
+ * Everything a store does to its database besides running repository statements:
+ * opening the connection and the executor over it, bringing the schema to this build's
+ * head, the one-time boot imports, switching the change capture on, the planner's
+ * statistics, the traffic temp store, the transfer checkpoint and fence, the schema
+ * identity a transfer verifies, the pre-migration backup's free-space check and the
+ * recovery snapshots. `store.ts` calls the port's methods and never asks which engine
+ * it runs on; {@link openStoreLifecycle} chooses the implementation once, from the
+ * store's location (`storeEngineFor`).
+ *
+ * - SQLite ({@link openSqliteStoreLifecycle}, this file): the self-hosted and desktop
+ *   store, exactly as it was before the port. Its steps are the functions below.
+ * - Postgres (`./pg/store-lifecycle.ts`, loaded only for a Postgres location): the ledger
+ *   check (migrating is a deploy step, design 2.7) and the capture switch; every other
+ *   step is the platform's (backups, point-in-time recovery, autovacuum and
+ *   autoanalyze) and does nothing there.
+ */
+import { mkdirSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import type { WorkspaceId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { MACHINE_UPDATE_GRANT_ENV, readMachineUpdateJournal } from '@podium/runtime/machine-update'
-import type { DriverSession } from '../store/executor/driver'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
+import {
+  importUpdateSigningKey,
+  readOrCreateUpdateSigningKey,
+  type UpdateSigningKey,
+} from '@podium/runtime/update-signing-key'
+import { importEnrollmentLedger } from '../enrollment-ledger-import'
+import { importFingerprintKey } from '../fingerprint-key-import'
+import { importInstallationIdentity } from '../installation-identity-import'
+import { importConfigSettings } from '../settings-config-import'
+import { createBunStoreExecutor } from '../store/executor/bun-driver'
+import type { DriverSession, QueryClient } from '../store/executor/driver'
+import type { RootStoreExecutor, StoreExecutorOptions } from '../store/executor/executor'
+import { sweepOldNativeLoginTransfers } from '../store/native-login-transfer-sweep'
+import { openStoreDatabase, storeEngineFor } from '../store-database'
+import { dropChangeCapture, installChangeCapture } from '../sync/capture-triggers'
+import { type BackupPreflight, backupSpaceShortfall, measureBackupSpace } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
-import { runDrizzleMigrations } from './index'
+import { latestAppliedMigration, runDrizzleMigrations } from './index'
+import { SnapshotVerifier, type SnapshotVerifierDeps } from './snapshot-verifier'
 
+/** The executor's report sinks, which the store defines once for every engine. */
+export type StoreLifecycleSinks = Pick<
+  StoreExecutorOptions<QueryClient>,
+  'watchdog' | 'effectSink' | 'onRefusal'
+>
+
+/** What a store's lifecycle is opened with. */
+export interface StoreLifecycleOptions {
+  /** A store that must not be written (a recovery-only boot): no capture switch-off. */
+  readonly queryOnly: boolean
+  /** The workspace the boot imports write into (the self-hosted install's). */
+  readonly bootWorkspace: WorkspaceId
+  readonly sinks: StoreLifecycleSinks
+  /** The recovery-snapshot verifier's seams (SQLite). */
+  readonly snapshotVerifier: SnapshotVerifierDeps
+  /**
+   * Postgres only: apply pending migrations at boot instead of refusing a database
+   * that is behind (tests and local development; on hosted, migrating is a deploy
+   * step, design 2.7). SQLite always migrates at boot.
+   */
+  readonly migrateAtBoot?: boolean
+  /** Postgres only: the connection pool's size. */
+  readonly poolSize?: number
+  /** A boot stage's timing, reported as `store.ts` reports its own. */
+  readonly stage: (name: string, startedAt: number) => void
+}
+
+/**
+ * One store's lifecycle, opened. The executor is the one every repository binds to;
+ * the methods run on its exclusive lane where they touch the database.
+ */
+export interface StoreLifecycle {
+  readonly executor: RootStoreExecutor<QueryClient>
+  /**
+   * The object the store's statement probe hub is keyed by (`statementProbeHubFor`):
+   * the SQLite handle, or on Postgres an object of the driver's. Tests count a store's
+   * statements through it; on Postgres it is not a database handle and refuses use.
+   */
+  readonly connection: SqlDatabase
+  /** The migrations this open applied, in order. */
+  readonly applied: readonly string[]
+  /** Whether the store keeps planner statistics of its own (a SQLite file does). */
+  readonly keepsPlannerStatistics: boolean
+  /**
+   * Whether the database can hold the pre-identity credential and invitation tables the
+   * boot imports once (`identity/ensure-local-identity.ts`). A SQLite install may (the
+   * retirement migration drops them after the import); a Postgres baseline never had them.
+   */
+  readonly legacyIdentityStorage: boolean
+  /**
+   * DERIVED CHANGE CAPTURE ON (POD-6920): from here a transaction that does not drain
+   * what it captured cannot commit. Until then a write captures nothing that reaches a
+   * commit: SQLite has no capture triggers, and Postgres drops a transaction's capture
+   * rows before its COMMIT.
+   */
+  attachChangeCapture(): Promise<void>
+  refreshPlannerStatistics(when: 'open' | 'periodic'): Promise<void>
+  /** The connection settings for serving traffic, once nothing in the boot builds an index. */
+  serveTraffic(): Promise<void>
+  /** The newest applied migration's name, which a transfer target verifies. */
+  schemaVersionForTransfer(): Promise<string>
+  /** Make the database file complete on its own before a transfer snapshot. */
+  checkpointForTransfer(): Promise<void>
+  /** Hold or release the transfer write fence, on the caller's exclusive-lane session. */
+  setTransferFence(session: DriverSession, held: boolean): Promise<void>
+  /** Apply the identity storage retirement once the local import committed its receipt. */
+  retireImportedIdentityStorage(): Promise<void>
+  /** Can this disk hold the pre-migration backup the successor takes at boot? */
+  preflightUpdateBackup(): BackupPreflight
+  /** The newest verified recovery snapshot's path, from metadata only. */
+  latestDatabaseSnapshot(): string | undefined
+  /** Reconcile the snapshot catalogue and queue at most one verifier; whether one started. */
+  discoverDatabaseSnapshots(): boolean
+  /** Stop the snapshot verifier; resolves when its child has exited. */
+  closeSnapshots(): Promise<void>
+  /**
+   * The installation's update signing key, read or (when `allowCreate`) minted, in the
+   * store's `server_secrets` (`@podium/runtime/update-signing-key`).
+   */
+  updateSigningKey(opts: { allowCreate: boolean }): Promise<UpdateSigningKey>
+}
+
+/**
+ * Open the lifecycle of the store at `location`: a SQLite file path (`:memory:`
+ * included) or a `postgres://` URL. The one place the store's engine decides which
+ * implementation runs; the Postgres one (and postgres.js with it) loads only here.
+ */
+export async function openStoreLifecycle(
+  location: string,
+  options: StoreLifecycleOptions,
+): Promise<StoreLifecycle> {
+  if (storeEngineFor(location) === 'pg') {
+    const { openPgStoreLifecycle } = await import('./pg/store-lifecycle')
+    return await openPgStoreLifecycle(location, options)
+  }
+  return await openSqliteStoreLifecycle(location, options)
+}
+
+/**
+ * The SQLite store's lifecycle: the boot `store.ts` ran before the port, step for step.
+ * The capture triggers come off, the chain migrates on the boot connection with its
+ * backup, the boot imports run, and a file store then reopens on a fresh connection
+ * with foreign keys enforced (an in-memory store keeps its migrated handle: reopening
+ * would lose it).
+ */
+export async function openSqliteStoreLifecycle(
+  path: string,
+  options: StoreLifecycleOptions,
+): Promise<StoreLifecycle> {
+  const { sinks, stage } = options
+  const memory = path === ':memory:'
+  if (!memory) mkdirSync(dirname(path), { recursive: true })
+  const openStarted = performance.now()
+  let database = await openStoreDatabase(path)
+  stage('store open', openStarted)
+  let executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
+  let applied: string[]
+  try {
+    applied = await executor.exclusive(async (session) => {
+      // The change capture triggers come off before anything migrates or
+      // repairs: those writes bump `sync_kind` rather than reach the log, and
+      // a trigger left by the last boot would refuse them (POD-6920).
+      if (!options.queryOnly) await dropChangeCapture(session)
+      const migrationStarted = performance.now()
+      const result = migrateStoreConnection(database, path)
+      stage('migrations', migrationStarted)
+      const importsStarted = performance.now()
+      const directory = memory ? undefined : dirname(path)
+      // The settings blob and the fingerprint key are the boot workspace's
+      // (POD-7013); the import receipts stay the install's.
+      importConfigSettings(database, options.bootWorkspace, directory)
+      importFingerprintKey(database, options.bootWorkspace, directory)
+      importInstallationIdentity(database, directory)
+      if (directory !== undefined) {
+        importEnrollmentLedger(database, directory, options.bootWorkspace)
+        importUpdateSigningKey(database, directory)
+      }
+      // Before anything else opens the file: the sweep checkpoints the WAL.
+      if (!options.queryOnly) sweepOldNativeLoginTransfers(database)
+      stage('imports', importsStarted)
+      return result
+    })
+    if (!memory) {
+      // Migration owns its connection, including the OFF/ON bracket. Runtime
+      // begins on a fresh connection with enforcement enabled.
+      await executor.close()
+      database = openDatabase(path)
+      executor = createBunStoreExecutor({ database, startOpen: true, ...sinks })
+      const runtime = database
+      await executor.exclusive(async () => configureStoreConnection(runtime))
+    }
+  } catch (error) {
+    await executor.close()
+    throw error
+  }
+  const db = database
+  const store = executor
+  const snapshotVerifier = new SnapshotVerifier(path, options.snapshotVerifier)
+  return {
+    executor: store,
+    connection: db,
+    applied,
+    keepsPlannerStatistics: !memory,
+    legacyIdentityStorage: true,
+    async attachChangeCapture() {
+      await store.exclusive(async (session) => await installChangeCapture(session))
+    },
+    async refreshPlannerStatistics(when) {
+      await store.exclusive(
+        async (session) =>
+          await withFileTempStore(session, () => refreshPlannerStatistics(session, when)),
+      )
+    },
+    async serveTraffic() {
+      await store.exclusive(async (session) => await serveTrafficTempStore(session))
+    },
+    async schemaVersionForTransfer() {
+      return await store.exclusive(async () => {
+        const name = latestAppliedMigration(db)
+        if (name === undefined) throw new Error('database migration identity is unavailable')
+        return name
+      })
+    },
+    async checkpointForTransfer() {
+      await store.exclusive(async (session) => await checkpointStore(session))
+    },
+    async setTransferFence(session, held) {
+      await setStoreTransferFence(session, held)
+    },
+    async retireImportedIdentityStorage() {
+      await store.exclusive(async () => retireImportedIdentityStorage(db))
+    },
+    preflightUpdateBackup() {
+      if (memory) return { ok: true }
+      const shortfall = backupSpaceShortfall(measureBackupSpace(path))
+      return shortfall === undefined ? { ok: true } : { ok: false, detail: shortfall }
+    },
+    latestDatabaseSnapshot() {
+      return memory ? undefined : snapshotVerifier.verifiedFallbackPath()
+    },
+    discoverDatabaseSnapshots() {
+      return memory ? false : snapshotVerifier.discoverAndQueue()
+    },
+    async closeSnapshots() {
+      await snapshotVerifier.close()
+    },
+    // The state directory's database, on its own short connection, as the server
+    // always read it.
+    updateSigningKey: async (opts) => readOrCreateUpdateSigningKey(stateDir(), opts),
+  }
+}
+
+/** Connection setup and migration bracket, owned by the exclusive boot lane. */
 export function configureStoreConnection(db: SqlDatabase): void {
   db.exec('PRAGMA journal_mode = WAL')
   db.exec('PRAGMA busy_timeout = 5000')
@@ -35,6 +284,11 @@ export function migrateStoreConnection(db: SqlDatabase, path: string): string[] 
       update,
     }),
   )
+}
+
+/** The initial migration pass already captured the pre-import backup. */
+export function retireImportedIdentityStorage(db: SqlDatabase): string[] {
+  return withMigrationForeignKeysDisabled(db, () => runDrizzleMigrations(db, DRIZZLE_MIGRATIONS))
 }
 
 export function withMigrationForeignKeysDisabled<T>(db: SqlDatabase, migrate: () => T): T {
@@ -151,7 +405,12 @@ async function forgetTinyTables(session: DriverSession): Promise<void> {
     method: 'run',
     intent: 'write',
   })
-  await session.execute({ sql: 'ANALYZE sqlite_schema', params: [], method: 'run', intent: 'write' })
+  await session.execute({
+    sql: 'ANALYZE sqlite_schema',
+    params: [],
+    method: 'run',
+    intent: 'write',
+  })
 }
 
 /**
@@ -175,18 +434,41 @@ async function forgetTinyTables(session: DriverSession): Promise<void> {
  * transaction.
  */
 export async function serveTrafficTempStore(session: DriverSession): Promise<void> {
-  await session.execute({ sql: 'PRAGMA temp_store = MEMORY', params: [], method: 'run', intent: 'write' })
+  await session.execute({
+    sql: 'PRAGMA temp_store = MEMORY',
+    params: [],
+    method: 'run',
+    intent: 'write',
+  })
 }
 
 /** Run maintenance with temp files on disk, then put back what the connection had. */
-export async function withFileTempStore<T>(session: DriverSession, step: () => Promise<T>): Promise<T> {
-  const current = await session.execute({ sql: 'PRAGMA temp_store', params: [], method: 'get', intent: 'read' })
+export async function withFileTempStore<T>(
+  session: DriverSession,
+  step: () => Promise<T>,
+): Promise<T> {
+  const current = await session.execute({
+    sql: 'PRAGMA temp_store',
+    params: [],
+    method: 'get',
+    intent: 'read',
+  })
   const before = (current.rows[0] as { temp_store: number } | undefined)?.temp_store ?? 0
-  await session.execute({ sql: 'PRAGMA temp_store = FILE', params: [], method: 'run', intent: 'write' })
+  await session.execute({
+    sql: 'PRAGMA temp_store = FILE',
+    params: [],
+    method: 'run',
+    intent: 'write',
+  })
   try {
     return await step()
   } finally {
-    await session.execute({ sql: `PRAGMA temp_store = ${before}`, params: [], method: 'run', intent: 'write' })
+    await session.execute({
+      sql: `PRAGMA temp_store = ${before}`,
+      params: [],
+      method: 'run',
+      intent: 'write',
+    })
   }
 }
 

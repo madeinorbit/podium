@@ -1,6 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import type { BoardFilter, IssueNavigationModel, IssuesOrdering } from '@podium/client-core/values'
 import {
   clearChip,
@@ -8,16 +7,26 @@ import {
   issueNeedsHuman,
   orderIssues,
   readSharedIssuesDisplay,
+  writeSharedIssuesDisplay,
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
-import { action, compareShallow, compareStructural, observable, observableRef } from 'mobx'
+import {
+  action,
+  compareShallow,
+  compareStructural,
+  observable,
+  observableRef,
+  reaction,
+} from 'mobx'
+import { boardRefreshing } from './issue-board-layout'
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
 import { omitGone } from './lookup'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
 import { ProposalQueue } from './mobile-triage'
 import type { IssueModel, ModelOf } from './models'
 import type { MobxPool } from './pool'
+import { createQueryResult, mapQueryResult } from './query-result'
 import { firstResidentChildMatch } from './resident-child-match'
 import { RowWindow } from './row-window'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -104,7 +113,7 @@ class BoardTask {
     const sessions = [
       ...this.board.pool.graph.subset('issue', this.id, 'missionSessions', 'unarchived'),
     ].flatMap((id) => {
-      const session = requireRow(omitGone(this.board.pool.row('session', id, 'summary-fields')))
+      const session = requireRow(omitGone(this.board.pool.row('session', id)))
       return session ? [session as unknown as SessionView] : []
     })
     if (issueNeedsHuman(this.issue as unknown as IssueNavigationModel, sessions)) return 'needs'
@@ -253,30 +262,87 @@ class BoardLane {
     () => this.rows,
     (row) => row.id,
   )
+  private readonly results: Record<IssuesOrdering, ReturnType<typeof createQueryResult<string>>>
 
   constructor(
     readonly stage: Stage,
     private readonly board: MobileTasksBoard,
-  ) {}
-
-  /** The lane's own tasks in board order; the proposals lane also holds every
-   * promoted proposal. */
-  @lazy({ equals: compareShallow }) get rootIds(): readonly string[] {
-    const roots = this.board.ordered(
-      this.board.rootIds.filter((id) => this.board.task(id).stage === this.stage),
-    )
-    if (this.stage !== 'proposed' || !this.board.promotedIds.length) return roots
-    // The old phone promoted proposals in descending sequence order before the
-    // stable board order, so equal created/updated dates keep that order.
-    const promoted = [...this.board.promotedIds].sort((a, b) => {
-      const left = this.board.position(a)!,
-        right = this.board.position(b)!
-      return left.priority - right.priority || right.seq - left.seq
-    })
-    return this.board.ordered([...roots, ...promoted])
+  ) {
+    const result = (ordering: IssuesOrdering) =>
+      createQueryResult<string>({
+        name: `PhoneBoard.${stage}.${ordering}`,
+        ids: () => [...board.rootIds, ...(stage === 'proposed' ? board.promotedIds : [])],
+        has: (id) => board.roots.has(id) || (stage === 'proposed' && board.task(id).promoted),
+        read: (id) => {
+          try {
+            return board.task(id).stage === stage &&
+              (board.roots.has(id) || (stage === 'proposed' && board.task(id).promoted))
+              ? id
+              : undefined
+          } catch (error) {
+            if (error === LOADING) return LOADING
+            throw error
+          }
+        },
+        order: (id) => {
+          const row = board.position(id, ordering)
+          return JSON.stringify(
+            row
+              ? [
+                  row.priority,
+                  row.seq,
+                  ordering === 'created' ? row.createdAt : row.updatedAt,
+                  board.task(id).promoted,
+                ]
+              : [0, 0, '', false],
+          )
+        },
+        compareOrder: (a, b) => {
+          const left = JSON.parse(a) as [number, number, string, boolean]
+          const right = JSON.parse(b) as typeof left
+          return ordering === 'priority'
+            ? left[0] - right[0] || left[1] - right[1]
+            : right[2].localeCompare(left[2]) ||
+                Number(left[3]) - Number(right[3]) ||
+                (left[3] && right[3] ? right[1] - left[1] : 0)
+        },
+        subscribe: (changed) =>
+          reaction(
+            () => [board.rootIds, stage === 'proposed' ? board.promotedIds : undefined],
+            () => changed(undefined),
+            { equals: compareShallow },
+          ),
+      })
+    this.results = {
+      priority: result('priority'),
+      created: result('created'),
+      updated: result('updated'),
+    }
   }
 
-  @lazy({ equals: compareShallow }) get rows(): readonly BoardListRow[] {
+  /** Native demand-scoped results update the changed task's ordering path.
+   * A stage change does not filter and sort every root in every lane. */
+  @lazy get rootIds(): readonly string[] {
+    // Sources attach lazily after the phone publishes its pool. Read membership
+    // under this derivation before the query's untracked seed: a thrown LOADING
+    // there cannot install its subscription or wake this lane on attachment.
+    const roots = this.board.rootIds
+    const promoted = this.stage === 'proposed' ? this.board.promotedIds : undefined
+    if (roots.length === 0 && !promoted?.length) return []
+    const ids = this.results[this.board.ordering].get()
+    if (ids === LOADING) throw LOADING
+    return ids ?? []
+  }
+
+  dispose(): void {
+    for (const result of Object.values(this.results)) result.dispose()
+  }
+
+  @lazy get rows(): readonly BoardListRow[] {
+    // Closed roots map lazily over the native result. The consumer chooses
+    // which row positions to paint; publishing a lane visits none of them.
+    if (this.board.expanded.length === 0)
+      return mapQueryResult(this.rootIds, (id) => this.board.task(id).row)
     const rows: BoardListRow[] = []
     const path = new Set<string>()
     const emit = (id: string) => {
@@ -306,45 +372,113 @@ class BoardLane {
  * proposal count. Entity facts stay on the shared models; placement borrows
  * the desktop board's declared query and position rows. */
 export class MobileTasksBoard {
+  @lazy get refreshing(): boolean {
+    return boardRefreshing(
+      this.pool,
+      MOBILE_TASK_STAGES.filter((lane) => lane !== 'done' || this.includesDone),
+      this.searchFilter,
+    )
+  }
+
   // --- Options (the view's own state)
 
   /** The Show-done toggle. */
-  @observable accessor showDone: boolean
+  @observableRef private accessor fixtureOptions: Pick<
+    MobileTasksOptions,
+    'filter' | 'showDone'
+  > & {
+    ordering: IssuesOrdering
+  } = { filter: {}, showDone: false, ordering: 'priority' }
+  @lazy private get options(): Pick<MobileTasksOptions, 'filter' | 'showDone'> {
+    if (!this.pool.hasLayout) return this.fixtureOptions
+    const value = this.pool.layoutValue('phone.tasks.options') as
+      | Partial<MobileTasksOptions>
+      | undefined
+    return {
+      filter: value?.filter && typeof value.filter === 'object' ? value.filter : {},
+      showDone: value?.showDone === true,
+    }
+  }
+  @lazy get showDone(): boolean {
+    return this.options.showDone
+  }
+  private saveOptions(patch: Partial<Pick<MobileTasksOptions, 'filter' | 'showDone'>>): void {
+    const next = { ...this.options, ...patch }
+    if (this.pool.hasLayout) this.pool.setLayoutValue('phone.tasks.options', next)
+    else this.fixtureOptions = { ...this.fixtureOptions, ...next }
+  }
   /** Parents showing their children. Local to this view, as the desktop board
    * holds it, not replicated ui-state: expanding an epic is a look, not a
    * preference, and the desk and the phone look at different things. */
   @observableRef accessor expanded: readonly string[]
   /** The filter sheet's choices. */
-  @observableRef accessor filter: BoardFilter
+  @lazy get filter(): BoardFilter {
+    return this.options.filter
+  }
   /** The search field's text. */
   @observable accessor query = ''
-  // Explicit options configure standalone boards. The app board omits these
-  // so its display follows the existing pooled preference, even before focus.
-  @observable private accessor orderingOverride: IssuesOrdering | undefined
+  // The shared display preference. It stays saved where it is until the
+  // UiStore (POD-5797) holds it; the screen passes it in with showDisplay().
+  @lazy get ordering(): IssuesOrdering {
+    if (!this.pool.hasLayout) return this.fixtureOptions.ordering
+    const raw = this.pool.layoutValue('issues.display')
+    return readSharedIssuesDisplay(typeof raw === 'string' ? raw : raw ? JSON.stringify(raw) : null)
+      .ordering
+  }
+  // Explicit options configure standalone boards. The app board omits
+  // showAgentTasks so it follows the shared issues.display preference.
   @observable private accessor showAgentTasksOverride: boolean | undefined
+  @lazy private get sharedDisplay() {
+    const raw = this.pool.hasLayout ? this.pool.layoutValue('issues.display') : null
+    return readSharedIssuesDisplay(typeof raw === 'string' ? raw : raw ? JSON.stringify(raw) : null)
+  }
+  @lazy get showAgentTasks(): boolean {
+    return this.showAgentTasksOverride ?? this.sharedDisplay.showAgentTasks
+  }
+  /** The resolved Assigned to filter (POD-6297): a member id, or undefined
+   * for every assignee's tasks. The member's saved choice is resolved by the
+   * screen (`assigneeFacet`); it is not a sheet chip, so `filter` never holds it. */
+  @observable accessor assignee: string | undefined = undefined
 
   constructor(
     readonly pool: MobxPool,
     options: MobileTasksOptions,
   ) {
-    this.showDone = options.showDone
+    if (!this.pool.hasLayout)
+      this.fixtureOptions = {
+        filter: options.filter,
+        showDone: options.showDone,
+        ordering: options.ordering ?? readSharedIssuesDisplay(null).ordering,
+      }
     this.expanded = options.expanded
-    this.filter = options.filter
-    this.orderingOverride = options.ordering
     this.showAgentTasksOverride = options.showAgentTasks
   }
 
   @action configure(options: MobileTasksOptions) {
-    this.showDone = options.showDone
+    if (!this.pool.hasLayout)
+      this.fixtureOptions = {
+        filter: options.filter,
+        showDone: options.showDone,
+        ordering: options.ordering ?? readSharedIssuesDisplay(null).ordering,
+      }
     this.expanded = options.expanded
-    this.filter = options.filter
     this.query = ''
-    this.orderingOverride = options.ordering
     this.showAgentTasksOverride = options.showAgentTasks
   }
 
+  @action setOrdering(ordering: IssuesOrdering): void {
+    if (!this.pool.hasLayout) {
+      this.fixtureOptions = { ...this.fixtureOptions, ordering }
+      return
+    }
+    const raw = this.pool.layoutValue('issues.display')
+    const current = readSharedIssuesDisplay(
+      typeof raw === 'string' ? raw : raw ? JSON.stringify(raw) : null,
+    )
+    this.pool.setLayoutValue('issues.display', writeSharedIssuesDisplay({ ...current, ordering }))
+  }
   @action toggleShowDone() {
-    this.showDone = !this.showDone
+    this.saveOptions({ showDone: !this.showDone })
   }
 
   @action toggleExpanded(id: string) {
@@ -358,29 +492,28 @@ export class MobileTasksBoard {
   }
 
   @action setFilter(filter: BoardFilter) {
-    this.filter = filter
+    this.saveOptions({ filter })
   }
 
   @action clearFilter(key: keyof BoardFilter) {
-    this.filter = clearChip(this.filter, key)
+    this.saveOptions({ filter: clearChip(this.filter, key) })
   }
 
-  @lazy private get display() {
-    const row = requireRow(omitGone(this.pool.row('preference', ISSUES_DISPLAY_KEY)))
-    return readSharedIssuesDisplay(row?.value ?? null)
+  @action showDisplay(display: {
+    ordering: IssuesOrdering
+    showAgentTasks: boolean
+    assignee?: string | undefined
+  }) {
+    if (!this.pool.hasLayout)
+      this.fixtureOptions = { ...this.fixtureOptions, ordering: display.ordering }
+    this.showAgentTasksOverride = display.showAgentTasks
+    this.assignee = display.assignee
   }
 
-  @lazy get ordering(): IssuesOrdering {
-    return this.orderingOverride ?? this.display.ordering
-  }
-
-  @lazy get showAgentTasks(): boolean {
-    return this.showAgentTasksOverride ?? this.display.showAgentTasks
-  }
-
-  /** The filter the lists use: the sheet's choices plus the search text. */
+  /** The filter the lists use: the sheet's choices, Assigned to and the search text. */
   @lazy({ equals: compareStructural }) get searchFilter(): BoardFilter {
-    return this.query.trim() ? { ...this.filter, text: this.query } : this.filter
+    const filter = this.assignee ? { ...this.filter, assignee: this.assignee } : this.filter
+    return this.query.trim() ? { ...filter, text: this.query } : filter
   }
 
   /** Search results stay visible without rewriting the user's saved folds. */
@@ -513,6 +646,10 @@ export class MobileTasksBoard {
       if (error === LOADING) return LOADING
       throw error
     }
+  }
+
+  dispose(): void {
+    for (const lane of this.lanes) lane.dispose()
   }
 
   /**

@@ -10,8 +10,18 @@ import type { IssueTrpc } from './client.js'
 import { ISSUE_COMMANDS } from './commands.js'
 
 const MACHINES = [
-  { id: 'm-here', name: 'ludovico', hostname: 'ludovico' },
-  { id: 'm-there', name: 'quiet-box', hostname: 'quiet-box.example.net' },
+  {
+    id: 'm-here',
+    name: 'local-box',
+    hostname: 'local-box',
+    serviceAssignment: { server: false, agentExecution: true },
+  },
+  {
+    id: 'm-there',
+    name: 'quiet-box',
+    hostname: 'quiet-box.example.net',
+    serviceAssignment: { server: false, agentExecution: true },
+  },
 ]
 
 function client(machines: unknown = MACHINES) {
@@ -81,7 +91,7 @@ describe('issue start --machine', () => {
     // The list is already scoped to what this caller may see, so a machine it
     // cannot see is refused as unknown — the same answer that leaks nothing about
     // whether it exists at all.
-    const c = client([{ id: 'm-here', name: 'ludovico', hostname: 'ludovico' }])
+    const c = client([MACHINES[0]])
     await expect(command('start').run(c.trpc, { id: '7', machine: 'm-there' })).rejects.toThrow(
       /no visible machine named 'm-there'/u,
     )

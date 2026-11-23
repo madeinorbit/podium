@@ -7,5 +7,6 @@
  */
 export * from './branded-ksuid'
 export * from './brands'
+export * from './device-id'
 export * from './keys'
 export * from './ksuid'

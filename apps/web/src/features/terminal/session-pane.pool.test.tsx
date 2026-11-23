@@ -1,6 +1,12 @@
-import { ConversationCache, type ConversationCacheOptions, DraftStore } from '@podium/client-core/conversation'
+import '@podium/client-graph/synced-models'
+import {
+  ConversationCache,
+  type ConversationCacheOptions,
+  DraftStore,
+} from '@podium/client-core/conversation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
 import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
@@ -22,7 +28,6 @@ import { MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {
   SESSION_PANE_ENTITIES,
-  SESSION_PANE_SUMMARIES,
 } from '@podium/client-graph/session-pane-schema'
 import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
 import { sessionPaneView } from '@podium/client-graph/session-pane-view'
@@ -42,7 +47,7 @@ import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/orac
 const f = vi.hoisted(() => ({
   state: {} as Store,
   pool: null as MobxPool | null,
-  owner: { transcriptWindow: () => undefined, putTranscriptWindow: vi.fn() },
+  owner: {},
   issues: [] as IssueReferenceSource[],
   mounted: { current: null as MountedSession | null },
   end: vi.fn(async () => ({ ok: true })),
@@ -55,17 +60,25 @@ const f = vi.hoisted(() => ({
   transcript: vi.fn((_session: unknown, _since?: unknown, _listener?: unknown) => () => {}),
   confirm: vi.fn(async () => true),
 }))
-const paneDrafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+const paneDrafts = new DraftStore({
+  storage: { get: () => null, set: () => {} },
+  hub: {
+    on: () => () => {},
+    sendDraftEdit: () => {},
+    connectionHealth: () => ({ status: 'ok' }),
+  } as never,
+})
 let paneConversations: ConversationCache | undefined
+let paneUiSnapshot: Store
 const paneStoreHandle = withKeyedInputs({
   ownConversations: (options: ConversationCacheOptions) =>
-    paneConversations ??= new ConversationCache(options),
+    (paneConversations ??= new ConversationCache(options)),
   drafts: paneDrafts,
-  getSnapshot: () => f.state,
+  getSnapshot: () => paneUiSnapshot,
   subscribe: (_listener: () => void) => () => {},
 })
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (s: Store) => unknown) => {
+  readFixture: (select: (s: Store) => unknown) => {
     recordStoreSelector(f.owner)
     return select(
       new Proxy(f.state, {
@@ -90,18 +103,30 @@ vi.mock('@/app/store-worklist-pool', () => ({
     )
   },
 }))
-vi.mock('../../../../../packages/client-core/src/react/provider', async (original) => ({
-  ...(await original<typeof import('../../../../../packages/client-core/src/react/provider')>()),
-  useStoreHandle: () => paneStoreHandle,
-}))
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => paneStoreHandle,
-  usePresenceRoom: () => ({ status: 'unknown' as const }),
-  useCurrentPrincipal: () => null,
-  useModelCatalog: () => ({}),
-  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
-}))
+vi.mock('../../../../../packages/client-core/src/react/provider', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('../../../../../packages/client-core/src/react/provider')>()),
+    ...fixtureRuntimeHooks(() => paneStoreHandle),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
+      () => paneStoreHandle,
+    ),
+  }
+})
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => paneStoreHandle),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
+      () => paneStoreHandle,
+    ),
+    usePresenceRoom: () => ({ status: 'unknown' as const }),
+    useCurrentPrincipal: () => null,
+    useModelCatalog: () => ({}),
+    useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
+  }
+})
 vi.mock('@/lib/hooks/use-confirm', () => ({ useConfirm: () => f.confirm }))
 vi.mock('@podium/terminal-client-react', () => ({
   useTerminalSession: () => ({
@@ -145,8 +170,22 @@ const pickerFixture = vi.hoisted(() => ({ real: false }))
 vi.mock('@/lib/ModelEffortPicker', async (original) => {
   const actual = await original<typeof import('@/lib/ModelEffortPicker')>()
   return {
-    ModelPicker: (props: Parameters<typeof actual.ModelPicker>[0]) => pickerFixture.real ? <actual.ModelPicker {...props} /> : <button type="button" data-model={props.value}>{props.value}</button>,
-    EffortPicker: (props: Parameters<typeof actual.EffortPicker>[0]) => pickerFixture.real ? <actual.EffortPicker {...props} /> : <button type="button" data-effort={props.value}>{props.value}</button>,
+    ModelPicker: (props: Parameters<typeof actual.ModelPicker>[0]) =>
+      pickerFixture.real ? (
+        <actual.ModelPicker {...props} />
+      ) : (
+        <button type="button" data-model={props.value}>
+          {props.value}
+        </button>
+      ),
+    EffortPicker: (props: Parameters<typeof actual.EffortPicker>[0]) =>
+      pickerFixture.real ? (
+        <actual.EffortPicker {...props} />
+      ) : (
+        <button type="button" data-effort={props.value}>
+          {props.value}
+        </button>
+      ),
   }
 })
 vi.mock('@/lib/SnoozeControl', () => ({
@@ -155,7 +194,11 @@ vi.mock('@/lib/SnoozeControl', () => ({
 vi.mock('./use-terminal-appearance', () => ({
   useTerminalAppearance: () => ({ settings: {}, appearance: { theme: { background: '#000' } } }),
 }))
-vi.mock('@/lib/clock-hooks', () => ({ useClock: () => SESSION_PANE_NOW, useDeadlineNow: () => SESSION_PANE_NOW, useAgeNow: () => SESSION_PANE_NOW }))
+vi.mock('@/lib/clock-hooks', () => ({
+  useClock: () => SESSION_PANE_NOW,
+  useDeadlineNow: () => SESSION_PANE_NOW,
+  useAgeNow: () => SESSION_PANE_NOW,
+}))
 
 const useFixtureIssues = () => f.issues
 
@@ -220,8 +263,10 @@ beforeEach(() => {
     setDockVisibleSession: vi.fn(),
   } as unknown as Store
   f.state = state
+  // UiStore consumes the producer snapshot. Individual tests may wrap the
+  // legacy consumer in a proxy without changing the current UI owner.
+  paneUiSnapshot = state
   f.pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined, {
-    summaries: SESSION_PANE_SUMMARIES,
     load: (entity, id) =>
       (entity === 'session'
         ? sessions.find((row) => row.sessionId === id)
@@ -230,15 +275,24 @@ beforeEach(() => {
     schedule: () => () => {},
   })
   paneTransactions = createPoolTransactions({
-    userId: 'operator', outbox: { pending: () => [], awaiting: () => [], deadLetters: () => [], subscribe: () => () => {} },
-    outcomes: () => () => {}, addressed: () => () => {}, enqueue: async () => {},
+    userId: 'operator',
+    outbox: {
+      pending: () => [],
+      awaiting: () => [],
+      deadLetters: () => [],
+      subscribe: () => () => {},
+    },
+    outcomes: () => () => {},
+    addressed: () => () => {},
+    enqueue: async () => {},
   })
   f.pool.attachTransactions(paneTransactions)
   f.pool.apply({
     type: 'replace',
     rows: sessions.map((row) => ({ kind: 'session', id: row.sessionId, value: row as never })),
   })
-  headerEntities(f.pool).apply(state.machines.map((row) => ({ kind: 'machine', id: row.id, value: row })))
+  // Machine records with my access row, online on the LiveStore (POD-6644).
+  headerEntities(f.pool).apply(seedFixtureMachines(f.pool, state.machines as never) as never)
   headerEntities(f.pool).order(
     'machine',
     state.machines.map((row) => row.id),
@@ -330,7 +384,9 @@ it('uses the same wake action and parked shell without resolving a replacement',
   fireEvent.click(
     shell.container.querySelector<HTMLButtonElement>('[data-testid="lifecycle-resume"]')!,
   )
-  expect(f.resurrect).toHaveBeenCalledWith(sessions[19]!.sessionId)
+  expect(f.resurrect).toHaveBeenCalledWith(
+    sessions.find((row) => row.agentKind === 'shell' && row.status === 'hibernated')!.sessionId,
+  )
   expect(f.resolveShell).not.toHaveBeenCalled()
 })
 
@@ -382,7 +438,17 @@ it('keeps native reference underlines equal and live without legacy issue reads 
   f.pool!.apply({
     type: 'update',
     rows: [
-      { kind: 'worktree', id: '/synthetic', value: { path: '/synthetic', repoId: 'synthetic', prefix: 'POD', repoPath: '/synthetic', repoName: 'Synthetic' } as never },
+      {
+        kind: 'worktree',
+        id: '/synthetic',
+        value: {
+          path: '/synthetic',
+          repoId: 'synthetic',
+          prefix: 'POD',
+          repoPath: '/synthetic',
+          repoName: 'Synthetic',
+        } as never,
+      },
       ...issues.map((row) => ({ kind: 'issue' as const, id: row.id, value: row as never })),
     ],
   })
@@ -407,7 +473,6 @@ it('keeps native reference underlines equal and live without legacy issue reads 
     expect(stages).toEqual(['in_progress', 'in_progress', 'review', null, null, null, null, null])
   })
   expectPoolOutput({ ...view(actual.container), stages }, 'reference underlines')
-  expect(readRuntimeStoreStats(f.owner)).toBeDefined()
   expect(readRuntimeStoreStats(f.owner)?.slices['sessionPane.referenceIssues'] ?? 0).toBe(0)
 
   paint.mockClear()
@@ -429,10 +494,18 @@ it('keeps native reference underlines equal and live without legacy issue reads 
   )
   expect(paint).not.toHaveBeenCalled()
   for (const closedReason of ['done', 'cancelled', 'duplicate', 'superseded']) {
-    act(() => f.pool!.apply({
-      type: 'update', rows: [{ kind: 'issue', id: updated.id,
-        value: { ...updated, stage: 'done', closedReason } as never }],
-    }))
+    act(() =>
+      f.pool!.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'issue',
+            id: updated.id,
+            value: { ...updated, stage: 'done', closedReason } as never,
+          },
+        ],
+      }),
+    )
     expect(stages).toEqual([closedReason, closedReason, 'review', null, null, null, null, null])
     expect(paint).toHaveBeenCalledTimes(1)
     paint.mockClear()
@@ -475,8 +548,10 @@ it('never accesses legacy session, machine or window collections on the pool inp
       modes = usePanePanelModes()
     const confirmed = usePaneSpawnConfirmed(id),
       dock = useDockPaneInputs('/synthetic/w19', null)
-    const ownership = { selectedIssueId: usePaneSelectedIssueId(), stampIssue: usePaneStampIssue(id),
-      }
+    const ownership = {
+      selectedIssueId: usePaneSelectedIssueId(),
+      stampIssue: usePaneStampIssue(id),
+    }
     expect(ownership).toMatchObject({
       selectedIssueId: null,
       stampIssue: undefined,
@@ -500,7 +575,7 @@ it('uses pool facts in the real chat header while leaving transcript reads on th
   const held = { sends: [] }
   const reader = { records: () => ({ records: [], pending: 0 }) }
   f.pool!.sources.register(['chatHeld', 'chatContextReader'], {
-    read: (kind: string) => kind === 'chatHeld' ? held : reader,
+    read: (kind: string) => (kind === 'chatHeld' ? held : reader),
     dispose() {},
   } as never)
   function Header({ transcript = false }: { transcript?: boolean }) {

@@ -1,10 +1,10 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { Outbox, type OutboxEntry } from '@podium/client-core/outbox'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { SyncProgressStore } from '@podium/client-core/replica-assembly'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { messageNotices, pendingInteractionCards } from '@podium/client-core/values'
 import { asIssueId, asMutationId, asSessionId, asUserId } from '@podium/model'
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
@@ -22,6 +22,7 @@ vi.mock('../client/mobile-pool', async (importOriginal) => {
   const real = await importOriginal<typeof import('../client/mobile-pool')>()
   return {
     ...real,
+    useMobilePoolNow: () => state.host!.host.usePoolNow(),
     useMobilePoolProjection: <T,>(
       read: Parameters<MobilePool['host']['usePoolProjection']>[0],
       empty: T,
@@ -105,9 +106,49 @@ async function mount({ boot = false, recovery = true } = {}) {
     evict('pendingInteraction', id)
     return { ok: true }
   })
+  // An answer is a `session.answer` record (POD-6415): the server creates it,
+  // runs it (here: `answer`, the delivery) and the record reaches the pool
+  // with the delivery's reply as its result.
+  const submit = vi.fn(
+    async (envelope: {
+      command: string
+      input: { id: string; kind: string; target: unknown; input: Record<string, unknown> }
+    }) => {
+      if (envelope.command !== 'effects.create') throw new Error(`unexpected ${envelope.command}`)
+      const { id, kind, target, input } = envelope.input
+      const reply = await answer({ id: String(input.interactionId), answer: input.answer } as never)
+      const at = new Date().toISOString()
+      const record = {
+        entity: 'effect',
+        entityId: id,
+        provenance: { seq: 1 },
+        value: {
+          id,
+          kind,
+          target,
+          input: { via: input.via, interactionId: input.interactionId },
+          result: reply,
+          cancelRequested: false,
+          effect: { status: reply.ok ? 'succeeded' : 'failed', attempts: 1 },
+          createdBy: null,
+          createdAt: at,
+          updatedAt: at,
+          revision: 1,
+        },
+      }
+      fixture.records.set(`effect:${id}`, record)
+      fixture.replica.onKernelEvent({ type: 'upserted', record, readmitted: false } as never)
+      return {
+        outcome: 'applied',
+        result: { id },
+        receipt: { feedId: 'f', epoch: 'e', seq: 0 },
+        replayed: false,
+      }
+    },
+  )
   Object.assign(fixture.api, {
     messages: { dismissNotice: { mutate: dismiss } },
-    interactions: { answer: { mutate: answer } },
+    sync: { submit: { mutate: submit } },
   })
   let queued: OutboxEntry[] = [],
     parked: OutboxEntry[] = (recovery ? data.deadLetters : []).map((row) => ({
@@ -126,14 +167,23 @@ async function mount({ boot = false, recovery = true } = {}) {
   const seen: ReturnType<MobilePool['host']['usePool']>[] = []
   const configured = new WeakSet<ClientRuntime>()
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
     if (!configured.has(runtime)) {
-      const subscribeHealth = runtime.hub.onConnectionHealth.bind(runtime.hub)
-      fixture.bindHub(runtime.hub)
-      runtime.hub.onConnectionHealth = subscribeHealth
+      const subscribeHealth = runtime.services.connection.hub.onConnectionHealth.bind(
+        runtime.services.connection.hub,
+      )
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
+      runtime.services.connection.hub.onConnectionHealth = subscribeHealth
       // The socket is a platform edge. Keep the production useConnected hook
       // subscribed to the same runtime hub and drive its exact connected bit.
-      Object.defineProperty(runtime.hub, 'connected', { configurable: true, get: () => connected })
+      Object.defineProperty(runtime.services.connection.hub, 'connected', {
+        configurable: true,
+        get: () => connected,
+      })
+      runtime.live.setConnection({
+        state: connected ? 'online' : 'offline',
+        since: Date.now(),
+      })
       configured.add(runtime)
     }
 
@@ -211,8 +261,13 @@ async function mount({ boot = false, recovery = true } = {}) {
       connected = next
       if (next) progress.noteReady()
       else progress.noteDisconnected()
-      const hub = runtime.hub as unknown as { emit(kind: string, value: unknown): void }
-      hub.emit('connectionHealth', runtime.hub.connectionHealth())
+      // This fixture disables the network feed, so publish its condition at
+      // the same LiveStore boundary the feed owns in the running client.
+      runtime.live.setConnection({ state: next ? 'online' : 'offline', since: Date.now() })
+      const hub = runtime.services.connection.hub as unknown as {
+        emit(kind: string, value: unknown): void
+      }
+      hub.emit('connectionHealth', runtime.services.connection.hub.connectionHealth())
     },
   }
 }
@@ -271,6 +326,8 @@ it('preserves interaction and recovery notices without a floating message banner
   for (let index = 0; index < 5; index++)
     expect(enabled.view.getByText(`Synthetic authored ${index}`)).toBeTruthy()
   expect(enabled.view.queryByTestId('message-notice-banner')).toBeNull()
+  expect(enabled.view.getAllByTestId('outbox-recovery-card')).toHaveLength(5)
+  expect(enabled.view.getByText('Synthetic plan')).toBeTruthy()
   expect(enabled.errors).toEqual([])
   expectPoolReadersOnly(enabled.runtime)
   expect(reactErrors.mock.calls).toEqual([])
@@ -362,8 +419,8 @@ it('updates recovery and continuity through the original outbox retry, edit and 
   )
   expect(discard).toHaveBeenCalledWith(asMutationId('notice-mutation-1'))
   expect(cards()).toHaveLength(2)
-  expect(enabled.runtime.outbox.deadLetters()).toHaveLength(2)
-  expect(enabled.runtime.outbox.pending()).toHaveLength(2)
+  expect(enabled.runtime.services.outbox.queue.deadLetters()).toHaveLength(2)
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(2)
   expectPoolReadersOnly(enabled.runtime)
 })
 
@@ -389,13 +446,13 @@ it('keeps the continuity banner quiet before the first hello, including a real q
   expect(enabled.progress.getSnapshot()).toMatchObject({ phase: 'reconnecting', attempt: 0 })
   expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
   await act(async () => {
-    await enabled.runtime.outbox.enqueue('issueUpdate', {
+    await enabled.runtime.services.outbox.queue.enqueue('issueUpdate', {
       id: asIssueId('offline-task'),
       patch: { title: 'Keep my request' },
     })
   })
-  expect(enabled.runtime.outbox.pending()).toHaveLength(1)
-  expect(enabled.runtime.readLocal('outboxSize')).toBe(1)
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(1)
+  expect(enabled.runtime.live.outbox.pending).toBe(1)
   expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
   act(() => enabled.progress.beginAttempt())
   expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
@@ -416,7 +473,7 @@ it.each([
   expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toBe(
     'Offline. Showing saved data for Synthetic server.Settings',
   )
-  expect(enabled.runtime.outbox.pending()).toHaveLength(0)
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(0)
   act(() => enabled.connect(true))
   expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
   expectPoolReadersOnly(enabled.runtime)
@@ -425,19 +482,19 @@ it.each([
 it('shows an actual queued write only while offline and hides it as soon as the socket connects', async () => {
   const enabled = await mount({ boot: true, recovery: false })
   await act(async () => {
-    await enabled.runtime.outbox.enqueue('issueUpdate', {
+    await enabled.runtime.services.outbox.queue.enqueue('issueUpdate', {
       id: asIssueId('offline-task'),
       patch: { title: 'Keep my request' },
     })
     enabled.progress.noteDisconnected()
   })
-  expect(enabled.runtime.outbox.pending()).toHaveLength(1)
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(1)
   expect(enabled.view.getByTestId('workspace-continuity-notice').textContent).toContain(
     '1 change is queued and will send when connected.',
   )
   act(() => enabled.connect(true))
   // Pending HTTP receipts can outlive the handshake; they are not offline.
-  expect(enabled.runtime.outbox.pending()).toHaveLength(1)
+  expect(enabled.runtime.services.outbox.queue.pending()).toHaveLength(1)
   expect(enabled.view.queryByTestId('workspace-continuity-notice')).toBeNull()
   expectPoolReadersOnly(enabled.runtime)
 })

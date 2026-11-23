@@ -25,15 +25,21 @@ import { afterEach, beforeEach, expect, it } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { agentLaunchCommand } from '@podium/harness'
-import type { HarnessAgent } from '@podium/model'
-import { SpawnMessage } from '@podium/protocol'
+import { agentLaunchCommand, shellCommand } from '@podium/harness'
+import { asSessionId, type HarnessAgent } from '@podium/model'
+import { directPtyDurableForTests } from '@podium/process/durable'
 import { hasBunTerminal } from '@podium/process/pty'
-import { credentialEnv } from '@podium/runtime'
+import { SpawnMessage } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
+import { memoryMarkers, SessionAccessStore } from '../src/control/access'
 import type { DaemonContext } from '../src/control/context'
-import { launchTerminalSpawn } from '../src/control/session'
+import { launchSpawn, launchTerminalProcess, sessionSpecForSpawn } from '../src/control/session'
+import { terminalProfileFor } from '../src/runtime/registry'
+import { SessionRegistry } from '../src/session/registry'
+import { buildSessionHarnessContext } from '../src/session-harness-context'
 
 const CREDENTIAL = 'sk-test-xyz'
+const ENV_BIN = Bun.which('env')
 /** A key on the DAEMON, standing in for one an operator exported before starting it. */
 const INHERITED_KEY = 'sk-test-inherited-from-the-daemon'
 const HARNESS_ENV_KEYS = [
@@ -117,11 +123,12 @@ async function dumpEnvOfSpawnedProcess(
   env: Record<string, string> | undefined,
   agentKind: 'shell' | HarnessAgent = 'shell',
 ): Promise<string> {
-  let buffer = ''
   const landing = join(home, `${sessionId}.env`)
-  const bridges = new Map<string, { pid: number; write(b64: string): void; dispose(): void }>()
+  if (!ENV_BIN) throw new Error('environment acceptance requires the env executable')
+  const sessions = new SessionRegistry()
+  const sent: DaemonMessage[] = []
   const ctx = {
-    send: () => {},
+    send: (message: DaemonMessage) => sent.push(message),
     instanceId: 'default',
     homeDir: home,
     backend: 'none', // bare PTY child: no podium-host master can outlive this test
@@ -131,10 +138,10 @@ async function dumpEnvOfSpawnedProcess(
     launch: (kind: string, opts: { cwd: string }) =>
       kind === 'shell'
         ? agentLaunchCommand(kind, opts as Parameters<typeof agentLaunchCommand>[1])
-        : { cmd: '/bin/bash', args: ['-c', 'exec /bin/bash -i'], cwd: opts.cwd },
+        : shellCommand({ cmd: '/bin/bash', args: ['-c', 'exec /bin/bash -i'], cwd: opts.cwd }),
     settingsDir,
-    bridges,
-    durableLabels: new Map(),
+    sessions,
+    durable: directPtyDurableForTests(),
     durableLabelFor: (id: string) => `podium-${id}`,
     bindingStore: {
       ensureBinding: async () => ({}),
@@ -147,7 +154,6 @@ async function dumpEnvOfSpawnedProcess(
     // `session-binding.test.ts` owns.
     machineId: 'bun-spawn-test-machine',
     sessionBinding: { transition: async () => ({ status: 'applied' }) },
-    pendingResizes: new Map(),
     composerEngine: {
       attach: () => false,
       onData: () => {},
@@ -155,8 +161,8 @@ async function dumpEnvOfSpawnedProcess(
       has: () => false,
     },
     outputScheduler: {
-      enqueue: (_id: string, data: string) => {
-        buffer += Buffer.from(data, 'base64').toString('utf8')
+      enqueue: () => {
+        // PTY output is irrelevant: the child reports its environment to a file.
       },
       remove: () => {},
     },
@@ -164,6 +170,7 @@ async function dumpEnvOfSpawnedProcess(
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 
   // The real wire frame through the real schema.
@@ -171,7 +178,6 @@ async function dumpEnvOfSpawnedProcess(
     type: 'spawn',
     sessionId,
     agentKind,
-    requestedDriverId: 'generic-pty',
     cwd: process.cwd(),
     geometry: { cols: 120, rows: 30 },
     binding: {
@@ -183,19 +189,45 @@ async function dumpEnvOfSpawnedProcess(
   })
   // The environment contract lives at the terminal launch boundary. Server
   // admission is orthogonal and has its own process-level coverage.
-  await launchTerminalSpawn(ctx, msg)
-  // The handler dispatches the launch and returns; the bridge appears when the
-  // PTY is up, an await or two later. Wait for it rather than racing it.
-  await waitFor(() => bridges.has(sessionId)).catch(() => {
-    throw new Error('daemon never bridged the session (spawn failed)')
+  if (agentKind === 'shell') await launchSpawn(ctx, msg)
+  else {
+    const profile = terminalProfileFor(agentKind)
+    if (!profile) throw new Error(`No terminal profile for ${agentKind}`)
+    sessions.ensure(msg.sessionId).order = { frame: msg }
+    const spec = sessionSpecForSpawn(
+      msg,
+      { driverId: profile.driverId, auth: 'unknown', role: 'interactive' },
+      await buildSessionHarnessContext(ctx, agentKind),
+    )
+    // Driver selection and hook installation have their own suites. This test
+    // exercises the shared OS launch with the canonical spec of each harness.
+    await launchTerminalProcess(ctx, {
+      sessionId: msg.sessionId,
+      spec,
+      instrumentation: { args: [] },
+    })
+  }
+  expect(
+    sent.find((message) => message.type === 'spawnError'),
+    JSON.stringify(sent),
+  ).toBeUndefined()
+  // The registry publishes the terminal once the real PTY is attached.
+  const id = asSessionId(sessionId)
+  await waitFor(() => Boolean(sessions.get(id)?.terminal)).catch(() => {
+    throw new Error('daemon never attached the terminal (spawn failed)')
   })
 
-  const session = bridges.get(sessionId)
-  if (!session) throw new Error('daemon never bridged the session (spawn failed)')
-  const pid = session.pid
+  const terminal = sessions.get(id)?.terminal
+  if (!terminal) throw new Error('daemon never attached the terminal (spawn failed)')
+  const pid = terminal.attachment.pid
   try {
-    await waitFor(() => buffer.length > 0)
-    session.write(Buffer.from(`env > ${JSON.stringify(landing)}\n`, 'utf8').toString('base64'))
+    // A prompt is presentation, not process readiness. Write through the real
+    // attached terminal and wait for the child's own environment artifact.
+    terminal.writeBase64(
+      Buffer.from(`${JSON.stringify(ENV_BIN)} > ${JSON.stringify(landing)}\n`, 'utf8').toString(
+        'base64',
+      ),
+    )
     // PODIUM_SESSION_ID is bound by the daemon on EVERY spawn: seeing it proves the dump
     // really landed and that this process came out of Podium's spawn path — which is what
     // makes the credential's ABSENCE in the negative case meaningful rather than just early.
@@ -206,7 +238,7 @@ async function dumpEnvOfSpawnedProcess(
     )
     return readFileSync(landing, 'utf8')
   } finally {
-    session.dispose() // reap by explicit pid — never pattern-kill
+    terminal.park() // the direct PTY double reaps only its own child
     await waitFor(() => !alive(pid), 5_000)
   }
 }
@@ -216,7 +248,7 @@ it('runs on the Bun terminal PTY — the backend the shipped daemon uses', () =>
 })
 
 it('POSITIVE: a managed credential reaches the real spawned process env (Bun backend)', async () => {
-  const env = credentialEnv({ provider: 'anthropic', kind: 'api-key', credential: CREDENTIAL })
+  const env = { ANTHROPIC_API_KEY: CREDENTIAL }
   expect(env).toEqual({ ANTHROPIC_API_KEY: CREDENTIAL })
 
   const dump = await dumpEnvOfSpawnedProcess('bun-managed', env)

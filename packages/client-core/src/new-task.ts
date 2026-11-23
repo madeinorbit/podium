@@ -1,4 +1,4 @@
-import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
+import type { GitRepositoryWire, MachineFacts } from '@podium/model/browser'
 import { machinePathKey, preferredMachineChoices } from '@podium/model/browser'
 import {
   type ActivationAgentReadiness,
@@ -99,7 +99,7 @@ export function firstTaskRepositoryChoices(repos: GitRepositoryWire[]): RepoView
 /** Keep separately registered projects distinguishable without changing identity. */
 export function firstTaskRepositorySubtitle(
   repo: RepoView,
-  machines: readonly MachineWire[],
+  machines: readonly Pick<MachineFacts, 'id' | 'name'>[],
 ): string {
   const names = new Set(
     (repo.machines ?? []).flatMap(({ machineId }) => {
@@ -141,22 +141,22 @@ export function selectedFirstTaskRepository(
   )
 }
 
-export function firstTaskMachines(
+export function firstTaskMachines<M extends MachineFacts>(
   repo: RepoView | undefined,
-  machines: MachineWire[],
-): MachineWire[] {
+  machines: M[],
+): M[] {
   const ids = new Set(repo?.machines?.map((checkout) => checkout.machineId) ?? [])
   const preferred = preferredMachineChoices(machines)
   return ids.size ? preferred.filter((machine) => ids.has(machine.id)) : preferred
 }
 
 /** A pick in this opening wins; a remembered offline default does not. */
-export function selectedFirstTaskMachine(
-  candidates: readonly MachineWire[],
+export function selectedFirstTaskMachine<M extends MachineFacts>(
+  candidates: readonly M[],
   remembered: string,
   picked?: string,
-  machines: readonly MachineWire[] = candidates,
-): MachineWire | undefined {
+  machines: readonly MachineFacts[] = candidates,
+): M | undefined {
   const views = machineViewsFromWire(machines)
   const usable = new Set(usableMachines(views).map((machine) => machine.id))
   const authorized = new Set(
@@ -173,8 +173,8 @@ export function selectedFirstTaskMachine(
 }
 
 export function firstTaskMachineDenied(
-  machine: MachineWire | undefined,
-  machines: readonly MachineWire[],
+  machine: MachineFacts | undefined,
+  machines: readonly MachineFacts[],
 ): boolean {
   return (
     machine !== undefined &&

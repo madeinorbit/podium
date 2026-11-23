@@ -6,6 +6,7 @@ import {
   type ShipOrder,
   type ShipOrderId,
   shipLaneId,
+  type WorkspaceId,
 } from '@podium/model'
 
 export { canonicalShippingDestination } from '@podium/model'
@@ -385,7 +386,14 @@ export interface PrefixValidationResult {
   summary?: string
 }
 
+/**
+ * Everything a green prefix result was proved under; the cache key is this
+ * scope plus the prefix id. The workspace leads it: repo ids, order ids and
+ * prefix ids are each a workspace's, so two workspaces may hold the same ones
+ * (POD-6959 design 2.8), and a green in one must never stand for the other.
+ */
 export interface ShippingValidationCacheScope {
+  workspaceId: WorkspaceId
   repoId: ShipOrder['repoId']
   targetBranch: string
   targetSha: string

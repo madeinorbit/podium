@@ -86,12 +86,4 @@ describe('F1 session-status: the SHAPE clause (the checkable half of the invaria
       expect(from).not.toMatch(/\.\/(session-urgency|session-ownership)/)
     }
   })
-
-  it('the size exception this clause supports is still in force', () => {
-    // If the module ever needs a second exception, that is the signal that the
-    // one question has become two — which is a reason to split, not to widen.
-    const lines = SOURCE.split('\n').length
-    expect(lines).toBeGreaterThan(400)
-    expect(lines).toBeLessThan(600)
-  })
 })

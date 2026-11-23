@@ -50,6 +50,7 @@ import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { fixtureInventory } from './test-support/daemon-inventory'
 import { confirmingRetirement } from './test-support/host-daemon'
+import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 import { openTestStore } from './test-support/open-test-store'
 
 const MACHINE = 'm1'
@@ -156,11 +157,15 @@ describe('a queue-drain abandonment crosses the wire and leaves durable work que
    */
   async function heldInterrupt(body: string): Promise<{ sessionId: SessionId; messageId: string }> {
     const sessionId = await liveAgent()
-    const sent = await registry.modules.messages.send(SUPERAGENT, {
-      to: { kind: 'session', id: sessionId },
-      body,
-      urgency: 'interrupt',
-    })
+    const sent = await registry.modules.messages.send(
+      registry.modules.sessions.serverWriter,
+      SUPERAGENT,
+      {
+        to: { kind: 'session', id: sessionId },
+        body,
+        urgency: 'interrupt',
+      },
+    )
     await vi.waitFor(() => expect(durableSends(sessionId)).toHaveLength(1))
     const [request] = durableSends(sessionId)
     expect(request).toMatchObject({

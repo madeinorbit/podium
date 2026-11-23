@@ -1,7 +1,6 @@
 import type { CostModelTotalWire, TaskCostRowWire } from '@podium/model'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
 import { MobxPool } from './pool'
 import { TaskCostView } from './task-cost-view'
 
@@ -133,13 +132,13 @@ it('separates equal repo labels, joins a shared repo id, and normalizes fallback
   ])
 })
 
-it('groups cold task summaries without hydrating full issues', async () => {
+it('groups held task summaries without loading full issues', async () => {
   const cold = { ...issue('cold', 'project'), repoId: 'repo', stage: 'done', archived: true }
   const load = vi.fn(() => cold)
   const pool = new MobxPool(
     { selectedIssueId: null, coarseNow: Date.parse('2026-11-10') },
     undefined,
-    { load, summaries: ISSUE_PAGE_SUMMARIES, schedule: () => () => {} },
+    { load, schedule: () => () => {} },
   )
   pool.apply({
     type: 'replace',
@@ -154,15 +153,10 @@ it('groups cold task summaries without hydrating full issues', async () => {
   })
   const view = new TaskCostView(pool)
   await view.read(async () => [row('cold', 10)])
-  expect(pool.tables.issue.size).toBe(0)
   expect(view.topTasks).toEqual([{ issueId: 'cold', windowCostUsd: 10 }])
   expect(view.projectGroups?.rows[0]?.project).toBe('project')
   expect(pool.hydrate()).toBe(0)
   expect(load).not.toHaveBeenCalled()
-  // Positive control: a full record reader does request the cold payload.
-  pool.row('issue', 'cold')
-  expect(pool.hydrate()).toBe(1)
-  expect(load).toHaveBeenCalledTimes(1)
   view.dispose()
   pool.dispose()
 })
@@ -170,7 +164,6 @@ it('groups cold task summaries without hydrating full issues', async () => {
 it('omits gone candidates before ranking and restores them only when the pool readmits them', async () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
     load: () => undefined,
-    summaries: ISSUE_PAGE_SUMMARIES,
     schedule: () => () => {},
   })
   const ids = ['a', 'b', 'c', 'd', 'e', 'f', 'removed']
@@ -229,7 +222,6 @@ it('never observes or loads all-time-only task summaries for window readers', as
   const load = vi.fn(() => undefined)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
     load,
-    summaries: ISSUE_PAGE_SUMMARIES,
     schedule: () => () => {},
   })
   pool.apply({
@@ -240,33 +232,40 @@ it('never observes or loads all-time-only task summaries for window readers', as
   const history = row('history', 0)
   history.models = [usd(500)]
   const rows = vi.spyOn(pool, 'row')
+  const stubs = vi.spyOn(pool, 'stub')
   await view.read(async () => [history, row('week', 10)])
   const stop = autorun(() => {
     view.topTasks
     view.projectGroups
   })
   expect(rows.mock.calls.some(([kind, id]) => kind === 'issue' && id === 'history')).toBe(false)
+  expect(stubs.mock.calls.some(([id]) => id === 'history')).toBe(false)
   expect(pool.hydrate()).toBe(0)
   expect(load).not.toHaveBeenCalled()
   expect(view.topTasks).toEqual([{ issueId: 'week', windowCostUsd: 10 }])
   expect(view.projectGroups?.attributedUsd).toBe(10)
   rows.mockClear()
+  stubs.mockClear()
   pool.apply({
     type: 'update',
     rows: [{ kind: 'issue', id: 'history', value: issue('history', 'old') as never }],
   })
   expect(
-    rows.mock.calls.filter(([kind, , mode]) => kind === 'issue' && mode === 'summary-fields'),
+    // The pool's own read-marker pass (mode 'mark') is not a reader of the row.
+    rows.mock.calls.filter(
+      ([kind, id, mode]) => kind === 'issue' && id === 'history' && mode !== 'mark',
+    ),
   ).toEqual([])
   // Positive control: removing a window candidate does invalidate the visibility read.
   pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'week', value: undefined }] })
   expect(view.topTasks).toEqual([])
   expect(view.projectGroups?.attributedUsd).toBe(0)
-  expect(rows.mock.calls.some(([kind, id]) => kind === 'issue' && id === 'week')).toBe(true)
+  expect(stubs.mock.calls.some(([id]) => id === 'week')).toBe(true)
   // The all-time sheet still includes the historical spend on demand.
   expect(view.rows?.find((task) => task.issueId === 'history')?.estCostUsd).toBe(500)
   stop()
   rows.mockRestore()
+  stubs.mockRestore()
   view.dispose()
   pool.dispose()
 })

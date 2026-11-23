@@ -1,8 +1,8 @@
 import { createLogger } from '@podium/logger'
 import type { IssueProjection, SessionId } from '@podium/model'
-import { isMachinePathWithinRoot } from '@podium/model'
+import { firstAdminMemberId, isMachinePathWithinRoot } from '@podium/model'
 import { buildAssistantMessages, parseAssistantJson } from '../../../issueAssistant'
-import { completeForRole } from '../../../llm-roles'
+import { complete } from '../../inference/complete'
 import type { IssueStore } from './core'
 
 const log = createLogger('server:issues')
@@ -41,7 +41,7 @@ export class IssueAssistantDigestModule {
   /**
    * The last background-LLM failure's actionable text (POD-4805): a refused
    * server-AI call must say why somewhere the operator looks — the server log
-   * (one warn line at the catch below) and Settings → Background LLM /
+   * (one warn line at the catch below) and Settings → Agents → Background model /
    * Accounts (read through the accounts hub). Undefined until the first
    * failure. Never an issue field: `refreshAssistant` stays non-throwing and
    * leaves prior state intact.
@@ -81,7 +81,11 @@ export class IssueAssistantDigestModule {
     // probes and the LLM completion — and is re-cut after them (POD-3375).
     let row = await this.store.draftOrThrow(id)
     if (!row.worktreePath) return await this.store.projection(row)
-    const settings = await this.store.d.getSettings()
+    // WHOSE ROLE, WHOSE KEY (POD-469). The digest has no requesting user, so it
+    // acts for the member whose settings name the background role, the first
+    // admin. The same member's credential is spent below; nobody else's.
+    const store = this.store.d.store
+    const actor = await firstAdminMemberId(store)
     const members = (await this.store.sessionsFor(row)).map((s) => ({
       agentKind: s.agentKind,
       phase: s.agentState?.phase ?? 'shell',
@@ -97,7 +101,7 @@ export class IssueAssistantDigestModule {
       scope === null
         ? []
         : await this.store.deps.store.issues.listIssueRowsWhere(
-            { repo: true, readable: false, live: true, unarchived: true, order: 'repo-seq' },
+            { repo: true, live: true, unarchived: true, order: 'repo-seq' },
             { repoId: scope },
           )
     )
@@ -118,19 +122,18 @@ export class IssueAssistantDigestModule {
     }
     let result = null as ReturnType<typeof parseAssistantJson>
     try {
-      // The shared one-shot primitive (SP-6454): resolves the 'background' role's
-      // backend + account, runs one completion, parses into structured data.
-      const resp = await completeForRole(
-        {
-          settings,
-          // POD-419: the provider's key, resolved at the moment of use out of
-          // the server-only store — `settings.apiKeys` no longer carries any.
-          apiKey: async (provider) => await this.store.d.store.secrets.apiKeyFor(provider),
-          llm: this.store.d.llm,
-        },
-        { role: 'background', messages: buildAssistantMessages(ctx), parse: parseAssistantJson },
-      )
-      result = resp.data
+      // Podium's own model call (credential management §9): the background
+      // role names the credential, the resolver decides whether the actor may
+      // use it, and nobody else's key or login is ever spent.
+      const input = {
+        role: 'background' as const,
+        messages: buildAssistantMessages(ctx),
+        actingUserId: actor,
+      }
+      const resp = this.store.d.complete
+        ? await this.store.d.complete(input)
+        : await complete({ store }, input)
+      result = parseAssistantJson(resp.text)
     } catch (err) {
       // A refused server-AI call must not vanish (POD-4805): one warn line
       // with the backend's error text, plus the last-error slot Settings
@@ -161,14 +164,20 @@ export class IssueAssistantDigestModule {
      */
     row = await this.store.draftOrThrow(id)
     if (!result) return await this.store.projection(row) // leave prior state intact on any LLM/parse failure
-    row.activityNotes = result.activityNotes || row.activityNotes
-    row.notesUpdatedAt = this.store.now()
+    const previousState = await this.store.deps.store.issues.panel.state(row.id)
+    const state = {
+      id: row.id,
+      text: result.activityNotes || previousState?.text || '',
+      updatedAt: this.store.now(),
+    }
     row.blockedBy = result.blockedBy
     row.dependencyNote = result.dependencyNote || null
     // Trust the model's stage when valid and different from current; else clear the suggestion.
     const digestStage = result.suggestedStage
     row.suggestedStage = digestStage && digestStage !== row.stage ? digestStage : null
     row.suggestedReason = row.suggestedStage ? result.suggestedReason : null
-    return await this.store.persistRow(row)
+    return await this.store.persistWith(this.store.serverWriter, row, async (scope) => {
+      await this.store.deps.store.issues.panel.save(scope, 'issuePanelState', state)
+    })
   }
 }

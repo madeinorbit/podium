@@ -1,7 +1,7 @@
 import type { AgentConversationDiagnostic, AgentConversationSummary } from '@podium/harness'
-import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
+import type { ConversationDiagnosticWire, ConversationDiscoveryWire } from '@podium/model'
 
-export function summaryToWire(s: AgentConversationSummary): ConversationSummaryWire {
+export function summaryToWire(s: AgentConversationSummary): ConversationDiscoveryWire {
   return {
     id: s.id,
     agentKind: s.agentKind,
@@ -10,14 +10,12 @@ export function summaryToWire(s: AgentConversationSummary): ConversationSummaryW
     ...(s.parentConversationId !== undefined
       ? { parentConversationId: s.parentConversationId }
       : {}),
-    ...(s.statusHint !== undefined ? { statusHint: s.statusHint } : {}),
     ...(s.createdAt ? { createdAt: s.createdAt.toISOString() } : {}),
     ...(s.updatedAt ? { updatedAt: s.updatedAt.toISOString() } : {}),
     ...(s.messageCount !== undefined ? { messageCount: s.messageCount } : {}),
     // Dirty signal for the server's transcript mirror: the transcript file's byte
     // size at scan time (free — discovery already stat()s the file for mtime).
     ...(s.sizeBytes !== undefined ? { sizeBytes: s.sizeBytes } : {}),
-    ...(s.git ? { git: s.git } : {}),
     ...(s.resume ? { resume: s.resume } : {}),
     // Registry evidence: the absolute file this summary came from, recorded on the
     // conversation's segment server-side so reads can skip cwd derivation entirely.

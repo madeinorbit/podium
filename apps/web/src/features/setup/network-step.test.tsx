@@ -208,3 +208,43 @@ describe('NetworkStep', () => {
     expect(await screen.findByText('Network settings saved.')).toBeTruthy()
   })
 })
+
+describe('Access address-only takeover', () => {
+  it('confirms replacing a saved URL and never sends a credential change', async () => {
+    const trpc = fakeTrpc({ publicUrl: 'https://old.example', hasOwnCredential: true })
+    render(<NetworkStep embedded addressOnly trpc={trpc} onSaved={vi.fn()} />)
+    fireEvent.change(await screen.findByLabelText('Podium URL'), {
+      target: { value: 'https://new.example' },
+    })
+    expect(screen.queryByText('Login')).toBeNull()
+    expect(screen.queryByLabelText('Login password')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Check and save' }))
+    await waitFor(() =>
+      expect(trpc.setup.complete.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ publicUrl: 'https://new.example', confirmUrlChange: true }),
+      ),
+    )
+    const payload = vi.mocked(trpc.setup.complete.mutate).mock.calls[0]?.[0]
+    expect(payload).not.toHaveProperty('password')
+    expect(payload).not.toHaveProperty('acknowledgeNoPassword')
+  })
+
+  it('can change an address in open mode without changing the sign-in policy', async () => {
+    const trpc = fakeTrpc({ publicUrl: 'https://old.example', hasOwnCredential: false })
+    render(<NetworkStep embedded addressOnly trpc={trpc} onSaved={vi.fn()} />)
+    fireEvent.change(await screen.findByLabelText('Podium URL'), {
+      target: { value: 'https://new.example' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Check and save' }))
+    await waitFor(() =>
+      expect(trpc.setup.complete.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          publicUrl: 'https://new.example',
+          confirmUrlChange: true,
+          acknowledgeNoPassword: true,
+        }),
+      ),
+    )
+    expect(vi.mocked(trpc.setup.complete.mutate).mock.calls[0]?.[0]).not.toHaveProperty('password')
+  })
+})

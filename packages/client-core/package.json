@@ -35,6 +35,11 @@
       "types": "./src/principal.ts",
       "import": "./src/principal.ts"
     },
+    "./records": {
+      "@podium/source": "./src/records.ts",
+      "types": "./src/records.ts",
+      "import": "./src/records.ts"
+    },
     "./transport": {
       "@podium/source": "./src/transport.ts",
       "types": "./src/transport.ts",
@@ -49,6 +54,11 @@
       "@podium/source": "./src/outbox.ts",
       "types": "./src/outbox.ts",
       "import": "./src/outbox.ts"
+    },
+    "./service-worker": {
+      "@podium/source": "./src/service-worker/index.ts",
+      "types": "./src/service-worker/index.ts",
+      "import": "./src/service-worker/index.ts"
     },
     "./command-reducers": {
       "@podium/source": "./src/command-reducers.ts",
@@ -105,15 +115,25 @@
       "types": "./src/transcript/index.ts",
       "import": "./src/transcript/index.ts"
     },
+    "./transcript-store": {
+      "@podium/source": "./src/transcript-store/index.ts",
+      "types": "./src/transcript-store/index.ts",
+      "import": "./src/transcript-store/index.ts"
+    },
     "./conversation": {
       "@podium/source": "./src/conversation/index.ts",
       "types": "./src/conversation/index.ts",
       "import": "./src/conversation/index.ts"
     },
-    "./engine": {
-      "@podium/source": "./src/engine/index.ts",
-      "types": "./src/engine/index.ts",
-      "import": "./src/engine/index.ts"
+    "./conversation/transcript-graph": {
+      "@podium/source": "./src/conversation/transcript-graph.ts",
+      "types": "./src/conversation/transcript-graph.ts",
+      "import": "./src/conversation/transcript-graph.ts"
+    },
+    "./runtime-root": {
+      "@podium/source": "./src/runtime-root/index.ts",
+      "types": "./src/runtime-root/index.ts",
+      "import": "./src/runtime-root/index.ts"
     },
     "./react": {
       "@podium/source": "./src/react/index.ts",
@@ -180,6 +200,11 @@
       "types": "./src/accounts/pairing.ts",
       "import": "./src/accounts/pairing.ts"
     },
+    "./live": {
+      "@podium/source": "./src/live/index.ts",
+      "types": "./src/live/index.ts",
+      "import": "./src/live/index.ts"
+    },
     "./live-connection": {
       "@podium/source": "./src/live-connection/index.ts",
       "types": "./src/live-connection/index.ts",
@@ -189,6 +214,11 @@
       "@podium/source": "./src/live-connection/server-follow.ts",
       "types": "./src/live-connection/server-follow.ts",
       "import": "./src/live-connection/server-follow.ts"
+    },
+    "./test-support/transcript-cache": {
+      "@podium/source": "./test-support/transcript-cache.ts",
+      "types": "./test-support/transcript-cache.ts",
+      "import": "./test-support/transcript-cache.ts"
     },
     "./test-support/local-store": {
       "@podium/source": "./test-support/local-store.ts",
@@ -200,10 +230,20 @@
       "types": "./test-support/navigation.ts",
       "import": "./test-support/navigation.ts"
     },
+    "./test-support/machine-records": {
+      "@podium/source": "./test-support/machine-records.ts",
+      "types": "./test-support/machine-records.ts",
+      "import": "./test-support/machine-records.ts"
+    },
     "./test-support/keyed-inputs": {
       "@podium/source": "./test-support/keyed-inputs.ts",
       "types": "./test-support/keyed-inputs.ts",
       "import": "./test-support/keyed-inputs.ts"
+    },
+    "./test-support/keyed-channel": {
+      "@podium/source": "./test-support/keyed-channel.ts",
+      "types": "./test-support/keyed-channel.ts",
+      "import": "./test-support/keyed-channel.ts"
     },
     "./navigation-provider": {
       "@podium/source": "./src/navigation-provider.ts",
@@ -254,6 +294,46 @@
       "@podium/source": "./src/values/markdown-plain-text.ts",
       "types": "./src/values/markdown-plain-text.ts",
       "import": "./src/values/markdown-plain-text.ts"
+    },
+    "./ui": {
+      "@podium/source": "./src/ui/index.ts",
+      "types": "./src/ui/index.ts",
+      "import": "./src/ui/index.ts"
+    },
+    "./test-support/ui": {
+      "@podium/source": "./test-support/ui.ts",
+      "types": "./test-support/ui.ts",
+      "import": "./test-support/ui.ts"
+    },
+    "./test-support/layout": {
+      "@podium/source": "./test-support/layout.ts",
+      "types": "./test-support/layout.ts",
+      "import": "./test-support/layout.ts"
+    },
+    "./test-support/react": {
+      "@podium/source": "./test-support/react.ts",
+      "types": "./test-support/react.ts",
+      "import": "./test-support/react.ts"
+    },
+    "./commands": {
+      "@podium/source": "./src/commands/index.ts",
+      "types": "./src/commands/index.ts",
+      "import": "./src/commands/index.ts"
+    },
+    "./notices": {
+      "@podium/source": "./src/notices.ts",
+      "types": "./src/notices.ts",
+      "import": "./src/notices.ts"
+    },
+    "./test-support/command-hooks": {
+      "@podium/source": "./test-support/command-hooks.ts",
+      "types": "./test-support/command-hooks.ts",
+      "import": "./test-support/command-hooks.ts"
+    },
+    "./test-support/reference-commands": {
+      "@podium/source": "./test-support/reference-commands.ts",
+      "types": "./test-support/reference-commands.ts",
+      "import": "./test-support/reference-commands.ts"
     }
   },
   "scripts": {
@@ -263,6 +343,7 @@
   "dependencies": {
     "@podium/commands": "workspace:*",
     "@podium/harness": "workspace:*",
+    "@podium/identity": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
     "@podium/mobx-helpers": "workspace:*",

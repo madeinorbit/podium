@@ -1,3 +1,4 @@
+import '@/test-support/mock-store-action-ports'
 // @vitest-environment happy-dom
 /**
  * POD-1223: at balanced density the machine chip is two bare bars, and their
@@ -7,30 +8,51 @@
  *
  * POD-1603 adds the third meter (DISK, which has no chip bar to be confused
  * with), drops the click-to-pin tier so the panel shows everything at once, and
- * gives the `/proc` walk a 20s freshness window through the one polling utility
- * — so a re-opened panel asks the machine for nothing — with a control that
- * overrides it. The OPEN panel's 5s cadence is untouched.
+ * follows the machine processes topic while visible, releases it on close,
+ * and requests a fresh sample through the refresh control.
  */
-import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
+import {
+  asMachineId,
+  asSessionId,
+  type HostMetricsWire,
+  type MachineId,
+  type SessionMeta,
+} from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { LoadPanel } from './LoadPanel'
 
 const MACHINE = 'vmi34'
 
-const settingsGet = vi.fn(async () => ({
+const lifecycle = {
   hibernation: {
     enabled: true,
     memoryPct: 85,
     idleMinutes: 30,
-    // Deliberately not the 1.5 default: the note must quote the live policy.
     loadPerCore: 2,
     maxIdleSessions: 8,
   },
   worktreeGc: { mode: 'propose' as const, afterDays: 14 },
-}))
+}
+vi.mock('./host-lifecycle-settings', () => ({ useHostLifecycleSettings: () => lifecycle }))
+// Presentation inputs come from the header's current pool ports. The processes
+// topic below remains real so subscription, replay and refresh are exercised.
+vi.mock('@/app/header-data', async (original) => {
+  const actual = await original<typeof import('@/app/header-data')>()
+  const { fixtureSnapshot: readFixture } = await import('@/test-support/fixture-snapshot')
+  const { createHostSessionAggregatesSelector } = await import('@podium/client-core/values')
+  const aggregate = createHostSessionAggregatesSelector()
+  return {
+    ...actual,
+    usePoolPanelMetric: (id: MachineId) =>
+      readFixture((state) =>
+        state.hostMetrics.find((metric: HostMetricsWire) => metric.machineId === id),
+      ),
+    usePoolHostAggregate: (id: MachineId) =>
+      readFixture((state) => aggregate(state.sessions).forMachine(id)),
+  }
+})
 
 const memory = { totalBytes: 32e9, availableBytes: 20e9, swapTotalBytes: 0, swapFreeBytes: 0 }
 // 412 GiB used with 46 GiB spendable → 90%, and a 5 GiB gap between used+avail
@@ -58,6 +80,52 @@ const reclaimInventory = vi.fn(async () => ({
   estimate: { status: 'unknown', recoverableBytes: null, measuredAt: null },
 }))
 
+type Sample = {
+  breakdown: Awaited<ReturnType<typeof memoryBreakdown>>
+  reclaim: Awaited<ReturnType<typeof reclaimInventory>>
+}
+type TopicSink = { onState(state: unknown): void }
+const topicSinks = new Set<TopicSink>()
+const replica = { rows: () => [], subscribeAddressedBatch: () => () => {} }
+let latestSample: Sample | undefined
+let publishing: Promise<void> | undefined
+const publishSample = () =>
+  (publishing ??= Promise.all([memoryBreakdown(), reclaimInventory()])
+    .then(([breakdown, reclaim]) => {
+      latestSample = { breakdown, reclaim }
+      for (const sink of [...topicSinks])
+        sink.onState({
+          status: 'value',
+          value: latestSample,
+          position: { epoch: 'inventory', seq: 1 },
+        })
+    })
+    .finally(() => {
+      publishing = undefined
+    }))
+const released = vi.fn()
+const hub = {
+  subscribeTopic: vi.fn((_kind: string, _id: string, sink: TopicSink) => {
+    topicSinks.add(sink)
+    if (latestSample)
+      queueMicrotask(() =>
+        sink.onState({
+          status: 'value',
+          value: latestSample,
+          position: { epoch: 'inventory', seq: 1 },
+        }),
+      )
+    else void publishSample()
+    return () => {
+      topicSinks.delete(sink)
+      released()
+    }
+  }),
+  refreshTopic: vi.fn(() => {
+    void publishSample()
+  }),
+}
+
 const agentSession = (sessionId: string, phase: 'idle' | 'working' | 'needs_user'): SessionMeta =>
   ({
     sessionId: asSessionId(sessionId),
@@ -80,11 +148,12 @@ vi.mock('@/app/store', () => {
         memoryBreakdown: { mutate: memoryBreakdown },
         reclaimInventory: { mutate: reclaimInventory },
       },
-      settings: { get: { query: settingsGet } },
     }
     return trpc
   }
   const useStore = () => ({
+    hub,
+    replica,
     hostMetrics: [
       {
         hostname: 'vmi',
@@ -110,14 +179,14 @@ vi.mock('@/app/store', () => {
   return {
     useStore,
     useHostMetrics: () => useStore().hostMetrics,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
 beforeEach(() => {
-  // The walk's cache is process-wide by design, so one test's answer would
-  // otherwise satisfy the next and the caching tests below would prove nothing.
-  resetPolledQueryCache()
+  latestSample = undefined
+  publishing = undefined
+  topicSinks.clear()
 })
 
 afterEach(() => {
@@ -140,9 +209,15 @@ const panel = (): JSX.Element => (
   <LoadPanel machineId={asMachineId(MACHINE)} onOpenConnection={() => {}} />
 )
 
-/** Both round trips the panel makes on open: the settings read and the walk. */
+/** Wait for the live topic to publish its first inventory. */
 const settled = async (): Promise<void> => {
-  await waitFor(() => expect(settingsGet).toHaveBeenCalled())
+  await waitFor(() =>
+    expect(hub.subscribeTopic).toHaveBeenCalledWith(
+      'machine.processes',
+      MACHINE,
+      expect.objectContaining({ onState: expect.any(Function) }),
+    ),
+  )
   await waitFor(() =>
     expect(row('DISK').querySelector('.hp-meter-value')?.textContent).not.toBe('—'),
   )
@@ -233,28 +308,49 @@ describe('the panel shows the whole breakdown without a second gesture', () => {
   })
 })
 
-describe('the walk is cached, and the cache has a manual override', () => {
-  it('serves a re-opened panel from the cache instead of re-walking the daemon', async () => {
+describe('the visible panel follows the machine topic', () => {
+  it('releases its topic on close and paints the replayed sample after reopening', async () => {
     const first = render(panel())
     await settled()
-    expect(memoryBreakdown).toHaveBeenCalledTimes(1)
+    expect(hub.subscribeTopic).toHaveBeenCalledWith(
+      'machine.processes',
+      MACHINE,
+      expect.any(Object),
+    )
     first.unmount()
+    expect(released).toHaveBeenCalledTimes(2)
+    expect(topicSinks.size).toBe(0)
 
-    // Re-opening inside the freshness window: the numbers are on screen from
-    // the first frame and no second walk is placed on the daemon.
+    // The hub can replay its latest topic value to a new visible reader.
     render(panel())
-    expect(row('DISK').querySelector('.hp-meter-value')?.textContent).toBe('90%')
-    await waitFor(() => expect(settingsGet).toHaveBeenCalled())
-    expect(memoryBreakdown).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(row('DISK').querySelector('.hp-meter-value')?.textContent).toBe('90%'),
+    )
+    await waitFor(() =>
+      expect(hub.subscribeTopic).toHaveBeenCalledWith(
+        'machine.processes',
+        MACHINE,
+        expect.objectContaining({ onState: expect.any(Function) }),
+      ),
+    )
+    expect(hub.subscribeTopic).toHaveBeenCalledWith(
+      'machine.processes',
+      MACHINE,
+      expect.any(Object),
+    )
   })
 
-  it('re-walks on demand when the refresh control is used', async () => {
+  it('requests a fresh topic sample when the refresh control is used', async () => {
     render(panel())
     await settled()
-    expect(memoryBreakdown).toHaveBeenCalledTimes(1)
+    expect(hub.subscribeTopic).toHaveBeenCalledWith(
+      'machine.processes',
+      MACHINE,
+      expect.any(Object),
+    )
 
     fireEvent.click(screen.getByRole('button', { name: /re-measure this machine now/i }))
-    await waitFor(() => expect(memoryBreakdown).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(hub.refreshTopic).toHaveBeenCalledWith('machine.processes', MACHINE))
   })
 
   it('stamps the footer with when what you are reading was measured', async () => {

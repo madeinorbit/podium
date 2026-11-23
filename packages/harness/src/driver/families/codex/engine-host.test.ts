@@ -9,34 +9,54 @@
  */
 
 import { createHash } from 'node:crypto'
-import { manifestFor } from '../../../registry.js'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { codexEngineFacts } from './engine-facts.js'
+import { manifestFor } from '../../../registry.js'
+import { isDriverRefusal } from '../../errors.js'
 import {
-  type CodexEngineHostDeps,
-  codexAppServerConfigArgs,
-  codexScopeLabel,
-  CodexEngineLeaseRefused,
-  createCodexEngineHost,
-  evaluateCodexVersionProbe,
-} from './engine-host.js'
-import { EngineBindUnrecoverable } from '../engine-supervision.js'
+  createMemoryBindingRecords,
+  flattenEngineSpawn,
+  type TestEngineSpawn,
+} from '../../testing/binding-records.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import type {
   EngineAttachment,
   EngineProcessOwner,
   EngineSupervisor,
   SessionEngineOwner,
 } from '../engine-supervision.js'
-import { createMemoryBindingRecords } from '../../testing/binding-records.js'
-import { isDriverRefusal } from '../../errors.js'
+import { EngineBindUnrecoverable } from '../engine-supervision.js'
+import { codexEngineFacts } from './engine-facts.js'
+import {
+  type CodexEngineHostDeps,
+  CodexEngineLeaseRefused,
+  codexAppServerConfigArgs,
+  codexScopeLabel,
+  createCodexEngineHost,
+  ensureCodexHome,
+  evaluateCodexVersionProbe,
+} from './engine-host.js'
 import type { CodexJournalEntry } from './runtime.js'
 
 const FACTS = codexEngineFacts(manifestFor('codex')!)
+/** The session's pinned installation (POD-6546): argv[0] comes from here. */
+const CONTEXT = testHarnessContext({ kind: 'codex', executable: '/opt/rig/bin/codex' })
 // Tests read the manifest directly (they are not mechanisms); production code
 // reads the same array through the handed facts above.
 const STRIPPED_CODEX_CREDENTIALS = manifestFor('codex')!.inventory.foreignCredentialEnv
@@ -44,12 +64,16 @@ const STRIPPED_CODEX_CREDENTIALS = manifestFor('codex')!.inventory.foreignCreden
 function engineHost(extra: Partial<CodexEngineHostDeps> = {}) {
   return createCodexEngineHost({
     facts: FACTS,
-    stageAttachment: async () => { throw new Error('attachments are not under test') },
+    stageAttachment: async () => {
+      throw new Error('attachments are not under test')
+    },
     resources: () => undefined,
     buildEnv: () => ({}),
     gracefulExitMs: 1,
     checkVersion: async () => ({ drivable: true as const }),
     dialSocket: () => Promise.reject(new Error('no listener in this test')),
+    ...testEngineTerms(),
+    harnessContextFor: async () => CONTEXT,
     ...extra,
   })
 }
@@ -99,6 +123,30 @@ describe('env hygiene — the subscription-auth mechanism', () => {
   })
 })
 
+describe('the codex home (epic Task 15)', () => {
+  it('a machine that never ran Codex gets its CODEX_HOME made, owner-only', () => {
+    const root = mkdtempSync(join(tmpdir(), 'codex-home-'))
+    try {
+      const dir = join(root, 'home', '.codex')
+      expect(existsSync(dir)).toBe(false)
+      ensureCodexHome({ CODEX_HOME: dir })
+      expect(statSync(dir).isDirectory()).toBe(true)
+      expect(statSync(dir).mode & 0o777).toBe(0o700)
+      // An existing one is left as it is.
+      ensureCodexHome({ CODEX_HOME: dir })
+      expect(statSync(dir).isDirectory()).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('no CODEX_HOME in the environment: nothing is made', () => {
+    const made: string[] = []
+    ensureCodexHome({}, (path) => made.push(path))
+    expect(made).toEqual([])
+  })
+})
+
 describe('the spawn config', () => {
   it('leaves approval routing to the current app-server contract', () => {
     // Codex 0.149 refuses the retired `untrusted` value before opening its
@@ -106,23 +154,24 @@ describe('the spawn config', () => {
     // requests this driver handles, so no approval policy is generated at all.
     const { args } = codexAppServerConfigArgs({})
     expect(args.join(' ')).not.toContain('approval_policy')
-    expect(args.join(' ')).toContain('sandbox_mode="workspace-write"')
   })
 
   it("hands a session's instructions to Codex as developer instructions (POD-5814)", () => {
     expect(codexAppServerConfigArgs({}).args.join(' ')).not.toContain('developer_instructions')
-    const { args } = codexAppServerConfigArgs({ instructions: 'Run "podium issue prime".\nThen work.' })
+    const { args } = codexAppServerConfigArgs({
+      instructions: 'Run "podium issue prime".\nThen work.',
+    })
     expect(args.slice(-2)).toEqual([
       '-c',
       'developer_instructions="Run \\"podium issue prime\\".\\nThen work."',
     ])
   })
 
-  it('opens network access only when an MCP server is actually mounted', () => {
-    // A Podium MCP server is on loopback and is unreachable from a sandbox with
-    // no network, so mounting one without this is mounting nothing. Opening it
-    // for a session with no MCP would widen the sandbox for no reason.
-    expect(codexAppServerConfigArgs({}).args.join(' ')).not.toContain('network_access')
+  it('leaves the sandbox to the posture section, mounted or not', () => {
+    // Moved to posture (POD-6858): `sandbox_mode="workspace-write"` and the
+    // loopback override are the adapter's `engine` terms now, in every mode,
+    // so the config args name neither, with or without an MCP mount.
+    const bare = codexAppServerConfigArgs({}).args.join(' ')
     const mounted = codexAppServerConfigArgs({
       mcpServers: {
         transport: 'inline',
@@ -130,8 +179,11 @@ describe('the spawn config', () => {
           mcpServers: { podium: { url: 'http://127.0.0.1:7777/mcp' } },
         }),
       },
-    })
-    expect(mounted.args.join(' ')).toContain('sandbox_workspace_write.network_access=true')
+    }).args.join(' ')
+    for (const flat of [bare, mounted]) {
+      expect(flat).not.toContain('sandbox_mode')
+      expect(flat).not.toContain('network_access')
+    }
   })
 
   it('mounts MCP servers through the manifest own verified mechanism', () => {
@@ -293,7 +345,9 @@ describe('headless engine lifecycle (POD-4433)', () => {
     /** The session layer's socket root the fake mints listener addresses under. */
     socketRoot?: string
     /** What the session layer recorded for the session (address included). */
-    recorded?: Array<Parameters<SessionEngineOwner<CodexJournalEntry>['bound']>[0] & { address?: string }>
+    recorded?: Array<
+      Parameters<SessionEngineOwner<CodexJournalEntry>['bound']>[0] & { address?: string }
+    >
     /** Every fact set the family reported as bound. */
     reported?: CodexJournalEntry[]
   }): {
@@ -317,7 +371,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
             ? `unix://${join(hooks.socketRoot ?? tmpdir(), `${addresses.size}-engine.sock`)}`
             : undefined
           if (address) addresses.set(req.label, address)
-          const { listen: _listen, sessionId: _sessionId, ...spawn } = req
+          const { listen: _listen, sessionId: _sessionId, ...spawn } = flattenEngineSpawn(req)
           const attachment = await hooks.startEngine({
             ...spawn,
             args: [...spawn.args, ...(req.listen && address ? req.listen.argv(address) : [])],
@@ -409,7 +463,7 @@ describe('headless engine lifecycle (POD-4433)', () => {
   } as never
 
   it('spawns the engine headless and connects the listener it was given', async () => {
-    const launched: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
+    const launched: TestEngineSpawn[] = []
     let listener: { frames: Buffer[]; close(): void } | undefined
     const { session } = fakeEngineSession()
     const host = engineHost({
@@ -434,11 +488,16 @@ describe('headless engine lifecycle (POD-4433)', () => {
       }),
     })
     try {
-      const endpoint = await host.launch({ sessionId: SESSION, workdir: '/tmp' })
+      const endpoint = await host.launch({
+        sessionId: SESSION,
+        workdir: '/tmp',
+        ...testSessionTerms(),
+        harnessContext: CONTEXT,
+      })
       expect(launched).toHaveLength(1)
       expect(launched[0]).toMatchObject({
         label: codexScopeLabel(FACTS, SESSION),
-        cmd: 'codex',
+        cmd: CONTEXT.installation.executable,
         cwd: '/tmp',
       })
       expect(launched[0]?.args?.slice(0, 2)).toEqual(['app-server', '-c'])
@@ -453,12 +512,90 @@ describe('headless engine lifecycle (POD-4433)', () => {
     }
   })
 
+  /**
+   * HOOK REVIEW IS THE ENGINE'S (POD-7028). Measured on 0.169.0: a `resume
+   * --remote` client draws "Hooks need review" for Podium's hooks.json unless
+   * the ENGINE it joins was started with the per-launch trust; the client's own
+   * `-c` is ignored. The trust makes Podium's handlers live in the engine, so
+   * the hook env must not reach it: JSON-RPC stays its only state channel.
+   */
+  it("passes per-launch trust for Podium's hooks and keeps the hook env out of the engine", async () => {
+    const home = mkdtempSync(join(runtimeRoot, 'home-'))
+    mkdirSync(join(home, '.codex'))
+    copyFileSync(
+      join(
+        import.meta.dirname,
+        '../../../adapters/codex/fixtures/hook-trust-0.169.0/trust.hooks.json',
+      ),
+      join(home, '.codex', 'hooks.json'),
+    )
+    const launchWith = async (version: string) => {
+      const launched: TestEngineSpawn[] = []
+      let listener: { frames: Buffer[]; close(): void } | undefined
+      const { session } = fakeEngineSession()
+      const host = engineHost({
+        checkVersion: async () => evaluateCodexVersionProbe('0.147.0', true),
+        buildEnv: () => ({
+          PODIUM_SESSION_ID: SESSION,
+          PODIUM_CODEX_HOOK_URL: 'http://127.0.0.1:1/hooks',
+          PODIUM_CODEX_HOOK_SOCKET: '/run/podium/hooks.sock',
+        }),
+        dialSocket: async (address) => {
+          listener = listen(socketFile(address))
+          const { default: WebSocket } = await import('ws')
+          return new WebSocket(`ws+unix://${socketFile(address)}:/rpc`, {
+            perMessageDeflate: false,
+          }) as never
+        },
+        ...fakePorts({
+          socketRoot: runtimeRoot,
+          startEngine: async (opts) => {
+            launched.push(opts)
+            return session
+          },
+        }),
+      })
+      try {
+        await host.launch({
+          sessionId: SESSION,
+          workdir: '/tmp',
+          ...testSessionTerms(),
+          harnessContext: testHarnessContext({ kind: 'codex', home, version }),
+        })
+      } finally {
+        listener?.close()
+      }
+      return launched[0] as TestEngineSpawn
+    }
+
+    const trusted = await launchWith('0.169.0')
+    const hooksState = trusted.args.filter((arg) => arg.startsWith('hooks.state='))
+    expect(hooksState).toHaveLength(1)
+    expect(trusted.args[trusted.args.indexOf(hooksState[0] as string) - 1]).toBe('-c')
+    expect(hooksState[0]).toContain(`"${join(home, '.codex', 'hooks.json')}:stop:0:0"`)
+    expect(hooksState[0]).toContain(
+      'sha256:bde712998083bff83f7e1eeb73800c4c83e5fe5a561c25ecf8727696f29dd515',
+    )
+    expect(trusted.args.indexOf(hooksState[0] as string)).toBeLessThan(
+      trusted.args.indexOf('--listen'),
+    )
+    expect(trusted.env).toEqual({ PODIUM_SESSION_ID: SESSION })
+    expect(trusted.stripEnv).toEqual(
+      expect.arrayContaining(['PODIUM_CODEX_HOOK_URL', 'PODIUM_CODEX_HOOK_SOCKET']),
+    )
+
+    // Below the measured minimum the engine gets nothing; the client may ask.
+    const old = await launchWith('0.146.9')
+    expect(old.args.join(' ')).not.toContain('hooks.state')
+    expect(old.env).toEqual({ PODIUM_SESSION_ID: SESSION })
+  })
+
   it('adopt rebinds the surviving engine at its journalled address: no spawn', async () => {
     const dir = mkdtempSync(join(runtimeRoot, 'sock-'))
     const socketPath = join(dir, 'engine.sock')
     const socketListener = listen(socketPath)
     const clientAddress = `unix://${socketPath}`
-    const spawned: Array<Parameters<EngineProcessOwner['startEngine']>[0]> = []
+    const spawned: TestEngineSpawn[] = []
     const { session, exits } = fakeEngineSession({ childPid: 7777 })
     const host = engineHost({
       dialSocket: async (address) => {
@@ -550,44 +687,51 @@ describe('headless engine lifecycle (POD-4433)', () => {
     await expect(host.adopt?.(binding)).resolves.toBeUndefined()
   })
 
-describe('§4.8 failure ownership — bind failure keeps the engine', () => {
-  const SESSION48 = asSessionId('33333333-3333-4333-8333-333333334448')
+  describe('§4.8 failure ownership — bind failure keeps the engine', () => {
+    const SESSION48 = asSessionId('33333333-3333-4333-8333-333333334448')
 
-  it('engine up but listener silent: launch rejects typed, kills nothing, journals nothing', async () => {
-    // §4.8 step 4: an unbuildable driver is a spawnError with the process
-    // kept for an operator decision — never silently orphaned, never quietly
-    // reaped. The address rides the error so the lifecycle owner can adopt
-    // from it; the journal stays untouched because nothing adoptable exists.
-    const root = mkdtempSync(join(tmpdir(), 'pod-4470-cx-48-'))
-    try {
-      const killed: string[] = []
-      const written: CodexJournalEntry[] = []
-      const { session } = fakeEngineSession()
-      const host = engineHost({
-        checkVersion: async () => ({ drivable: true as const }),
-        dialSocket: () => Promise.reject(new Error('listener silent')),
-        ...fakePorts({
-          socketRoot: root,
-          startEngine: async () => session,
-          destroyed: (label) => void killed.push(label),
-          reported: written,
-        }),
-      })
-      const error = await host.launch({ sessionId: SESSION48, workdir: '/tmp' }).then(
-        () => null,
-        (err: unknown) => err,
-      )
-      expect(error).toBeInstanceOf(EngineBindUnrecoverable)
-      expect((error as EngineBindUnrecoverable).during).toBe('launch')
-      expect((error as EngineBindUnrecoverable).address).toContain('unix://')
-      // Kept: no SIGTERM, no SIGKILL, no scope sweep, no journal write.
-      expect(killed).toEqual([])
-      expect(written).toEqual([])
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  }, 60_000)
-})
+    it('engine up but listener silent: launch rejects typed, kills nothing, journals nothing', async () => {
+      // §4.8 step 4: an unbuildable driver is a spawnError with the process
+      // kept for an operator decision — never silently orphaned, never quietly
+      // reaped. The address rides the error so the lifecycle owner can adopt
+      // from it; the journal stays untouched because nothing adoptable exists.
+      const root = mkdtempSync(join(tmpdir(), 'pod-4470-cx-48-'))
+      try {
+        const killed: string[] = []
+        const written: CodexJournalEntry[] = []
+        const { session } = fakeEngineSession()
+        const host = engineHost({
+          checkVersion: async () => ({ drivable: true as const }),
+          dialSocket: () => Promise.reject(new Error('listener silent')),
+          ...fakePorts({
+            socketRoot: root,
+            startEngine: async () => session,
+            destroyed: (label) => void killed.push(label),
+            reported: written,
+          }),
+        })
+        const error = await host
+          .launch({
+            sessionId: SESSION48,
+            workdir: '/tmp',
+            ...testSessionTerms(),
+            harnessContext: CONTEXT,
+          })
+          .then(
+            () => null,
+            (err: unknown) => err,
+          )
+        expect(error).toBeInstanceOf(EngineBindUnrecoverable)
+        expect((error as EngineBindUnrecoverable).during).toBe('launch')
+        expect((error as EngineBindUnrecoverable).address).toContain('unix://')
+        // Kept: no SIGTERM, no SIGKILL, no scope sweep, no journal write.
+        expect(killed).toEqual([])
+        expect(written).toEqual([])
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    }, 60_000)
+  })
 })
 
 describe('readHistory — the Store read over the rollout file', () => {
@@ -698,7 +842,9 @@ describe('readHistory — the Store read over the rollout file', () => {
           from: { segmentId: 'history:someone-else:thr-other', pathHint: 'x', components: {} },
           limit: 10,
         }),
-      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      ).rejects.toSatisfy(
+        (err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value',
+      )
       // Same segment but no anchor is equally foreign: cursors are opaque.
       const own = await host.readHistory(session, { limit: 50 })
       expect(own.head).toBeDefined()
@@ -707,7 +853,9 @@ describe('readHistory — the Store read over the rollout file', () => {
           from: { segmentId: own.head!.segmentId, components: {} },
           limit: 10,
         }),
-      ).rejects.toSatisfy((err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value')
+      ).rejects.toSatisfy(
+        (err: unknown) => isDriverRefusal(err) && err.refusal.reason === 'invalid_value',
+      )
     } finally {
       rmSync(home, { recursive: true, force: true })
     }

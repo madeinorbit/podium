@@ -200,6 +200,7 @@ export const TasksSurface = observer(function TasksSurface(props: TasksSurfacePr
       grouped
       large
       title="Tasks"
+      refreshing={props.board?.refreshing ?? false}
       subtitle={subtitle.counts || undefined}
       leadingActions={[
         {

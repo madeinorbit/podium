@@ -1,15 +1,15 @@
 /** The full ChatView and chip components over a private runtime.
  * Operator-sized synthetic data, no network or operator cache. */
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { chipPerf } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
-
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asIssueId, asSessionId, asUserId, type TranscriptItem } from '@podium/model/browser'
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { LiveIssueReference } from '../src/components/IssueReference'
 import { RefMiniviewHost } from '../src/components/RefMiniview'
@@ -63,10 +63,12 @@ let runtime: ClientRuntime | undefined
 let pool: ReturnType<typeof useWorklistPool> = null
 let open: ((value: boolean) => void) | undefined
 const failures: string[] = []
-const transcriptListeners = new Set<Parameters<ClientRuntime['hub']['subscribeTranscript']>[2]>()
+const transcriptListeners = new Set<
+  Parameters<ClientRuntime['services']['connection']['hub']['subscribeTranscript']>[2]
+>()
 
 function Fixture() {
-  const owner = useStoreHandle() as ClientRuntime
+  const owner = useClientRuntime() as ClientRuntime
   const attached = useWorklistPool()
   const [shown, setShown] = useState(false)
   const [root, setRoot] = useState<HTMLDivElement | null>(null)
@@ -74,9 +76,6 @@ function Fixture() {
     runtime = owner
     pool = attached
     open = setShown
-    void referenceState(owner)
-      .refreshRepos()
-      .catch((error) => failures.push(String(error)))
     return () => {
       runtime = undefined
       pool = null
@@ -117,7 +116,7 @@ root.render(
     attachRuntime={(owner) => {
       // Feed synthetic deltas through the real transcript controller and
       // compute worker without connecting this fixture to a server.
-      owner.hub.subscribeTranscript = (id, _since, listener) => {
+      owner.services.connection.hub.subscribeTranscript = (id, _since, listener) => {
         if (id !== sessionId) throw new Error('Unexpected fixture transcript')
         transcriptListeners.add(listener)
         return () => {
@@ -136,7 +135,7 @@ const proof = {
   status: () => ({
     runtime: !!runtime,
     pool: !!pool,
-    repos: runtime?.access.repos.length,
+    repos: runtime ? referenceState(runtime).repos.length : undefined,
     issues: count,
     sessions: runtime?.replica.rows('sessions').length,
   }),

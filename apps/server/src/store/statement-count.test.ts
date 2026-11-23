@@ -46,7 +46,10 @@ describe('statement-count harness', () => {
 
   it('passes an operation whose count does not depend on the data size', async () => {
     const counts = await expectConstantStatements(
-      pinOf('one batched read', async (store, size) => await store.sync.queuedMessageCounts(ids(size))),
+      pinOf(
+        'one batched read',
+        async (store, size) => await store.sync.queuedMessageCounts(ids(size)),
+      ),
       1,
     )
     expect(counts.large.statements).toBe(1)
@@ -57,7 +60,7 @@ describe('statement-count harness', () => {
       for (const id of ids(size)) await store.sessions.getSession(id)
     })
     await expect(expectConstantStatements(planted, 5)).rejects.toThrow(
-      /planted loop: 5 statements at 5 rows, 200 at 200\n! 5 -> 200 {2}select "id", "owner_user_id"/,
+      /planted loop(?: \[pg\])?: 5 statements at 5 rows, 200 at 200\n! 5 -> 200 {2}select "id", "owner_user_id"/,
     )
   })
 
@@ -67,7 +70,7 @@ describe('statement-count harness', () => {
       await store.sessions.getSession(asSessionId('extra'))
     })
     await expect(expectConstantStatements(extra, 1)).rejects.toThrow(
-      /one extra statement: pinned at 1 statements, ran 2/,
+      /one extra statement(?: \[pg\])?: pinned at 1 statements, ran 2/,
     )
   })
 })

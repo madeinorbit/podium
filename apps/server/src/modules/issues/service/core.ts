@@ -1,15 +1,14 @@
 import { createLogger } from '@podium/logger'
 import {
   asIssueId,
-  firstAdminMemberId,
   type Instant,
-  type IssueDepProjection,
   type IssueGitState,
-  IssueGitStateProjection,
   type IssueId,
+  type IssueJoinVia,
   type IssuePanel,
   type IssueProjection,
   type IssueUserOverlay,
+  isCollaboratorRecord,
   isIssueBlocked,
   isIssueClosed,
   isIssueDeferred,
@@ -17,35 +16,23 @@ import {
   isReadyIssueStage,
   isSystemOwnedIssueStage,
   issueOverlayOf,
-  issueUserStateRowId,
-  issueUserStateToWire,
   type MachineId,
   machinePathHasSuffix,
-  type RepoProjection,
   requireInstant,
   type SessionMeta,
   type UserId,
 } from '@podium/model'
 import { parseIssueRef } from '@podium/protocol'
-import type { EntityChangeSpec } from '@podium/sync'
+import type { WriteScope } from '@podium/sync'
 import { slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
-import { currentOperation, operationSlot } from '../../../store/executor/operation-scope'
-import { readScopeSlot, currentReadScope } from '../../../store/executor/read-scope'
-import { decodePanel } from '../../../store/issue-storage'
 import type { SessionFacts } from '../../sessions/facts'
 import { normalizeBlankIssueText } from '../blank-text'
-import {
-  issueDepProjectionRows,
-  issueDepToProjection,
-  issueProjectionRows,
-  issueRowToProjection,
-  repoProjectionRows,
-} from '../projection'
+import { issueProjectionRows, issueRowToProjection } from '../projection'
 import { IssueNotFound } from './not-found'
 import { IssueRefusal } from './refusal'
-import type { IssueDeps } from './types'
+import type { IssueDeps, IssueWriter } from './types'
 
 const log = createLogger('server:issues')
 
@@ -56,19 +43,37 @@ type IssueScopeRow = Pick<IssueRow, 'repoId' | 'repoPath' | 'machineId'>
  *  legacy row (no repo id yet) whose path resolves to it. First by repository
  *  path, then id. */
 function referenceInRepoOf(
-  atSeq: readonly { id: IssueId; repoId: string | null; repoPath: string; machineId: MachineId | null }[],
+  atSeq: readonly {
+    id: IssueId
+    repoId: string | null
+    repoPath: string
+    machineId: MachineId | null
+  }[],
   repoId: string,
   resolve: ((path: string, machineId?: MachineId | null) => string | null) | undefined,
 ): IssueId | null {
   const matches = atSeq.filter(
     (row) =>
       row.repoId === repoId ||
-      (row.repoId === null && resolve !== undefined && resolve(row.repoPath, row.machineId) === repoId),
+      (row.repoId === null &&
+        resolve !== undefined &&
+        resolve(row.repoPath, row.machineId) === repoId),
   )
   matches.sort((a, b) =>
-    a.repoPath === b.repoPath ? (a.id < b.id ? -1 : 1) : Buffer.compare(Buffer.from(a.repoPath), Buffer.from(b.repoPath)),
+    a.repoPath === b.repoPath
+      ? a.id < b.id
+        ? -1
+        : 1
+      : Buffer.compare(Buffer.from(a.repoPath), Buffer.from(b.repoPath)),
   )
   return matches[0]?.id ?? null
+}
+
+/** One collaborator of a task (POD-6290): a member with a start or join record. */
+export interface IssueCollaborator {
+  userId: UserId
+  joinedAt: string
+  via: IssueJoinVia | null
 }
 
 /**
@@ -122,24 +127,6 @@ export class IssueStore {
   }
 
   /**
-   * WHOSE per-user markers the broadcast carries. `firstAdminMemberId()` spelled
-   * out, never a default: an unidentified principal must fail closed rather than
-   * resolve to an operator identity (readiness §3.1.6 S4). POD-1077 replaces the
-   * body with the request's principal; every caller already asks the question.
-   */
-  async broadcastViewer(): Promise<UserId> {
-    // Asked once per row by a report pass and before and after a marker write;
-    // one answer per operation (or read pass). Only a change of administrators
-    // moves it, which no issue operation makes.
-    const held = currentOperation()?.slot(this.viewerOfOperation) ?? currentReadScope().slot(this.viewerSlot)
-    held.viewer ??= firstAdminMemberId(this.deps.store)
-    return await held.viewer
-  }
-
-  private readonly viewerSlot = readScopeSlot<{ viewer?: Promise<UserId> }>(() => ({}))
-  private readonly viewerOfOperation = operationSlot<{ viewer?: Promise<UserId> }>(() => ({}))
-
-  /**
    * THE MEMBER SESSIONS OF ONE ISSUE — the narrow read [POD-1639].
    *
    * Every caller here used to spell `sessionsForIssue(row.worktreePath,
@@ -166,50 +153,227 @@ export class IssueStore {
     return await this.deps.readSessionFactsByIssue(row.worktreePath, row.id)
   }
 
-  /** One issue's markers for the broadcast viewer, as the wire wants them. */
-  async issueOverlay(issueId: IssueId): Promise<IssueUserOverlay> {
-    return issueOverlayOf(await this.issueUserState(issueId))
+  /**
+   * WHOSE MARKERS (POD-6288, POD-6291). Per-user markers are the "Self" class
+   * of design §4.1: Bob's read, tuck and pin are Bob's rows, whoever owns the
+   * task. A command names the member it acts for. The server reading for
+   * itself, with nobody to name, reads the task's assignee: the accountable
+   * person, and on a one-member instance the only one. There is no instance
+   * "viewer" any more; the first admin never stands in for anybody.
+   */
+  private async markerUserOf(
+    issueId: IssueId,
+    user: UserId | undefined,
+  ): Promise<UserId | undefined> {
+    return user ?? (await this.row(issueId))?.ownerUserId
+  }
+
+  /** One issue's markers for `user` (default: its assignee), as the wire
+   *  wants them. */
+  async issueOverlay(issueId: IssueId, user?: UserId): Promise<IssueUserOverlay> {
+    return issueOverlayOf(await this.issueUserState(issueId, user))
   }
 
   /** The stored markers, for callers that need `pinnedAt` rather than `pinned`.
    *  Read from the database, batched per operation (POD-6158). */
-  async issueUserState(issueId: IssueId): Promise<StoredIssueUserState | undefined> {
-    return await this.deps.store.issues.loadIssueUserState(await this.broadcastViewer(), issueId)
+  async issueUserState(issueId: IssueId, user?: UserId): Promise<StoredIssueUserState | undefined> {
+    const owner = await this.markerUserOf(issueId, user)
+    return owner === undefined
+      ? undefined
+      : await this.deps.store.issues.loadIssueUserState(owner, issueId)
   }
 
-  /** {@link issueUserState} for many issues: one batched read (POD-6191). */
-  async issueUserStates(ids: Iterable<string>): Promise<Map<string, StoredIssueUserState | undefined>> {
-    return await this.deps.store.issues.loadIssueUserStates(await this.broadcastViewer(), [...new Set(ids)])
+  /** {@link issueUserState} for many issues: one batched read (POD-6191).
+   *  Without a `user`, each issue's own assignee's markers. */
+  async issueUserStates(
+    ids: Iterable<string>,
+    user?: UserId,
+  ): Promise<Map<string, StoredIssueUserState | undefined>> {
+    const unique = [...new Set(ids)]
+    if (user !== undefined) return await this.deps.store.issues.loadIssueUserStates(user, unique)
+    const rows = await this.deps.store.issues.getIssues(unique)
+    const pairs = unique.flatMap((issueId) => {
+      const owner = rows.get(issueId)?.ownerUserId
+      return owner ? [{ userId: owner, issueId }] : []
+    })
+    const loaded = await this.deps.store.issues.loadIssueUserStatesOfPairs(pairs)
+    return new Map(unique.map((id) => [id, loaded.get(id)] as const))
   }
 
   /**
-   * Write one of the broadcast viewer's markers. A PARTIAL patch — see the
-   * repository method — so marking an issue read cannot silently un-pin it.
+   * Write one of `user`'s markers. A PARTIAL patch — see the repository
+   * method — so marking an issue read cannot silently un-pin it. Always a named
+   * member: a marker write with nobody behind it has no row to land in.
    */
-  async writeIssueUserState(issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
-    const user = await this.broadcastViewer()
-    await this.deps.ledger.commit({
-      write: async () => {
-        await this.deps.store.issues.setIssueUserState(user, issueId, patch)
-        return await this.deps.store.issues.getIssueUserState(user, issueId)
+  async writeIssueUserState(
+    writer: IssueWriter,
+    issueId: IssueId,
+    patch: Partial<StoredIssueUserState>,
+    user: UserId,
+  ): Promise<void> {
+    const owner = user
+    await this.arbitrated(writer).commit({
+      write: async (scope) => {
+        await this.deps.store.issues.setIssueUserState(scope, owner, issueId, patch)
       },
-      changes: (state) => [
-        {
-          entity: 'issueUserState',
-          id: issueUserStateRowId(user, issueId),
-          ...(state
-            ? {
-                op: 'upsert' as const,
-                value: issueUserStateToWire({ userId: user, entityId: issueId, ...state }),
-              }
-            : { op: 'remove' as const }),
-        },
-      ],
     })
   }
 
-  /** Ephemeral observations, published only as issueGitState rows. */
-  readonly gitStates = new Map<string, IssueGitState>()
+  /**
+   * Clear one marker for EVERY member who holds it (POD-6291). For events about
+   * the task itself — a reopen or a start retires every member's tuck, not one
+   * person's — so another member's fold cannot survive into the next close.
+   */
+  async clearIssueMarkerForAll(
+    writer: IssueWriter,
+    issueId: IssueId,
+    marker: 'tuckedAt',
+  ): Promise<void> {
+    const holdersOf = async () =>
+      (await this.deps.store.issues.listIssueUserStateRows(issueId)).filter(
+        (state) => state[marker] != null,
+      )
+    await this.arbitrated(writer).commit({
+      write: async (scope) => {
+        for (const state of await holdersOf()) {
+          await this.deps.store.issues.setIssueUserState(scope, state.userId, issueId, {
+            [marker]: null,
+          })
+        }
+      },
+    })
+  }
+
+  /**
+   * PERSONAL RECORDS (POD-6290; design §2.2, §4.4). One member's start or join
+   * record and their "assigned to you by X" row live on that member's own
+   * user-state row, so they reach only that member's feed. `decide` reads the
+   * stored row INSIDE the commit and answers the patch to write, or undefined
+   * for none, so two racing records keep the first.
+   */
+  private async commitUserState(
+    writer: IssueWriter,
+    issueId: IssueId,
+    user: UserId,
+    decide: (
+      current: StoredIssueUserState | undefined,
+    ) => Partial<StoredIssueUserState> | undefined,
+  ): Promise<boolean> {
+    const { result } = await this.arbitrated(writer).commit({
+      write: async (scope) => {
+        const current = await this.deps.store.issues.getIssueUserState(user, issueId)
+        const patch = decide(current)
+        if (patch === undefined) return { wrote: false as const }
+        const state = await this.deps.store.issues.setIssueUserState(
+          scope,
+          user,
+          issueId,
+          patch,
+          current ?? null,
+        )
+        return { wrote: true as const, state }
+      },
+    })
+    return result.wrote
+  }
+
+  /**
+   * Record that `user` started or joined the task (POD-6290). The first record
+   * is kept: a later start, agent or join leaves the original time and reason.
+   * Answers whether a record was written. Opening, searching or reading a task
+   * never calls this.
+   */
+  async recordParticipation(
+    writer: IssueWriter,
+    issueId: IssueId,
+    user: UserId,
+    via: IssueJoinVia,
+  ): Promise<boolean> {
+    const at = this.now()
+    return await this.commitUserState(writer, issueId, user, (current) =>
+      current?.joinedAt != null ? undefined : { joinedAt: at, joinedVia: via },
+    )
+  }
+
+  /**
+   * A reassignment's personal rows (POD-6290): the new assignee gets an
+   * "assigned to you by `by`" row, or a join record when they assigned it to
+   * themselves, and the previous assignee's assigned row, which no longer says
+   * anything true, is cleared. Start and join records are left alone on both
+   * sides.
+   */
+  async recordAssignment(
+    writer: IssueWriter,
+    issueId: IssueId,
+    assignee: UserId,
+    by: UserId | null,
+    previous?: UserId | null,
+  ): Promise<void> {
+    const at = this.now()
+    if (previous && previous !== assignee) await this.dismissAssignment(writer, issueId, previous)
+    // Taking a task yourself is joining it, not being assigned it: the
+    // removable row is only for an assignment someone else made.
+    if (by === assignee) {
+      await this.recordParticipation(writer, issueId, assignee, 'join')
+      return
+    }
+    await this.commitUserState(writer, issueId, assignee, () => ({
+      assignedAt: at,
+      assignedBy: by,
+    }))
+  }
+
+  /** Remove `user`'s assigned row (POD-6290). Nothing else changes: not the
+   *  assignee, not their start or join record, not anyone else's rows. */
+  async dismissAssignment(writer: IssueWriter, issueId: IssueId, user: UserId): Promise<boolean> {
+    return await this.commitUserState(writer, issueId, user, (current) =>
+      current?.assignedAt == null && current?.assignedBy == null
+        ? undefined
+        : { assignedAt: null, assignedBy: null },
+    )
+  }
+
+  /**
+   * A task's collaborators (design §2.2): the members with a start or join
+   * record on it, earliest first. An assignment alone does not make one, and
+   * being one grants no access; nothing reads this list to decide one.
+   */
+  async collaborators(issueId: IssueId): Promise<IssueCollaborator[]> {
+    return (await this.deps.store.issues.listIssueUserStateRows(issueId))
+      .filter((state) => isCollaboratorRecord(state))
+      .map((state) => ({
+        userId: state.userId,
+        joinedAt: state.joinedAt as string,
+        via: state.joinedVia ?? null,
+      }))
+      .sort((a, b) => a.joinedAt.localeCompare(b.joinedAt) || a.userId.localeCompare(b.userId))
+  }
+
+  async gitState(id: string): Promise<IssueGitState | undefined> {
+    return await this.deps.store.issues.gitStates.get(id)
+  }
+
+  /** Facts and their publication commit together; repeated checks retain their time. */
+  async setGitState(
+    id: string,
+    state: IssueGitState,
+    expectedLandedAt?: string | null,
+  ): Promise<boolean> {
+    const committed = await this.arbitrated(this.serverWriter).commit({
+      // The observation is captured and appended with the write (POD-6920).
+      write: async (scope) => {
+        const row = await this.row(id)
+        if (
+          !row ||
+          row.deletedAt ||
+          (expectedLandedAt !== undefined && (row.landedAt ?? null) !== expectedLandedAt)
+        )
+          return undefined
+        return await this.deps.store.issues.gitStates.set(scope, id, state)
+      },
+    })
+    return committed.result !== undefined
+  }
 
   /**
    * DRAFTS, THE ISSUE REGISTRY'S MODEL [POD-3259, spec §3.6 (b)].
@@ -384,7 +548,8 @@ export class IssueStore {
   }
 
   /**
-   * Is `id` unread FOR THE BROADCAST VIEWER — the derivation above, as a READ.
+   * Is `id` unread for `user` (default: its assignee, the reader the archive
+   * sweep asks, POD-6291) — the derivation above, as a READ.
    *
    * WHY THIS EXISTS [POD-1246]. `unread` left the wire with the session embed
    * (POD-797): it was a function of the issue's own `updatedAt` joined against
@@ -402,11 +567,11 @@ export class IssueStore {
    *
    * Returns false for an issue this service does not hold.
    */
-  async unreadFor(id: IssueId): Promise<boolean> {
+  async unreadFor(id: IssueId, user?: UserId): Promise<boolean> {
     const row = await this.row(id)
     if (row === undefined) return false
     const sessions = await this.sessionsFor(row)
-    return this.computeUnread(row, sessions, (await this.issueOverlay(row.id)).readAt)
+    return this.computeUnread(row, sessions, (await this.issueOverlay(row.id, user)).readAt)
   }
 
   // ---- hierarchy reads from the database (POD-6192) ------------------------
@@ -416,11 +581,13 @@ export class IssueStore {
    * path, then sequence). `live` leaves out deleted ones, `unarchived`
    * archived ones.
    */
-  async childRows(parentId: string, opts: { live?: boolean; unarchived?: boolean } = {}): Promise<IssueRow[]> {
+  async childRows(
+    parentId: string,
+    opts: { live?: boolean; unarchived?: boolean } = {},
+  ): Promise<IssueRow[]> {
     return await this.deps.store.issues.listIssueRowsWhere(
       {
         repo: false,
-        readable: false,
         live: opts.live === true,
         ...(opts.unarchived ? { unarchived: true } : {}),
         parents: 1,
@@ -442,7 +609,7 @@ export class IssueStore {
     let level = [rootId]
     while (level.length > 0) {
       const rows = await this.deps.store.issues.listIssueRowsWhere(
-        { repo: false, readable: false, live: opts.live === true, parents: 1, order: 'path-seq' },
+        { repo: false, live: opts.live === true, parents: 1, order: 'path-seq' },
         { parents: level },
       )
       level = []
@@ -473,14 +640,24 @@ export class IssueStore {
   async readyAmong(rows: readonly IssueRow[]): Promise<Set<string>> {
     const issues = this.deps.store.issues
     const deps = await issues.depsFromIssues(rows.map((row) => row.id))
-    const closure = await issues.closureOf(deps.filter((d) => d.type === 'blocked-by').map((d) => d.toId))
+    const closure = await issues.closureOf(
+      deps.filter((d) => d.type === 'blocked-by').map((d) => d.toId),
+    )
     const ready = new Set<string>()
     for (const row of rows) {
       const blocked = isIssueBlocked(
         row,
-        deps.filter((d) => d.fromId === row.id && d.type === 'blocked-by').map((d) => closure.get(d.toId)),
+        deps
+          .filter((d) => d.fromId === row.id && d.type === 'blocked-by')
+          .map((d) => closure.get(d.toId)),
       )
-      if (isIssueStage(row.stage) && isReadyIssueStage(row.stage) && !this.isClosed(row) && !this.isDeferred(row) && !blocked) {
+      if (
+        isIssueStage(row.stage) &&
+        isReadyIssueStage(row.stage) &&
+        !this.isClosed(row) &&
+        !this.isDeferred(row) &&
+        !blocked
+      ) {
         ready.add(row.id)
       }
     }
@@ -496,8 +673,16 @@ export class IssueStore {
    *  The decode itself is an R1 ↔ R3 encoding split and lives in the one pair
    *  (ADR 4 §4.1); this stays as the row-shaped entry point `crud.ts` uses when
    *  it is about to patch the same row AS a row. */
-  parsePanel(row: IssueRow): IssuePanel {
-    return decodePanel(row.panel)
+  async parsePanel(row: IssueRow): Promise<IssuePanel> {
+    return await this.deps.store.issues.panel.read(row.id)
+  }
+
+  /**
+   * A panel write: it touches only its own tiny records, never the issue row,
+   * and the capture names them (POD-6920).
+   */
+  async commitPanel<T>(writer: IssueWriter, write: (scope: WriteScope) => Promise<T>): Promise<T> {
+    return (await this.arbitrated(writer).commit({ write })).result
   }
 
   /** True when `row` belongs to the repo identified by `repoPath`, compared by the
@@ -547,7 +732,9 @@ export class IssueStore {
     const seqs = parsed.flatMap((entry) => (entry.seq === undefined ? [] : [entry.seq]))
     const bySeq = await this.deps.store.issues.issueRefsAtSeqs(seqs)
     const prefixes = new Map<string, ReturnType<IssueDeps['store']['repos']['repoForPrefix']>>()
-    let resolver: Promise<Awaited<ReturnType<IssueDeps['store']['repos']['issueRepoIdResolver']>>> | undefined
+    let resolver:
+      | Promise<Awaited<ReturnType<IssueDeps['store']['repos']['issueRepoIdResolver']>>>
+      | undefined
     return await Promise.all(
       parsed.map(async ({ ref, nice, seq }) => {
         const atSeq = seq === undefined ? [] : (bySeq.get(seq) ?? [])
@@ -560,7 +747,9 @@ export class IssueStore {
           const repo = await lookup
           if (!repo) return { ref, id: null }
           const legacy = atSeq.some((row) => row.repoId === null)
-          const resolve = legacy ? await (resolver ??= this.deps.store.repos.issueRepoIdResolver()) : undefined
+          const resolve = legacy
+            ? await (resolver ??= this.deps.store.repos.issueRepoIdResolver())
+            : undefined
           return { ref, id: referenceInRepoOf(atSeq, repo.repoId, resolve) }
         }
         return { ref, id: atSeq.length === 1 ? (atSeq[0]?.id ?? null) : null }
@@ -589,7 +778,8 @@ export class IssueStore {
    *  the throw's job, not the type's. */
   async resolveRef(ref: string, scopeRepoPath?: string): Promise<IssueId> {
     // The internal id needs no lookup; any other existing id passes through too.
-    if (ref.startsWith('iss_') || (await this.deps.store.issues.hasIssue(ref))) return asIssueId(ref)
+    if (ref.startsWith('iss_') || (await this.deps.store.issues.hasIssue(ref)))
+      return asIssueId(ref)
     // Human-facing nice id `PREFIX-seq` (#474), read over the rows at its
     // sequence number (POD-6158). The prefix identifies the repo server-wide, so
     // this resolves without a path qualifier; a prefix no repo owns falls
@@ -641,62 +831,6 @@ export class IssueStore {
 
   // ---- The normalized issue projection [POD-796, ADR 4 D7.1] ----
   //
-  /** An issue's own row and independently keyed companions in the same commit. */
-  async companionChanges(row: IssueRow, projection?: IssueProjection): Promise<EntityChangeSpec[]> {
-    const states = await this.deps.store.issues.listIssueUserStateRows(row.id)
-    return [
-      {
-        entity: 'issueProjection',
-        id: row.id,
-        op: 'upsert',
-        value: projection ?? (await this.projection(row)),
-      },
-      this.gitStateChange(row),
-      ...states.map((state) => ({
-        entity: 'issueUserState' as const,
-        id: issueUserStateRowId(state.userId, state.entityId),
-        op: 'upsert' as const,
-        value: issueUserStateToWire(state),
-      })),
-    ]
-  }
-
-  private gitStateChange(row: IssueRow): EntityChangeSpec {
-    const state = row.deletedAt ? undefined : this.gitStates.get(row.id)
-    return state
-      ? {
-          entity: 'issueGitState',
-          id: row.id,
-          op: 'upsert',
-          value: IssueGitStateProjection.parse({ id: row.id, ...state }),
-        }
-      : { entity: 'issueGitState', id: row.id, op: 'remove' }
-  }
-
-  /** Ephemeral git observations and durable personal markers share the feed's
-   * recovery path. Boot removes prior-process git observations; purge removes
-   * personal rows whose issue was deleted. */
-  async reconcileCompanions(): Promise<void> {
-    // The observed issues are read by id, in repository order, and diffed in
-    // the same span (POD-6158).
-    await this.deps.store.transact(async () => {
-      const observed = await this.deps.store.issues.getIssues([...this.gitStates.keys()])
-      const gitRows = inRepositoryOrder([...observed.values()], (row) => row).flatMap((row) => {
-        const change = this.gitStateChange(row)
-        return change.op === 'upsert' ? [{ id: change.id, value: change.value }] : []
-      })
-      await this.deps.ledger.reconcile('issueGitState', gitRows)
-    })
-    const states = await this.deps.store.issues.listIssueUserStateRows()
-    await this.deps.ledger.reconcile(
-      'issueUserState',
-      states.map((state) => ({
-        id: issueUserStateRowId(state.userId, state.entityId),
-        value: issueUserStateToWire(state),
-      })),
-    )
-  }
-
   /** Full LOCAL projection truth for a reconcile. `undefined` = do not reconcile
    *  this kind (a row that cannot be projected — see {@link issueProjectionRows}
    *  on why that is all-or-nothing). Flag off returns EMPTY, not undefined, and
@@ -718,16 +852,6 @@ export class IssueStore {
     return inRepositoryOrder(projected, (entry) => entry.row).map((entry) => entry.projection)
   }
 
-  /** Reconcile the issueProjection kind against the database's full truth,
-   *  read and diffed in one span, so no write commits between the read and the
-   *  diff it would undo. */
-  async reconcileProjections(): Promise<void> {
-    await this.deps.store.transact(async () => {
-      const projections = await this.allProjections()
-      if (projections) await this.deps.ledger.reconcile('issueProjection', projections)
-    })
-  }
-
   // ---- The two kinds the replica JOINS against [POD-822] ----
   //
   // `deps` and `prefix` are the two fields the replica's issue views READ that
@@ -737,85 +861,26 @@ export class IssueStore {
   // `blocked` / `ready` / `dependents` / `displayRef` are joined replica-side
   // (D7.3). The normalized kinds are emitted unconditionally.
 
-  /** The `issueDep` change ONE edge write declares. O(1) per edge —
-   *  this is what makes a dep add cost nothing per issue. Returned as an array so
-   *  a call site can spread it and stay a single expression when the flag is off. */
-  depChanges(
-    deps: readonly { fromId: string; toId: string; type: string }[],
-    op: EntityChangeSpec['op'],
-  ): EntityChangeSpec[] {
-    return deps.map((dep) => {
-      const value = issueDepToProjection(dep)
-      // A remove carries no value (the ledger drops it; the row is gone). An
-      // upsert carries the whole edge — there is no partial edge.
-      // Shape is {@link EntityChangeSpec} — the ledger's composed change spec —
-      // not a hand-restated issueDep field list (POD-1251).
-      return op === 'upsert'
-        ? { entity: 'issueDep' as const, id: value.id, op, value }
-        : { entity: 'issueDep' as const, id: value.id, op }
-    })
-  }
-
-  /** Full LOCAL dep-edge truth for a reconcile. Flag OFF returns
-`undefined` means only "cannot project, do not touch the
-   *  kind" (an edge that cannot be projected — all-or-nothing, see
-   *  {@link issueDepProjectionRows}).
-   *
-   *  O(edges), and it runs only on the full-truth paths (boot, write-less
-   *  rebroadcast) that are already O(issues) — never per dep change, which
-   *  declares its one row through {@link depChanges} instead. This is also what
-   *  catches the removes no write declares: `issue_deps` has `ON DELETE CASCADE`
-   *  from `issues`, so deleting an issue silently vaporises its edges, and only a
-   *  full-truth diff can notice rows that left without anyone saying so. */
-  async allDepProjections(): Promise<{ id: string; value: IssueDepProjection }[] | undefined> {
-    return issueDepProjectionRows(await this.deps.store.issues.listAllIssueDeps())
-  }
-
-  /** Full LOCAL repo truth for a reconcile. O(repos) — a handful of
-   *  rows, deduped to the LOGICAL repo (several checkouts, one entity). */
-  async allRepoProjections(): Promise<{ id: string; value: RepoProjection }[] | undefined> {
-    return repoProjectionRows(await this.deps.store.repos.listRepos())
-  }
-
   /**
-   * Publish the repo truth [POD-822] — called by the repo registry after a
-   * prefix write, which is the ONLY thing that moves this entity today.
+   * One repository registry write and the repo rows it moves, in ONE commit
+   * (POD-6524). The registry's writes (add, remove, prefix, base branch,
+   * origin) used to land in the store and then {@link publishRepos}: a
+   * reconcile, which by design carries no provenance (POD-6272), so a device's
+   * `repos.*` write could be confirmed only by its receipt. A declared commit is
+   * stamped with the causing command's provenance like every other synced write,
+   * and the store write and its change rows commit or roll back together.
    *
-   * A prefix change has no issue write to ride along with, and without this the
-   * replica's `displayRef`s would not move until someone happened to touch an
-   * issue — a bug that would look like caching and would in fact be a missing
-   * emitter. Reconcile rather than a declared change because the registry writes
-   * through the store directly (no ledger commit to hang a declaration on), and
-   * because at O(repos) the full-truth diff is cheaper than the machinery to
-   * avoid it. The ledger's byte-equality dedup means a no-op prefix write
-   * appends nothing.
-   *
-   * NOT a D7.2 breach, and worth being precise about why: this is O(repos), not
-   * O(issues). Materializing `displayRef` onto issues instead — the D7.4 option
-   * this slice rejected — is what would make a prefix change O(repo's issues) on
-   * the write path. The whole point of the repo entity is that this stays one row.
+   * The commit still covers the full O(repos) truth, so nothing has to know
+   * which logical repo a checkout write touches.
    */
-  async publishRepos(): Promise<void> {
-    const repos = await this.allRepoProjections()
-    if (!repos) return
-    try {
-      await this.deps.ledger.reconcile('repo', repos)
-    } catch (err) {
-      log.warn('repo projection publish failed', { err })
-    }
+  async commitRepoWrite<T>(writer: IssueWriter, write: () => Promise<T>): Promise<T> {
+    // The capture names the logical repos the registry write reached (POD-6920).
+    const { result } = await this.arbitrated(writer).commit({
+      write: async () => await write(),
+    })
+    return result
   }
 
-  /** Reconcile own rows and companions at boot or after a hard delete. */
-  async reconcileAndPublish(): Promise<void> {
-    await this.reconcileProjections()
-    await this.reconcileCompanions()
-    // The edges reconcile on the same full-truth passes [POD-822], for the same
-    // reason the projections do: this path exists to catch what no write
-    // declared, and a CASCADE delete (an issue removed takes its edges with it)
-    // is exactly that.
-    const depProjections = await this.allDepProjections()
-    if (depProjections) await this.deps.ledger.reconcile('issueDep', depProjections)
-  }
   /** Append to the durable event log. Best-effort: a log failure must never
    *  break the mutation that triggered it. repoPath comes from the subject row. */
   async emitEvent(kind: string, subject: string, payload: Record<string, unknown>): Promise<void> {
@@ -830,8 +895,16 @@ export class IssueStore {
     } catch {}
   }
   /** Persist one row and publish only its normalized data. */
-  async persist(row: IssueRow, opts?: { touch?: boolean }): Promise<IssueProjection> {
-    return await this.persistWith(row, undefined, opts)
+  async persist(
+    writer: IssueWriter,
+    row: IssueRow,
+    opts?: {
+      touch?: boolean
+      reassign?: true
+      afterWrite?: (row: IssueRow) => unknown | Promise<unknown>
+    },
+  ): Promise<IssueProjection> {
+    return await this.persistWith(writer, row, undefined, opts)
   }
 
   /** persist() plus an extra repository write (labels/comments/deps/mail) that
@@ -840,26 +913,19 @@ export class IssueStore {
    *  into one transact span — the durable change log can never say something
    *  the issue table doesn't — then the funnel fans the committed changes out. */
   async persistWith(
+    writer: IssueWriter,
     row: IssueRow,
-    extraWrite?: () => unknown | Promise<unknown>,
+    extraWrite?: (scope: WriteScope) => unknown | Promise<unknown>,
     opts?: {
       touch?: boolean
-      /**
-       * Extra entity changes this write declares, beyond the issue's own two
-       * kinds [POD-822]. Today: the `issueDep` rows an edge write touches, built
-       * by {@link depChanges} (empty when the flag is off).
-       *
-       * They ride the SAME `changes()` callback, so they land in the SAME
-       * transact span as the row upsert and the `extraWrite` that produced them.
-       * That is the whole point rather than a tidiness preference: `addIssueDep`
-       * and the edge's change row must commit or roll back together, or the feed
-       * can claim an edge the store rejected — a permanently `blocked` issue on
-       * every replica, healed by nothing.
-       */
-      /** Extra entity changes this write declares — {@link EntityChangeSpec}, composed. */
-      extraChanges?:
-        | readonly EntityChangeSpec[]
-        | (() => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>)
+      /** This write moves the task's owner, its assignee (POD-6287). Refused
+       *  for a row that is not a pinned draft: a reassignment is always
+       *  revision-checked. */
+      reassign?: true
+      /** A repository write that needs the committed row, its new revision
+       *  included, inside the same transaction (POD-6289: the description and
+       *  brief history). Runs right after the row upsert. */
+      afterWrite?: (row: IssueRow) => unknown | Promise<unknown>
     },
   ): Promise<IssueProjection> {
     // `row` is a DRAFT (POD-3259) — a private copy pinned to the revision it was
@@ -867,6 +933,9 @@ export class IssueStore {
     // guard: `expectedRevision` refuses the write durably, inside the
     // transaction, if the row moved after the draft was cut.
     const pin = this.draftPin(row)
+    if (opts?.reassign && pin === undefined) {
+      throw new Error(`issue ${row.id}: a reassignment must be written from a pinned draft`)
+    }
     // One spelling for absent (POD-820): `''` on a nullable text column is a
     // second encoding of `null` that no reader can tell apart. Collapsed here —
     // the choke point every row write passes through — and BEFORE the backup is
@@ -882,29 +951,23 @@ export class IssueStore {
     // NO try/catch: there is nothing to undo on a throw, which is the whole
     // point of the draft above. The commit stands unguarded and the caller sees
     // the ledger's own failure.
-    let committedProjectionChanges: readonly EntityChangeSpec[] = []
-    let committedExtraChanges: readonly EntityChangeSpec[] = []
     const wire = (
-      await this.deps.ledger.commit({
-        write: async () => {
-          await extraWrite?.()
+      await this.arbitrated(writer).commit({
+        write: async (scope) => {
+          await extraWrite?.(scope)
           const worktreeWas = await this.worktreeBefore(row)
           await this.deps.store.issues.upsertIssue(
+            scope,
             row,
-            pin === undefined ? undefined : { expectedRevision: pin },
+            pin === undefined
+              ? undefined
+              : { expectedRevision: pin, ...(opts?.reassign ? { reassign: true as const } : {}) },
           )
+          await opts?.afterWrite?.(row)
           this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           // The projection depends only on the committed draft and its labels.
-          const committedWire = await this.projection(row)
-          committedProjectionChanges = await this.companionChanges(row, committedWire)
-          committedExtraChanges =
-            typeof opts?.extraChanges === 'function'
-              ? await opts.extraChanges()
-              : (opts?.extraChanges ?? [])
-          return committedWire
+          return await this.projection(row)
         },
-        // Own facts and companions commit and roll back together.
-        changes: () => [...committedProjectionChanges, ...committedExtraChanges],
       })
     ).result
     // Re-pinned only AFTER the commit succeeded: a throw rolls the write back,
@@ -919,9 +982,9 @@ export class IssueStore {
    * `touch` is an option — see {@link persist} for what `false` means, and
    * POD-1102 for why a scope repair must not mark a whole repo unread. */
   async persistManyWith<T>(
+    writer: IssueWriter,
     rows: IssueRow[],
-    write: () => T | Promise<T>,
-    extraChanges: (result: T) => readonly EntityChangeSpec[] | Promise<readonly EntityChangeSpec[]>,
+    write: (scope: WriteScope) => T | Promise<T>,
     events: (result: T) =>
       | readonly {
           kind: string
@@ -935,7 +998,9 @@ export class IssueStore {
             payload: Record<string, unknown>
           }[]
         > = () => [],
-    opts?: { touch?: boolean },
+    opts?: {
+      touch?: boolean
+    },
   ): Promise<{ issues: IssueProjection[]; result: T }> {
     // Drafts, as in {@link persistWith} (POD-3259): every row here is pinned to
     // the revision it was cut from, so a throw has nothing to undo.
@@ -952,53 +1017,49 @@ export class IssueStore {
     let result!: T
     let wires!: IssueProjection[]
     let eventIds: number[] = []
-    let committedProjectionChanges: readonly EntityChangeSpec[][] = []
-    let committedExtraChanges: readonly EntityChangeSpec[] = []
     // NO try/catch — see persistWith: the drafts are the only objects that
     // carry this write, so a throw has nothing to undo.
     const committed = (
-      await this.deps.ledger.commit({
-        write: async () => {
-          result = await write()
+      await this.arbitrated(writer).commit({
+        write: async (scope) => {
+          result = await write(scope)
           for (const row of rows) {
             const pin = pins.get(row.id)
             const worktreeWas = await this.worktreeBefore(row)
             await this.deps.store.issues.upsertIssue(
+              scope,
               row,
               pin === undefined ? undefined : { expectedRevision: pin },
             )
             this.announceWorktreeMove(row.id, worktreeWas, worktreeOf(row))
           }
           wires = await Promise.all(rows.map((row) => this.projection(row)))
-          committedProjectionChanges = await Promise.all(
-            rows.map(async (row, index) => await this.companionChanges(row, wires[index])),
-          )
-          committedExtraChanges = await extraChanges(result)
           const committedEvents = await events(result)
           const undrafted = await this.rowsByIds(
             committedEvents.flatMap((event) => (drafted.has(event.subject) ? [] : [event.subject])),
           )
-          eventIds = await Promise.all(
-            committedEvents.map(
-              async (event) =>
-                await this.deps.store.events.appendEvent(
-                  {
-                    ts: this.now(),
-                    kind: event.kind,
-                    subject: event.subject,
-                    repoPath:
-                      drafted.get(event.subject)?.repoPath ??
-                      undrafted.get(event.subject)?.repoPath ??
-                      null,
-                    payload: event.payload,
-                  },
-                  { announce: false },
-                ),
-            ),
-          )
+          // appendEvent owns a nested transaction; savepoints in this span
+          // must finish in order before the next event opens one.
+          eventIds = []
+          for (const event of committedEvents) {
+            eventIds.push(
+              await this.deps.store.events.appendEvent(
+                {
+                  ts: this.now(),
+                  kind: event.kind,
+                  subject: event.subject,
+                  repoPath:
+                    drafted.get(event.subject)?.repoPath ??
+                    undrafted.get(event.subject)?.repoPath ??
+                    null,
+                  payload: event.payload,
+                },
+                { announce: false },
+              ),
+            )
+          }
           return { result, wires }
         },
-        changes: () => [...committedProjectionChanges.flat(), ...committedExtraChanges],
       })
     ).result
     result = committed.result
@@ -1013,9 +1074,23 @@ export class IssueStore {
     return { issues: wires, result }
   }
 
-  /** A git observation changes only its independently keyed companion. */
-  async broadcastIssue(row: IssueRow): Promise<void> {
-    await this.deps.ledger.capture([this.gitStateChange(row)])
+  /**
+   * The writer a funnel commits on: the caller's own (a command's, or a named
+   * server origin's, ADR 12 D9), under the issue revision arbitration the
+   * composition wires (`IssueAuthorityArbitration.wrap`).
+   */
+  private arbitrated(writer: IssueWriter): IssueWriter {
+    return this.deps.arbitrate?.(writer) ?? writer
+  }
+
+  /**
+   * The service's own writer, a `server` origin (`issues.server`): the worktree,
+   * landing and git-state work the server does on its own account. Refused inside
+   * a client command, so a command that reaches one of these paths has to pass
+   * its own writer down instead (POD-6603).
+   */
+  get serverWriter(): IssueWriter {
+    return this.deps.ledger
   }
 
   /** @internal */
@@ -1025,8 +1100,8 @@ export class IssueStore {
     return r
   }
   /** @internal */
-  async persistRow(row: IssueRow): Promise<IssueProjection> {
-    return await this.persist(row)
+  async persistRow(writer: IssueWriter, row: IssueRow): Promise<IssueProjection> {
+    return await this.persist(writer, row)
   }
   /** @internal */
   get d(): IssueDeps {
@@ -1042,8 +1117,12 @@ export class IssueStore {
  */
 function inRepositoryOrder<T>(entries: readonly T[], rowOf: (entry: T) => IssueRow): T[] {
   const keyed = entries.map((entry) => ({ entry, row: rowOf(entry) }))
-  keyed.sort((a, b) =>
-    byCodePoint(a.row.repoPath, b.row.repoPath) || a.row.seq - b.row.seq || byCodePoint(a.row.id, b.row.id))
+  keyed.sort(
+    (a, b) =>
+      byCodePoint(a.row.repoPath, b.row.repoPath) ||
+      a.row.seq - b.row.seq ||
+      byCodePoint(a.row.id, b.row.id),
+  )
   return keyed.map(({ entry }) => entry)
 }
 

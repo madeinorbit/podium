@@ -1,6 +1,11 @@
 import { referenceState, watchReference } from '../../../diagnostics/reference-state'
-import { SYNTHETIC_CLAUDE_KIND, SYNTHETIC_CODEX_KIND, SYNTHETIC_CODEX_TITLE } from '../../../harness/src/fixture/fixture-kinds.fixtures'
+import {
+  SYNTHETIC_CLAUDE_KIND,
+  SYNTHETIC_CODEX_KIND,
+  SYNTHETIC_CODEX_TITLE,
+} from '../../../harness/src/fixture/fixture-kinds.fixtures'
 import { upsertIssue } from '../scenarios'
+
 /**
  * POD-4555 (L4a) — applies generated changes through the real scenario engine.
  *
@@ -38,7 +43,9 @@ import { upsertIssue } from '../scenarios'
  */
 
 import type { OnlineEvents } from '@podium/client-core/outbox'
+import { FIXTURE_MACHINE_ID } from '@podium/client-core/test-support/machine-records'
 import type { RowSourceHandle } from '@podium/client-graph/shared/row-source'
+import { asMachineId, checkoutRowId } from '@podium/model'
 import type { FixtureCorpus } from '../../../harness/src/fixture/index'
 import { createRowSource } from '../row-source'
 import { evict, remove, type ScenarioEngine, startEngineOnCorpus, upsert } from '../scenarios'
@@ -238,12 +245,12 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
   let index = 0
 
   const outboxIds = (): string[] => [
-    ...ctx.engine.outbox.pending().map((e) => e.mutationId as string),
-    ...ctx.engine.outbox.awaiting().map((e) => e.mutationId as string),
+    ...ctx.engine.services.outbox.queue.pending().map((e) => e.mutationId as string),
+    ...ctx.engine.services.outbox.queue.awaiting().map((e) => e.mutationId as string),
     ...server.arrivals.map((a) => a.mutationId),
   ]
   const activity = (): string =>
-    `${publications}:${server.activity}:${ctx.engine.outbox.size()}:${ctx.engine.outbox.awaiting().length}`
+    `${publications}:${server.activity}:${ctx.engine.services.outbox.queue.size()}:${ctx.engine.services.outbox.queue.awaiting().length}`
 
   const quiesce = async (): Promise<void> => {
     let quiet = 0
@@ -305,10 +312,6 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         '/repo-0',
       title: `Session ${sessionId}`,
       status: 'live',
-      controllerId: `c-${sessionId}`,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 1,
-      clientCount: 1,
       createdAt: now,
       lastActiveAt: now,
       origin: { kind: 'spawn' },
@@ -434,19 +437,20 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         return null
       }
       case 'newWorktree': {
-        const at = (ctx.discovery.repos as { repoId?: string; worktrees?: unknown[] }[]).findIndex(
-          (r) => r.repoId === c.repoId,
-        )
-        if (at < 0) return `repo ${c.repoId} not discovered`
-        const repos = [...ctx.discovery.repos] as { worktrees?: unknown[] }[]
-        const repo = repos[at] as { worktrees?: unknown[] }
-        repos[at] = {
-          ...repo,
-          worktrees: [...(repo.worktrees ?? []), { path: c.path, branch: 'gen' }],
-        }
-        ctx.discovery.repos = repos
-        // The server's push; the runtime refreshes discovery itself.
-        ctx.hub.emit('worktreesChanged')
+        const repo = (
+          ctx.corpus.repos as { repoId?: string; path: string; machineId?: string }[]
+        ).find((r) => r.repoId === c.repoId)
+        if (!repo) return `repo ${c.repoId} not discovered`
+        // The server writes the new worktree's checkout record (POD-6644).
+        const machineId = asMachineId(repo.machineId ?? FIXTURE_MACHINE_ID)
+        upsert(ctx, 'checkout', checkoutRowId(machineId, c.path), {
+          machineId,
+          path: c.path,
+          root: repo.path,
+          kind: 'worktree',
+          ...(repo.repoId ? { repoId: repo.repoId } : {}),
+          branch: 'gen',
+        })
         return null
       }
       case 'newOrphanSession': {
@@ -462,10 +466,6 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
           cwd: `${wt}/sub`,
           title: `Session ${c.sessionId}`,
           status: 'live',
-          controllerId: `c-${c.sessionId}`,
-          geometry: { cols: 80, rows: 24 },
-          epoch: 1,
-          clientCount: 1,
           createdAt: now,
           lastActiveAt: now,
           origin: { kind: 'spawn' },
@@ -738,7 +738,9 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
         }
         detail['mutationIds'] = ids
         if (armTxIds.length > 0) detail['armTxIds'] = armTxIds
-        const queued = new Set(ctx.engine.outbox.pending().map((e) => e.mutationId as string))
+        const queued = new Set(
+          ctx.engine.services.outbox.queue.pending().map((e) => e.mutationId as string),
+        )
         detail['collapsed'] =
           ids.length === 2 && !queued.has(ids[0] as string) && queued.has(ids[1] as string)
         return ids.length === 0 ? 'no outbox entry' : null
@@ -866,7 +868,7 @@ export async function startGenRun(opts: GenRunOptions = {}): Promise<GenRun> {
     },
     dispose() {
       unbind()
-      ctx.engine.destroy()
+      ctx.engine.dispose()
     },
   }
   return run

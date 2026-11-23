@@ -7,12 +7,13 @@
  * roles, but only a real boot can establish that the janitor handshakes and the
  * parent reports its installed payload and services on the machine plane.
  */
-import { spawn, type ChildProcess } from 'node:child_process'
-import { createServer } from 'node:net'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { prepareSetupEnrollment } from '../packages/runtime/src/setup-enrollment'
 import { openDatabase } from '../packages/runtime/src/sqlite'
 
 const ROOT = join(import.meta.dirname, '..')
@@ -74,6 +75,7 @@ describe('desktop-supervised local stack', () => {
   it('hosts a live server, janitor lease, and machine supervisor in one versioned child', async () => {
     const stateDir = await mkdtemp(join(tmpdir(), 'podium-desktop-stack-'))
     roots.push(stateDir)
+    prepareSetupEnrollment(true, true, stateDir)
     const payloadDir = join(stateDir, 'payload')
     await mkdir(payloadDir)
     const port = await freePort()
@@ -91,7 +93,7 @@ describe('desktop-supervised local stack', () => {
 
     const inherited = { ...process.env }
     delete inherited.PODIUM_AGENT_RELAY
-    const child = spawn('bun', ['--conditions=@podium/source', CLI, '--takeover'], {
+    const child = spawn('bun', ['--conditions=@podium/source', CLI, 'parent', '--takeover'], {
       cwd: ROOT,
       env: {
         ...inherited,
@@ -137,6 +139,7 @@ describe('desktop-supervised local stack', () => {
       '<title>mobile</title>',
     )
 
+    let lastFacts: unknown
     const observed = await waitFor(async () => {
       const dbPath = join(stateDir, 'podium.db')
       await readFile(dbPath)
@@ -161,11 +164,18 @@ describe('desktop-supervised local stack', () => {
               service_report_json: string
             }
           | undefined
-        return lease && machine ? { lease, machine } : undefined
+        lastFacts = { lease, machine }
+        return lease && machine?.presence_source === 'supervisor' && machine.service_report_json
+          ? { lease, machine }
+          : undefined
       } finally {
         db.close()
       }
-    }, 'the janitor lease and daemon build report')
+    }, 'the janitor lease and daemon build report').catch((error) => {
+      throw new Error(
+        `${String(error)}\nlast facts: ${JSON.stringify(lastFacts)}\nchild output:\n${output.slice(-16000)}`,
+      )
+    })
 
     expect(observed.lease.generation_id).toMatch(/^janitor_/)
     expect(observed.lease.protocol_version).toBeGreaterThan(0)

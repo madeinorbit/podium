@@ -11,12 +11,9 @@
  * IT CONSUMES THE CLASSIFICATION; IT DOES NOT RESTATE IT
  * ---------------------------------------------------------------------------
  *
- * {@link SETTINGS_SECRET_PATHS} is `settingsPathsInTier('server-secret')` —
- * derived by walking the split shapes, exactly like every other column of the
- * table. A second hand-written key list is the fork this programme exists to
- * end: it would go stale the first time a secret is added to the model, and a
- * scrub that misses one key fails OPEN, leaving material at rest that every
- * gate then certifies as absent.
+ * Current paths in {@link SETTINGS_SECRET_PATHS} come from the split shapes.
+ * Retired paths stay in a dated cleanup list: removing a setting from today's
+ * vocabulary must not leave its old material in a cached row or outbox entry.
  *
  * ---------------------------------------------------------------------------
  * WHY IT MATCHES AT EVERY DEPTH, NOT ONLY AT THE ROOT
@@ -64,12 +61,21 @@
 import { pathsInSettingsTier } from './path-tiers'
 
 /**
- * Every server-owned secret leaf, by its dotted path — DERIVED from the shipped
- * classification. Five today (`apiKeys.openrouter`, `apiKeys.anthropic`,
- * `apiKeys.openai`, `integrations.linearApiKey`,
- * `notifications.telegramBotToken`); whatever the classification says tomorrow.
+ * Current server-owned secret leaves remain derived from the classification.
+ * The retirement list only names old material to erase, never fields to write.
  */
-export const SETTINGS_SECRET_PATHS: readonly string[] = pathsInSettingsTier('server-secret')
+const currentSecretPaths = pathsInSettingsTier('server-secret')
+
+// LEGACY(remove-after: 2027-05): erase pre-vault provider keys from old client stores; removing this drops their one-shot cleanup.
+export const RETIRED_SETTINGS_SECRET_PATHS = [
+  'apiKeys.anthropic',
+  'apiKeys.openai',
+  'apiKeys.openrouter',
+] as const
+
+export const SETTINGS_SECRET_PATHS: readonly string[] = [
+  ...new Set([...currentSecretPaths, ...RETIRED_SETTINGS_SECRET_PATHS]),
+]
 
 /** Segments of each secret path, split once at module load rather than per node
  *  of every walked tree. */
@@ -84,7 +90,7 @@ const SECRET_SEGMENTS: readonly (readonly string[])[] = SETTINGS_SECRET_PATHS.ma
  * is the POD-305 "fails FIRST if the matrix imports empty" guard, applied to the
  * one input this module has.
  */
-if (SETTINGS_SECRET_PATHS.length === 0) {
+if (currentSecretPaths.length === 0) {
   throw new Error(
     'settingsPathsInTier("server-secret") is empty — the scrub would be a no-op and every ' +
       'zero-secret-material assertion downstream would pass vacuously',

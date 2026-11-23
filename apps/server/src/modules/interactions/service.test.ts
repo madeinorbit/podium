@@ -16,6 +16,8 @@ import {
 } from '@podium/model'
 import type { QuestionPrompt, QuestionSelection } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
+import { legacyWorkspaceQueries } from '../../store/executor/sync-drizzle'
 import { type InteractionRow, InteractionsRepository } from '../../store/interactions'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -109,7 +111,9 @@ function harness(
   } = {},
 ) {
   const db = openMigratedTestDatabase()
-  const store = new InteractionsRepository(stageASeam(db))
+  const store = new InteractionsRepository(
+    legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+  )
   const published: InteractionRow[] = []
   const delivered: string[] = []
   const typedAtMenu: Array<readonly QuestionSelection[]> = []
@@ -265,7 +269,10 @@ describe('InteractionService — synthesis', () => {
       }),
     })
     expect(await svc.listOpen()).toHaveLength(1)
-    expect((await svc.listOpen())[0]).toMatchObject({ source: 'protocol', payload: { toolName: 'bash' } })
+    expect((await svc.listOpen())[0]).toMatchObject({
+      source: 'protocol',
+      payload: { toolName: 'bash' },
+    })
   })
 
   it('still synthesizes the classifier ask for a terminal-family session', async () => {
@@ -320,7 +327,9 @@ describe('InteractionService — synthesis', () => {
     // A transcript read that rejects must not break the state-change fan-out
     // the badge and the inbox ride on.
     const broken = new InteractionService({
-      store: new InteractionsRepository(stageASeam(openMigratedTestDatabase())),
+      store: new InteractionsRepository(
+        legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+      ),
       now: () => '2026-08-14T00:00:00.000Z',
       publish: async () => {},
       deliver: async () => ({ ok: true, via: 'menu', choices: [] }),
@@ -796,7 +805,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // P0/1. The read is an enrichment; letting it throw took the whole
     // synthesis down and stranded a live native menu with no row at all.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(stageASeam(db))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+    )
     let clock = 0
     const service = new InteractionService({
       store,
@@ -863,7 +874,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // P1/4. The driver said it did not apply the answer, so its request is
     // still open — leaving the row resolved hides a session that is blocked.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(stageASeam(db))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+    )
     let clock = 0
     const published: InteractionRow[] = []
     const service = new InteractionService({
@@ -909,7 +922,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // close because none was inserted yet, and let the stale question land
     // behind it. The card then said "blocked" about a session that was running.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(stageASeam(db))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+    )
     const published: InteractionRow[] = []
     let releaseRead: () => void = () => {}
     const readGate = new Promise<void>((resolve) => {
@@ -957,7 +972,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // still empty and the transcript read then inserted an ask for a process
     // that no longer exists — a card offering to answer a dead session.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(stageASeam(db))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+    )
     let releaseRead: () => void = () => {}
     const readGate = new Promise<void>((resolve) => {
       releaseRead = resolve
@@ -996,7 +1013,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // behind it must not publish its login ask first. The per-session chain is
     // the ordering guarantee, not an incidental choice of which promise wins.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(stageASeam(db))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+    )
     const published: InteractionRow[] = []
     let releaseRead: () => void = () => {}
     const readGate = new Promise<void>((resolve) => {
@@ -1048,7 +1067,9 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // supersede it; without the in-flight guard the reopen put a blocked card
     // back on a session that had demonstrably moved on.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(stageASeam(db))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+    )
     let clock = 0
     let service!: InteractionService
     service = new InteractionService({
@@ -1152,7 +1173,9 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     // by replying to the driver holding it. The keystroke form of the same ask
     // has no such route and is refused — see the review-round block above.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(stageASeam(db))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+    )
     let clock = 0
     const structured: unknown[] = []
     const service = new InteractionService({
@@ -1186,7 +1209,9 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
     // failed, and the row left `listOpen` and the feed — so a session stalled at
     // startup became a session stalled with nothing on any surface.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(stageASeam(db))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+    )
     let clock = 0
     const published: InteractionRow[] = []
     const service = new InteractionService({
@@ -1393,7 +1418,9 @@ describe('InteractionService — a policy answer whose delivery THREW (POD-2414)
     // `ok: false`, an early return on the boolean caught it first and the row
     // stayed swallowed. What the row ACTUALLY is decides, not the boolean.
     const db = openMigratedTestDatabase()
-    const store = new InteractionsRepository(stageASeam(db))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID),
+    )
     let clock = 0
     const published: InteractionRow[] = []
     const service = new InteractionService({
@@ -1441,7 +1468,9 @@ describe('InteractionsRepository', () => {
   })
 
   it('collapses a duplicate open fingerprint and reports it as not inserted', async () => {
-    const store = new InteractionsRepository(stageASeam(openMigratedTestDatabase()))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    )
     expect((await store.insert(row('a', 'fp'))).inserted).toBe(true)
     const second = await store.insert(row('b', 'fp'))
     expect(second.inserted).toBe(false)
@@ -1452,7 +1481,9 @@ describe('InteractionsRepository', () => {
   it('lets the SAME question be asked again once the first is resolved', async () => {
     // A long session hits the same permission prompt repeatedly and each one
     // needs its own answer — which is why the unique index is partial.
-    const store = new InteractionsRepository(stageASeam(openMigratedTestDatabase()))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    )
     await store.insert(row('a', 'fp'))
     await store.answer({
       id: 'a',
@@ -1466,7 +1497,9 @@ describe('InteractionsRepository', () => {
   })
 
   it('does not collapse the same fingerprint across sessions', async () => {
-    const store = new InteractionsRepository(stageASeam(openMigratedTestDatabase()))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    )
     await store.insert(row('a', 'fp'))
     expect((await store.insert(row('b', 'fp', asSessionId('ses_2')))).inserted).toBe(true)
   })
@@ -1476,7 +1509,9 @@ describe('InteractionsRepository', () => {
     // `answer()`, whose `WHERE status = 'asked'` guard — the idempotency claim —
     // matched nothing by then, so every successfully delivered answer stayed
     // recorded as `unverified`.
-    const store = new InteractionsRepository(stageASeam(openMigratedTestDatabase()))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    )
     await store.insert(row('a', 'fp'))
     await store.answer({
       id: 'a',
@@ -1490,14 +1525,18 @@ describe('InteractionsRepository', () => {
   })
 
   it('recordDelivery does NOT resurrect an expired row', async () => {
-    const store = new InteractionsRepository(stageASeam(openMigratedTestDatabase()))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    )
     await store.insert(row('a', 'fp'))
     await store.close('a', 'expired', '2026-08-14T00:01:00.000Z')
     expect(await store.recordDelivery('a', 'menu')).toBe(false)
   })
 
   it('answer() is the idempotency guarantee — the second conditional update loses', async () => {
-    const store = new InteractionsRepository(stageASeam(openMigratedTestDatabase()))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    )
     await store.insert(row('a', 'fp'))
     const claim = async () =>
       await store.answer({
@@ -1512,7 +1551,9 @@ describe('InteractionsRepository', () => {
   })
 
   it('prunes resolved rows and NEVER open ones', async () => {
-    const store = new InteractionsRepository(stageASeam(openMigratedTestDatabase()))
+    const store = new InteractionsRepository(
+      legacyWorkspaceQueries(stageASeam(openMigratedTestDatabase()), SELF_HOSTED_WORKSPACE_ID),
+    )
     await store.insert(row('open', 'fp1'))
     await store.insert(row('done', 'fp2'))
     await store.close('done', 'expired', '2026-08-14T00:00:30.000Z')
@@ -1542,7 +1583,9 @@ describe('InteractionService under the async store (POD-3806)', () => {
     const published: InteractionRow[] = []
     let clock = 0
     const svc = new InteractionService({
-      store: new InteractionsRepository(stageASeam(openMigratedTestDatabase())),
+      // The store's own repository, so the ask's statements run in the span it opens on
+      // either engine (POD-6994).
+      store: store.interactions,
       now: () => `2026-08-14T00:00:${String(clock++).padStart(2, '0')}.000Z`,
       publish: async (row) => {
         published.push(row)
@@ -1618,12 +1661,31 @@ describe('InteractionService — a contract session answers through its driver (
     })
     await svc.onStateChanged({ sessionId: S, prev: undefined, next: menuState() })
     expect(await svc.listOpen(S)).toEqual([])
-    await svc.onInteractionResolved({ sessionId: S, ev: { ev: 'asked', interaction: {
-      id: 'ask:driver-menu', sessionId: S, kind: 'question',
-      payload: { v: 1, questions: [{ question: 'Which database?', multiSelect: false, previewLayout: false,
-        options: [{ label: 'Postgres' }, { label: 'SQLite' }] }] },
-      askedAt: '2026-09-15T00:00:00.000Z', source: 'screen-classifier', answerable: 'keystroke-emulated',
-    } } })
+    await svc.onInteractionResolved({
+      sessionId: S,
+      ev: {
+        ev: 'asked',
+        interaction: {
+          id: 'ask:driver-menu',
+          sessionId: S,
+          kind: 'question',
+          payload: {
+            v: 1,
+            questions: [
+              {
+                question: 'Which database?',
+                multiSelect: false,
+                previewLayout: false,
+                options: [{ label: 'Postgres' }, { label: 'SQLite' }],
+              },
+            ],
+          },
+          askedAt: '2026-09-15T00:00:00.000Z',
+          source: 'screen-classifier',
+          answerable: 'keystroke-emulated',
+        },
+      },
+    })
     const [row] = await svc.listOpen(S)
     expect(row).toMatchObject({ kind: 'question', answerable: 'keystroke-emulated' })
 
@@ -1639,7 +1701,10 @@ describe('InteractionService — a contract session answers through its driver (
     // The DRIVER was asked, by the ask's own id — the identity it answers through.
     expect(answeredThroughContract).toEqual([
       // biome-ignore lint/style/noNonNullAssertion: asserted open above.
-      { interactionId: row!.id, answer: { kind: 'question', selections: [{ optionIndices: [2] }] } },
+      {
+        interactionId: row!.id,
+        answer: { kind: 'question', selections: [{ optionIndices: [2] }] },
+      },
     ])
     // And NOTHING went down either server-side keystroke route.
     expect(typedAtMenu).toEqual([])
@@ -1705,15 +1770,40 @@ describe('InteractionService — a contract session answers through its driver (
 
 it('keeps admitted runtime identity on the gateway after the session delivery mode changes', async () => {
   const h = harness({ structured: true, contractRouted: false, nativeMenu: () => ({ ok: true }) })
-  await h.svc.onInteractionResolved({ sessionId: S, ev: { ev: 'asked', interaction: {
-    id: 'ask:owned', sessionId: S, kind: 'question', source: 'screen-classifier',
-    answerable: 'keystroke-emulated', askedAt: '2026-08-14T00:00:00.000Z',
-    payload: { v: 1, questions: [{ question: 'Pick', multiSelect: false, previewLayout: false,
-      options: [{ label: 'One' }] }] },
-  } } })
+  await h.svc.onInteractionResolved({
+    sessionId: S,
+    ev: {
+      ev: 'asked',
+      interaction: {
+        id: 'ask:owned',
+        sessionId: S,
+        kind: 'question',
+        source: 'screen-classifier',
+        answerable: 'keystroke-emulated',
+        askedAt: '2026-08-14T00:00:00.000Z',
+        payload: {
+          v: 1,
+          questions: [
+            {
+              question: 'Pick',
+              multiSelect: false,
+              previewLayout: false,
+              options: [{ label: 'One' }],
+            },
+          ],
+        },
+      },
+    },
+  })
   expect(await h.store.get('ask:owned')).toMatchObject({ fingerprint: 'runtime:ask:owned' })
-  expect(await h.svc.answerChoices({ sessionId: S, interactionId: 'ask:owned',
-    choices: [{ optionIndices: [1] }], principal: PRINCIPAL })).toEqual({ ok: true })
+  expect(
+    await h.svc.answerChoices({
+      sessionId: S,
+      interactionId: 'ask:owned',
+      choices: [{ optionIndices: [1] }],
+      principal: PRINCIPAL,
+    }),
+  ).toEqual({ ok: true })
   expect(h.answeredThroughContract).toHaveLength(1)
   expect(h.typedAtMenu).toEqual([])
   expect(h.delivered).toEqual([])

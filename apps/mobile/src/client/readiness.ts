@@ -24,6 +24,14 @@ export function readinessRecheckDelayMs(tick: number): number {
   return READINESS_RECHECK_DELAYS_MS[tick] ?? READINESS_RECHECK_STEADY_MS
 }
 
+/**
+ * The server ANSWERED, and the answer was not a readiness fact: an unexpected
+ * status or an invalid body. Unlike a request that never got an answer (no
+ * network), this is evidence about the server, so the gate fails closed on it
+ * even when the device holds data (POD-7176).
+ */
+export class ReadinessAnswerError extends Error {}
+
 export async function fetchServerReadiness(httpOrigin: string): Promise<ServerReadiness> {
   const response = await fetch(`${httpOrigin}/readiness`, {
     credentials: 'include',
@@ -33,9 +41,11 @@ export async function fetchServerReadiness(httpOrigin: string): Promise<ServerRe
   // plane reports itself to a status-code-only health check, and reading it as a
   // transport failure would cost the phone the screen that says what to do.
   if (!response.ok && response.status !== 503) {
-    throw new Error(`readiness failed: ${response.status}`)
+    throw new ReadinessAnswerError(`readiness failed: ${response.status}`)
   }
-  const body: unknown = await response.json()
-  if (!isServerReadiness(body)) throw new Error('readiness response was invalid')
+  const body: unknown = await response.json().catch(() => {
+    throw new ReadinessAnswerError('readiness response was not JSON')
+  })
+  if (!isServerReadiness(body)) throw new ReadinessAnswerError('readiness response was invalid')
   return body
 }

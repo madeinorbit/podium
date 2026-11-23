@@ -577,13 +577,13 @@ const SESSION_REPRESENTATIONS: readonly RetainedRepresentation[] = [
     visibility: 'personal',
   },
   {
-    symbol: 'OptimisticSpawnArgs',
+    symbol: 'LaunchRowArgs',
     entity: 'session',
-    site: 'packages/client-core/src/values/optimistic-spawn.ts',
+    site: 'packages/client-graph/src/write/launch-rows.ts',
     role: 'command-input',
     purpose:
-      'The arguments a client-side optimistic spawn needs to render a session before the server ' +
-      'has booted one.',
+      'The arguments a start painted from its launch record (POD-6410) needs to render a session ' +
+      'before the server has booted one.',
     distinctSemantics:
       'It carries `nowIso` — a clock injected so the builders stay pure — which is not a session ' +
       'fact but a testability seam. It is NO LONGER a brand edge: POD-363 branded the shape at ' +
@@ -1012,7 +1012,7 @@ const ISSUE_REPRESENTATIONS: readonly RetainedRepresentation[] = [
       'Every member is a MACHINE fact or a probe-local input, so its exposure is inherited from ' +
       'the machine (ADR 9 D3 rule 3) rather than classified as issue content. Two of its ' +
       'members are the trap type-identity cannot see: `IssueGitState.updatedAt` is a ' +
-      'LAST-PROBE timestamp and `branch` is the branch the checkout is ACTUALLY on — ' +
+      'git-facts LAST-CHANGED timestamp and `branch` is the branch the checkout is ACTUALLY on — ' +
       "type-identical to the issue's entity mtime and owned branch, and different facts.",
     composition: {
       state: 'composed',

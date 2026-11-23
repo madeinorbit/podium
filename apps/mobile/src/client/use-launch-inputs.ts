@@ -3,11 +3,11 @@ import type { RepoView } from '@podium/client-core/values'
 import { createLaunchWorkPicker, launchOptionViews, type LaunchWorkMode } from '@podium/client-graph/launch-option-views'
 import { LOADING } from '@podium/client-graph/loading'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MachineWire } from '@podium/model'
+import type { MachineFacts } from '@podium/model'
 import { useCallback, useEffect, useMemo } from 'react'
 import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
 
-const EMPTY = { repo: undefined as RepoView | undefined, machines: [] as MachineWire[] }
+const EMPTY = { repo: undefined as RepoView | undefined, machines: [] as MachineFacts[] }
 export function useLaunchInputs(repoPath: string) {
   const read = useCallback(
     (pool: MobxPool) => launchOptionViews(pool).origin(repoPath),

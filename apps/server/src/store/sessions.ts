@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Sessions aggregate — owns the `sessions` table plus its UI-adjacent
  * satellites: `pins`, `snoozes`, `tab_order` and `session_drafts`. Soft
@@ -7,57 +8,117 @@
 import {
   type ActorKind,
   AgentKind,
+  AgentRuntimeState,
   actorColumns,
   actorFromColumns,
   asSessionId,
+  type CredentialId,
+  CredentialMismatch,
+  EffectiveAuth,
   type IssueId,
+  LaunchPostureReport,
   type MachineId,
   machinePathSeparator,
+  type PinWire,
+  SessionDesired,
   type SessionId,
-  type UserId,
+  SessionLifecycleFailure,
+  SessionMeta,
   type SessionUserStateWire,
+  sessionUserStateRowId,
+  type TabOrderWire,
+  type UserId,
 } from '@podium/model'
-import { and, asc, eq, getTableColumns, gte, inArray, isNotNull, isNull, lt, or, type Placeholder, type SQL, sql } from 'drizzle-orm'
+import type { WriteScope } from '@podium/sync'
 import {
-  issues as issuesTable,
+  and,
+  asc,
+  eq,
+  getTableColumns,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  type Placeholder,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
+import type {
   offers as offersTable,
-  pins as pinsTable,
-  runtimeEventCheckpoints,
   sessionDrafts,
   sessions as sessionsTable,
-  sessionUserState,
-  snoozes as snoozesTable,
-  tabOrder,
 } from '../migrations/schema'
+import { captureWrite } from '../sync/capture-pg'
+import { type ChangeLogCommit, throughChangeLog } from './change-log-commit'
+import { dialectOf, dialectPrepared } from './executor/dialect-prepared'
 import { applyAfterCommit, spanOpen } from './executor/executor'
 import { operationLoader } from './executor/operation-loader'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type {
+  StoreDrizzle,
+  StoreTables,
+  TransactionRunner,
+  WorkspaceDb,
+  WorkspaceQueries,
+} from './executor/sync-drizzle'
 import {
   inListOf,
   inListSize,
   inListValues,
+  inWorkspace,
   param,
   placeholdersFor,
   prepared,
   preparedFamily,
   shapeOf,
+  WORKSPACE,
 } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
-import { WrittenColumns } from './written-columns'
+import { bareColumns } from './index-hints'
 import { prefixUpperBound } from './prefix-range'
 import type { RepoPlaces } from './repos'
 import type {
   OfferMap,
   OfferRecord,
   PinKind,
-  PinState,
   SessionDeletionSource,
+  SessionDriverCapabilities,
+  SessionLifecycleRow,
   SessionRow,
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
+import { NO_LIFECYCLE } from './types'
+import { WrittenColumns } from './written-columns'
 
-const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
+const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo', 'issue'])
+
+/** Setup needs existence, including archived/deleted work, never a session count. */
+const anySession = prepared((db, t) =>
+  db
+    .select({ id: t.sessions.id })
+    .from(t.sessions)
+    .where(inWorkspace(t.sessions))
+    .limit(1)
+    .prepare(),
+)
+
+export const SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS = 60_000
+const ACTIVITY_PUBLICATION_BATCH_SIZE = 256
+
+/** A stored tab order's ids; a corrupt row reads as no saved order. */
+function parseTabIds(raw: string): string[] | undefined {
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === 'string')
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** RETAINED EXTERNAL-INPUT BRAND CASTS: compatibility helpers accept and trim
  * raw session ids before queries or writes. Selected session ids flow from the
@@ -65,49 +126,105 @@ const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 /** The one row shape every session read returns, before mapping. */
 type SessionSelect = typeof sessionsTable.$inferSelect
 
+const pendingActivityPublication = (t: StoreTables) =>
+  sql`${t.sessions.publishedLastActiveAt} < ${t.sessions.lastActiveAt} AND ${t.sessions.deletedAt} IS NULL`
+
+const activityPublicationsDueWhere = (t: StoreTables) =>
+  inWorkspace(
+    t.sessions,
+    pendingActivityPublication(t),
+    lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
+  )
+
+// The partial index contains only sessions with an unpublished activity stamp,
+// including stopped sessions left by a restart. History never enters the tick.
+// SQLite is told the index (INDEXED BY, so the columns are bare identifiers);
+// Postgres has no such clause and its planner matches the partial index itself.
+const activityPublicationsDue = dialectPrepared<{ readonly now: number }, { id: SessionId }>()({
+  sqlite: (db, t) =>
+    db
+      .select({ id: sql<SessionId>`id` })
+      .from(sql`${t.sessions} INDEXED BY idx_sessions_pending_activity`)
+      .where(activityPublicationsDueWhere(t))
+      .orderBy(asc(t.sessions.lastActivePublishAfter), asc(t.sessions.id))
+      .limit(ACTIVITY_PUBLICATION_BATCH_SIZE)
+      .prepare(),
+  pg: (db, t) =>
+    db
+      .select({ id: t.sessions.id })
+      .from(t.sessions)
+      .where(activityPublicationsDueWhere(t))
+      .orderBy(asc(t.sessions.lastActivePublishAfter), asc(t.sessions.id))
+      .limit(ACTIVITY_PUBLICATION_BATCH_SIZE)
+      .prepare(),
+})
+
+const publishSessionActivity = preparedFamily((db, t, size: number) =>
+  captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        publishedLastActiveAt: t.sessions.lastActiveAt,
+        lastActivePublishAfter: sql.placeholder('next'),
+      })
+      .where(
+        inWorkspace(
+          t.sessions,
+          inListOf(t.sessions.id, size),
+          pendingActivityPublication(t),
+          lte(t.sessions.lastActivePublishAfter, param(t.sessions.lastActivePublishAfter, 'now')),
+        ),
+      ),
+  ).prepare(),
+)
+
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const bindingOwnersOnMachine = prepared((db: StoreDrizzle) =>
+const bindingOwnersOnMachine = prepared((db, t) =>
   db
-    .select({ id: sessionsTable.id, owner: sessionsTable.ownerUserId })
-    .from(sessionsTable)
-    .where(eq(sessionsTable.machineId, param(sessionsTable.machineId, 'machineId')))
+    .select({ id: t.sessions.id, owner: t.sessions.ownerUserId })
+    .from(t.sessions)
+    .where(
+      inWorkspace(t.sessions, eq(t.sessions.machineId, param(t.sessions.machineId, 'machineId'))),
+    )
     .prepare(),
 )
 
-const bindingOwnersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const bindingOwnersOfIds = preparedFamily((db, t, size: number) =>
   db
-    .select({ id: sessionsTable.id, owner: sessionsTable.ownerUserId })
-    .from(sessionsTable)
-    .where(inListOf(sessionsTable.id, size))
+    .select({ id: t.sessions.id, owner: t.sessions.ownerUserId })
+    .from(t.sessions)
+    .where(inWorkspace(t.sessions, inListOf(t.sessions.id, size)))
     .prepare(),
 )
 
-const bindingFactsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
+const bindingFactsOfIds = preparedFamily((db, t, size: number) =>
   db
     .select({
-      id: sessionsTable.id,
-      owner: sessionsTable.ownerUserId,
-      machineId: sessionsTable.machineId,
-      deletedAt: sessionsTable.deletedAt,
-      delegation: sessionsTable.delegation,
+      id: t.sessions.id,
+      owner: t.sessions.ownerUserId,
+      machineId: t.sessions.machineId,
+      deletedAt: t.sessions.deletedAt,
+      delegation: t.sessions.delegation,
     })
-    .from(sessionsTable)
-    .where(inListOf(sessionsTable.id, size))
+    .from(t.sessions)
+    .where(inWorkspace(t.sessions, inListOf(t.sessions.id, size)))
     .prepare(),
 )
 
 /**
  * THE ONE SESSION READ. Every reader supplies a predicate and inherits this
  * ordering; three of them depend on it meaning the same thing, so it is
- * declared once (see `findSessionByResumeValue`).
+ * declared once (see `findSessionByResumeValue`). Ties on `created_at` break by
+ * the primary key, which both engines have (POD-6983; it was SQLite's `rowid`,
+ * insertion order, which Postgres has no counterpart of).
  */
-function sessionsWhere(db: StoreDrizzle, where: SQL | undefined) {
+function sessionsWhere(db: StoreDrizzle, t: StoreTables, where: SQL | undefined) {
   return db
     .select()
-    .from(sessionsTable)
-    .where(where)
-    .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
+    .from(t.sessions)
+    .where(inWorkspace(t.sessions, where))
+    .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
     .prepare()
 }
 
@@ -117,8 +234,27 @@ function sessionsWhere(db: StoreDrizzle, where: SQL | undefined) {
  * the few rows itself, so an ORDER BY here would only add a sort to an index
  * read.
  */
-function sessionsMatching(db: StoreDrizzle, where: SQL | undefined) {
-  return db.select().from(sessionsTable).where(where).prepare()
+function sessionsMatching(db: StoreDrizzle, t: StoreTables, where: SQL | undefined) {
+  return db.select().from(t.sessions).where(inWorkspace(t.sessions, where)).prepare()
+}
+
+/**
+ * {@link sessionsMatching} through one named index [POD-7034]. For an IN list
+ * whose keys are sparse while a few common values hold many rows: the
+ * statistics give the average, and at a few hundred keys the planner prices
+ * the seeks above a scan of every session, though each asked key holds a few.
+ */
+function sessionsMatchingThrough(
+  db: StoreDrizzle,
+  t: StoreTables,
+  index: string,
+  where: SQL | undefined,
+) {
+  return db
+    .select(bareColumns(t.sessions))
+    .from(sql`${t.sessions} INDEXED BY ${sql.identifier(index)}`)
+    .where(inWorkspace(t.sessions, where))
+    .prepare()
 }
 
 /**
@@ -135,136 +271,230 @@ function sessionsMatching(db: StoreDrizzle, where: SQL | undefined) {
  * attribution counts under, and changing the text would move this statement to
  * a new slot in both while claiming to have only made it cheaper.
  */
-const sessionById = prepared((db: StoreDrizzle) =>
-  sessionsWhere(db, eq(sessionsTable.id, param(sessionsTable.id, 'id'))),
+const sessionById = prepared((db, t) =>
+  sessionsWhere(db, t, eq(t.sessions.id, param(t.sessions.id, 'id'))),
 )
 
-const liveSessionByResumeValue = prepared((db: StoreDrizzle) =>
+const liveSessionByResumeValue = prepared((db, t) =>
   sessionsWhere(
     db,
+    t,
     and(
-      eq(sessionsTable.resumeValue, param(sessionsTable.resumeValue, 'resumeValue')),
-      isNull(sessionsTable.deletedAt),
+      eq(t.sessions.resumeValue, param(t.sessions.resumeValue, 'resumeValue')),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
-const sessionsOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsWhere(db, inListOf(sessionsTable.id, size)),
+const sessionsOfIds = preparedFamily((db, t, size: number) =>
+  sessionsWhere(db, t, inListOf(t.sessions.id, size)),
 )
 
 /** The predicate the two plural resume readers share, so they cannot drift. */
-const liveSessionsOfResumeValues = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsWhere(db, and(inListOf(sessionsTable.resumeValue, size), isNull(sessionsTable.deletedAt))),
+const liveSessionsOfResumeValues = preparedFamily((db, t, size: number) =>
+  sessionsWhere(db, t, and(inListOf(t.sessions.resumeValue, size), isNull(t.sessions.deletedAt))),
 )
 
-const liveSessionsOfIssueIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsWhere(db, and(inListOf(sessionsTable.issueId, size), isNull(sessionsTable.deletedAt))),
+const liveSessionsOfIssueIds = preparedFamily((db, t, size: number) =>
+  sessionsWhere(db, t, and(inListOf(t.sessions.issueId, size), isNull(t.sessions.deletedAt))),
 )
 
 /** The folded cwd `idx_sessions_cwd_folded` indexes; repeat it exactly. */
-const foldedCwd = sql`lower(replace(${sessionsTable.cwd}, '/', '\\'))`
+const foldedCwd = (t: StoreTables) => sql`lower(replace(${t.sessions.cwd}, '/', '\\'))`
 
 /** Live sessions whose literal cwd lies in the key range [lo, hi) (POD-6160). */
-const liveSessionsInCwdRange = prepared((db: StoreDrizzle) =>
+const liveSessionsInCwdRange = prepared((db, t) =>
   sessionsMatching(
     db,
+    t,
     and(
-      gte(sessionsTable.cwd, param(sessionsTable.cwd, 'lo')),
-      lt(sessionsTable.cwd, param(sessionsTable.cwd, 'hi')),
-      isNull(sessionsTable.deletedAt),
+      gte(t.sessions.cwd, param(t.sessions.cwd, 'lo')),
+      lt(t.sessions.cwd, param(t.sessions.cwd, 'hi')),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
-/** The same over the folded cwd, for Windows-style roots (POD-6160). */
-const liveSessionsInFoldedCwdRange = prepared((db: StoreDrizzle) =>
-  sessionsMatching(
-    db,
-    and(
-      sql`${foldedCwd} >= ${sql.placeholder('lo')}`,
-      sql`${foldedCwd} < ${sql.placeholder('hi')}`,
-      isNull(sessionsTable.deletedAt),
+/**
+ * The same over the folded cwd, for Windows-style roots (POD-6160). On Postgres
+ * the folded text is compared in byte order, as SQLite compares it: `COLLATE "C"`,
+ * which is also the collation `idx_sessions_cwd_folded` holds there (design 2.3,
+ * rule 13).
+ */
+const liveSessionsInFoldedCwdRange = dialectPrepared<
+  { readonly lo: string; readonly hi: string },
+  SessionSelect
+>()({
+  sqlite: (db, t) =>
+    sessionsMatching(
+      db,
+      t,
+      and(
+        sql`${foldedCwd(t)} >= ${sql.placeholder('lo')}`,
+        sql`${foldedCwd(t)} < ${sql.placeholder('hi')}`,
+        isNull(t.sessions.deletedAt),
+      ),
     ),
-  ),
-)
+  pg: (db, t) =>
+    sessionsMatching(
+      db,
+      t,
+      and(
+        sql`${foldedCwd(t)} COLLATE "C" >= ${sql.placeholder('lo')}`,
+        sql`${foldedCwd(t)} COLLATE "C" < ${sql.placeholder('hi')}`,
+        isNull(t.sessions.deletedAt),
+      ),
+    ),
+})
 
 /** Live sessions in one of these statuses (POD-6160). */
-const liveSessionsOfStatuses = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsMatching(db, and(inListOf(sessionsTable.status, size), isNull(sessionsTable.deletedAt))),
+const liveSessionsOfStatuses = preparedFamily((db, t, size: number) =>
+  sessionsMatching(db, t, and(inListOf(t.sessions.status, size), isNull(t.sessions.deletedAt))),
 )
 
-/** Live headless sessions (POD-6160): resident while their row exists. */
-const liveHeadlessSessions = prepared((db: StoreDrizzle) =>
-  sessionsMatching(db, and(sql`${sessionsTable.headless} = 1`, isNull(sessionsTable.deletedAt))),
-)
+/**
+ * Live headless sessions (POD-6160): resident while their row exists. The flag is a
+ * literal, as `idx_sessions_headless`'s partial WHERE spells it on each engine (an
+ * integer on SQLite, a boolean on Postgres), so the planner can prove the index.
+ */
+const liveHeadlessSessions = dialectPrepared<Record<string, never>, SessionSelect>()({
+  sqlite: (db, t) =>
+    sessionsMatching(db, t, and(sql`${t.sessions.headless} = 1`, isNull(t.sessions.deletedAt))),
+  pg: (db, t) =>
+    sessionsMatching(db, t, and(sql`${t.sessions.headless} = true`, isNull(t.sessions.deletedAt))),
+})
 
 /** Live sessions whose id lies in the key range [lo, hi): a short-id prefix (POD-6160). */
-const liveSessionsInIdRange = prepared((db: StoreDrizzle) =>
+const liveSessionsInIdRange = prepared((db, t) =>
   sessionsMatching(
     db,
+    t,
     and(
-      gte(sessionsTable.id, param(sessionsTable.id, 'lo')),
-      lt(sessionsTable.id, param(sessionsTable.id, 'hi')),
-      isNull(sessionsTable.deletedAt),
+      gte(t.sessions.id, param(t.sessions.id, 'lo')),
+      lt(t.sessions.id, param(t.sessions.id, 'hi')),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
 /** Live sessions born on one of these issues with this letter (POD-6160). */
-const liveSessionsOfBirthLetter = preparedFamily((db: StoreDrizzle, size: number) =>
+const liveSessionsOfBirthLetter = preparedFamily((db, t, size: number) =>
   sessionsMatching(
     db,
+    t,
     and(
-      inListOf(sessionsTable.refIssueId, size),
-      eq(sessionsTable.refLetter, param(sessionsTable.refLetter, 'letter')),
-      isNull(sessionsTable.deletedAt),
+      inListOf(t.sessions.refIssueId, size),
+      eq(t.sessions.refLetter, param(t.sessions.refLetter, 'letter')),
+      isNull(t.sessions.deletedAt),
     ),
   ),
 )
 
 /** Live sessions whose birth ref names one of these issues (POD-6160 D2g).
  *  `IS NOT NULL` lets the partial `idx_sessions_ref_issue` serve the IN list. */
-const liveSessionsReferencingIssues = preparedFamily((db: StoreDrizzle, size: number) =>
+const liveSessionsReferencingIssues = preparedFamily((db, t, size: number) =>
   sessionsMatching(
     db,
-    and(inListOf(sessionsTable.refIssueId, size), isNotNull(sessionsTable.refIssueId), isNull(sessionsTable.deletedAt)),
+    t,
+    and(
+      inListOf(t.sessions.refIssueId, size),
+      isNotNull(t.sessions.refIssueId),
+      isNull(t.sessions.deletedAt),
+    ),
   ),
 )
 
 /** Live sessions with this draft ordinal, in any repository (POD-6160). */
-const liveSessionsOfDraft = prepared((db: StoreDrizzle) =>
+const liveSessionsOfDraft = prepared((db, t) =>
   sessionsMatching(
     db,
-    and(eq(sessionsTable.refDraft, param(sessionsTable.refDraft, 'draft')), isNull(sessionsTable.deletedAt)),
+    t,
+    and(eq(t.sessions.refDraft, param(t.sessions.refDraft, 'draft')), isNull(t.sessions.deletedAt)),
   ),
 )
 
-/** Live sessions spawned by one of these parents (`spawned_by` values) (POD-6160). */
-const liveSessionsSpawnedBy = preparedFamily((db: StoreDrizzle, size: number) =>
-  sessionsMatching(db, and(inListOf(sessionsTable.spawnedBy, size), isNull(sessionsTable.deletedAt))),
-)
+/** Live sessions spawned by one of these parents (`spawned_by` values) (POD-6160).
+ *  Through `idx_sessions_spawned_by` by name on SQLite (POD-7034): the operator's
+ *  statistics average 15 sessions a value, a mean over one `user` value that
+ *  holds a third of all sessions and many parents with a few children; at a
+ *  few hundred parents they price the seeks above a scan of every session.
+ *  Postgres has no INDEXED BY; its planner reads the per-value statistics. */
+const liveSessionsSpawnedBy = preparedFamily((db, t, size: number) => {
+  const where = and(inListOf(t.sessions.spawnedBy, size), isNull(t.sessions.deletedAt))
+  return dialectOf(db) === 'pg'
+    ? sessionsMatching(db, t, where)
+    : sessionsMatchingThrough(db, t, 'idx_sessions_spawned_by', where)
+})
 
 /** The issues with this sequence number, in any repository: the issue half of
  *  a birth ref (`POD-13-A`), before its prefix is checked (POD-6160). */
-const issueIdsOfSeq = prepared((db: StoreDrizzle) =>
+const issueIdsOfSeq = prepared((db, t) =>
   db
-    .select({ id: issuesTable.id })
-    .from(issuesTable)
-    .where(eq(issuesTable.seq, param(issuesTable.seq, 'seq')))
+    .select({ id: t.issues.id })
+    .from(t.issues)
+    .where(inWorkspace(t.issues, eq(t.issues.seq, param(t.issues.seq, 'seq'))))
     .prepare(),
 )
 
 /** A machine's live sessions (POD-6160). */
-const liveSessionsOnMachine = prepared((db: StoreDrizzle) =>
+const liveSessionsOnMachine = prepared((db, t) =>
   sessionsMatching(
     db,
-    and(eq(sessionsTable.machineId, param(sessionsTable.machineId, 'machineId')), isNull(sessionsTable.deletedAt)),
+    t,
+    and(
+      eq(t.sessions.machineId, param(t.sessions.machineId, 'machineId')),
+      isNull(t.sessions.deletedAt),
+    ),
   ),
 )
 
-const liveSessions = prepared((db: StoreDrizzle) =>
-  sessionsWhere(db, isNull(sessionsTable.deletedAt)),
+/**
+ * The live sessions on one credential (credential management §7, §8): what a
+ * renewal restarts and a removal stops. Ids only, through the partial index
+ * `idx_sessions_credential`, whose condition this repeats.
+ */
+const liveSessionIdsOnCredential = prepared((db, t) =>
+  db
+    .select({ id: t.sessions.id })
+    .from(t.sessions)
+    .where(
+      inWorkspace(
+        t.sessions,
+        eq(t.sessions.credentialId, param(t.sessions.credentialId, 'credentialId')),
+        isNotNull(t.sessions.credentialId),
+        isNull(t.sessions.deletedAt),
+      ),
+    )
+    .prepare(),
+)
+
+const liveSessions = prepared((db, t) => sessionsWhere(db, t, isNull(t.sessions.deletedAt)))
+
+/**
+ * A machine's sessions whose desired state the lifecycle controller has not
+ * acknowledged (POD-6356). The condition is the partial index's own, spelled as
+ * literal column comparisons so the planner can prove it, and the index is
+ * named (server-data rule 3); the FROM is an INDEXED BY clause, so the columns
+ * are bare identifiers.
+ */
+const lifecyclePendingWhere = (t: StoreTables) =>
+  inWorkspace(
+    t.sessions,
+    sql`machine_id = ${sql.placeholder('machineId')} AND revision > observed_revision AND deleted_at IS NULL`,
+  )
+
+/** Postgres has no INDEXED BY: its planner proves the partial index from the same terms. */
+const lifecyclePendingOnMachine = dialectPrepared<{ readonly machineId: string }, { id: string }>()(
+  {
+    sqlite: (db, t) =>
+      db
+        .select({ id: sql<string>`id` })
+        .from(sql`${t.sessions} INDEXED BY idx_sessions_lifecycle_pending`)
+        .where(lifecyclePendingWhere(t))
+        .prepare(),
+    pg: (db, t) =>
+      db.select({ id: sql<string>`id` }).from(t.sessions).where(lifecyclePendingWhere(t)).prepare(),
+  },
 )
 
 /**
@@ -272,30 +502,45 @@ const liveSessions = prepared((db: StoreDrizzle) =>
  * boot's ledger baseline reads every session this way, a page at a time, so no
  * statement returns the whole table and nothing is made resident.
  */
-const liveSessionsPage = prepared((db: StoreDrizzle) =>
+const liveSessionsPage = prepared((db, t) =>
   db
     .select()
-    .from(sessionsTable)
-    .where(and(isNull(sessionsTable.deletedAt), sql`${sessionsTable.id} > ${sql.placeholder('after')}`))
-    .orderBy(asc(sessionsTable.id))
+    .from(t.sessions)
+    .where(
+      inWorkspace(
+        t.sessions,
+        isNull(t.sessions.deletedAt),
+        sql`${t.sessions.id} > ${sql.placeholder('after')}`,
+      ),
+    )
+    .orderBy(asc(t.sessions.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
 /** Live sessions with no birth ref yet, in the boot ref backfill's order
  *  (#474): created_at, then id. */
-const liveSessionsWithoutRef = prepared((db: StoreDrizzle) =>
+const liveSessionsWithoutRef = prepared((db, t) =>
   db
     .select()
-    .from(sessionsTable)
-    .where(and(isNull(sessionsTable.refIssueId), isNull(sessionsTable.refDraft), isNull(sessionsTable.deletedAt)))
-    .orderBy(asc(sessionsTable.createdAt), asc(sessionsTable.id))
+    .from(t.sessions)
+    .where(
+      inWorkspace(
+        t.sessions,
+        isNull(t.sessions.refIssueId),
+        isNull(t.sessions.refDraft),
+        isNull(t.sessions.deletedAt),
+      ),
+    )
+    .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
     .prepare(),
 )
 
 /** The ref-less live terms, spelled as `idx_sessions_refless_*` declare them so
  *  the planner can use those partial indexes. */
 const REFLESS = sql.raw('s.ref_issue_id IS NULL AND s.ref_draft IS NULL AND s.deleted_at IS NULL')
+/** Each arm's own workspace term on its `s`; the issue arm's probe holds `i` to that `s`. */
+const S_IN_WORKSPACE = sql`s.workspace_id = ${WORKSPACE}`
 
 /**
  * THE BOOT REF BACKFILL'S CANDIDATES (POD-6222): ref-less live sessions in one
@@ -307,38 +552,72 @@ const REFLESS = sql.raw('s.ref_issue_id IS NULL AND s.ref_draft IS NULL AND s.de
  * `idx_sessions_ref_draft`, which holds every session. So the statement touches
  * the rows that can still get a ref, not every ref-less session in history.
  */
-const refBackfillCandidates = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(sessionsTable)
-    .where(sql`${sessionsTable}.rowid IN (
-      SELECT s.rowid FROM json_each(${sql.placeholder('bounded')}) AS b CROSS JOIN ${sessionsTable} AS s
-        WHERE ${REFLESS} AND s.machine_id = json_extract(b.value, '$[0]')
+const refBackfillCandidates = dialectPrepared<
+  { readonly bounded: string; readonly open: string },
+  SessionSelect
+>()({
+  sqlite: (db, t) =>
+    db
+      .select()
+      .from(t.sessions)
+      .where(
+        inWorkspace(
+          t.sessions,
+          sql`${t.sessions}.rowid IN (
+      SELECT s.rowid FROM json_each(${sql.placeholder('bounded')}) AS b CROSS JOIN ${t.sessions} AS s
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.machine_id = json_extract(b.value, '$[0]')
           AND s.cwd >= json_extract(b.value, '$[1]') AND s.cwd < json_extract(b.value, '$[2]')
       UNION ALL
-      SELECT s.rowid FROM json_each(${sql.placeholder('open')}) AS o CROSS JOIN ${sessionsTable} AS s
-        WHERE ${REFLESS} AND s.machine_id = json_extract(o.value, '$[0]') AND s.cwd >= json_extract(o.value, '$[1]')
+      SELECT s.rowid FROM json_each(${sql.placeholder('open')}) AS o CROSS JOIN ${t.sessions} AS s
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.machine_id = json_extract(o.value, '$[0]') AND s.cwd >= json_extract(o.value, '$[1]')
       UNION ALL
-      SELECT s.rowid FROM ${sessionsTable} AS s INDEXED BY idx_sessions_refless_issue
-        WHERE ${REFLESS} AND s.issue_id IS NOT NULL
-          AND EXISTS (SELECT 1 FROM ${issuesTable} AS i WHERE i.id = s.issue_id)
-    )`)
-    .orderBy(asc(sessionsTable.createdAt), asc(sessionsTable.id))
-    .prepare(),
-)
+      SELECT s.rowid FROM ${t.sessions} AS s INDEXED BY idx_sessions_refless_issue
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.issue_id IS NOT NULL
+          AND EXISTS (SELECT 1 FROM ${t.issues} AS i WHERE i.workspace_id = s.workspace_id AND i.id = s.issue_id)
+    )`,
+        ),
+      )
+      .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
+      .prepare(),
+  // The same three arms on Postgres: each range comes from `json_array_elements`
+  // over the same JSON parameter, its bounds compared in byte order (`COLLATE "C"`,
+  // design 2.3 rule 13), the rows matched by primary key instead of `rowid`, and
+  // no INDEXED BY (the planner reads statistics, which SQLite's lacks).
+  pg: (db, t) =>
+    db
+      .select()
+      .from(t.sessions)
+      .where(
+        inWorkspace(
+          t.sessions,
+          sql`${t.sessions.id} IN (
+      SELECT s.id FROM json_array_elements(CAST(${sql.placeholder('bounded')} AS json)) AS b(value) CROSS JOIN ${t.sessions} AS s
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.machine_id = (b.value->>0) COLLATE "C"
+          AND s.cwd >= (b.value->>1) COLLATE "C" AND s.cwd < (b.value->>2) COLLATE "C"
+      UNION ALL
+      SELECT s.id FROM json_array_elements(CAST(${sql.placeholder('open')} AS json)) AS o(value) CROSS JOIN ${t.sessions} AS s
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.machine_id = (o.value->>0) COLLATE "C" AND s.cwd >= (o.value->>1) COLLATE "C"
+      UNION ALL
+      SELECT s.id FROM ${t.sessions} AS s
+        WHERE ${S_IN_WORKSPACE} AND ${REFLESS} AND s.issue_id IS NOT NULL
+          AND EXISTS (SELECT 1 FROM ${t.issues} AS i WHERE i.workspace_id = s.workspace_id AND i.id = s.issue_id)
+    )`,
+        ),
+      )
+      .orderBy(asc(t.sessions.createdAt), asc(t.sessions.id))
+      .prepare(),
+})
 
-const deletedSessions = prepared((db: StoreDrizzle) =>
-  sessionsWhere(db, isNotNull(sessionsTable.deletedAt)),
-)
+const deletedSessions = prepared((db, t) => sessionsWhere(db, t, isNotNull(t.sessions.deletedAt)))
 
-const deletedByIssue = (): SQL | undefined =>
+const deletedByIssue = (t: StoreTables): SQL | undefined =>
   and(
-    isNotNull(sessionsTable.deletedAt),
-    eq(sessionsTable.deletionSource, 'issue'),
-    eq(sessionsTable.deletedByIssueId, param(sessionsTable.deletedByIssueId, 'issueId')),
+    isNotNull(t.sessions.deletedAt),
+    eq(t.sessions.deletionSource, 'issue'),
+    eq(t.sessions.deletedByIssueId, param(t.sessions.deletedByIssueId, 'issueId')),
   )
 
-const deletedSessionsForIssue = prepared((db: StoreDrizzle) => sessionsWhere(db, deletedByIssue()))
+const deletedSessionsForIssue = prepared((db, t) => sessionsWhere(db, t, deletedByIssue(t)))
 
 /**
  * The upsert keyed by the set of keys its values actually carry: drizzle skips
@@ -369,10 +648,20 @@ const INDEXED_GROUPS: readonly (readonly SessionColumnKey[])[] = [
   ['resumeValue'],
   ['issueId'],
   ['cwd', 'machineId'],
-  ['spawnedBy', 'refIssueId', 'refDraft', 'deletedAt', 'deletedByIssueId'],
+  [
+    'spawnedBy',
+    'refIssueId',
+    'refDraft',
+    'deletedAt',
+    'deletedByIssueId',
+    'revision',
+    'observedRevision',
+  ],
 ]
 const INDEXED_COLUMNS = INDEXED_GROUPS.flat()
-const GROUP_BIT = new Map(INDEXED_GROUPS.flatMap((group, index) => group.map((key) => [key, 1 << index] as const)))
+const GROUP_BIT = new Map(
+  INDEXED_GROUPS.flatMap((group, index) => group.map((key) => [key, 1 << index] as const)),
+)
 const STATUS_GROUP = 1
 /** Every group set: the full write, for a row this store cannot vouch for. */
 const ALL_GROUPS = (1 << INDEXED_GROUPS.length) - 1
@@ -389,7 +678,10 @@ function indexedColumnsOf(values: object): IndexedColumns {
 }
 
 /** The groups whose values differ from what the row holds. */
-function changedGroups(stored: IndexedColumns | undefined, values: Record<string, unknown>): number {
+function changedGroups(
+  stored: IndexedColumns | undefined,
+  values: Record<string, unknown>,
+): number {
   if (stored === undefined) return ALL_GROUPS
   let groups = 0
   INDEXED_COLUMNS.forEach((key, index) => {
@@ -406,13 +698,27 @@ function changedGroups(stored: IndexedColumns | undefined, values: Record<string
  * are written on insert only. An indexed column outside `groups` is left out
  * (see {@link INDEXED_GROUPS}).
  */
-function sessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | undefined, groups: number) {
-  const set: Partial<Record<SessionColumnKey, Placeholder | SQL | undefined>> = fullSessionUpsertSet(value)
+function sessionUpsertSet(
+  t: StoreTables,
+  value: (key: SessionColumnKey) => Placeholder | SQL | undefined,
+  groups: number,
+) {
+  const set: Partial<Record<SessionColumnKey, Placeholder | SQL | undefined>> =
+    fullSessionUpsertSet(t, value)
   for (const key of INDEXED_COLUMNS) if ((groups & GROUP_BIT.get(key)!) === 0) delete set[key]
   return set
 }
 
-function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQL | undefined) {
+function fullSessionUpsertSet(
+  t: StoreTables,
+  value: (key: SessionColumnKey) => Placeholder | SQL | undefined,
+) {
+  const nextPublication = value('lastActivePublishAfter')
+  // The interval is added to the column, not taken from the incoming value: in the
+  // one-row form that value is a bare parameter, and Postgres cannot type
+  // `$n - $m` from two parameters (POD-6983). For integers the two are one test.
+  const publishActivity = sql`${t.sessions.lastActivePublishAfter} + ${SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS} <= ${nextPublication}
+    AND excluded."last_active_at" > ${t.sessions.publishedLastActiveAt}`
   return {
     cwd: value('cwd'),
     model: value('model'),
@@ -420,7 +726,10 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     requestedModel: value('requestedModel'),
     requestedEffort: value('requestedEffort'),
     accountId: value('accountId'),
-    loginHarness: sql`COALESCE(${sessionsTable.loginHarness}, excluded."login_harness")`,
+    credentialId: value('credentialId'),
+    effectiveAuth: value('effectiveAuth'),
+    credentialMismatch: value('credentialMismatch'),
+    loginHarness: sql`COALESCE(${t.sessions.loginHarness}, excluded."login_harness")`,
     title: value('title'),
     name: value('name'),
     nameSource: value('nameSource'),
@@ -431,13 +740,22 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     selectedDriverId: value('selectedDriverId'),
     requestedDriverId: value('requestedDriverId'),
     boundDriverId: value('boundDriverId'),
+    boundDriverCapabilities: value('boundDriverCapabilities'),
+    draftSyncEngine: value('draftSyncEngine'),
+    agentStateJson: value('agentStateJson'),
+    agentColor: value('agentColor'),
+    observedModel: value('observedModel'),
+    observedEffort: value('observedEffort'),
+    observedMode: value('observedMode'),
+    launchPostureJson: value('launchPostureJson'),
+    handoffTargetMachineId: value('handoffTargetMachineId'),
     // BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
     // native conversation, no later write may say it never did. The rule
     // lives here rather than in the caller because it is the premise the
     // fresh-relaunch path depends on — a caller that reconstructs a stale
     // Session and persists it must not be able to un-prove a conversation.
     conversationBinding: sql`CASE
-         WHEN ${sessionsTable.conversationBinding} = 'bound' THEN 'bound'
+         WHEN ${t.sessions.conversationBinding} = 'bound' THEN 'bound'
          ELSE excluded."conversation_binding"
        END`,
     status: value('status'),
@@ -445,6 +763,14 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     spawnFailure: value('spawnFailure'),
     durableLabel: value('durableLabel'),
     lastActiveAt: value('lastActiveAt'),
+    publishedLastActiveAt:
+      nextPublication === undefined
+        ? undefined
+        : sql`CASE WHEN ${publishActivity} THEN excluded."last_active_at" ELSE ${t.sessions.publishedLastActiveAt} END`,
+    lastActivePublishAfter:
+      nextPublication === undefined
+        ? undefined
+        : sql`CASE WHEN ${publishActivity} THEN ${nextPublication} ELSE ${t.sessions.lastActivePublishAfter} END`,
     terminalCols: value('terminalCols'),
     terminalRows: value('terminalRows'),
     workingMsTotal: value('workingMsTotal'),
@@ -462,6 +788,13 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     stoppedAt: value('stoppedAt'),
     stopReason: value('stopReason'),
     oomKilledAt: value('oomKilledAt'),
+    desired: value('desired'),
+    desiredForce: value('desiredForce'),
+    revision: value('revision'),
+    observedRevision: value('observedRevision'),
+    lifecycleFailure: value('lifecycleFailure'),
+    desiredByUser: value('desiredByUser'),
+    desiredByAgent: value('desiredByAgent'),
     deletedAt: value('deletedAt'),
     deletionSource: value('deletionSource'),
     deletedByIssueId: value('deletedByIssueId'),
@@ -471,32 +804,36 @@ function fullSessionUpsertSet(value: (key: SessionColumnKey) => Placeholder | SQ
     // Birth name is PERMANENT (#474): once allocated it never changes, even
     // when the session re-attaches to a different issue. COALESCE keeps the
     // first non-null allocation.
-    refIssueId: sql`COALESCE(${sessionsTable.refIssueId}, excluded."ref_issue_id")`,
-    refLetter: sql`COALESCE(${sessionsTable.refLetter}, excluded."ref_letter")`,
-    refDraft: sql`COALESCE(${sessionsTable.refDraft}, excluded."ref_draft")`,
+    refIssueId: sql`COALESCE(${t.sessions.refIssueId}, excluded."ref_issue_id")`,
+    refLetter: sql`COALESCE(${t.sessions.refLetter}, excluded."ref_letter")`,
+    refDraft: sql`COALESCE(${t.sessions.refDraft}, excluded."ref_draft")`,
     // ATTRIBUTION IS IMMUTABLE AFTER CREATE (POD-365's
     // SESSION_IMMUTABLE_AFTER_CREATE lists `createdBy`). COALESCE keeps the
     // pair stamped at birth: an upsert from a later code path — a status
     // change, a rename, a reattach — must not be able to re-attribute the
     // session to whoever happened to trigger it. It can only FILL a pair
     // that was never recorded, never overwrite one that was.
-    delegation: sql`COALESCE(${sessionsTable.delegation}, excluded."delegation")`,
-    createdByActorKind: sql`COALESCE(${sessionsTable.createdByActorKind}, excluded."created_by_actor_kind")`,
-    createdByActorId: sql`COALESCE(${sessionsTable.createdByActorId}, excluded."created_by_actor_id")`,
-    createdByOnBehalfOf: sql`COALESCE(${sessionsTable.createdByOnBehalfOf}, excluded."created_by_on_behalf_of")`,
+    delegation: sql`COALESCE(${t.sessions.delegation}, excluded."delegation")`,
+    createdByActorKind: sql`COALESCE(${t.sessions.createdByActorKind}, excluded."created_by_actor_kind")`,
+    createdByActorId: sql`COALESCE(${t.sessions.createdByActorId}, excluded."created_by_actor_id")`,
+    createdByOnBehalfOf: sql`COALESCE(${t.sessions.createdByOnBehalfOf}, excluded."created_by_on_behalf_of")`,
   }
 }
 
 /** The one-row upsert, keyed `${groups}|${shape}`: the changed groups, then the keys its values carry. */
-const upsertSessionOfShape = preparedFamily((db: StoreDrizzle, key: string) => {
+const upsertSessionOfShape = preparedFamily((db, t, key: string) => {
   const bar = key.indexOf('|')
   const groups = Number(key.slice(0, bar))
   const p = placeholdersFor(key.slice(bar + 1)) as SessionPlaceholders
-  return db
-    .insert(sessionsTable)
-    .values(p as unknown as SessionInsert)
-    .onConflictDoUpdate({ target: sessionsTable.id, set: sessionUpsertSet((name) => p[name], groups) })
-    .prepare()
+  return captureWrite(
+    db
+      .insert(t.sessions)
+      .values({ ...p, workspaceId: WORKSPACE } as unknown as SessionInsert)
+      .onConflictDoUpdate({
+        target: [t.sessions.workspaceId, t.sessions.id],
+        set: sessionUpsertSet(t, (name) => p[name], groups),
+      }),
+  ).prepare()
 })
 
 /**
@@ -516,30 +853,35 @@ const rowParam = (index: number, key: string): string => `r${index}_${key}`
  * last row, and an upsert of the same row twice leaves it as once (the set is
  * the incoming values, and every COALESCE and CASE in it keeps a value it
  * already wrote). `groups` is {@link manyRowGroups} of the rows' changed groups,
- * so three per size.
+ * so three per size. On Postgres, which refuses a row twice in one upsert, `size`
+ * is the batch's own length instead (`padsUpsertRows`).
  */
-const upsertSessionsOfShape = preparedFamily((db: StoreDrizzle, key: string) => {
+const upsertSessionsOfShape = preparedFamily((db, t, key: string) => {
   const [sizeKey, groupsKey] = key.split('|', 2) as [string, string]
   const size = Number(sizeKey)
   const groups = Number(groupsKey)
   const shape = key.slice(sizeKey.length + groupsKey.length + 2)
   const keys = shape === '' ? [] : shape.split(',')
   const present = new Set<string>(keys)
-  const columns = getTableColumns(sessionsTable)
-  const rows = Array.from({ length: size }, (_, index) =>
-    Object.fromEntries(keys.map((name) => [name, sql.placeholder(rowParam(index, name))])),
-  )
-  return db
-    .insert(sessionsTable)
-    .values(rows as unknown as SessionInsert[])
-    .onConflictDoUpdate({
-      target: sessionsTable.id,
-      set: sessionUpsertSet(
-        (name) => (present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined),
-        groups,
-      ),
-    })
-    .prepare()
+  const columns = getTableColumns(t.sessions)
+  const rows = Array.from({ length: size }, (_, index) => ({
+    ...Object.fromEntries(keys.map((name) => [name, sql.placeholder(rowParam(index, name))])),
+    workspaceId: WORKSPACE,
+  }))
+  return captureWrite(
+    db
+      .insert(t.sessions)
+      .values(rows as unknown as SessionInsert[])
+      .onConflictDoUpdate({
+        target: [t.sessions.workspaceId, t.sessions.id],
+        set: sessionUpsertSet(
+          t,
+          (name) =>
+            present.has(name) ? sql`excluded.${sql.identifier(columns[name].name)}` : undefined,
+          groups,
+        ),
+      }),
+  ).prepare()
 })
 
 /**
@@ -555,7 +897,7 @@ function manyRowGroups(changed: number): number {
 
 /** The column values of one session row, refused before any write when the row
  *  is one no client could read. */
-function sessionUpsertValues(row: SessionRow) {
+function sessionUpsertValues(row: SessionRow, now = Date.now()) {
   if (!row.ownerUserId) {
     throw new Error(`upsertSession: ownerUserId is required for ${row.id}`)
   }
@@ -577,6 +919,10 @@ function sessionUpsertValues(row: SessionRow) {
     requestedModel: row.requestedModel ?? null,
     requestedEffort: row.requestedEffort ?? null,
     accountId: row.accountId ?? null,
+    credentialId: row.credentialId ?? null,
+    effectiveAuth: row.effectiveAuth == null ? null : JSON.stringify(row.effectiveAuth),
+    credentialMismatch:
+      row.credentialMismatch == null ? null : JSON.stringify(row.credentialMismatch),
     loginHarness: row.loginHarness ?? null,
     cwd: row.cwd,
     title: row.title,
@@ -589,6 +935,16 @@ function sessionUpsertValues(row: SessionRow) {
     selectedDriverId: row.selectedDriverId ?? null,
     requestedDriverId: row.requestedDriverId ?? null,
     boundDriverId: row.boundDriverId ?? null,
+    boundDriverCapabilities:
+      row.boundDriverCapabilities == null ? null : JSON.stringify(row.boundDriverCapabilities),
+    draftSyncEngine: row.draftSyncEngine ?? false,
+    agentStateJson: row.agentState ? JSON.stringify(row.agentState) : null,
+    agentColor: row.agentColor ?? null,
+    observedModel: row.observedModel ?? null,
+    observedEffort: row.observedEffort ?? null,
+    observedMode: row.observedMode ?? null,
+    launchPostureJson: row.launchPosture ? JSON.stringify(row.launchPosture) : null,
+    handoffTargetMachineId: row.handoffTargetMachineId ?? null,
     conversationBinding: row.conversationBinding ?? null,
     status: row.status,
     exitCode: row.exitCode,
@@ -596,6 +952,8 @@ function sessionUpsertValues(row: SessionRow) {
     durableLabel: row.durableLabel,
     createdAt: row.createdAt,
     lastActiveAt: row.lastActiveAt,
+    publishedLastActiveAt: row.lastActiveAt,
+    lastActivePublishAfter: now + SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS,
     terminalCols: row.geometry?.cols ?? 80,
     terminalRows: row.geometry?.rows ?? 24,
     workingMsTotal: row.workingMsTotal ?? null,
@@ -623,6 +981,13 @@ function sessionUpsertValues(row: SessionRow) {
      */
     stopReason: row.stopReason === 'oom' ? 'exited' : (row.stopReason ?? null),
     oomKilledAt: row.oomKilledAt ?? null,
+    desired: (row.lifecycle ?? NO_LIFECYCLE).desired,
+    desiredForce: (row.lifecycle ?? NO_LIFECYCLE).force,
+    revision: (row.lifecycle ?? NO_LIFECYCLE).revision,
+    observedRevision: (row.lifecycle ?? NO_LIFECYCLE).observedRevision,
+    lifecycleFailure: encodeLifecycleFailure((row.lifecycle ?? NO_LIFECYCLE).failure),
+    desiredByUser: (row.lifecycle ?? NO_LIFECYCLE).byUser,
+    desiredByAgent: (row.lifecycle ?? NO_LIFECYCLE).byAgent,
     deletedAt: row.deletedAt ?? null,
     deletionSource: row.deletionSource ?? null,
     deletedByIssueId: row.deletedByIssueId ?? null,
@@ -640,399 +1005,560 @@ function sessionUpsertValues(row: SessionRow) {
   return values
 }
 
-const untombstonedById = (): SQL | undefined =>
-  and(eq(sessionsTable.id, param(sessionsTable.id, 'id')), isNull(sessionsTable.deletedAt))
+const untombstonedById = (t: StoreTables): SQL | undefined =>
+  inWorkspace(
+    t.sessions,
+    eq(t.sessions.id, param(t.sessions.id, 'id')),
+    isNull(t.sessions.deletedAt),
+  )
 
-const stopRunningForTombstone = prepared((db: StoreDrizzle) =>
-  db
-    .update(sessionsTable)
-    .set({ status: 'exited', stoppedAt: sql.placeholder('deletedAt'), stopReason: 'forced' })
-    .where(
-      and(untombstonedById(), inArray(sessionsTable.status, ['starting', 'live', 'reconnecting'])),
-    )
-    .prepare(),
+const stopRunningForTombstone = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.sessions)
+      .set({ status: 'exited', stoppedAt: sql.placeholder('deletedAt'), stopReason: 'forced' })
+      .where(and(untombstonedById(t), inArray(t.sessions.status, ['starting', 'live']))),
+  ).prepare(),
 )
 
-const tombstoneSession = prepared((db: StoreDrizzle) =>
-  db
-    .update(sessionsTable)
-    .set({
-      deletedAt: sql.placeholder('deletedAt'),
-      deletionSource: sql.placeholder('source'),
-      deletedByIssueId: sql.placeholder('deletedByIssueId'),
-    })
-    .where(untombstonedById())
-    .prepare(),
+const tombstoneSession = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        deletedAt: sql.placeholder('deletedAt'),
+        deletionSource: sql.placeholder('source'),
+        deletedByIssueId: sql.placeholder('deletedByIssueId'),
+      })
+      .where(untombstonedById(t)),
+  ).prepare(),
 )
 
-const restoreSessionsOfIssue = prepared((db: StoreDrizzle) =>
-  db
-    .update(sessionsTable)
-    .set({
-      deletedAt: null,
-      deletionSource: null,
-      deletedByIssueId: null,
-      status: 'exited',
-      exitCode: null,
-    })
-    .where(deletedByIssue())
-    .prepare(),
+const restoreSessionsOfIssue = prepared((db, t) =>
+  captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        deletedAt: null,
+        deletionSource: null,
+        deletedByIssueId: null,
+        status: 'exited',
+        exitCode: null,
+      })
+      .where(inWorkspace(t.sessions, deletedByIssue(t))),
+  ).prepare(),
 )
 
-const detachTombstones = prepared((db: StoreDrizzle) => {
+const detachTombstones = prepared((db, t) => {
   const issueId = sql.placeholder('issueId')
-  return db
-    .update(sessionsTable)
-    .set({
-      issueId: sql`CASE WHEN ${sessionsTable.issueId} = ${issueId} THEN NULL ELSE ${sessionsTable.issueId} END`,
-      refIssueId: sql`CASE WHEN ${sessionsTable.refIssueId} = ${issueId} THEN NULL ELSE ${sessionsTable.refIssueId} END`,
-      refLetter: sql`CASE WHEN ${sessionsTable.refIssueId} = ${issueId} THEN NULL ELSE ${sessionsTable.refLetter} END`,
-    })
-    .where(
-      and(
-        isNotNull(sessionsTable.deletedAt),
-        or(
-          eq(sessionsTable.issueId, param(sessionsTable.issueId, 'issueId')),
-          eq(sessionsTable.refIssueId, param(sessionsTable.refIssueId, 'issueId')),
+  return captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        issueId: sql`CASE WHEN ${t.sessions.issueId} = ${issueId} THEN NULL ELSE ${t.sessions.issueId} END`,
+        refIssueId: sql`CASE WHEN ${t.sessions.refIssueId} = ${issueId} THEN NULL ELSE ${t.sessions.refIssueId} END`,
+        refLetter: sql`CASE WHEN ${t.sessions.refIssueId} = ${issueId} THEN NULL ELSE ${t.sessions.refLetter} END`,
+      })
+      .where(
+        inWorkspace(
+          t.sessions,
+          isNotNull(t.sessions.deletedAt),
+          or(
+            eq(t.sessions.issueId, param(t.sessions.issueId, 'issueId')),
+            eq(t.sessions.refIssueId, param(t.sessions.refIssueId, 'issueId')),
+          ),
         ),
       ),
-    )
-    .prepare()
+  ).prepare()
 })
 
-const detachDanglingReferences = prepared((db: StoreDrizzle) => {
+const detachDanglingReferences = prepared((db, t) => {
   // The subquery's own column is unqualified and resolves inside `issues`,
   // which is what it must do; the OUTER columns are the `sessions` ones the
   // builder qualifies for us here because they are named as columns rather
   // than interpolated into the fragment.
-  const danglingIssue = sql`${sessionsTable.issueId} IS NOT NULL AND ${sessionsTable.issueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
-  const danglingRef = sql`${sessionsTable.refIssueId} IS NOT NULL AND ${sessionsTable.refIssueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
-  return db
-    .update(sessionsTable)
-    .set({
-      issueId: sql`CASE WHEN ${danglingIssue} THEN NULL ELSE ${sessionsTable.issueId} END`,
-      refLetter: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${sessionsTable.refLetter} END`,
-      refIssueId: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${sessionsTable.refIssueId} END`,
-    })
-    .where(or(danglingIssue, danglingRef))
-    .prepare()
+  // The subquery reads this workspace's issues only, in its own scope.
+  const workspaceIssueIds = sql`SELECT ${t.issues.id} FROM ${t.issues} WHERE ${t.issues.workspaceId} = ${WORKSPACE}`
+  const danglingIssue = sql`${t.sessions.issueId} IS NOT NULL AND ${t.sessions.issueId} NOT IN (${workspaceIssueIds})`
+  const danglingRef = sql`${t.sessions.refIssueId} IS NOT NULL AND ${t.sessions.refIssueId} NOT IN (${workspaceIssueIds})`
+  return captureWrite(
+    db
+      .update(t.sessions)
+      .set({
+        issueId: sql`CASE WHEN ${danglingIssue} THEN NULL ELSE ${t.sessions.issueId} END`,
+        refLetter: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refLetter} END`,
+        refIssueId: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${t.sessions.refIssueId} END`,
+      })
+      .where(inWorkspace(t.sessions, or(danglingIssue, danglingRef))),
+  ).prepare()
 })
 
-const deleteCheckpointsOfSession = prepared((db: StoreDrizzle) =>
-  db
-    .delete(runtimeEventCheckpoints)
-    .where(eq(runtimeEventCheckpoints.sessionId, param(runtimeEventCheckpoints.sessionId, 'id')))
-    .prepare(),
-)
-
-const deleteSessionRow = prepared((db: StoreDrizzle) =>
-  db.delete(sessionsTable).where(eq(sessionsTable.id, param(sessionsTable.id, 'id'))).prepare(),
-)
-
-const deletePanelPinsOf = prepared((db: StoreDrizzle) =>
-  db
-    .delete(pinsTable)
-    .where(and(eq(pinsTable.kind, 'panel'), eq(pinsTable.id, param(pinsTable.id, 'id'))))
-    .prepare(),
-)
-
-const deleteDraftOf = prepared((db: StoreDrizzle) =>
-  db
-    .delete(sessionDrafts)
-    .where(eq(sessionDrafts.sessionId, param(sessionDrafts.sessionId, 'id')))
-    .prepare(),
-)
-
-const deleteSnoozesOf = prepared((db: StoreDrizzle) =>
-  db
-    .delete(snoozesTable)
-    .where(eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'id')))
-    .prepare(),
-)
-
-const deleteUserStateOf = prepared((db: StoreDrizzle) =>
-  db
-    .delete(sessionUserState)
-    .where(eq(sessionUserState.sessionId, param(sessionUserState.sessionId, 'id')))
-    .prepare(),
-)
-
-const deleteOfferOf = prepared((db: StoreDrizzle) =>
-  db
-    .delete(offersTable)
-    .where(eq(offersTable.sessionId, param(offersTable.sessionId, 'id')))
-    .prepare(),
-)
-
-const pinsOfUser = prepared((db: StoreDrizzle) =>
-  db
-    .select({ kind: pinsTable.kind, id: pinsTable.id })
-    .from(pinsTable)
-    .where(eq(pinsTable.userId, param(pinsTable.userId, 'userId')))
-    .orderBy(asc(sql`rowid`))
-    .prepare(),
-)
-
-const insertPin = prepared((db: StoreDrizzle) =>
-  db
-    .insert(pinsTable)
-    .values({
-      userId: sql.placeholder('userId'),
-      kind: sql.placeholder('kind'),
-      id: sql.placeholder('id'),
-      pinnedAt: sql.placeholder('pinnedAt'),
-    })
-    .onConflictDoNothing()
-    .prepare(),
-)
-
-const deletePin = prepared((db: StoreDrizzle) =>
-  db
-    .delete(pinsTable)
-    .where(
-      and(
-        eq(pinsTable.userId, param(pinsTable.userId, 'userId')),
-        eq(pinsTable.kind, param(pinsTable.kind, 'kind')),
-        eq(pinsTable.id, param(pinsTable.id, 'id')),
+const deleteCheckpointsOfSession = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.runtimeEventCheckpoints)
+      .where(
+        inWorkspace(
+          t.runtimeEventCheckpoints,
+          eq(t.runtimeEventCheckpoints.sessionId, param(t.runtimeEventCheckpoints.sessionId, 'id')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
-const allUserStateRows = prepared((db: StoreDrizzle) =>
-  db.select().from(sessionUserState).where(undefined).prepare(),
+const deleteSessionRow = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.sessions)
+      .where(inWorkspace(t.sessions, eq(t.sessions.id, param(t.sessions.id, 'id')))),
+  ).prepare(),
 )
 
-const userStateRowsOfSession = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(sessionUserState)
-    .where(eq(sessionUserState.sessionId, param(sessionUserState.sessionId, 'sessionId')))
-    .prepare(),
+const deletePanelPinsOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.pins)
+      .where(inWorkspace(t.pins, eq(t.pins.kind, 'panel'), eq(t.pins.id, param(t.pins.id, 'id')))),
+  ).prepare(),
 )
 
-const allSnoozeRows = prepared((db: StoreDrizzle) =>
-  db.select().from(snoozesTable).where(undefined).prepare(),
-)
-
-const snoozeRowsOfSession = prepared((db: StoreDrizzle) =>
-  db
-    .select()
-    .from(snoozesTable)
-    .where(eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')))
-    .prepare(),
-)
-
-const userSessionSnooze = prepared((db: StoreDrizzle) =>
-  db
-    .select({ until: snoozesTable.snoozedUntil })
-    .from(snoozesTable)
-    .where(
-      and(
-        eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')),
-        eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')),
+const deleteDraftOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.sessionDrafts)
+      .where(
+        inWorkspace(
+          t.sessionDrafts,
+          eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'id')),
+        ),
       ),
-    )
-    .prepare(),
+  ).prepare(),
 )
 
-const readAtOfUser = prepared((db: StoreDrizzle) =>
-  db
-    .select({ sessionId: sessionUserState.sessionId, readAt: sessionUserState.readAt })
-    .from(sessionUserState)
-    .where(eq(sessionUserState.userId, param(sessionUserState.userId, 'userId')))
-    .prepare(),
+const deleteSnoozesOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.snoozes)
+      .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'id')))),
+  ).prepare(),
 )
 
-const userSessionState = (): SQL | undefined =>
-  and(
-    eq(sessionUserState.userId, param(sessionUserState.userId, 'userId')),
-    eq(sessionUserState.sessionId, param(sessionUserState.sessionId, 'sessionId')),
+const deleteUserStateOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.sessionUserState)
+      .where(
+        inWorkspace(
+          t.sessionUserState,
+          eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'id')),
+        ),
+      ),
+  ).prepare(),
+)
+
+const deleteOfferOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.offers)
+      .where(inWorkspace(t.offers, eq(t.offers.sessionId, param(t.offers.sessionId, 'id')))),
+  ).prepare(),
+)
+
+const insertPin = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.pins)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: sql.placeholder('userId'),
+        kind: sql.placeholder('kind'),
+        id: sql.placeholder('id'),
+        pinnedAt: sql.placeholder('pinnedAt'),
+      })
+      .onConflictDoNothing(),
+  ).prepare(),
+)
+
+const onePin = (t: StoreTables) =>
+  inWorkspace(
+    t.pins,
+    eq(t.pins.userId, param(t.pins.userId, 'userId')),
+    eq(t.pins.kind, param(t.pins.kind, 'kind')),
+    eq(t.pins.id, param(t.pins.id, 'id')),
   )
 
-const readAtOfUserSession = prepared((db: StoreDrizzle) =>
+const deletePin = prepared((db, t) => captureWrite(db.delete(t.pins).where(onePin(t))).prepare())
+
+// Every person's pin of one thing, removed with it (POD-6692: a purged issue).
+const deletePinsOfTarget = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.pins)
+      .where(
+        inWorkspace(
+          t.pins,
+          eq(t.pins.kind, param(t.pins.kind, 'kind')),
+          eq(t.pins.id, param(t.pins.id, 'id')),
+        ),
+      )
+      .returning({ userId: t.pins.userId }),
+  ).prepare(),
+)
+
+/** Who pins one thing, through `idx_pins_target`. */
+const pinnersOfTarget = prepared((db, t) =>
   db
-    .select({ readAt: sessionUserState.readAt })
-    .from(sessionUserState)
-    .where(userSessionState())
+    .select({ userId: t.pins.userId })
+    .from(t.pins)
+    .where(
+      inWorkspace(
+        t.pins,
+        eq(t.pins.kind, param(t.pins.kind, 'kind')),
+        eq(t.pins.id, param(t.pins.id, 'id')),
+      ),
+    )
     .prepare(),
 )
 
-const upsertReadAt = prepared((db: StoreDrizzle) =>
+const pinOf = prepared((db, t) =>
+  db.select({ pinnedAt: t.pins.pinnedAt }).from(t.pins).where(onePin(t)).prepare(),
+)
+
+// Every person's pins: the `pin` kind's full truth for the boot reconcile.
+const allPins = prepared((db, t) =>
   db
-    .insert(sessionUserState)
-    .values({
-      userId: sql.placeholder('userId'),
-      sessionId: sql.placeholder('sessionId'),
-      readAt: sql.placeholder('readAt'),
+    .select({
+      userId: t.pins.userId,
+      kind: t.pins.kind,
+      id: t.pins.id,
+      pinnedAt: t.pins.pinnedAt,
     })
-    .onConflictDoUpdate({
-      target: [sessionUserState.userId, sessionUserState.sessionId],
-      set: { readAt: sql.placeholder('readAt') },
-    })
+    .from(t.pins)
+    .where(inWorkspace(t.pins))
+    // Oldest first, ties by the key: said rather than left to the plan, which since the key
+    // leads with the workspace (POD-7024) may read the pins in key order, and the same on
+    // both engines (Postgres has no rowid).
+    .orderBy(asc(t.pins.pinnedAt), asc(t.pins.userId), asc(t.pins.kind), asc(t.pins.id))
     .prepare(),
 )
 
-const deleteReadAt = prepared((db: StoreDrizzle) =>
-  db.delete(sessionUserState).where(userSessionState()).prepare(),
+const allUserStateRows = prepared((db, t) =>
+  db.select().from(t.sessionUserState).where(inWorkspace(t.sessionUserState)).prepare(),
 )
 
-const deleteAllReadAtOf = prepared((db: StoreDrizzle) =>
+const personalRecordKeys = preparedFamily((db, t, size: number) =>
   db
-    .delete(sessionUserState)
-    .where(eq(sessionUserState.sessionId, param(sessionUserState.sessionId, 'sessionId')))
-    .returning({ userId: sessionUserState.userId })
+    .select({ userId: t.sessionUserState.userId, sessionId: t.sessionUserState.sessionId })
+    .from(t.sessionUserState)
+    .where(inWorkspace(t.sessionUserState, inListOf(t.sessionUserState.sessionId, size)))
+    .unionAll(
+      db
+        .select({ userId: t.snoozes.userId, sessionId: t.snoozes.sessionId })
+        .from(t.snoozes)
+        .where(inWorkspace(t.snoozes, inListOf(t.snoozes.sessionId, size))),
+    )
     .prepare(),
+)
+
+/** The same keys for these people (POD-6920: a disabled person's markers leave). */
+const personalRecordKeysOfUsers = preparedFamily((db, t, size: number) =>
+  db
+    .select({ userId: t.sessionUserState.userId, sessionId: t.sessionUserState.sessionId })
+    .from(t.sessionUserState)
+    .where(inWorkspace(t.sessionUserState, inListOf(t.sessionUserState.userId, size)))
+    .unionAll(
+      db
+        .select({ userId: t.snoozes.userId, sessionId: t.snoozes.sessionId })
+        .from(t.snoozes)
+        .where(inWorkspace(t.snoozes, inListOf(t.snoozes.userId, size))),
+    )
+    .prepare(),
+)
+
+const userStateRowsOfSession = prepared((db, t) =>
+  db
+    .select()
+    .from(t.sessionUserState)
+    .where(
+      inWorkspace(
+        t.sessionUserState,
+        eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')),
+      ),
+    )
+    .prepare(),
+)
+
+const allSnoozeRows = prepared((db, t) =>
+  db.select().from(t.snoozes).where(inWorkspace(t.snoozes)).prepare(),
+)
+
+const snoozeRowsOfSession = prepared((db, t) =>
+  db
+    .select()
+    .from(t.snoozes)
+    .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId'))))
+    .prepare(),
+)
+
+const userSessionSnooze = prepared((db, t) =>
+  db
+    .select({ until: t.snoozes.snoozedUntil })
+    .from(t.snoozes)
+    .where(
+      inWorkspace(
+        t.snoozes,
+        eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
+        eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')),
+      ),
+    )
+    .prepare(),
+)
+
+const readAtOfUser = prepared((db, t) =>
+  db
+    .select({ sessionId: t.sessionUserState.sessionId, readAt: t.sessionUserState.readAt })
+    .from(t.sessionUserState)
+    .where(
+      inWorkspace(
+        t.sessionUserState,
+        eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')),
+      ),
+    )
+    .prepare(),
+)
+
+const userSessionState = (t: StoreTables): SQL | undefined =>
+  inWorkspace(
+    t.sessionUserState,
+    eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')),
+    eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')),
+  )
+
+const readAtOfUserSession = prepared((db, t) =>
+  db
+    .select({ readAt: t.sessionUserState.readAt })
+    .from(t.sessionUserState)
+    .where(userSessionState(t))
+    .prepare(),
+)
+
+const upsertReadAt = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.sessionUserState)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: sql.placeholder('userId'),
+        sessionId: sql.placeholder('sessionId'),
+        readAt: sql.placeholder('readAt'),
+      })
+      .onConflictDoUpdate({
+        target: [
+          t.sessionUserState.workspaceId,
+          t.sessionUserState.userId,
+          t.sessionUserState.sessionId,
+        ],
+        set: { readAt: sql.placeholder('readAt') },
+      }),
+  ).prepare(),
+)
+
+const deleteReadAt = prepared((db, t) =>
+  captureWrite(db.delete(t.sessionUserState).where(userSessionState(t))).prepare(),
+)
+
+const deleteAllReadAtOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.sessionUserState)
+      .where(
+        inWorkspace(
+          t.sessionUserState,
+          eq(t.sessionUserState.sessionId, param(t.sessionUserState.sessionId, 'sessionId')),
+        ),
+      )
+      .returning({ userId: t.sessionUserState.userId }),
+  ).prepare(),
 )
 
 /** One user's read markers for a set of sessions (POD-6160). */
-const readAtOfUserSessions = preparedFamily((db: StoreDrizzle, size: number) =>
+const readAtOfUserSessions = preparedFamily((db, t, size: number) =>
   db
-    .select({ sessionId: sessionUserState.sessionId, readAt: sessionUserState.readAt })
-    .from(sessionUserState)
+    .select({ sessionId: t.sessionUserState.sessionId, readAt: t.sessionUserState.readAt })
+    .from(t.sessionUserState)
     .where(
-      and(
-        eq(sessionUserState.userId, param(sessionUserState.userId, 'userId')),
-        inListOf(sessionUserState.sessionId, size),
+      inWorkspace(
+        t.sessionUserState,
+        eq(t.sessionUserState.userId, param(t.sessionUserState.userId, 'userId')),
+        inListOf(t.sessionUserState.sessionId, size),
       ),
     )
     .prepare(),
 )
 
 /** One user's snoozes for a set of sessions (POD-6160). */
-const snoozesOfUserSessions = preparedFamily((db: StoreDrizzle, size: number) =>
+const snoozesOfUserSessions = preparedFamily((db, t, size: number) =>
   db
-    .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
-    .from(snoozesTable)
+    .select({ sessionId: t.snoozes.sessionId, snoozedUntil: t.snoozes.snoozedUntil })
+    .from(t.snoozes)
     .where(
-      and(eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')), inListOf(snoozesTable.sessionId, size)),
-    )
-    .prepare(),
-)
-
-const snoozesOfUser = prepared((db: StoreDrizzle) =>
-  db
-    .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
-    .from(snoozesTable)
-    .where(eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')))
-    .prepare(),
-)
-
-const deleteUserSnooze = prepared((db: StoreDrizzle) =>
-  db
-    .delete(snoozesTable)
-    .where(
-      and(
-        eq(snoozesTable.userId, param(snoozesTable.userId, 'userId')),
-        eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')),
+      inWorkspace(
+        t.snoozes,
+        eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
+        inListOf(t.snoozes.sessionId, size),
       ),
     )
     .prepare(),
 )
 
-const upsertSnooze = prepared((db: StoreDrizzle) =>
+const snoozesOfUser = prepared((db, t) =>
   db
-    .insert(snoozesTable)
-    .values({
-      userId: sql.placeholder('userId'),
-      sessionId: sql.placeholder('sessionId'),
-      snoozedUntil: sql.placeholder('snoozedUntil'),
-      createdAt: sql.placeholder('createdAt'),
-    })
-    .onConflictDoUpdate({
-      target: [snoozesTable.userId, snoozesTable.sessionId],
-      set: { snoozedUntil: sql.placeholder('snoozedUntil') },
-    })
+    .select({ sessionId: t.snoozes.sessionId, snoozedUntil: t.snoozes.snoozedUntil })
+    .from(t.snoozes)
+    .where(inWorkspace(t.snoozes, eq(t.snoozes.userId, param(t.snoozes.userId, 'userId'))))
     .prepare(),
 )
 
-const anySnoozeOf = prepared((db: StoreDrizzle) =>
+const deleteUserSnooze = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.snoozes)
+      .where(
+        inWorkspace(
+          t.snoozes,
+          eq(t.snoozes.userId, param(t.snoozes.userId, 'userId')),
+          eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId')),
+        ),
+      ),
+  ).prepare(),
+)
+
+const upsertSnooze = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.snoozes)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: sql.placeholder('userId'),
+        sessionId: sql.placeholder('sessionId'),
+        snoozedUntil: sql.placeholder('snoozedUntil'),
+        createdAt: sql.placeholder('createdAt'),
+      })
+      .onConflictDoUpdate({
+        target: [t.snoozes.workspaceId, t.snoozes.userId, t.snoozes.sessionId],
+        set: { snoozedUntil: sql.placeholder('snoozedUntil') },
+      }),
+  ).prepare(),
+)
+
+const anySnoozeOf = prepared((db, t) =>
   db
     .select({ present: sql<number>`1` })
-    .from(snoozesTable)
-    .where(eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')))
+    .from(t.snoozes)
+    .where(inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId'))))
     .limit(1)
     .prepare(),
 )
 
-const deleteAllSnoozesOf = prepared((db: StoreDrizzle) =>
+const deleteAllSnoozesOf = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.snoozes)
+      .where(
+        inWorkspace(t.snoozes, eq(t.snoozes.sessionId, param(t.snoozes.sessionId, 'sessionId'))),
+      )
+      .returning({ userId: t.snoozes.userId }),
+  ).prepare(),
+)
+
+const allOffers = prepared((db, t) =>
+  db.select().from(t.offers).where(inWorkspace(t.offers)).prepare(),
+)
+
+const offersOfIds = preparedFamily((db, t, size: number) =>
   db
-    .delete(snoozesTable)
-    .where(eq(snoozesTable.sessionId, param(snoozesTable.sessionId, 'sessionId')))
-    .returning({ userId: snoozesTable.userId })
+    .select()
+    .from(t.offers)
+    .where(inWorkspace(t.offers, inListOf(t.offers.sessionId, size)))
     .prepare(),
 )
 
-const allOffers = prepared((db: StoreDrizzle) => db.select().from(offersTable).prepare())
-
-const offersOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select().from(offersTable).where(inListOf(offersTable.sessionId, size)).prepare(),
-)
-
-const upsertOffer = prepared((db: StoreDrizzle) =>
-  db
-    .insert(offersTable)
-    .values({
-      sessionId: sql.placeholder('sessionId'),
-      message: sql.placeholder('message'),
-      actions: sql.placeholder('actions'),
-      artifacts: sql.placeholder('artifacts'),
-      createdAt: sql.placeholder('createdAt'),
-    })
-    .onConflictDoUpdate({
-      target: offersTable.sessionId,
-      set: {
+const upsertOffer = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.offers)
+      .values({
+        workspaceId: WORKSPACE,
+        sessionId: sql.placeholder('sessionId'),
         message: sql.placeholder('message'),
         actions: sql.placeholder('actions'),
         artifacts: sql.placeholder('artifacts'),
         createdAt: sql.placeholder('createdAt'),
-      },
-    })
+      })
+      .onConflictDoUpdate({
+        target: [t.offers.workspaceId, t.offers.sessionId],
+        set: {
+          message: sql.placeholder('message'),
+          actions: sql.placeholder('actions'),
+          artifacts: sql.placeholder('artifacts'),
+          createdAt: sql.placeholder('createdAt'),
+        },
+      }),
+  ).prepare(),
+)
+
+const offerCreatedAtOf = prepared((db, t) =>
+  db
+    .select({ createdAt: t.offers.createdAt })
+    .from(t.offers)
+    .where(inWorkspace(t.offers, eq(t.offers.sessionId, param(t.offers.sessionId, 'sessionId'))))
     .prepare(),
 )
 
-const offerCreatedAtOf = prepared((db: StoreDrizzle) =>
+const tabOrderOf = prepared((db, t) =>
   db
-    .select({ createdAt: offersTable.createdAt })
-    .from(offersTable)
-    .where(eq(offersTable.sessionId, param(offersTable.sessionId, 'sessionId')))
-    .prepare(),
-)
-
-const tabOrdersOfUser = prepared((db: StoreDrizzle) =>
-  db
-    .select({ worktree: tabOrder.worktree, ids: tabOrder.ids })
-    .from(tabOrder)
-    .where(eq(tabOrder.userId, param(tabOrder.userId, 'userId')))
-    .prepare(),
-)
-
-const deleteTabOrder = prepared((db: StoreDrizzle) =>
-  db
-    .delete(tabOrder)
+    .select({ ids: t.tabOrder.ids })
+    .from(t.tabOrder)
     .where(
-      and(
-        eq(tabOrder.userId, param(tabOrder.userId, 'userId')),
-        eq(tabOrder.worktree, param(tabOrder.worktree, 'worktree')),
+      inWorkspace(
+        t.tabOrder,
+        eq(t.tabOrder.userId, param(t.tabOrder.userId, 'userId')),
+        eq(t.tabOrder.worktree, param(t.tabOrder.worktree, 'worktree')),
       ),
     )
     .prepare(),
 )
 
-const upsertTabOrder = prepared((db: StoreDrizzle) =>
-  db
-    .insert(tabOrder)
-    .values({
-      userId: sql.placeholder('userId'),
-      worktree: sql.placeholder('worktree'),
-      ids: sql.placeholder('ids'),
-      updatedAt: sql.placeholder('updatedAt'),
-    })
-    .onConflictDoUpdate({
-      target: [tabOrder.userId, tabOrder.worktree],
-      set: { ids: sql.placeholder('ids'), updatedAt: sql.placeholder('updatedAt') },
-    })
-    .prepare(),
+const deleteTabOrder = prepared((db, t) =>
+  captureWrite(
+    db
+      .delete(t.tabOrder)
+      .where(
+        inWorkspace(
+          t.tabOrder,
+          eq(t.tabOrder.userId, param(t.tabOrder.userId, 'userId')),
+          eq(t.tabOrder.worktree, param(t.tabOrder.worktree, 'worktree')),
+        ),
+      ),
+  ).prepare(),
+)
+
+const upsertTabOrder = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.tabOrder)
+      .values({
+        workspaceId: WORKSPACE,
+        userId: sql.placeholder('userId'),
+        worktree: sql.placeholder('worktree'),
+        ids: sql.placeholder('ids'),
+        updatedAt: sql.placeholder('updatedAt'),
+      })
+      .onConflictDoUpdate({
+        target: [t.tabOrder.workspaceId, t.tabOrder.userId, t.tabOrder.worktree],
+        set: { ids: sql.placeholder('ids'), updatedAt: sql.placeholder('updatedAt') },
+      }),
+  ).prepare(),
 )
 
 // THREE COLUMNS, NAMED, because the statement this replaces named three
@@ -1041,101 +1567,165 @@ const upsertTabOrder = prepared((db: StoreDrizzle) =>
 // builds its object from `user_id`, `worktree` and `ids` — right rows, right
 // values, and an extra column over the wire on a remote driver, which is
 // this epic's whole criterion. No test could have seen it.
-const allTabOrders = prepared((db: StoreDrizzle) =>
+/** Many people's pins and tab orders, for building those records by id
+ *  (POD-6763): a person's own rows, through the primary key's `user_id` prefix. */
+const pinsOfUsers = preparedFamily((db, t, size: number) =>
   db
-    .select({ userId: tabOrder.userId, worktree: tabOrder.worktree, ids: tabOrder.ids })
-    .from(tabOrder)
-    .prepare(),
-)
-
-const draftTexts = prepared((db: StoreDrizzle) =>
-  db
-    .select({ sessionId: sessionDrafts.sessionId, text: sessionDrafts.text })
-    .from(sessionDrafts)
-    .prepare(),
-)
-
-const draftTimes = prepared((db: StoreDrizzle) =>
-  db
-    .select({ sessionId: sessionDrafts.sessionId, updatedAt: sessionDrafts.updatedAt })
-    .from(sessionDrafts)
-    .prepare(),
-)
-
-const draftTimesOfIds = preparedFamily((db: StoreDrizzle, size: number) =>
-  db
-    .select({ sessionId: sessionDrafts.sessionId, updatedAt: sessionDrafts.updatedAt })
-    .from(sessionDrafts)
-    .where(inListOf(sessionDrafts.sessionId, size))
-    .prepare(),
-)
-
-const upsertDraftText = prepared((db: StoreDrizzle) =>
-  db
-    .insert(sessionDrafts)
-    .values({
-      sessionId: sql.placeholder('sessionId'),
-      text: sql.placeholder('text'),
-      updatedAt: sql.placeholder('updatedAt'),
+    .select({
+      userId: t.pins.userId,
+      kind: t.pins.kind,
+      id: t.pins.id,
+      pinnedAt: t.pins.pinnedAt,
     })
-    .onConflictDoUpdate({
-      target: sessionDrafts.sessionId,
-      set: { text: sql.placeholder('text'), updatedAt: sql.placeholder('updatedAt') },
-    })
+    .from(t.pins)
+    .where(inWorkspace(t.pins, inListOf(t.pins.userId, size, 'users')))
+    .orderBy(asc(t.pins.pinnedAt), asc(t.pins.userId), asc(t.pins.kind), asc(t.pins.id))
     .prepare(),
 )
 
-const allDraftRows = prepared((db: StoreDrizzle) => db.select().from(sessionDrafts).prepare())
+const tabOrdersOfUsers = preparedFamily((db, t, size: number) =>
+  db
+    .select({ userId: t.tabOrder.userId, worktree: t.tabOrder.worktree, ids: t.tabOrder.ids })
+    .from(t.tabOrder)
+    .where(inWorkspace(t.tabOrder, inListOf(t.tabOrder.userId, size, 'users')))
+    .prepare(),
+)
+
+const allTabOrders = prepared((db, t) =>
+  db
+    .select({ userId: t.tabOrder.userId, worktree: t.tabOrder.worktree, ids: t.tabOrder.ids })
+    .from(t.tabOrder)
+    .where(inWorkspace(t.tabOrder))
+    .prepare(),
+)
+
+const draftTexts = prepared((db, t) =>
+  db
+    .select({ sessionId: t.sessionDrafts.sessionId, text: t.sessionDrafts.text })
+    .from(t.sessionDrafts)
+    .where(inWorkspace(t.sessionDrafts))
+    .prepare(),
+)
+
+const draftTimes = prepared((db, t) =>
+  db
+    .select({ sessionId: t.sessionDrafts.sessionId, updatedAt: t.sessionDrafts.updatedAt })
+    .from(t.sessionDrafts)
+    .where(inWorkspace(t.sessionDrafts))
+    .prepare(),
+)
+
+const draftTimesOfIds = preparedFamily((db, t, size: number) =>
+  db
+    .select({ sessionId: t.sessionDrafts.sessionId, updatedAt: t.sessionDrafts.updatedAt })
+    .from(t.sessionDrafts)
+    .where(inWorkspace(t.sessionDrafts, inListOf(t.sessionDrafts.sessionId, size)))
+    .prepare(),
+)
+
+const upsertDraftText = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.sessionDrafts)
+      .values({
+        workspaceId: WORKSPACE,
+        sessionId: sql.placeholder('sessionId'),
+        text: sql.placeholder('text'),
+        updatedAt: sql.placeholder('updatedAt'),
+      })
+      .onConflictDoUpdate({
+        target: [t.sessionDrafts.workspaceId, t.sessionDrafts.sessionId],
+        set: { text: sql.placeholder('text'), updatedAt: sql.placeholder('updatedAt') },
+      }),
+  ).prepare(),
+)
+
+const allDraftRows = prepared((db, t) =>
+  db.select().from(t.sessionDrafts).where(inWorkspace(t.sessionDrafts)).prepare(),
+)
 
 /** One session's versioned draft document (POD-6160: drafts load on use). */
-const draftRowOf = prepared((db: StoreDrizzle) =>
+const draftRowOf = prepared((db, t) =>
   db
     .select()
-    .from(sessionDrafts)
-    .where(eq(sessionDrafts.sessionId, param(sessionDrafts.sessionId, 'sessionId')))
+    .from(t.sessionDrafts)
+    .where(
+      inWorkspace(
+        t.sessionDrafts,
+        eq(t.sessionDrafts.sessionId, param(t.sessionDrafts.sessionId, 'sessionId')),
+      ),
+    )
     .prepare(),
 )
 
-const upsertDraftDoc = prepared((db: StoreDrizzle) =>
-  db
-    .insert(sessionDrafts)
-    .values({
-      sessionId: sql.placeholder('sessionId'),
-      text: sql.placeholder('text'),
-      updatedAt: sql.placeholder('updatedAt'),
-      rev: sql.placeholder('rev'),
-      origin: sql.placeholder('origin'),
-      history: sql.placeholder('history'),
-    })
-    .onConflictDoUpdate({
-      target: sessionDrafts.sessionId,
-      set: {
+const upsertDraftDoc = prepared((db, t) =>
+  captureWrite(
+    db
+      .insert(t.sessionDrafts)
+      .values({
+        workspaceId: WORKSPACE,
+        sessionId: sql.placeholder('sessionId'),
         text: sql.placeholder('text'),
         updatedAt: sql.placeholder('updatedAt'),
         rev: sql.placeholder('rev'),
         origin: sql.placeholder('origin'),
         history: sql.placeholder('history'),
-      },
-    })
-    .prepare(),
+      })
+      .onConflictDoUpdate({
+        target: [t.sessionDrafts.workspaceId, t.sessionDrafts.sessionId],
+        set: {
+          text: sql.placeholder('text'),
+          updatedAt: sql.placeholder('updatedAt'),
+          rev: sql.placeholder('rev'),
+          origin: sql.placeholder('origin'),
+          history: sql.placeholder('history'),
+        },
+      }),
+  ).prepare(),
 )
 
+/** Run a session-row write as a change-log commit: a liveness change moves
+ *  the session's confirmed message window, and the commit drains the
+ *  database's change capture in the same transaction (POD-6920). */
+export type SessionMessageWindowWrite = (write: () => Promise<void>) => Promise<void>
+
 export class SessionsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
+  private messageWindowWrite: SessionMessageWindowWrite | undefined
+  private snoozeLapseCommit: ChangeLogCommit | undefined
+
+  /** Installed with the message feed. Every liveness-changing write below
+   *  runs as a change-log commit inside the same transaction. */
+  setMessageWindowWrite(write: SessionMessageWindowWrite): () => void {
+    this.messageWindowWrite = write
+    return () => {
+      if (this.messageWindowWrite === write) this.messageWindowWrite = undefined
+    }
+  }
+
+  private async writeSessionRows(write: () => Promise<void>): Promise<void> {
+    if (this.messageWindowWrite) await this.messageWindowWrite(write)
+    else await write()
+  }
 
   /**
    * The capability is WIRING and is named here and nowhere else [spec rule 34].
-   * This aggregate opens no span today — `purgeSession` runs inside its caller —
-   * but both members are retained so adding one later does not change constructor
-   * arity or the composition root.
+   * The message-window hook supplies the write span after composition. Both
+   * query members retain the store's ambient transaction routing.
    */
   constructor(
-    queries: StoreQueries,
-    private readonly purgeObservationCheckpoint: (sessionId: SessionId) => void = () => {},
+    queries: WorkspaceQueries,
+    private readonly purgeObservationCheckpoint: (
+      sessionId: SessionId,
+    ) => void | Promise<void> = () => {},
   ) {
-    this.rootDb = queries.rootDb
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
+    const dialect = dialectOf(queries.db.drizzle)
+    // Off on Postgres, where more than one process writes `sessions` (written-columns.ts).
+    this.writtenColumns = WrittenColumns.forDialect(dialect, 'sessions:written-columns')
+    this.padsUpsertRows = dialect === 'sqlite'
   }
 
   /**
@@ -1144,13 +1734,33 @@ export class SessionsRepository {
    * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
    * B1 changes this one line rather than 39 fields.
    */
-  protected get db(): StoreDrizzle {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   // ---- sessions ----
-  /** Legacy peers receive their machine map; inventory peers receive every requested id.
-   * Single-member disclosure only; Track B must authorize cross-member inventory. */
+  /**
+   * The `sessionUserState` record ids of the stored read and snooze rows of
+   * these sessions, or of these people (POD-6920: a deleted session's and a
+   * disabled person's markers leave the feed).
+   */
+  async sessionUserStateIdsOf(
+    by: { sessionIds: readonly string[] } | { userIds: readonly string[] },
+  ): Promise<string[]> {
+    const ids = 'sessionIds' in by ? by.sessionIds : by.userIds
+    const query = 'sessionIds' in by ? personalRecordKeys : personalRecordKeysOfUsers
+    const out = new Set<string>()
+    for (const chunk of chunked(ids)) {
+      const size = inListSize(chunk.length)
+      for (const row of await query(this.db, size).all(inListValues(chunk, size)))
+        out.add(sessionUserStateRowId(row.userId as UserId, row.sessionId as SessionId))
+    }
+    return [...out]
+  }
+
+  /** The owners of the sessions placed on one machine (a peer that sends no
+   * inventory), or of the named ids. Raw facts: the caller decides who may
+   * learn them (`disclosedBindingFacts`, `modules/machines/service.ts`). */
   async bindingOwnersForMachine(
     machineId: MachineId,
     sessionIds?: readonly string[],
@@ -1168,8 +1778,9 @@ export class SessionsRepository {
     return Object.fromEntries(rows.map((row) => [row.id, row.owner]))
   }
 
-  /** Single-member Track A: disclose requested placement facts across machines.
-   * Track B must authorize this inventory before multi-member deployment. */
+  /** The placement facts of the requested ids, across machines. Raw facts: the
+   * connect path discloses only what the machine may learn
+   * (`disclosedBindingFacts`, `modules/machines/service.ts`, POD-6286). */
   async bindingConfirmations(
     ids: readonly string[],
   ): Promise<import('@podium/protocol').BindingConfirmations> {
@@ -1178,7 +1789,9 @@ export class SessionsRepository {
     )
     if (ids.length === 0) return result
     const size = inListSize(ids.length)
-    const rows = await bindingFactsOfIds(this.db, size).all(inListValues(ids.map(asSessionId), size))
+    const rows = await bindingFactsOfIds(this.db, size).all(
+      inListValues(ids.map(asSessionId), size),
+    )
     for (const row of rows)
       result[row.id] = {
         owner: row.owner,
@@ -1191,6 +1804,10 @@ export class SessionsRepository {
 
   async loadSessions(): Promise<SessionRow[]> {
     return (await liveSessions(this.db).all()).map(mapSession)
+  }
+
+  async hasAnySession(): Promise<boolean> {
+    return (await anySession(this.db).get()) !== undefined
   }
 
   /** Up to `limit` live sessions with an id after `after` ('' = the first), in
@@ -1263,7 +1880,7 @@ export class SessionsRepository {
    * inside one `authority.bootstrap()` call, which blocked the event loop whole.
    *
    * SAME ROW AS THE SCAN IT REPLACES, deliberately: `sessionsWhere` supplies the
-   * `created_at ASC, rowid ASC` order, so taking `[0]` here picks exactly the
+   * `created_at ASC, id ASC` order, so taking `[0]` here picks exactly the
    * entry a `.find()` over `loadSessions()` returned when several sessions share
    * a `resumeValue`. `deleted_at IS NULL` is restated for the same reason — it is
    * the filter `loadSessions` applied, not an added condition.
@@ -1381,12 +1998,18 @@ export class SessionsRepository {
   async sessionsUnderPath(root: string): Promise<SessionRow[]> {
     if (!root) return []
     const byId = new Map<string, SessionSelect>()
-    for (const row of await liveSessionsInCwdRange(this.db).all({ lo: root, hi: prefixUpperBound(root) })) {
+    for (const row of await liveSessionsInCwdRange(this.db).all({
+      lo: root,
+      hi: prefixUpperBound(root),
+    })) {
       byId.set(row.id, row)
     }
     if (machinePathSeparator(root) === '\\') {
       const folded = root.replace(/\//g, '\\').replace(/[A-Z]/g, (char) => char.toLowerCase())
-      for (const row of await liveSessionsInFoldedCwdRange(this.db).all({ lo: folded, hi: prefixUpperBound(folded) })) {
+      for (const row of await liveSessionsInFoldedCwdRange(this.db).all({
+        lo: folded,
+        hi: prefixUpperBound(folded),
+      })) {
         byId.set(row.id, row)
       }
     }
@@ -1397,7 +2020,9 @@ export class SessionsRepository {
    *  primary key (POD-6160). */
   async sessionsWithIdPrefix(prefix: string): Promise<SessionRow[]> {
     if (!prefix) return []
-    return (await liveSessionsInIdRange(this.db).all({ lo: prefix, hi: prefixUpperBound(prefix) })).map(mapSession)
+    return (
+      await liveSessionsInIdRange(this.db).all({ lo: prefix, hi: prefixUpperBound(prefix) })
+    ).map(mapSession)
   }
 
   /** Live sessions in one of these statuses, unordered (POD-6160). */
@@ -1405,7 +2030,9 @@ export class SessionsRepository {
     const unique = [...new Set(statuses)]
     if (unique.length === 0) return []
     const size = inListSize(unique.length)
-    return (await liveSessionsOfStatuses(this.db, size).all(inListValues(unique, size))).map(mapSession)
+    return (await liveSessionsOfStatuses(this.db, size).all(inListValues(unique, size))).map(
+      mapSession,
+    )
   }
 
   /** Live headless sessions, whatever their status (POD-6160: a boot restores
@@ -1435,7 +2062,10 @@ export class SessionsRepository {
     const out: SessionRow[] = []
     for (const chunk of chunked(issueIds)) {
       const size = inListSize(chunk.length)
-      const rows = await liveSessionsOfBirthLetter(this.db, size).all({ letter, ...inListValues(chunk, size) })
+      const rows = await liveSessionsOfBirthLetter(this.db, size).all({
+        letter,
+        ...inListValues(chunk, size),
+      })
       out.push(...rows.map(mapSession))
     }
     return out
@@ -1451,12 +2081,33 @@ export class SessionsRepository {
     const out: SessionRow[] = []
     for (const chunk of chunked([...new Set(spawnedBy)])) {
       const size = inListSize(chunk.length)
-      out.push(...(await liveSessionsSpawnedBy(this.db, size).all(inListValues(chunk, size))).map(mapSession))
+      out.push(
+        ...(await liveSessionsSpawnedBy(this.db, size).all(inListValues(chunk, size))).map(
+          mapSession,
+        ),
+      )
     }
     return out
   }
 
   /** A machine's live sessions, unordered (POD-6160). */
+  /**
+   * A machine's sessions whose desired state is not yet acknowledged
+   * (POD-6356): what its daemon's reconnect reconciles. Ids only; the
+   * controller reads each row as it reconciles it.
+   */
+  async lifecyclePending(machineId: MachineId): Promise<SessionId[]> {
+    const rows = await lifecyclePendingOnMachine(this.db).all({ machineId })
+    return rows.map((row) => row.id as SessionId)
+  }
+
+  /** The ids of the live sessions that run on `credentialId`, in id order. */
+  async liveSessionIdsOnCredential(credentialId: CredentialId): Promise<SessionId[]> {
+    const rows = await liveSessionIdsOnCredential(this.db).all({ credentialId })
+    // Ordered here: the few rows of one credential, not a sort in the plan.
+    return rows.map((row) => row.id as SessionId).sort()
+  }
+
   async sessionsOnMachine(machineId: MachineId): Promise<SessionRow[]> {
     return (await liveSessionsOnMachine(this.db).all({ machineId })).map(mapSession)
   }
@@ -1470,22 +2121,52 @@ export class SessionsRepository {
     return (await deletedSessionsForIssue(this.db).all({ issueId })).map(mapSession)
   }
 
-  async upsertSession(row: SessionRow): Promise<void> {
-    const values = sessionUpsertValues(row)
-    const groups = changedGroups(this.writtenColumns.get(values.id), values)
-    try {
-      await upsertSessionOfShape(this.db, `${groups}|${shapeOf(values)}`).run(values)
-    } catch (error) {
-      this.writtenColumns.forget(values.id)
-      throw error
+  async upsertSession(_scope: WriteScope, row: SessionRow): Promise<void> {
+    await this.writeSessionRows(async () => {
+      const values = sessionUpsertValues(row)
+      const groups = changedGroups(this.writtenColumns.get(values.id), values)
+      try {
+        await upsertSessionOfShape(this.db, `${groups}|${shapeOf(values)}`).run(values)
+      } catch (error) {
+        this.writtenColumns.forget(values.id)
+        throw error
+      }
+      this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
+      this.rowsWritten()
+    })
+  }
+
+  /** A bounded indexed read, once per activity tick, never once per event. */
+  async activityPublicationsDue(now: number): Promise<SessionId[]> {
+    return (await activityPublicationsDue(this.db).all({ now })).map((row) => row.id)
+  }
+
+  /** Publish the latest exact value, atomically with its next eligible time. */
+  async publishActivity(_scope: WriteScope, ids: readonly SessionId[], now: number): Promise<void> {
+    if (ids.length === 0) return
+    for (const chunk of chunked(ids)) {
+      const size = inListSize(chunk.length)
+      await publishSessionActivity(this.db, size).run({
+        ...inListValues(chunk, size),
+        now,
+        next: now + SESSION_LAST_ACTIVE_PUBLISH_INTERVAL_MS,
+      })
     }
-    this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
     this.rowsWritten()
   }
 
   /** The indexed columns each session row holds as this store last wrote or
    *  read them [POD-6234], so an upsert sets only those that changed. */
-  private readonly writtenColumns = new WrittenColumns<IndexedColumns>('sessions:written-columns')
+  private readonly writtenColumns: WrittenColumns<IndexedColumns>
+
+  /**
+   * Whether a many-row upsert pads its batch to an `inListSize` by repeating its
+   * last row. SQLite applies the repeat as a second, identical update; Postgres
+   * refuses an `ON CONFLICT DO UPDATE` that reaches one row twice, so there the
+   * statement carries exactly the batch's rows (one statement still, of a size
+   * the batch has).
+   */
+  private readonly padsUpsertRows: boolean
 
   /**
    * {@link upsertSession} for many rows in one statement per 256 rows of one
@@ -1493,38 +2174,44 @@ export class SessionsRepository {
    * session on one tick. Every row is checked before the first is written.
    * Rows are written in the order given; pass each session once.
    */
-  async upsertSessions(rows: readonly SessionRow[]): Promise<void> {
+  async upsertSessions(_scope: WriteScope, rows: readonly SessionRow[]): Promise<void> {
     if (rows.length === 0) return
+    const now = Date.now()
     const byShape = new Map<string, ReturnType<typeof sessionUpsertValues>[]>()
     for (const row of rows) {
-      const values = sessionUpsertValues(row)
+      const values = sessionUpsertValues(row, now)
       const shape = shapeOf(values)
       const group = byShape.get(shape)
       if (group) group.push(values)
       else byShape.set(shape, [values])
     }
-    for (const [shape, group] of byShape) {
-      const keys = shape === '' ? [] : shape.split(',')
-      for (let start = 0; start < group.length; start += UPSERT_ROWS_PER_STATEMENT) {
-        const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
-        const size = inListSize(chunk.length)
-        let changed = 0
-        for (const values of chunk) changed |= changedGroups(this.writtenColumns.get(values.id), values)
-        const params: Record<string, unknown> = {}
-        for (let index = 0; index < size; index++) {
-          const values = chunk[Math.min(index, chunk.length - 1)] as Record<string, unknown>
-          for (const key of keys) params[rowParam(index, key)] = values[key]
+    await this.writeSessionRows(async () => {
+      for (const [shape, group] of byShape) {
+        const keys = shape === '' ? [] : shape.split(',')
+        for (let start = 0; start < group.length; start += UPSERT_ROWS_PER_STATEMENT) {
+          const chunk = group.slice(start, start + UPSERT_ROWS_PER_STATEMENT)
+          const size = this.padsUpsertRows ? inListSize(chunk.length) : chunk.length
+          let changed = 0
+          for (const values of chunk)
+            changed |= changedGroups(this.writtenColumns.get(values.id), values)
+          const params: Record<string, unknown> = {}
+          for (let index = 0; index < size; index++) {
+            const values = chunk[Math.min(index, chunk.length - 1)] as Record<string, unknown>
+            for (const key of keys) params[rowParam(index, key)] = values[key]
+          }
+          try {
+            await upsertSessionsOfShape(this.db, `${size}|${manyRowGroups(changed)}|${shape}`).run(
+              params,
+            )
+          } catch (error) {
+            for (const values of chunk) this.writtenColumns.forget(values.id)
+            throw error
+          }
+          for (const values of chunk) this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
         }
-        try {
-          await upsertSessionsOfShape(this.db, `${size}|${manyRowGroups(changed)}|${shape}`).run(params)
-        } catch (error) {
-          for (const values of chunk) this.writtenColumns.forget(values.id)
-          throw error
-        }
-        for (const values of chunk) this.writtenColumns.wrote(values.id, indexedColumnsOf(values))
       }
-    }
-    this.rowsWritten()
+      this.rowsWritten()
+    })
   }
 
   /** Tombstone sessions without destroying their metadata or UI satellites.
@@ -1535,27 +2222,35 @@ export class SessionsRepository {
    *  kept `status='live'` with no stop reason for as long as it existed. Only a
    *  RUNNING row changes; a hibernated or exited one already says how it stopped. */
   async softDeleteSessions(
+    _scope: WriteScope,
     ids: string[],
     deletedAt: string,
     source: SessionDeletionSource,
     deletedByIssueId: IssueId | null = null,
   ): Promise<void> {
-    await this.writtenColumns.aside(ids, async () => {
-      for (const id of ids) {
-        await stopRunningForTombstone(this.db).run({ id, deletedAt })
-        await tombstoneSession(this.db).run({ id, deletedAt, source, deletedByIssueId })
-      }
+    await this.writeSessionRows(async () => {
+      await this.writtenColumns.aside(ids, async () => {
+        for (const id of ids) {
+          await stopRunningForTombstone(this.db).run({ id, deletedAt })
+          await tombstoneSession(this.db).run({ id, deletedAt, source, deletedByIssueId })
+        }
+      })
+      this.rowsWritten()
     })
-    this.rowsWritten()
   }
 
   /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
-  async softDeleteForIssue(ids: string[], issueId: IssueId, deletedAt: string): Promise<void> {
-    await this.softDeleteSessions(ids, deletedAt, 'issue', issueId)
+  async softDeleteForIssue(
+    _scope: WriteScope,
+    ids: string[],
+    issueId: IssueId,
+    deletedAt: string,
+  ): Promise<void> {
+    await this.softDeleteSessions(_scope, ids, deletedAt, 'issue', issueId)
   }
 
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
-  async restoreDeletedForIssue(issueId: IssueId): Promise<void> {
+  async restoreDeletedForIssue(_scope: WriteScope, issueId: IssueId): Promise<void> {
     await this.writtenColumns.aside('all', () => restoreSessionsOfIssue(this.db).run({ issueId }))
     this.rowsWritten()
   }
@@ -1585,7 +2280,7 @@ export class SessionsRepository {
    * `refIssueId` is set — leaving the session permanently unable to earn the draft
    * ref it should now get.
    */
-  async detachTombstonesFromIssue(issueId: IssueId): Promise<void> {
+  async detachTombstonesFromIssue(_scope: WriteScope, issueId: IssueId): Promise<void> {
     await this.writtenColumns.aside('all', () => detachTombstones(this.db).run({ issueId }))
     this.rowsWritten()
   }
@@ -1597,24 +2292,33 @@ export class SessionsRepository {
    * of every reader in the process, so no in-memory `Session` exists yet to
    * desync. Returns the number of rows healed.
    */
+  /**
+   * The boot heal (`store.ts`): runs as the store opens, before the Ledger is
+   * composed, so it has no write scope to take; the boot reconcile that follows
+   * reports what it changed (POD-6601).
+   */
   async detachDanglingIssueReferences(): Promise<number> {
-    const result = await this.writtenColumns.aside('all', () => detachDanglingReferences(this.db).run())
+    const result = await this.writtenColumns.aside('all', () =>
+      detachDanglingReferences(this.db).run(),
+    )
     this.rowsWritten()
     return Number(result.changes)
   }
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
-  async purgeSession(id: SessionId): Promise<void> {
-    await deleteCheckpointsOfSession(this.db).run({ id })
-    this.purgeObservationCheckpoint(id)
-    await this.writtenColumns.aside([id], () => deleteSessionRow(this.db).run({ id }))
-    this.rowsWritten()
-    await deletePanelPinsOf(this.db).run({ id })
-    await deleteDraftOf(this.db).run({ id })
-    await deleteSnoozesOf(this.db).run({ id })
-    await deleteUserStateOf(this.db).run({ id })
-    await deleteOfferOf(this.db).run({ id }) // [spec:SP-c7f1]
-    await this.scrubTabOrders(id)
+  async purgeSession(_scope: WriteScope, id: SessionId): Promise<void> {
+    await this.writeSessionRows(async () => {
+      await deleteCheckpointsOfSession(this.db).run({ id })
+      await this.purgeObservationCheckpoint(id)
+      await this.writtenColumns.aside([id], () => deleteSessionRow(this.db).run({ id }))
+      this.rowsWritten()
+      await deletePanelPinsOf(this.db).run({ id })
+      await deleteDraftOf(this.db).run({ id })
+      await deleteSnoozesOf(this.db).run({ id })
+      await deleteUserStateOf(this.db).run({ id })
+      await deleteOfferOf(this.db).run({ id }) // [spec:SP-c7f1]
+      await this.scrubTabOrders(id)
+    })
   }
 
   // ---- pins (PER-USER STATE, POD-380) ----
@@ -1625,44 +2329,101 @@ export class SessionsRepository {
   // caller must say whose state it is touching. Server-internal paths that have no
   // principal pass SOLE_USER_ID explicitly, which makes them greppable for
   // POD-1077 (the scoped feed that finally makes the broadcast per-principal).
-  async listPins(userId: UserId): Promise<PinState> {
-    const rows = await pinsOfUser(this.db).all({ userId })
-    const pins: PinState = { panels: [], worktrees: [], repos: [] }
-    for (const row of rows) {
-      if (row.kind === 'panel') pins.panels.push(row.id)
-      else if (row.kind === 'worktree') pins.worktrees.push(row.id)
-      else if (row.kind === 'repo') pins.repos.push(row.id)
-    }
-    return pins
+  /** One pin's `pinnedAt`, or undefined when the thing is not pinned. */
+  async pinnedAt(userId: UserId, kind: PinKind, id: string): Promise<string | undefined> {
+    return (await pinOf(this.db).get({ userId, kind, id }))?.pinnedAt
   }
 
-  async setPin(userId: UserId, kind: PinKind, id: string, pinned: boolean): Promise<void> {
+  /**
+   * Pin one thing for one person; pinning what is pinned keeps the first pin.
+   * Answers the stored row, for the `pin` change it publishes (POD-6673), and
+   * whether this call made it (an issue pin's event, POD-6692).
+   */
+  async addPin(
+    userId: UserId,
+    kind: PinKind,
+    id: string,
+    at: string,
+  ): Promise<{ pin: PinWire; created: boolean }> {
     if (!PIN_KINDS.has(kind)) throw new Error(`invalid pin kind: ${kind}`)
     requireUserId(userId)
-    const cleanId = id.trim()
-    if (!cleanId) throw new Error('pin id is empty')
-    if (pinned) {
-      // `INSERT OR IGNORE` CONVERTS HERE, and the enumeration is why (spec rule
-      // 31, POD-3403). The two forms differ in general: `OR IGNORE` suppresses
-      // UNIQUE, PRIMARY KEY, NOT NULL and CHECK, while `onConflictDoNothing`
-      // suppresses uniqueness conflicts only. (Neither suppresses FOREIGN KEY,
-      // so foreign keys are not part of this comparison.) They are therefore
-      // equivalent at a site exactly when no NOT NULL and no CHECK violation is
-      // reachable — and at this one, neither is:
-      //
-      //   CHECK       none. `PRAGMA index_list(pins)` on the SHIPPED table
-      //               returns one index, `sqlite_autoindex_pins_1`, unique,
-      //               origin `pk`; the table SQL carries no CHECK clause.
-      //   NOT NULL    all four columns are notnull=1 with no default, and every
-      //               one is refused above before this line is reached:
-      //               `user_id` by `requireUserId` (throws on blank), `kind` by
-      //               the `PIN_KINDS` membership throw, `id` by the empty-string
-      //               throw on the trimmed value, and `pinned_at` is a freshly
-      //               built ISO string.
-      await insertPin(this.db).run({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() })
-    } else {
-      await deletePin(this.db).run({ userId, kind, id: cleanId })
+    if (!id.trim()) throw new Error('pin id is empty')
+    // `onConflictDoNothing` is `INSERT OR IGNORE` here: the four columns are
+    // NOT NULL and each is refused above when blank; the table has no CHECK
+    // (POD-3403, spec rule 31).
+    const inserted = await insertPin(this.db).run({ userId, kind, id, pinnedAt: at })
+    const pinnedAt = (await this.pinnedAt(userId, kind, id)) ?? at
+    return { pin: { userId, kind, entityId: id, pinnedAt }, created: Number(inserted.changes) > 0 }
+  }
+
+  /** Remove every person's pin of one thing; answers whose pins went, for the
+   *  `pin` removes the caller publishes. */
+  async removePinsOf(kind: PinKind, id: string): Promise<UserId[]> {
+    const rows = await deletePinsOfTarget(this.db).all({ kind, id })
+    return rows.map((row) => row.userId)
+  }
+
+  /** Whose pins {@link removePinsOf} would remove: the `pin` records a purge
+   *  of the thing may affect, named before it runs (POD-6769). */
+  async pinnersOf(kind: PinKind, id: string): Promise<UserId[]> {
+    return (await pinnersOfTarget(this.db).all({ kind, id })).map((row) => row.userId)
+  }
+
+  /** Unpin it. Answers whether there was a pin to remove. */
+  async removePin(userId: UserId, kind: PinKind, id: string): Promise<boolean> {
+    const result = await deletePin(this.db).run({ userId, kind, id })
+    return Number(result.changes) > 0
+  }
+
+  /** Every person's pins, as the `pin` kind's boot reconcile publishes them. */
+  async allPinsForBootReconcile(): Promise<PinWire[]> {
+    const rows = await allPins(this.db).all()
+    return rows.flatMap((row) =>
+      PIN_KINDS.has(row.kind as PinKind)
+        ? [
+            {
+              userId: row.userId,
+              kind: row.kind as PinKind,
+              entityId: row.id,
+              pinnedAt: row.pinnedAt,
+            },
+          ]
+        : [],
+    )
+  }
+
+  /** {@link allPinsForBootReconcile} for some people only (POD-6763). */
+  async pinsOfUsers(userIds: readonly UserId[]): Promise<PinWire[]> {
+    const out: PinWire[] = []
+    for (const chunk of chunked([...new Set(userIds)])) {
+      const size = inListSize(chunk.length)
+      for (const row of await pinsOfUsers(this.db, size).all(inListValues(chunk, size, 'users'))) {
+        if (PIN_KINDS.has(row.kind as PinKind))
+          out.push({
+            userId: row.userId,
+            kind: row.kind as PinKind,
+            entityId: row.id,
+            pinnedAt: row.pinnedAt,
+          })
+      }
     }
+    return out
+  }
+
+  /** {@link allTabOrdersForBootReconcile} for some people only (POD-6763). */
+  async tabOrdersOfUsers(userIds: readonly UserId[]): Promise<TabOrderWire[]> {
+    const out: TabOrderWire[] = []
+    for (const chunk of chunked([...new Set(userIds)])) {
+      const size = inListSize(chunk.length)
+      for (const row of await tabOrdersOfUsers(this.db, size).all(
+        inListValues(chunk, size, 'users'),
+      )) {
+        const sessionIds = parseTabIds(row.ids)
+        if (sessionIds !== undefined && sessionIds.length > 0)
+          out.push({ userId: row.userId, entityId: row.worktree, sessionIds })
+      }
+    }
+    return out
   }
 
   // ---- per-user session read state (POD-1076) ----
@@ -1773,7 +2534,12 @@ export class SessionsRepository {
     return row?.readAt ?? null
   }
 
-  async markSessionRead(userId: UserId, sessionId: SessionId, readAt: string): Promise<void> {
+  async markSessionRead(
+    _scope: WriteScope,
+    userId: UserId,
+    sessionId: SessionId,
+    readAt: string,
+  ): Promise<void> {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('read-state session id is empty')
@@ -1783,7 +2549,7 @@ export class SessionsRepository {
   /** DELETES the row rather than writing a null. Absence and `read_at IS NULL`
    *  would be two spellings of "never opened", and a table with two spellings of
    *  one fact acquires a second meaning nobody documented. */
-  async markSessionUnread(userId: UserId, sessionId: SessionId): Promise<void> {
+  async markSessionUnread(_scope: WriteScope, userId: UserId, sessionId: SessionId): Promise<void> {
     requireUserId(userId)
     await deleteReadAt(this.db).run({ userId, sessionId: asSessionId(sessionId.trim()) })
   }
@@ -1797,7 +2563,7 @@ export class SessionsRepository {
    * is true for everybody. It is not a widening — it removes rows, so no reader
    * ever sees another reader's state.
    */
-  async clearAllReadAt(sessionId: SessionId): Promise<UserId[]> {
+  async clearAllReadAt(_scope: WriteScope, sessionId: SessionId): Promise<UserId[]> {
     const cleared = await deleteAllReadAtOf(this.db).all({
       sessionId: asSessionId(sessionId.trim()),
     })
@@ -1807,7 +2573,9 @@ export class SessionsRepository {
   // ---- snoozes ----
   /** Active snoozes. Lazily deletes any timed snooze whose deadline has passed
    *  (the client clock also ignores lapsed ones at render time; this is just
-   *  housekeeping). `null` snoozes (until-next-message) never lapse by time. */
+   *  housekeeping). `null` snoozes (until-next-message) never lapse by time.
+   *  The delete runs as a change-log commit when the hook is installed
+   *  (POD-6920): a read outside one may not change a synced row. */
   async listSnoozes(userId: UserId, now: number = Date.now()): Promise<SnoozeMap> {
     const rows = await snoozesOfUser(this.db).all({ userId })
     const out: SnoozeMap = {}
@@ -1821,15 +2589,29 @@ export class SessionsRepository {
     }
     // The lazy delete stays scoped to the reader: housekeeping on read must never
     // drop somebody else's row, even an expired one.
-    for (const id of expired) {
-      await deleteUserSnooze(this.db).run({ userId, sessionId: id })
+    if (expired.length > 0) {
+      await throughChangeLog(this.snoozeLapseCommit, async () => {
+        for (const id of expired) {
+          await deleteUserSnooze(this.db).run({ userId, sessionId: id })
+        }
+      })
     }
     return out
   }
 
+  /** The composition root's change-log commit for {@link listSnoozes}' lazy delete. */
+  setSnoozeLapseCommit(commit: ChangeLogCommit): void {
+    this.snoozeLapseCommit = commit
+  }
+
   /** Snooze a session for one user. `until` = null → until next message; ISO
    *  string → timed. PER-USER STATE (POD-380) — see the note on {@link listPins}. */
-  async setSnooze(userId: UserId, sessionId: SessionId, until: string | null): Promise<void> {
+  async setSnooze(
+    _scope: WriteScope,
+    userId: UserId,
+    sessionId: SessionId,
+    until: string | null,
+  ): Promise<void> {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
@@ -1842,7 +2624,7 @@ export class SessionsRepository {
   }
 
   /** Un-snooze a session for one user (no-op if not snoozed). */
-  async clearSnooze(userId: UserId, sessionId: SessionId): Promise<void> {
+  async clearSnooze(_scope: WriteScope, userId: UserId, sessionId: SessionId): Promise<void> {
     await deleteUserSnooze(this.db).run({ userId, sessionId: asSessionId(sessionId.trim()) })
   }
 
@@ -1853,7 +2635,7 @@ export class SessionsRepository {
   }
 
   /** Clear every viewer's independent snooze after a shared session event. */
-  async clearAllSnoozes(sessionId: SessionId): Promise<UserId[]> {
+  async clearAllSnoozes(_scope: WriteScope, sessionId: SessionId): Promise<UserId[]> {
     const cleared = await deleteAllSnoozesOf(this.db).all({
       sessionId: asSessionId(sessionId.trim()),
     })
@@ -1887,7 +2669,7 @@ export class SessionsRepository {
   }
 
   /** Set (replace) the live offer for a session. */
-  async setOffer(sessionId: SessionId, offer: OfferRecord): Promise<void> {
+  async setOffer(_scope: WriteScope, sessionId: SessionId, offer: OfferRecord): Promise<void> {
     const id = sessionId.trim()
     if (!id) throw new Error('offer session id is empty')
     const values = {
@@ -1910,24 +2692,28 @@ export class SessionsRepository {
   }
 
   /** Remove a session's offer (no-op if none). */
-  async clearOffer(sessionId: SessionId): Promise<void> {
+  async clearOffer(_scope: WriteScope, sessionId: SessionId): Promise<void> {
     await deleteOfferOf(this.db).run({ id: asSessionId(sessionId.trim()) })
   }
 
   // ---- tab order ----
-  /** Manual tab order per worktree path. Worktrees never reordered are absent. */
-  async listTabOrders(userId: UserId): Promise<Record<string, string[]>> {
-    const rows = await tabOrdersOfUser(this.db).all({ userId })
-    const out: Record<string, string[]> = {}
-    for (const row of rows) {
-      try {
-        const parsed = JSON.parse(row.ids)
-        if (Array.isArray(parsed)) out[row.worktree] = parsed.filter((x) => typeof x === 'string')
-      } catch {
-        // corrupt row -> treat as no saved order
-      }
-    }
-    return out
+  /** One worktree's manual order, or undefined when it was never reordered. */
+  async tabOrder(userId: UserId, worktree: string): Promise<string[] | undefined> {
+    const row = await tabOrderOf(this.db).get({ userId, worktree })
+    return row === undefined ? undefined : parseTabIds(row.ids)
+  }
+
+  /** Every person's tab orders, as the `tabOrder` kind's boot reconcile
+   *  publishes them. */
+  async allTabOrdersForBootReconcile(): Promise<TabOrderWire[]> {
+    // Three columns, named: see `allTabOrders`.
+    const rows = await allTabOrders(this.db).all()
+    return rows.flatMap((row) => {
+      const sessionIds = parseTabIds(row.ids)
+      return sessionIds === undefined || sessionIds.length === 0
+        ? []
+        : [{ userId: row.userId, entityId: row.worktree, sessionIds }]
+    })
   }
 
   async setTabOrder(userId: UserId, worktree: string, sessionIds: string[]): Promise<void> {
@@ -1954,15 +2740,8 @@ export class SessionsRepository {
     // Three columns, named: see `allTabOrders`.
     const rows = await allTabOrders(this.db).all()
     for (const row of rows) {
-      let ids: string[]
-      try {
-        const parsed = JSON.parse(row.ids)
-        if (!Array.isArray(parsed)) continue
-        ids = parsed.filter((x): x is string => typeof x === 'string')
-      } catch {
-        continue // corrupt row -> nothing to scrub
-      }
-      if (!ids.includes(sessionId)) continue
+      const ids = parseTabIds(row.ids)
+      if (ids === undefined || !ids.includes(sessionId)) continue
       await this.setTabOrder(
         row.userId,
         row.worktree,
@@ -2126,6 +2905,88 @@ function* chunked<T>(values: readonly T[]): Generator<T[]> {
 }
 
 /**
+ * The lifecycle columns as stored (POD-6356). An unknown `desired` value (a
+ * newer build's) reads as no intent rather than as one this build would act on.
+ */
+function lifecycleOfRow(r: SessionSelect): SessionLifecycleRow | undefined {
+  const desired = SessionDesired.safeParse(r.desired)
+  const lifecycle: SessionLifecycleRow = {
+    desired: desired.success ? desired.data : null,
+    force: r.desiredForce === true,
+    revision: r.revision,
+    observedRevision: r.observedRevision,
+    failure: decodeLifecycleFailure(r.lifecycleFailure),
+    byUser: r.desiredByUser ?? null,
+    byAgent: r.desiredByAgent ?? null,
+  }
+  // ABSENT when nothing was ever recorded, so a row from before the columns
+  // (and every session nobody has edited) decodes exactly as it did.
+  const recorded =
+    lifecycle.desired !== null ||
+    lifecycle.force ||
+    lifecycle.revision !== NO_LIFECYCLE.revision ||
+    lifecycle.observedRevision !== NO_LIFECYCLE.observedRevision ||
+    lifecycle.failure !== null ||
+    lifecycle.byUser !== null
+  return recorded ? lifecycle : undefined
+}
+
+const optionalLifecycle = (lifecycle: SessionLifecycleRow | undefined) =>
+  lifecycle === undefined ? {} : { lifecycle }
+
+/** The failure column is plain text: a corrupt blob reads as no failure. */
+function encodeLifecycleFailure(failure: SessionLifecycleRow['failure']): string | null {
+  return failure === null ? null : JSON.stringify(failure)
+}
+
+function decodeLifecycleFailure(raw: string | null): SessionLifecycleRow['failure'] {
+  if (raw == null) return null
+  try {
+    const parsed = SessionLifecycleFailure.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+const driverCapabilities = SessionMeta.pick({ configureFields: true, attachKinds: true })
+
+/** A corrupt capability report is unknown, never an invented empty answer. */
+/** The JSON a column holds, or undefined when there is none or it does not parse. */
+function parsedJson(raw: string | null): unknown {
+  if (raw === null) return undefined
+  try {
+    return JSON.parse(raw)
+  } catch {
+    return undefined
+  }
+}
+
+/** What the harness last reported; absent when nothing parses as one. */
+function decodeEffectiveAuth(raw: string | null): { effectiveAuth?: EffectiveAuth } {
+  const parsed = EffectiveAuth.safeParse(parsedJson(raw))
+  return parsed.success ? { effectiveAuth: parsed.data } : {}
+}
+
+/** The open mismatch; absent when nothing parses as one. */
+function decodeCredentialMismatch(raw: string | null): {
+  credentialMismatch?: CredentialMismatch
+} {
+  const parsed = CredentialMismatch.safeParse(parsedJson(raw))
+  return parsed.success ? { credentialMismatch: parsed.data } : {}
+}
+
+function decodeDriverCapabilities(raw: string | null): SessionDriverCapabilities | null {
+  if (raw === null) return null
+  try {
+    const parsed = driverCapabilities.safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * SERIALIZATION EDGE — the one place a `sessions` row becomes a `SessionRow`.
  *
  * WHAT IS LEFT HERE IS DECISIONS. The brand casts and the `?? null` decodes are
@@ -2148,6 +3009,11 @@ function mapSession(r: SessionSelect): SessionRow {
     ...(r.requestedModel != null ? { requestedModel: r.requestedModel } : {}),
     ...(r.requestedEffort != null ? { requestedEffort: r.requestedEffort } : {}),
     ...(r.accountId != null ? { accountId: r.accountId } : {}),
+    ...(r.credentialId != null ? { credentialId: r.credentialId } : {}),
+    // A value that does not parse reads as "not reported" rather than as a
+    // claim about which login a session ran on.
+    ...decodeEffectiveAuth(r.effectiveAuth),
+    ...decodeCredentialMismatch(r.credentialMismatch),
     ...(r.loginHarness != null
       ? { loginHarness: AgentKind.exclude(['shell']).parse(r.loginHarness) }
       : {}),
@@ -2164,6 +3030,15 @@ function mapSession(r: SessionSelect): SessionRow {
     selectedDriverId: r.selectedDriverId ?? null,
     requestedDriverId: r.requestedDriverId ?? null,
     boundDriverId: r.boundDriverId ?? null,
+    boundDriverCapabilities: decodeDriverCapabilities(r.boundDriverCapabilities),
+    draftSyncEngine: r.draftSyncEngine === true,
+    agentState: parseAgentState(r.agentStateJson),
+    agentColor: r.agentColor ?? null,
+    observedModel: r.observedModel ?? null,
+    observedEffort: r.observedEffort ?? null,
+    observedMode: r.observedMode ?? null,
+    launchPosture: parseLaunchPosture(r.launchPostureJson),
+    handoffTargetMachineId: r.handoffTargetMachineId ?? null,
     // Anything else on disk (an old/rogue value) reads as "no claim recorded"
     // rather than as proof — the same conservative decode as `name_source`,
     // and here it is the safety property itself: only a literal 'never'
@@ -2178,6 +3053,7 @@ function mapSession(r: SessionSelect): SessionRow {
     durableLabel: r.durableLabel,
     createdAt: r.createdAt,
     lastActiveAt: r.lastActiveAt,
+    publishedLastActiveAt: r.publishedLastActiveAt,
     geometry: {
       cols: Number.isInteger(r.terminalCols) && r.terminalCols > 0 ? r.terminalCols : 80,
       rows: Number.isInteger(r.terminalRows) && r.terminalRows > 0 ? r.terminalRows : 24,
@@ -2229,6 +3105,7 @@ function mapSession(r: SessionSelect): SessionRow {
         ? r.stopReason
         : null,
     oomKilledAt: r.oomKilledAt ?? null,
+    ...optionalLifecycle(lifecycleOfRow(r)),
     workflowRunId: r.workflowRunId ?? null,
     workflowStepId: r.workflowStepId ?? null,
     agentProfileId: r.agentProfileId ?? null,
@@ -2255,5 +3132,27 @@ function parseHistory(raw: string | null): string[] {
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
   } catch {
     return []
+  }
+}
+
+/** A launch report that no longer parses is absent: the next launch reports again. */
+function parseLaunchPosture(value: string | null): SessionRow['launchPosture'] {
+  if (value === null) return null
+  try {
+    const parsed = LaunchPostureReport.safeParse(JSON.parse(value))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
+  }
+}
+
+/** A corrupt legacy report is absent, as a corrupt runtime checkpoint is. */
+function parseAgentState(value: string | null): SessionRow['agentState'] {
+  if (value === null) return null
+  try {
+    const parsed = AgentRuntimeState.safeParse(JSON.parse(value))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
   }
 }

@@ -22,7 +22,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
   const [
     { attachWorklistPool, useWorklistPool },
     reads,
-    { StoreProvider, useStoreHandle },
+    { StoreProvider, useClientRuntime },
     { storeStats },
   ] = await Promise.all([
     import('./store-worklist-pool'),
@@ -33,9 +33,9 @@ it('attaches the existing pool after mounting every reader without a legacy fall
   const fixture = createHeaderFixture(40, 40),
     failures: string[] = [],
     states: boolean[] = []
-  let owner: ReturnType<typeof useStoreHandle<Trpc>> | undefined
+  let owner: ReturnType<typeof useClientRuntime<Trpc>> | undefined
   const Surface = observer(function Surface() {
-    owner = useStoreHandle<Trpc>()
+    owner = useClientRuntime<Trpc>()
     const pool = useWorklistPool()
     states.push(Boolean(pool))
     if (pool) expect(pool.sources.peekView('sessionPanes')).toBeDefined()
@@ -43,7 +43,6 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       shipping = reads.useShellShipping(),
       window = reads.useShellWindow()
     const approvals = reads.useShellApprovals(),
-      sessions = reads.useShellSessions(),
       links = reads.useShellLinks()
     const close = reads.useShellClose(),
       machines = reads.useShellMachines(),
@@ -55,7 +54,8 @@ it('attaches the existing pool after mounting every reader without a legacy fall
           chrome.repoCount,
           shipping.unfinishedCount,
           approvals.length,
-          sessions.length,
+          // The shell lists no sessions (POD-7088); the device holds them.
+          pool ? pool.queries.heldCount('session') : 0,
           links.readIssue('synthetic-0')?.seq ?? 0,
           machines.length,
         ].join(':')}
@@ -73,8 +73,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
       networkEnabled={false}
       onFatalError={(message) => failures.push(message)}
       attachRuntime={(runtime) => {
-        fixture.bindHub(runtime.hub)
-        void runtime.access.refreshRepos()
+        fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
         return attachWorklistPool(runtime, (error) => failures.push(error.message))
       }}
     >

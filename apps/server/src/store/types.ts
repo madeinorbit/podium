@@ -5,10 +5,14 @@
 
 import type {
   AccountId,
+  AgentRuntimeState,
   Attribution,
+  CredentialId,
   Geometry,
   HarnessRefEntry,
   IssueId,
+  IssueJoinVia,
+  LaunchPostureReport,
   MachineId,
   MachinePresenceSource,
   MachineServiceAssignment,
@@ -18,13 +22,19 @@ import type {
   PinKind as ModelPinKind,
   RepoId,
   SessionId,
+  SessionMeta,
+  SuperagentTurnFailureWire,
   ThreadId,
   TranscriptItemRef,
   UpdateChannel,
   UserId,
   VisibilityClass,
 } from '@podium/model'
-import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type {
+  ObservationProvider,
+  SessionObservationCheckpointV1,
+  SessionPosture,
+} from '@podium/protocol'
 import type { MessageFailedCause } from '@podium/protocol/daemon'
 
 /** ALIASES @podium/model's PinKind (POD-380). The three literals had four
@@ -32,12 +42,6 @@ import type { MessageFailedCause } from '@podium/protocol/daemon'
  *  a set of literals is exactly the kind of vocabulary that drifts silently when one
  *  copy gains a member. L0 owns it; this is the name the server reads it by. */
 export type PinKind = ModelPinKind
-
-export interface PinState {
-  panels: string[]
-  worktrees: string[]
-  repos: string[]
-}
 
 /** sessionId → snooze deadline. `null` = until next message; ISO = timed. */
 export type SnoozeMap = Record<string, string | null>
@@ -53,8 +57,11 @@ export interface OfferRecord {
 /** sessionId → its live offer. */
 export type OfferMap = Record<string, OfferRecord>
 
-export type SessionStatusPersisted = 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
+export type SessionStatusPersisted = 'starting' | 'live' | 'hibernated' | 'exited'
 export type SessionDeletionSource = 'issue' | 'standalone'
+
+/** Capabilities reported with the last measured driver binding; absence is unknown. */
+export type SessionDriverCapabilities = Pick<SessionMeta, 'configureFields' | 'attachKinds'>
 
 /** Durable observer lease plus the last accepted causal checkpoint. */
 export interface ObservationLeaseRecord {
@@ -158,6 +165,11 @@ export interface SessionRow {
   requestedEffort?: string | null
   /** Account selection, not credential material. */
   accountId?: AccountId | null
+  credentialId?: CredentialId | null
+  /** What the harness reported it authenticated with (credential management §9). */
+  effectiveAuth?: import('@podium/model').EffectiveAuth | null
+  /** The harness answered on another identity than `credentialId` names. */
+  credentialMismatch?: import('@podium/model').CredentialMismatch | null
   /** Harness authenticated by this shell; null for every ordinary session. */
   loginHarness?: import('@podium/model').HarnessAgent | null
   cwd: string
@@ -189,7 +201,7 @@ export interface SessionRow {
    * design, while this is the decision reported before the launch and is
    * therefore a fact about how the session was started. Persisting it is what
    * lets a server restart rehydrate a headless row still knowing it has no
-   * terminal — without it the row comes back `reconnecting` and family-unknown,
+   * terminal — without it the row comes back unbound and family-unknown,
    * which the panel reads as "assume a terminal" and renders as the original
    * bug's dead pane.
    *
@@ -200,6 +212,18 @@ export interface SessionRow {
   /** Concrete per-session driver preference, preserved independently of fallback. */
   requestedDriverId?: string | null
   boundDriverId?: string | null
+  boundDriverCapabilities?: SessionDriverCapabilities | null
+  /** Stored session facts the record projects (POD-6764): the daemon's last
+   *  bind report, the transcript tail's last sightings, a move in flight. */
+  draftSyncEngine?: boolean
+  agentState?: AgentRuntimeState | null
+  agentColor?: string | null
+  observedModel?: string | null
+  observedEffort?: string | null
+  /** The harness-reported mode and the last launch's applied terms (POD-6858). */
+  observedMode?: string | null
+  launchPosture?: LaunchPostureReport | null
+  handoffTargetMachineId?: MachineId | null
   /** Did this launch EVER have a native conversation — see {@link ConversationBinding}.
    *  Absent/null = the row predates the fact and makes no claim either way. */
   conversationBinding?: ConversationBinding | null
@@ -213,6 +237,8 @@ export interface SessionRow {
   geometry?: Geometry
   createdAt: string
   lastActiveAt: string
+  /** Stored publication value, returned by reads; upserts always take exact lastActiveAt. */
+  publishedLastActiveAt?: string
   /** Completed working/compacting time in milliseconds; absent for legacy rows. */
   workingMsTotal?: number | null
   inputCount?: number
@@ -270,6 +296,12 @@ export interface SessionRow {
   /** Event time of the last kernel OOM kill observed in this session's scope
    *  (POD-2413), or null where none was. */
   oomKilledAt?: string | null
+  /**
+   * The lifecycle as desired state (ADR 12 D5 E1, POD-6356). Optional on the
+   * type so a hand-built row means "nothing recorded": revision and observed
+   * revision 1, no intent, nothing pending. Every row a Session writes has it.
+   */
+  lifecycle?: SessionLifecycleRow
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
    *  [spec:SP-34d7 cross-harness]): stamped at spawn/assignment by an external
    *  coordinator, never interpreted by the substrate. Parent linkage rides
@@ -362,7 +394,8 @@ export interface MachineRecord {
  *
  * WHAT THIS ROW STILL IS THAT R1 IS NOT, and who owns closing it:
  *   - `readAt` / `tuckedAt` / `pinned` are GONE (POD-1076). They are per-user
- *     state and now live in `issue_user_state` keyed `(userId, issueId)`, read
+ *     state and now live in `issue_user_state` keyed `(userId, issueId)` (the
+ *     pin in `pins` since POD-6692), read
  *     back as {@link StoredIssueUserState}. The aggregate's `registry.test.ts`
  *     fails if one reappears on R1, and `per-user-singletons` counts it if one
  *     reappears here.
@@ -414,6 +447,7 @@ export interface IssueRow {
   linearId: string | null
   linearIdentifier: string | null
   linearUrl: string | null
+  /** Report input only. Durable state lives in issue_panel_states. */
   activityNotes: string | null
   notesUpdatedAt: string | null
   suggestedStage: string | null
@@ -441,7 +475,8 @@ export interface IssueRow {
   deletedAt?: string | null
   priority: number
   type: string
-  assignee: UserId | null
+  /** The legacy free-text assignee label (POD-6287); the assignee is `ownerUserId`. */
+  assignee: string | null
   parentId: IssueId | null
   acceptance: string | null
   dueAt: string | null
@@ -449,6 +484,8 @@ export interface IssueRow {
   closedReason: string | null
   /** When the closed-predicate last flipped true; null while open. [spec:SP-6144] */
   closedAt: string | null
+  /** The member whose close this is (POD-6287); see the column. Storage-only. */
+  closedByUserId?: UserId | null
   /** ISO time Podium's own `merge --ff-only` landed this branch [POD-1085].
    *  An OBSERVED EVENT, not a verdict re-derived from history: a later rebase of
    *  the landing branch destroys ancestry, and destroys it for every branch that
@@ -477,7 +514,7 @@ export interface IssueRow {
   /** ISO time the needs-human flag was raised (issue #53). */
   humanQuestionAskedAt?: string | null
   humanQuestionAttribution?: Attribution | null
-  /** Agent-published human-facing panel, stored as raw JSON (parsed in IssueService).
+  /** Report/import input only; never stored on the issue row.
    *  Optional so pre-existing row literals (tests, ingest) stay valid; absent = none. */
   panel?: string | null
   /** Whose intent this issue captures ('human' | 'agent'). Optional so pre-existing
@@ -501,6 +538,22 @@ export interface IssueRow {
   startedBySession?: SessionId | null
 }
 
+/**
+ * What the sharing rules read of an issue (POD-7153): the execution pointers
+ * (`executionPointersOf`) and the checkout path. The feed's visibility pass
+ * reads this, never the whole row with its bodies.
+ */
+export type IssueAccessRow = Pick<
+  IssueRow,
+  | 'id'
+  | 'ownerUserId'
+  | 'machineId'
+  | 'worktreePath'
+  | 'coordinatorSessionId'
+  | 'startedBySession'
+  | 'humanQuestionAskedBy'
+>
+
 export interface IssueCommentRow {
   id: string
   issueId: IssueId
@@ -509,23 +562,53 @@ export interface IssueCommentRow {
   createdAt: string
   actor?: string | null
   onBehalfOf?: string | null
+  /** Last edit (POD-6289); `editedOnBehalfOf` differs from `onBehalfOf` when
+   *  an admin moderated it. */
+  editedAt?: string | null
+  editedBy?: string | null
+  editedOnBehalfOf?: string | null
+  /** The member ids the comment mentions, as a JSON array (POD-6881). NULL =
+   *  written before mentions were stored. */
+  mentions?: string | null
+}
+
+/** The two task texts that keep a revision history (POD-6289). */
+export type IssueTextField = 'description' | 'brief'
+
+/** One recorded text of a task's description or brief (POD-6289). */
+export interface IssueTextRevisionRow {
+  id: number
+  issueId: IssueId
+  field: IssueTextField
+  body: string
+  /** `baseline`: the text a task from before this history held when its
+   *  first edit was recorded; its author is unknown. */
+  source: 'create' | 'baseline' | 'edit' | 'restore'
+  restoredFrom: number | null
+  issueRevision: number | null
+  actor: string | null
+  onBehalfOf: string | null
+  createdAt: string
 }
 
 /**
  * One user's per-issue markers, as stored (POD-1076).
  *
  * The storage twin of `@podium/model`'s `IssueUserState` minus the key, because
- * the repository already has the key in hand. `pinnedAt` is a TIMESTAMP where
- * `issues.pinned` was a 0/1 flag — the wire keeps its boolean, derived once by
- * the model's `issueOverlayOf`.
+ * the repository already has the key in hand. The pin is not here: an issue pin
+ * is a `pins` row of kind 'issue' (POD-6692).
  *
- * All three null is not a representable STORED state: such a row is deleted, so
+ * All null is not a representable STORED state: such a row is deleted, so
  * "absent" is the only spelling of "this person has done nothing here".
  */
 export interface StoredIssueUserState {
   readAt: string | null
   tuckedAt: string | null
-  pinnedAt: string | null
+  /** Personal records (POD-6290). Absent reads as null: no record. */
+  joinedAt?: string | null
+  joinedVia?: IssueJoinVia | null
+  assignedAt?: string | null
+  assignedBy?: UserId | null
 }
 
 /** One "agent mail" message addressed to an ISSUE (issue #103). Status lifecycle:
@@ -752,6 +835,10 @@ export interface SuperagentThreadRow {
   createdAt: string
   updatedAt: string
   archived: boolean
+  /** A turn is running (POD-6675): set at turn start, cleared at its end. */
+  turnRunning: boolean
+  /** The last turn failed (POD-6675); cleared when the next turn starts. */
+  lastTurnFailure: SuperagentTurnFailureWire | null
 }
 
 /** One accepted-but-not-yet-finished superagent turn. The JSON payload mirrors
@@ -770,8 +857,9 @@ export interface PendingSuperagentTurnRow {
     contextPrompt?: string
     systemPrompt?: string
     mcpConfig?: string
-    allowedTools?: string[]
-    permissionMode?: string
+    /** The turn's launch terms (POD-6858). A row an older server persisted
+     *  has none, and a `permissionMode: 'auto'` this type no longer names. */
+    posture?: SessionPosture
     resumeValue?: string
     sessionUuid?: string
     timeoutMs?: number
@@ -791,6 +879,10 @@ export interface QueuedSuperagentInputRow {
   /** "Ask superagent (BTW)" (POD-1069): one session digested onto THIS turn.
    *  Deliberately outside `focus` — see the contract's field note. */
   attachSessionId?: SessionId
+  /** This turn's own model and effort (POD-6675), never the thread's. `auto`
+   *  follows the settings role; undefined runs the thread's choice. */
+  model?: string
+  effort?: string
   focus?: {
     view?: string
     worktreePath?: string
@@ -801,3 +893,27 @@ export interface QueuedSuperagentInputRow {
   }
   createdAt: string
 }
+
+/** The `sessions` lifecycle columns (POD-6356), decoded. */
+export interface SessionLifecycleRow {
+  readonly desired: import('@podium/model').SessionDesired | null
+  readonly force: boolean
+  readonly revision: number
+  readonly observedRevision: number
+  readonly failure: import('@podium/model').SessionLifecycleFailure | null
+  /** Who wrote the current revision: the human on whose behalf, and the agent
+   *  session when an agent wrote it. Null when nothing was ever edited. */
+  readonly byUser: import('@podium/model').UserId | null
+  readonly byAgent: import('@podium/model').SessionId | null
+}
+
+/** A row with no lifecycle recorded: nothing desired, nothing pending. */
+export const NO_LIFECYCLE: SessionLifecycleRow = Object.freeze({
+  desired: null,
+  force: false,
+  revision: 1,
+  observedRevision: 1,
+  failure: null,
+  byUser: null,
+  byAgent: null,
+})

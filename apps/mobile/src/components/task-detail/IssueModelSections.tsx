@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import { ISSUE_HISTORY_PAGE } from '@podium/client-graph/issue-activity'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { type ComponentProps, useState } from 'react'
@@ -37,7 +37,7 @@ export const PhoneTimeline = observer(function PhoneTimeline({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
 }) {

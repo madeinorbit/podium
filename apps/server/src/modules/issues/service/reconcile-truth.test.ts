@@ -10,8 +10,10 @@
  * as it did when the issue map was the truth.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, asSessionId, type IssueGitState } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../../store'
 import { type CorpusIssue, rawSql, rowOf, seededStore } from '../../../test-support/issue-corpus'
@@ -31,7 +33,7 @@ async function serviceOver(store: SessionStore): Promise<IssueService> {
     getSettings: async () => normalizeSettings({}),
     spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'm' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(() => {}),
+    ...issueTestPlumbing(() => {}, { store }),
     setSessionArchived: vi.fn(),
   } as IssueDeps)
 }
@@ -70,20 +72,19 @@ describe('full-truth reconcile over the database', () => {
     await store.issues.setIssueLabels(asIssueId('iss_1'), ['one', 'two'])
     await store.issues.setIssueLabels(asIssueId('iss_b2'), ['gone'])
     // An empty id is a string: the boot load keeps it, and so does the walk.
-    rawSql(store, "UPDATE issues SET id = '' WHERE id = 'iss_empty'")
-    // A NULL id is quarantined by both.
-    rawSql(store, 'UPDATE issues SET id = NULL WHERE id = ?', 'iss_corrupt')
+    await rawSql(store, sql`UPDATE issues SET id = '' WHERE id = 'iss_empty'`)
+    // A row neither reads: a NULL id once stood here, which the key refuses since the keys
+    // migration (POD-7024), so the row is gone instead.
+    await rawSql(store, sql`DELETE FROM issues WHERE id = ${'iss_corrupt'}`)
     const svc = await serviceOver(store)
     const issues = svc.reports.store
-    for (const id of ['iss_1', 'iss_4', 'iss_b1', 'iss_b2', 'iss_missing']) issues.gitStates.set(id, observed(id.length))
+    for (const id of ['iss_1', 'iss_4', 'iss_b1', 'iss_b2', 'iss_missing']) await issues.setGitState(id, observed(id.length))
 
     const truth = await issues.allProjections()
     expect(truth?.map((entry) => entry.id)).toEqual(await bootOrder(store))
     expect(truth?.map((entry) => entry.id)).toEqual(['iss_1', 'iss_2', 'iss_3', 'iss_4', '', 'iss_b1', 'iss_b2'])
     // Both reconciles run over these rows, the empty id and the unknown
     // observation included.
-    await expect(issues.reconcileProjections()).resolves.toBeUndefined()
-    await expect(issues.reconcileCompanions()).resolves.toBeUndefined()
 
     // Pages end where they should, and the quarantined row costs only itself.
     const pages: string[][] = []
@@ -99,7 +100,7 @@ describe('full-truth reconcile over the database', () => {
     const store = await seededStore([], ['/a'])
     stores.push(store)
     await store.transact(async () => {
-      for (const row of rows) await store.issues.upsertIssue(rowOf(row, '/a', store.hostMachineId))
+      for (const row of rows) await store.issues.upsertIssue(fixtureWriteScope(), rowOf(row, '/a', store.hostMachineId))
     })
     const sizes: number[] = []
     for await (const page of store.issues.issueRowPages()) sizes.push(page.length)

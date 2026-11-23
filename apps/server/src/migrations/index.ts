@@ -21,14 +21,24 @@ import { bootStage } from '../boot-timing'
 
 import { createLogger } from '@podium/logger'
 import { type IdPrefix, mintBrandedId } from '@podium/model'
+import { parseOperation } from '@podium/protocol'
+import { reportLifecycleProgress } from '@podium/runtime/lifecycle-channel'
 import { beginMachineUpdateMigrations } from '@podium/runtime/machine-update'
 import { MIGRATION_NAME_ALIASES as SHARED_MIGRATION_NAME_ALIASES } from '@podium/runtime/migration-ledger'
 import { bunSqliteClient, isBunRuntime, type SqlDatabase } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { migrate } from 'drizzle-orm/bun-sqlite/migrator'
-import { backupDatabase } from './backup'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { backupDatabase, freeDiskBytes, measureBackupSpace } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
-import { applySchemaRepairs, repairReason } from './repair'
+import {
+  folderMillis,
+  knownMigrationNames,
+  newerDatabaseMessage,
+  outOfOrderPending,
+  unknownAppliedMigrations,
+} from './ledger-guards'
+import { applySchemaRepairs, repairReason, schemaRepairsAfter } from './repair'
 
 const log = createLogger('server:migrations')
 
@@ -65,31 +75,6 @@ const LEDGER = '__drizzle_migrations'
  * how that decision and this one stop agreeing.
  */
 const MIGRATION_NAME_ALIASES = SHARED_MIGRATION_NAME_ALIASES
-
-/**
- * THE OUT-OF-ORDER GUARD [POD-1621]. Names every pending migration that sorts
- * BEFORE the highest already-applied name — the exact signature of a second
- * lineage arriving late.
- *
- * Out-of-order on its own is harmless: two branches generate timestamps
- * independently and merge, and most such migrations are additive. It becomes the
- * POD-1621 hazard when the late migration REBUILDS a table (SQLite's
- * create/copy/drop/rename pattern), because its column list was written without
- * knowledge of anything the other lineage added. The ledger cannot see the loss:
- * every migration ran exactly once.
- *
- * So the signature is worth surfacing on its own, before knowing whether damage
- * followed — it is cheap, it is exact, and a boot log naming it turns "auth has
- * been throwing for hours" into a five-minute diagnosis.
- */
-export function outOfOrderPending(
-  appliedNames: Iterable<string>,
-  pendingNames: readonly string[],
-): string[] {
-  const highestApplied = [...appliedNames].sort((a, b) => a.localeCompare(b)).at(-1)
-  if (highestApplied === undefined) return []
-  return pendingNames.filter((name) => name.localeCompare(highestApplied) < 0)
-}
 
 function hasTable(db: SqlDatabase, name: string): boolean {
   return (
@@ -131,24 +116,6 @@ export function latestAppliedMigration(db: SqlDatabase): string | undefined {
     | { name?: unknown }
     | undefined
   return typeof row?.name === 'string' && row.name.length > 0 ? row.name : undefined
-}
-
-/**
- * drizzle's `created_at`: the folder-name's 14-digit `YYYYMMDDHHMMSS` UTC prefix
- * as epoch millis, matching what the bun:sqlite migrator records for the same
- * migration.
- */
-function folderMillis(name: string): number {
-  const s = name.slice(0, 14)
-  const millis = Date.UTC(
-    Number(s.slice(0, 4)),
-    Number(s.slice(4, 6)) - 1,
-    Number(s.slice(6, 8)),
-    Number(s.slice(8, 10)),
-    Number(s.slice(10, 12)),
-    Number(s.slice(12, 14)),
-  )
-  return Number.isNaN(millis) ? 0 : millis
 }
 
 /** True when the DB holds any table other than the ledger / sqlite internals. */
@@ -198,23 +165,18 @@ export function runDrizzleMigrations(
     dbPath?: string
     skipSchemaRepair?: boolean
     update?: { runtimeDir: string; grantId: string }
+    /** Free bytes on the database's file system; tests plant a small disk. */
+    freeBytes?: (dir: string) => number
   } = {},
 ): string[] {
   const applied = appliedDrizzleNames(db)
 
-  const known = new Set(migrations.map((m) => m.name))
-  for (const [alias, canonical] of MIGRATION_NAME_ALIASES) {
-    if (known.has(canonical)) known.add(alias)
-  }
-  for (const name of applied) {
-    if (!known.has(name)) {
-      throw new Error(
-        `database has applied migration '${name}', which this build does not define. ` +
-          `The database is newer than this build — upgrade the Podium server ` +
-          `(downgrades are not supported).`,
-      )
-    }
-  }
+  const known = knownMigrationNames(
+    migrations.map((m) => m.name),
+    MIGRATION_NAME_ALIASES,
+  )
+  const [unknown] = unknownAppliedMigrations(applied, known)
+  if (unknown !== undefined) throw new Error(newerDatabaseMessage(unknown))
 
   // Apply in folder-name order, and hand drizzle the SAME order: its array path
   // applies in array order (it filters by name but never sorts), so a sorted
@@ -224,7 +186,19 @@ export function runDrizzleMigrations(
   const semanticallyApplied = new Set(
     [...applied].map((name) => MIGRATION_NAME_ALIASES.get(name) ?? name),
   )
-  const pending = ordered.filter((m) => !semanticallyApplied.has(m.name))
+  // Retirement is a separate boot stage: an old binary upgrades its schema
+  // before the identity import can read its credentials and links. Never stamp
+  // the deferred migration until that import has committed for this database.
+  const imported =
+    hasTable(db, 'meta') &&
+    db
+      .prepare("SELECT 1 FROM meta WHERE key = 'identity.legacyLinksImported' AND value = '1'")
+      .get() !== undefined
+  const pending = ordered.filter(
+    (m) =>
+      !semanticallyApplied.has(m.name) &&
+      (!m.sql.startsWith('-- after-local-identity-import') || imported),
+  )
 
   // THE GUARD, before anything is applied — so the warning is in the log ABOVE
   // the damage rather than after it. It WARNS and proceeds; it does not refuse.
@@ -241,16 +215,14 @@ export function runDrizzleMigrations(
   }
 
   if (pending.length === 0) {
-    // Still repair: the POD-1621 database has EVERY migration applied and a
-    // wrong schema, so a boot with nothing pending is exactly the case that
-    // must heal itself.
     if (opts.skipSchemaRepair !== true) reportRepairs(db)
     return []
   }
 
-  // #43: snapshot before applying anything, but only when the DB already holds
-  // real tables (a brand-new file is not worth backing up).
+  // Snapshot before schema work. A retry with only retirement deferred keeps
+  // the original pre-upgrade snapshot instead of ageing it out of retention.
   if (opts.dbPath !== undefined && opts.dbPath !== ':memory:' && hasAnyDataTable(db)) {
+    refuseWithoutFreeSpace(db, opts.dbPath, opts.freeBytes ?? freeDiskBytes, opts.update?.grantId)
     const backupStarted = performance.now()
     backupDatabase(db, opts.dbPath, `drizzle-${applied.size}`)
     bootStage('backup', backupStarted)
@@ -290,6 +262,10 @@ export function runDrizzleMigrations(
         )
       : undefined
   try {
+    // A previously damaged database must heal before pending migrations index
+    // the missing column. A rebuild still pending is repaired in the same
+    // transaction below, immediately after the statement that drops it.
+    if (opts.skipSchemaRepair !== true) reportRepairs(db)
     migrate(
       // `client` is @podium/runtime's deliberately narrow structural view of the
       // bun:sqlite handle (packages/runtime/src/sqlite/bun.ts names only the methods
@@ -297,14 +273,25 @@ export function runDrizzleMigrations(
       // names bun:sqlite's real `Database` class, which materializes only in a program
       // that loads @types/bun — this file's own lane resolves `bun:sqlite` to `any`,
       // the scripts typecheck lane does not (POD-1122). Same object at runtime.
-      drizzle({ client: client as unknown as DrizzleBunClient }),
+      drizzle({
+        // Progress for an upgrade only: a fresh database builds from the whole chain at once.
+        client: reportingRebuilds(
+          client,
+          applied.size > 0 ? pending : [],
+        ) as unknown as DrizzleBunClient,
+      }),
       pending.map((m) => ({
         name: m.name,
         timestamp: folderMillis(m.name),
         // Capture install age BEFORE this batch: historical migrations create
         // a first admin even on an empty database. The backfill must leave
         // that new account eligible while seeding every account on upgrades.
-        sql: mintIdsIn(m.sql).replaceAll('{{existing-install}}', applied.size > 0 ? '1' : '0'),
+        sql: mintIdsIn(
+          [
+            m.sql,
+            ...(opts.skipSchemaRepair === true ? [] : schemaRepairsAfter(m.name, applied)),
+          ].join('\n--> statement-breakpoint\n'),
+        ).replaceAll('{{existing-install}}', applied.size > 0 ? '1' : '0'),
       })),
     )
   } catch (error) {
@@ -326,6 +313,154 @@ export function runDrizzleMigrations(
   // itself one of the migrations that may have just run.
   if (opts.skipSchemaRepair !== true) reportRepairs(db)
   return pending.map((m) => m.name)
+}
+
+/**
+ * THE UPGRADE NEEDS ROOM (POD-6959 design 2.6, POD-7024). Before the backup, refuse when the
+ * file system holding the database has less free space than {@link UPGRADE_SPACE_FACTOR} times
+ * its size. The backup is a full copy; the migrations' one transaction writes about the data
+ * again into the WAL while it rebuilds tables (the keys migration rebuilds nearly all of them);
+ * and the file grows by about its largest table, whose new copy cannot reuse the old one's
+ * pages. Measured on a 1.83 GB database with no free pages, the keys migration peaked at 2.2
+ * times the database beside it (backup 1.0, WAL 0.9, growth 0.3). Refusing here changes
+ * nothing; running out of space halfway through would roll the whole batch back after minutes
+ * of work, with a backup beside it.
+ */
+const UPGRADE_SPACE_FACTOR = 2.5
+
+function refuseWithoutFreeSpace(
+  db: SqlDatabase,
+  dbPath: string,
+  freeBytes: (dir: string) => number,
+  installedGrantId?: string,
+): void {
+  // The backup's own measure (database and sidecars, `migrations/backup.ts`), so the two
+  // checks read one number; the backup itself still asks for its copy with a margin.
+  const space = measureBackupSpace(dbPath, freeBytes)
+  const required = Math.ceil(UPGRADE_SPACE_FACTOR * space.needed)
+  if (space.available >= required) return
+  log.warn('refusing the upgrade: not enough free disk space', { dbPath, ...space })
+  const reason =
+    `Podium cannot upgrade its database: there is not enough free disk space. The upgrade ` +
+    `needs about ${megabytes(required)} free in ${space.dir} (a backup copy and ` +
+    `room to rewrite the tables), and ${megabytes(space.available)} is free. Free some ` +
+    `space and start Podium again. Nothing was changed.`
+  preserveUpgradeRefusal(db, installedGrantId, reason)
+  throw new Error(reason)
+}
+
+// LEGACY(remove-after: 2027-06): predecessors overwrite a boot refusal on rollback; preserve the installed grant's operation before exiting.
+function preserveUpgradeRefusal(
+  db: SqlDatabase,
+  installedGrantId: string | undefined,
+  reason: string,
+): void {
+  if (!installedGrantId || !hasTable(db, 'operations')) return
+  try {
+    // This runs before schema migration, without repositories or sync triggers.
+    // Old installs have no workspace column; newer ones must stay in the local workspace.
+    const scoped = (db.prepare('PRAGMA table_info(operations)').all() as { name: string }[]).some(
+      (column) => column.name === 'workspace_id',
+    )
+    const scope = scoped ? ' AND workspace_id = ?' : ''
+    const bindings = scoped ? [SELF_HOSTED_WORKSPACE_ID] : []
+    const row = db
+      .prepare(
+        `SELECT id, payload FROM operations WHERE kind = 'update' AND exclusion_group = 'lifecycle' AND state = 'running'${scope} LIMIT 1`,
+      )
+      .get(...bindings) as { id: string; payload: string } | undefined
+    if (!row) return
+    const operation = parseOperation(JSON.parse(row.payload))
+    if (
+      operation?.id !== row.id ||
+      operation.kind !== 'update' ||
+      operation.state !== 'running' ||
+      operation.details?.coordinatorSnapshotGrantId !== installedGrantId
+    )
+      return
+    const now = Date.now()
+    const error = { code: 'handover-failed', message: reason }
+    operation.state = 'failed'
+    operation.updatedAt = operation.finishedAt = now
+    operation.error = error
+    // Predecessors use either a server step or one fleet-wide machines step.
+    // The exact installed grant is the binding, not that step's presentation.
+    for (const step of operation.steps ?? []) {
+      if (step.state !== 'running' && step.state !== 'stalled') continue
+      step.state = 'failed'
+      step.finishedAt = step.lastProgressAt = now
+      step.error = error
+    }
+    // Compare the envelope too: never replace a concurrently changed operation.
+    db.prepare(
+      `UPDATE operations SET state = 'failed', updated_at = ?, finished_at = ?, payload = ? WHERE id = ? AND payload = ? AND state = 'running'${scope}`,
+    ).run(now, now, JSON.stringify(operation), row.id, row.payload, ...bindings)
+  } catch (error) {
+    // Failure to retain the UI error must never hide the original boot refusal.
+    log.warn('could not preserve the upgrade disk refusal', { err: error })
+  }
+}
+
+const megabytes = (bytes: number): string => `${Math.ceil(bytes / 1_000_000)} MB`
+
+/** An index statement: drizzle-kit writes a rebuild migration's indexes after its tables. */
+const INDEX_STATEMENT = /^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s/i
+
+/** A table rebuild's last step: drizzle-kit's `ALTER TABLE __new_x RENAME TO x`. */
+const REBUILD_DONE = /^\s*ALTER TABLE [`"]__new_(\w+)[`"] RENAME TO /i
+const REBUILD_START = /CREATE TABLE [`"]__new_\w+[`"]/gi
+
+/**
+ * ONE PROGRESS LINE PER REBUILT TABLE (POD-6959 design 2.6, P-OD1). A rebuild migration holds
+ * the boot for as long as copying its tables takes, minutes on a large install, so the log says
+ * how far it is. The migrator prepares each statement through the client's `query`, so the
+ * client handed to drizzle is watched for the rename that ends each rebuild; the copy before it
+ * has run by then. Nothing is watched when no pending migration rebuilds a table.
+ */
+function reportingRebuilds<TClient extends object>(
+  client: TClient,
+  pending: readonly DrizzleMigration[],
+): TClient {
+  const total = pending.reduce((sum, m) => sum + (m.sql.match(REBUILD_START)?.length ?? 0), 0)
+  if (pending.length === 0) return client
+  let done = 0
+  let last = performance.now()
+  // drizzle-kit writes the indexes of every rebuilt table after the rebuilds: one line says
+  // how long they took, so the time is not counted against the table rebuilt next.
+  let indexes = 0
+  let indexSteps = 0
+  return new Proxy(client, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target) as unknown
+      if (typeof value !== 'function') return value
+      if (property !== 'query') return value.bind(target)
+      return (sql: string, ...rest: unknown[]) => {
+        if (INDEX_STATEMENT.test(sql)) {
+          indexes += 1
+          reportLifecycleProgress(`migration index ${++indexSteps}`)
+        } else if (indexes > 0) {
+          const now = performance.now()
+          log.info('built indexes', { count: indexes, ms: Math.round(now - last) })
+          last = now
+          indexes = 0
+        }
+        const rebuilt = REBUILD_DONE.exec(sql)?.[1]
+        if (rebuilt !== undefined) {
+          done += 1
+          const now = performance.now()
+          log.info('rebuilt table', {
+            table: rebuilt,
+            done,
+            of: total,
+            ms: Math.round(now - last),
+          })
+          reportLifecycleProgress(`migration table ${done}/${total}: ${rebuilt}`)
+          last = now
+        }
+        return value.call(target, sql, ...rest)
+      }
+    },
+  })
 }
 
 /**
@@ -382,6 +517,7 @@ export function applyBaselineSchema(db: SqlDatabase): string[] {
 }
 
 export { backupDatabase } from './backup'
+export { outOfOrderPending } from './ledger-guards'
 export { applySchemaRepairs } from './repair'
 /** The other half of the backup story (ADR 2 D1): restore copies the file back
  *  AND re-mints the feed epoch in one step, so a rolled-back authority can never

@@ -14,6 +14,7 @@ import { readSessionRefs, type SessionRefFacts } from './modules/sessions/refs'
 import { buildSuperagentTools } from './modules/superagent/tools'
 import { RepoRegistry } from './repo-registry'
 import type { IssueRow } from './store'
+import { memberFacts } from './store/fixtures/test-support'
 
 afterEach(async () => {
   await disposeOracles()
@@ -129,7 +130,7 @@ describe('S4 server consumers', () => {
     const sessions = o.reg.modules.sessions
     const A = await firstAdminMemberId(o.store)
     const B = asUserId('user:b')
-    await o.store.users.create(
+    await memberFacts(o.store).create(
       {
         id: B,
         displayName: 'B',
@@ -139,26 +140,22 @@ describe('S4 server consumers', () => {
       },
       'fixture-hash',
     )
-    const { sessionId } = await sessions.createSession({ agentKind: 'shell', cwd: '/source' })
+    // B's own session (sessions are private, POD-6283) and A's private one.
+    const { sessionId } = await sessions.createSession({
+      agentKind: 'shell',
+      cwd: '/source',
+      ownerUserId: B,
+    })
+    // A start names its owner: with two members an ownerless start is refused
+    // (POD-6285, design §2.3), never handed to the first admin.
     const { sessionId: privateId } = await sessions.createSession({
       agentKind: 'shell',
       cwd: '/private',
-    })
-    await o.store.grants.upsert({
-      resourceKind: 'session',
-      resourceId: sessionId,
-      grantee: B,
-      verb: 'read',
-      owner: A,
-      visibility: 'personal',
-      createdAt: '2026-01-01T00:00:00.000Z',
-      actorKind: 'user',
-      actorId: A,
-      onBehalfOf: A,
+      ownerUserId: A,
     })
     const a = await sessions.view.principalForTrustedUser(A)
     const b = await sessions.view.principalForTrustedUser(B)
-    await sessions.state.setSnooze(a, sessionId, null)
+    await sessions.state.setSnooze(sessions.serverWriter, a, privateId, null)
     await o.store.superagent.upsertSuperagentThread({
       id: 'thread:b',
       ownerUserId: B,
@@ -178,10 +175,10 @@ describe('S4 server consumers', () => {
       JSON.parse(await tool.run({})) as (SessionMeta & { snoozedUntil?: string | null })[]
     expect((await rows()).map((s) => s.sessionId)).not.toContain(privateId)
     expect((await rows()).find((s) => s.sessionId === sessionId)).not.toHaveProperty('snoozedUntil')
-    await sessions.state.setSnooze(b, sessionId, null)
+    await sessions.state.setSnooze(sessions.serverWriter, b, sessionId, null)
     expect((await rows()).find((s) => s.sessionId === sessionId)?.snoozedUntil).toBeNull()
     const until = '2026-10-03T00:00:00.000Z'
-    await sessions.state.setSnooze(b, sessionId, until)
+    await sessions.state.setSnooze(sessions.serverWriter, b, sessionId, until)
     expect((await rows()).find((s) => s.sessionId === sessionId)?.snoozedUntil).toBe(until)
     now = Date.parse(until) + 1
     expect((await rows()).find((s) => s.sessionId === sessionId)).not.toHaveProperty('snoozedUntil')
@@ -197,8 +194,8 @@ describe('S4 server consumers', () => {
     const machineId = o.store.hostMachineId
     const repos = new RepoRegistry(o.reg, o.store)
     await o.store.repos.addRepo('/source', machineId)
-    await repos.setPrefix('/source', 'SRC', machineId)
-    const issue = await o.reg.issues.crud.create({
+    await repos.setPrefix(repos.serverWriter, '/source', 'SRC', machineId)
+    const issue = await o.reg.issues.crud.create(o.reg.issues.reports.store.serverWriter, {
       repoPath: '/source',
       title: 'Source refs',
       startNow: false,
@@ -235,7 +232,7 @@ describe('S4 server consumers', () => {
     ])
     const before = await o.reg.changeLedger.authority.snapshot('session')
     const cursor = await o.reg.changeLedger.cursor()
-    await repos.setPrefix('/source', 'NEW', machineId)
+    await repos.setPrefix(repos.serverWriter, '/source', 'NEW', machineId)
     const nextRef = `NEW-${issue.seq}-B`
     expect(await toolkit.resolveIdentifier(sourceRef)).toEqual({ kind: 'absent' })
     expect(await toolkit.resolveIdentifier(nextRef)).toEqual({

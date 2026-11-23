@@ -1,19 +1,22 @@
+import { useCommands } from '@podium/client-core/react'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { headerView } from '@podium/client-graph/header-views'
 import type { IssueViewModel } from '@podium/client-core/replica'
+
 /** Pool-only regressions for the final green mobile slice controls.
  * The literal counts, titles, paths, shared clock and machine refusals are
  * unchanged. The real provider owns the replica and all mutation handles. */
 
-import { deadlineClock } from '@podium/mobx-helpers'
-import { useClock } from '../lib/clock-hooks'
 import { machineViewsFromWire, resolveSpawnTargetMachine } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { deadlineClock } from '@podium/mobx-helpers'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { asIssueId, asSessionId } from '@podium/model'
 import { act, cleanup, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { useConnected, useIssues, useSessions, useStoreActions } from './hooks'
+import { useClock } from '../lib/clock-hooks'
+import { useConnected } from './hooks'
+import { useIssues, useSessions } from '../../test/roster-hooks'
 import { useMobilePoolProjection } from './mobile-pool'
 import { renderWithMobileStore } from './test-support'
 import { useLaunchInputs } from './use-launch-inputs'
@@ -61,10 +64,6 @@ function session(
     agentKind: 'claude-code',
     cwd: REPO.path,
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-08-01T10:00:00.000Z',
     lastActiveAt: '2026-08-01T10:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -99,7 +98,8 @@ function WorklistProbe() {
 function readRows(pool: MobxPool) {
   return mobileWorkView(pool)
     .mobileSections()
-    .sectionKeys.map(key => mobileWorkView(pool).mobileSections().section(key)).flatMap((section) =>
+    .sectionKeys.map((key) => mobileWorkView(pool).mobileSections().section(key))
+    .flatMap((section) =>
       section.data.flatMap((ref) => {
         const row = mobileWorkView(pool).mobileRow(ref)
         return row && typeof row !== 'symbol' ? [row.title] : []
@@ -107,7 +107,9 @@ function readRows(pool: MobxPool) {
     )
     .join('|')
 }
-function readSharedClock(pool: MobxPool) { return pool.clock === deadlineClock }
+function readSharedClock(pool: MobxPool) {
+  return pool.clock === deadlineClock
+}
 
 describe('mobile reads the resident pool worklist', () => {
   it('paints the accepted rows and paths through the pool', async () => {
@@ -186,7 +188,7 @@ describe('placement fails closed on the phone too (doc §3.1.4 M5)', () => {
 it('updates pool host metrics without waking stable action owners', async () => {
   let broadRenders = 0
   function BroadReader() {
-    useStoreActions()
+    useCommands()
     broadRenders++
     return null
   }
@@ -194,15 +196,16 @@ it('updates pool host metrics without waking stable action owners', async () => 
     const metrics = useMobilePoolProjection(readMetrics, [])
     return <span data-testid="hosts">{metrics.map((host) => host.hostname).join(',')}</span>
   }
-  const { emit } = await renderWithMobileStore(
+  const { setHostMetrics } = await renderWithMobileStore(
     <>
       <BroadReader />
       <HostReader />
     </>,
+    { machines: [{ id: 'synthetic-host', name: 'Synthetic host', online: true }] as never },
   )
   const before = broadRenders
   for (const hostname of ['first', 'second']) {
-    await act(async () => emit('hostMetrics', [{ hostname, machineId: 'synthetic-host' }]))
+    await act(async () => setHostMetrics([{ hostname, machineId: 'synthetic-host' }] as never))
     expect(screen.getByTestId('hosts').textContent).toBe(hostname)
   }
   expect(broadRenders).toBe(before)

@@ -56,13 +56,13 @@ async function seedV010ShapedDb(path: string): Promise<void> {
   ;await (await openTestStore(path, HOST)).close()
   const db = openDatabase(path)
   const machine = (id: string, name: string): string =>
-    `INSERT OR REPLACE INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
-       VALUES ('${id}', '${name}', '${name}', '${sha256(id)}', 't', 't');`
+    `INSERT OR REPLACE INTO machines (workspace_id, id, name, hostname, token_hash, created_at, last_seen_at)
+       VALUES ('local', '${id}', '${name}', '${name}', '${sha256(id)}', 't', 't');`
   const issue = (id: string, seq: number, worktree: string | null, pin: string | null): string =>
-    `INSERT INTO issues (id, owner_user_id, created_by_actor, created_by_on_behalf_of, repo_id,
+    `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, created_by_on_behalf_of, repo_id,
                          repo_path, seq, title, stage, default_agent,
                          created_at, updated_at, worktree_path, machine_id)
-       VALUES ('${id}', '${firstAdminMemberId()}', '${firstAdminMemberId()}',
+       VALUES ('local', '${id}', '${firstAdminMemberId()}', '${firstAdminMemberId()}',
                '${firstAdminMemberId()}', 'repo:one', '/r', ${seq}, '${id}', 'backlog',
                'claude-code', 't', 't', ${worktree === null ? 'NULL' : `'${worktree}'`},
                ${pin === null ? 'NULL' : `'${pin}'`});`
@@ -72,10 +72,10 @@ async function seedV010ShapedDb(path: string): Promise<void> {
     refIssueId: string | null,
     m: string,
   ): string =>
-    `INSERT INTO sessions (id, owner_user_id, agent_kind, cwd, title, origin_kind, status,
+    `INSERT INTO sessions (workspace_id, id, owner_user_id, agent_kind, cwd, title, origin_kind, status,
                            durable_label, created_at, last_active_at, machine_id,
                            issue_id, ref_issue_id)
-       VALUES ('${id}', '${firstAdminMemberId()}', 'claude-code', '/w', '${id}', 'spawn', 'live',
+       VALUES ('local', '${id}', '${firstAdminMemberId()}', 'claude-code', '/w', '${id}', 'spawn', 'live',
                'podium-${id}', 't', 't', '${m}',
                ${issueId === null ? 'NULL' : `'${issueId}'`},
                ${refIssueId === null ? 'NULL' : `'${refIssueId}'`});`
@@ -254,8 +254,8 @@ describe('the run-once migration for legacy worktree machine identity', () => {
     await seedV010ShapedDb(path)
     const db = openDatabase(path)
     db.exec(`
-      INSERT OR REPLACE INTO machines (id, name, hostname, token_hash, created_at, last_seen_at)
-        VALUES ('local', 'legacy', 'legacy', '${sha256('legacy')}', 't', 't');
+      INSERT OR REPLACE INTO machines (workspace_id, id, name, hostname, token_hash, created_at, last_seen_at)
+        VALUES ('local', 'local', 'legacy', 'legacy', '${sha256('legacy')}', 't', 't');
     `)
     db.close()
 

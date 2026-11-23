@@ -2,9 +2,6 @@ import { omitGone } from './lookup'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
-import { SETUP_SESSION_SUMMARY_FIELDS } from './settings-schema'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 
 const now = Date.parse('2026-10-08T00:00:00Z')
@@ -14,27 +11,18 @@ const session = (id: string): RowRecord => ({ kind: 'session', id, value: {
 } } as RowRecord)
 
 function fixture(owner: 'pool' | 'source', rows: RowRecord[]) {
-  let index = createColdIndex(SCHEMA, { session: SETUP_SESSION_SUMMARY_FIELDS })
   const load = vi.fn(() => undefined)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     settings: true, load, schedule: () => () => {}, worklist: 'demand',
-    ...(owner === 'source' ? { cold: () => index } : {}),
   })
   const publish = (event: RowSourceEvent) => {
-    index.apply(event)
     pool.apply(event)
   }
   publish({ type: 'replace', rows })
-  return { pool, load, publish, index: () => index,
-    reseed(rows: RowRecord[]) {
-      index = createColdIndex(SCHEMA, { session: SETUP_SESSION_SUMMARY_FIELDS })
-      index.apply({ type: 'replace', rows })
-      pool.apply({ type: 'update', rows: [] })
-    },
-  }
+  return { pool, load, publish, index: () => pool.deviceIndex() }
 }
 
-it.each(['pool', 'source'] as const)(
+it.each(['pool'] as const)(
   'keeps demanded setup summaries incremental on %s session add/remove at 1x/4x',
   (owner) => {
     for (const scale of [1, 4]) {
@@ -78,7 +66,7 @@ it.each(['pool', 'source'] as const)(
   },
 )
 
-it.each(['pool', 'source'] as const)('notifies only changed %s positions across batches and replacements', (owner) => {
+it.each(['pool'] as const)('notifies only changed %s positions across batches and replacements', (owner) => {
   const a = session('a'), b = session('b'), c = session('c')
   const f = fixture(owner, [a, b, c])
   const values = new Map<string, number | undefined>(), read = vi.fn((id: string) => {
@@ -125,24 +113,6 @@ it.each(['pool', 'source'] as const)('notifies only changed %s positions across 
       expect(read.mock.calls).toEqual([['a']])
     } finally { again() }
   } finally { stops.forEach(stop => stop()); f.pool.dispose() }
-})
-
-it('refreshes observed positions when a source rebuilds its index with the same position version', () => {
-  const a = session('a'), b = session('b')
-  const f = fixture('source', [a, b])
-  const read = vi.fn(() => f.pool.sourcePosition('session', 'a'))
-  const stop = autorun(read)
-  try {
-    const before = f.index().positionVersion
-    read.mockClear()
-    f.reseed([b, a])
-    expect(f.index().positionVersion).toBe(before)
-    expect(read).toHaveBeenCalledOnce()
-    expect(read.mock.results[0]?.value).toBe(2)
-    read.mockClear()
-    f.reseed([b, a])
-    expect(read).not.toHaveBeenCalled()
-  } finally { stop(); f.pool.dispose() }
 })
 
 it('releases position demand and notifies existing readers when the pool is disposed', () => {

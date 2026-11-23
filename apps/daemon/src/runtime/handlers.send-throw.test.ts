@@ -14,6 +14,7 @@ import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { DeliveryUnprovenError } from '../../../../packages/harness/src/driver/errors'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
 import { runtimeHandlers } from './handlers'
 
@@ -28,6 +29,7 @@ function daemonWithThrowingSend(error = new Error('engine socket closed after ad
     }),
   } as unknown as AgentSessionHandle
   const ctx = {
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
     agentRuntime: { handleFor: () => handle },
     send: (msg: DaemonMessage) => void sent.push(msg),
   } as unknown as DaemonContext

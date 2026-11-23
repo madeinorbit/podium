@@ -1,4 +1,15 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defaultInstancePorts } from '@podium/runtime/instance'
@@ -15,6 +26,8 @@ import {
   renderTunnelUnit,
   systemdUnitEnabled,
   systemdUnitManaged,
+  systemdUnitRuntimeMasked,
+  unmaskSystemdUnits,
   userUnitDir,
 } from './cli-systemd'
 import { fakeSystemctl } from './test-support/systemctl'
@@ -274,53 +287,201 @@ describe('migration systemd operations', () => {
     expect(commands.flatMap(({ args }) => args)).not.toContain('--now')
   })
 
-  it('masks legacy units only in the runtime manager state', () => {
-    const commands: Array<{ cmd: string; args: string[] }> = []
-    maskSystemdUnitsRuntime(['podium-server.service'], {
-      run: (cmd, args) => commands.push({ cmd, args }),
-    })
-    expect(commands).toEqual([
-      {
-        cmd: 'systemctl',
-        args: ['--user', 'mask', '--runtime', 'podium-server.service'],
-      },
-    ])
-  })
+  it.skipIf(process.platform === 'win32')(
+    'fences named units above persistent definitions and preserves unrelated controls and drop-ins',
+    () => {
+      const root = mkdtempSync(join(tmpdir(), 'podium-runtime-mask-'))
+      const controls = join(root, 'systemd', 'user.control')
+      const unit = 'podium-server.service'
+      const dropin = join(controls, `${unit}.d`, '50-operator.conf')
+      mkdirSync(join(dropin, '..'), { recursive: true })
+      writeFileSync(dropin, '[Service]\nEnvironment=OPERATOR=kept\n')
+      symlinkSync('/dev/null', join(controls, 'unrelated.service'))
+      const commands: Array<{ cmd: string; args: string[] }> = []
+      const deps = {
+        runtimeDir: () => root,
+        run: (cmd: string, args: string[]) => {
+          commands.push({ cmd, args })
+        },
+      }
+      try {
+        maskSystemdUnitsRuntime([unit], deps)
+        maskSystemdUnitsRuntime([unit], deps)
+        expect(systemdUnitRuntimeMasked(unit, deps)).toBe(true)
+        expect(readlinkSync(join(controls, unit))).toBe('/dev/null')
+        unmaskSystemdUnits([unit], deps)
+        expect(lstatSync(join(controls, unit), { throwIfNoEntry: false })).toBeUndefined()
+        expect(systemdUnitRuntimeMasked(unit, deps)).toBe(false)
+        expect(readlinkSync(join(controls, 'unrelated.service'))).toBe('/dev/null')
+        expect(readFileSync(dropin, 'utf8')).toBe('[Service]\nEnvironment=OPERATOR=kept\n')
+        expect(commands).toEqual([
+          { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
+          { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
+          { cmd: 'systemctl', args: ['--user', '--runtime', 'unmask', unit] },
+        ])
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    },
+  )
 
-  it('stops every legacy unit before deleting any unit file', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'podium-systemd-remove-'))
-    const units = ['podium-server.service', 'podium-daemon.service']
-    for (const unit of units) writeFileSync(join(dir, unit), unit)
-    const commands: Array<{ cmd: string; args: string[] }> = []
-    const stopped: string[] = []
+  it.skipIf(process.platform === 'win32')(
+    'refuses a non-mask runtime definition before fencing any other unit and never removes it',
+    () => {
+      const root = mkdtempSync(join(tmpdir(), 'podium-runtime-definition-'))
+      const controls = join(root, 'systemd', 'user.control')
+      mkdirSync(controls, { recursive: true })
+      const units = ['podium-server.service', 'podium-daemon.service']
+      writeFileSync(join(controls, units[1]!), 'operator-owned definition')
+      const commands: string[][] = []
+      const deps = {
+        runtimeDir: () => root,
+        run: (_cmd: string, args: string[]) => {
+          commands.push(args)
+        },
+      }
+      try {
+        expect(() => maskSystemdUnitsRuntime(units, deps)).toThrow('refusing to overwrite')
+        expect(lstatSync(join(controls, units[0]!), { throwIfNoEntry: false })).toBeUndefined()
+        expect(commands).toEqual([])
+        unmaskSystemdUnits(units, deps)
+        expect(readFileSync(join(controls, units[1]!), 'utf8')).toBe('operator-owned definition')
+        expect(() => maskSystemdUnitsRuntime(['../outside.service'], deps)).toThrow(
+          'not a user unit name',
+        )
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'stops every legacy unit before deleting any unit file',
+    async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'podium-systemd-remove-'))
+      const units = ['podium-server.service', 'podium-daemon.service']
+      for (const unit of units) writeFileSync(join(dir, unit), unit)
+      const commands: Array<{ cmd: string; args: string[] }> = []
+      const stopped: string[] = []
+      const runtimeDir = () => join(dir, 'runtime')
+      const run = (cmd: string, args: string[]) => {
+        commands.push({ cmd, args })
+      }
+      try {
+        maskSystemdUnitsRuntime(units, { runtimeDir, run })
+        commands.length = 0
+        await removeUserUnits(units, {
+          unitDir: () => dir,
+          runtimeDir,
+          run,
+          afterStop: (unit) => {
+            stopped.push(unit)
+            expect(units.every((name) => existsSync(join(dir, name)))).toBe(true)
+          },
+          beforeRemove: () => {
+            expect(stopped).toEqual(units)
+            expect(units.every((name) => existsSync(join(dir, name)))).toBe(true)
+            expect(units.every((name) => systemdUnitRuntimeMasked(name, { runtimeDir }))).toBe(true)
+          },
+        })
+        expect(commands).toEqual([
+          ...units.map((unit) => ({
+            cmd: 'systemctl',
+            args: ['--user', 'disable', '--now', unit],
+          })),
+          ...units.map((unit) => ({ cmd: 'systemctl', args: ['--user', 'reset-failed', unit] })),
+          { cmd: 'systemctl', args: ['--user', '--runtime', 'unmask', ...units] },
+          { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
+          ...units.map((unit) => ({ cmd: 'systemctl', args: ['--user', 'reset-failed', unit] })),
+        ])
+        expect(units.some((unit) => systemdUnitRuntimeMasked(unit, { runtimeDir }))).toBe(false)
+        expect(units.some((name) => existsSync(join(dir, name)))).toBe(false)
+      } finally {
+        rmSync(dir, { recursive: true, force: true })
+      }
+    },
+  )
+  it.skipIf(process.platform === 'win32')(
+    'removes only links to retired definitions after all stops while their fence is held',
+    async () => {
+      const root = mkdtempSync(join(tmpdir(), 'podium-retired-links-'))
+      const dir = join(root, 'units')
+      const runtimeDir = () => join(root, 'runtime')
+      const unit = 'podium-server.service'
+      const definition = join(dir, unit)
+      const dependencies = ['default.target.wants', 'other.target.requires', 'other.target.upholds']
+      for (const dependency of dependencies) mkdirSync(join(dir, dependency), { recursive: true })
+      writeFileSync(definition, '[Install]\nWantedBy=default.target\n')
+      const ownedLinks = [
+        join(dir, 'retired-alias.service'),
+        ...dependencies.map((dependency) => join(dir, dependency, unit)),
+      ]
+      symlinkSync(definition, ownedLinks[0] as string)
+      for (const path of ownedLinks.slice(1)) symlinkSync(`../${unit}`, path)
+      const foreignLink = join(dir, dependencies[0] as string, 'foreign.service')
+      symlinkSync(join(root, unit), foreignLink)
+      const regular = join(dir, dependencies[1] as string, 'operator.service')
+      writeFileSync(regular, 'operator-owned')
+      const nested = join(dir, dependencies[2] as string, 'nested')
+      mkdirSync(nested)
+      symlinkSync(definition, join(nested, unit))
+      const outside = join(root, 'operator')
+      mkdirSync(outside)
+      symlinkSync(definition, join(outside, unit))
+      symlinkSync(outside, join(dir, 'operator.target.wants'))
+      const dropin = join(dir, `${unit}.d`)
+      mkdirSync(dropin)
+      symlinkSync(definition, join(dropin, 'operator-link'))
+      const run = () => {}
+      try {
+        maskSystemdUnitsRuntime([unit], { runtimeDir, run })
+        const stillFenced = () => {
+          expect(systemdUnitRuntimeMasked(unit, { runtimeDir })).toBe(true)
+          expect(ownedLinks.every((path) => lstatSync(path).isSymbolicLink())).toBe(true)
+          expect(existsSync(definition)).toBe(true)
+        }
+        await removeUserUnits([unit], {
+          unitDir: () => dir,
+          runtimeDir,
+          run,
+          afterStop: stillFenced,
+          beforeRemove: stillFenced,
+        })
+        for (const path of ownedLinks)
+          expect(lstatSync(path, { throwIfNoEntry: false })).toBeUndefined()
+        expect(readlinkSync(foreignLink)).toBe(join(root, unit))
+        expect(readFileSync(regular, 'utf8')).toBe('operator-owned')
+        expect(readlinkSync(join(nested, unit))).toBe(definition)
+        expect(readlinkSync(join(outside, unit))).toBe(definition)
+        expect(readlinkSync(join(dir, 'operator.target.wants'))).toBe(outside)
+        expect(readlinkSync(join(dropin, 'operator-link'))).toBe(definition)
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    },
+  )
+  it('ignores already-unloaded retired names but surfaces a real reset failure', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-reset-failed-'))
     try {
-      await removeUserUnits(units, {
-        unitDir: () => dir,
-        run: (cmd, args) => commands.push({ cmd, args }),
-        afterStop: (unit) => {
-          stopped.push(unit)
-          expect(units.every((name) => existsSync(join(dir, name)))).toBe(true)
+      const deps = {
+        unitDir: () => root,
+        runtimeDir: () => join(root, 'runtime'),
+        run: (_cmd: string, args: string[]) => {
+          if (args.includes('reset-failed'))
+            throw new Error('Unit podium-server.service not loaded.')
         },
-        beforeRemove: () => {
-          expect(stopped).toEqual(units)
-          expect(units.every((name) => existsSync(join(dir, name)))).toBe(true)
-        },
-      })
-      expect(commands).toEqual([
-        { cmd: 'systemctl', args: ['--user', 'unmask', ...units] },
-        {
-          cmd: 'systemctl',
-          args: ['--user', 'disable', '--now', 'podium-server.service'],
-        },
-        {
-          cmd: 'systemctl',
-          args: ['--user', 'disable', '--now', 'podium-daemon.service'],
-        },
-        { cmd: 'systemctl', args: ['--user', 'daemon-reload'] },
-      ])
-      expect(units.some((name) => existsSync(join(dir, name)))).toBe(false)
+      }
+      await expect(removeUserUnits(['podium-server.service'], deps)).resolves.toBeUndefined()
+      await expect(
+        removeUserUnits(['podium-server.service'], {
+          ...deps,
+          run: (_cmd, args) => {
+            if (args.includes('reset-failed')) throw new Error('access denied')
+          },
+        }),
+      ).rejects.toThrow('access denied')
     } finally {
-      rmSync(dir, { recursive: true, force: true })
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })

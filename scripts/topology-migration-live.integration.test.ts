@@ -173,6 +173,8 @@ async function startManager(runtimeDir: string, configHome: string): Promise<Pri
   delete env.PODIUM_AGENT_RELAY
   delete env.NOTIFY_SOCKET
   delete env.DBUS_SESSION_BUS_ADDRESS
+  // The private OS manager must not load the runner's toolchain-only libraries.
+  delete env.LD_LIBRARY_PATH
   const manager = spawn(
     'systemd',
     ['--user', '--unit=default.target', '--log-target=console', '--log-level=warning'],
@@ -190,8 +192,15 @@ async function startManager(runtimeDir: string, configHome: string): Promise<Pri
   return { process: manager, env, output: () => output }
 }
 
-async function stopManager(manager: PrivateManager): Promise<void> {
+async function stopManager(manager: PrivateManager, units: readonly string[]): Promise<void> {
   if (!alive(manager.process.pid)) return
+  // An isolated nested user manager can exit without reaping service processes.
+  // Stop our units explicitly so each crash case leaves no restarting fixture.
+  for (const unit of units) ctlResult(manager.env, ['stop', unit])
+  for (const unit of units) {
+    const result = ctlResult(manager.env, ['show', unit, '--property=MainPID', '--value'])
+    expect(Number(result.stdout.trim()) || 0, `fixture ${unit} stopped before manager exit`).toBe(0)
+  }
   ctlResult(manager.env, ['exit'])
   await until(
     () =>
@@ -258,172 +267,244 @@ async function workingParent(port: number): Promise<boolean> {
 }
 
 describe('single-unit migration live kill matrix', () => {
-  it.each(phases)('SIGKILL at %s leaves a live legacy topology or a working parent', async (phase) => {
-    const root = await mkdtemp(join(tmpdir(), 'podium-topology-live-'))
-    const runtimeDir = join(root, 'runtime')
-    const configHome = join(root, 'config')
-    const unitDir = join(configHome, 'systemd', 'user')
-    const stateDir = join(root, 'state')
-    const checkpointPath = join(root, 'checkpoint.json')
-    const notifyPath = join(stateDir, 'run', 'fixture-notify.log')
-    const port = await freePort()
-    const instanceId = `kill${phases.indexOf(phase)}`
-    const parentUnit = `podium-${instanceId}.service`
-    const legacyUnits = [
-      `podium-${instanceId}-server.service`,
-      `podium-${instanceId}-janitor.service`,
-      `podium-${instanceId}-daemon.service`,
-    ]
-    mkdirSync(unitDir, { recursive: true })
-    mkdirSync(stateDir, { recursive: true })
-    writeFileSync(join(stateDir, 'VERSION'), '1.0.0\n')
-    writeFileSync(
-      join(stateDir, 'config.json'),
-      JSON.stringify({ mode: 'all-in-one', persistence: 'systemd', port }),
-    )
-    const serviceEnv = {
-      PODIUM_STATE_DIR: stateDir,
-      PODIUM_HOME: stateDir,
-      PODIUM_PORT: String(port),
-      PODIUM_INSTANCE: instanceId,
-      PODIUM_APP_VERSION: '1.0.0',
-    }
-    writeFileSync(
-      join(unitDir, legacyUnits[0] as string),
-      unitBody(`${BUN} --conditions=@podium/source ${FIXTURE} server`, serviceEnv),
-    )
-    writeFileSync(
-      join(unitDir, legacyUnits[1] as string),
-      unitBody('/usr/bin/sleep infinity', serviceEnv),
-    )
-    writeFileSync(
-      join(unitDir, legacyUnits[2] as string),
-      unitBody(`${BUN} --conditions=@podium/source ${FIXTURE} daemon`, serviceEnv),
-    )
-    const renderedParent = parentBody({
-      ...serviceEnv,
-      FIXTURE_SERVER_HEALTH_DELAY_MS: '1500',
-    })
-
-    let manager: PrivateManager | undefined
-    let migrator: ChildProcess | undefined
-    try {
-      manager = await startManager(runtimeDir, configHome)
-      ctl(manager.env, ['daemon-reload'])
-      ctl(manager.env, ['enable', '--now', ...legacyUnits])
-      await until(
-        () =>
-          legacyUnits.every((unit) => unitState(manager!.env, unit) === 'active')
-            ? true
-            : undefined,
-        'all three legacy units active',
+  it.each([
+    ...phases.map((phase) => [`SIGKILL at ${phase}`, phase] as const),
+    ['An uninterrupted migration', null] as const,
+  ])(
+    '%s leaves a live legacy topology or a working parent',
+    async (_label, phase) => {
+      const root = await mkdtemp(join(tmpdir(), 'podium-topology-live-'))
+      const runtimeDir = join(root, 'runtime')
+      const configHome = join(root, 'config')
+      const unitDir = join(configHome, 'systemd', 'user')
+      const stateDir = join(root, 'state')
+      const checkpointPath = join(root, 'checkpoint.json')
+      const notifyPath = join(stateDir, 'run', 'fixture-notify.log')
+      const port = await freePort()
+      const instanceId = phase === null ? 'killcomplete' : `kill${phases.indexOf(phase)}`
+      const parentUnit = `podium-${instanceId}.service`
+      const legacyUnits = [
+        `podium-${instanceId}-server.service`,
+        `podium-${instanceId}-janitor.service`,
+        `podium-${instanceId}-daemon.service`,
+      ]
+      mkdirSync(unitDir, { recursive: true })
+      mkdirSync(stateDir, { recursive: true })
+      writeFileSync(join(stateDir, 'VERSION'), '1.0.0\n')
+      writeFileSync(
+        join(stateDir, 'config.json'),
+        JSON.stringify({ mode: 'all-in-one', persistence: 'systemd', port }),
       )
-
-      migrator = spawn(BUN, ['--conditions=@podium/source', '--eval', migratorSource()], {
-        cwd: ROOT,
-        env: {
-          ...manager.env,
-          PODIUM_STATE_DIR: stateDir,
-          PODIUM_INSTANCE: instanceId,
-          FIXTURE_KILL_PHASE: phase,
-          FIXTURE_UNIT_DIR: unitDir,
-          FIXTURE_CHECKPOINT: checkpointPath,
-          FIXTURE_NOTIFY_LOG: notifyPath,
-          FIXTURE_PARENT_BODY: renderedParent,
-        },
-        stdio: ['ignore', 'pipe', 'pipe'],
+      const serviceEnv = {
+        PODIUM_STATE_DIR: stateDir,
+        PODIUM_HOME: stateDir,
+        PODIUM_PORT: String(port),
+        PODIUM_INSTANCE: instanceId,
+        PODIUM_APP_VERSION: '1.0.0',
+      }
+      writeFileSync(
+        join(unitDir, legacyUnits[0] as string),
+        unitBody(`${BUN} --conditions=@podium/source ${FIXTURE} server`, serviceEnv),
+      )
+      writeFileSync(
+        join(unitDir, legacyUnits[1] as string),
+        unitBody('/usr/bin/sleep infinity', serviceEnv),
+      )
+      writeFileSync(
+        join(unitDir, legacyUnits[2] as string),
+        unitBody(`${BUN} --conditions=@podium/source ${FIXTURE} daemon`, serviceEnv),
+      )
+      const renderedParent = parentBody({
+        ...serviceEnv,
+        FIXTURE_SERVER_HEALTH_DELAY_MS: '1500',
       })
-      let migrationOutput = ''
-      migrator.stdout?.on('data', (chunk) => (migrationOutput += String(chunk)))
-      migrator.stderr?.on('data', (chunk) => (migrationOutput += String(chunk)))
 
-      let checkpoint: { phase: string; unit?: string; remaining?: number } = { phase }
-      if (phase === 'external-during-parent-health-wait') {
-        await until(() => {
-          if (migrator?.exitCode !== null || migrator?.signalCode !== null) {
-            throw new Error(`migrator exited before health wait: ${migrationOutput}`)
-          }
-          return unitState(manager!.env, parentUnit) === 'activating' ? true : undefined
-        }, 'parent unit activating inside its notify health wait')
-        migrator.kill('SIGKILL')
-        checkpoint = { phase }
-      } else {
-        checkpoint = await until(() => {
-          if (existsSync(checkpointPath)) {
-            return JSON.parse(readFileSync(checkpointPath, 'utf8')) as typeof checkpoint
-          }
-          if (migrator?.exitCode !== null || migrator?.signalCode !== null) {
-            throw new Error(`migrator exited before ${phase}: ${migrationOutput}`)
-          }
-          return undefined
-        }, phase)
-        expect(checkpoint.phase).toBe(phase)
-      }
-      await until(
-        () => (migrator?.signalCode === 'SIGKILL' ? true : undefined),
-        `migrator SIGKILL at ${phase}`,
+      mkdirSync(runtimeDir, { recursive: true, mode: 0o700 })
+      const operatorDropin = join(
+        runtimeDir,
+        'systemd',
+        'user.control',
+        `${legacyUnits[0]}.d`,
+        '90-operator.conf',
       )
+      mkdirSync(join(operatorDropin, '..'), { recursive: true })
+      const operatorSetting = '[Service]\nEnvironment=OPERATOR_SETTING=kept\n'
+      writeFileSync(operatorDropin, operatorSetting)
 
-      if (
-        phase === 'before-parent-write' ||
-        phase === 'after-parent-write' ||
-        phase === 'after-parent-enable'
-      ) {
-        expect(legacyUnits.map((unit) => unitState(manager!.env, unit))).toEqual([
-          'active',
-          'active',
-          'active',
-        ])
-        if (phase === 'before-parent-write') expect(existsSync(join(unitDir, parentUnit))).toBe(false)
-        if (phase === 'after-parent-write') expect(unitState(manager.env, parentUnit)).toBe('inactive')
-        if (phase === 'after-parent-enable') {
-          expect(enableState(manager.env, parentUnit)).toBe('enabled')
-          expect(unitState(manager.env, parentUnit)).toBe('inactive')
-        }
-      } else {
-        // AWAITED on purpose: workingParent is async, so the unawaited call
-        // returned a Promise, which is always truthy — this waited for nothing
-        // and passed instantly without ever checking that the parent came back.
-        // `until` accepts an async reader, so the fix is to await it here.
-        await until(
-          async () => ((await workingParent(port)) ? true : undefined),
-          `working parent after SIGKILL at ${phase}`,
-        )
-        expect(['active', 'activating']).toContain(unitState(manager.env, parentUnit))
-      }
-
-      if (phase === 'external-during-parent-health-wait') {
-        for (const unit of legacyUnits) {
-          const runtimeMask = join(runtimeDir, 'systemd', 'user', unit)
-          expect(readlinkSync(runtimeMask)).toBe('/dev/null')
-          expect(lstatSync(join(unitDir, unit)).isSymbolicLink()).toBe(false)
-        }
-      }
-      if (phase === 'after-stop-legacy-unit') {
-        expect(checkpoint.unit).toBeTruthy()
-        expect(unitState(manager.env, checkpoint.unit as string)).toBe('inactive')
-        expect(legacyUnits.every((unit) => existsSync(join(unitDir, unit)))).toBe(true)
-        expect(checkpoint.remaining).toBeGreaterThan(0)
-      }
-      if (phase === 'after-all-legacy-stopped-before-remove') {
-        expect(legacyUnits.map((unit) => unitState(manager!.env, unit))).toEqual([
-          'inactive',
-          'inactive',
-          'inactive',
-        ])
-        expect(legacyUnits.every((unit) => existsSync(join(unitDir, unit)))).toBe(true)
-      }
-    } finally {
-      if (migrator && alive(migrator.pid)) migrator.kill('SIGKILL')
-      if (manager) await stopManager(manager)
-      // systemd deliberately creates this mode-000 sentinel in every runtime
-      // tree; make its directory traversable before removing the private root.
+      let manager: PrivateManager | undefined
+      let migrator: ChildProcess | undefined
       try {
-        chmodSync(join(runtimeDir, 'systemd', 'inaccessible', 'dir'), 0o700)
-      } catch {
-        // Manager never created it (for example, failed before startup).
+        manager = await startManager(runtimeDir, configHome)
+        ctl(manager.env, ['daemon-reload'])
+        ctl(manager.env, ['enable', '--now', ...legacyUnits])
+        await until(
+          () =>
+            legacyUnits.every((unit) => unitState(manager!.env, unit) === 'active')
+              ? true
+              : undefined,
+          'all three legacy units active',
+        )
+
+        const migrationEnv = manager.env
+        let migrationOutput = ''
+        const startMigration = (killPhase: string) => {
+          migrationOutput = ''
+          const child = spawn(BUN, ['--conditions=@podium/source', '--eval', migratorSource()], {
+            cwd: ROOT,
+            env: {
+              ...migrationEnv,
+              PODIUM_STATE_DIR: stateDir,
+              PODIUM_INSTANCE: instanceId,
+              FIXTURE_KILL_PHASE: killPhase,
+              FIXTURE_UNIT_DIR: unitDir,
+              FIXTURE_CHECKPOINT: checkpointPath,
+              FIXTURE_NOTIFY_LOG: notifyPath,
+              FIXTURE_PARENT_BODY: renderedParent,
+            },
+            stdio: ['ignore', 'pipe', 'pipe'],
+          })
+          child.stdout?.on('data', (chunk) => (migrationOutput += String(chunk)))
+          child.stderr?.on('data', (chunk) => (migrationOutput += String(chunk)))
+          return child
+        }
+        const completed = async () => {
+          await until(() => {
+            if (migrator?.exitCode === 0) return true
+            if (migrator?.exitCode !== null || migrator?.signalCode !== null)
+              throw new Error(`migration did not complete: ${migrationOutput}`)
+            return undefined
+          }, 'completed migration')
+        }
+        migrator = startMigration(phase ?? 'complete')
+        let checkpoint: { phase: string; unit?: string; remaining?: number } = {
+          phase: phase ?? 'complete',
+        }
+        if (phase === null) await completed()
+        else if (phase === 'external-during-parent-health-wait') {
+          await until(() => {
+            if (migrator?.exitCode !== null || migrator?.signalCode !== null) {
+              throw new Error(`migrator exited before health wait: ${migrationOutput}`)
+            }
+            return unitState(manager!.env, parentUnit) === 'activating' ? true : undefined
+          }, 'parent unit activating inside its notify health wait')
+          migrator.kill('SIGKILL')
+          checkpoint = { phase }
+        } else {
+          checkpoint = await until(() => {
+            if (existsSync(checkpointPath)) {
+              return JSON.parse(readFileSync(checkpointPath, 'utf8')) as typeof checkpoint
+            }
+            if (migrator?.exitCode !== null || migrator?.signalCode !== null) {
+              throw new Error(`migrator exited before ${phase}: ${migrationOutput}`)
+            }
+            return undefined
+          }, phase)
+          expect(checkpoint.phase).toBe(phase)
+        }
+        if (phase !== null)
+          await until(
+            () => (migrator?.signalCode === 'SIGKILL' ? true : undefined),
+            `migrator SIGKILL at ${phase}`,
+          )
+
+        if (
+          phase === 'before-parent-write' ||
+          phase === 'after-parent-write' ||
+          phase === 'after-parent-enable'
+        ) {
+          expect(legacyUnits.map((unit) => unitState(manager!.env, unit))).toEqual([
+            'active',
+            'active',
+            'active',
+          ])
+          if (phase === 'before-parent-write')
+            expect(existsSync(join(unitDir, parentUnit))).toBe(false)
+          if (phase === 'after-parent-write')
+            expect(unitState(manager.env, parentUnit)).toBe('inactive')
+          if (phase === 'after-parent-enable') {
+            expect(enableState(manager.env, parentUnit)).toBe('enabled')
+            expect(unitState(manager.env, parentUnit)).toBe('inactive')
+          }
+        } else {
+          // AWAITED on purpose: workingParent is async, so the unawaited call
+          // returned a Promise, which is always truthy — this waited for nothing
+          // and passed instantly without ever checking that the parent came back.
+          // `until` accepts an async reader, so the fix is to await it here.
+          await until(
+            async () => ((await workingParent(port)) ? true : undefined),
+            `working parent after SIGKILL at ${phase}`,
+          )
+          expect(['active', 'activating']).toContain(unitState(manager.env, parentUnit))
+        }
+
+        if (
+          phase !== null &&
+          !['before-parent-write', 'after-parent-write', 'after-parent-enable'].includes(phase)
+        ) {
+          for (const unit of legacyUnits) {
+            expect(readlinkSync(join(runtimeDir, 'systemd', 'user.control', unit)), unit).toBe(
+              '/dev/null',
+            )
+            expect(lstatSync(join(unitDir, unit)).isFile(), unit).toBe(true)
+            for (const operation of ['start', 'restart']) {
+              const refused = ctlResult(manager.env, [operation, unit])
+              expect(refused.status, `${operation} ${unit}`).not.toBe(0)
+              expect(refused.stderr, `${operation} ${unit}`).toMatch(/masked/)
+            }
+          }
+        }
+        if (phase === 'after-stop-legacy-unit') {
+          expect(checkpoint.unit).toBeTruthy()
+          expect(
+            ctl(manager.env, ['show', checkpoint.unit as string, '--property=MainPID', '--value']),
+          ).toBe('0')
+          expect(legacyUnits.every((unit) => existsSync(join(unitDir, unit)))).toBe(true)
+          expect(checkpoint.remaining).toBeGreaterThan(0)
+        }
+        if (phase === 'after-all-legacy-stopped-before-remove') {
+          for (const unit of legacyUnits) {
+            const pid = ctl(manager.env, ['show', unit, '--property=MainPID', '--value'])
+            expect(pid, unit).toBe('0')
+            expect(ctlResult(manager.env, ['is-active', '--quiet', unit]).status, unit).not.toBe(0)
+          }
+          expect(await workingParent(port)).toBe(true)
+          // Resume the actual killed command; no checkpoint matches completion.
+          migrator = startMigration('complete')
+          await completed()
+        }
+        if (phase === null || phase === 'after-all-legacy-stopped-before-remove') {
+          expect(legacyUnits.filter((unit) => existsSync(join(unitDir, unit)))).toEqual([])
+          for (const unit of legacyUnits)
+            expect(
+              lstatSync(join(unitDir, 'default.target.wants', unit), { throwIfNoEntry: false }),
+              unit,
+            ).toBeUndefined()
+          expect(
+            legacyUnits.filter((unit) =>
+              existsSync(join(runtimeDir, 'systemd', 'user.control', unit)),
+            ),
+          ).toEqual([])
+          const failed = ctl(manager.env, ['--failed', '--no-legend', '--plain', '--no-pager'])
+            .split('\n')
+            .filter((line) => legacyUnits.some((unit) => line.includes(unit)))
+          expect(failed, 'no retired not-found failed unit may survive removal').toEqual([])
+          expect(ctlResult(manager.env, ['is-system-running']).stdout.trim()).toBe('running')
+          expect(await workingParent(port)).toBe(true)
+        }
+        expect(readFileSync(operatorDropin, 'utf8')).toBe(operatorSetting)
+      } finally {
+        if (migrator && alive(migrator.pid)) migrator.kill('SIGKILL')
+        if (manager) await stopManager(manager, [parentUnit, ...legacyUnits])
+        // systemd deliberately creates this mode-000 sentinel in every runtime
+        // tree; make its directory traversable before removing the private root.
+        try {
+          chmodSync(join(runtimeDir, 'systemd', 'inaccessible', 'dir'), 0o700)
+        } catch {
+          // Manager never created it (for example, failed before startup).
+        }
+        await rm(root, { recursive: true, force: true })
       }
-      await rm(root, { recursive: true, force: true })
-    }
-  }, 45_000)
+    },
+    45_000,
+  )
 })

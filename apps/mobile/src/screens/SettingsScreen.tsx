@@ -1,15 +1,17 @@
+import { accountPageUrl } from '@podium/client-core/accounts'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   devicePlatformLabel,
   formatCount,
   visibleFleetOperations,
 } from '@podium/client-core/values'
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
 import { Fragment, type ReactNode, useMemo, useState } from 'react'
 import {
   Alert,
+  Linking,
   Platform,
   ScrollView,
   type StyleProp,
@@ -21,6 +23,7 @@ import {
   type ViewStyle,
 } from 'react-native'
 import { logout } from '../client/auth'
+import { useAuthStatus } from '../client/auth-context'
 import { type ConnectedDevicesFeed, useConnectedDevices } from '../client/connected-devices'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
 import { useConnected, useHttpOrigin } from '../client/hooks'
@@ -42,6 +45,7 @@ import {
   type SettingsMachineStatus,
   useSettingsData,
   useSettingsMachineStatus,
+  useSettingsUnsyncedChangeCount,
 } from './settings-readers'
 
 function openDesktop() {
@@ -54,7 +58,7 @@ function openDesktop() {
 
 /**
  * Settings follows the Settings board: one screen of summary rows, with the
- * detail behind pushed screens in the same tab stack (Connected devices,
+ * detail behind pushed screens in the same tab stack (Where you’re signed in,
  * Servers, Version). Every screen reads the same settings opening; nothing
  * here adds a read.
  */
@@ -82,9 +86,15 @@ function useAccountActions() {
   const { profile, bearer, removeProfile, updateCredential } = useServerProfile()
   const [loggedOut, setLoggedOut] = useState(false)
   const [busy, setBusy] = useState(false)
+  const unsyncedChangeCount = useSettingsUnsyncedChangeCount()
+  const logoutDisabled = busy || unsyncedChangeCount === null
 
   const finishLocalLogout = async () => {
     await eraseLocalData()
+    // The browser build shares storage and cookies with every other tab. Removing
+    // the saved account is what tells them this member signed out, so none keeps
+    // painting this member's world for the next person (POD-6292, MU-12).
+    if (Platform.OS === 'web') await removeProfile(profile.id)
     setLoggedOut(true)
     await updateCredential(null)
     if (Platform.OS === 'web') {
@@ -101,7 +111,7 @@ function useAccountActions() {
       } catch {
         Alert.alert(
           'Remote logout failed',
-          'This phone still has the credential needed to retry. Keep it, or remove local data now and later revoke this phone from Settings → Connected devices on the server.',
+          'This phone still has the credential needed to retry. Keep it, or remove local data now and later revoke this phone from Settings → Account on the server.',
           [
             { text: 'Keep signed in', style: 'cancel' },
             {
@@ -112,7 +122,7 @@ function useAccountActions() {
                   if (Platform.OS !== 'web') {
                     Alert.alert(
                       'Removed locally',
-                      'The remote phone session may still be active. Revoke it from Settings → Connected devices on the server.',
+                      'The remote phone session may still be active. Revoke it from Settings → Account on the server.',
                     )
                   }
                 })
@@ -159,7 +169,7 @@ function useAccountActions() {
                 } catch {
                   Alert.alert(
                     'Remote revocation failed',
-                    'Keep this server to retry with its credential, or remove it locally and later revoke the phone from Settings → Connected devices on the server.',
+                    'Keep this server to retry with its credential, or remove it locally and later revoke the phone from Settings → Account on the server.',
                     [
                       { text: 'Keep server', style: 'cancel' },
                       {
@@ -169,7 +179,7 @@ function useAccountActions() {
                           void removeLocally().then(() =>
                             Alert.alert(
                               'Removed locally',
-                              'The remote phone session may still be active. Revoke it from Settings → Connected devices on the server.',
+                              'The remote phone session may still be active. Revoke it from Settings → Account on the server.',
                             ),
                           )
                         },
@@ -194,7 +204,25 @@ function useAccountActions() {
     )
   }
 
-  return { doLogout, removeCurrent, loggedOut, busy }
+  const requestLogout = () => {
+    if (logoutDisabled) return
+    if (unsyncedChangeCount > 0) {
+      Alert.alert(
+        'Sign out with unsynced changes?',
+        unsyncedChangeCount === 1
+          ? "1 change on this device hasn't synced yet and will be lost."
+          : `${unsyncedChangeCount} changes on this device haven't synced yet and will be lost.`,
+        [
+          { text: 'Wait', style: 'cancel' },
+          { text: 'Sign out anyway', style: 'destructive', onPress: () => void doLogout() },
+        ],
+      )
+      return
+    }
+    void doLogout()
+  }
+
+  return { requestLogout, logoutDisabled, removeCurrent, loggedOut, busy }
 }
 
 function useDemoFleet() {
@@ -322,7 +350,7 @@ const SettingsHome = observer(function SettingsHome() {
           <Card>
             <NavRow
               icon={Monitor}
-              label="Connected devices"
+              label="Where you’re signed in"
               value={deviceCountLabel(deviceFeed)}
               onPress={() => router.push('/settings/devices')}
             />
@@ -375,10 +403,23 @@ const SettingsHome = observer(function SettingsHome() {
 
 const SettingsDevices = observer(function SettingsDevices() {
   const { profile } = useServerProfile()
+  const capabilities = useAuthStatus()?.capabilities
   const deviceFeed = useConnectedDevices()
   const devices = deviceFeed.sessions ?? []
   return (
-    <DetailScreen title="Connected devices">
+    <DetailScreen title="Where you’re signed in">
+      {capabilities?.accountUrl ? (
+        <Text
+          accessibilityRole="link"
+          style={styles.footer}
+          onPress={() => {
+            const url = accountPageUrl(capabilities, 'devices')
+            if (url) void Linking.openURL(url)
+          }}
+        >
+          Manage all account devices
+        </Text>
+      ) : null}
       <Card>
         {deviceFeed.loading && devices.length === 0 ? (
           <Row label="Devices" value="Loading…" />
@@ -387,15 +428,17 @@ const SettingsDevices = observer(function SettingsDevices() {
         ) : devices.length === 0 ? (
           <Row label="Devices" value="None" />
         ) : (
-          devices.map((device) => <ConnectedDeviceRow key={device.sessionId} device={device} />)
+          devices.map((device) => <ConnectedDeviceRow key={device.id} device={device} />)
         )}
         {deviceFeed.failed && devices.length > 0 ? (
           <Row label="Refresh" value="Failed · showing prior list" />
         ) : null}
       </Card>
       <Text style={styles.footer}>
-        This list belongs to the signed-in account on {profile.name}. Pairing and revocation stay in
-        Connected devices on the desktop.
+        This list belongs to the signed-in account on {profile.name}.{' '}
+        {capabilities?.accountUrl
+          ? 'Manage device sign-ins in your account.'
+          : 'Pairing and revocation stay in Settings → Account on the desktop.'}
       </Text>
     </DetailScreen>
   )
@@ -545,14 +588,14 @@ function LogoutRow({ account }: { account: ReturnType<typeof useAccountActions> 
   return (
     <PressableScale
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-      onPress={() => void account.doLogout()}
-      disabled={account.busy}
+      onPress={account.requestLogout}
+      disabled={account.logoutDisabled}
       accessibilityRole="button"
       accessibilityLabel="Log out"
       // `aria-busy` beside `accessibilityState`: react-native-web 0.21 reads
       // only the former. The disabled half already reaches the browser via
       // the `disabled` prop above. [POD-1664]
-      accessibilityState={{ disabled: account.busy, busy: account.busy }}
+      accessibilityState={{ disabled: account.logoutDisabled, busy: account.busy }}
       aria-busy={account.busy}
     >
       <Text style={styles.destructiveLabel}>{account.loggedOut ? 'Logged out' : 'Log out'}</Text>
@@ -648,7 +691,7 @@ function GroupHeader({ label }: { label: string }) {
 const ConnectedDeviceRow = observer(function ConnectedDeviceRow({
   device,
 }: {
-  device: MobileClientSession
+  device: DeviceSignInView
 }) {
   return (
     <View style={styles.tallRow}>
@@ -666,7 +709,7 @@ const ConnectedDeviceRow = observer(function ConnectedDeviceRow({
 const ConnectedDeviceActivity = observer(function ConnectedDeviceActivity({
   device,
 }: {
-  device: MobileClientSession
+  device: DeviceSignInView
 }) {
   const now = useAgeNow(
     device.lastSeenAt ?? device.createdAt,

@@ -9,7 +9,7 @@ import { action } from 'mobx'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
-import { useHttpOrigin, useStoreActions, useTrpc } from '../client/hooks'
+import { useHttpOrigin, useTrpc } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
 import { useThreadConversation } from '../client/use-thread-conversation'
@@ -28,9 +28,11 @@ import { type SentAttachment, useComposerAttachments } from '../components/useCo
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
+import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import type { MobileChatViewModel } from '../lib/chat-view-model'
 import { humanizeSendFailure } from '../lib/send-failure'
 import { resolveSuperagentBackend, superagentTurnChoice } from '../lib/superagent-backend'
+import { superagentWrites } from '../lib/superagent-writes'
 import { useHeaderInset } from '../navigation/header-inset'
 import { color, font, sans, space } from '../theme/theme'
 
@@ -81,7 +83,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   // Narrow subscriptions: everything this screen reads off the store is
   // either an identity-stable static or the sessions slice it paints from.
   const trpc = useTrpc()
-  const { refreshSuperThreads } = useStoreActions()
+  const answerSession = useAnswerSession()
   const httpOrigin = useHttpOrigin()
   // The signed-in user's threads, from the store's published slice — the same
   // one the desktop superagent column reads. The screen used to fetch the list
@@ -99,7 +101,6 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const tabBarInset = useTabBarInset()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
-  const [threadsLoaded, setThreadsLoaded] = useState(false)
   const { conversation, podiumSid, binding } = useThreadConversation()
   const followTranscript = useCallback(
     (following: boolean) => {
@@ -127,13 +128,13 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const modelCatalog = useModelCatalog<MobileTrpc>(transcriptSession?.machineId)
   const prepareAttachmentSession = useCallback(async (): Promise<SessionId> => {
     if (podiumSid) return podiumSid
-    const result = await trpc.superagent.ensureSession.mutate({ threadId: THREAD_ID })
+    const result = await superagentWrites(trpc).ensureSession.mutate({ threadId: THREAD_ID })
     if (!result.podiumSessionId) throw new Error('Superagent could not prepare this attachment.')
     action(() => {
       binding.acked = result.podiumSessionId
     })()
     return result.podiumSessionId
-  }, [binding, podiumSid, trpc.superagent.ensureSession])
+  }, [binding, podiumSid, trpc])
   const attachments = useComposerAttachments(podiumSid, {
     prepareSession: prepareAttachmentSession,
   })
@@ -143,21 +144,6 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   // screen even if the operator had scrolled up (the web chat's pinToBottom).
   const [pinRequest, setPinRequest] = useState(0)
   const keyboardLift = useKeyboardLift()
-  // The store owns the thread list; this completion bit only distinguishes an
-  // unresolved first read from a genuinely empty global thread. The engine's
-  // boot refresh may already have won, in which case this is a cheap refresh.
-  useEffect(() => {
-    let alive = true
-    void refreshSuperThreads()
-      .catch(() => {})
-      .finally(() => {
-        if (alive) setThreadsLoaded(true)
-      })
-    return () => {
-      alive = false
-    }
-  }, [refreshSuperThreads])
-
   const pendingTurns = conversation?.bubbles.map(pendingTurnOf) ?? []
   const loadOlder = useCallback(() => {
     void conversation?.loadOlder()
@@ -205,7 +191,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
 
   const clear = useCallback(async () => {
     try {
-      await trpc.superagent.clear.mutate({ threadId: THREAD_ID })
+      await superagentWrites(trpc).clear.mutate({ threadId: THREAD_ID })
       // The server drops the thread's harness+headless binding, so the old
       // session's transcript is no longer this thread's: forget it and let the
       // next turn's ack hand back a fresh session.
@@ -215,11 +201,10 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
       })()
       attachments.clear()
       conversation?.clear()
-      void refreshSuperThreads().catch(() => {})
     } catch (error) {
       conversation?.setTurnError(humanizeSendFailure(error))
     }
-  }, [attachments.clear, binding, conversation, podiumSid, refreshSuperThreads, trpc])
+  }, [attachments.clear, binding, conversation, podiumSid, trpc])
 
   const hasStreamingText = conversation?.hasStreamingText ?? false
   const visibleRestoredFailure =
@@ -227,22 +212,24 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const restoredRow = useMemo((): LocalPendingTurn | null => {
     if (!visibleRestoredFailure?.userText) return null
     return {
-      id: `restored:${visibleRestoredFailure.inputId}`,
+      id: `restored:${visibleRestoredFailure.at}`,
       text: visibleRestoredFailure.userText,
       wire: visibleRestoredFailure.userText,
-      failed: visibleRestoredFailure.error,
+      failed: visibleRestoredFailure.message,
     }
   }, [visibleRestoredFailure])
-  const visibleError = error ?? visibleRestoredFailure?.error ?? null
+  const visibleError = error ?? visibleRestoredFailure?.message ?? null
   const visiblePendingTurns = useMemo(
     () => (restoredRow ? [...pendingTurns, restoredRow] : pendingTurns),
     [pendingTurns, restoredRow],
   )
   // POD-332 retired `MobileClientValue` (and with it `client.sessionById`): every
   // screen reads the same store and the same published slices as the web.
+  // With no session yet, the thread record is all there is: it is resident
+  // once the replica has booted (POD-6675).
   const transcriptResolved = podiumSid
     ? transcriptLoaded || itemCount > 0 || hasStreamingText
-    : threadsLoaded
+    : true
   const resolved = !booting && transcriptResolved
   const empty =
     resolved && itemCount === 0 && !hasStreamingText && visiblePendingTurns.length === 0 && !working
@@ -338,12 +325,9 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
                     throw new Error('The question changed; wait for the current menu.')
                   }
                   if (!podiumSid) return
-                  const sent = await trpc.sessions.answerAskUserQuestion.mutate({
-                    sessionId: podiumSid,
-                    interactionId: answer.interactionId,
-                    ...answer,
-                  })
-                  if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+                  // A `session.answer` record (POD-6415).
+                  const sent = await answerSession(podiumSid, menuAnswer(answer))
+                  if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
                 }}
               />
             </PullToRefreshBoundary>

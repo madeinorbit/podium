@@ -1,82 +1,170 @@
-import type { AccountView, MemberView, GitRepositoryWire } from '@podium/model'
-import { machinePathBasename, repoNameFromOrigin } from '@podium/model/browser'
-import type { MobileClientSession } from '@podium/protocol'
-import type { PodiumClientApi } from '@podium/client-core/api'
-import { codingRoleHarness } from '@podium/client-core/values'
-type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
 import { lazy } from '@podium/mobx-helpers'
-import { EntityModel, registerModels, type ModelHost } from './models'
+import type { CredentialView, GitRepositoryWire, MemberView } from '@podium/model'
+import { machinePathBasename, repoNameFromOrigin } from '@podium/model/browser'
+import type { DeviceSignInView } from '@podium/protocol'
+import { EntityModel, type ModelHost, registerModels } from './models'
 import type { EntitySpec, FieldSpec, ModelSchemaName, RowArrival } from './shared/schema'
 
-export class AccountModel extends EntityModel {
-  constructor(id: string, host: ModelHost) { super('account', id, host) }
+/**
+ * A CREDENTIAL I own or was given (credential management §4), as
+ * `credentials.list` returns it. Never a secret: the record has no field for one.
+ */
+export class CredentialModel extends EntityModel {
+  constructor(id: string, host: ModelHost) {
+    super('credential', id, host)
+  }
+  /** The viewer may rename, renew, remove and share it. */
+  @lazy get canManage(): boolean {
+    return this.access === 'owner' || this.access === 'manage'
+  }
 }
-export interface AccountModel extends Readonly<AccountView> {}
+// `id` is the model's own (a plain string); the record's branded id is the same value.
+export interface CredentialModel extends Readonly<Omit<CredentialView, 'id'>> {}
 export class MemberModel extends EntityModel {
-  constructor(id: string, host: ModelHost) { super('member', id, host) }
+  constructor(id: string, host: ModelHost) {
+    super('member', id, host)
+  }
 }
 export interface MemberModel extends Readonly<MemberView> {}
 export class DeviceModel extends EntityModel {
-  constructor(id: string, host: ModelHost) { super('device', id, host) }
+  constructor(id: string, host: ModelHost) {
+    super('device', id, host)
+  }
 }
-export interface DeviceModel extends Readonly<MobileClientSession> {}
-export class PodiumSettingsModel extends EntityModel {
-  constructor(id: string, host: ModelHost) { super('podiumSettings', id, host) }
-  // Role defaults are shared facts, read once while a launcher observes them.
-  @lazy get codingHarness(): string | undefined { return this.roles?.coding ? codingRoleHarness(this) : undefined }
-}
-export interface PodiumSettingsModel extends Readonly<PodiumSettings> {}
-/** Existing per-machine scan storage, now read through the pool's model identity. */
+export interface DeviceModel extends Readonly<DeviceSignInView> {}
+/** One registered repository on one machine, with its worktrees: derived from
+ *  the `checkout` records (POD-6644), read through the pool's model identity. */
 export class RepositoryModel extends EntityModel {
-  constructor(id: string, host: ModelHost) { super('repository', id, host) }
-  @lazy get name(): string { return repoNameFromOrigin(this.originUrl) ?? (machinePathBasename(this.path) || this.path) }
+  constructor(id: string, host: ModelHost) {
+    super('repository', id, host)
+  }
+  @lazy get name(): string {
+    return repoNameFromOrigin(this.originUrl) ?? (machinePathBasename(this.path) || this.path)
+  }
 }
 export interface RepositoryModel extends Readonly<GitRepositoryWire> {}
 
-function record(schema: ModelSchemaName, arrivesOn: RowArrival, key: string,
-  fields: Readonly<Record<string, FieldSpec['type']>>, optional: readonly string[] = [], nullable: readonly string[] = []): EntitySpec {
+function record(
+  schema: ModelSchemaName,
+  arrivesOn: RowArrival,
+  key: string,
+  fields: Readonly<Record<string, FieldSpec['type']>>,
+  optional: readonly string[] = [],
+  nullable: readonly string[] = [],
+): EntitySpec {
   return {
-    key, components: {}, relations: {},
-    cold: { kind: 'never', why: 'Only the requested working set is resident in the principal-owned pool.' },
+    key,
+    components: {},
+    relations: {},
     why: 'One shared identity for a public requested record.',
-    fields: Object.fromEntries(Object.entries(fields).map(([property, type]) => [property, {
-      type, ...(optional.includes(property) ? { optional: true } : {}), ...(nullable.includes(property) ? { nullable: true } : {}), source: { schema, arrivesOn },
-    }])),
+    fields: Object.fromEntries(
+      Object.entries(fields).map(([property, type]) => [
+        property,
+        {
+          type,
+          ...(optional.includes(property) ? { optional: true } : {}),
+          ...(nullable.includes(property) ? { nullable: true } : {}),
+          source: { schema, arrivesOn },
+        },
+      ]),
+    ),
   }
 }
-const settingsFields = {
-  // Role and personal preferences
-  roles: 'object', sidebar: 'object', notifications: 'object', autoContinue: 'object',
-  // Instance policy; requests keep the existing settings classification/transport
-  hibernation: 'object', gitWorkflow: 'object', issues: 'object', steward: 'object',
-  experimental: 'object', worktreeGc: 'object', transcripts: 'object', deployment: 'object',
-  // Legacy public redaction returned by settings.get (never persisted by this pool)
-  apiKeys: 'object', integrations: 'object',
-} as const
-const settingsBase = record('PodiumSettings', 'request:settings.get', 'id', settingsFields)
-const settings: EntitySpec = { ...settingsBase, fields: { ...settingsBase.fields, id: { type: 'id', source: { schema: 'RequestRecordKey', arrivesOn: 'request:settings.get' } } } }
-registerModels({
-  account: record('AccountView', 'request:accounts.list', 'id', {
-    // Identity and authentication availability
-    id: 'id', provider: 'string', source: 'enum', kind: 'enum', harness: 'enum', identity: 'string',
-    identityFingerprint: 'string', status: 'enum', credentialSource: 'enum',
-    // Machine/login observations
-    machines: 'object', serverAi: 'object', loginRequired: 'boolean', loginMachines: 'object', loginAttempt: 'object',
-  }, ['kind', 'harness', 'identity', 'identityFingerprint', 'credentialSource', 'machines', 'serverAi', 'loginRequired', 'loginMachines', 'loginAttempt']),
-  member: record('MemberView', 'request:members.list', 'id', {
-    id: 'id', displayName: 'string', email: 'string', role: 'string', accountId: 'id', avatar: 'string',
-    createdAt: 'isoDate', disabledAt: 'isoDate',
-  }, ['accountId', 'avatar', 'createdAt', 'disabledAt'], ['email', 'accountId', 'avatar', 'disabledAt']),
-  device: record('MobileClientSession', 'request:auth.mobileSessions', 'sessionId', {
-    sessionId: 'id', userId: 'id', label: 'string', deviceId: 'id', deviceName: 'string', platform: 'enum',
-    createdAt: 'isoDate', expiresAt: 'isoDate', lastSeenAt: 'isoDate', current: 'boolean',
-  }, [], ['lastSeenAt']),
-  podiumSettings: settings,
-  repository: (() => {
-    const scan = record('GitRepositoryWire', 'engine:repos', 'id', {
-      path: 'string', kind: 'enum', branch: 'string', originUrl: 'string', repoId: 'id', machineId: 'id', worktrees: 'object',
-    }, ['branch', 'originUrl', 'repoId', 'machineId'])
-    // Per-machine scans use the source's identity, independent of their path.
-    return { ...scan, fields: { ...scan.fields, id: { type: 'id', source: { schema: 'RequestRecordKey', arrivesOn: 'engine:repos' } } } }
-  })(),
-}, { account: AccountModel, member: MemberModel, device: DeviceModel, podiumSettings: PodiumSettingsModel, repository: RepositoryModel })
+registerModels(
+  {
+    credential: record(
+      'CredentialView',
+      'request:credentials.list',
+      'id',
+      {
+        id: 'id',
+        ownerUserId: 'id',
+        label: 'string',
+        type: 'string',
+        identity: 'object',
+        status: 'enum',
+        statusReason: 'string',
+        limitReachedUntil: 'isoDate',
+        expiresAt: 'isoDate',
+        verifiedAt: 'isoDate',
+        homes: 'object',
+        allowedMachines: 'object',
+        sessionCount: 'number',
+        access: 'enum',
+        sharedWith: 'object',
+        nativeLogin: 'object',
+      },
+      ['statusReason', 'limitReachedUntil', 'expiresAt', 'verifiedAt', 'sharedWith', 'nativeLogin'],
+    ),
+    member: record(
+      'MemberView',
+      'request:members.list',
+      'id',
+      {
+        id: 'id',
+        displayName: 'string',
+        email: 'string',
+        role: 'string',
+        accountId: 'id',
+        avatar: 'string',
+        createdAt: 'isoDate',
+        disabledAt: 'isoDate',
+      },
+      ['email', 'accountId', 'avatar', 'createdAt', 'disabledAt'],
+      ['email', 'accountId', 'avatar', 'disabledAt'],
+    ),
+    device: record(
+      'DeviceSignInView',
+      'request:auth.mobileSessions',
+      'id',
+      {
+        id: 'id',
+        kind: 'enum',
+        deviceName: 'string',
+        platform: 'enum',
+        createdAt: 'isoDate',
+        expiresAt: 'isoDate',
+        lastSeenAt: 'isoDate',
+        current: 'boolean',
+      },
+      [],
+      ['lastSeenAt'],
+    ),
+    repository: (() => {
+      // A registered root and its worktrees, derived from the `checkout`
+      // records (POD-6644, `shared/checkout-repositories.ts`).
+      const scan = record(
+        'GitRepositoryWire',
+        'replica:checkouts',
+        'id',
+        {
+          path: 'string',
+          kind: 'enum',
+          branch: 'string',
+          originUrl: 'string',
+          repoId: 'id',
+          machineId: 'id',
+          worktrees: 'object',
+        },
+        ['branch', 'originUrl', 'repoId', 'machineId'],
+      )
+      // Per-machine scans use the source's identity, independent of their path.
+      return {
+        ...scan,
+        fields: {
+          ...scan.fields,
+          id: {
+            type: 'id',
+            source: { schema: 'RequestRecordKey', arrivesOn: 'replica:checkouts' },
+          },
+        },
+      }
+    })(),
+  },
+  {
+    credential: CredentialModel,
+    member: MemberModel,
+    device: DeviceModel,
+    repository: RepositoryModel,
+  },
+)

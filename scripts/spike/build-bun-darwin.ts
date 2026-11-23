@@ -24,7 +24,7 @@ import {
 } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { DISCOVERY_WORKER_ENTRY } from '../../apps/daemon/src/discovery-worker-embed.js'
-import { JANITOR_WORKER_ENTRY } from '../../packages/janitor/src/janitor-worker-embed.js'
+import { JANITOR_WORKER_ENTRY } from '../../apps/server/src/janitor-worker-embed.js'
 import {
   bunVersion,
   hasBunTerminal,
@@ -89,7 +89,6 @@ function main(): void {
   // same content-addressed cache the release uses.
   const rustHost = crossBuildRustHost(headlessPlatform(target), { root })
   console.log(`[spike] ${RUST_HOST_BINARY} <- ${rustHost}`)
-
 
   console.log(`[spike] compiling podium for ${target} (v${version})…`)
   execFileSync(

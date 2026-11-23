@@ -1,52 +1,100 @@
 import './requested-models'
 import type { RepoNavView, WorktreeView } from '@podium/client-core/values'
-import { lazy, companion } from '@podium/mobx-helpers'
+import { companion, lazy } from '@podium/mobx-helpers'
 import { machinePathsEqual, normalizeOriginUrl } from '@podium/model/browser'
 import { compareShallow } from 'mobx'
 import { headerEntities } from './header-entities'
-import { here, omitGone } from './lookup'
-import { LOADING } from './loading'
+import { here } from './lookup'
+import { pinnedIds } from './per-user-records'
 import type { MobxPool } from './pool'
 import type { RepositoryModel } from './requested-models'
 
 /** Placement is a launcher's rule over a scan, not a copied scan record. */
 export class LaunchTree implements WorktreeView {
-  constructor(readonly repository: RepositoryModel, readonly path: string, readonly isMain: boolean,
-    private readonly pool: MobxPool, private readonly project: LaunchRepository) {}
+  constructor(
+    readonly repository: RepositoryModel,
+    readonly path: string,
+    readonly isMain: boolean,
+    private readonly pool: MobxPool,
+    private readonly project: LaunchRepository,
+  ) {}
   @lazy get branch() {
     // The shared lane is authoritative when present; older scan-only catalogs
     // still describe a checkout inside their one shared repository record.
     const lane = here(this.pool.model('worktree', this.path))
-    return lane?.branch ?? (this.isMain ? this.repository.branch : this.repository.worktrees?.find(tree => machinePathsEqual(tree.path, this.path))?.branch) ?? undefined
+    return (
+      lane?.branch ??
+      (this.isMain
+        ? this.repository.branch
+        : this.repository.worktrees?.find((tree) => machinePathsEqual(tree.path, this.path))
+            ?.branch) ??
+      undefined
+    )
   }
-  @lazy get repoPath() { return this.repository.path }
-  @lazy get repoId() { return this.repository.repoId }
-  @lazy get machineId() { return this.repository.machineId }
-  @lazy get repoName() { return this.project.name }
+  @lazy get repoPath() {
+    return this.repository.path
+  }
+  @lazy get repoId() {
+    return this.repository.repoId
+  }
+  @lazy get machineId() {
+    return this.repository.machineId
+  }
+  @lazy get repoName() {
+    return this.project.name
+  }
   readonly sessions = []
   readonly issues = []
 }
 export class LaunchRepository implements RepoNavView {
   readonly id: string
-  constructor(readonly repository: RepositoryModel, private readonly pool: MobxPool, private readonly projectOnly = false) { this.id = repository.id }
+  constructor(
+    readonly repository: RepositoryModel,
+    private readonly pool: MobxPool,
+    private readonly projectOnly = false,
+  ) {
+    this.id = repository.id
+  }
   @lazy({ equals: compareShallow }) get scans(): RepositoryModel[] {
     const group = headerEntities(this.pool).repositoryGroupId(this.id)
-    return group ? headerEntities(this.pool).repositoryGroupRoots(group).flatMap(id => here(this.pool.model('repository', id)) ?? []) : []
+    return group
+      ? headerEntities(this.pool)
+          .repositoryGroupRoots(group)
+          .flatMap((id) => here(this.pool.model('repository', id)) ?? [])
+      : []
   }
-  @lazy get path() { return this.scans[0]?.path ?? '' }
-  @lazy get originUrl() { return this.scans.map(scan => normalizeOriginUrl(scan.originUrl)).find(Boolean) }
-  @lazy get repoId() { return this.scans.find(scan => scan.repoId !== undefined)?.repoId }
-  @lazy get name() { return (this.scans.find(scan => normalizeOriginUrl(scan.originUrl)) ?? this.scans[0])?.name ?? '' }
+  @lazy get path() {
+    return this.scans[0]?.path ?? ''
+  }
+  @lazy get originUrl() {
+    return this.scans.map((scan) => normalizeOriginUrl(scan.originUrl)).find(Boolean)
+  }
+  @lazy get repoId() {
+    return this.scans.find((scan) => scan.repoId !== undefined)?.repoId
+  }
+  @lazy get name() {
+    return (
+      (this.scans.find((scan) => normalizeOriginUrl(scan.originUrl)) ?? this.scans[0])?.name ?? ''
+    )
+  }
   @lazy({ equals: compareShallow }) get machines() {
     // Each entry is the shared scan: machineId/path are stored fields, read late.
-    return this.scans.filter((scan): scan is RepositoryModel & { machineId: NonNullable<RepositoryModel['machineId']> } => scan.machineId !== undefined)
+    return this.scans.filter(
+      (scan): scan is RepositoryModel & { machineId: NonNullable<RepositoryModel['machineId']> } =>
+        scan.machineId !== undefined,
+    )
+  }
+  @lazy({ equals: compareShallow }) get machineIds() {
+    return this.machines.map((scan) => scan.machineId)
   }
   @lazy({ equals: compareShallow }) get worktrees(): LaunchTree[] {
-    const pins = omitGone(this.pool.row('commandWindow', 'window'))
-    const pinned = this.projectOnly && pins && pins !== LOADING ? pins.pins.worktrees : []
-    return this.scans.flatMap(scan => [new LaunchTree(scan, scan.path, true, this.pool, this),
-      ...scan.worktrees.map(tree => new LaunchTree(scan, tree.path, false, this.pool, this))])
-      .filter(tree => !pinned.some(path => machinePathsEqual(path, tree.path)))
+    const pinned = this.projectOnly ? pinnedIds(this.pool, 'worktree') : []
+    return this.scans
+      .flatMap((scan) => [
+        new LaunchTree(scan, scan.path, true, this.pool, this),
+        ...scan.worktrees.map((tree) => new LaunchTree(scan, tree.path, false, this.pool, this)),
+      ])
+      .filter((tree) => !pinned.some((path) => machinePathsEqual(path, tree.path)))
   }
 }
 /** Pool view registry holds companions, never a second catalogue of records. */
@@ -73,8 +121,13 @@ export function launchRecords(pool: MobxPool) {
       treeAt(path: string, machineId?: string) {
         const handoff = headerEntities(pool).shippingScope(path, machineId)?.handoff
         const scan = handoff ? here(pool.model('repository', handoff.repositoryId)) : undefined
-        return scan ? repository(scan).worktrees.find(tree => machinePathsEqual(tree.path, path) &&
-          (machineId === undefined || tree.machineId === machineId)) : undefined
+        return scan
+          ? repository(scan).worktrees.find(
+              (tree) =>
+                machinePathsEqual(tree.path, path) &&
+                (machineId === undefined || tree.machineId === machineId),
+            )
+          : undefined
       },
       dispose() {},
     }

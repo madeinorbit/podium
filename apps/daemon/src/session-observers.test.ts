@@ -3901,7 +3901,7 @@ describe('Grok causal hook ingest', () => {
 })
 
 it('tail binding uses native session cursors and rebinds the same path to a new identity', async () => {
-  const { fileIdFor, readFileItems } = await import('@podium/harness/store')
+  const { fileByteSource, fileIdFor, readFileItems } = await import('@podium/harness/store')
   const { transcriptRecordMapperFor } = await import('@podium/harness')
   const claudeRecordToItems = transcriptRecordMapperFor('claude-code')
   if (!claudeRecordToItems) throw new Error('claude-code grammar missing')
@@ -3931,14 +3931,22 @@ it('tail binding uses native session cursors and rebinds the same path to a new 
   const sessionId = asSessionId('podium-namespace')
   try {
     observers.bindHeadlessSession(sessionId, 'claude-code', dir, 'native-first')
-    const expected = await readFileItems(path, fileIdFor('native-first'), claudeRecordToItems)
+    const expected = await readFileItems(
+      fileByteSource(path),
+      fileIdFor('native-first'),
+      claudeRecordToItems,
+    )
     await vi.waitFor(() => expect(sent.filter((m) => m.type === 'transcriptDelta')).toHaveLength(1))
     expect(sent.find((m) => m.type === 'transcriptDelta')).toMatchObject({ items: expected })
     if (!host) throw new Error('observer host missing')
     host.onResumeValue('native-second', 'exact')
     host.tailFile(path)
     await vi.waitFor(() => expect(sent.filter((m) => m.type === 'transcriptDelta')).toHaveLength(2))
-    const rebound = await readFileItems(path, fileIdFor('native-second'), claudeRecordToItems)
+    const rebound = await readFileItems(
+      fileByteSource(path),
+      fileIdFor('native-second'),
+      claudeRecordToItems,
+    )
     expect(rebound[0]?.cursor).not.toBe(expected[0]?.cursor)
     expect(sent.filter((m) => m.type === 'transcriptDelta').at(-1)).toMatchObject({
       items: rebound,
@@ -3982,7 +3990,7 @@ it('refuses to start a transcript tail until native identity is known', () => {
 })
 
 it('reattaches an idle Claude transcript from the durable lease without a resume ref [POD-4726]', async () => {
-  const { fileIdFor, readFileItems } = await import('@podium/harness/store')
+  const { fileByteSource, fileIdFor, readFileItems } = await import('@podium/harness/store')
   const { transcriptRecordMapperFor } = await import('@podium/harness')
   const claudeRecordToItems = transcriptRecordMapperFor('claude-code')
   if (!claudeRecordToItems) throw new Error('claude-code grammar missing')
@@ -4035,7 +4043,7 @@ it('reattaches an idle Claude transcript from the durable lease without a resume
     for (const watcher of statTick.watchers) watcher()
     await vi.waitFor(() => expect(deltas()).toHaveLength(2))
     const expected = await readFileItems(
-      path,
+      fileByteSource(path),
       fileIdFor('durable-native-session'),
       claudeRecordToItems,
     )

@@ -12,7 +12,6 @@ describe('operator preference replay keys', () => {
     const ui = createRoutedUiState({
       local: { get: () => null, set: write, subscribe },
       replicated: {
-        hydrate: async () => {},
         get: (key) => values[key],
         set: write,
         clear: write,

@@ -1,4 +1,4 @@
-import { resolvePrincipal } from '../../command-principal'
+import { resolvePrincipal, userCommandPrincipal } from '../../command-principal'
 /**
  * THE SETTINGS GATE AND TRAIL, AGAINST THE REAL DERIVED ROUTER (POD-421).
  *
@@ -34,13 +34,14 @@ import { resolvePrincipal } from '../../command-principal'
  * cannot be.
  */
 
-import { firstAdminMemberId, type UserId, type UserRole } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { asUserId, firstAdminMemberId, type UserId, type UserRole } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
 import { PairingManager } from '../../hub/pairing'
 
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { OPERATOR } from '../../test-support/capabilities'
 import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
@@ -48,12 +49,21 @@ import { REDACTED_MESSAGE } from './audit'
 import { SECRET_SURFACE_ABSENT } from './authz'
 
 const SECRET = 'sk-ant-real-material-do-not-log'
+const SECRET_KEY = 'integrations.linearApiKey'
 
 async function harness(role: UserRole | undefined) {
   const store = await openTestStore(':memory:')
   const registry = await SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     pairing: new PairingManager(),
+    telegramSetup: {
+      getMe: async () => ({ username: 'workspace_bot' }),
+      getUpdates: async () => [
+        { updateId: 1, chatId: '444', chatType: 'private', text: '/start member-code' },
+      ],
+      sendMessage: async () => {},
+    },
+    generateTelegramSetupCode: () => 'member-code',
   })
   await registry.modules.machines.ensureHostMachine('machine-under-test')
 
@@ -61,18 +71,33 @@ async function harness(role: UserRole | undefined) {
   // gate must see the requested role (including unreadable), while unrelated
   // session-state bootstrap remains a production-valid account read.
   const users = store.users as { roleOf: (id: UserId) => Promise<UserRole | undefined> }
-  users.roleOf = async (id: string) => (id === firstAdminMemberId() ? role : undefined)
+  const storedRoleOf = users.roleOf.bind(users)
+  users.roleOf = async (id: UserId) => (id === firstAdminMemberId() ? role : storedRoleOf(id))
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
+  const capability = {
+    ...OPERATOR,
+    role: role === 'member' ? ('worker' as const) : ('admin' as const),
+  }
   return {
     store,
     call: appRouter.createCaller({
       registry,
       repos,
       superagent,
-      capability: OPERATOR,
-      principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+      capability,
+      principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
     }),
+    callAsMember: (user: UserId) => {
+      const principal = userCommandPrincipal(user, 'member')
+      return appRouter.createCaller({
+        registry,
+        repos,
+        superagent,
+        capability: principal.capability,
+        principal,
+      })
+    },
     audit: async () => await store.settingsAudit.list(),
   }
 }
@@ -92,6 +117,35 @@ function throwFromSecretWrite(store: { secrets: unknown }, cause: Error): void {
 }
 
 describe('the derived settings router CALLS the gate', () => {
+  it('lets members read only the workspace bot availability boolean', async () => {
+    const { call, store } = await harness('member')
+    expect(await call.settings.telegramBotPresence({})).toBe(false)
+    await store.secrets.set('integrations.linearApiKey', SECRET, '2026-11-10T10:00:00.000Z')
+    expect(await call.settings.telegramBotPresence({})).toBe(false)
+    await store.secrets.set(
+      'notifications.telegramBotToken',
+      '123456:bot-token',
+      '2026-11-10T10:00:00.000Z',
+    )
+    expect(await call.settings.telegramBotPresence({})).toBe(true)
+    await expect(call.settings.secretPresence({})).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await store.secrets.clear('notifications.telegramBotToken')
+    expect(await call.settings.telegramBotPresence({})).toBe(false)
+  })
+  it.each([
+    'apiKeys.openai',
+    'apiKeys.anthropic',
+    'apiKeys.openrouter',
+  ])('an admin cannot write the retired %s through the real router', async (key) => {
+    // The provider keys left the secret vocabulary for credentials (credential
+    // management §18): the command's input no longer names them.
+    const { call, audit } = await harness('admin')
+    await expect(
+      call.settings.setSecret({ key: key as never, value: SECRET }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(JSON.stringify(await audit())).not.toContain(SECRET)
+  })
+
   it('an admin may read the secret presence surface', async () => {
     // THE POSITIVE ARM FIRST. Every refusal below is worthless without it: a
     // gate that refused everything satisfies them all.
@@ -111,9 +165,9 @@ describe('the derived settings router CALLS the gate', () => {
 
   it('a member is refused a secret WRITE', async () => {
     const { call } = await harness('member')
-    await expect(
-      call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(call.settings.setSecret({ key: SECRET_KEY, value: SECRET })).rejects.toMatchObject(
+      { code: 'FORBIDDEN' },
+    )
   })
 
   it('…and the refused write did NOT happen — the gate runs BEFORE the handler', async () => {
@@ -121,37 +175,178 @@ describe('the derived settings router CALLS the gate', () => {
     // be worthless. Read back through the admin surface, which is the only
     // reader that can see it.
     const { call, store } = await harness('member')
-    await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }).catch(() => {})
-    expect(await store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
+    await call.settings.setSecret({ key: SECRET_KEY, value: SECRET }).catch(() => {})
+    expect(await store.secrets.getOrEmpty(SECRET_KEY)).toBe('')
   })
+})
 
-  it('a member MAY still write their own preferences — the member floor is real', async () => {
-    // The control that stops "members are refused" from being the whole gate.
-    // If this failed, the settings screen would be unusable for everyone but an
-    // admin and the split would be a pretence.
-    const { call } = await harness('member')
-    const saved = await call.settings.updatePersonal({
-      values: { 'notifications.telegramChatId': '4242' },
+describe('member Telegram disconnect', () => {
+  it('lets a member mint and redeem their own connection without managing the bot', async () => {
+    const { call, store } = await harness('member')
+    await store.secrets.set(
+      'notifications.telegramBotToken',
+      '123456:bot-token',
+      '2026-11-10T10:00:00.000Z',
+    )
+    const setup = await call.settings.telegramSetupStart()
+    expect(await call.settings.telegramSetupPoll({ setupId: setup.setupId })).toMatchObject({
+      status: 'connected',
+      chatId: '444',
     })
-    expect(saved.notifications.telegramChatId).toBe('4242')
+    expect(
+      (await store.telegramBindings.listForUser(firstAdminMemberId())).map((row) => row.chatId),
+    ).toEqual(['444'])
+    await expect(
+      call.settings.setSecret({
+        key: 'notifications.telegramBotToken',
+        value: '123456:other-token',
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    await expect(
+      call.settings.clearSecret({ key: 'notifications.telegramBotToken' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
   })
 
-  it('an account with no readable row is refused even the member-floor command', async () => {
-    // A VALID patch, deliberately: an empty `values` is refused by the input
-    // SCHEMA before the procedure body runs, so using one here would have
-    // asserted zod's refusal and read as the gate's. The two are different
-    // mechanisms and the test must name which one it is exercising.
-    const { call } = await harness(undefined)
-    await expect(
-      call.settings.updatePersonal({ values: { 'notifications.telegramChatId': '4242' } }),
-    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  async function connected() {
+    const h = await harness('member')
+    const alice = firstAdminMemberId()
+    const bob = asUserId('mem_telegram_other')
+    await memberFacts(h.store).create(
+      {
+        id: bob,
+        displayName: 'Bob',
+        email: 'bob@example.test',
+        role: 'member',
+        createdAt: '2026-11-10T10:00:00.000Z',
+        disabledAt: null,
+      },
+      'hash',
+    )
+    for (const [userId, chatId] of [
+      [alice, '111'],
+      [alice, '222'],
+      [bob, '333'],
+    ] as const) {
+      await h.store.telegramBindings.upsert({
+        chatId,
+        userId,
+        boundAt: '2026-11-10T10:00:00.000Z',
+        boundBy: { actor: { kind: 'user', id: userId }, onBehalfOf: userId },
+      })
+    }
+    await h.store.settings.applyPreferencePatch(
+      alice,
+      { 'notifications.telegramChatId': '222' },
+      '2026-11-10T10:00:00.000Z',
+    )
+    await h.store.settings.applyPreferencePatch(
+      bob,
+      { 'notifications.telegramChatId': '333' },
+      '2026-11-10T10:00:00.000Z',
+    )
+    return { ...h, alice, bob }
+  }
+
+  it('revokes all of the caller’s chats and preference, leaving another member connected', async () => {
+    const { call, store, alice, bob, audit } = await connected()
+    await call.settings.telegramDisconnect({})
+    expect(await store.telegramBindings.listForUser(alice)).toEqual([])
+    expect((await store.settings.getSettingsFor(alice)).notifications.telegramChatId).toBe('')
+    expect((await store.telegramBindings.listForUser(bob)).map((row) => row.chatId)).toEqual([
+      '333',
+    ])
+    expect((await store.settings.getSettingsFor(bob)).notifications.telegramChatId).toBe('333')
+    expect(
+      (await audit()).find((row) => row.command === 'settings.telegramDisconnect'),
+    ).toMatchObject({ outcome: 'applied', onBehalfOf: alice })
+    await call.settings.telegramDisconnect({})
+    expect(await store.telegramBindings.listForUser(alice)).toEqual([])
+  })
+
+  it('will not redeem another member’s setup handle', async () => {
+    const { call, callAsMember, store, bob } = await connected()
+    await store.secrets.set(
+      'notifications.telegramBotToken',
+      '123456:bot-token',
+      '2026-11-10T10:00:00.000Z',
+    )
+    const setup = await call.settings.telegramSetupStart()
+    const other = callAsMember(bob)
+    expect(await other.settings.telegramSetupPoll({ setupId: setup.setupId })).toEqual({
+      status: 'expired',
+    })
+    expect(await call.settings.telegramSetupPoll({ setupId: setup.setupId })).toMatchObject({
+      status: 'connected',
+      chatId: '444',
+    })
+    expect((await store.telegramBindings.listForUser(bob)).map((row) => row.chatId)).toEqual([
+      '333',
+    ])
+  })
+
+  it('invalidates an outstanding connection code on disconnect', async () => {
+    const { call, store } = await harness('member')
+    await store.secrets.set(
+      'notifications.telegramBotToken',
+      '123456:bot-token',
+      '2026-11-10T10:00:00.000Z',
+    )
+    const setup = await call.settings.telegramSetupStart()
+    await call.settings.telegramDisconnect({})
+    expect(await call.settings.telegramSetupPoll({ setupId: setup.setupId })).toEqual({
+      status: 'expired',
+    })
+  })
+
+  it('rolls back revocation if the synced preference cannot be cleared', async () => {
+    const { call, store, alice } = await connected()
+    const failure = vi
+      .spyOn(store.settings, 'applyPreferencePatch')
+      .mockRejectedValueOnce(new Error('preference write failed'))
+    try {
+      await expect(call.settings.telegramDisconnect({})).rejects.toThrow('preference write failed')
+      expect(
+        (await store.telegramBindings.listForUser(alice)).map((row) => row.chatId).sort(),
+      ).toEqual(['111', '222'])
+      expect((await store.settings.getSettingsFor(alice)).notifications.telegramChatId).toBe('222')
+    } finally {
+      failure.mockRestore()
+    }
+  })
+
+  it('rolls back a new binding if its synced route cannot be saved', async () => {
+    const { call, store, alice } = await connected()
+    await store.secrets.set(
+      'notifications.telegramBotToken',
+      '123456:bot-token',
+      '2026-11-10T10:00:00.000Z',
+    )
+    const setup = await call.settings.telegramSetupStart()
+    const failure = vi
+      .spyOn(store.settings, 'applyPreferencePatch')
+      .mockRejectedValueOnce(new Error('preference write failed'))
+    try {
+      await expect(call.settings.telegramSetupPoll({ setupId: setup.setupId })).rejects.toThrow(
+        'preference write failed',
+      )
+      expect(
+        (await store.telegramBindings.listForUser(alice)).map((row) => row.chatId).sort(),
+      ).toEqual(['111', '222'])
+      expect((await store.settings.getSettingsFor(alice)).notifications.telegramChatId).toBe('222')
+      expect(await call.settings.telegramSetupPoll({ setupId: setup.setupId })).toMatchObject({
+        status: 'connected',
+        chatId: '444',
+      })
+    } finally {
+      failure.mockRestore()
+    }
   })
 })
 
 describe('the derived settings router WRITES the trail', () => {
   it('records an applied secret write, with the key and without the material', async () => {
     const { call, audit } = await harness('admin')
-    await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET })
+    await call.settings.setSecret({ key: SECRET_KEY, value: SECRET })
     const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('applied')
@@ -159,14 +354,14 @@ describe('the derived settings router WRITES the trail', () => {
     // Against the WHOLE serialized row read back out of SQLite through the
     // repository, not against the object that was handed to it.
     expect(JSON.stringify(rows[0])).not.toContain(SECRET)
-    expect((rows[0]?.detail as { input: { key: string } }).input.key).toBe('apiKeys.openai')
+    expect((rows[0]?.detail as { input: { key: string } }).input.key).toBe(SECRET_KEY)
   })
 
   it('records a REFUSED write, and the refusal still carries no material', async () => {
     // The error path through the real transport. A member's refused `setSecret`
     // arrives with the material in its input; the trail must not keep it.
     const { call, audit } = await harness('member')
-    await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }).catch(() => {})
+    await call.settings.setSecret({ key: SECRET_KEY, value: SECRET }).catch(() => {})
     const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('refused')
@@ -174,19 +369,8 @@ describe('the derived settings router WRITES the trail', () => {
     expect((rows[0]?.detail as { error: string }).error).toContain('admin')
   })
 
-  it('records a handler-thrown refusal, not only a gate refusal', async () => {
-    // `normalizeSettings` refuses a value the model's schema rejects, INSIDE the
-    // handler. A trail wired only to the gate would miss every validation
-    // refusal — which is most of them.
-    const { call, audit } = await harness('admin')
-    await call.settings
-      .updateInstance({ values: { 'hibernation.memoryPct': 'not-a-number' } })
-      .catch(() => {})
-    const rows = (await audit()).filter((r) => r.command === 'settings.updateInstance')
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.outcome).toBe('refused')
-    expect(rows[0]?.detail).toHaveProperty('error')
-  })
+  // A handler refusal of an instance settings edit is trailed by the record's
+  // own registration (POD-6677): `instance-record.test.ts`.
 
   it('a handler refusal now carries the CAUSE the wrapper used to hide', async () => {
     // POD-3824, and the non-vacuity control for the redaction test below: a
@@ -196,7 +380,7 @@ describe('the derived settings router WRITES the trail', () => {
     // travels.
     const { call, audit, store } = await harness('admin')
     throwFromSecretWrite(store, new Error('the secrets file is read-only'))
-    await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }).catch(() => {})
+    await call.settings.setSecret({ key: SECRET_KEY, value: SECRET }).catch(() => {})
     const row = (await audit()).at(-1)
     expect((row?.detail as { error: string }).error).toBe(
       'secret store write failed ← the secrets file is read-only',
@@ -210,9 +394,9 @@ describe('the derived settings router WRITES the trail', () => {
     // rejected is now caught in a link nothing used to look at.
     const { call, audit, store } = await harness('admin')
     throwFromSecretWrite(store, new Error(`rejected value ${SECRET}`))
-    await expect(
-      call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }),
-    ).rejects.toMatchObject({ message: REDACTED_MESSAGE })
+    await expect(call.settings.setSecret({ key: SECRET_KEY, value: SECRET })).rejects.toMatchObject(
+      { message: REDACTED_MESSAGE },
+    )
     const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('refused')
@@ -230,7 +414,7 @@ describe('the derived settings router WRITES the trail', () => {
 
   it('every row carries the attribution pair, and a person is on both halves', async () => {
     const { call, audit } = await harness('admin')
-    await call.settings.clearSecret({ key: 'apiKeys.openai' })
+    await call.settings.clearSecret({ key: SECRET_KEY })
     const row = (await audit()).at(-1)
     expect(row?.actorKind).toBe('user')
     expect(row?.actorId).toBe(firstAdminMemberId())
@@ -258,7 +442,8 @@ describe('the STORE refuses a system row that names a human (ADR 9 D8 S5)', () =
     })
     expect((await store.settingsAudit.list()).at(-1)?.actorKind).toBe('system')
 
-    await expect(store.settingsAudit.append({
+    await expect(
+      store.settingsAudit.append({
         command: 'settings.updateInstance',
         outcome: 'applied',
         actorKind: 'system',

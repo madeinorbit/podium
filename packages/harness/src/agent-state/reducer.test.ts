@@ -735,3 +735,51 @@ describe('withEventTime', () => {
     expect(withEventTime(events, undefined)).toBe(events)
   })
 })
+
+describe('the turn marker (POD-6397)', () => {
+  it('a turn is marked with the since it opened at, kept through its waits and after it ends', () => {
+    const idle = reduceAgentState(initialAgentState(T0), { kind: 'session_started' }, T0)
+    expect(idle.turnStartedAt).toBeUndefined()
+    const working = reduceAgentState(idle, { kind: 'prompt_submitted' }, T1)
+    expect(working.turnStartedAt).toBe(T1)
+    const waiting = reduceAgentState(working, { kind: 'needs_user', need: 'permission' }, T2)
+    expect(waiting.turnStartedAt).toBe(T1)
+    const done = reduceAgentState(waiting, { kind: 'turn_completed' }, T2)
+    expect(done).toMatchObject({ phase: 'idle', turnStartedAt: T1 })
+    const next = reduceAgentState(done, { kind: 'prompt_submitted' }, EVENT_TIME)
+    expect(next.turnStartedAt).toBe(EVENT_TIME)
+  })
+
+  it('a driver snapshot without a marker is marked the same way', () => {
+    const idle = reduceAgentState(initialAgentState(T0), { kind: 'session_started' }, T0)
+    const snap = reduceAgentState(
+      idle,
+      { kind: 'state_snapshot', state: { phase: 'working', since: T1, nativeSubagentCount: 0 } },
+      T1,
+    )
+    expect(snap.turnStartedAt).toBe(T1)
+  })
+
+  it('a rebuild that reads the open turn from its middle keeps the turn it had', () => {
+    const before = {
+      phase: 'working' as const,
+      since: T1,
+      nativeSubagentCount: 0,
+      turnStartedAt: T0,
+    }
+    const rebuilt = {
+      phase: 'working' as const,
+      since: T0,
+      nativeSubagentCount: 0,
+      turnStartedAt: T0,
+    }
+    const fromMiddle = { ...rebuilt, turnStartedAt: T1 }
+    expect(carryAcrossRebuild(rebuilt, before).turnStartedAt).toBe(T0)
+    expect(carryAcrossRebuild(fromMiddle, before).turnStartedAt).toBe(T0)
+    // A turn that opened after the last state known is a new turn.
+    expect(carryAcrossRebuild({ ...rebuilt, turnStartedAt: T2 }, before).turnStartedAt).toBe(T2)
+    // A rebuild with no turn keeps the last turn's marker.
+    const idle = { phase: 'idle' as const, since: T2, nativeSubagentCount: 0 }
+    expect(carryAcrossRebuild(idle, before).turnStartedAt).toBe(T0)
+  })
+})

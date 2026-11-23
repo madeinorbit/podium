@@ -1,10 +1,12 @@
-import type { SuperagentTurnFailure } from '@podium/client-core/api'
 import {
   asSessionId,
   asThreadId,
+  asUserId,
   type SessionId,
   type SessionMeta,
   type SessionMetaInput,
+  type SuperagentThreadWire,
+  type SuperagentTurnFailureWire,
   type TranscriptItem,
 } from '@podium/model'
 import type { HeadlessActivityEvent, TurnPreviewMessage } from '@podium/protocol'
@@ -39,9 +41,19 @@ const fakeHub = {
   },
   on(event: string, cb: PreviewCb): () => void {
     if (event === 'headlessActivity') {
-      const sub = { sessionId: asSessionId('h1'), cb: (frame: HeadlessActivityEvent) => (cb as unknown as (id: SessionId, event: HeadlessActivityEvent) => void)(asSessionId('h1'), frame) }
+      const sub = {
+        sessionId: asSessionId('h1'),
+        cb: (frame: HeadlessActivityEvent) =>
+          (cb as unknown as (id: SessionId, event: HeadlessActivityEvent) => void)(
+            asSessionId('h1'),
+            frame,
+          ),
+      }
       this.headlessSubs.push(sub)
-      return () => { const index = this.headlessSubs.indexOf(sub); if (index >= 0) this.headlessSubs.splice(index, 1) }
+      return () => {
+        const index = this.headlessSubs.indexOf(sub)
+        if (index >= 0) this.headlessSubs.splice(index, 1)
+      }
     }
     if (event !== 'turnPreview') return () => {}
     this.previewSubs.push(cb)
@@ -56,14 +68,38 @@ const sendTurn = vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'h1' 
 const concierge = vi.fn(async () => ({ threadId: 'c1', podiumSessionId: 'h1', isNew: false }))
 const interruptTurn = vi.fn(async () => {})
 const sendText = vi.fn(async () => {})
-const latestTurnFailure = vi.fn(async (): Promise<SuperagentTurnFailure | null> => null)
-const offlineFailure: SuperagentTurnFailure = {
-  inputId: 'input-old',
+/** The last failure on each thread's synced record (POD-6675), as the server set it. */
+const failures = new Map<string, SuperagentTurnFailureWire | null>()
+const setFailure = (failure: SuperagentTurnFailureWire | null, threadId = 'global') =>
+  failures.set(threadId, failure)
+const offlineFailure: SuperagentTurnFailureWire = {
   userText: 'Recover this thread',
-  error:
+  message:
     "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
   at: '2026-09-29T01:31:27.000Z',
 }
+/** My thread records, as the replica holds them. */
+const threadRecords = (): SuperagentThreadWire[] =>
+  (
+    [
+      ['global', 'global', undefined],
+      ['c1', 'concierge', '/repo'],
+      ['another-thread', 'global', undefined],
+    ] as const
+  ).map(([threadId, kind, repoPath], index) => ({
+    threadId: asThreadId(threadId),
+    ownerUserId: asUserId('operator'),
+    // Two `global` rows: `global` names the first, so it is the newest.
+    kind: kind === 'global' && threadId !== 'global' ? 'btw' : kind,
+    ...(repoPath ? { repoPath } : {}),
+    podiumSessionId: asSessionId('h1'),
+    archived: false,
+    resumable: false,
+    turnRunning: false,
+    lastTurnFailure: failures.get(threadId) ?? null,
+    createdAt: '2026-09-01T00:00:00.000Z',
+    updatedAt: `2026-09-0${3 - index}T00:00:00.000Z`,
+  }))
 
 const fakeTrpc = {
   sessions: {
@@ -78,7 +114,6 @@ const fakeTrpc = {
     sendTurn: { mutate: sendTurn },
     concierge: { mutate: concierge },
     interruptTurn: { mutate: interruptTurn },
-    latestTurnFailure: { query: latestTurnFailure },
   },
 }
 
@@ -92,8 +127,6 @@ const clearAttachedSession = vi.fn(() => {
 
 const fakeReplica = {
   available: false,
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
 }
 
 // Every chat send runs the REAL outbox, draining into `fakeTrpc` (POD-4762).
@@ -105,11 +138,7 @@ vi.mock('@/app/store', () => {
     trpc: fakeTrpc,
     replica: fakeReplica,
     sessions: storeSessions,
-    superThreads: [
-      { id: 'global', kind: 'global', podiumSessionId: 'h1' },
-      { id: 'c1', kind: 'concierge', repoPath: '/repo', podiumSessionId: 'h1' },
-      { id: 'another-thread', kind: 'global', podiumSessionId: 'h1' },
-    ],
+    superagentThreads: threadRecords(),
     drafts,
     setSessionDraft: (id: string, text: string) => {
       drafts = { ...drafts, [id]: text }
@@ -131,7 +160,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (drafts[id] ?? '')),
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 vi.mock('@/lib/voice', () => ({
@@ -148,10 +177,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -172,6 +197,7 @@ beforeEach(() => {
   fakeHub.previewSubs.length = 0
   drafts = {}
   attachedSessionId = null
+  failures.clear()
   storeSessions = [meta({})]
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -189,14 +215,14 @@ async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
 async function push(event: HeadlessActivityEvent): Promise<void> {
   await act(async () => {
     for (const s of fakeHub.headlessSubs) s.cb(event)
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -211,7 +237,7 @@ async function pushPreview(text: string): Promise<void> {
         items: [{ kind: 'text', itemId: 'grok-assistant-1', text }],
       })
     }
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -276,12 +302,12 @@ describe('ChatView headless mode', () => {
     mount()
     await flush()
     expect(textarea().disabled).toBe(false)
-    expect(textarea().placeholder).not.toContain('Working')
+    expect(textarea().placeholder).not.toMatch(/working/i)
     await push({ kind: 'turn-start' })
     expect(textarea().disabled).toBe(false)
-    expect(textarea().placeholder).toContain('Working')
+    expect(textarea().placeholder).toMatch(/working/i)
     await push({ kind: 'turn-end' })
-    expect(textarea().placeholder).not.toContain('Working')
+    expect(textarea().placeholder).not.toMatch(/working/i)
   })
 
   it('starts gated for a late-joining client when the query says the turn is running', async () => {
@@ -297,7 +323,7 @@ describe('ChatView headless mode', () => {
     })
     await flush()
     expect(textarea().disabled).toBe(false)
-    expect(textarea().placeholder).toContain('Working')
+    expect(textarea().placeholder).toMatch(/working/i)
     expect(container.querySelector('[data-tail="working"]')?.textContent).toContain('Working')
     expect(container.querySelector('[title="Stop this turn"]')).not.toBeNull()
   })
@@ -360,7 +386,10 @@ describe('ChatView headless mode', () => {
       mediaType: 'application/zip',
       kind: 'file' as const,
     }
-    fakeTrpc.sessions.uploadImage.mutate.mockResolvedValueOnce({ path: ref.path, attachment: ref } as never)
+    fakeTrpc.sessions.uploadImage.mutate.mockResolvedValueOnce({
+      path: ref.path,
+      attachment: ref,
+    } as never)
     drafts = { h1: 'what is in this?' }
     mount()
     await flush()
@@ -368,7 +397,9 @@ describe('ChatView headless mode', () => {
     const drop = new Event('drop', { bubbles: true, cancelable: true })
     Object.defineProperty(drop, 'dataTransfer', {
       value: {
-        items: Object.assign([{ kind: 'file', type: file.type, getAsFile: () => file }], { length: 1 }),
+        items: Object.assign([{ kind: 'file', type: file.type, getAsFile: () => file }], {
+          length: 1,
+        }),
         files: [file],
         types: ['Files'],
       },
@@ -562,10 +593,9 @@ describe('ChatView headless mode', () => {
    * that bubble on the new feed is open.)
    */
   it('restores the offline failure and the user message after reload', async () => {
-    latestTurnFailure.mockResolvedValueOnce({
-      inputId: 'input-1',
+    setFailure({
       userText: 'Reply with exactly the word PONG-SUPER.',
-      error:
+      message:
         "the headless harness turn failed: machine 'ludovico' is offline — bring its daemon online, then retry.",
       at: '2026-09-29T01:31:27.000Z',
     })
@@ -582,7 +612,7 @@ describe('ChatView headless mode', () => {
     offlineFailure.userText,
     null,
   ])('does not restore Not sent on reopen when a newer transcript item exists (userText: %s)', async (userText) => {
-    latestTurnFailure.mockResolvedValueOnce({ ...offlineFailure, userText })
+    setFailure({ ...offlineFailure, userText })
     fakeTrpc.sessions.transcriptRead.query.mockResolvedValueOnce({
       items: [
         {
@@ -602,7 +632,7 @@ describe('ChatView headless mode', () => {
     expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
       'Not sent',
     )
-    expect(container.textContent).not.toContain(offlineFailure.error)
+    expect(container.textContent).not.toContain(offlineFailure.message)
   })
 
   it.each([
@@ -611,7 +641,7 @@ describe('ChatView headless mode', () => {
     undefined,
     'unknown timestamp',
   ])('keeps the last failure when transcript recency does not supersede it (%s)', async (ts) => {
-    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    setFailure(offlineFailure)
     fakeTrpc.sessions.transcriptRead.query.mockResolvedValueOnce({
       items: [{ id: 'earlier-prompt', cursor: '1', role: 'user', text: 'An earlier prompt', ts }],
       hasMore: false,
@@ -620,11 +650,11 @@ describe('ChatView headless mode', () => {
     await flush()
     await flush()
     expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
-    expect(container.textContent).toContain(offlineFailure.error)
+    expect(container.textContent).toContain(offlineFailure.message)
   })
 
   it('uses newer raw tool results even when presentation folds them into an older call', async () => {
-    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    setFailure(offlineFailure)
     fakeTrpc.sessions.transcriptRead.query.mockResolvedValueOnce({
       items: [
         {
@@ -654,11 +684,11 @@ describe('ChatView headless mode', () => {
     expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
       'Not sent',
     )
-    expect(container.textContent).not.toContain(offlineFailure.error)
+    expect(container.textContent).not.toContain(offlineFailure.message)
   })
 
   it('drops a restored notice when newer history arrives and preserves a subsequent live error', async () => {
-    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    setFailure(offlineFailure)
     mount()
     await flush()
     expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
@@ -683,25 +713,20 @@ describe('ChatView headless mode', () => {
       'Not sent',
     )
     // Equal words do not make this current failure the restored one.
-    await push({ kind: 'turn-end', error: offlineFailure.error })
+    await push({ kind: 'turn-end', error: offlineFailure.message })
     expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
-    expect(container.textContent).toContain(offlineFailure.error)
+    expect(container.textContent).toContain(offlineFailure.message)
   })
 
   it.each([
     'send',
     'remote turn',
-  ])('ignores a late restoration response after %s activity', async (activity) => {
-    let resolveFailure!: (failure: SuperagentTurnFailure) => void
-    latestTurnFailure.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveFailure = resolve
-        }),
-    )
+  ])("hides the record's failure at once on %s activity, before the server clears it", async (activity) => {
+    setFailure(offlineFailure)
     drafts = { h1: 'A new turn' }
     mount()
     await flush()
+    expect(container.querySelector('.composer-notices')?.textContent).toContain('Not sent')
     if (activity === 'send') {
       await act(async () => {
         ;(container.querySelector('[title="Send (Enter)"]') as HTMLButtonElement).click()
@@ -711,26 +736,25 @@ describe('ChatView headless mode', () => {
       await push({ kind: 'turn-start' })
       await push({ kind: 'turn-end' })
     }
-    await act(async () => resolveFailure(offlineFailure))
     await flush()
     expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
       'Not sent',
     )
-    // A new prop object naming the same thread must not re-read an old failure.
+    // The next turn started on the server, which cleared the failure: a new
+    // prop object naming the same thread has none to show.
+    setFailure(null)
     mount()
     await flush()
-    expect(latestTurnFailure).toHaveBeenCalledTimes(1)
-    expect(container.textContent).not.toContain(offlineFailure.error)
+    expect(container.textContent).not.toContain(offlineFailure.message)
   })
 
   it('does not carry a restored failure into another thread', async () => {
-    latestTurnFailure.mockResolvedValueOnce(offlineFailure)
+    setFailure(offlineFailure)
     mount()
     await flush()
-    expect(container.textContent).toContain(offlineFailure.error)
+    expect(container.textContent).toContain(offlineFailure.message)
     mount({ threadId: asThreadId('another-thread'), kind: 'global' })
     await flush()
-    expect(latestTurnFailure).toHaveBeenLastCalledWith({ threadId: 'another-thread' })
     expect(container.querySelector('.composer-notices')?.textContent ?? '').not.toContain(
       'Not sent',
     )
@@ -742,10 +766,9 @@ describe('ChatView headless mode', () => {
    * carries the prompt — so there is no second bubble after a reload.
    */
   it('restores a harness failure reason without duplicating the user turn', async () => {
-    latestTurnFailure.mockResolvedValueOnce({
-      inputId: 'turn-9',
+    setFailure({
       userText: null,
-      error: 'the headless harness turn failed: (codex): the CLI could not be launched',
+      message: 'the headless harness turn failed: (codex): the CLI could not be launched',
       at: '2026-09-29T01:31:27.000Z',
     })
     mount()

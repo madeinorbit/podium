@@ -1,4 +1,5 @@
 import { withDeliveryQueue } from '../../delivery-queue.js'
+
 /**
  * THE codex app-server DRIVER (POD-1761 W6; spec §2, §3, §5, §6).
  *
@@ -55,8 +56,6 @@ import { withDeliveryQueue } from '../../delivery-queue.js'
  * would be fabricating exactly the state the house rules forbid.
  */
 
-import { type AgentStateEvent } from '../../../agent-state/types.js'
-import { reduceAgentState } from '../../../observer.js'
 import type {
   AgentRuntimeState,
   HarnessRef,
@@ -65,13 +64,23 @@ import type {
   TranscriptItem,
   TranscriptItemRef,
 } from '@podium/model'
-import { mergeHarnessRefs, transcriptItemRefOf } from '@podium/model'
-import type { ObservationProvenance, ProviderCursor } from '@podium/protocol'
+import { CHATGPT_APP_NAME, mergeHarnessRefs, transcriptItemRefOf } from '@podium/model'
+import {
+  DEFAULT_SESSION_POSTURE,
+  type ObservationProvenance,
+  type ProviderCursor,
+  type SessionPosture,
+} from '@podium/protocol'
 import type {
   QueueDrainAbandonedReason,
   RuntimeHistoryPage,
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
+import { CODEX_PLAN_PROVIDER_ID } from '../../../adapters/codex/plan-provider.js'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
+import { reduceAgentState } from '../../../observer.js'
+import type { PodiumGrants } from '../../../posture-types.js'
 import type { AttachEndpoint, AttachRequest, SessionLease } from '../../attach.js'
 import type {
   ProcessIdentity,
@@ -103,20 +112,26 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
+import {
+  type EngineSessionSpec,
+  instructionsText,
+  type ModelPolicy,
+  type SessionSpec,
+  sessionPostureOf,
+} from '../../session-spec.js'
 import {
   type AnswerOptions,
   type AttachmentStager,
   type Refusal,
   type SendOptions,
   splitAttachments,
-  textWithAttachmentPaths,
   type TurnInput,
   type TurnReceipt,
+  textWithAttachmentPaths,
 } from '../../turns.js'
-import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
-import type { SessionDriverSlots } from '../session-slots.js'
 import type { EngineBindingRecords } from '../engine-supervision.js'
+import type { SessionDriverSlots } from '../session-slots.js'
+import { driverLocalCursor, stampRuntimeEvent } from '../terminal/envelope.js'
 import { codexAppServerCapabilities } from './capabilities.js'
 import { type CodexClient, type CodexClientConfig, createCodexClient } from './client.js'
 import {
@@ -217,6 +232,19 @@ export interface CodexRuntimeHost {
   launch(input: {
     sessionId: SessionId
     workdir: string
+    /**
+     * THE SESSION'S PINNED HARNESS CONTEXT (POD-6546): the engine runs its
+     * installation and starts from its environment. From the spec on create
+     * and resume, from {@link harnessContextFor} where a launch has no spec.
+     */
+    harnessContext: HarnessContext
+    /** The session's posture (POD-6858): the engine states its launch terms
+     *  from it. From the spec; an adopted spec's is the default. */
+    posture: SessionPosture
+    /** Podium's standing facts for the session (POD-6858). From the spec on
+     *  create and resume, from {@link podiumGrantsFor} where a launch has no
+     *  spec. */
+    grants: PodiumGrants
     env?: Readonly<Record<string, string>>
     /**
      * Podium's MCP configuration, forwarded VERBATIM from `SessionSpec`.
@@ -336,6 +364,16 @@ export interface CodexRuntimeHost {
    * it absent and every adopt resumes.
    */
   adopt?(binding: SessionBinding): Promise<CodexServerEndpoint | undefined>
+  /**
+   * THE CONTEXT A SESSION RUNS UNDER WHEN NO SPEC IS IN HAND (POD-6546): an
+   * adopt or wake that must start a fresh engine. The one the session was
+   * spawned with while this host holds it; after a supervisor restart, one
+   * rebuilt from the current inventory (design §3.3).
+   */
+  harnessContextFor(sessionId: SessionId): Promise<HarnessContext>
+  /** Podium's standing facts for a session with no spec in hand (POD-6858),
+   *  beside {@link harnessContextFor}. */
+  podiumGrantsFor(sessionId: SessionId): Promise<PodiumGrants>
 
   /**
    * TURNS THIS DRIVER ACCEPTED AND WILL NEVER DELIVER (POD-2297).
@@ -396,6 +434,14 @@ export interface CodexJournalEntry {
    * written before this field existed simply have no title.
    */
   title?: string
+  /**
+   * The model provider Codex reported for the thread at `thread/start` or
+   * `thread/resume`. A session on a ChatGPT plan signed in to Podium reports
+   * {@link CODEX_PLAN_PROVIDER_ID}; its auth failures are read differently
+   * (see `describeTurnError`). Journalled so an adopted survivor, which gets
+   * no resume answer, still knows. Optional: older entries have none.
+   */
+  modelProvider?: string
   process: ProcessIdentity
   /** The event-stream high-water mark, so a rebind resumes rather than replays
    *  and so `seq` stays monotonic across it. */
@@ -484,6 +530,20 @@ function entryPairing(entry: AwaitedEntry, seen: SeenUserItem): EntryPairing | u
 
 export const CODEX_APP_SERVER_DRIVER_ID = 'codex-app-server'
 
+/** What `thread/start` and `thread/resume` answer, as far as this driver reads it. */
+type ThreadAnswer = {
+  thread?: { id?: string; path?: string | null; modelProvider?: string | null }
+  modelProvider?: string | null
+}
+
+const modelProviderOf = (answer: ThreadAnswer): string | undefined =>
+  answer.modelProvider ?? answer.thread?.modelProvider ?? undefined
+
+/** Is this session running on a ChatGPT plan signed in to Podium? */
+const planOf = (session: { modelProvider: string | undefined }): { planProvider: boolean } => ({
+  planProvider: session.modelProvider === CODEX_PLAN_PROVIDER_ID,
+})
+
 // ---------------------------------------------------------------------------
 // Per-session state
 // ---------------------------------------------------------------------------
@@ -523,7 +583,7 @@ interface CodexConnection {
 
 interface DriverSession {
   sessionId: SessionId
-  spec: SessionSpec
+  spec: EngineSessionSpec
   endpoint: CodexServerEndpoint
   connection: CodexConnection
   client: CodexClient
@@ -579,6 +639,8 @@ interface DriverSession {
   checkingEntry: Set<AwaitedEntry>
   usage: UsageSnapshot | undefined
   title: string | undefined
+  /** See {@link CodexJournalEntry.modelProvider}. */
+  modelProvider: string | undefined
 }
 
 export interface CodexRuntime {
@@ -674,6 +736,7 @@ export function createCodexRuntime(
       ...(session.rolloutPath ? { rolloutPath: session.rolloutPath } : {}),
       model: session.spec.model,
       ...(session.title ? { title: session.title } : {}),
+      ...(session.modelProvider ? { modelProvider: session.modelProvider } : {}),
       process: session.binding.process,
       seq: session.seq,
       turnEpoch: session.turnEpoch,
@@ -895,8 +958,11 @@ export function createCodexRuntime(
         break
       }
       case 'error': {
+        // Codex is retrying (on a 401 it tries five times, POD-6894 §7): the
+        // turn has not failed yet. Only the last word ends it.
+        if (note.params.willRetry === true) break
         const at = iso()
-        const detail = describeTurnError(note.params)
+        const detail = describeTurnError(note.params, planOf(session))
         emit(
           session,
           {
@@ -1356,7 +1422,7 @@ export function createCodexRuntime(
      */
     let change: AgentStateEvent
     if (turn.status === 'failed') {
-      const detail = describeTurnError(turn.error)
+      const detail = describeTurnError(turn.error, planOf(session))
       publishInterruptMark(session, { kind: 'failed', reason: detail.reason }, at)
       emit(
         session,
@@ -1593,7 +1659,7 @@ export function createCodexRuntime(
 
   /** The session's sticky model, if it names one. `auto` means Codex's own
    *  default, which is not ours to override. */
-  function modelOf(spec: SessionSpec): string | undefined {
+  function modelOf(spec: EngineSessionSpec): string | undefined {
     const raw = spec.model.model
     return raw && raw !== 'auto' ? raw : undefined
   }
@@ -1606,14 +1672,14 @@ export function createCodexRuntime(
    * and falsy. The host's argv builder branches on presence, and an empty inline
    * config would make it mount nothing while looking like it mounted something.
    */
-  function mcpOf(spec: SessionSpec): {
+  function mcpOf(spec: EngineSessionSpec): {
     mcpServers?: { transport: 'path'; path: string } | { transport: 'inline'; config: string }
   } {
     return spec.mcpServers.supported ? { mcpServers: spec.mcpServers.value } : {}
   }
 
   /** The session's instructions for the host to hand Codex, or nothing. */
-  function instructionsOf(spec: SessionSpec): { instructions?: string } {
+  function instructionsOf(spec: EngineSessionSpec): { instructions?: string } {
     const instructions = instructionsText(spec)
     return instructions ? { instructions } : {}
   }
@@ -1949,8 +2015,12 @@ export function createCodexRuntime(
 
       // ---- turns ----
       async send(input: TurnInput, options: SendOptions): Promise<TurnReceipt> {
-        if (options.signal?.aborted) return { outcome: 'refused', refusal: { reason: 'not_running' } }
-        if (options.deliveryAttempt && (busy(session) || session.lease?.kind === 'human-controller')) {
+        if (options.signal?.aborted)
+          return { outcome: 'refused', refusal: { reason: 'not_running' } }
+        if (
+          options.deliveryAttempt &&
+          (busy(session) || session.lease?.kind === 'human-controller')
+        ) {
           return { outcome: 'refused', refusal: { reason: busy(session) ? 'busy' : 'lease_held' } }
         }
         if (session.disposed) return refuse('not_running')
@@ -2492,8 +2562,13 @@ export function createCodexRuntime(
       },
     }
 
-    return withDeliveryQueue(handle, (event) => emit(session, event, iso()), undefined, () => !session.disposed,
-      slots.deliveryJournal?.(session.sessionId))
+    return withDeliveryQueue(
+      handle,
+      (event) => emit(session, event, iso()),
+      undefined,
+      () => !session.disposed,
+      slots.deliveryJournal?.(session.sessionId),
+    )
   }
 
   /** Ask Codex to stop the open turn. Idempotent-ish: a precondition failure
@@ -2585,7 +2660,9 @@ export function createCodexRuntime(
     })
     try {
       await client.handshake({
-        clientInfo: { name: 'podium', title: 'Podium', version: '1' },
+        // OpenAI attributes a ChatGPT plan's use to the app named at
+        // registration, so the name is that one (credential management §11).
+        clientInfo: { name: CHATGPT_APP_NAME, title: 'Podium', version: '1' },
         capabilities: {
           // Codex gates newer methods behind this; the driver reads only shapes it
           // pinned, so opting in costs nothing and keeps the surface uniform.
@@ -2651,11 +2728,13 @@ export function createCodexRuntime(
 
   async function attachSession(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     endpoint: CodexServerEndpoint
     connection: CodexConnection
     threadId: CodexThreadId
     rolloutPath: string | undefined
+    /** What `thread/start` or `thread/resume` reported; absent on adopt. */
+    modelProvider?: string | undefined
     bindingVersion: number
     observerGeneration: number
   }): Promise<AgentSessionHandle> {
@@ -2707,6 +2786,7 @@ export function createCodexRuntime(
       checkingEntry: new Set(),
       usage: undefined,
       title: journalled?.title,
+      modelProvider: input.modelProvider ?? journalled?.modelProvider,
     }
     registerSession(input.sessionId, session)
     wire(session, input.connection)
@@ -2758,6 +2838,9 @@ export function createCodexRuntime(
     const endpoint = await host.launch({
       sessionId,
       workdir: spec.workdir,
+      harnessContext: spec.harnessContext,
+      posture: spec.posture,
+      grants: spec.grants,
       ...(spec.env ? { env: spec.env } : {}),
       ...mcpOf(spec),
       ...instructionsOf(spec),
@@ -2769,9 +2852,7 @@ export function createCodexRuntime(
      * to refuse. It also returns the rollout `path`, which is what makes
      * `export()` byte-faithful.
      */
-    const started = await connection.client.call<{
-      thread?: { id?: string; path?: string | null }
-    }>(CODEX_METHODS.threadStart, {
+    const started = await connection.client.call<ThreadAnswer>(CODEX_METHODS.threadStart, {
       cwd: spec.workdir,
       ...(modelOf(spec) ? { model: modelOf(spec) } : {}),
     })
@@ -2788,6 +2869,7 @@ export function createCodexRuntime(
       connection,
       threadId,
       rolloutPath: started.thread?.path ?? undefined,
+      modelProvider: modelProviderOf(started),
       bindingVersion: 1,
       observerGeneration: 1,
     })
@@ -2803,11 +2885,17 @@ export function createCodexRuntime(
    *  `resume()` and `adopt()` wait for this before publishing a live handle. */
   async function resumeThread(input: {
     sessionId: SessionId
-    spec: SessionSpec
+    spec: EngineSessionSpec
     threadId: CodexThreadId
     bindingVersion: number
     observerGeneration: number
     endpoint?: CodexServerEndpoint
+    /** The context a fresh engine runs under; read only when no survivor
+     *  endpoint is supplied. */
+    harnessContext: () => Promise<HarnessContext>
+    /** Podium's grants for a fresh engine; read only when no survivor
+     *  endpoint is supplied. */
+    grants: () => Promise<PodiumGrants>
     rolloutPath?: string
   }): Promise<AgentSessionHandle> {
     const endpoint =
@@ -2815,6 +2903,9 @@ export function createCodexRuntime(
       (await host.launch({
         sessionId: input.sessionId,
         workdir: input.spec.workdir,
+        harnessContext: await input.harnessContext(),
+        posture: sessionPostureOf(input.spec),
+        grants: await input.grants(),
         ...(input.spec.env ? { env: input.spec.env } : {}),
         ...mcpOf(input.spec),
         ...instructionsOf(input.spec),
@@ -2822,10 +2913,12 @@ export function createCodexRuntime(
     let connection: CodexConnection | undefined
     try {
       connection = await connect(endpoint, input.sessionId)
-      const resumed = await connection.client.call<{
-        thread?: { id?: string; path?: string | null }
-      }>(CODEX_METHODS.threadResume, {
+      const resumed = await connection.client.call<ThreadAnswer>(CODEX_METHODS.threadResume, {
         threadId: input.threadId,
+        // Only the thread is needed here: the transcript is read from the
+        // rollout. Codex 0.169 deprecates full-history hydration on resume
+        // (POD-6894 report §6).
+        excludeTurns: true,
         // For a running thread Codex checks this against its active rollout.
         // For an unloaded one path takes precedence, so check the returned id.
         ...(input.rolloutPath ? { path: input.rolloutPath } : {}),
@@ -2847,6 +2940,7 @@ export function createCodexRuntime(
         connection,
         threadId: resumed.thread.id,
         rolloutPath: resumed.thread.path ?? input.rolloutPath,
+        modelProvider: modelProviderOf(resumed),
         bindingVersion: input.bindingVersion,
         observerGeneration: input.observerGeneration,
       })
@@ -2859,7 +2953,7 @@ export function createCodexRuntime(
     }
   }
 
-  const adoptedSpec = (workdir: string, model: ModelPolicy = {}): SessionSpec => ({
+  const adoptedSpec = (workdir: string, model: ModelPolicy = {}): EngineSessionSpec => ({
     harness: 'codex',
     selection: {
       auth: 'subscription',
@@ -2867,6 +2961,8 @@ export function createCodexRuntime(
       available: [CODEX_APP_SERVER_DRIVER_ID],
     },
     workdir,
+    // An adopted session's posture is not journalled: it runs on the default.
+    posture: DEFAULT_SESSION_POSTURE,
     // NOT `{}` — see {@link CodexJournalEntry.model}. Instructions and MCP
     // below stay unsupported because the resumed thread genuinely carries its
     // own; the model does not, it is sent per turn.
@@ -2891,6 +2987,8 @@ export function createCodexRuntime(
       return resumeThread({
         sessionId,
         spec,
+        harnessContext: async () => spec.harnessContext,
+        grants: async () => spec.grants,
         threadId: ref.value,
         bindingVersion: previous + 1,
         observerGeneration: previous + 1,
@@ -2927,6 +3025,8 @@ export function createCodexRuntime(
       const handle = await resumeThread({
         sessionId: binding.sessionId,
         spec: adoptedSpec(journalled.workdir, journalled.model),
+        harnessContext: () => host.harnessContextFor(binding.sessionId),
+        grants: () => host.podiumGrantsFor(binding.sessionId),
         threadId: journalled.threadId,
         rolloutPath: journalled.rolloutPath,
         endpoint,

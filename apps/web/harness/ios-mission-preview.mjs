@@ -133,7 +133,7 @@ function readTranscript(input = {}) {
 }
 const telemetry = `<script>
   localStorage.setItem('podium.panelMode','chat');
-  localStorage.setItem('podium.panelModeDefault','chat');
+  
   window.__fixtureErrors=[];
   window.__fixtureRetainAll=new URL(location.href).searchParams.has('retainAll');
   const workerCounts=window.__fixtureWorkerCounts={posted:0,completed:0,pending:0,maxPending:0,clonedItems:0,maxItems:0};

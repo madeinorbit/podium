@@ -1,9 +1,12 @@
 import { fileURLToPath } from 'node:url'
-import { encode, parseServerMessage } from '@podium/protocol'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
+import { directPtyDurableForTests } from '@podium/process/durable'
+import { CAP_SYNC_HTTP_V1, CLIENT_WIRE_VERSION, encode, parseServerMessage } from '@podium/protocol'
+import { saveConfig } from '@podium/runtime/config'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { afterAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import { startDaemon } from '../../apps/daemon/src/daemon'
-import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
@@ -61,78 +64,160 @@ function collect(ws: WebSocket) {
   }
 }
 
-async function waitFor(pred: () => boolean, timeoutMs = 10000): Promise<void> {
+async function waitFor(
+  label: string,
+  pred: () => boolean | Promise<boolean>,
+  timeoutMs = 10000,
+): Promise<void> {
   const start = Date.now()
-  while (!pred()) {
-    if (Date.now() - start > timeoutMs) throw new Error('waitFor: timed out')
+  while (!(await pred())) {
+    if (Date.now() - start > timeoutMs) throw new Error(`waitFor: timed out at ${label}`)
     await new Promise((r) => setTimeout(r, 20))
   }
 }
 
 describe('e2e: daemon -> server -> client', () => {
   it('streams real fixture output to a client, round-trips input, and bumps epoch on takeover', async () => {
+    saveConfig({ mode: 'all-in-one' })
     const srv = await startServer()
-    // Start daemon first so it is attached before we create the session.
-    const daemon = await startDaemon({
-      serverUrl: `ws://localhost:${srv.port}`,
-      machineToken: srv.machineToken,
-      machineId: hostMachineId(),
-      hooks: { port: 0 },
-      agentRelay: { port: 0 },
-      launch: () => ({
-        cmd: process.execPath,
-        args: [FIXTURE],
-        cwd: '/tmp',
-      }),
-    })
-    // Create a session after the daemon is connected — the server will immediately
-    // send a spawn control message that the daemon picks up.
-    const { sessionId } = srv.registry.modules.sessions.createSession({
-      agentKind: 'claude-code',
-      cwd: '/tmp',
-      title: 'e2e-test',
-    })
-    const client = await openWs(`ws://localhost:${srv.port}/client`)
-    const c = collect(client)
+    let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
+    const clients: WebSocket[] = []
+    const traces: ReturnType<typeof collect>[] = []
     try {
+      const machineId = asMachineId(hostMachineId())
+      await srv.registry.modules.machines.changeAssignment(
+        machineId,
+        { server: true, agentExecution: true },
+        'relay-fixture',
+      )
+      await srv.registry.sessionStore.machines.setMachineOwner(
+        machineId,
+        await firstAdminMemberId(srv.registry.sessionStore),
+      )
+      // Start the assigned daemon before creating the session.
+      daemon = await startDaemon({
+        serverUrl: `ws://localhost:${srv.port}`,
+        machineToken: srv.machineToken,
+        machineId: hostMachineId(),
+        hooks: { port: 0 },
+        agentRelay: { port: 0 },
+        backend: 'none',
+        durable: directPtyDurableForTests(),
+        launch: () => ({
+          cmd: process.execPath,
+          args: [FIXTURE],
+          cwd: '/tmp',
+        }),
+      })
+      // Create a session after the daemon is connected — the server will immediately
+      // send a spawn control message that the daemon picks up.
+      const { sessionId } = await srv.registry.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/tmp',
+        title: 'e2e-test',
+      })
+      const connectClient = async () => {
+        const client = await openWs(
+          `ws://localhost:${srv.port}/client?v=${CLIENT_WIRE_VERSION}&cap=${CAP_SYNC_HTTP_V1}`,
+        )
+        clients.push(client)
+        const collected = collect(client)
+        traces.push(collected)
+        client.send(
+          encode({
+            type: 'hello',
+            clientId: '',
+            wireVersion: CLIENT_WIRE_VERSION,
+            caps: [CAP_SYNC_HTTP_V1],
+            viewport: { cols: 80, rows: 24, dpr: 1 },
+          }),
+        )
+        return { client, collected }
+      }
+      const { client, collected: c } = await connectClient()
       // Attach to the session so the server routes frames to this client.
       client.send(encode({ type: 'attach', sessionId }))
       // Force a fresh repaint so the just-connected client sees current output.
       client.send(encode({ type: 'redrawRequest', sessionId }))
       // 1) live fixture output reaches the client through the full chain
-      await waitFor(() => c.text.includes('cols=80 rows=24'))
+      await waitFor('initial fixture output', () => c.text.includes('cols=80 rows=24'))
+      const initial = c.seen.find((message) => message.type === 'attached')
+      if (!initial) throw new Error('initial output arrived without an attachment')
+      expect(initial.geometry).toEqual({ cols: 80, rows: 24 })
 
       // 2) input typed at the client round-trips to the agent and back
       client.send(
         encode({ type: 'input', sessionId, data: Buffer.from('a', 'utf8').toString('base64') }),
       )
-      await waitFor(() => c.text.includes('last-input=61'))
+      await waitFor('input echo', () => c.text.includes('last-input=61'))
 
       // 3) takeover bumps epoch and resizes the agent. Control must move BETWEEN
       // clients: the first attacher is auto-promoted to controller and re-claiming
       // is a no-op (0d145414), so a SECOND client performs the takeover. Geometry
       // snaps only for clients that declared the session visible via viewState
       // (f332c655), so client2 sends that first.
-      const client2 = await openWs(`ws://localhost:${srv.port}/client`)
-      const c2 = collect(client2)
+      const { client: client2, collected: c2 } = await connectClient()
       try {
         client2.send(encode({ type: 'attach', sessionId }))
         client2.send(encode({ type: 'viewState', visible: [sessionId], focused: sessionId }))
-        client2.send(encode({ type: 'resize', sessionId, cols: 100, rows: 30 }))
-        client2.send(encode({ type: 'requestControl', sessionId }))
-        const getSess = () =>
-          srv.registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
-        await waitFor(() => (getSess()?.epoch ?? 0) >= 1)
-        // The takeover forwards client2's box; the server's copy moves when the
-        // daemon reports the size the pty now has (POD-4771), not on the claim.
-        await waitFor(() => getSess()?.geometry.cols === 100 && getSess()?.geometry.rows === 30)
-        await waitFor(() => c2.text.includes('cols=100 rows=30'))
+        client2.send(
+          encode({
+            type: 'viewportRequest',
+            sessionId,
+            geometry: { cols: 100, rows: 30 },
+            visible: true,
+            mode: 'native',
+            claimControl: true,
+          }),
+        )
+        // Controller and epoch are live wire facts, not session-list fields.
+        // Observe the takeover as a client would: both viewers see the new
+        // controller, and subsequent output belongs to the next epoch.
+        await waitFor('takeover controller', () =>
+          [c, c2].every((viewer) =>
+            viewer.seen.some((message) => message.type === 'controllerChanged'),
+          ),
+        )
+        const welcome = c2.seen.find((message) => message.type === 'welcome')
+        if (!welcome) throw new Error('takeover arrived without a client welcome')
+        for (const viewer of [c, c2]) {
+          const takeover = viewer.seen.find((message) => message.type === 'controllerChanged')
+          expect(takeover).toMatchObject({
+            sessionId,
+            controllerId: welcome.clientId,
+            // This direct-PTY fixture has no kernel-size reporting port. The
+            // server keeps its last reported grid until an acknowledgement.
+            geometry: initial.geometry,
+          })
+        }
+        await waitFor('takeover epoch', () =>
+          c2.seen.some(
+            (message) => message.type === 'outputFrame' && message.epoch > initial.epoch,
+          ),
+        )
+        const output = c2.seen.find(
+          (message) => message.type === 'outputFrame' && message.epoch > initial.epoch,
+        )
+        expect(output).toMatchObject({ sessionId, epoch: initial.epoch + 1 })
+        // Separately prove the requested size reached the actual child PTY.
+        await waitFor('takeover PTY output', () => c2.text.includes('cols=100 rows=30'))
       } finally {
         client2.close()
       }
+    } catch (error) {
+      throw new Error(
+        `relay fixture failed: ${String(error)}; ${JSON.stringify({
+          clients: clients.map((client) => client.readyState),
+          traces: traces.map((trace) => ({
+            text: trace.text.slice(-1500),
+            messages: trace.seen.slice(-12).map((message) => message.type),
+          })),
+        })}`,
+        { cause: error },
+      )
     } finally {
-      client.close()
-      await daemon.close()
+      for (const client of clients) client.close()
+      await daemon?.close({ reapSessions: true })
       await srv.close()
     }
   }, 20_000)

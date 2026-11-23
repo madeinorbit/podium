@@ -1,3 +1,4 @@
+import { ModelAuthority as Authority } from '@podium/sync/testing'
 /**
  * WHO MAY READ A DELIVERY LANE (POD-4974 O2, decision 2): anyone who may read at
  * least one order queued in it. The lane's readers change when orders leave it,
@@ -19,16 +20,17 @@ import {
 } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
-  Authority,
   type EntityRef,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
   type VisibilityAnchorPort,
 } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 
 /** One row's edge through the batched anchor port. */
 const edgeOf = async (anchors: VisibilityAnchorPort, ref: EntityRef) =>
@@ -95,8 +97,8 @@ const issueRow = (id: string, seq: number) => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
   archived: false,
 })
 
@@ -146,10 +148,10 @@ const principal = (user: string): Principal => ({
 async function fixture() {
   const store = await openTestStore(':memory:')
   stores.push(store)
-  await store.issues.upsertIssue(issueRow('iss_shared', 1))
-  await store.issues.upsertIssue(issueRow('iss_private', 2))
-  await store.shipping.createOrder(order('order-shared', 'iss_shared', 1))
-  await store.shipping.createOrder(order('order-private', 'iss_private', 2))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_shared', 1))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow('iss_private', 2))
+  await store.shipping.createOrder(fixtureWriteScope(), order('order-shared', 'iss_shared', 1))
+  await store.shipping.createOrder(fixtureWriteScope(), order('order-private', 'iss_private', 2))
   const grant = async (issueId: string, grantee: string) =>
     await store.grants.upsert({
       resourceKind: 'issue',
@@ -158,7 +160,7 @@ async function fixture() {
       verb: 'read',
       owner,
       visibility: 'personal',
-      createdAt: '2026-09-11T00:00:00Z',
+      createdAt: '2026-09-11T00:00:00.000Z',
       actorKind: 'user',
       actorId: owner,
       onBehalfOf: owner,
@@ -168,6 +170,7 @@ async function fixture() {
     store,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: testStoreRecords(store).build,
   })
   const authority = new Authority({
     store: store.sync,
@@ -180,19 +183,22 @@ async function fixture() {
 }
 
 describe('POD-4974 O2 lane visibility', () => {
-  it('lets anyone who may read one queued order read the lane, and no one else', async () => {
+  // Every member reads every task (design §2.2, §4.1; POD-6288 6d0dc46741 made
+  // issue grants inert), so whoever may read one queued order, which is every
+  // member, reads the lane. A lane nobody's order is queued in stays unread.
+  it('lets anyone who may read one queued order read the lane, which is every member', async () => {
     const { policy, authority } = await fixture()
     for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
       const state = await prepare([LANE])
       expect(state.classOf('shipLane')).toBe('personal')
       expect(state.mayRead(owner, LANE)).toBe(true)
       expect(state.mayRead(reader, LANE)).toBe(true)
-      expect(state.mayRead(stranger, LANE)).toBe(false)
+      expect(state.mayRead(stranger, LANE)).toBe(true)
     }
     const unknown: EntityRef = { entity: 'shipLane', entityId: 'not-a-lane' }
     expect((await policy.state.forBatch!([unknown])).mayRead(owner, unknown)).toBe(false)
 
-    await authority.capture([
+    await authority.save([
       {
         entity: 'shipLane',
         entityId: LANE.entityId,
@@ -205,12 +211,15 @@ describe('POD-4974 O2 lane visibility', () => {
         (change) => change.entity === 'shipLane',
       )
     expect(await lanesFor(reader)).toHaveLength(1)
-    expect(await lanesFor(stranger)).toEqual([])
+    expect(await lanesFor(stranger)).toHaveLength(1)
   })
 
-  it('evicts the lane from the reader whose last readable order left it', async () => {
+  // With every task read by every member (design §2.2), an order leaving its
+  // lane moves nobody's view while another queued order stays: nobody is
+  // evicted, and every member gets the lane's new value.
+  it('keeps the lane for every member while a queued order remains in it', async () => {
     const { store, policy, authority } = await fixture()
-    await authority.capture([
+    await authority.save([
       ...['order-shared', 'order-private'].map((id) => ({
         entity: 'shipOrder' as const,
         entityId: id,
@@ -231,6 +240,7 @@ describe('POD-4974 O2 lane visibility', () => {
 
     const cursor = await authority.cursor()
     await store.shipping.transitionOrder(
+      fixtureWriteScope(),
       'order-shared',
       'queued',
       'cancelled',
@@ -238,11 +248,8 @@ describe('POD-4974 O2 lane visibility', () => {
     )
     expect(
       await edgeOf(policy.anchors, { entity: 'shipOrder', entityId: 'order-shared' }),
-    ).toEqual({
-      audience: [reader],
-      subjects: [LANE],
-    })
-    await authority.capture([
+    ).toBeNull()
+    await authority.save([
       { entity: 'shipOrder', entityId: 'order-shared', op: 'remove' },
       { entity: 'shipLane', entityId: LANE.entityId, op: 'upsert', value: lane('order-private') },
     ])
@@ -253,14 +260,14 @@ describe('POD-4974 O2 lane visibility', () => {
         .filter((change) => change.entity === 'shipLane')
         .map((change) => change.op)
     }
-    expect(await laneOps(reader)).toEqual(['evict'])
+    expect(await laneOps(reader)).toEqual(['upsert'])
     expect(await laneOps(owner)).toEqual(['upsert'])
-    expect(await laneOps(stranger)).toEqual([])
+    expect(await laneOps(stranger)).toEqual(['upsert'])
   })
 
   it('names the lanes of an issue queued orders when a grant moves its audience', async () => {
     const { policy, authority, grant } = await fixture()
-    await authority.capture([
+    await authority.save([
       {
         entity: 'shipOrder',
         entityId: 'order-private',

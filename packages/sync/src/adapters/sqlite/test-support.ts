@@ -1,12 +1,24 @@
-import type { MutationId, SessionId } from '@podium/model'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { MutationId, SessionId, WorkspaceId } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
+import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import { drizzle as proxyDrizzle } from 'drizzle-orm/sqlite-proxy'
-import { AsyncLocalStorage } from 'node:async_hooks'
-import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { sqliteSyncTables } from './binding'
+import {
+  bindTables,
+  CrossWorkspaceStatementError,
+  type HandleContext,
+  queryHandle,
+} from './prepared'
+import { workspaceColumn } from './schema'
 import type { SyncServerTables } from './server-tables'
-import type { StoreQueries, StoreDrizzle } from './store-queries'
+import type { StoreDrizzle, StoreQueries, SyncQueries } from './store-queries'
 import { SyncRepository } from './sync-repository'
+import {
+  SUITE_WORKSPACE_ID,
+  type SyncRepositoryFixture,
+} from './test-support/sync-repository.suites'
 
 /**
  * THE FIXTURE'S STAND-IN FOR THE TWO SERVER-OWNED TABLES (POD-3249).
@@ -28,7 +40,7 @@ import { SyncRepository } from './sync-repository'
 export const testQueuedMessages = sqliteTable(
   'queued_messages',
   {
-    id: text().primaryKey(),
+    id: text().notNull(),
     sessionId: text('session_id').$type<SessionId>().notNull(),
     text: text().notNull(),
     queuedAt: integer('queued_at').notNull(),
@@ -45,31 +57,44 @@ export const testQueuedMessages = sqliteTable(
     delivery: text().default('when-ready').notNull(),
     attachmentsJson: text('attachments_json'),
     retractRequestedAt: integer('retract_requested_at'),
+    ...workspaceColumn(),
+    queueOrder: integer('queue_order').default(0).notNull(),
   },
   (table) => [
-    index('queued_messages_session').on(table.sessionId, table.queuedAt),
+    primaryKey({ columns: [table.workspaceId, table.id], name: 'queued_messages_pk' }),
+    index('queued_messages_session').on(table.workspaceId, table.sessionId, table.queueOrder),
     check('queued_messages_principal_kind', sql`principal_kind IN ('user','agent','system')`),
     check('queued_messages_actor_kind', sql`actor_kind IN ('user','agent','system')`),
   ],
 )
 
-export const testUpstreamOutbox = sqliteTable('upstream_outbox', {
-  mutationId: text('mutation_id').$type<MutationId>().primaryKey(),
-  proc: text().notNull(),
-  input: text().notNull(),
-  queuedAt: integer('queued_at').notNull(),
-  attempts: integer().default(0).notNull(),
-})
+export const testUpstreamOutbox = sqliteTable(
+  'upstream_outbox',
+  {
+    mutationId: text('mutation_id').$type<MutationId>().notNull(),
+    proc: text().notNull(),
+    input: text().notNull(),
+    queuedAt: integer('queued_at').notNull(),
+    attempts: integer().default(0).notNull(),
+    ...workspaceColumn(),
+    queueOrder: integer('queue_order').default(0).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.mutationId], name: 'upstream_outbox_pk' }),
+  ],
+)
 
-/** What the fixture hands `SyncRepository` where the server hands it the real ones. */
+/** What the fixture hands `SyncRepository` where the server hands it the real ones.
+ *  The fixture is SQLite, where a write needs no capture form. */
 export const testSyncServerTables: SyncServerTables = {
   queuedMessages: testQueuedMessages,
   upstreamOutbox: testUpstreamOutbox,
+  captureWrite: (write) => write,
 }
 
 /**
  * A `SyncRepository` over a fresh in-memory SQLite DB carrying the tables it
- * reads: `changes`, `change_latest`, `applied_mutations` and `feed_identity` (owned
+ * reads: `changes`, `applied_mutations`, `sync_feed` and `sync_kind` (owned
  * by THIS adapter's `./schema.ts` since POD-305) plus `queued_messages` and `upstream_outbox`
  * (feature-owned, declared in apps/server's schema — this adapter reads them,
  * and reading a table is not owning it).
@@ -84,8 +109,14 @@ export const testSyncServerTables: SyncServerTables = {
  * immediately — POD-305 added the three provenance columns to the real table and
  * this fixture did not have them.
  */
+/**
+ * The workspace a fixture repository is bound to. A `SyncRepository` names its
+ * workspace (POD-7010); the fixtures use the id a self-hosted install has.
+ */
+export const TEST_WORKSPACE_ID = 'local'
+
 export function createTestSyncRepository(): SyncRepository {
-  return new SyncRepository(createTestSyncQueries(), testSyncServerTables)
+  return new SyncRepository(createTestSyncQueries(), testSyncServerTables, TEST_WORKSPACE_ID)
 }
 
 /**
@@ -107,51 +138,91 @@ export function createTestSyncRepository(): SyncRepository {
  * without the refusal stub.
  */
 type FullTestDrizzle = ReturnType<typeof proxyDrizzle>
-type TestTransactionDrizzle = Parameters<Parameters<FullTestDrizzle["transaction"]>[0]>[0]
+type TestTransactionDrizzle = Parameters<Parameters<FullTestDrizzle['transaction']>[0]>[0]
 
-const testTransactionScope = new AsyncLocalStorage<FullTestDrizzle | TestTransactionDrizzle>()
-
-function buildTestDrizzle(db: SqlDatabase): FullTestDrizzle {
-  return proxyDrizzle(async (statement, params, method) => {
-    const prepared = db.prepare(statement)
-    if (method === 'run') {
-      return { rows: [], ...prepared.run(...params) }
-    }
-    const rows = prepared.values(...params)
-    return { rows: (method === 'get' ? rows[0] : rows) as unknown[] }
-  })
+/** The open test transaction and the workspace it was opened for. */
+interface TestFrame {
+  readonly tx: FullTestDrizzle | TestTransactionDrizzle
+  readonly context: HandleContext
 }
 
-export function createTestSyncQueries(db: SqlDatabase = createTestSyncDatabase()): StoreQueries {
-  const rootDb = buildTestDrizzle(db)
+const testTransactionScope = new AsyncLocalStorage<TestFrame>()
+
+/** The fixture's instance, bound to the sync tables as a store's is (POD-6977). */
+function buildTestDrizzle(db: SqlDatabase): FullTestDrizzle {
+  return bindTables(
+    proxyDrizzle(async (statement, params, method) => {
+      const prepared = db.prepare(statement)
+      if (method === 'run') {
+        return { rows: [], ...prepared.run(...params) }
+      }
+      const rows = prepared.values(...params)
+      return { rows: (method === 'get' ? rows[0] : rows) as unknown[] }
+    }),
+    sqliteSyncTables,
+  )
+}
+
+/** A test store's queries: one workspace's handle and runner, and the bare drizzle instance. */
+export type TestSyncQueries = StoreQueries & SyncQueries
+
+/**
+ * One workspace's queries over a fixture connection (`workspaceId`, the test
+ * workspace when omitted). For a second workspace over the same connection use
+ * {@link testWorkspaceQueries}, which shares the drizzle instance and so the
+ * transaction scope.
+ */
+export function createTestSyncQueries(
+  db: SqlDatabase = createTestSyncDatabase(),
+  workspaceId: string = TEST_WORKSPACE_ID,
+): TestSyncQueries {
+  return testQueriesOn(buildTestDrizzle(db), workspaceId)
+}
+
+/** Another workspace's queries over the same fixture connection and drizzle instance. */
+export function testWorkspaceQueries(base: TestSyncQueries, workspaceId: string): TestSyncQueries {
+  return testQueriesOn(base.rootDb as unknown as FullTestDrizzle, workspaceId)
+}
+
+function testQueriesOn(rootDb: FullTestDrizzle, workspaceId: string): TestSyncQueries {
+  const context = Object.freeze({
+    kind: 'workspace' as const,
+    workspaceId: workspaceId as WorkspaceId,
+  })
   return {
     // ONE INSTANCE, inside transactions and out, as the server's seam hands out
     // since POD-6147: the fixture is one synchronous connection, so a statement
     // issued through the root instance inside `createOrJoinTransaction` runs
     // inside that BEGIN, and a query prepared once stays valid in every
-    // transaction. The scope below only decides BEGIN versus SAVEPOINT.
+    // transaction. The scope below only decides BEGIN versus SAVEPOINT, and
+    // records the workspace the transaction was opened for, which the handle's
+    // fill checks each statement against (as the server's executor frame does).
     rootDb: rootDb as unknown as StoreDrizzle,
+    db: queryHandle(
+      rootDb as unknown as StoreDrizzle,
+      context,
+      () => testTransactionScope.getStore()?.context,
+    ),
     createOrJoinTransaction: async (fn) => {
       const current = testTransactionScope.getStore()
       if (current) {
-        return current.transaction((inner) => testTransactionScope.run(inner, fn))
+        return current.tx.transaction((inner) =>
+          testTransactionScope.run({ tx: inner, context: current.context }, fn),
+        )
       }
-      return rootDb.transaction(
-        (tx) => testTransactionScope.run(tx, fn),
-        { behavior: 'immediate' },
-      )
+      return rootDb.transaction((tx) => testTransactionScope.run({ tx, context }, fn), {
+        behavior: 'immediate',
+      })
     },
   }
 }
 
-/** The bare in-memory DB behind {@link createTestSyncRepository}, for tests
- *  that need the handle itself (e.g. the Ledger's transact-atomicity suite,
- *  which wraps entity writes and the change append in one transaction). */
 export function createTestSyncDatabase(): SqlDatabase {
   const db = openDatabase(':memory:')
   db.exec(
     `CREATE TABLE changes (
-       seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+       workspace_id  TEXT NOT NULL,
+       seq        INTEGER NOT NULL,
        entity     TEXT NOT NULL,
        entity_id  TEXT NOT NULL,
        op         TEXT NOT NULL,
@@ -161,40 +232,35 @@ export function createTestSyncDatabase(): SqlDatabase {
        -- its own behalf (boot reconcile, steward sweep) has no causing command.
        origin_id    TEXT,
        causation_id TEXT,
-       mutation_id  TEXT
+       mutation_id  TEXT,
+       PRIMARY KEY (workspace_id, seq)
      )`,
   )
-  db.exec('CREATE INDEX changes_entity ON changes(entity, entity_id, seq)')
-  db.exec('CREATE INDEX changes_event_time ON changes(event_time)')
-  db.exec(
-    // POD-678's installed world: the latest LIVE state per (entity, id), written
-    // by the same append that writes `changes` and never pruned with it.
-    `CREATE TABLE change_latest (
-       entity    TEXT NOT NULL,
-       entity_id TEXT NOT NULL,
-       seq       INTEGER NOT NULL,
-       payload   TEXT NOT NULL,
-       PRIMARY KEY (entity, entity_id)
-     )`,
-  )
-  db.exec('CREATE INDEX change_latest_seq ON change_latest(seq)')
+  db.exec('CREATE INDEX changes_entity ON changes(workspace_id, entity, entity_id, seq)')
+  db.exec('CREATE INDEX changes_event_time ON changes(workspace_id, event_time, seq)')
+  db.exec(`CREATE TABLE sync_feed (
+    workspace_id TEXT NOT NULL PRIMARY KEY, feed_id TEXT NOT NULL, epoch TEXT NOT NULL,
+    minted_at INTEGER NOT NULL, head_seq INTEGER NOT NULL, floor_seq INTEGER NOT NULL
+  )`)
+  db.exec(`CREATE TABLE sync_kind (
+    workspace_id TEXT NOT NULL, kind TEXT NOT NULL, generation INTEGER NOT NULL,
+    PRIMARY KEY (workspace_id, kind)
+  )`)
+  // The change capture's rows, without the server's always-empty guard: a
+  // fixture plants rows and reads what a drain or a retire leaves behind.
+  db.exec(`CREATE TABLE sync_capture (
+    id INTEGER PRIMARY KEY, kind TEXT NOT NULL, source INTEGER NOT NULL, op TEXT NOT NULL,
+    old_key TEXT, new_key TEXT, undrained INTEGER NOT NULL DEFAULT 0
+  )`)
+
   db.exec(
     `CREATE TABLE applied_mutations (
-       mutation_id TEXT PRIMARY KEY,
+       mutation_id TEXT NOT NULL,
        proc        TEXT NOT NULL,
        result      TEXT NOT NULL,
-       applied_at  INTEGER NOT NULL
-     )`,
-  )
-  db.exec(
-    // ADR 2 D1's feed identity. ONE row, pinned by a constant primary key, so
-    // "there is exactly one current generation" is a property of the schema
-    // rather than a rule every writer has to remember.
-    `CREATE TABLE feed_identity (
-       singleton INTEGER PRIMARY KEY,
-       feed_id   TEXT NOT NULL,
-       epoch     TEXT NOT NULL,
-       minted_at INTEGER NOT NULL
+       applied_at  INTEGER NOT NULL,
+       workspace_id TEXT NOT NULL,
+       PRIMARY KEY (workspace_id, mutation_id)
      )`,
   )
   db.exec(
@@ -204,7 +270,7 @@ export function createTestSyncDatabase(): SqlDatabase {
     // that stopped at `attempts` — as this one did until POD-3249 — could not run
     // the repository's own INSERT at all.
     `CREATE TABLE queued_messages (
-       id            TEXT PRIMARY KEY,
+       id            TEXT NOT NULL,
        session_id    TEXT NOT NULL,
        text          TEXT NOT NULL,
        queued_at     INTEGER NOT NULL,
@@ -221,18 +287,26 @@ export function createTestSyncDatabase(): SqlDatabase {
        delivery      TEXT NOT NULL DEFAULT 'when-ready',
        attachments_json TEXT,
        retract_requested_at INTEGER,
+       workspace_id  TEXT NOT NULL,
+       queue_order   INTEGER NOT NULL DEFAULT 0,
+       PRIMARY KEY (workspace_id, id),
        CONSTRAINT queued_messages_principal_kind CHECK (principal_kind IN ('user','agent','system')),
        CONSTRAINT queued_messages_actor_kind CHECK (actor_kind IN ('user','agent','system'))
      )`,
   )
-  db.exec('CREATE INDEX queued_messages_session ON queued_messages(session_id, queued_at)')
+  db.exec(
+    'CREATE INDEX queued_messages_session ON queued_messages(workspace_id, session_id, queue_order)',
+  )
   db.exec(
     `CREATE TABLE upstream_outbox (
-       mutation_id TEXT PRIMARY KEY,
+       mutation_id TEXT NOT NULL,
        proc        TEXT NOT NULL,
        input       TEXT NOT NULL,
        queued_at   INTEGER NOT NULL,
-       attempts    INTEGER NOT NULL DEFAULT 0
+       attempts    INTEGER NOT NULL DEFAULT 0,
+       workspace_id TEXT NOT NULL,
+       queue_order INTEGER NOT NULL DEFAULT 0,
+       PRIMARY KEY (workspace_id, mutation_id)
      )`,
   )
   return db
@@ -254,4 +328,41 @@ export function createTestSyncDatabase(): SqlDatabase {
  */
 export function createTestTransact(db: SqlDatabase): <T>(fn: () => Promise<T>) => Promise<T> {
   return createTestSyncQueries(db).createOrJoinTransaction
+}
+
+/**
+ * The bare fixture as a {@link SyncRepositoryFixture} (POD-6989): one fresh in-memory
+ * database, every workspace's queries over its one drizzle instance, and no
+ * provisioning, so a workspace's first append or identity write creates its feed row.
+ * The server's store shard runs the same suites on the store's own engines.
+ */
+export function openBareSyncFixture(): SyncRepositoryFixture {
+  const db = createTestSyncDatabase()
+  const recorded: string[] = []
+  const realPrepare = db.prepare.bind(db)
+  ;(db as unknown as { prepare: (s: string) => unknown }).prepare = (s: string) => {
+    recorded.push(s.replace(/\s+/g, ' ').trim())
+    return realPrepare(s)
+  }
+  const base = createTestSyncQueries(db)
+  const queries = (workspaceId: string = SUITE_WORKSPACE_ID) =>
+    testWorkspaceQueries(base, workspaceId)
+  return {
+    engine: 'sqlite',
+    provisioned: false,
+    serverTables: testSyncServerTables,
+    crossWorkspaceRefusal: CrossWorkspaceStatementError,
+    queries,
+    repository: async (workspaceId = SUITE_WORKSPACE_ID) =>
+      new SyncRepository(queries(workspaceId), testSyncServerTables, workspaceId),
+    stored: async (text) => realPrepare(text).all() as Record<string, unknown>[],
+    seed: async (text) => db.exec(text),
+    runInTransaction: async (text) => db.exec(text),
+    async record(fn) {
+      const from = recorded.length
+      await fn()
+      return recorded.slice(from)
+    },
+    close: async () => db.close(),
+  }
 }

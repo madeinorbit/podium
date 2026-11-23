@@ -26,6 +26,7 @@
 
 import { createHash } from 'node:crypto'
 import { StringDecoder } from 'node:string_decoder'
+import { type BoundCommand, throughLauncher } from '../../../bound-command.js'
 import type { HeadlessStdin } from './invocation.js'
 import type { HostedTurnIdentity } from './types.js'
 
@@ -107,10 +108,11 @@ function stdinMode(stdin: HeadlessStdin): string {
 export function wrapTurnInvocation(input: {
   marker: TurnMarker
   stdin: HeadlessStdin
-  cmd: string
-  args: readonly string[]
-}): { cmd: string; args: string[] } {
-  return {
+  command: BoundCommand
+}): BoundCommand {
+  // `/bin/sh` is an OS tool by absolute path; the harness executable is still
+  // the bound one, now the wrapper's argument.
+  return throughLauncher(input.command, {
     cmd: '/bin/sh',
     args: [
       '-c',
@@ -118,10 +120,8 @@ export function wrapTurnInvocation(input: {
       'podium-turn',
       encodeTurnMarker(input.marker),
       stdinMode(input.stdin),
-      input.cmd,
-      ...input.args,
     ],
-  }
+  })
 }
 
 export type TurnLine =

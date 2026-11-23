@@ -24,18 +24,18 @@
  * socket confers exactly what a remote pairing confers and nothing more.
  */
 
-import { createLogger } from '@podium/logger'
 import { CREDENTIAL_PROPAGATION_HARNESSES } from '@podium/harness/metadata'
+import { createLogger } from '@podium/logger'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   type DaemonHandshakeReply,
-  type HandshakeAcceptor,
   type DaemonPtyInputBatch,
   type DaemonPtyOutputBatch,
   DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
   encodeBinaryEnvelope,
+  type HandshakeAcceptor,
   type MachinePrincipal,
   type MachineSupervisorControlMessage,
   MachineSupervisorMessage,
@@ -44,12 +44,13 @@ import {
 } from '@podium/protocol'
 import {
   type ControlMessage,
+  daemonFrameCarriesSecret,
   encodeDaemonMessage,
   parseDaemonMessage,
 } from '@podium/protocol/daemon'
-import type { PairingGrant } from '../modules/machines/service'
 import { DEPLOYMENT, perf } from '../modules/perf/registry'
 import type { SessionRegistry } from '../relay'
+import type { DaemonLink } from './daemon-link-kind'
 import type { DaemonControlTransport } from './daemon-ports'
 import {
   createDaemonAcceptor,
@@ -59,7 +60,13 @@ import {
   recordHelloBuild,
 } from './peer-handshake'
 import { DAEMON_PLANE_LIVENESS } from './plane-liveness'
-import { safeSendEncoded, type GatewaySocket, warnDroppedFrame } from './ws-send'
+import {
+  frameEnvelopeType,
+  type GatewaySocket,
+  safeSendEncoded,
+  warnDroppedFrame,
+  warnDroppedSecretFrame,
+} from './ws-send'
 
 const log = createLogger('server:gateway:daemon')
 
@@ -154,7 +161,11 @@ function recoveryTransportOnly(registry: SessionRegistry): boolean {
  * Extracted from the connection handler so the auth logic is unit-testable
  * against a fake socket (see `wsServer.daemon.test.ts`).
  */
-export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): void {
+export function wireDaemonSocket(
+  ws: GatewaySocket,
+  registry: SessionRegistry,
+  link?: DaemonLink,
+): void {
   // The AUTHENTICATED principal for this socket. Typed as the principal object,
   // not a machine id, so nothing on this path can substitute a payload value.
   const credentialCurrent = registry.modules.machines.credentialFence()
@@ -259,7 +270,10 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
       const outcome = prepared.outcome
       // A pre-auth frame that is not a handshake is dropped on the floor: it never
       // reaches a port and no principal exists (unchanged behaviour).
-      if (outcome.kind === 'challenge') { ws.send(JSON.stringify(outcome.reply)); return }
+      if (outcome.kind === 'challenge') {
+        ws.send(JSON.stringify(outcome.reply))
+        return
+      }
       if (outcome.kind === 'ignored') return
       if (outcome.kind === 'rejected') {
         // Terminal at the daemon (`daemon.ts` treats helloRejected / pairRejected as
@@ -275,12 +289,18 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         ws.terminate()
         return
       }
-      unregisterCredential = registry.modules.machines.registerCredentialConnection(outcome.principal.machine, () => {
-        failed = true
-        ws.terminate()
-      })
+      unregisterCredential = registry.modules.machines.registerCredentialConnection(
+        outcome.principal.machine,
+        () => {
+          failed = true
+          ws.terminate()
+        },
+      )
       principal = outcome.principal
       acceptedCaps = new Set(outcome.acceptedCaps)
+      // Before the attach, so the machine's first condition already names its
+      // link. Keyed to THIS socket: a stale socket's close cannot erase it.
+      if (link !== undefined) registry.daemonLinks.connected(principal.machine, link, ws)
       perf.record(
         'phase',
         acceptedCaps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)
@@ -384,12 +404,13 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
         clearInterval(settle)
         clearTimeout(stopSettle)
       })
-      // The pairing grant rides back as the directory's opaque context: the
-      // handshake carries it and never interprets it (see `directoryContext`).
-      if (
-        !recoveryTransportOnly(registry) &&
-        (outcome.pairingGrant as PairingGrant | undefined)?.copyAgentCredentials
-      ) {
+      // A NEWLY PAIRED MACHINE gets its custodian's ticked logins (POD-6301,
+      // D11: "all machines I hold custody of, now and in future"). The pairing
+      // grant's `copyAgentCredentials` no longer copies anything by itself: the
+      // owner's per-login choice decides. Propagation excludes targets that
+      // keep their own logins (`podiumManaged=false`), reaches only the
+      // custodian's own machines and never replaces a login already there.
+      if (!recoveryTransportOnly(registry) && outcome.pairingGrant !== undefined) {
         // Every harness with a propagatable native login (POD-4737): derived
         // from the registry, so a third propagatable harness is picked up
         // with no second edit here.
@@ -444,7 +465,11 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
     } catch (err) {
       // Drop the malformed frame (don't let it tear down the connection) — but
       // never silently: a silent drop here hides protocol drift / poison frames.
-      warnDroppedFrame('daemon', err)
+      // A frame that can carry a login file is named by its type only (§8).
+      const type = frameEnvelopeType(raw)
+      if (type !== undefined && daemonFrameCarriesSecret(type))
+        warnDroppedSecretFrame('daemon', type)
+      else warnDroppedFrame('daemon', err)
     }
   }
   ws.on('message', (raw) => {
@@ -475,6 +500,7 @@ export function wireDaemonSocket(ws: GatewaySocket, registry: SessionRegistry): 
   ws.on('close', () => {
     unregisterCredential?.()
     acceptedCaps.clear()
+    if (principal && link !== undefined) registry.daemonLinks.disconnected(principal.machine, ws)
     // Pass THIS socket's send fn: if the daemon already reconnected, the registry
     // holds the new socket and this close must not evict it.
     if (principal && send) {
@@ -530,7 +556,10 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     resolved = prepared.acceptor ?? resolved
     const outcome = prepared.outcome
     if (principal === undefined) {
-      if (outcome.kind === 'challenge') { sendEncoded(outcome.reply); return }
+      if (outcome.kind === 'challenge') {
+        sendEncoded(outcome.reply)
+        return
+      }
       if (outcome.kind === 'ignored') return
       if (outcome.kind === 'rejected') {
         sendEncoded(outcome.reply)
@@ -561,10 +590,13 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         ws.terminate()
         return
       }
-      unregisterCredential = registry.modules.machines.registerCredentialConnection(outcome.principal.machine, () => {
-        failed = true
-        ws.terminate()
-      })
+      unregisterCredential = registry.modules.machines.registerCredentialConnection(
+        outcome.principal.machine,
+        () => {
+          failed = true
+          ws.terminate()
+        },
+      )
       principal = outcome.principal
       sendEncoded(outcome.reply)
       send = sendEncoded
@@ -581,7 +613,6 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         () => undefined,
       )
       await attaching
-      await registry.modules.machines.broadcastMachines()
       // Supervisor-only desktops have no daemon attach to wake standing catch-up.
       // Publish only after the authenticated build and live sender are installed.
       if (!recoveryTransportOnly(registry))
@@ -629,7 +660,9 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
     }
     try {
       const message = MachineSupervisorMessage.parse(JSON.parse(outcome.raw))
-      if (message.type === 'machineReport') {
+      if (message.type === 'updateSpaceResult') {
+        registry.modules.machines.recordUpdateSpaceResult(principal.machine, message)
+      } else if (message.type === 'machineReport') {
         await registry.modules.machines.recordSupervisorReport(
           principal.machine,
           { ...message.services, ...(message.topology ? { topology: message.topology } : {}) },
@@ -687,7 +720,6 @@ export function wireMachineSocket(ws: GatewaySocket, registry: SessionRegistry):
         // A replaced socket closing is not a new lifecycle transition.
         if (!recoveryTransportOnly(registry))
           registry.bus.emit('machine.disconnected', { machineId: principal.machine })
-        await registry.modules.machines.broadcastMachines()
       }
     } catch (error) {
       warnDroppedFrame('machine', error)

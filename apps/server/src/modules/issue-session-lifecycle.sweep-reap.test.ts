@@ -135,12 +135,12 @@ async function parkedSession(reg: SessionRegistry, issueId: IssueId): Promise<st
 describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () => {
   it('a periodic pass sends no reap for an already-parked session', async () => {
     const f = await makeFixture()
-    const issue = await f.reg.modules.issues.crud.create({
+    const issue = await f.reg.modules.issues.crud.create(f.reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Swept issue',
       startNow: false,
     })
-    await f.reg.modules.issues.crud.close(issue.id, 'done')
+    await f.reg.modules.issues.crud.close(f.reg.modules.issues.reports.store.serverWriter, issue.id, 'done')
     await f.settleCloses()
     const parked = await parkedSession(f.reg, issue.id)
     // A second, still-running member keeps the issue a sweep CANDIDATE, so the
@@ -166,7 +166,7 @@ describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () =>
 
   it('closing an issue still reaps a session parked before the close', async () => {
     const f = await makeFixture()
-    const issue = await f.reg.modules.issues.crud.create({
+    const issue = await f.reg.modules.issues.crud.create(f.reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Closed issue',
       startNow: false,
@@ -174,7 +174,7 @@ describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () =>
     const parked = await parkedSession(f.reg, issue.id)
     f.clearDaemon()
 
-    await f.reg.modules.issues.crud.close(issue.id, 'done')
+    await f.reg.modules.issues.crud.close(f.reg.modules.issues.reports.store.serverWriter, issue.id, 'done')
     // The close cleanup is deliberately fire-and-forget (afterCommit).
     await new Promise((resolve) => setTimeout(resolve, 50))
 
@@ -184,21 +184,21 @@ describe('closed-issue sweep does not re-reap parked sessions (POD-3845)', () =>
 
   it('the candidate filter skips a closed issue with no worktree and only parked sessions', async () => {
     const f = await makeFixture()
-    const settled = await f.reg.modules.issues.crud.create({
+    const settled = await f.reg.modules.issues.crud.create(f.reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Nothing left to do',
       startNow: false,
     })
-    await f.reg.modules.issues.crud.close(settled.id, 'done')
+    await f.reg.modules.issues.crud.close(f.reg.modules.issues.reports.store.serverWriter, settled.id, 'done')
     await f.settleCloses()
     await parkedSession(f.reg, settled.id)
 
-    const busy = await f.reg.modules.issues.crud.create({
+    const busy = await f.reg.modules.issues.crud.create(f.reg.modules.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Still has a member',
       startNow: false,
     })
-    await f.reg.modules.issues.crud.close(busy.id, 'done')
+    await f.reg.modules.issues.crud.close(f.reg.modules.issues.reports.store.serverWriter, busy.id, 'done')
     await f.settleCloses()
     await f.reg.modules.sessions.createSession({
       agentKind: 'claude-code',

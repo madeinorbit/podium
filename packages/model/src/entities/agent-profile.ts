@@ -23,6 +23,7 @@
  */
 
 import { z } from 'zod'
+import { MachineIdField } from '../ids/brands'
 import { DEFAULT_HARNESS_AGENT, HarnessAgent } from './agent'
 
 /** Lowercase slug: it is also the file name in `.podium/agents/<name>.md`. */
@@ -62,7 +63,7 @@ export const AgentProfileWire = z.object({
   description: z.string(),
   candidates: AgentCandidates,
   /** Machine id, or null for "wherever the issue or session would run". */
-  machineId: z.string().nullable(),
+  machineId: MachineIdField.nullable(),
   instructions: z.string(),
   createdAt: z.string(),
   updatedAt: z.string(),

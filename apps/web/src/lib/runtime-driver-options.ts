@@ -1,4 +1,4 @@
-import type { AgentKind, MachineWire } from '@podium/model/browser'
+import type { AgentKind, MachineFacts } from '@podium/model/browser'
 
 export interface HeadlessRuntimeDriver {
   harness: AgentKind
@@ -10,7 +10,7 @@ export interface HeadlessRuntimeDriver {
  * catalogue. Terminal-family rows are the headed/default path and therefore do
  * not appear as experimental alternatives. */
 export function headlessRuntimeDrivers(
-  machine: MachineWire | undefined,
+  machine: MachineFacts | undefined,
   harness?: AgentKind,
 ): HeadlessRuntimeDriver[] {
   return (machine?.inventory?.runtimeDrivers ?? []).filter(

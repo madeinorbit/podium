@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { asIssueId } from '@podium/model'
 import { act, render } from '@testing-library/react'
 import { observable, runInAction } from 'mobx'
@@ -22,7 +22,10 @@ const motion = vi.hoisted(() => ({
 
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => motion.reduceMotion }))
 const settings = vi.hoisted(() => ({ model: undefined as { codingHarness: string } | undefined }))
-vi.mock('../client/use-settings-record', () => ({ useSettingsRecord: () => settings }))
+// My coding default is my synced settings record (POD-6673).
+vi.mock('../client/my-preferences', () => ({
+  useMyCodingHarness: () => settings.model?.codingHarness,
+}))
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Medium: 'medium' },
   impactAsync: vi.fn(async () => {}),
@@ -149,7 +152,7 @@ const issue = {
   createdAt: '2026-08-23T00:00:00.000Z',
   intentOrigin: 'human',
   dependencyNote: null,
-} as unknown as IssueViewModel
+} as unknown as IssueWithBodies
 
 describe('ScreeningCard motion', () => {
   beforeEach(() => {

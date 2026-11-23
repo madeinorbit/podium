@@ -16,6 +16,8 @@ interface PreloadErrorRecoveryOptions {
   storage: Pick<Storage, 'getItem' | 'setItem'>
   reload: () => void
   now?: number
+  isOnline?: () => boolean
+  probe?: (url: string) => Promise<{ status: number }>
 }
 
 function readGuard(storage: PreloadErrorRecoveryOptions['storage']): PreloadReloadGuard | null {
@@ -49,23 +51,40 @@ function moduleUrlFrom(error: Error, build: string): string | null {
 }
 
 /**
- * Reload a built app once for one failed native module URL. Vite dispatches this
+ * Reload a built app once for one missing native module URL. Vite dispatches this
  * cancelable event when its production dynamic-import wrapper cannot load a
  * chunk. A reload creates a new browser module map, unlike retrying import() in
  * the current page.
  *
- * Stable module URLs are tried once. URL-less browser errors may represent
- * different chunks, so they share only a short per-build reload budget. The
+ * A browser's import error does not distinguish an outage from a deleted file.
+ * Only a confirmed 404/410 while online earns a reload. Unknown and network
+ * failures reject into the surface's in-page recovery without spending the guard.
+ * Stable module URLs are tried once, with a short per-build reload budget. The
  * budget stops a persistent failure even when browser wording changes, then
  * expires so a later transient failure can recover. Returning without
  * preventDefault is deliberate: the rejected import still reaches the terminal
  * or injected loader's in-page retry path.
  */
-export function recoverFromVitePreloadError(
+export async function recoverFromVitePreloadError(
   event: VitePreloadErrorEvent,
-  { build, storage, reload, now = Date.now() }: PreloadErrorRecoveryOptions,
-): boolean {
+  {
+    build,
+    storage,
+    reload,
+    now = Date.now(),
+    isOnline = () => navigator.onLine,
+    probe = (url) => fetch(url, { method: 'HEAD', cache: 'no-store' }),
+  }: PreloadErrorRecoveryOptions,
+): Promise<boolean> {
+  if (!isOnline()) return false
   const failure = moduleUrlFrom(event.payload, build)
+  if (!failure) return false
+  try {
+    const response = await probe(failure)
+    if (!isOnline() || (response.status !== 404 && response.status !== 410)) return false
+  } catch {
+    return false
+  }
   let guard: PreloadReloadGuard | null
 
   try {
@@ -95,12 +114,18 @@ export function recoverFromVitePreloadError(
   return true
 }
 
+/** One reconnect attempt per failed surface; unmounting cancels the listener. */
+export function retryOnOnline(retry: () => void, target: EventTarget = window): () => void {
+  target.addEventListener('online', retry, { once: true })
+  return () => target.removeEventListener('online', retry)
+}
+
 /** Install the production-only listener before the app starts any lazy imports. */
 export function installVitePreloadErrorRecovery(): void {
   if (!import.meta.env.PROD) return
 
   window.addEventListener('vite:preloadError', (event) => {
-    recoverFromVitePreloadError(event, {
+    void recoverFromVitePreloadError(event, {
       build: import.meta.url,
       storage: {
         getItem: (key) => window.sessionStorage.getItem(key),

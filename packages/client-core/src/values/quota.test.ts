@@ -74,6 +74,7 @@ describe('agentLabel / statusNote', () => {
         icon: { id: 'codex', viewBox: '0 0 1 1', d: 'M0 0h1v1H0z' },
         capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
         catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+        accepts: [],
       },
     ]
     expect(agentShortLabel('codex', served)).toBe('C2')
@@ -98,6 +99,7 @@ describe('agentLabel / statusNote', () => {
         icon: { id: 'codex', viewBox: '0 0 1 1', d: 'M0 0h1v1H0z' },
         capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
         catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+        accepts: [],
       },
     ]
     expect(agentLabel('codex', served)).toBe('Codex Next')

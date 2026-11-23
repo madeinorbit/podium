@@ -5,15 +5,28 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import {
-  bindHarnessExec,
+  agentLaunchTerms,
+  type BoundCommand,
   buildResolvedInventory,
+  harnessAdapterFor,
+  harnessChildEnv,
+  harnessCommand,
+  harnessContext,
   harnessMcpConfigTransport,
   type ResolvedHarnessInventory,
 } from '@podium/harness'
+import { type BuiltinHarnessKind, DEFAULT_SESSION_POSTURE } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { stateDir } from '@podium/runtime/config'
 import { buildHarnessExec } from './harness-exec.js'
 import type { DaemonHarnessRuntime } from './harness-runtime.js'
-import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
+import {
+  nodePrepareLaunchPorts,
+  type PrepareLaunchPorts,
+  podiumGrantsFor,
+  prepareLaunch,
+  repoRootOf,
+} from './session-posture.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -51,8 +64,9 @@ const execFileAsync = promisify(execFile)
  * - success: `{ok:true, output: stdout.trim()}` with a 240s default kill
  *   budget (`timeoutMs` override), 4MiB stdout cap, prompt on stdin (then EOF),
  *   MCP config via temp file (`path` transport) or inline `-c` overrides,
- *   child env = process.env + manifest env + HOME + instance env minus
- *   inherited harness controls, temp file removed in `finally`.
+ *   child env = `harnessChildEnv` over the account context (command env,
+ *   manifest env as wiring, HOME + instance env, inherited credentials and
+ *   harness controls removed), temp file removed in `finally`.
  * - failure: `{ok:false, output: err.message}` for malformed MCP, unsupported
  *   or unknown harness, temp-write failure, timeout, output cap, missing
  *   executable and child non-zero exit. A temp-write failure refuses rather
@@ -82,10 +96,10 @@ export interface BufferedHarnessChildOpts {
   env: NodeJS.ProcessEnv
 }
 
-/** Process-boundary seam: execFile + stdin-close + stdout capture. */
+/** Process-boundary seam: execFile + stdin-close + stdout capture. Only a
+ *  bound command: argv[0] is the turn's harness installation (POD-6536). */
 export type BufferedHarnessRunChild = (
-  cmd: string,
-  args: string[],
+  command: BoundCommand,
   opts: BufferedHarnessChildOpts,
   stdin: string,
 ) => Promise<{ stdout: string }>
@@ -96,6 +110,14 @@ export interface BufferedHarnessIo {
   writeTemp?: (path: string, data: string) => void
   removeTemp?: (path: string) => void
   makeTempPath?: () => string
+  /** Where the run's launch files are written and home edits applied (POD-6858). */
+  prepareLaunchPorts?: PrepareLaunchPorts
+  /** The state root whose `uploads` the run's grants name. */
+  stateRoot?: string
+  /** A fresh folder for the run's generated launch files; removed after. */
+  makeRuntimeDir?: () => string
+  /** The main checkout of a worktree `cwd` (POD-6858). */
+  repoRootOf?: (workdir: string) => Promise<string | undefined>
 }
 
 async function defaultSnapshot(ctx: BufferedHarnessContext): Promise<ResolvedHarnessInventory> {
@@ -115,12 +137,11 @@ async function defaultSnapshot(ctx: BufferedHarnessContext): Promise<ResolvedHar
 /** Process-boundary seam, exported for tests: proves stdin-EOF, timeout and cap
  *  against a real child without a harness binary on PATH. */
 export function defaultRunChild(
-  cmd: string,
-  args: string[],
+  command: BoundCommand,
   opts: BufferedHarnessChildOpts,
   stdin: string,
 ): Promise<{ stdout: string }> {
-  const pending = execFileAsync(cmd, args, {
+  const pending = execFileAsync(command.cmd, command.args, {
     timeout: opts.timeout,
     maxBuffer: opts.maxBuffer,
     ...(opts.cwd ? { cwd: opts.cwd } : {}),
@@ -138,12 +159,27 @@ export async function executeBufferedHarnessTurn(
   msg: BufferedHarnessRequest,
   io?: BufferedHarnessIo,
 ): Promise<BufferedHarnessResult> {
+  // THE RUN'S FOLDER IS REQUIRED (POD-6858). A run states its launch terms
+  // against its working folder, and an agent's terms trust that folder (for
+  // Claude, every folder below it too). Without a `cwd` the only folder at
+  // hand is the daemon's own, which nobody chose: refuse before anything is
+  // staged, edited or run.
+  const workdir = msg.cwd
+  if (!workdir) {
+    return {
+      ok: false,
+      output: `harness run refused: the request names no working folder (cwd); a ${msg.agent} run states its terms against the folder it runs in`,
+    }
+  }
   const snapshotFor = io?.snapshot ?? (() => defaultSnapshot(ctx))
   const runChild = io?.runChild ?? defaultRunChild
   const writeTemp = io?.writeTemp ?? ((path: string, data: string) => writeFileSync(path, data))
   const removeTemp = io?.removeTemp ?? ((path: string) => rmSync(path, { force: true }))
-  const makeTempPath =
-    io?.makeTempPath ?? (() => join(tmpdir(), `podium-mcp-${randomUUID()}.json`))
+  const makeTempPath = io?.makeTempPath ?? (() => join(tmpdir(), `podium-mcp-${randomUUID()}.json`))
+  const makeRuntimeDir = io?.makeRuntimeDir ?? (() => join(tmpdir(), `podium-exec-${randomUUID()}`))
+  // A buffered run has no session: its generated launch files live in a
+  // folder of its own, removed with the MCP temp file below.
+  const runtimeDir = makeRuntimeDir()
 
   // Claude's --mcp-config must be a file path: stage the JSON per run. Codex
   // takes inline `-c` overrides (translated in buildHarnessExec) — no file.
@@ -166,40 +202,70 @@ export async function executeBufferedHarnessTurn(
     // tool-less run) and on declared-unsupported or unknown harnesses — both
     // must surface as a failed turn with the harness named, never a fallback.
     const snapshot = await snapshotFor()
-    const {
-      cmd,
-      args,
-      stdin,
-      env: execEnv,
-    } = bindHarnessExec(
+    // The argv first: an unknown or exec-less harness refuses here, naming
+    // itself, before any context is built for it.
+    const exec = buildHarnessExec(msg.agent, {
+      prompt: msg.prompt,
+      ...(msg.model ? { model: msg.model } : {}),
+      ...(msg.effort ? { effort: msg.effort } : {}),
+      ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
+      ...(mcpConfigPath ? { mcpConfigPath } : {}),
+      ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
+    })
+    const context = harnessContext(
       snapshot,
-      msg.agent,
-      buildHarnessExec(msg.agent, {
-        env: snapshot.commandEnvironment.env,
-        prompt: msg.prompt,
-        ...(msg.model ? { model: msg.model } : {}),
-        ...(msg.effort ? { effort: msg.effort } : {}),
-        ...(msg.systemPrompt ? { systemPrompt: msg.systemPrompt } : {}),
-        ...(mcpConfigPath ? { mcpConfigPath } : {}),
-        ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
-        ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
+      msg.agent as BuiltinHarnessKind,
+      ctx.homeDir ?? snapshot.commandEnvironment.machineHome,
+    )
+    // THE RUN'S TERMS (POD-6858): the harness's `turn` terms on the posture
+    // the frame states, or the default for an older server that states none
+    // (its Claude-worded `allowedTools` is not read: the posture section
+    // owns the allow rules). A buffered run has no session, so its
+    // grants name a request-scoped uploads folder, `uploads/exec-<requestId>`,
+    // which holds nothing: never the parent folder and never a session's.
+    const repoRoot = await (io?.repoRootOf ?? repoRootOf)(workdir)
+    const manifest = harnessAdapterFor(msg.agent)
+    if (!manifest) throw new Error(`no harness adapter for '${msg.agent}'`)
+    const { stdin, ...command } = harnessCommand(
+      context,
+      exec,
+      agentLaunchTerms(manifest, 'turn', {
+        posture: msg.posture ?? DEFAULT_SESSION_POSTURE,
+        grants: podiumGrantsFor(
+          { stateRoot: io?.stateRoot ?? stateDir() },
+          execUploadsKey(msg.requestId),
+          {
+            mcpServers: msg.mcpConfig
+              ? { supported: true, value: { transport: 'inline', config: msg.mcpConfig } }
+              : { supported: false, reason: 'the run mounts no MCP' },
+          },
+          context,
+        ),
+        workdir,
+        ...(repoRoot !== undefined ? { repoRoot } : {}),
+        runtimeDir,
+        context,
       }),
     )
-    // codex's MCP bearer token rides `execEnv` (POD-1021), merged over process.env.
-    const childEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...execEnv,
-      ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-      ...harnessInstanceEnv(msg.agent, ctx.homeDir),
-    }
-    for (const key of harnessChildStripEnv(msg.agent, execEnv)) delete childEnv[key]
+    // Logged until Task 11 puts it on the wire.
+    await prepareLaunch(
+      command,
+      io?.prepareLaunchPorts ?? nodePrepareLaunchPorts({ launch: 'buffered-exec' }),
+    )
+    // ONE RECIPE (POD-6535). The frame carries no session env, so nothing on
+    // it was chosen: every credential the command env carries is inherited
+    // and stripped (F10). codex's MCP bearer token rides the command's env
+    // (POD-1021) as wiring, with whatever the terms added. `execFile` replaces
+    // the child env outright, so this is all of it.
+    const { env: childEnv } = harnessChildEnv(context, {
+      ...(Object.keys(command.env).length > 0 ? { wiringEnv: command.env } : {}),
+    })
     const { stdout } = await runChild(
-      cmd,
-      args,
+      command,
       {
         timeout: msg.timeoutMs ?? BUFFERED_HARNESS_DEFAULT_TIMEOUT_MS,
         maxBuffer: BUFFERED_HARNESS_MAX_BUFFER_BYTES,
-        ...(msg.cwd ? { cwd: msg.cwd } : {}),
+        cwd: workdir,
         env: childEnv,
       },
       stdin ?? '',
@@ -215,5 +281,20 @@ export async function executeBufferedHarnessTurn(
         // best-effort temp cleanup
       }
     }
+    try {
+      rmSync(runtimeDir, { recursive: true, force: true })
+    } catch {
+      // best-effort temp cleanup
+    }
   }
+}
+
+/**
+ * The uploads key of one buffered run: `exec-<requestId>`. A request id that
+ * is not a plain file name (a separator, a dot path) gets a fresh random key
+ * instead, so the grant can never name the parent folder or another's.
+ */
+export function execUploadsKey(requestId: string): string {
+  const plain = /^[A-Za-z0-9_-][A-Za-z0-9._-]*$/.test(requestId)
+  return `exec-${plain ? requestId : randomUUID()}`
 }

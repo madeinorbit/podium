@@ -14,7 +14,13 @@ import type {
   TranscriptItem,
   UserId,
 } from '@podium/model'
-import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
+import type {
+  AgentObservation,
+  MachineConditionPayload,
+  MetadataChange,
+  SessionOpenUrlMessage,
+  TopicPayload,
+} from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { runAtRoot } from '../store/executor/context'
 import { afterCommit } from '../store/executor/executor'
@@ -137,6 +143,10 @@ export interface EventMap {
   'transcript.delta': { sessionId: SessionId; items: TranscriptItem[]; reset?: boolean }
   /** A machine's daemon socket attached. */
   'machine.connected': { machineId: MachineId }
+  /** A live condition changed; the topic router publishes to its current holders. */
+  'machine.conditionChanged': { machineId: MachineId; value: MachineConditionPayload }
+  /** A demanded process sample changed; published through authenticated topic routing. */
+  'machine.processesChanged': { id: string; value: TopicPayload<'machine.processes'> | undefined }
   /** A machine's daemon socket detached. */
   'machine.disconnected': { machineId: MachineId }
   /** Durable machine metadata changed; session machine-name projections recapture.
@@ -170,6 +180,13 @@ export interface EventMap {
   'settings.changed': {
     previous: import('@podium/runtime').PodiumSettings
     next: import('@podium/runtime').PodiumSettings
+    /**
+     * The member whose RESOLVED view `previous`/`next` are (POD-6291). A
+     * personal leaf (notification routing, auto-continue) moved for this
+     * member only, so a reaction to it reaches this member's sessions only.
+     * Absent: an instance-wide change (a secret, the deployment tier).
+     */
+    member?: UserId
   }
   /**
    * THIS PROCESS wrote config.json (previous → next) — POD-3840.

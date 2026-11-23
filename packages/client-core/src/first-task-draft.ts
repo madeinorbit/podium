@@ -6,13 +6,43 @@ import {
   type MutationId,
   type SessionId,
 } from '@podium/model'
-import { RuntimeAttachmentRef } from '@podium/protocol/daemon'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { IssueAgentKind } from './agent-models'
 import { issueAgentKind } from './agent-models'
 import type { UiState } from './ui-state'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from './ui-state'
 
 /** The existing composer chip, shared so a draft owns it across screen lifetimes. */
+const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.length > 0
+
+/** The stored ref's shape (protocol's RuntimeAttachmentRef), checked without
+ *  the daemon wire schema: the web bundle does not carry that module. */
+function attachmentRef(
+  value: unknown,
+): { success: true; data: RuntimeAttachmentRef } | { success: false } {
+  const row = value as Partial<Record<keyof RuntimeAttachmentRef, unknown>> | null
+  if (
+    !row ||
+    typeof row !== 'object' ||
+    !nonEmpty(row.id) ||
+    !nonEmpty(row.filename) ||
+    !nonEmpty(row.mediaType) ||
+    (row.kind !== 'image' && row.kind !== 'file') ||
+    (row.path !== undefined && !nonEmpty(row.path))
+  )
+    return { success: false }
+  return {
+    success: true,
+    data: {
+      id: row.id,
+      filename: row.filename,
+      mediaType: row.mediaType,
+      kind: row.kind,
+      ...(row.path !== undefined ? { path: row.path as string } : {}),
+    },
+  }
+}
+
 export interface ComposerAttachment {
   id: string
   name: string
@@ -139,7 +169,7 @@ function readAttachments(value: unknown): ComposerAttachment[] {
       !['uploading', 'ready', 'failed'].includes(row.state)
     )
       return []
-    const ref = RuntimeAttachmentRef.safeParse(row.ref)
+    const ref = attachmentRef(row.ref)
     const path = typeof row.path === 'string' && row.path ? row.path : undefined
     if (row.state === 'ready' && !path && !ref.success) return []
     return [

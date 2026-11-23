@@ -74,3 +74,16 @@ describe('mobile HTTP sync fetch port', () => {
     await expect(requireMobileSyncStream(buffered({ 'content-length': '2' }))).rejects.toThrow('declared size')
   })
 })
+
+describe('the member fence (POD-6292, MU-12)', () => {
+  it('reads the feed only as the member the replica opened for', async () => {
+    runtimePlatform.OS = 'web'
+    const webFetch = vi.fn().mockResolvedValue(new Response('chunk'))
+    vi.stubGlobal('fetch', webFetch)
+    await createMobileSyncFetch(null, undefined, undefined, 'mem_alice').fetch(
+      'https://server/sync/bootstrap',
+      { headers: {} },
+    )
+    expect(webFetch.mock.calls[0]![1].headers.get('x-podium-member')).toBe('mem_alice')
+  })
+})

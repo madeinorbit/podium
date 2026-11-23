@@ -47,6 +47,11 @@ import { idleVerdictFinishedTurn, idleVerdictNeedsHuman } from './idle-verdict'
 /** The session facts the seat facts read; a stored row, a wire view and a model all fit. */
 export interface SeatSessionFacts {
   readonly status?: string | null
+  /** Its machine's daemon link is down right now: the reader's derived condition
+   *  ({@link isSessionReconnecting}), never a stored status (ADR 12 D1). A
+   *  session model answers it; a stored row never carries it, so a row reader
+   *  passes it as an argument instead. */
+  readonly reconnecting?: boolean | null
   readonly busy?: boolean | null
   readonly archived?: boolean | null
   readonly exitCode?: number | null
@@ -117,10 +122,14 @@ export function sessionErrorFact(session: SeatSessionFacts): boolean {
  * evidence (`unknown`, a shell) is working only while its PTY is busy. Read
  * apart from any ask: an offer never hides the work.
  */
-export function sessionWorkingFact(session: SeatSessionFacts): boolean {
+export function sessionWorkingFact(
+  session: SeatSessionFacts,
+  reconnecting: boolean = session.reconnecting === true,
+): boolean {
   const status = session.status
-  if (status === 'starting' || status === 'reconnecting') return true
+  if (status === 'starting') return true
   if (status !== 'live') return false
+  if (reconnecting) return true
   const phase = session.agentState?.phase
   if (phase === 'working' || phase === 'compacting') return true
   if (phase == null || phase === 'unknown') return session.busy === true
@@ -210,6 +219,9 @@ export function coordinatedSeat(
   role: SeatRole,
   interactions: SeatInteractions = NO_INTERACTIONS,
   taskOpen = true,
+  /** The reader's derived condition, for a stored row that cannot answer it
+   *  ({@link SeatSessionFacts.reconnecting}); a session model answers it itself. */
+  reconnecting: boolean = session.reconnecting === true,
 ): CoordinatedSeat {
   const attention = seatAttention(session, interactions.count)
   const counts = taskOpen && session.archived !== true
@@ -219,7 +231,7 @@ export function coordinatedSeat(
   const state = session.agentState
   const stateSince = ms(state?.since)
   const alive = session.status !== 'exited'
-  const working = sessionWorkingFact(session)
+  const working = sessionWorkingFact(session, reconnecting)
   return {
     counted: counts,
     error,

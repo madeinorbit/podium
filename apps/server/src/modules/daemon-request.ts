@@ -49,8 +49,8 @@
  * refused and logged rather than resolving the wrong caller's promise.
  */
 
-import type { MachineId } from '@podium/model'
 import { createLogger } from '@podium/logger'
+import type { MachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 
 const log = createLogger('server:daemon-request')
@@ -161,7 +161,13 @@ export class DaemonRequestBroker implements DaemonRequestPort {
           resolve(value as T)
         },
       })
-      this.deps.toMachine(targetMachineId, message)
+      try {
+        this.deps.toMachine(targetMachineId, message)
+      } catch (error) {
+        clearTimeout(timer)
+        this.pending.delete(requestId)
+        throw error
+      }
     })
   }
 

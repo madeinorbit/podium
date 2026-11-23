@@ -1,3 +1,4 @@
+// POD-6789: two model-table builds replace the stored-copy comparison; source queue and registry writes publish atomically. Pins measured at both fixture sizes on the agents VM.
 /**
  * The daemon frames `daemon-frames.statement-count.test.ts` left out run a
  * fixed number of statements too, whatever the number of sessions on the
@@ -9,6 +10,7 @@
  */
 import { asMachineId, firstAdminMemberId, type SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import * as feedServing from './gateway/feed-serving'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
 import { fixtureInventory } from './test-support/daemon-inventory'
@@ -19,6 +21,8 @@ import {
   expectConstantStatements,
   quietShipping,
   type StatementPin,
+  settledCommand,
+  settledOperation,
 } from './test-support/statement-count'
 
 interface Fixture {
@@ -30,31 +34,48 @@ interface Fixture {
 /** `size` bound Claude Code sessions, and `size` other machines in the fleet. */
 async function fixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
-  const reg = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
-  await attachHostDaemon(reg, () => {})
+  // Pin one inbound frame, with no unrelated timer-driven ledger/queue/file
+  // sweeps. On a remote engine those can otherwise overlap the counted window.
+  const reg = await SessionRegistry.create(store, undefined, {
+    instanceId: 'default',
+    rehearseBoot: true,
+  })
+  await settledCommand(() => attachHostDaemon(reg, () => {}))
   await quietShipping(reg)
+  // Complete the normal startup cursor load explicitly; later frames still
+  // exercise the live durable board projection and all of its statements.
+  await reg.modules.sessions.runtimeGateway.replayBoardProjection()
   const owner = await firstAdminMemberId(store)
   for (let i = 0; i < size; i++) {
-    await store.machines.upsertMachine({
-      id: asMachineId(`mach_other_${i}`),
-      name: `Other ${i}`,
-      hostname: `other-${i}`,
-      tokenHash: `token-${i}`,
-      ownerUserId: owner,
-      assignment: { server: false, agentExecution: true },
-    })
+    await settledCommand(() =>
+      store.machines.upsertMachine({
+        id: asMachineId(`mach_other_${i}`),
+        name: `Other ${i}`,
+        hostname: `other-${i}`,
+        tokenHash: `token-${i}`,
+        ownerUserId: owner,
+        assignment: { server: false, agentExecution: true },
+      }),
+    )
   }
   const ids: SessionId[] = []
   for (let i = 0; i < size; i++) {
-    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: `/w${i}` })
-    await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
-      type: 'bind',
-      sessionId,
-      cmd: 'claude',
-      cwd: `/w${i}`,
-      agentKind: 'claude-code',
-      geometry: { cols: 80, rows: 24 },
-    } as never)
+    const { sessionId } = await settledCommand(() =>
+      reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: `/w${i}`,
+      }),
+    )
+    await settledOperation(() =>
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'bind',
+        sessionId,
+        cmd: 'claude',
+        cwd: `/w${i}`,
+        agentKind: 'claude-code',
+        geometry: { cols: 80, rows: 24 },
+      } as never),
+    )
     ids.push(sessionId)
   }
   await settle(reg)
@@ -63,14 +84,16 @@ async function fixture(size: number): Promise<Fixture> {
 
 /** Let unawaited bus reactions and the coalesced broadcast finish (as in daemon-frames). */
 async function settle(reg: SessionRegistry): Promise<void> {
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
-  await reg.modules.sessions.flushBroadcasts()
-  await new Promise((resolve) => setTimeout(resolve, 20))
-  for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve))
+  await reg.changeLedger.authority.settled()
+  await settledOperation(() => reg.modules.messages.flushDeliveryTriggers())
+  await settledOperation(() => reg.modules.sessions.flushBroadcasts())
+  await reg.changeLedger.authority.settled()
 }
 
 const route = async (f: Fixture, frame: unknown) => {
-  await f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never)
+  await settledOperation(() =>
+    f.reg.gateway.routeDaemonFrame(f.reg.sessionStore.hostMachineId, frame as never),
+  )
   await settle(f.reg)
 }
 
@@ -83,7 +106,9 @@ const pin = (
   setup: fixture,
   target: (f) => f.store,
   run,
-  ...(check ? { check: async (_result: unknown, f: Fixture, size: number) => await check(f, size) } : {}),
+  ...(check
+    ? { check: async (_result: unknown, f: Fixture, size: number) => await check(f, size) }
+    : {}),
   teardown: async (f) => {
     await f.reg.dispose()
     await f.store.close()
@@ -95,10 +120,8 @@ const pin = (
  * `owner` picks (the gateway's frame router by default), so the planted loop
  * runs on the frame's path, inside the counted window.
  */
-const plantPerSession = (
-  method: string,
-  owner: (f: Fixture) => object = (f) => f.reg.gateway,
-) =>
+const plantPerSession =
+  (method: string, owner: (f: Fixture) => object = (f) => f.reg.gateway) =>
   (f: Fixture): (() => void) => {
     const target = owner(f) as Record<string, (...args: unknown[]) => unknown>
     const original = target[method]!.bind(target)
@@ -113,7 +136,12 @@ const hostSample = () => ({
   type: 'hostMetrics',
   hostname: 'test',
   sampledAt: new Date().toISOString(),
-  memory: { totalBytes: 8_000_000_000, availableBytes: 6_000_000_000, swapTotalBytes: 0, swapFreeBytes: 0 },
+  memory: {
+    totalBytes: 8_000_000_000,
+    availableBytes: 6_000_000_000,
+    swapTotalBytes: 0,
+    swapFreeBytes: 0,
+  },
   load: { one: 0.1, five: 0.1, fifteen: 0.1, cpuCount: 8 },
   daemonReadiness: { state: 'ready', reason: 'test', quarantinedBindings: 0 },
 })
@@ -121,18 +149,25 @@ const hostSample = () => ({
 /** A provisioned machine's report, with as many tools as the size so its own length is a dimension too. */
 const inventory = (size: number, version: string) =>
   fixtureInventory({
-    tools: Array.from({ length: size }, (_, i) => ({ name: `tool-${i}`, installed: true, version })),
+    tools: Array.from({ length: size }, (_, i) => ({
+      name: `tool-${i}`,
+      installed: true,
+      version,
+    })),
   })
 
 describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => {
   // Output is counted in memory and written by the activity flush, which
   // daemon-frames.statement-count.test.ts pins.
-  const batch = pin('agentFrameBatch', async (f, size) =>
-    await route(f, {
-      type: 'agentFrameBatch',
-      sessionId: f.ids[0],
-      frames: Array.from({ length: size }, () => 'QQ=='),
-    }))
+  const batch = pin(
+    'agentFrameBatch',
+    async (f, size) =>
+      await route(f, {
+        type: 'agentFrameBatch',
+        sessionId: f.ids[0],
+        frames: Array.from({ length: size }, () => 'QQ=='),
+      }),
+  )
 
   it('agentFrameBatch with as many frames as the size touches no table', async () => {
     await expectConstantStatements(batch, 0)
@@ -144,17 +179,29 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
 
   const title = pin(
     'title',
-    async (f) => await route(f, { type: 'title', sessionId: f.ids[0], title: 'Fixing the parser', source: 'osc' }),
-    async (f) => expect((await f.store.sessions.getSession(f.ids[0]!))?.title).toBe('Fixing the parser'),
+    async (f) =>
+      await route(f, {
+        type: 'title',
+        sessionId: f.ids[0],
+        title: 'Fixing the parser',
+        source: 'osc',
+      }),
+    async (f) =>
+      expect((await f.store.sessions.getSession(f.ids[0]!))?.title).toBe('Fixing the parser'),
   )
 
   // The write of the session row and its projection pass and publication.
+  // POD-6341, measured on the polaris VM (statement lists diffed against the
+  // integration branch's base): 10 -> 9, the projection pass no longer reads
+  // the session's grants (#92da1c94; sessions are private, design §2.3,
+  // POD-6283).
   it('title of one session among many', async () => {
-    await expectConstantStatements(title, 10)
+    // POD-6920: derived change capture (no build before the write; one drain after it): title 22 -> 15.
+    await expectConstantStatements(title, 15)
   })
 
   it('title pin is armed', async () => {
-    await expectArmed(title, 10, plantPerSession('routeDaemonFrame'))
+    await expectArmed(title, 15, plantPerSession('routeDaemonFrame'))
   })
 
   const metrics = pin('hostMetrics', async (f) => await route(f, hostSample()))
@@ -172,17 +219,42 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
   const report = (version: string) =>
     pin(
       `inventoryReport (${version})`,
-      async (f, size) => await route(f, { type: 'inventoryReport', inventory: inventory(size, version) }),
       async (f, size) => {
-        expect((await f.store.machines.getMachine(f.store.hostMachineId))?.inventory?.tools).toHaveLength(size)
+        // This pin includes one explicit publication of the complete frame.
+        // Async engine round trips otherwise let the automatic idle/deadline
+        // flush split its two commits, adding a retention-floor read according
+        // to timing. route() still drains the real serving edge and all SQL;
+        // automatic publication cadence is covered by the funnel tests.
+        const scheduled = vi
+          .spyOn(feedServing, 'scheduleFeedFlush')
+          .mockImplementation(() => () => {})
+        try {
+          await route(f, { type: 'inventoryReport', inventory: inventory(size, version) })
+        } finally {
+          scheduled.mockRestore()
+        }
+      },
+      async (f, size) => {
+        expect(
+          (await f.store.machines.getMachine(f.store.hostMachineId))?.inventory?.tools,
+        ).toEqual(inventory(size, version).tools)
       },
     )
 
   // The row's write, the machine projection's publication and the machine
   // broadcast, which reads the fleet once whatever its size. POD-6218: the
   // earliest admin and its settings once per operation: 19 -> 17.
+  // POD-6341, measured on the polaris VM (statement lists diffed against the
+  // integration branch's base): 17 -> 16. The projection now names the
+  // machine's custodian (POD-6291 9dd00e1e43), read from its custody edge (+1
+  // grants read). The report no longer appends the machine's change (-1
+  // `changes`, -1 `change_latest`): the projection names no tools, so the
+  // published row is likely equal to the one already installed (inferred, not
+  // traced). One more `meta` read (+1) is measured and not yet attributed.
   it('inventoryReport that changes the machine', async () => {
-    await expectConstantStatements(report('1.0.0'), 17)
+    // Current inventory publication is 33 fixed statements at both fleet sizes.
+    // Exact tool/version checks above prevent a skipped write from satisfying it.
+    await expectConstantStatements(report('1.0.0'), 33)
   })
 
   it('inventoryReport that repeats the last one', async () => {
@@ -196,11 +268,16 @@ describe('daemon frames, the rest: pinned statement counts at 5 and 200', () => 
           return f
         },
       },
-      6,
+      // POD-6920: derived change capture (no build before the write; one drain after it): 18 -> 8.
+      8,
     )
   })
 
   it('inventoryReport pin is armed', async () => {
-    await expectArmed(report('1.0.0'), 17, plantPerSession('setMachineInventory', (f) => f.store.machines))
+    await expectArmed(
+      report('1.0.0'),
+      33,
+      plantPerSession('setMachineInventory', (f) => f.store.machines),
+    )
   })
 })

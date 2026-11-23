@@ -28,10 +28,18 @@ const fixture = vi.hoisted(() => {
   }
 })
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({ access: fixture.access }),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks, fixtureRoot } = await import(
+    '@podium/client-core/test-support/command-hooks'
+  )
+  const { fixtureUi } = await import('@podium/client-core/test-support/ui')
+  const ui = fixtureUi()
+  const owner = fixtureRoot({ access: fixture.access, ui })
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => owner),
+  }
+})
 vi.mock('@/lib/hooks/use-is-mobile', () => ({ useIsMobile: () => false }))
 vi.mock('@/lib/use-persisted-ui-state', () => ({
   usePersistedUiValue: (key: string, parse: (raw: string | null) => unknown) =>

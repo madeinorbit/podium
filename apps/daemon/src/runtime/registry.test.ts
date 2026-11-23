@@ -5,8 +5,8 @@ import {
   admissionProbeDriver,
   launchServerDriverSession,
   reportDriverPreferenceDegrade,
-  resolvedAdmissionExecutable,
 } from '../control/session'
+import { testHarnessSnapshot } from '../test-support/harness-snapshot'
 import {
   availableDriverIds,
   droppedDriverPreference,
@@ -513,22 +513,6 @@ describe('driver resolution', () => {
 })
 
 describe('generation-resolved executables for admission', () => {
-  it('selects only the generation-resolved OpenCode executable for admission', () => {
-    const executables = new Map([
-      ['opencode', { path: '/home/rig/.opencode/bin/opencode' }],
-      ['opencode2', { path: '/home/rig/.opencode/bin/opencode2' }],
-      ['codex', { path: '/usr/bin/codex' }],
-    ])
-    expect(resolvedAdmissionExecutable('opencode-server', executables)).toBe(
-      '/home/rig/.opencode/bin/opencode',
-    )
-    expect(resolvedAdmissionExecutable('opencode2-server', executables)).toBe(
-      '/home/rig/.opencode/bin/opencode2',
-    )
-    expect(resolvedAdmissionExecutable('codex-app-server', executables)).toBeUndefined()
-    expect(resolvedAdmissionExecutable('opencode-server', undefined)).toBeUndefined()
-  })
-
   it('passes the generation-resolved executable through the real session admission boundary', async () => {
     const executable = '/home/rig/.opencode/bin/opencode'
     let probedExecutable: string | undefined
@@ -537,9 +521,7 @@ describe('generation-resolved executables for admission', () => {
       send: (message: unknown) => sent.push(message),
       harnessLoginState: () => 'in',
       harnessRuntime: {
-        current: async () => ({
-          executables: new Map([['opencode', { path: executable }]]),
-        }),
+        current: async () => testHarnessSnapshot({ opencode: executable }),
       },
     } as never
 
@@ -554,8 +536,8 @@ describe('generation-resolved executables for admission', () => {
           geometry: { cols: 80, rows: 24 },
           requestedDriverId: 'opencode-server',
         } as never,
-        async (_driverId, _policy, executablePath) => {
-          probedExecutable = executablePath
+        async (_driverId, _policy, installation) => {
+          probedExecutable = installation?.executable
           return {
             drivable: false,
             reason: 'unprobeable',

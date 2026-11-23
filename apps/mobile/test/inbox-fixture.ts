@@ -59,7 +59,6 @@ export function createInboxFixture(count = 24, sessions = 12) {
     answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
   })
   Object.assign(api.quota!, { history: { query: async () => [] } })
-  api.superagent = { listThreads: { query: async () => [] } }
   api.pins = { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } }
   api.tabs = { listOrders: { query: async () => ({}) } }
   api.layout = { get: { query: async () => [] } }

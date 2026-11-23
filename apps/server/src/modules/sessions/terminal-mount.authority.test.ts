@@ -166,7 +166,7 @@ describe('T1: a mount seeded with a non-default grid is not moved by anything be
         claimControl: true,
       })
       // 2. `welcome` re-emits the same state through `_notifyHubChange`.
-      socket.deliver({ type: 'welcome', clientId: 'client-1' } as ServerMessage)
+      socket.deliver({ type: 'welcome', kindTokens: {}, clientId: 'client-1' } as ServerMessage)
       // 3. A spectator geometry frame, which a real session can receive before
       //    its own attach lands when another viewer is already driving.
       socket.deliver({
@@ -281,7 +281,7 @@ describe('T6: a desktop reveal at an unchanged size still claims, and moves noth
       initialGeometry: { cols: 104, rows: 31 },
     })
     try {
-      socket.deliver({ type: 'welcome', clientId: 'this-client' } as ServerMessage)
+      socket.deliver({ type: 'welcome', kindTokens: {}, clientId: 'this-client' } as ServerMessage)
       socket.deliver(attachedFrame({ cols: 104, rows: 31 }))
       vi.advanceTimersByTime(60) // Hidden startup settled before this warm reveal.
       expect(mounted.connection.state().role).toBe('spectator')

@@ -10,8 +10,8 @@
  * `describeDriverConformance({...})` call and this file does not change.
  */
 
-import { unsupported } from '../../../manifest.js'
 import { describe, expect, it } from 'vitest'
+import { unsupported } from '../../../manifest.js'
 import type { SessionSpec } from '../../host.js'
 import {
   NO_ATTACH_DRIVERS,
@@ -27,6 +27,7 @@ import {
   createFakeTerminalDriver,
   resetFakeRuntime,
 } from '../fake-driver.js'
+import { testHarnessContext, testSessionTerms } from '../harness-context.js'
 import {
   assertAttachHonoursOneControlLease,
   assertInteractionDeliveryClaim,
@@ -40,6 +41,8 @@ import type { ConformanceControl } from './target.js'
 
 const spec = (): SessionSpec => ({
   harness: 'fake-harness',
+  ...testSessionTerms(),
+  harnessContext: testHarnessContext({ kind: 'codex' }),
   selection: { auth: 'api-key', platform: 'linux', available: ['fake'] },
   workdir: '/tmp/fake-workdir',
   model: {},
@@ -178,7 +181,12 @@ describe('the permitted-failures table', () => {
 
   it('permits unverified server sends only for the measured OpenCode v1 gap', () => {
     expect(permitsUnverifiedSend('server', 'opencode-server')).toBe(true)
-    for (const driver of ['opencode2-server', 'codex-app-server', 'grok-acp', 'claude-sdk'] as const)
+    for (const driver of [
+      'opencode2-server',
+      'codex-app-server',
+      'grok-acp',
+      'claude-sdk',
+    ] as const)
       expect(permitsUnverifiedSend('server', driver)).toBe(false)
     expect(permitsUnverifiedSend('server')).toBe(false)
     expect(permitsUnverifiedSend('terminal', 'generic-pty')).toBe(true)
@@ -254,6 +262,19 @@ describe('the corpus has teeth', () => {
     // A future server adapter still has to name the exact measured driver;
     // the family-level exemption is not permission for it.
     expect(() => assertNoNativeSteerEntitled('server', 'fake-server')).toThrow()
+  })
+
+  it('narrows terminal steer permission to independently measured harnesses in the host corpus', () => {
+    for (const harness of ['cursor', 'pi', 'fake-harness']) {
+      expect(() => assertNoNativeSteerEntitled('terminal', 'generic-pty', harness)).not.toThrow()
+      expect(() => assertNoNativeSteerEntitled('terminal', 'claude-pty', harness)).not.toThrow()
+      expect(() => assertNoNativeSteerEntitled('terminal', 'future-driver', harness)).toThrow()
+    }
+    for (const harness of ['claude-code', 'codex', 'grok', 'future-terminal']) {
+      expect(() => assertNoNativeSteerEntitled('terminal', 'generic-pty', harness)).toThrow()
+      expect(() => assertNoNativeSteerEntitled('terminal', 'claude-pty', harness)).toThrow()
+    }
+    expect(() => assertNoNativeSteerEntitled('server', 'opencode-server', 'codex')).not.toThrow()
   })
 
   it('ACCEPTS the drivers somebody actually measured', () => {

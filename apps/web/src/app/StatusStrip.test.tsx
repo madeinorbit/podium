@@ -80,7 +80,7 @@ const fixture = vi.hoisted(() => {
 })
 
 vi.mock('./store', () => ({
-  useRuntimeSelector: (selector: (store: unknown) => unknown) =>
+  readFixture: (selector: (store: unknown) => unknown) =>
     selector({
       ...fixture.store,
       sessions: fixture.sessions,
@@ -91,8 +91,10 @@ vi.mock('./store', () => ({
 }))
 
 vi.mock('@/features/machines/ConnectionIndicator', () => ({
-  ConnectionIndicator: () => null,
-  useStableConnection: () => ({ health: 'healthy', visible: false }),
+  useStableConnection: () => ({ health: { state: 'online', since: 0 }, visible: false }),
+  useConnectionHealth: () => ({ state: 'online', since: 0 }),
+  connectionSeverity: () => 'ok',
+  describeHealth: () => ({ headline: 'Connected', detail: '' }),
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 vi.mock('@/features/mobile-handoff/MobileHandoffChip', () => ({
@@ -164,7 +166,7 @@ describe('StatusStrip agent concurrency history', () => {
         agentState: { phase: 'working' },
       })),
     )
-    const roster = vi.spyOn(HeaderSessions.prototype, 'working')
+    const roster = vi.spyOn(HeaderSessions.prototype, 'workingIds')
     const view = render(<StatusStrip />)
     await waitFor(() => expect(fixture.query).toHaveBeenCalled())
     expect(screen.getByTestId('status-strip-working').textContent).toContain(
@@ -317,20 +319,9 @@ describe('StatusStrip agent concurrency history', () => {
     expect(screen.getByTestId('status-strip-working').textContent).toContain('1 agent working')
   })
 
-  it('does not present a preserved reconnecting phase as confirmed work', () => {
-    fixture.sessions.push({
-      sessionId: 'reconnecting',
-      agentKind: 'codex',
-      title: 'Reconnecting',
-      lastActiveAt: '2026-08-06T18:19:00.000Z',
-      status: 'reconnecting',
-      agentState: { phase: 'working' },
-    })
-
-    render(<StatusStrip />)
-
-    expect(screen.getByTestId('status-strip-working').textContent).toBe('no agents working')
-  })
+  // A reconnecting session's preserved phase is not confirmed work either; that
+  // is the machine's LiveStore condition (ADR 12 D1), pinned where the count is
+  // made: client-graph header-sessions.test.ts.
 })
 
 describe('StatusStrip token burn', () => {

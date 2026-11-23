@@ -1,12 +1,13 @@
 import { type AgentPhase, type AgentRuntimeState, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
+import { testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 import {
   nativeClientInteractionAnswered,
   nativeClientStateObserved,
   sessionHandlers,
 } from './session'
-import { testSessions } from '../session/testing.js'
 
 const SESSION = asSessionId('11111111-1111-4111-8111-111111111111')
 /** Every transient refusal these tests drive is one only codex can issue. */
@@ -60,6 +61,7 @@ function world(driver: 'opencode-server' | 'codex-app-server' = 'opencode-server
     sessions,
     observers: { recordInputOrigin: vi.fn() },
     composerEngine: { onInputByte: vi.fn(), onResize: vi.fn() },
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, attach, release, clientTerminals, sent }
 }

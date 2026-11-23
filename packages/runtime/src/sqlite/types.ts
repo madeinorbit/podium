@@ -42,4 +42,11 @@ export interface SqlDatabase {
 
 export interface OpenOptions {
   readOnly?: boolean
+  /**
+   * Open a file nothing else writes (a backup, a copy) as IMMUTABLE: read-only,
+   * no locks, no -wal or -shm read or created (SQLite `immutable=1`). Only for a
+   * file no process has open for writing; a live database must never be opened
+   * this way. Implies `readOnly`.
+   */
+  immutable?: boolean
 }

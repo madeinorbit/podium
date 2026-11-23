@@ -1,21 +1,9 @@
-import { CHAT_CONTEXT_SUMMARIES } from '@podium/client-graph/chat-context-schema'
 import type { PoolScreen } from '@podium/client-graph/host'
-import { NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
-import { SUPERAGENT_SUMMARIES } from '@podium/client-graph/superagent'
+import { replicaSourcePorts, superagentSourcePorts } from '@podium/client-graph/source-ports'
 
 export const chatContextPoolScreen: PoolScreen = {
   id: 'chatContext',
-  options: () => ({
-    header: true,
-    summaries: {
-      issue: CHAT_CONTEXT_SUMMARIES.issue,
-      session: [
-        ...CHAT_CONTEXT_SUMMARIES.session,
-        ...NOTICE_SUMMARIES.session,
-        ...SUPERAGENT_SUMMARIES.session,
-      ],
-    },
-  }),
+  options: () => ({ header: true }),
   async attach(runtime, pool) {
     const [
       { ChatContextSource },
@@ -34,15 +22,34 @@ export const chatContextPoolScreen: PoolScreen = {
       import('@podium/client-graph/session-exit-source'),
       import('@podium/client-graph/session-exit-schema'),
     ])
-    await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(runtime))
+    await pool.sources.ensure(
+      NOTICE_SOURCE_KEY,
+      NOTICE_ENTITIES,
+      () =>
+        new NoticeSource({
+          replica: runtime.replica,
+          outbox: runtime.services.outbox.queue,
+        }),
+    )
     await pool.sources.ensure(
       superagent.SUPERAGENT_SOURCE_KEY,
       superagent.SUPERAGENT_ENTITIES,
-      () => superagent.createSuperagentSource(runtime),
+      () => superagent.createSuperagentSource(superagentSourcePorts(runtime)),
     )
     await pool.sources.ensure(exits.SESSION_EXIT_SOURCE_KEY, SESSION_EXIT_ENTITIES, () =>
-      exits.createSessionExitSource(runtime),
+      exits.createSessionExitSource(replicaSourcePorts(runtime)),
     )
-    pool.sources.register(CHAT_CONTEXT_ENTITIES, new ChatContextSource(runtime, pool))
+    pool.sources.register(
+      CHAT_CONTEXT_ENTITIES,
+      new ChatContextSource(
+        {
+          ui: runtime.ui,
+          drafts: runtime.drafts,
+          replica: runtime.replica,
+          outbox: runtime.services.outbox.queue,
+        },
+        pool,
+      ),
+    )
   },
 }

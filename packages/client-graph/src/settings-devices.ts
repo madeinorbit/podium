@@ -10,7 +10,7 @@ export class SettingsDevices extends RecordRequest<'device'> {
   private pendingRead: Promise<void> | undefined
   private answeredAt: number | undefined
   constructor(pool: MobxPool) {
-    super(pool, 'device', (row) => row.sessionId)
+    super(pool, 'device', (row) => row.id)
   }
   ensure(read: () => Promise<readonly PoolRows['device'][]>, maxAgeMs = Infinity): Promise<void> {
     return (

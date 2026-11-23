@@ -67,31 +67,67 @@ export function hasActivationState(search: string): boolean {
  * setup starts, but it is not what keeps setup open: the first thing setup does
  * is add a repo, which retires that condition while the user is still three
  * steps from the end. Once the wizard has been entered, `setupInProgress` is the
- * condition that holds — and only finishing it, which clears the flag, lets the
- * shell through.
+ * condition that holds until the server says setup is finished.
+ *
+ * And none of it applies to someone who does not set this server up
+ * (POD-6882). Setup asks where the server runs and adds its first machine: the
+ * installer's questions. A member who joined an existing workspace sees only
+ * what is shared with them, so "no repos, no sessions" is their normal first
+ * view, not a server waiting to be set up. `setsUpServer` is the server's own
+ * answer (`/auth/admin/viewer`), never inferred from what this member can see.
  */
 export function isActivationEligible({
   loaded,
+  setsUpServer,
+  setupFinished,
   repoCount,
-  sessionCount,
   setupInProgress,
   hasActivationCheckpoint,
   hasVpsCheckpoint,
 }: {
   loaded: boolean
+  setsUpServer: boolean
+  setupFinished: boolean
   repoCount: number
-  sessionCount: number
   setupInProgress: boolean
   hasActivationCheckpoint: boolean
   hasVpsCheckpoint: boolean
 }): boolean {
+  // The setup step in the URL is authoritative: the first-task step starts a
+  // session before setup finishes. The server's completion answer retires a
+  // saved flag alone, including one written by a build that read placeholder
+  // zero counts. This decision never needs the sessions on the device.
   return (
     loaded &&
-    ((repoCount === 0 && sessionCount === 0) ||
-      setupInProgress ||
+    setsUpServer &&
+    ((!setupFinished && (repoCount === 0 || setupInProgress)) ||
       hasActivationCheckpoint ||
       hasVpsCheckpoint)
   )
+}
+
+/**
+ * Setup state this device should retire: a saved setup flag, with no setup step
+ * in the URL, on an instance whose server says setup is finished; or any setup flag or
+ * step held by someone who does not set this server up (POD-6882), such as a
+ * member who was shown the wizard by an earlier build and pressed into it.
+ */
+export function hasStaleActivation({
+  loaded,
+  setsUpServer,
+  setupFinished,
+  setupInProgress,
+  hasActivationCheckpoint,
+}: {
+  loaded: boolean
+  setsUpServer: boolean
+  setupFinished: boolean
+  setupInProgress: boolean
+  hasActivationCheckpoint: boolean
+}): boolean {
+  if (!loaded) return false
+  if (!setsUpServer) return setupInProgress || hasActivationCheckpoint
+  return setupFinished && setupInProgress && !hasActivationCheckpoint
 }
 
 /**
@@ -113,16 +149,18 @@ export function showsRemoteServer(launchMode: string | undefined): boolean {
 export function shouldStartRemoteClientAtHandoff({
   launchMode,
   loaded,
+  setsUpServer,
   repoCount,
-  sessionCount,
+  setupFinished,
   route,
   hasActivationCheckpoint,
   hasVpsCheckpoint,
 }: {
   launchMode: string | undefined
   loaded: boolean
+  setsUpServer: boolean
   repoCount: number
-  sessionCount: number
+  setupFinished: boolean
   route: ActivationRoute
   hasActivationCheckpoint: boolean
   hasVpsCheckpoint: boolean
@@ -130,8 +168,9 @@ export function shouldStartRemoteClientAtHandoff({
   return (
     showsRemoteServer(launchMode) &&
     loaded &&
+    setsUpServer &&
     repoCount === 0 &&
-    sessionCount === 0 &&
+    !setupFinished &&
     route === 'welcome' &&
     !hasActivationCheckpoint &&
     !hasVpsCheckpoint
@@ -148,16 +187,18 @@ export function shouldStartRemoteClientAtHandoff({
 export function shouldStartBrowserAtProjectIntake({
   nativeShell,
   loaded,
+  setsUpServer,
   repoCount,
-  sessionCount,
+  setupFinished,
   route,
   hasActivationCheckpoint,
   hasVpsCheckpoint,
 }: {
   nativeShell: boolean
   loaded: boolean
+  setsUpServer: boolean
   repoCount: number
-  sessionCount: number
+  setupFinished: boolean
   route: ActivationRoute
   hasActivationCheckpoint: boolean
   hasVpsCheckpoint: boolean
@@ -165,8 +206,9 @@ export function shouldStartBrowserAtProjectIntake({
   return (
     !nativeShell &&
     loaded &&
+    setsUpServer &&
     repoCount === 0 &&
-    sessionCount === 0 &&
+    !setupFinished &&
     route === 'welcome' &&
     !hasActivationCheckpoint &&
     !hasVpsCheckpoint

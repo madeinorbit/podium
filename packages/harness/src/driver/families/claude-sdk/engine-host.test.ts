@@ -5,9 +5,21 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
+import { manifestFor } from '../../../registry.js'
 import { wasNeverSent } from '../../errors.js'
+import {
+  createMemoryBindingRecords,
+  flattenEngineSpawn,
+  type MemoryBindingRecords,
+  type TestEngineSpawn,
+} from '../../testing/binding-records.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import type { AttachmentRef } from '../../turns.js'
 import type {
   EngineAttachment,
@@ -16,22 +28,19 @@ import type {
   EngineSupervisor,
 } from '../engine-supervision.js'
 import { EngineBindUnrecoverable } from '../engine-supervision.js'
+import { claudeEngineFacts } from './engine-facts.js'
 import {
+  type ClaudeEngineHostDeps,
+  type ClaudeEngineJournalEntry,
   ClaudeEngineLeaseRefused,
   claudeUserContentFor,
   createClaudeEngineHost,
-  type ClaudeEngineHostDeps,
-  type ClaudeEngineJournalEntry,
 } from './engine-host.js'
-import {
-  createMemoryBindingRecords,
-  type MemoryBindingRecords,
-} from '../../testing/binding-records.js'
-import { claudeEngineFacts } from './engine-facts.js'
-import { manifestFor } from '../../../registry.js'
 import type { ClaudeSdkTurnHandle } from './runtime.js'
 
 const SESSION_ID = 'claude-engine-session' as SessionId
+/** The session's pinned installation (POD-6546): argv[0] comes from here. */
+const CONTEXT = testHarnessContext({ kind: 'claude-code', executable: '/bin/claude' })
 
 const FACTS = claudeEngineFacts({
   kind: manifestFor('claude-code')!.kind,
@@ -101,15 +110,15 @@ function fakePorts(hooks: {
 }): {
   supervision: Pick<EngineSupervisor, 'scopeUnitFor'>
   engines: EngineProcessOwner
-  spawned: EngineSpawnRequest[]
+  spawned: TestEngineSpawn[]
 } {
-  const spawned: EngineSpawnRequest[] = []
+  const spawned: TestEngineSpawn[] = []
   return {
     spawned,
     supervision: { scopeUnitFor: () => undefined },
     engines: {
       startEngine: async (req) => {
-        spawned.push(req)
+        spawned.push(flattenEngineSpawn(req))
         if (!hooks.spawn) throw new Error('unexpected startEngine')
         return { attachment: hooks.spawn }
       },
@@ -147,7 +156,8 @@ function hostDeps(
     buildEnv: ({ sessionEnv }) => ({ ...(sessionEnv ?? {}) }),
     gracefulExitMs: 50,
     homeDir: '/state/agent-home',
-    executablePath: '/bin/claude',
+    ...testEngineTerms(),
+    harnessContextFor: async () => CONTEXT,
     ...extra,
   }
 }
@@ -156,6 +166,8 @@ function turnInput(text = 'hello', resumeValue = 'resume-1', fresh = true) {
   return {
     sessionId: SESSION_ID,
     spec: {
+      harnessContext: CONTEXT,
+      ...testSessionTerms(),
       workdir: '/project',
       model: {},
       instructions: { supported: false as const, reason: 'fixture' },
@@ -167,8 +179,6 @@ function turnInput(text = 'hello', resumeValue = 'resume-1', fresh = true) {
     userMessageUuid: USER_UUID,
     onPartialText: () => {},
     onPermission: () => {},
-    onToolCall: () => {},
-    onToolResult: () => {},
   } as unknown as Parameters<ReturnType<typeof createClaudeEngineHost>['startTurn']>[0]
 }
 
@@ -194,6 +204,46 @@ function endTurn(attachment: ReturnType<typeof fakeAttachment>, output = 'answer
   attachment.emitStdout(`${frame({ type: 'result', subtype: 'success', result: output })}\n`)
 }
 
+describe('the claude stream engine journal and a delivered credential (epic Task 5)', () => {
+  /** Obviously fake. */
+  const PLANTED = 'sk-FAKE-planted-claude-journal-0005'
+
+  it('journals no secret the session layer delivered at engine start', async () => {
+    const attachment = fakeAttachment({ childPid: 4343 })
+    const { supervision, engines, spawned } = fakePorts({ spawn: attachment })
+    // The daemon's session layer applies the session's credential BELOW the
+    // family, at the one place every engine starts (SessionEngineScope).
+    const delivering: EngineProcessOwner = {
+      ...engines,
+      startEngine: (req) =>
+        engines.startEngine({
+          ...req,
+          env: { ...req.env, ANTHROPIC_API_KEY: PLANTED },
+          stripEnv: req.stripEnv.filter((key) => key !== 'ANTHROPIC_API_KEY'),
+        }),
+    }
+    const journal = journalStore()
+    const host = createClaudeEngineHost(hostDeps({ supervision, engines: delivering }, journal))
+    const handle = host.startTurn(turnInput())
+    await vi.waitFor(() => expect(spawned).toHaveLength(1))
+    // Canary: the engine process was handed the secret.
+    expect(spawned[0]?.env.ANTHROPIC_API_KEY).toBe(PLANTED)
+    answerHandshake(attachment, 'claude-native-journal')
+    await vi.waitFor(() =>
+      expect(
+        attachment.writes.map((line) => JSON.parse(line)).some((msg) => msg.type === 'user'),
+      ).toBe(true),
+    )
+    endTurn(attachment)
+    await handle.done
+    const entry = journal.recorded(SESSION_ID)
+    expect(entry?.claudeSessionId).toBe('claude-native-journal')
+    const written = JSON.stringify(entry)
+    expect(written).not.toContain(PLANTED)
+    expect(written).not.toContain(Buffer.from(PLANTED).toString('base64'))
+  })
+})
+
 describe('the claude stream engine host', () => {
   it('spawns the engine under the host and journals the harness session id', async () => {
     const attachment = fakeAttachment({ childPid: 4242 })
@@ -212,6 +262,7 @@ describe('the claude stream engine host', () => {
     expect(spawned[0]?.args).toContain('--input-format')
     expect(spawned[0]?.args).toContain('--session-id')
     const args = spawned[0]!.args
+    // The default posture's mode, from the Claude posture section (POD-6858).
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('auto')
     expect(args[args.indexOf('--permission-prompt-tool') + 1]).toBe('stdio')
     expect(spawned[0]?.env).toMatchObject({
@@ -235,6 +286,44 @@ describe('the claude stream engine host', () => {
       claudeSessionId: 'claude-native-1',
       workdir: '/project',
       process: { key: 'podium-cl-claude-engine-session', pid: 4242 },
+    })
+  })
+
+  it('writes the trust key in the .claude.json the engine child reads (POD-6858)', async () => {
+    // The instance overlay pins CLAUDE_CONFIG_DIR to <home>/.claude, and Claude
+    // reads .claude.json from there: a key in <home>/.claude.json would never
+    // reach the engine.
+    const attachment = fakeAttachment({ childPid: 4243 })
+    const ports = fakePorts({ spawn: attachment })
+    const terms: unknown[] = []
+    const engines = {
+      ...ports.engines,
+      startEngine: async (req: Parameters<typeof ports.engines.startEngine>[0]) => {
+        terms.push(req.command.terms)
+        return ports.engines.startEngine(req)
+      },
+    }
+    const host = createClaudeEngineHost(
+      hostDeps({ supervision: ports.supervision, engines }, journalStore()),
+    )
+    host.startTurn(turnInput())
+    await vi.waitFor(() => expect(terms).toHaveLength(1))
+    expect(terms[0]).toMatchObject({
+      homeEdits: [
+        {
+          kind: 'json-key',
+          file: '/state/agent-home/.claude/.claude.json',
+          path: ['projects', '/project', 'hasTrustDialogAccepted'],
+          value: true,
+          serves: 'workspace-trust',
+          createIfMissing: true,
+        },
+      ],
+      requestedMode: 'auto',
+      unmet: [],
+    })
+    expect(ports.spawned[0]?.env).toMatchObject({
+      CLAUDE_CONFIG_DIR: '/state/agent-home/.claude',
     })
   })
 
@@ -311,7 +400,9 @@ describe('the claude stream engine host', () => {
     })
     // One engine, two turns — and the second turn carried no resume dance.
     expect(spawned).toHaveLength(1)
-    const users = attachment.writes.map((line) => JSON.parse(line)).filter((msg) => msg.type === 'user')
+    const users = attachment.writes
+      .map((line) => JSON.parse(line))
+      .filter((msg) => msg.type === 'user')
     expect(users).toHaveLength(2)
   })
 
@@ -324,9 +415,9 @@ describe('the claude stream engine host', () => {
     const handle = host.startTurn(turnInput('survive this', 'resume-1', false))
     await vi.waitFor(() =>
       expect(
-        attachment.writes.map((line) => JSON.parse(line)).some(
-          (msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize',
-        ),
+        attachment.writes
+          .map((line) => JSON.parse(line))
+          .some((msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize'),
       ).toBe(true),
     )
     // Adopted, not spawned: the child predates this generation.
@@ -397,9 +488,9 @@ describe('the claude stream engine host', () => {
     const handle = host.startTurn(turnInput())
     await vi.waitFor(() =>
       expect(
-        attachment.writes.map((line) => JSON.parse(line)).some(
-          (msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize',
-        ),
+        attachment.writes
+          .map((line) => JSON.parse(line))
+          .some((msg) => msg.type === 'control_request' && msg.request?.subtype === 'initialize'),
       ).toBe(true),
     )
     // Initialize is answered with an error: the engine never binds.
@@ -439,13 +530,21 @@ describe('the claude stream engine host', () => {
 
     // Retire: the journal goes with the session.
     const attachment2 = fakeAttachment({ childPid: 5555 })
-    const { supervision: supervision2, engines: engines2, spawned: spawned2 } = fakePorts({ spawn: attachment2 })
-    const host2 = createClaudeEngineHost(hostDeps({ supervision: supervision2, engines: engines2 }, journal))
+    const {
+      supervision: supervision2,
+      engines: engines2,
+      spawned: spawned2,
+    } = fakePorts({ spawn: attachment2 })
+    const host2 = createClaudeEngineHost(
+      hostDeps({ supervision: supervision2, engines: engines2 }, journal),
+    )
     const handle2: ClaudeSdkTurnHandle = host2.startTurn(turnInput())
     void handle2
     await vi.waitFor(() => expect(spawned2).toHaveLength(1))
     answerHandshake(attachment2, 'claude-native-2')
-    await vi.waitFor(() => expect(journal.recorded(SESSION_ID)?.claudeSessionId).toBe('claude-native-2'))
+    await vi.waitFor(() =>
+      expect(journal.recorded(SESSION_ID)?.claudeSessionId).toBe('claude-native-2'),
+    )
     const retiring = host2.stopEngine(SESSION_ID, true)
     attachment2.exit(0, 0)
     await retiring
@@ -485,7 +584,9 @@ describe('the claude stream engine host', () => {
       await binding
       answerHandshake(attachment, 'claude-native-1')
       for (let i = 0; i < 50; i++) {
-        const users = attachment.writes.map((line) => JSON.parse(line)).filter((msg) => msg.type === 'user')
+        const users = attachment.writes
+          .map((line) => JSON.parse(line))
+          .filter((msg) => msg.type === 'user')
         if (users.length > 0) break
         await vi.advanceTimersByTimeAsync(10)
       }
@@ -574,12 +675,18 @@ describe('attachments on the user line (POD-6093)', () => {
   it('keeps a plain turn a plain string, and an image-only turn free of an empty text block', async () => {
     await expect(claudeUserContentFor({ text: 'hi' })).resolves.toBe('hi')
     const read = async () => PNG
-    await expect(claudeUserContentFor({ text: '', attachments: [ref({})] }, read)).resolves.toEqual([
-      {
-        type: 'image',
-        source: { type: 'base64', media_type: 'image/png', data: Buffer.from(PNG).toString('base64') },
-      },
-    ])
+    await expect(claudeUserContentFor({ text: '', attachments: [ref({})] }, read)).resolves.toEqual(
+      [
+        {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: 'image/png',
+            data: Buffer.from(PNG).toString('base64'),
+          },
+        },
+      ],
+    )
   })
 
   it('sends an image the provider cannot show as pixels as a path instead', async () => {

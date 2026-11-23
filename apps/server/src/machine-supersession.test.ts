@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
-import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
-import { signWithMachine } from '@podium/runtime/machine-credential'
 import { asMachineId, asSessionId, asUserId } from '@podium/model'
+import { signWithMachine } from '@podium/runtime/machine-credential'
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { describe, expect, it, vi } from 'vitest'
 import { MachinesService } from './modules/machines/service'
+import { memberFacts } from './store/fixtures/test-support'
 import { openTestStore } from './test-support/open-test-store'
 
 const oldId = asMachineId('old-machine'), newId = asMachineId('new-machine')
@@ -14,7 +15,7 @@ const queued = { type: 'kill' as const, sessionId: asSessionId('queued-session')
 async function fixture() {
   const store = await openTestStore(':memory:')
   for (const [id, role] of [[admin, 'admin'], [member, 'member']] as const) {
-    await store.users.create({ id, role, displayName: id, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    await memberFacts(store).create({ id, role, displayName: id, createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
   }
   for (const id of [oldId, newId]) {
     await store.machines.upsertMachine({ id, name: 'same laptop', hostname: 'same.local',
@@ -24,7 +25,7 @@ async function fixture() {
       actorKind: 'user', actorId: member, onBehalfOf: member })
   }
   const service = new MachinesService({ store, hostMachineId: store.hostMachineId, instanceId: 'supersede-test',
-    clients: () => [], machinesForPrincipal: async () => [] })
+    })
   const close = vi.fn()
   service.registerCredentialConnection(oldId, close)
   service.toMachine(oldId, queued)

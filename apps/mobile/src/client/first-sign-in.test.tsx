@@ -2,7 +2,7 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import { asUserId } from '@podium/model'
 import { CLIENT_WIRE_VERSION } from '@podium/protocol'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
@@ -160,7 +160,7 @@ class FailureBoundary extends Component<{ children: ReactNode }, { failure: Erro
 }
 
 function Work() {
-  device.runtimes.add(useStoreHandle())
+  device.runtimes.add(useClientRuntime())
   return <div data-testid="work">Work</div>
 }
 

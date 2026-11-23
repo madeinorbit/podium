@@ -1,15 +1,22 @@
 import { asIssueId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {
+  AppliedMutationsPruneObservation,
+  appliedMutationsPruneRunKey,
+  ChangeLogPruneObservation,
+  changeLogPruneRunKey,
   eventLogPruneRunKey,
   IssueAutoArchiveObservation,
   issueAutoArchiveRunKey,
+  MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
   MaintenanceCommand,
   MaintenanceCommandReply,
   MaintenanceHandshake,
   MaintenanceHandshakeReply,
   messageExpiryRunKey,
+  QueuedMessagesExpiryObservation,
+  queuedMessagesExpiryRunKey,
   sessionAutoArchiveRunKey,
   WorktreeGcObservation,
   worktreeGcRunKey,
@@ -43,20 +50,57 @@ describe('maintenance protocol [spec:SP-c29e]', () => {
     changeKeepRows: 20_000,
     changeMaxAgeMs: 1,
     maintenanceCommandMaxAgeMs: 1,
+    appliedMutationMaxAgeMs: 1,
+    queuedMessageMaxAgeMs: 1,
     worktreeGcMode: 'propose' as const,
     worktreeGcAfterDays: 14,
   }
 
-  it('bumps compatibility for the indexed expiry-reader schema', () => {
-    // POD-1229 moved both auto-archive observations from `readAt` to
-    // `readerUserId`. A v2 janitor's payload still PARSES under a permissive
-    // reader, so the handshake is the only thing that can stop it — which makes
-    // this literal a wire gate, not a label. Asserted with `toBe` deliberately.
-    //
-    // v4 (POD-564) is the other direction: a v4 janitor's `worktree-gc` command
-    // does not PARSE at a v3 server, so without a bump the sweep would surface
-    // as HTTP 400s instead of an orderly "upgrade me".
-    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v5')
+  it('gates the receipt prune and queue expiry kinds behind v7', () => {
+    expect(MAINTENANCE_PROTOCOL_VERSION).toBe(7)
+    expect(MAINTENANCE_SCHEMA_VERSION).toBe('maintenance-v7')
+  })
+
+  it('keys a receipt prune batch by its cutoff, place and head, and a queue expiry by its newest row', () => {
+    const batch = {
+      maxAgeMs: 1_000,
+      cutoffAppliedAt: 3_600_000,
+      batchSize: 100,
+      fromAppliedAt: 12,
+      batch: 2,
+    }
+    expect(appliedMutationsPruneRunKey(AppliedMutationsPruneObservation.parse(batch))).toBe(
+      'applied-mutations-prune/3600000/100/12/2',
+    )
+    const expiry = QueuedMessagesExpiryObservation.parse({
+      sessionId: 'ses/1',
+      maxAgeMs: 1_000,
+      throughQueuedAt: 99,
+      rows: 3,
+    })
+    // The row count is not in the key: a row queued earlier than `through`
+    // after the read is the same occurrence, and the server deletes it too.
+    expect(queuedMessagesExpiryRunKey(expiry)).toBe('queued-messages-expiry/ses%2F1/99')
+    expect(
+      MaintenanceCommand.safeParse({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'queued-messages-expiry',
+        runKey: 'k',
+        fencingToken: 1,
+        observed: { ...expiry, rows: 0 },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('requires a tenant and includes it in retention replay keys', () => {
+    const plan = { keepRows: 3, maxAgeMs: 1_000, thresholdSeq: 5, batchSize: 100, fromSeq: 1 }
+    expect(ChangeLogPruneObservation.safeParse(plan).success).toBe(false)
+    expect(ChangeLogPruneObservation.safeParse({ ...plan, tenantId: '' }).success).toBe(false)
+    const local = ChangeLogPruneObservation.parse({ ...plan, tenantId: 'local' })
+    const other = ChangeLogPruneObservation.parse({ ...plan, tenantId: 'other/tenant' })
+    expect(changeLogPruneRunKey(local)).toBe('change-log-prune/local/5/100/1')
+    expect(changeLogPruneRunKey(other)).toBe('change-log-prune/other%2Ftenant/5/100/1')
   })
 
   it('requires an exact compatibility claim before a lease can be issued', () => {

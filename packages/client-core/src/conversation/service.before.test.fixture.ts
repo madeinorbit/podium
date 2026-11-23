@@ -9,10 +9,18 @@ import {
   reaction,
   runInAction,
 } from 'mobx'
-import type { SuperagentTurnFailure } from '../api'
 import type { SocketHub } from '../socket-transport/socket-hub'
-import { transcriptActivitySignal, type TranscriptConnection } from '../transcript/contracts'
-import { nativeSessionCanInterrupt, type ConversationContext } from './contracts'
+
+/** The failure shape the old request read served; frozen with this fixture. */
+interface SuperagentTurnFailure {
+  inputId: string
+  userText: string | null
+  error: string
+  at: string
+}
+
+import { type TranscriptConnection, transcriptActivitySignal } from '../transcript/contracts'
+import { type ConversationContext, nativeSessionCanInterrupt } from './contracts'
 import type { DraftStore } from './draft-store'
 import {
   ConversationFrameScheduler,
@@ -20,8 +28,8 @@ import {
 } from './frame-scheduler'
 import { freezePlain } from './frozen'
 import { Sends, type SendsOptions } from './service-sends.before.test.fixture'
-import { TranscriptLog, type TranscriptChange, type TranscriptLogOptions } from './transcript-log'
 import { TranscriptGraph } from './transcript-graph'
+import { type TranscriptChange, TranscriptLog, type TranscriptLogOptions } from './transcript-log'
 
 export const TURN_PREVIEW_STALE_MS = 20_000
 

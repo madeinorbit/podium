@@ -1,32 +1,40 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 // @vitest-environment happy-dom
-import { act, cleanup, render, waitFor } from '@testing-library/react'
-import { afterEach, expect, it, vi } from 'vitest'
+
 import { LOADING } from '@podium/client-graph'
 import { screenOptions } from '@podium/client-graph/host'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+// @vitest-environment happy-dom
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { autorun, observable, runInAction } from 'mobx'
+import { afterEach, expect, it, vi } from 'vitest'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { poolBackedScreens } from './pool-screens'
 import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
 
 const state = vi.hoisted(() => ({ pool: null as unknown, now: 0 }))
-const owner = {
-  access: {
+const owner = withKeyedInputs({
+  getSnapshot: () => ({
     get coarseNow() {
       return state.now
     },
     uiState: { get: () => null, set: () => {} },
     trpc: { sessions: { activityHistory: { query: async () => ({ sessions: {} }) } } },
-  },
-}
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => owner,
-}))
+  }),
+  subscribe: () => () => {},
+})
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => owner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() => owner),
+  }
+})
 vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (store: typeof owner.access) => unknown) => read(owner.access),
+  readFixture: (read: (store: typeof owner.access) => unknown) => read(owner.access),
 }))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => state.pool,
@@ -48,8 +56,10 @@ it('opens a cold production mission in Waterfall without throwing the loading se
   const stop = autorun(() => void screen.ready)
   try {
     // Match the mission opening seam: header ready, no Waterfall reads warmed.
-    for (let turn = 0; turn < 8 && !screen.ready; turn++) {
-      await Promise.resolve()
+    // A large mission derives its rows over a few tasks before it settles
+    // (POD-7168), so each turn lets a task run.
+    for (let turn = 0; turn < 40 && !screen.ready; turn++) {
+      await new Promise((resolve) => setTimeout(resolve, 0))
       handle.pool.hydrate()
     }
     expect(screen.ready).toBe(true)

@@ -2,26 +2,78 @@ import { expect, type Page, test } from '@playwright/test'
 import { makeTrpc } from '../../../apps/web/src/app/trpc'
 import { nativeAccountId } from '../../../packages/runtime/src/settings'
 import { E2E_LONG_IDENTITY_EMAIL } from '../account-identity-fixture'
-import { RELAY } from './_harness'
+import { deferUpdateOffers, RELAY } from './_harness'
+
+type Trpc = ReturnType<typeof makeTrpc>
+type Values = Readonly<Record<string, unknown>>
+type Change = { entity: string; id: string; op: string; value?: Record<string, unknown> }
+interface SyncApi {
+  sync: {
+    submit: { mutate(input: unknown): Promise<{ outcome: string }> }
+    changesSince: {
+      query(input: { cursor: number | null }): Promise<{ kind: string; changes?: Change[] }>
+    }
+  }
+}
+const sync = (trpc: Trpc) => (trpc as unknown as SyncApi).sync
+
+/** The newest value of every record this member can see, from the whole log
+ *  (POD-6673, POD-6677): the preference records reach an app on the feed, and
+ *  there is no settings read over HTTP any more. */
+async function records(trpc: Trpc): Promise<Change[]> {
+  const delta = await sync(trpc).changesSince.query({ cursor: 0 })
+  if (delta.kind !== 'delta')
+    throw new Error(`expected the whole log as a delta, got ${delta.kind}`)
+  const latest = new Map<string, Change>()
+  for (const change of delta.changes ?? []) latest.set(`${change.entity}\n${change.id}`, change)
+  return [...latest.values()].filter((change) => change.op === 'upsert')
+}
+
+/** My personal settings record: the one `userPreferences` row I can see. */
+async function myPreferences(trpc: Trpc): Promise<Change> {
+  const mine = (await records(trpc)).filter((change) => change.entity === 'userPreferences')
+  const [only] = mine
+  if (mine.length !== 1 || only === undefined) {
+    throw new Error(`expected my one settings record, saw ${mine.length}`)
+  }
+  return only
+}
+
+/** The instance settings record, flat by leaf path. */
+async function instancePreferences(trpc: Trpc): Promise<Record<string, unknown>> {
+  const record = (await records(trpc)).find((change) => change.entity === 'instancePreferences')
+  if (!record?.value) throw new Error('the instance settings record is not on the log')
+  return record.value
+}
+
+/** A record edit on sync.submit, as the outbox drain sends it: `null` resets a leaf. */
+async function edit(trpc: Trpc, command: string, id: string, values: Values): Promise<void> {
+  const patch: Record<string, unknown> = {}
+  const unset: string[] = []
+  for (const [path, value] of Object.entries(values)) {
+    if (value === null && command === 'records.userPreferences.edit') unset.push(path)
+    else patch[path] = value
+  }
+  const reply = await sync(trpc).submit.mutate({
+    mutationId: crypto.randomUUID(),
+    command,
+    version: 1,
+    input: { id, patch, ...(unset.length > 0 ? { unset } : {}) },
+  })
+  if (reply.outcome !== 'applied') throw new Error(`${command} refused: ${JSON.stringify(reply)}`)
+}
+
+/** Seed my personal settings (the `userPreferences` record). */
+async function setMyPreferences(trpc: Trpc, values: Values): Promise<void> {
+  await edit(trpc, 'records.userPreferences.edit', (await myPreferences(trpc)).id, values)
+}
 
 test.skip(
   ({ isMobile }) => isMobile,
   'desktop test (the Settings nav button lives in the top bar; POD-318 moved it out of the <aside> Sidebar, and POD-420 repointed these locators)',
 )
 test.describe.configure({ timeout: 90_000 })
-
-async function seedStaleCodexWorkLlm(): Promise<void> {
-  const trpc = makeTrpc('http://localhost:8799')
-  // Was a legacy workLlm blob write via settings.set; the blob write is gone
-  // (POD-420 family + POD-1213) and workLlm migrates onto roles.background, so
-  // seed the migrated shape through the contracted personal command.
-  await trpc.settings.updatePersonal.mutate({
-    values: {
-      'roles.background.accountId': nativeAccountId('codex'),
-      'roles.background.model': 'gpt-5.5',
-    },
-  })
-}
+test.beforeEach(async ({ page }) => deferUpdateOffers(page))
 
 async function openShell(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -34,47 +86,39 @@ async function openShell(page: Page): Promise<void> {
   await page.locator('aside').first().waitFor({ state: 'visible', timeout: 15_000 })
 }
 
-function backgroundWorkSection(page: Page) {
+async function openAgents(page: Page) {
+  await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await settings.getByRole('button', { name: 'Agents', exact: true }).click()
+  return settings
+}
+
+function section(page: Page, name: string) {
   return page
     .getByRole('dialog', { name: 'Settings' })
-    .locator('section')
-    .filter({ has: page.getByRole('heading', { name: 'Background work LLM' }) })
-    .first()
+    .getByRole('heading', { name, exact: true })
+    .locator('xpath=ancestor::section[1]')
 }
 
 function superagentSection(page: Page) {
-  return page
-    .getByRole('dialog', { name: 'Settings' })
-    .locator('section')
-    .filter({ has: page.getByRole('heading', { name: 'Superagent' }) })
-    .first()
+  return section(page, 'Superagent')
 }
 
 function newSessionsSection(page: Page) {
-  return page
-    .getByRole('dialog', { name: 'Settings' })
-    .locator('section')
-    .filter({ has: page.getByRole('heading', { name: 'New sessions' }) })
-    .first()
+  return section(page, 'New sessions')
 }
 
-function accountsSection(page: Page) {
-  return page
-    .getByRole('dialog', { name: 'Settings' })
-    .locator('section')
-    .filter({ has: page.getByRole('heading', { name: 'Accounts & Keys' }) })
-    .first()
+function credentialsSection(page: Page) {
+  return section(page, 'Your credentials')
 }
 
-test('native account profile labels render when available', async ({ page }) => {
+test('found-login identity labels render when available', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  const accounts = await trpc.accounts.list.query()
+  const accounts = await trpc.credentials.list.query()
   // The harness always seeds the long-identity login (POD-4730) — match that
   // address itself, never host state. A missing seed is a harness failure, so
   // fail loudly instead of skipping.
-  const rows = accounts.filter(
-    (account) => account.status === 'connected' && account.identity === E2E_LONG_IDENTITY_EMAIL,
-  )
+  const rows = accounts.filter((account) => account.identity.email === E2E_LONG_IDENTITY_EMAIL)
   expect(rows.length).toBeGreaterThan(0)
 
   await page.setViewportSize({ width: 1280, height: 900 })
@@ -84,19 +128,14 @@ test('native account profile labels render when available', async ({ page }) => 
     .getByRole('button', { name: 'Settings', exact: true })
     .click({ timeout: 15_000 })
   const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('button', { name: 'Accounts', exact: true }).click()
+  await settings.getByRole('button', { name: 'Credentials', exact: true }).click()
 
-  const section = accountsSection(page)
-  // The address renders twice: the outer pill and the inner identity span.
-  // Assert on the inner span itself, so a wrapping regression (nowrap) fails
-  // the overflow assertion on the element that actually wraps.
-  const value = section.locator('span').filter({ hasText: E2E_LONG_IDENTITY_EMAIL }).last()
+  const section = credentialsSection(page)
+  const value = section
+    .locator('.settings-entity-title .font-mono')
+    .filter({ hasText: E2E_LONG_IDENTITY_EMAIL })
   await expect(value).toBeVisible()
-  // The badge renders the FULL identity with word-boundary wrapping
-  // (break-words, never truncate — POD-452/POD-456): the ~99-char fixture
-  // address wraps to multiple lines at this width with zero horizontal
-  // overflow. Assert the design guarantee (fully rendered, never clipped),
-  // not the line count.
+  // The full identity fits the row without clipping, even for the long fixture.
   const layout = await value.evaluate((element) => ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
@@ -110,60 +149,43 @@ test('native account profile labels render when available', async ({ page }) => 
 
 test('new sessions allows effort with automatic model selection', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  // settings.set (whole-blob write) is retired; seed through updatePersonal.
-  await trpc.settings.updatePersonal.mutate({
-    values: {
-      'roles.coding.accountId': nativeAccountId('codex'),
-      'roles.coding.model': 'auto',
-      'roles.coding.effort': 'auto',
-    },
+  await setMyPreferences(trpc, {
+    'roles.coding.accountId': nativeAccountId('codex'),
+    'roles.coding.model': 'auto',
+    'roles.coding.effort': 'auto',
   })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .getByRole('banner')
-    .getByRole('button', { name: 'Settings', exact: true })
-    .click({ timeout: 15_000 })
+  await openAgents(page)
   const section = newSessionsSection(page)
-  await expect(section.getByRole('button', { name: 'Model' }).first()).toContainText('Auto')
-  const effort = section.getByRole('button', { name: 'Effort' })
+  await expect(section.getByRole('button', { name: 'Model', exact: true })).toContainText('Auto')
+  const effort = section.locator('fieldset[aria-label="Effort"]')
   await expect(effort).toBeVisible()
-  await expect(section.getByText('Model for subagents')).toBeVisible()
-  await expect(
-    section.getByText(
-      'Applied when the selected harness supports a native subagent-model override.',
-    ),
-  ).toBeVisible()
-  await effort.click()
-  await page.getByRole('menuitem', { name: 'Extra high' }).click()
-  await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
+  await expect(section.getByText('Subagent model', { exact: true })).toHaveCount(0)
+  await effort.getByRole('button', { name: 'Extra high', exact: true }).click()
+  await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible({ timeout: 10_000 })
 
-  const saved = await trpc.settings.get.query()
-  expect(saved.roles.coding).toMatchObject({ model: 'auto', effort: 'xhigh' })
+  await expect
+    .poll(async () => (await myPreferences(trpc)).value)
+    .toMatchObject({ 'roles.coding.model': 'auto', 'roles.coding.effort': 'xhigh' })
 })
 
 test('new sessions exposes and persists both Grok implementation models', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.updatePersonal.mutate({
-    values: {
-      'roles.coding.accountId': nativeAccountId('grok'),
-      'roles.coding.model': 'auto',
-      'roles.coding.effort': 'auto',
-    },
+  await setMyPreferences(trpc, {
+    'roles.coding.accountId': nativeAccountId('grok'),
+    'roles.coding.model': 'auto',
+    'roles.coding.effort': 'auto',
   })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .getByRole('banner')
-    .getByRole('button', { name: 'Settings', exact: true })
-    .click({ timeout: 15_000 })
+  await openAgents(page)
   const section = newSessionsSection(page)
-  // Two Model buttons now (the role picker plus "Model for subagents"); the
+  // The role model precedes the optional subagent model.
   // role picker is first, as in the effort test above.
-  const model = section.getByRole('button', { name: 'Model' }).first()
+  const model = section.getByRole('button', { name: 'Model', exact: true })
   await model.click()
 
   await expect(page.getByRole('menuitem', { name: /^(grok-4\.5|Grok 4\.5)$/ })).toBeVisible()
@@ -172,105 +194,71 @@ test('new sessions exposes and persists both Grok implementation models', async 
   })
   await expect(composer).toBeVisible()
   await composer.click()
-  await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible({ timeout: 10_000 })
 
-  const saved = await trpc.settings.get.query()
-  expect(saved.roles.coding).toMatchObject({
-    accountId: nativeAccountId('grok'),
-    model: 'grok-composer-2.5-fast',
-  })
+  await expect
+    .poll(async () => (await myPreferences(trpc)).value)
+    .toMatchObject({
+      'roles.coding.accountId': nativeAccountId('grok'),
+      'roles.coding.model': 'grok-composer-2.5-fast',
+    })
 })
 
-test('superagent uses shared Codex model and effort dropdowns', async ({ page }) => {
+test('superagent saves model and segmented effort immediately', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  await trpc.settings.updatePersonal.mutate({
-    values: {
-      'roles.coding.accountId': nativeAccountId('grok'),
-      'roles.superagent.accountId': nativeAccountId('codex'),
-      'roles.superagent.model': 'gpt-5.5',
-      'roles.superagent.effort': 'auto',
-    },
+  await setMyPreferences(trpc, {
+    'roles.coding.accountId': nativeAccountId('grok'),
+    'roles.superagent.accountId': nativeAccountId('codex'),
+    'roles.superagent.model': 'gpt-5.5',
+    'roles.superagent.effort': 'auto',
   })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
 
-  await page
-    .getByRole('banner')
-    .getByRole('button', { name: 'Settings', exact: true })
-    .click({ timeout: 15_000 })
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await expect(settings).toBeVisible({ timeout: 10_000 })
-  await settings.getByRole('button', { name: 'Superagent' }).click()
+  const settings = await openAgents(page)
+  await expect(settings.getByRole('heading', { name: 'Superagent', exact: true })).toBeVisible()
 
   const section = superagentSection(page)
-  const model = section.getByRole('button', { name: 'Model' })
+  const model = section.getByRole('button', { name: 'Model', exact: true })
   await expect(model).toContainText('GPT-5.5')
   await model.click()
   await page.getByRole('menuitem', { name: 'GPT-5.4', exact: true }).click()
 
-  const effort = section.getByRole('button', { name: 'Effort' })
-  await effort.click()
-  await page.getByRole('menuitem', { name: 'Extra high' }).click()
-  await page.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible({ timeout: 10_000 })
+  const effort = section.locator('fieldset[aria-label="Effort"]')
+  await effort.getByRole('button', { name: 'Extra high', exact: true }).click()
+  await expect(page.getByText('Saved', { exact: true }).last()).toBeVisible({ timeout: 10_000 })
 
-  const saved = await trpc.settings.get.query()
-  expect(saved.roles.superagent).toMatchObject({
-    accountId: nativeAccountId('codex'),
-    harness: 'codex',
-    model: 'gpt-5.4',
-    effort: 'xhigh',
-  })
-})
-
-test('background LLM only offers executable API accounts', async ({ page }) => {
-  await seedStaleCodexWorkLlm()
-  await page.setViewportSize({ width: 1280, height: 900 })
-  await openShell(page)
-
-  await page
-    .getByRole('banner')
-    .getByRole('button', { name: 'Settings', exact: true })
-    .click({ timeout: 15_000 })
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await expect(settings).toBeVisible({ timeout: 10_000 })
-  await settings.getByRole('button', { name: 'Background LLM' }).click()
-
-  const section = backgroundWorkSection(page)
-  const account = section.getByRole('combobox').first()
-  // POD-4475: one descriptor label per harness ('Codex' + identity/machine
-  // suffixes) instead of 'Codex (ChatGPT)'.
-  await expect(account).toContainText(/^Codex/)
-  await account.click()
-  // Every connected Codex login adds its own suffixed option next to the base
-  // descriptor one (the POD-4730 long-identity fixture does so deterministically),
-  // so assert at least one Codex option rather than exactly one.
-  await expect(page.getByRole('option', { name: /^Codex/ }).first()).toBeVisible()
-  await expect(page.getByRole('option', { name: /Anthropic API/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: /OpenAI API/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: /OpenRouter API/ })).toBeVisible()
-  await expect(page.getByRole('option', { name: /Claude Code/ })).toHaveCount(0)
-  await expect(page.getByRole('option', { name: /^Grok/ })).toHaveCount(0)
+  // The record holds the leaves I chose; `harness` resolves from the account.
+  await expect
+    .poll(async () => (await myPreferences(trpc)).value)
+    .toMatchObject({
+      'roles.superagent.accountId': nativeAccountId('codex'),
+      'roles.superagent.model': 'gpt-5.4',
+      'roles.superagent.effort': 'xhigh',
+    })
 })
 
 test('idle-session convergence target round-trips and renders', async ({ page }) => {
   const trpc = makeTrpc('http://localhost:8799')
-  // hibernation is an instance-preference tier leaf (POD-1213), not personal.
-  await trpc.settings.updateInstance.mutate({ values: { 'hibernation.maxIdleSessions': null } })
+  // hibernation is an instance leaf: the `instancePreferences` record (POD-6677).
+  // A null here is the value "no cap", not a reset.
+  await edit(trpc, 'records.instancePreferences.edit', 'instance', {
+    'hibernation.maxIdleSessions': null,
+  })
   await page.setViewportSize({ width: 1280, height: 900 })
   await openShell(page)
   await page.getByRole('banner').getByRole('button', { name: 'Settings', exact: true }).click()
   const settings = page.getByRole('dialog', { name: 'Settings' })
-  await settings.getByRole('button', { name: 'Hibernation', exact: true }).click()
-  const input = settings.getByRole('spinbutton', { name: 'Maximum idle sessions' })
+  await settings.getByRole('button', { name: 'Machines', exact: true }).click()
+  const input = settings.getByRole('spinbutton', { name: 'Keep at most' })
   await expect(input).toHaveValue('')
   await expect(
-    settings.getByText(/convergence target for eligible idle live sessions/),
+    settings.getByText(/Idle sessions per machine before the oldest are paused/),
   ).toBeVisible()
   await input.fill('12')
-  await settings.getByRole('button', { name: 'Save' }).click()
-  await expect(page.getByText(/Saved(?:\s*✓|\.)/)).toBeVisible()
-  expect((await trpc.settings.get.query()).hibernation.maxIdleSessions).toBe(12)
-  await settings.screenshot({ path: '/tmp/POD-957-idle-cap-settings.png' })
+  await input.press('Enter')
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+  await expect
+    .poll(async () => (await instancePreferences(trpc))['hibernation.maxIdleSessions'])
+    .toBe(12)
 })

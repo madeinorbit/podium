@@ -2,11 +2,13 @@
 import type { IssueViewModel, Replica } from '@podium/client-core/replica'
 import {
   asRepoId,
+  asIssuePanelItemId,
   type IssueDepProjection,
   type IssueGitStateProjection,
   IssueProjection,
   type IssueUserStateWire,
   issueDepId,
+  type PinWire,
   type RepoProjection,
   type UserId,
 } from '@podium/model'
@@ -17,8 +19,14 @@ export function seedIssueFixtures(
   issues: readonly IssueViewModel[],
   userId: UserId,
 ): void {
+  let panelId = 0
+  const todos: import('@podium/model').IssuePanelTodoWire[] = []
+  const artifacts: import('@podium/model').IssuePanelArtifactWire[] = []
+  const deferred: import('@podium/model').IssuePanelDeferredWire[] = []
+  const states: import('@podium/model').IssuePanelStateWire[] = []
   const projections: IssueProjection[] = []
   const markers: IssueUserStateWire[] = []
+  const pins: PinWire[] = []
   const git: IssueGitStateProjection[] = []
   const repos = new Map<string, RepoProjection>()
   const deps: IssueDepProjection[] = []
@@ -31,17 +39,30 @@ export function seedIssueFixtures(
     }
     const repoId = issue.repoId ?? asRepoId(`fixture:${issue.repoPath}`)
     row.repoId = repoId
-    row.description = { value: issue.description ?? '' }
+    // A fixture paints its bodies on the row; a painted text wins over the
+    // issueBrief / issueDescription records (POD-6921).
+    row.description = { value: (issue as { description?: string }).description ?? '' }
     row.intentOrigin = issue.intentOrigin
     row.isDraftVessel = issue.isDraftVessel
+    delete row.panel
+    delete row.activityNotes
+    delete row.notesUpdatedAt
     projections.push(row as unknown as IssueProjection)
+    const identity = (position: number) => ({ id: asIssuePanelItemId(`00000000-0000-4000-8000-${String(++panelId).padStart(12, '0')}`), issueId: issue.id, position })
+    for (const [position, value] of (issue.panel?.todos ?? []).entries()) todos.push({ ...value, ...identity(position) })
+    for (const [position, value] of (issue.panel?.artifacts ?? []).entries()) artifacts.push({ ...value, ...identity(position) })
+    for (const [position, value] of (issue.panel?.deferred ?? []).entries()) deferred.push({ ...value, ...identity(position) })
+    if (issue.activityNotes) states.push({ id: issue.id, text: issue.activityNotes, updatedAt: issue.notesUpdatedAt ?? issue.updatedAt })
     markers.push({
       userId,
       entityId: issue.id,
       readAt: issue.readAt ?? null,
       tuckedAt: issue.tuckedAt ?? null,
-      pinned: issue.pinned ?? false,
     })
+    // A pinned task is my pin record (POD-6692), never a marker.
+    if (issue.pinned) {
+      pins.push({ userId, kind: 'issue', entityId: issue.id, pinnedAt: issue.createdAt })
+    }
     if (issue.gitState) git.push({ ...issue.gitState, id: issue.id })
     repos.set(repoId, {
       id: repoId,
@@ -58,7 +79,12 @@ export function seedIssueFixtures(
     }
   }
   replica.applySnapshot('issueProjections', projections)
+  replica.applySnapshot('issuePanelTodos', todos)
+  replica.applySnapshot('issuePanelArtifacts', artifacts)
+  replica.applySnapshot('issuePanelDeferreds', deferred)
+  replica.applySnapshot('issuePanelStates', states)
   replica.applySnapshot('issueUserStates', markers)
+  replica.applySnapshot('pins', pins)
   replica.applySnapshot('issueGitStates', git)
   replica.applySnapshot('repos', [...repos.values()])
   replica.applySnapshot('issueDeps', deps)

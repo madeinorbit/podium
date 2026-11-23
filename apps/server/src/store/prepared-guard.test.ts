@@ -22,17 +22,19 @@
  *     runs.
  */
 
-import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { users } from '../migrations/schema'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { openTestStore } from '../test-support/open-test-store'
 import { censusScope, perCallBuilders } from '../test-support/prepared-census'
 import { createBunStoreExecutor, probeStatements, type StatementObservation } from './executor'
-import { preparationsOf } from './executor/sync-drizzle'
+import { legacyWorkspaceQueries, preparationsOf } from './executor/sync-drizzle'
 import { GrantsRepository } from './grants'
 import { MachinesRepository } from './machines'
 import { SessionsRepository } from './sessions'
@@ -50,7 +52,12 @@ const ALLOWLIST: ReadonlyMap<string, string> = new Map([])
 
 function trackedSources(): string[] {
   const out: string[] = []
-  for (const dir of ['apps/server/src/store', 'packages/sync/src/adapters/sqlite']) {
+  for (const dir of [
+    'apps/server/src/store',
+    'packages/sync/src/adapters/sqlite',
+    // The shared identity package's own statements (POD-6744).
+    'packages/identity/src',
+  ]) {
     for (const entry of readdirSync(join(REPO_ROOT, dir), { recursive: true })) {
       out.push(relative(REPO_ROOT, join(REPO_ROOT, dir, String(entry))))
     }
@@ -65,7 +72,11 @@ afterEach(async () => {
 
 function migratedStore() {
   const database = openMigratedTestDatabase()
-  const queries = createBunStoreExecutor({ database }).queries
+  // The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015).
+  const queries = legacyWorkspaceQueries(
+    createBunStoreExecutor({ database }).queries,
+    SELF_HOSTED_WORKSPACE_ID,
+  )
   cleanup.push(() => database.close())
   return { database, queries }
 }
@@ -100,6 +111,7 @@ const sessionRow = (id: string, owner: UserId, createdAt: string): SessionRow =>
 })
 
 const account = (id: UserId, createdAt: string) => ({
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   id,
   displayName: `name-${id}`,
   role: 'member' as const,
@@ -161,7 +173,10 @@ describe('POD-6147 — a prepared query is reused inside and outside transaction
     const machines = new MachinesRepository(queries)
     const grants = new GrantsRepository(queries)
     const db = queries.rootDb
-    await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
     await db.insert(users).values(account(ALICE, '2026-09-01T10:00:00.000Z')).run()
 
     let n = 0
@@ -207,7 +222,10 @@ describe('POD-6147 — a prepared query is reused inside and outside transaction
 
     await expect(
       queries.createOrJoinTransaction(async () => {
-        await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+        await sessions.upsertSession(
+          fixtureWriteScope(),
+          sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+        )
         // The transaction's own uncommitted write is visible: the read ran on
         // the transaction's connection, inside its BEGIN.
         expect((await sessions.getSession(asSessionId('sess-a')))?.id).toBe('sess-a')
@@ -224,11 +242,14 @@ describe('POD-6147 — a prepared query is reused inside and outside transaction
   it('reuses the issue read across transactions on the store the server builds', async () => {
     const store = await openTestStore(':memory:')
     cleanup.push(async () => await store.close())
-    const queries = (store as unknown as { queries: { rootDb: Parameters<typeof preparationsOf>[0] } })
-      .queries
-    const transact = (store as unknown as {
-      queries: { createOrJoinTransaction: <T>(fn: () => Promise<T>) => Promise<T> }
-    }).queries.createOrJoinTransaction
+    const queries = (
+      store as unknown as { queries: { rootDb: Parameters<typeof preparationsOf>[0] } }
+    ).queries
+    const transact = (
+      store as unknown as {
+        queries: { createOrJoinTransaction: <T>(fn: () => Promise<T>) => Promise<T> }
+      }
+    ).queries.createOrJoinTransaction
     await store.issues.getIssue('missing-0')
     const warmed = preparationsOf(queries.rootDb)
     for (let round = 1; round <= 3; round++) {
@@ -249,14 +270,20 @@ describe('POD-6147 — IN-list statements are bounded', () => {
   it('keeps the number of distinct SQL texts flat as list lengths grow', async () => {
     const { database, queries } = migratedStore()
     const sessions = new SessionsRepository(queries)
-    await sessions.upsertSession(sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      sessionRow('sess-a', ALICE, '2026-09-01T10:00:00.000Z'),
+    )
     const seen: StatementObservation[] = []
     cleanup.push(probeStatements({ db: database }, (observation) => seen.push(observation)))
 
     const textsFor = async (lengths: readonly number[]) => {
       seen.length = 0
       for (const length of lengths) {
-        const ids = ['sess-a', ...Array.from({ length: length - 1 }, (_, i) => `sess-${length}-${i}`)]
+        const ids = [
+          'sess-a',
+          ...Array.from({ length: length - 1 }, (_, i) => `sess-${length}-${i}`),
+        ]
         const found = await sessions.getSessions(ids)
         // Padding repeats a value; the answer is the exact list's answer.
         expect([...found.keys()]).toEqual(['sess-a'])

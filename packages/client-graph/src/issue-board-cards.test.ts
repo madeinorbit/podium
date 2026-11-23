@@ -10,7 +10,7 @@ import { inBoardCheck } from '../../../tests/worklist/diagnostics/issue-board-ch
 import { readLegacyBoardCard } from '../../../tests/worklist/diagnostics/legacy-board-card'
 import { insideArm, insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { BoardCard, boardCards } from './issue-board-cards'
-import { ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY, ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
+import { ISSUE_BOARD_ENTITIES, ISSUE_BOARD_SOURCE_KEY, } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { omitGone } from './lookup'
 import { IssueModel } from './models'
@@ -60,7 +60,6 @@ async function setupBoard(rows: ReturnType<typeof issue>[], seats: ReturnType<ty
   )
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
     load,
-    summaries: ISSUE_BOARD_SUMMARIES,
     schedule: () => () => {},
   })
   pool.apply({
@@ -206,8 +205,6 @@ it('answers every board card field like the old card graph on nested, archived, 
   expect(pairs.c1!.unread).toBe(false)
   expect(pairs.history!.unread).toBe(true)
   expect(pairs.history!.fleet).toBe(0)
-  // Archived history stays cold: summaries answer it, no payload is loaded.
-  expect(pool.tables.issue.has('c6')).toBe(false)
   expect(pairs.root!.unread).toBe(true)
   expect(killed.size).toBeGreaterThan(20)
 })

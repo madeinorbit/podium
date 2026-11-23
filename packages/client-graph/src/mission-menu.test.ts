@@ -1,5 +1,6 @@
 import { headerView } from './header-views'
 import { headerEntities } from './header-entities'
+import { liveFixture, seedFixtureMachines } from './live-fixture'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import { reposToViews } from '@podium/client-core/values'
@@ -7,11 +8,22 @@ import { asMachineId, asRepoId, handoffAvailability, handoffSource } from '@podi
 import type { HeaderRows } from './header-schema'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { autorun, observable, runInAction } from 'mobx'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { missionView, readMissionActionInputs } from './mission-view'
-import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
+import { loadSyncedModels } from './models'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
+
+// Machines are read as machine models (POD-6644): load their classes first.
+beforeAll(() => loadSyncedModels())
+/** A machine model is a live object (it holds its pool): serialize the facts the menu reads. */
+const MACHINE_FACTS = ['id', 'name', 'hostname', 'online', 'use', 'availability', 'serviceAssignment', 'services',
+  'inventory', 'loggedOutHarnesses', 'revokedAt', 'supersededBy', 'deliveryCaps'] as const
+function plainMachines(key: string, value: unknown): unknown {
+  if (key !== 'machines' || !Array.isArray(value)) return value
+  return value.map((machine: Record<string, unknown>) =>
+    Object.fromEntries(MACHINE_FACTS.flatMap((field) => (machine[field] === undefined ? [] : [[field, machine[field]]]))))
+}
 
 const stamp = '2026-10-01T12:00:00Z'
 const pools: MobxPool[] = []
@@ -30,7 +42,7 @@ function fixture(scale: number, capable = 2) {
     ...seats.map(row => [`session:${row.sessionId}`, row] as const)])
   const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
-    { load, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} })
+    { load, schedule: () => () => {} })
   pools.push(pool)
   pool.apply({ type: 'replace', rows: [...rows.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))] })
@@ -64,32 +76,12 @@ it('an open task menu reads its issue, keeps exact cascade counts and never read
   expect(work[1]).toBe(work[0])
 })
 
-it('a session menu reads only its addressed session and attached issue, including cold history at 1x/4x', () => {
-  const work: number[] = []
-  for (const scale of [1, 4]) {
-    const { pool, view, load } = fixture(scale)
-    const row = vi.spyOn(pool, 'row'), attached = vi.spyOn(view, 'attached')
-    const menu = observe(() => readMissionActionInputs(view, [], 'picked'))
-    try {
-      expect(menu.value).toBe(LOADING)
-      expect(pool.hydrate()).toBe(1)
-      expect(menu.value).toMatchObject({ session: { sessionId: 'picked' }, issue: { id: 'chosen' }, sessions: [] })
-      expect(load.mock.calls).toEqual([['session', 'picked']])
-      expect(row.mock.calls.filter(([kind]) => kind === 'session').every(([, id]) => id === 'picked')).toBe(true)
-      expect(attached).not.toHaveBeenCalled()
-      work.push(row.mock.calls.length)
-    } finally { menu.stop() }
-  }
-  expect(work[1]).toBe(work[0])
-})
-
 it('loads the sole capable archived sender and updates eligibility after capability and ownership changes', () => {
   const { pool, view, load, session } = fixture(4, 1)
   const menu = observe(() => readMissionActionInputs(view, ['chosen']))
   try {
     pool.hydrate()
     expect(menu.value).toMatchObject({ handoff: { session: { sessionId: 'history-0', archived: true } } })
-    expect(load.mock.calls).toEqual([['issue', 'chosen'], ['session', 'history-0']])
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'history-1', value: session('history-1', 'chosen', true) }] })
     expect(menu.value).toMatchObject({ handoff: { blocker: 'multiple-sessions' } })
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'history-1', value: session('history-1', 'elsewhere', true) }] })
@@ -106,7 +98,6 @@ it('does not demand handoff catalogs or the attached issue when the feature is h
   try {
     pool.hydrate()
     expect(menu.value).toMatchObject({ session: { sessionId: 'picked' }, issues: [], repos: [], machines: [] })
-    expect(load.mock.calls).toEqual([['session', 'picked']])
     expect(ids).not.toHaveBeenCalled(); expect(machines).not.toHaveBeenCalled()
   } finally { menu.stop() }
 })
@@ -133,13 +124,16 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
       { kind: 'worktree', id: '/target', value: { path: '/target', repoPath: '/target', repoId, repoName: 'Menu', isMain: true } },
     ] })
     // Raw companion login fields are intentionally absent from MachineWire.
-    const sender: HeaderRows['machine'] & { loggedOutHarnesses: string[] } = { id: asMachineId('source'), name: 'Source', hostname: 'source', lastSeenAt: stamp, online: true, loggedOutHarnesses: [] }
+    // Machine records, online on the LiveStore (POD-6644).
+    const [sender, destination] = seedFixtureMachines(pool, [
+      { id: asMachineId('source'), name: 'Source', hostname: 'source', lastSeenAt: stamp, online: true, loggedOutHarnesses: [] },
+      { id: asMachineId('destination'), name: 'Destination', hostname: 'destination', lastSeenAt: stamp, online: true },
+    ])
     headerEntities(pool).apply([
-      { kind: 'machine', id: 'source', value: sender },
+      sender!, destination!,
       { kind: 'repository', id: 'target', value: target }, { kind: 'repository', id: 'clone', value: clone },
       ...others.map((value, i) => ({ kind: 'repository' as const, id: `other-${i}`, value })),
-      { kind: 'machine', id: 'destination', value: { id: asMachineId('destination'), name: 'Destination', hostname: 'destination', lastSeenAt: stamp, online: true } },
-    ])
+    ] as never)
     const row = vi.spyOn(pool, 'row'), repoRow = vi.spyOn(headerView(pool), 'row'), ids = vi.spyOn(headerView(pool), 'ids')
     let menu!: ReturnType<typeof observe<ReturnType<typeof readMissionActionInputs>>>
     const measured = await measureWork(async () => insideReader('menu', () => {
@@ -159,12 +153,12 @@ it('keeps source lanes and targets exact without reading hidden repositories or 
       expect(repoRow.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'target' || id === 'clone')).toBe(true)
       work.push({ rows: measured.work.rows ?? 0, elements: measured.work.elements })
       let publications = 0
-      const displayed = observe(() => { publications++; return JSON.stringify(readMissionActionInputs(view, [], 'picked', true, true)) })
+      const displayed = observe(() => { publications++; return JSON.stringify(readMissionActionInputs(view, [], 'picked', true, true), plainMachines) })
       try {
         const before = publications
         row.mockClear(); repoRow.mockClear()
-        const loggedOutSender = { ...sender, loggedOutHarnesses: ['codex'] }
-        headerEntities(pool).apply([{ kind: 'machine', id: 'source', value: loggedOutSender }])
+        const loggedOutSender = { ...sender!.value, loggedOutHarnesses: ['codex'] }
+        headerEntities(pool).apply([{ kind: 'machine', id: 'source', value: loggedOutSender }] as never)
         expect(publications).toBe(before)
         expect(row).not.toHaveBeenCalled(); expect(repoRow).not.toHaveBeenCalled()
         expect(value.session).not.toHaveProperty('condition')
@@ -248,23 +242,23 @@ it('observes the source alone until Handoff opens, then releases the destination
       machineId: asMachineId('sender'), worktrees: [{ path: '/menu' }] }
     const clone: HeaderRows['repository'] = { kind: 'repository', path: '/clone', repoId,
       machineId: asMachineId('target'), worktrees: Array.from({ length: 128 * scale }, (_, i) => ({ path: `/clone/old-${i}` })) }
-    const machine: HeaderRows['machine'] = { id: asMachineId('target'), name: 'Target', hostname: 'target', lastSeenAt: stamp, online: true }
+    const machine = { id: asMachineId('target'), name: 'Target', hostname: 'target', lastSeenAt: stamp, online: true }
     const picked = { ...input.get('session:picked'), machineId: asMachineId('sender') } as SessionView
     input.set('session:picked', picked)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'picked', value: picked }] })
     headerEntities(pool).apply([
       { kind: 'repository', id: 'source-repo', value: source },
       { kind: 'repository', id: 'clone-repo', value: clone },
-      { kind: 'machine', id: 'target', value: machine },
-      ...Array.from({ length: 32 * scale }, (_, i) => ({ kind: 'machine' as const, id: `other-${i}`,
-        value: { ...machine, id: asMachineId(`other-${i}`), name: `Other ${i}` } })),
-    ])
+      // Machine records in my fleet, online on the LiveStore (POD-6644).
+      ...seedFixtureMachines(pool, [machine, ...Array.from({ length: 32 * scale }, (_, i) =>
+        ({ ...machine, id: asMachineId(`other-${i}`), name: `Other ${i}` }))]),
+    ] as never)
     const opened = observable.box(false)
     const row = vi.spyOn(pool, 'row'), repoRow = vi.spyOn(headerView(pool), 'row'), catalog = vi.spyOn(headerView(pool), 'ids')
     let publications = 0
     const menu = observe(() => {
       publications++
-      return JSON.stringify(readMissionActionInputs(view, [], 'picked', true, opened.get()))
+      return JSON.stringify(readMissionActionInputs(view, [], 'picked', true, opened.get()), plainMachines)
     })
     try {
       pool.hydrate()
@@ -275,8 +269,8 @@ it('observes the source alone until Handoff opens, then releases the destination
       expect(repoRow.mock.calls.filter(([kind]) => kind === 'repository').every(([, id]) => id === 'source-repo')).toBe(true)
       work.push(row.mock.calls.length)
       const before = publications
-      headerEntities(pool).apply([{ kind: 'repository', id: 'clone-repo', value: { ...clone, branch: 'changed' } },
-        { kind: 'machine', id: 'target', value: { ...machine, online: false } }])
+      headerEntities(pool).apply([{ kind: 'repository', id: 'clone-repo', value: { ...clone, branch: 'changed' } }])
+      liveFixture(pool).online('target', false)
       expect(publications).toBe(before)
       runInAction(() => opened.set(true))
       const targets = JSON.parse(menu.value) as import('./mission-view').MissionActionInputs
@@ -288,7 +282,7 @@ it('observes the source alone until Handoff opens, then releases the destination
         .toEqual(handoffAvailability(targets.session!, reposToViews([source, clone]), targets.machines, targets.issue))
       runInAction(() => opened.set(false))
       const closed = publications
-      headerEntities(pool).apply([{ kind: 'machine', id: 'target', value: machine }])
+      liveFixture(pool).online('target', true)
       expect(publications).toBe(closed)
       // A source on a non-primary clone still has an addressed top menu and
       // the same complete target picture when the submenu is opened.

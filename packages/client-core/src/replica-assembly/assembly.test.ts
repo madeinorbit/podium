@@ -1,9 +1,19 @@
-import { SessionMeta } from '@podium/model'
+import { actorUser, asMutationId, asSessionId, asUserId, type MutationId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type FeedDeltaMessage, SYNC_CONTENT_TYPE } from '@podium/protocol'
 import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
+import { Outbox as KernelOutbox, type OutboxSubmitOutcome } from '@podium/sync/outbox'
 import { IDBFactory } from 'fake-indexeddb'
 import { describe, expect, it, vi } from 'vitest'
-import { principalKeyPrefix, type ReplicaAddressedBatch, type StorageApi } from '../replica'
+import { createAccountEraser, createSingleServerAccounts } from '../accounts'
+import { principalKeyPrefix, type StorageApi } from '../replica'
+import { outboxCommandFor } from '../runtime-root/outbox/wiring'
+import { createMemoryTranscriptBackend } from '../transcript-store'
+import type { DeviceStorage } from '../ui/device-storage'
+import { openLegacyDeviceKeys } from '../ui/draft-storage'
+import { UiPersistence } from '../ui/persistence'
+import { UiStore } from '../ui/ui-store'
+import { createMemoryRouterWindow, createRouter } from '../ui-state'
+import { emptyWorkspace, openTab } from '../values'
 import { openReplicaAssembly } from './assembly'
 
 const principal = JSON.stringify(['installation-a', 'alice'])
@@ -26,12 +36,13 @@ const httpSync = {
 
 const cursor = { feedId: 'feed-1', epoch: 'epoch-1', seq: 10 }
 function syncResponse(records: unknown[]): Response {
-  return new Response(records.map((record) => `${JSON.stringify(record)}\n`).join(''), {
+  return new Response(records.map((record) => JSON.stringify(record) + '\n').join(''), {
     headers: { 'content-type': SYNC_CONTENT_TYPE },
   })
 }
 const syncMeta = {
   type: 'syncMeta',
+  kindTokens: {},
   formatVersion: 1,
   wireVersion: CLIENT_WIRE_VERSION,
   wireSchemaDigest: '0123456789abcdef',
@@ -39,272 +50,6 @@ const syncMeta = {
   minAvailableSeq: 0,
   ...cursor,
 }
-
-const sessionChange = (
-  seq: number,
-  entityId: string,
-  name = entityId,
-): FeedDeltaMessage['changes'][number] => ({
-  seq,
-  entity: 'session',
-  entityId,
-  op: 'upsert' as const,
-  value: SessionMeta.parse({
-    sessionId: entityId,
-    name,
-    title: name,
-    agentKind: 'codex',
-    cwd: '/project',
-    status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
-    createdAt: '2026-11-01T00:00:00.000Z',
-    lastActiveAt: '2026-11-01T00:00:00.000Z',
-    origin: { kind: 'spawn' },
-    archived: false,
-  }),
-})
-function delta(
-  fromSeq: number,
-  seq: number,
-  changes: FeedDeltaMessage['changes'],
-): FeedDeltaMessage {
-  return { type: 'feedDelta', ...cursor, fromSeq, seq, minAvailableSeq: 0, changes }
-}
-const complete = (seq: number, records: number, rows = records) => ({
-  type: 'syncComplete',
-  transferId: syncMeta.transferId,
-  seq,
-  records,
-  rows,
-})
-
-function controlledResponse() {
-  let controller!: ReadableStreamDefaultController<Uint8Array>
-  const cancelled = vi.fn()
-  const body = new ReadableStream<Uint8Array>({
-    start: (value) => {
-      controller = value
-    },
-    cancel: cancelled,
-  })
-  return {
-    response: new Response(body, { headers: { 'content-type': SYNC_CONTENT_TYPE } }),
-    push: (record: unknown) =>
-      controller.enqueue(new TextEncoder().encode(`${JSON.stringify(record)}\n`)),
-    close: () => controller.close(),
-    cancelled,
-  }
-}
-
-async function catchupFixture(replies: Response[]) {
-  const storage = device()
-  const fetch = vi.fn(async (_input: string) => {
-    const reply = replies.shift()
-    if (!reply) throw new Error('unexpected sync request')
-    return reply
-  })
-  replies.unshift(
-    syncResponse([
-      { ...syncMeta, mode: 'snapshot', totalRows: 1 },
-      {
-        type: 'feedBootstrap',
-        ...cursor,
-        fromSeq: 0,
-        minAvailableSeq: 0,
-        changes: [sessionChange(10, 'saved')],
-        last: true,
-      },
-      complete(10, 1),
-    ]),
-  )
-  const assembly = await openReplicaAssembly({
-    api: {} as never,
-    principal,
-    openStore,
-    settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
-    httpSync: { origin: 'https://sync.test', streamingFetch: { fetch } },
-  })
-  assembly.feed.connected(false)
-  try {
-    await vi.waitFor(() => expect(assembly.progress.getSnapshot().phase).toBe('ready'))
-  } catch (error) {
-    await assembly.dispose()
-    throw error
-  }
-  await assembly.replica.hydrate()
-  const batches: ReplicaAddressedBatch[] = []
-  const visible: string[][] = []
-  assembly.replica.subscribeAddressedBatch?.((batch) => {
-    batches.push(batch)
-    visible.push(assembly.replica.rows('sessions').map((row) => row.name ?? row.sessionId))
-  })
-  const rowBatches = vi.fn()
-  const cursors = vi.fn()
-  assembly.replica.subscribeRowBatch?.(rowBatches)
-  assembly.replica.subscribeCursor?.(cursors)
-  assembly.feed.disconnected()
-  return { assembly, fetch, batches, visible, rowBatches, cursors }
-}
-
-describe('shared catch-up publication', () => {
-  it('commits every page durably but publishes one pool batch only after range completion', async () => {
-    const stream = controlledResponse()
-    const h = await catchupFixture([stream.response])
-    try {
-      const outbox = h.assembly.store.viewFor(principal).outbox
-      expect(await outbox.read()).toEqual([])
-      h.assembly.feed.connected(false)
-      stream.push({ ...syncMeta, mode: 'delta', fromSeq: 10, seq: 12 })
-      stream.push(delta(10, 11, [sessionChange(11, 'one')]))
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().framesCommitted).toBe(1))
-      await h.assembly.settled()
-      expect(await outbox.read()).toEqual([])
-      expect(h.assembly.store.viewFor(principal).cache.readCursor()?.seq).toBe(11)
-      expect(h.batches).toEqual([])
-      expect(h.cursors).not.toHaveBeenCalled()
-      stream.push(delta(11, 12, [sessionChange(12, 'two')]))
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().framesCommitted).toBe(2))
-      await h.assembly.settled()
-      expect(await outbox.read()).toEqual([])
-      expect(h.assembly.store.viewFor(principal).cache.readCursor()?.seq).toBe(12)
-      expect(h.batches).toEqual([])
-      stream.push(complete(12, 2))
-      stream.close()
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().phase).toBe('ready'))
-      expect(h.batches).toEqual([
-        {
-          type: 'update',
-          rows: [
-            { kind: 'sessions', id: 'one' },
-            { kind: 'sessions', id: 'two' },
-          ],
-        },
-      ])
-      expect(h.visible).toEqual([['one', 'saved', 'two']])
-      expect(h.rowBatches).toHaveBeenCalledOnce()
-      expect(h.cursors).toHaveBeenCalledOnce()
-      expect(await outbox.read()).toEqual([])
-    } finally {
-      await h.assembly.dispose()
-    }
-  })
-
-  it.each([
-    'stream failure',
-    'socket suspension',
-  ] as const)('retains a durable prefix without publishing it after %s, then includes it in the next batch', async (interruption) => {
-    const stream = controlledResponse()
-    const h = await catchupFixture([
-      stream.response,
-      syncResponse([
-        { ...syncMeta, mode: 'delta', fromSeq: 11, seq: 12 },
-        delta(11, 12, [sessionChange(12, 'next')]),
-        complete(12, 1),
-      ]),
-    ])
-    try {
-      h.assembly.feed.connected(false)
-      stream.push({ ...syncMeta, mode: 'delta', fromSeq: 10, seq: 12 })
-      stream.push(delta(10, 11, [sessionChange(11, 'prefix')]))
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().framesCommitted).toBe(1))
-      if (interruption === 'stream failure') {
-        stream.push({ type: 'syncError', transferId: syncMeta.transferId, reason: 'read-failed' })
-        stream.close()
-        await vi.waitFor(() =>
-          expect(h.assembly.progress.getSnapshot().failure).toBe('read-failed'),
-        )
-      } else {
-        h.assembly.feed.disconnected()
-        await vi.waitFor(() => expect(stream.cancelled).toHaveBeenCalled())
-      }
-      expect(h.assembly.store.viewFor(principal).cache.readCursor()?.seq).toBe(11)
-      expect(h.batches).toEqual([])
-      expect(h.cursors).not.toHaveBeenCalled()
-      h.assembly.feed.connected(false)
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().phase).toBe('ready'))
-      expect(new URL(h.fetch.mock.calls.at(-1)?.[0] ?? '').searchParams.get('from')).toBe('11')
-      expect(h.visible).toEqual([['next', 'prefix', 'saved']])
-      expect(h.rowBatches).toHaveBeenCalledOnce()
-      expect(h.cursors).toHaveBeenCalledOnce()
-    } finally {
-      await h.assembly.dispose()
-    }
-  })
-
-  it('folds overlapping and later live events into the final pool update in feed order', async () => {
-    const stream = controlledResponse()
-    const h = await catchupFixture([stream.response])
-    try {
-      h.assembly.feed.connected(false)
-      stream.push({ ...syncMeta, mode: 'delta', fromSeq: 10, seq: 12 })
-      stream.push(delta(10, 11, [sessionChange(11, 'shared', 'intermediate')]))
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().framesCommitted).toBe(1))
-      const last = delta(11, 12, [sessionChange(12, 'shared', 'range final')])
-      h.assembly.feed.frame(last)
-      h.assembly.feed.frame(
-        delta(12, 13, [{ seq: 13, entity: 'session', entityId: 'shared', op: 'remove' }]),
-      )
-      h.assembly.feed.frame(delta(13, 14, [sessionChange(14, 'shared', 'live final')]))
-      stream.push(last)
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().framesCommitted).toBe(2))
-      expect(h.batches).toEqual([])
-      stream.push(complete(12, 2))
-      stream.close()
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().phase).toBe('ready'))
-      expect(h.visible).toEqual([['saved', 'live final']])
-      expect(h.batches).toEqual([{ type: 'update', rows: [{ kind: 'sessions', id: 'shared' }] }])
-      expect(h.assembly.feed.helloFields()?.feedCursor?.seq).toBe(14)
-      expect(h.cursors).toHaveBeenCalledOnce()
-    } finally {
-      await h.assembly.dispose()
-    }
-  })
-
-  it('replaces an unpublished prefix atomically if recovery needs a full download', async () => {
-    const stream = controlledResponse()
-    const snapshot = controlledResponse()
-    const h = await catchupFixture([
-      stream.response,
-      new Response(JSON.stringify({ kind: 'bootstrap-required', reason: 'compacted-or-unknown' }), {
-        status: 409,
-      }),
-      snapshot.response,
-    ])
-    try {
-      h.assembly.feed.connected(false)
-      stream.push({ ...syncMeta, mode: 'delta', fromSeq: 10, seq: 12 })
-      stream.push(delta(10, 11, [sessionChange(11, 'prefix')]))
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().framesCommitted).toBe(1))
-      h.assembly.feed.disconnected()
-      h.assembly.feed.connected(false)
-      await vi.waitFor(() => expect(h.fetch).toHaveBeenCalledTimes(4))
-      snapshot.push({ ...syncMeta, mode: 'snapshot', seq: 20, totalRows: 1 })
-      snapshot.push({
-        type: 'feedBootstrap',
-        ...cursor,
-        seq: 20,
-        fromSeq: 0,
-        minAvailableSeq: 0,
-        changes: [sessionChange(20, 'replacement')],
-        last: true,
-      })
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().rowsSeen).toBe(1))
-      expect(h.batches).toEqual([])
-      expect(h.assembly.store.viewFor(principal).cache.readCursor()?.seq).toBe(11)
-      snapshot.push(complete(20, 1))
-      snapshot.close()
-      await vi.waitFor(() => expect(h.assembly.progress.getSnapshot().phase).toBe('ready'))
-      expect(h.visible).toEqual([['replacement']])
-      expect(h.batches).toEqual([{ type: 'replace', reason: 'bootstrap' }])
-      expect(h.rowBatches).toHaveBeenCalledOnce()
-    } finally {
-      await h.assembly.dispose()
-    }
-  })
-})
 
 describe('shared replica reconnect recovery', () => {
   it.each([
@@ -506,6 +251,408 @@ describe('shared replica storage lifecycle', () => {
       ).toBe(false)
       expect(flush).toHaveBeenCalled()
     } finally {
+      await assembly.dispose()
+    }
+  })
+})
+
+/**
+ * CONFIRMATION ACROSS A RELOAD (POD-6277, ADR 12). The outbox and the replica
+ * share one store; what the persisted cursor already covers retires when the
+ * assembly opens, and what it does not keeps painting until the replica catches up.
+ */
+describe('shared replica write confirmation', () => {
+  const LEGACY_CLEAR = asMutationId('mut-nulldisk-clear')
+  const COVERED = asMutationId('mut-covered')
+  const AHEAD = asMutationId('mut-ahead')
+  const receipts: Record<string, number | undefined> = {
+    [LEGACY_CLEAR]: undefined,
+    [COVERED]: 9,
+    [AHEAD]: 12,
+  }
+
+  /** One IndexedDB the "reload" reopens. */
+  function persistentDevice() {
+    const idb = new IDBFactory()
+    return {
+      storage: device(),
+      openStore: () => IndexedDbSyncStore.open({ factory: idb as never, onDegraded: () => {} }),
+    }
+  }
+
+  /** The first session: bootstrap the replica to seq 10, then close it. */
+  async function bootstrapTo10(dev: ReturnType<typeof persistentDevice>): Promise<void> {
+    const replies = [
+      syncResponse([
+        { ...syncMeta, mode: 'snapshot', totalRows: 0 },
+        {
+          type: 'feedBootstrap',
+          ...cursor,
+          fromSeq: 0,
+          minAvailableSeq: 0,
+          changes: [],
+          last: true,
+        },
+        { type: 'syncComplete', transferId: syncMeta.transferId, seq: 10, records: 1, rows: 0 },
+      ]),
+    ]
+    const assembly = await openReplicaAssembly({
+      api: {} as never,
+      principal,
+      openStore: dev.openStore,
+      settings: { storage: dev.storage, enumerateKeys: dev.storage.keys, basePrefix: prefix },
+      httpSync: {
+        origin: 'https://sync.test',
+        streamingFetch: {
+          fetch: async () => replies.shift() ?? new Response(null, { status: 500 }),
+        },
+      },
+    })
+    assembly.feed.connected(false)
+    await vi.waitFor(() => expect(assembly.feed.helloFields()).toEqual({ feedCursor: cursor }))
+    await assembly.dispose()
+  }
+
+  /**
+   * Entries a previous build left `applied` in the durable outbox: the stranded
+   * nulldisk clear (no receipt, as older builds wrote it), one whose receipt the
+   * persisted cursor covers, and one ahead of it (the reply landed, the frame did not).
+   */
+  const legacyLayoutClear = (() => {
+    const command = outboxCommandFor('layoutClear')
+    if (command === undefined) throw new Error('layout.clear is no longer drained')
+    return command
+  })()
+
+  async function leaveApplied(dev: ReturnType<typeof persistentDevice>): Promise<void> {
+    const store = await dev.openStore()
+    const kernel = await KernelOutbox.open({
+      store: store.viewFor(principal).outbox,
+      principal: 'alice',
+      submit: {
+        submit: async (envelope): Promise<OutboxSubmitOutcome> => {
+          const seq = receipts[envelope.mutationId]
+          return seq === undefined
+            ? { kind: 'applied' }
+            : { kind: 'applied', receipt: { feedId: cursor.feedId, epoch: cursor.epoch, seq } }
+        },
+      },
+      now: () => 1_000,
+      maxAgeMs: 14 * 24 * 60 * 60 * 1000,
+      newMutationId: () => asMutationId('unused'),
+      onStoreUnreadable: (error) => {
+        throw error
+      },
+    })
+    for (const mutationId of [LEGACY_CLEAR, COVERED, AHEAD]) {
+      await kernel.enqueue({
+        mutationId,
+        // An older build's spelling: the retired `layout.clear` (LEGACY, POD-6404).
+        command: legacyLayoutClear,
+        input: { keys: ['folder.nulldisk'] },
+        partitionKey: 'layout',
+        attribution: { actor: actorUser(asUserId('alice')), onBehalfOf: asUserId('alice') },
+      })
+    }
+    await kernel.drain()
+    expect(kernel.all().map((record) => record.state)).toEqual(['applied', 'applied', 'applied'])
+    await store.settled()
+    store.close()
+  }
+
+  function awaitingIds(
+    assembly: Awaited<ReturnType<typeof openReplicaAssembly>>,
+  ): () => MutationId[] {
+    const outbox = assembly.createOutboxFn({
+      api: {} as never,
+      replica: assembly.replica,
+      notices: { error: () => {}, info: () => {} } as never,
+      isOnline: () => false,
+    })
+    return () => outbox.awaiting().map((entry) => entry.mutationId)
+  }
+
+  it('reload: retires what the persisted cursor covers at open, the stranded nulldisk clear included', async () => {
+    const dev = persistentDevice()
+    await bootstrapTo10(dev)
+    await leaveApplied(dev)
+
+    const assembly = await openReplicaAssembly({
+      api: {} as never,
+      principal,
+      openStore: dev.openStore,
+      settings: { storage: dev.storage, enumerateKeys: dev.storage.keys, basePrefix: prefix },
+      httpSync,
+    })
+    try {
+      // Before any network: the receipt at 9 and the receipt-less clear are covered
+      // by the cursor at 10; the receipt at 12 keeps painting.
+      expect(awaitingIds(assembly)()).toEqual([AHEAD])
+    } finally {
+      await assembly.dispose()
+    }
+  })
+
+  it('reload between reply and frame: a receipt above the persisted cursor keeps painting and retires on catch-up', async () => {
+    const dev = persistentDevice()
+    await bootstrapTo10(dev)
+    await leaveApplied(dev)
+
+    const replies = [
+      syncResponse([
+        { ...syncMeta, mode: 'delta', fromSeq: 10, seq: 10 },
+        { type: 'syncComplete', transferId: syncMeta.transferId, seq: 10, records: 0, rows: 0 },
+      ]),
+    ]
+    const assembly = await openReplicaAssembly({
+      api: {} as never,
+      principal,
+      openStore: dev.openStore,
+      settings: { storage: dev.storage, enumerateKeys: dev.storage.keys, basePrefix: prefix },
+      httpSync: {
+        origin: 'https://sync.test',
+        streamingFetch: {
+          fetch: async () => replies.shift() ?? new Response(null, { status: 500 }),
+        },
+      },
+    })
+    try {
+      const awaiting = awaitingIds(assembly)
+      assembly.feed.connected(false)
+      await vi.waitFor(() => expect(assembly.progress.getSnapshot().phase).toBe('ready'))
+      // Seq 11 is still below the receipt.
+      assembly.feed.frame({
+        type: 'feedDelta',
+        ...cursor,
+        fromSeq: 10,
+        seq: 11,
+        minAvailableSeq: 0,
+        changes: [],
+      })
+      await vi.waitFor(() =>
+        expect(assembly.feed.helloFields()).toEqual({ feedCursor: { ...cursor, seq: 11 } }),
+      )
+      expect(awaiting()).toEqual([AHEAD])
+      // The watermark at 12 reaches it: retired in that same commit.
+      assembly.feed.frame({
+        type: 'feedDelta',
+        ...cursor,
+        fromSeq: 11,
+        seq: 12,
+        minAvailableSeq: 0,
+        changes: [],
+      })
+      await vi.waitFor(() => expect(awaiting()).toEqual([]))
+      expect(assembly.feed.helloFields()).toEqual({ feedCursor: { ...cursor, seq: 12 } })
+    } finally {
+      await assembly.dispose()
+    }
+  })
+})
+
+describe('chat history database (POD-5801)', () => {
+  function databases() {
+    const opened = new Map<string, ReturnType<typeof createMemoryTranscriptBackend>>()
+    const erased: string[] = []
+    return {
+      opened,
+      erased,
+      port: {
+        open: async (who: string) => {
+          const backend = createMemoryTranscriptBackend()
+          opened.set(who, backend)
+          return backend
+        },
+        erase: async (who: string) => void erased.push(who),
+        whenIdle: () => () => {},
+      },
+    }
+  }
+
+  it('deletes the old chat keys unread, opens one database per user, and erases it on sign-out', async () => {
+    const storage = device()
+    const legacy = [
+      `${principalKeyPrefix(prefix, principal)}.transcript-window.v2.s1`,
+      `${principalKeyPrefix(prefix, principal)}.transcripts-index.v2`,
+      `${principalKeyPrefix(prefix, 'bob')}.transcripts.v1`,
+    ]
+    for (const key of legacy) storage.setItem(key, '{"items":[]}')
+    const kept = `${principalKeyPrefix(prefix, 'bob')}.ui-state.v1`
+    storage.setItem(kept, 'bob settings')
+    const transcripts = databases()
+    const assembly = await openReplicaAssembly({
+      api: {} as never,
+      principal,
+      openStore,
+      settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
+      httpSync,
+      transcripts: transcripts.port,
+    })
+    try {
+      expect(storage.keys().filter((key) => key.includes('.transcript'))).toEqual([])
+      expect(storage.getItem(kept)).toBe('bob settings')
+      expect([...transcripts.opened.keys()]).toEqual([principal])
+      expect(assembly.replica.transcripts).toBeDefined()
+      await assembly.transcripts!.put('s1', {
+        upsert: [{ id: 'a', seq: 0, json: '{"id":"a","role":"user","text":"hi"}' }],
+      })
+      await assembly.erasePrincipalData()
+      expect(transcripts.opened.get(principal)!.erased).toBe(true)
+    } finally {
+      await assembly.dispose()
+    }
+  })
+})
+
+/**
+ * SIGN-OUT WHILE THE SCREEN IS STILL MOUNTED (POD-6908). Web sign-out starts the
+ * erase before React has unmounted the app, so the app's own teardown runs while
+ * the erase awaits IndexedDB: an open session pane leaves the screen document
+ * dirty and the provider's unmount flushes it, and the drafts store writes its
+ * blob. Both write under the principal's root, between the namespace removal and
+ * the emptiness check — which then refused the sign-out ("principal settings
+ * could not be erased"), or, landing after the check, left the person's data
+ * behind.
+ */
+describe('sign-out with a live screen', () => {
+  function mountedScreen(device: DeviceStorage) {
+    const router = createRouter({ win: createMemoryRouterWindow() })
+    const ui = new UiStore({
+      api: {} as never,
+      hub: { reportTabRelease: () => {} } as never,
+      notices: { error: () => {}, info: () => {} },
+      keys: { get: () => null, set: () => {}, subscribe: () => () => {} },
+      router,
+      repositories: () => [],
+      isVisible: () => true,
+    })
+    const drafts = openLegacyDeviceKeys(device)
+    const persistence = new UiPersistence(ui, device, drafts, {
+      isVisible: () => true,
+      subscribe: () => () => {},
+    })
+    return {
+      ui,
+      drafts,
+      persistence,
+      close() {
+        persistence.stopSaving()
+        router.dispose()
+        ui.dispose()
+      },
+    }
+  }
+
+  it('erases everything although the unmounting screen writes during the erase', async () => {
+    const storage = device()
+    const store = await openStore()
+    const assembly = await openReplicaAssembly({
+      api: {} as never,
+      principal,
+      openStore: async () => store,
+      settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
+      httpSync,
+    })
+    const root = principalKeyPrefix(prefix, principal)
+    const owned = () => storage.keys().filter((key) => key.startsWith(`${root}.`))
+    const session = asSessionId('alp-1')
+    const screen = mountedScreen(assembly.replica.deviceStorage())
+    try {
+      // The person's private session, open in a pane and persisted.
+      screen.persistence.start()
+      screen.ui.patch({
+        workspaces: {
+          'wt:/repo': openTab(emptyWorkspace('wt:/repo'), session, { permanent: true }),
+        },
+      })
+      screen.ui.setDockVisibleSession(session)
+      await screen.persistence.flush()
+      expect(storage.getItem(`${root}.ui.v1`)).toContain('alp-1')
+      // The app unmounts while IndexedDB is being erased: the pane lets go of
+      // its session, the provider flushes the screen, the drafts store saves.
+      const eraseRows = store.erasePrincipal.bind(store)
+      vi.spyOn(store, 'erasePrincipal').mockImplementation(async (who) => {
+        screen.ui.setDockVisibleSession(null)
+        screen.persistence.stopSaving()
+        screen.drafts.set('podium.drafts.v1', JSON.stringify({ [session]: { text: 'half' } }))
+        return eraseRows(who)
+      })
+
+      await expect(assembly.erasePrincipalData()).resolves.toBeUndefined()
+      expect(owned()).toEqual([])
+
+      // A writer that is later still finds the namespace closed.
+      screen.ui.setDockVisibleSession(session)
+      screen.persistence.start()
+      await screen.persistence.flush()
+      screen.drafts.set('podium.drafts.v1', JSON.stringify({ [session]: { text: 'later' } }))
+      expect(owned()).toEqual([])
+    } finally {
+      screen.close()
+      await assembly.dispose()
+    }
+  })
+
+  // POD-6910: the server ended this person's sign-in (they were removed, or this
+  // device was signed out from elsewhere) while one of their sessions is open in
+  // a pane. The client takes the refused-account route: the accounts layer
+  // removes that principal through the account eraser, which seals the
+  // namespace before the unmounting screen's last writes can land.
+  it('a removal while a session pane is open erases cleanly through the refused-account route', async () => {
+    const storage = device()
+    const store = await openStore()
+    const assembly = await openReplicaAssembly({
+      api: {} as never,
+      principal,
+      openStore: async () => store,
+      settings: { storage, enumerateKeys: storage.keys, basePrefix: prefix },
+      httpSync,
+    })
+    const eraser = createAccountEraser(async () => {
+      throw new Error('the mounted replica must erase its own data')
+    })
+    eraser.register(principal, assembly)
+    const metadata = new Map<string, string>()
+    const accounts = createSingleServerAccounts({
+      httpOrigin: 'https://team.example',
+      metadataPrefix: 'browser',
+      storage: {
+        getItem: async (key) => metadata.get(key) ?? null,
+        setItem: async (key, value) => void metadata.set(key, value),
+      },
+      erasePrincipal: eraser.erase,
+    })
+    await accounts.recordPrincipal(principal)
+    const root = principalKeyPrefix(prefix, principal)
+    const owned = () => storage.keys().filter((key) => key.startsWith(`${root}.`))
+    const session = asSessionId('alp-1')
+    const screen = mountedScreen(assembly.replica.deviceStorage())
+    try {
+      screen.persistence.start()
+      screen.ui.patch({
+        workspaces: {
+          'wt:/repo': openTab(emptyWorkspace('wt:/repo'), session, { permanent: true }),
+        },
+      })
+      screen.ui.setDockVisibleSession(session)
+      await screen.persistence.flush()
+      expect(storage.getItem(`${root}.ui.v1`)).toContain('alp-1')
+      // The sign-in screen replaces the app while the rows are being erased:
+      // the pane lets go, the provider flushes the screen, the drafts store saves.
+      const eraseRows = store.erasePrincipal.bind(store)
+      vi.spyOn(store, 'erasePrincipal').mockImplementation(async (who) => {
+        screen.ui.setDockVisibleSession(null)
+        screen.persistence.stopSaving()
+        screen.drafts.set('podium.drafts.v1', JSON.stringify({ [session]: { text: 'half' } }))
+        return eraseRows(who)
+      })
+
+      await expect(accounts.removePrincipal(principal)).resolves.toBeUndefined()
+      expect(owned()).toEqual([])
+      expect((await accounts.profiles.loadServerProfiles()).profiles).toEqual([])
+      expect(await accounts.profiles.loadPendingProfileCleanups()).toEqual([])
+    } finally {
+      screen.close()
       await assembly.dispose()
     }
   })

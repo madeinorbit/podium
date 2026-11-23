@@ -88,7 +88,6 @@
         "conversations": [
           {
             "id": "conversations[0].id",
-            "path": "conversations[0].path",
             "podiumId": "conversations[0].podiumId",
             "agentKind": "claude-code",
             "title": "conversations[0].title",
@@ -96,21 +95,16 @@
             "summary": "conversations[0].summary",
             "projectPath": "conversations[0].projectPath",
             "parentConversationId": "conversations[0].parentConversationId",
-            "statusHint": "conversations[0].statusHint",
             "createdAt": "conversations[0].createdAt",
             "updatedAt": "conversations[0].updatedAt",
             "messageCount": 1,
-            "sizeBytes": 1,
-            "git": {
-              "branch": "conversations[0].git.branch",
-              "sha": "conversations[0].git.sha",
-              "originUrl": "conversations[0].git.originUrl"
-            },
             "resume": {
               "kind": "conversations[0].resume.kind",
               "value": "conversations[0].resume.value"
             },
-            "providerId": "conversations[0].providerId"
+            "providerId": "conversations[0].providerId",
+            "path": "conversations[0].path",
+            "sizeBytes": 1
           }
         ],
         "diagnostics": [
@@ -127,7 +121,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"conversationsChanged\",\"conversations\":[{\"id\":\"conversations[0].id\",\"path\":\"conversations[0].path\",\"podiumId\":\"conversations[0].podiumId\",\"agentKind\":\"claude-code\",\"title\":\"conversations[0].title\",\"name\":\"conversations[0].name\",\"summary\":\"conversations[0].summary\",\"projectPath\":\"conversations[0].projectPath\",\"parentConversationId\":\"conversations[0].parentConversationId\",\"statusHint\":\"conversations[0].statusHint\",\"createdAt\":\"conversations[0].createdAt\",\"updatedAt\":\"conversations[0].updatedAt\",\"messageCount\":1,\"sizeBytes\":1,\"git\":{\"branch\":\"conversations[0].git.branch\",\"sha\":\"conversations[0].git.sha\",\"originUrl\":\"conversations[0].git.originUrl\"},\"resume\":{\"kind\":\"conversations[0].resume.kind\",\"value\":\"conversations[0].resume.value\"},\"providerId\":\"conversations[0].providerId\"}],\"diagnostics\":[{\"severity\":\"warning\",\"providerId\":\"diagnostics[0].providerId\",\"root\":\"diagnostics[0].root\",\"path\":\"diagnostics[0].path\",\"message\":\"diagnostics[0].message\"}],\"removed\":[\"removed[0]\"]}"
+      "encoded": "{\"type\":\"conversationsChanged\",\"conversations\":[{\"id\":\"conversations[0].id\",\"podiumId\":\"conversations[0].podiumId\",\"agentKind\":\"claude-code\",\"title\":\"conversations[0].title\",\"name\":\"conversations[0].name\",\"summary\":\"conversations[0].summary\",\"projectPath\":\"conversations[0].projectPath\",\"parentConversationId\":\"conversations[0].parentConversationId\",\"createdAt\":\"conversations[0].createdAt\",\"updatedAt\":\"conversations[0].updatedAt\",\"messageCount\":1,\"resume\":{\"kind\":\"conversations[0].resume.kind\",\"value\":\"conversations[0].resume.value\"},\"providerId\":\"conversations[0].providerId\",\"path\":\"conversations[0].path\",\"sizeBytes\":1}],\"diagnostics\":[{\"severity\":\"warning\",\"providerId\":\"diagnostics[0].providerId\",\"root\":\"diagnostics[0].root\",\"path\":\"diagnostics[0].path\",\"message\":\"diagnostics[0].message\"}],\"removed\":[\"removed[0]\"]}"
     },
     {
       "schema": "DirOp",
@@ -409,7 +403,6 @@
         "conversations": [
           {
             "id": "conversations[0].id",
-            "path": "conversations[0].path",
             "podiumId": "conversations[0].podiumId",
             "agentKind": "claude-code",
             "title": "conversations[0].title",
@@ -417,21 +410,16 @@
             "summary": "conversations[0].summary",
             "projectPath": "conversations[0].projectPath",
             "parentConversationId": "conversations[0].parentConversationId",
-            "statusHint": "conversations[0].statusHint",
             "createdAt": "conversations[0].createdAt",
             "updatedAt": "conversations[0].updatedAt",
             "messageCount": 1,
-            "sizeBytes": 1,
-            "git": {
-              "branch": "conversations[0].git.branch",
-              "sha": "conversations[0].git.sha",
-              "originUrl": "conversations[0].git.originUrl"
-            },
             "resume": {
               "kind": "conversations[0].resume.kind",
               "value": "conversations[0].resume.value"
             },
-            "providerId": "conversations[0].providerId"
+            "providerId": "conversations[0].providerId",
+            "path": "conversations[0].path",
+            "sizeBytes": 1
           }
         ],
         "diagnostics": [
@@ -448,7 +436,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"scanResult\",\"requestId\":\"requestId\",\"conversations\":[{\"id\":\"conversations[0].id\",\"path\":\"conversations[0].path\",\"podiumId\":\"conversations[0].podiumId\",\"agentKind\":\"claude-code\",\"title\":\"conversations[0].title\",\"name\":\"conversations[0].name\",\"summary\":\"conversations[0].summary\",\"projectPath\":\"conversations[0].projectPath\",\"parentConversationId\":\"conversations[0].parentConversationId\",\"statusHint\":\"conversations[0].statusHint\",\"createdAt\":\"conversations[0].createdAt\",\"updatedAt\":\"conversations[0].updatedAt\",\"messageCount\":1,\"sizeBytes\":1,\"git\":{\"branch\":\"conversations[0].git.branch\",\"sha\":\"conversations[0].git.sha\",\"originUrl\":\"conversations[0].git.originUrl\"},\"resume\":{\"kind\":\"conversations[0].resume.kind\",\"value\":\"conversations[0].resume.value\"},\"providerId\":\"conversations[0].providerId\"}],\"diagnostics\":[{\"severity\":\"warning\",\"providerId\":\"diagnostics[0].providerId\",\"root\":\"diagnostics[0].root\",\"path\":\"diagnostics[0].path\",\"message\":\"diagnostics[0].message\"}],\"removed\":[\"removed[0]\"]}"
+      "encoded": "{\"type\":\"scanResult\",\"requestId\":\"requestId\",\"conversations\":[{\"id\":\"conversations[0].id\",\"podiumId\":\"conversations[0].podiumId\",\"agentKind\":\"claude-code\",\"title\":\"conversations[0].title\",\"name\":\"conversations[0].name\",\"summary\":\"conversations[0].summary\",\"projectPath\":\"conversations[0].projectPath\",\"parentConversationId\":\"conversations[0].parentConversationId\",\"createdAt\":\"conversations[0].createdAt\",\"updatedAt\":\"conversations[0].updatedAt\",\"messageCount\":1,\"resume\":{\"kind\":\"conversations[0].resume.kind\",\"value\":\"conversations[0].resume.value\"},\"providerId\":\"conversations[0].providerId\",\"path\":\"conversations[0].path\",\"sizeBytes\":1}],\"diagnostics\":[{\"severity\":\"warning\",\"providerId\":\"diagnostics[0].providerId\",\"root\":\"diagnostics[0].root\",\"path\":\"diagnostics[0].path\",\"message\":\"diagnostics[0].message\"}],\"removed\":[\"removed[0]\"]}"
     }
   ]
 }

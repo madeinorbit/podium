@@ -1,0 +1,538 @@
+import type { SettingsPage } from '@podium/client-core/ui-state'
+import { ArrowLeft, ChevronRight, Lock, Search, Users } from 'lucide-react'
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import { createPortal } from 'react-dom'
+import { AppSheet } from '@/app/AppSheet'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
+import { AdminViewerError } from './AdminViewerError'
+import type { AdminViewer } from './admin-viewer'
+import {
+  SETTINGS_GROUPS,
+  type SettingsSearchResult,
+  searchSettings,
+  settingsPage,
+  settingsSectionId,
+} from './page-definitions'
+import { SettingsControlsContext, type SettingsControlsState } from './settings-controls'
+import { adminSectionOf, visibleSettingsGroups } from './surfaces'
+
+interface Takeover {
+  title: string
+  description?: ReactNode
+  content: ReactNode
+}
+interface FrameActions {
+  actionSlot: HTMLDivElement | null
+  openTakeover: (flow: Takeover) => void
+  closeTakeover: () => void
+}
+const FrameContext = createContext<FrameActions | null>(null)
+
+/** Page tasks open details/flows in the pane, with the rail and sheet intact.
+ * `openTakeover({ title: 'Add project', content: <ProjectFlow /> })` replaces
+ * the pane; `closeTakeover()` returns to the page. Keep form state in the flow.
+ * Page actions render with `<SettingsPageActions><Button … /></SettingsPageActions>`.
+ */
+export function useSettingsFrame(): FrameActions {
+  const frame = useContext(FrameContext)
+  if (!frame) throw new Error('Settings page must be inside SettingsFrame')
+  return frame
+}
+
+/** Place a real page action (Add machine, Add project, Invite) in its header.
+ * A portal keeps the handler and form state owned by the page. */
+export function SettingsPageActions({ children }: { children: ReactNode }) {
+  const frame = useContext(FrameContext)
+  if (!frame) return <>{children}</>
+  return frame.actionSlot ? createPortal(children, frame.actionSlot) : null
+}
+
+export function SettingsTakeover({
+  page,
+  title,
+  description,
+  onBack,
+  children,
+}: {
+  page: SettingsPage
+  title: string
+  description?: ReactNode
+  onBack: () => void
+  children: ReactNode
+}) {
+  const heading = useRef<HTMLHeadingElement | null>(null)
+  useEffect(() => heading.current?.focus({ preventScroll: true }), [])
+  return (
+    <section
+      aria-label={title}
+      className="settings-takeover settings-section-enter"
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || event.defaultPrevented) return
+        event.preventDefault()
+        event.stopPropagation()
+        onBack()
+      }}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="settings-flow-back"
+        onClick={onBack}
+      >
+        <ArrowLeft size={14} aria-hidden="true" />
+        {settingsPage(page).label}
+      </Button>
+      <header className="settings-page-header">
+        <div>
+          <h3 ref={heading} tabIndex={-1} className="settings-page-title">
+            {title}
+          </h3>
+          {description && <p className="settings-prose mt-1.5">{description}</p>}
+        </div>
+      </header>
+      {children}
+    </section>
+  )
+}
+
+function isTyping(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.matches('input, textarea, select') || target.isContentEditable)
+  )
+}
+
+/** Provide the controls when the frame was given them; otherwise inherit. */
+function ControlsBoundary({
+  controls,
+  children,
+}: {
+  controls?: SettingsControlsState
+  children: ReactNode
+}) {
+  return controls ? (
+    <SettingsControlsContext.Provider value={controls}>{children}</SettingsControlsContext.Provider>
+  ) : (
+    <>{children}</>
+  )
+}
+
+export function SettingsFrame({
+  page,
+  selectedPage,
+  onPageChange,
+  onClose,
+  viewer,
+  toolbar,
+  footer,
+  controls,
+  children,
+}: {
+  page: SettingsPage
+  selectedPage?: boolean
+  onPageChange: (page: SettingsPage | null) => void
+  onClose: () => void
+  viewer: AdminViewer
+  toolbar?: ReactNode
+  footer?: ReactNode
+  /** Settings, permissions and write feedback for the page body AND its
+   * takeovers. Takeovers render beside the body, so a provider placed around
+   * `children` never reached them: every page opened inside a page read the
+   * viewer as a member. Omit it to inherit a provider from above. */
+  controls?: SettingsControlsState
+  children: ReactNode
+}) {
+  const definition = settingsPage(page)
+  const description =
+    page === 'members' && !viewer.sections.includes('people')
+      ? 'People who can sign in to this workspace.'
+      : page === 'machines' && !viewer.sections.includes('machines')
+        ? 'The computers you look after or may run agents on.'
+        : definition.description
+  const groups = visibleSettingsGroups(SETTINGS_GROUPS, viewer.sections)
+  const pages = groups.flatMap((group) => group.tabs)
+  const requiredSection = adminSectionOf(page)
+  const pageOffered = requiredSection === undefined || viewer.sections.includes(requiredSection)
+  const [query, setQuery] = useState('')
+  const results = searchSettings(query, pages).filter((result) => {
+    if (result.page.key === 'members' && result.section) return viewer.sections.includes('people')
+    if (result.page.key === 'machines' && result.label === 'Add a machine')
+      return viewer.capabilities?.addMachine === true
+    return true
+  })
+  const searching = query.trim().length > 0
+  const [selectedResult, setSelectedResult] = useState(0)
+  const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 759px)').matches)
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 759px)')
+    const changed = () => setNarrow(media.matches)
+    media.addEventListener('change', changed)
+    return () => media.removeEventListener('change', changed)
+  }, [])
+  const [phonePage, setPhonePage] = useState(selectedPage ?? false)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: browser history restores the page/rail screen too.
+  useEffect(() => {
+    if (selectedPage !== undefined) setPhonePage(selectedPage)
+  }, [selectedPage, page])
+  const [flow, setFlow] = useState<(Takeover & { page: SettingsPage }) | null>(null)
+  const takeover = pageOffered && flow?.page === page ? flow : null
+  const [actionSlot, setActionSlot] = useState<HTMLDivElement | null>(null)
+  const [jump, setJump] = useState<SettingsSearchResult | null>(null)
+  const filterRef = useRef<HTMLInputElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const pageRef = useRef<HTMLHeadingElement | null>(null)
+  const openTakeover = useCallback(
+    (next: Takeover) => {
+      setFlow({ ...next, page })
+      setQuery('')
+      setPhonePage(true)
+    },
+    [page],
+  )
+  const closeTakeover = useCallback(() => {
+    setFlow(null)
+    requestAnimationFrame(() => pageRef.current?.focus({ preventScroll: true }))
+  }, [])
+  const actions = useMemo(
+    () => ({ actionSlot, openTakeover, closeTakeover }),
+    [actionSlot, openTakeover, closeTakeover],
+  )
+
+  const openPage = (next: SettingsPage) => {
+    setQuery('')
+    setFlow(null)
+    setPhonePage(true)
+    onPageChange(next)
+  }
+  const openResult = (result: SettingsSearchResult) => {
+    setJump(result.targetId ? result : null)
+    openPage(result.page.key)
+  }
+  const showRail = () => {
+    setPhonePage(false)
+    setQuery('')
+    setFlow(null)
+    onPageChange(null)
+  }
+
+  // A route change, including browser Back/Forward, drops a flow from the old page.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: navigation resets the old page’s flow and scroll.
+  useEffect(() => {
+    setFlow(null)
+    scrollRef.current?.scrollTo?.({ top: 0 })
+  }, [page])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (
+        event.key === '/' &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !isTyping(event.target)
+      ) {
+        event.preventDefault()
+        // The phone search lives on the rail, so reveal it before taking focus.
+        setPhonePage(false)
+        requestAnimationFrame(() => filterRef.current?.focus())
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Lazy section chunks can land after navigation. Observe only this pane until
+  // its addressed row exists, then disconnect; no polling or global DOM scan.
+  useEffect(() => {
+    if (!jump || jump.page.key !== page) return
+    const scroll = scrollRef.current
+    if (!scroll) return
+    let frame = 0
+    const reveal = () => {
+      const row = document.getElementById(jump.targetId)
+      const section = document.getElementById(settingsSectionId(jump.section))
+      // Conditional controls fall back to their section. A lazy section has
+      // no wrapper until its chunk lands, so it still gets the exact row.
+      const target = row ?? (section?.children.length ? section : null)
+      if (!target || !scroll.contains(target)) return false
+      frame = requestAnimationFrame(() => {
+        target.scrollIntoView?.({ block: 'center', behavior: 'instant' })
+        target.focus({ preventScroll: true })
+        target.classList.remove('settings-search-highlight')
+        // Restart the one-shot highlight even if the same result is chosen twice.
+        void target.offsetWidth
+        target.classList.add('settings-search-highlight')
+        target.addEventListener(
+          'animationend',
+          () => target.classList.remove('settings-search-highlight'),
+          { once: true },
+        )
+        setJump(null)
+      })
+      return true
+    }
+    if (reveal()) return () => cancelAnimationFrame(frame)
+    const observer = new MutationObserver(() => {
+      if (reveal()) observer.disconnect()
+    })
+    observer.observe(scroll, { childList: true, subtree: true })
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    }
+  }, [jump, page])
+
+  const sheetTitle = (
+    <span className="settings-sheet-title">
+      <button
+        data-pressable
+        type="button"
+        className="settings-mobile-back"
+        aria-label="Back to settings"
+        onClick={showRail}
+      >
+        <ArrowLeft size={16} aria-hidden="true" />
+      </button>
+      <span className="settings-sheet-name">Settings</span>
+      <span className="settings-sheet-crumb" aria-hidden="true">
+        <span className="settings-sheet-separator">/ </span>
+        {searching ? 'Search' : (takeover?.title ?? definition.label)}
+      </span>
+    </span>
+  )
+
+  return (
+    <ControlsBoundary controls={controls}>
+      <FrameContext.Provider value={actions}>
+        <section
+          aria-label="Settings frame"
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape' || event.defaultPrevented) return
+            if (takeover) {
+              event.preventDefault()
+              event.stopPropagation()
+              closeTakeover()
+            } else if (searching) {
+              event.preventDefault()
+              event.stopPropagation()
+              setQuery('')
+              filterRef.current?.blur()
+            }
+          }}
+        >
+          <AppSheet
+            label="Settings"
+            title={sheetTitle}
+            testId="settings-sheet"
+            onClose={onClose}
+            toolbar={toolbar}
+            className={cn(
+              'app-sheet-settings',
+              phonePage && 'settings-in-page',
+              searching && 'settings-searching',
+            )}
+          >
+            <section aria-label="Settings content" className="settings-panes">
+              <nav
+                className="settings-rail [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                aria-label="Settings sections"
+                aria-busy={viewer.status === 'loading'}
+              >
+                <div className="settings-search-field">
+                  <Search size={13} aria-hidden="true" />
+                  <Input
+                    ref={filterRef}
+                    type="search"
+                    value={query}
+                    aria-label="Search settings"
+                    placeholder="Search settings"
+                    onChange={(event) => {
+                      setQuery(event.target.value)
+                      setSelectedResult(0)
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                        event.preventDefault()
+                        setSelectedResult((current) =>
+                          Math.max(
+                            0,
+                            Math.min(
+                              results.length - 1,
+                              current + (event.key === 'ArrowDown' ? 1 : -1),
+                            ),
+                          ),
+                        )
+                      } else if (event.key === 'Enter' && results[selectedResult]) {
+                        event.preventDefault()
+                        openResult(results[selectedResult]!)
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        setQuery('')
+                        event.currentTarget.blur()
+                      }
+                    }}
+                  />
+                  {!query && <kbd>/</kbd>}
+                </div>
+                {groups.map((group) => (
+                  <div className="settings-rail-section" key={group.surface}>
+                    <div className="settings-rail-heading">
+                      <span className="settings-eyebrow settings-rail-group">{group.label}</span>
+                      {group.surface === 'workspace' && (
+                        <span className="settings-rail-hint">Everyone</span>
+                      )}
+                    </div>
+                    {viewer.status === 'loading' ? (
+                      <div
+                        className="settings-rail-skeleton"
+                        aria-label={`Loading ${group.label.toLowerCase()} pages`}
+                        role="status"
+                      >
+                        {(group.surface === 'personal'
+                          ? [0, 1, 2, 3, 4]
+                          : [0, 1, 2, 3, 4, 5, 6, 7]
+                        ).map((i) => (
+                          <div key={i} />
+                        ))}
+                      </div>
+                    ) : (
+                      group.tabs.map((entry) => {
+                        const Icon = entry.icon
+                        return (
+                          <button
+                            type="button"
+                            data-pressable
+                            key={entry.key}
+                            className="settings-rail-item"
+                            aria-current={
+                              !searching && !takeover && entry.key === page ? 'page' : undefined
+                            }
+                            onClick={() => openPage(entry.key)}
+                          >
+                            <Icon size={14} aria-hidden="true" />
+                            <span>{entry.label}</span>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
+                ))}
+                {(!narrow || !phonePage) && <AdminViewerError viewer={viewer} />}
+              </nav>
+              <div className="settings-pane">
+                <div ref={scrollRef} className="settings-pane-scroll">
+                  <div className="settings-measure">
+                    {narrow && phonePage && <AdminViewerError viewer={viewer} />}
+                    {searching && <div className="settings-search-results">{renderResults()}</div>}
+                    {takeover && (
+                      <SettingsTakeover
+                        page={page}
+                        title={takeover.title}
+                        description={takeover.description}
+                        onBack={closeTakeover}
+                      >
+                        {takeover.content}
+                      </SettingsTakeover>
+                    )}
+                    <div
+                      hidden={searching || Boolean(takeover)}
+                      className="settings-page-content settings-section-enter"
+                      key={page}
+                    >
+                      {pageOffered && (
+                        <header className="settings-page-header">
+                          <div>
+                            <h3 ref={pageRef} tabIndex={-1} className="settings-page-title">
+                              {definition.label}
+                              {(definition.adminOnly || definition.group === 'workspace') && (
+                                <span
+                                  className="settings-scope-tag"
+                                  title={
+                                    definition.adminOnly
+                                      ? 'Only admins see this page'
+                                      : 'Changes here apply to everyone in this workspace'
+                                  }
+                                >
+                                  {definition.adminOnly ? (
+                                    <Lock size={11} aria-hidden="true" />
+                                  ) : (
+                                    <Users size={11} aria-hidden="true" />
+                                  )}
+                                  {definition.adminOnly ? 'Admins' : 'Everyone'}
+                                </span>
+                              )}
+                            </h3>
+                            <p className="settings-prose mt-1.5">{description}</p>
+                          </div>
+                          <div ref={setActionSlot} className="settings-page-actions" />
+                        </header>
+                      )}
+                      {children}
+                    </div>
+                  </div>
+                </div>
+                {footer}
+              </div>
+            </section>
+          </AppSheet>
+        </section>
+      </FrameContext.Provider>
+    </ControlsBoundary>
+  )
+
+  function renderResults() {
+    return (
+      <>
+        <header className="settings-page-header">
+          <div>
+            <h3 className="settings-page-title">
+              {results.length ? 'Results' : `No settings match “${query.trim()}”`}
+            </h3>
+            <p className="settings-prose mt-1.5" role="status">
+              {results.length
+                ? `${results.length} ${results.length === 1 ? 'match' : 'matches'} for “${query.trim()}”. ↑↓ to move, ↵ to open`
+                : 'Try a broader word, like “model”, “phone”, “branch” or “password”.'}
+            </p>
+          </div>
+        </header>
+        <div className="settings-results-list">
+          {results.map((result, index) => {
+            const Icon = result.page.icon
+            return (
+              <button
+                data-pressable
+                type="button"
+                key={`${result.page.key}-${result.label}`}
+                className={cn(
+                  'settings-result',
+                  index === selectedResult && 'settings-result-selected',
+                )}
+                onClick={() => openResult(result)}
+              >
+                <Icon size={16} aria-hidden="true" />
+                <span>
+                  <span className="settings-result-label">{result.label}</span>
+                  <span className="settings-result-path">{result.page.label}</span>
+                </span>
+                <ChevronRight size={14} aria-hidden="true" />
+              </button>
+            )
+          })}
+        </div>
+      </>
+    )
+  }
+}

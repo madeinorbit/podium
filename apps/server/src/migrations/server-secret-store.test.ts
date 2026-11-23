@@ -39,6 +39,8 @@
 import { SERVER_SECRET_KEYS } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
+import { workspaceQueries } from '../store/executor/sync-drizzle'
 import { ServerSecretsRepository } from '../store/server-secrets'
 import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -106,6 +108,19 @@ const cutIndex = () => {
  */
 const throughThisMigration = () => DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1)
 
+/**
+ * The repository over a database migrated through this migration, then the split
+ * that moves a workspace's secrets to `workspace_secrets` (POD-7013), which the
+ * repository reads now. Only the split, so what it serves is what this migration
+ * lifted; later migrations (the personal provider keys) would move it on again.
+ */
+const repositoryAfterSplit = (db: Db): ServerSecretsRepository => {
+  const split = DRIZZLE_MIGRATIONS.find((m) => m.name.endsWith('_workspace-meta-split'))
+  if (split === undefined) throw new Error('the workspace meta split is not in the manifest')
+  runDrizzleMigrations(db, [...throughThisMigration(), split])
+  return new ServerSecretsRepository(workspaceQueries(stageASeam(db), SELF_HOSTED_WORKSPACE_ID))
+}
+
 const tableExists = (db: Db, name: string): boolean =>
   db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) !==
   undefined
@@ -161,8 +176,12 @@ describe('the migration lifts the keys the model classifies — no second list',
   it('the literals the SQL spells out ARE POD-418’s shipped vocabulary', () => {
     // The frozen-history literals are pinned to the live vocabulary HERE and
     // nowhere else. A secret added to the model with no migration to lift it
-    // fails this, instead of quietly remaining in the blob forever.
-    expect([...LIFTED_KEYS].sort()).toEqual([...SERVER_SECRET_KEYS].sort())
+    // fails this, instead of quietly remaining in the blob forever. The three
+    // provider keys left the vocabulary for credentials (credential management
+    // §18); this frozen migration still lifts them, and the one-time move into
+    // the vault reads them from there.
+    const RETIRED = ['apiKeys.openrouter', 'apiKeys.anthropic', 'apiKeys.openai']
+    expect([...LIFTED_KEYS].sort()).toEqual([...SERVER_SECRET_KEYS, ...RETIRED].sort())
   })
 })
 
@@ -288,23 +307,24 @@ describe('the repository reads what the migration wrote', () => {
   it('serves each lifted value under its own key, and nothing for an absent one', async () => {
     const db = preMigrationDb({
       ...PREFERENCES,
-      apiKeys: { openai: SEEDED['apiKeys.openai'], anthropic: '', openrouter: '' },
+      integrations: { linearApiKey: SEEDED['integrations.linearApiKey'] },
+      notifications: { ...PREFERENCES.notifications, telegramBotToken: '' },
     })
     runDrizzleMigrations(db, throughThisMigration())
-    const secrets = new ServerSecretsRepository(stageASeam(db))
+    const secrets = repositoryAfterSplit(db)
 
     // The POSITIVE control beside the negative: a repository that returned
     // `undefined` for everything would satisfy the absence assertion alone.
-    expect(await secrets.get('apiKeys.openai')).toBe(SEEDED['apiKeys.openai'])
-    expect(await secrets.get('apiKeys.anthropic')).toBeUndefined()
-    expect(await secrets.getOrEmpty('apiKeys.anthropic')).toBe('')
+    expect(await secrets.get('integrations.linearApiKey')).toBe(SEEDED['integrations.linearApiKey'])
+    expect(await secrets.get('notifications.telegramBotToken')).toBeUndefined()
+    expect(await secrets.getOrEmpty('notifications.telegramBotToken')).toBe('')
   })
 
   it('reports presence for every key in the vocabulary, values for none', async () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
 
-    const presence = await new ServerSecretsRepository(stageASeam(db)).presence()
+    const presence = await repositoryAfterSplit(db).presence()
     expect(presence.map((p) => p.key).sort()).toEqual([...SERVER_SECRET_KEYS].sort())
     expect(presence.every((p) => p.present)).toBe(true)
     // The projection has no value key BY CONSTRUCTION (it is a separate shape,
@@ -316,20 +336,21 @@ describe('the repository reads what the migration wrote', () => {
   it('a cleared secret leaves no row, and a blank write is a clear', async () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
-    const secrets = new ServerSecretsRepository(stageASeam(db))
+    const secrets = repositoryAfterSplit(db)
+    const present = async (key: 'integrations.linearApiKey' | 'notifications.telegramBotToken') =>
+      (await secrets.presence()).find((p) => p.key === key)?.present
 
-    await secrets.clear('apiKeys.openai')
-    expect(await secrets.get('apiKeys.openai')).toBeUndefined()
-    expect((await secrets.presence()).find((p) => p.key === 'apiKeys.openai')?.present).toBe(false)
+    // The positive control first: both rows are there, so the absences below
+    // are not those of a store that never held anything.
+    expect(await present('integrations.linearApiKey')).toBe(true)
+    expect(await present('notifications.telegramBotToken')).toBe(true)
 
-    // A blank must not create a row that reads as configured.
-    await secrets.set('apiKeys.openai', '', '2026-07-31T00:00:00.000Z')
-    expect((await secrets.presence()).find((p) => p.key === 'apiKeys.openai')?.present).toBe(false)
+    await secrets.clear('integrations.linearApiKey')
+    expect(await secrets.get('integrations.linearApiKey')).toBeUndefined()
+    expect(await present('integrations.linearApiKey')).toBe(false)
 
-    // …and the positive control: a real write DOES land, so the two assertions
-    // above are not satisfied by a store that never writes anything.
-    await secrets.set('apiKeys.openai', 'sk-rotated', '2026-07-31T00:00:00.000Z')
-    expect(await secrets.get('apiKeys.openai')).toBe('sk-rotated')
-    expect(await secrets.updatedAt('apiKeys.openai')).toBe('2026-07-31T00:00:00.000Z')
+    // A blank must not leave a row that reads as configured.
+    await secrets.set('notifications.telegramBotToken', '', '2026-07-31T00:00:00.000Z')
+    expect(await present('notifications.telegramBotToken')).toBe(false)
   })
 })

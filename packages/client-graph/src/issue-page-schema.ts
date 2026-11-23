@@ -12,7 +12,9 @@ const field = (type: FieldSpec['type'], optional = true): FieldSpec => ({
  * stay on the full row; menus need only the explicitly declared small summary. */
 export const ISSUE_PAGE_FIELDS = {
   type: field('string', false), labels: field('object', false),
-  brief: field('string'), acceptance: field('string'),
+  // Its own synced record (POD-6921): `IssueModel.brief` reads the `issueBrief` record.
+  brief: { type: 'string', optional: true, source: { schema: 'IssueBriefWire', arrivesOn: 'replica:issueBriefs', property: 'text' } },
+  acceptance: field('string'),
   dependencyNote: field('string'),
   suggestedStage: field('string'), suggestedReason: field('string'),
   estimateMin: field('number'), dueAt: field('isoDate'),
@@ -22,6 +24,9 @@ export const ISSUE_PAGE_FIELDS = {
   linearIdentifier: field('string'), linearUrl: field('string'),
   owner: field('id', false), visibility: field('string', false), createdBy: field('object', false),
   lastLifecycleActor: field('object'),
+  // POD-6295: a description edit names the revision it was cut from, and an
+  // assignee from before members keeps its old label as a note.
+  revision: field('number'), legacyAssignee: field('string'),
 } as const
 
 const seatField = (type: FieldSpec['type'], property?: string): FieldSpec => ({

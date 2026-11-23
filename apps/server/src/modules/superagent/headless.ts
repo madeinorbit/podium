@@ -13,14 +13,22 @@ import type {
   ThreadId,
   UserId,
 } from '@podium/model'
-import { asAccountId, asSessionId, type MachineId, machinePathBasename, machinePathsEqual } from '@podium/model'
+import {
+  asAccountId,
+  asSessionId,
+  type MachineId,
+  machinePathBasename,
+  machinePathsEqual,
+} from '@podium/model'
 import type {
+  AccessField,
   BindingMachineAccess,
   HeadlessActivityEvent,
   HeadlessTurnEvent,
   LiveServerMessage,
   ServerMessage,
   SessionBindingSpawnInstruction,
+  SessionPosture,
 } from '@podium/protocol'
 import type {
   ControlMessage,
@@ -31,7 +39,11 @@ import type {
 import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ObservationLeaseRecord } from '../../store/types'
 import { authorReattachBinding, authorSpawnBinding } from '../sessions/binding-mint'
+import type { LaunchAccess } from '../sessions/launch-config'
 import { Session, type SessionDurableState } from '../sessions/session'
+import type { SessionWriter } from '../sessions/session-lifecycle-types'
+import { legacyPermissionModeFor } from '../sessions/session-posture'
+import { afterCommitOrNow } from './after-commit'
 
 export interface HeadlessRuntimeRelay {
   send(input: {
@@ -40,7 +52,10 @@ export interface HeadlessRuntimeRelay {
     text: string
     origin: 'system'
     delivery: 'when-ready'
+    posture?: SessionPosture
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read these; removing it drops them
     allowedTools?: string[]
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
     permissionMode?: string
     toolPolicy?: 'none'
     mcpConfig?: string
@@ -48,12 +63,12 @@ export interface HeadlessRuntimeRelay {
     sessionUuid?: string
     accountId?: string
     requestDigest?: string
-    structuredPermissions?: true
     contextPrompt?: string
     systemPrompt?: string
     timeoutMs?: number
     model?: string
     effort?: string
+    access?: AccessField
   }): Promise<TurnReceipt>
   interrupt(sessionId: SessionId): Promise<{ ok: true } | { reason: string; detail?: string }>
   onEvent(listener: (sessionId: SessionId, event: RuntimeEvent) => void | Promise<void>): () => void
@@ -71,9 +86,12 @@ export interface HeadlessHistoryRelay {
   snapshot(
     sessionId: SessionId,
     machineId: MachineId,
-  ): Promise<
-    { sessionId: SessionId; result: { snapshot: { binding: { resume: { value: string } | null } } } | { reason: string; detail?: string } }
-  >
+  ): Promise<{
+    sessionId: SessionId
+    result:
+      | { snapshot: { binding: { resume: { value: string } | null } } }
+      | { reason: string; detail?: string }
+  }>
 }
 
 export interface HeadlessTurnResult {
@@ -100,7 +118,11 @@ export interface HeadlessDeps {
   readSession?(sessionId: SessionId): Promise<Session | undefined>
   /** Register a freshly constructed headless session in the registry's map. */
   registerSession(session: Session): void
-  resolveMachine(requested: string | undefined, cwd: string, agentKind: AgentKind): Promise<MachineId>
+  resolveMachine(
+    requested: string | undefined,
+    cwd: string,
+    agentKind: AgentKind,
+  ): Promise<MachineId>
   defaultMachine(): Promise<MachineId>
   toMachine(machineId: MachineId, msg: ControlMessage): void
   /** Mint a globally unique requestId with the given prefix (shared counter —
@@ -109,11 +131,30 @@ export interface HeadlessDeps {
   nextRequestId(prefix: string): string
   /** A fresh copy of the default PTY geometry (headless rows still carry one). */
   defaultGeometry(): Geometry
-  persist(session: Session): Promise<void>
-  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
-  write(session: Session, mutate: (draft: SessionDurableState) => void): void
+  /** Persist the row through the writer of whoever asked (ADR 12 D9, POD-6606). */
+  persist(writer: SessionWriter, session: Session): Promise<void>
+  /** Mutate the durable half as a DRAFT and persist it through `writer` [POD-3330]. */
+  write(writer: SessionWriter, session: Session, mutate: (draft: SessionDurableState) => void): void
   broadcastSessions(): void
   clients(): Iterable<{ send(msg: ServerMessage): void }>
+  /**
+   * What a headless turn may run on (POD-6733; credential management §9): the
+   * session's account id read as a credential for its OWNER on its machine,
+   * through the resolver, with an `env` delivery's secret ready for the turn.
+   * A refusal carries the sentence a person reads; nothing falls back to the
+   * machine's own login.
+   *
+   * REQUIRED: optional-with-a-default would let a composition that forgot it
+   * run every turn on the machine's native login, which is the bug this port
+   * exists to close.
+   */
+  credentialAccess(input: {
+    agentKind: AgentKind
+    accountId: AccountId
+    ownerUserId: UserId
+    machineId: MachineId
+    sessionId: SessionId
+  }): Promise<LaunchAccess>
   /** Driver-contract relay. Late-bound: read through the closure at call time,
    *  since the gateway is constructed after this service. */
   relay(): HeadlessRuntimeRelay
@@ -151,22 +192,29 @@ export class HeadlessService {
    * as the thread exists. Also establishes the daemon-side headless session
    * via `spawn` with `requestedDriverId: 'headless'` (fire-and-forget; the turn
    * path retries if the daemon has not bound it yet).
+   *
+   * THE ROW COMMITS THROUGH `writer` (ADR 12 D9, POD-6606): a superagent or ship
+   * command's own, or the named origin of the server work that asked (the turn
+   * runner, the bridge, the shipping lanes). This service has no writer of its own.
    */
-  async createHeadlessSession(input: {
-    sessionId?: SessionId
-    agentKind: AgentKind
-    cwd: string
-    title?: string
-    spawnedBy?: string
-    machineId?: MachineId
-    ownerUserId: UserId
-    createdBy?: Attribution
-    issueId?: IssueId
-    accountId?: AccountId
-    model?: string
-    effort?: string
-    requireNoTools?: boolean
-  }): Promise<{ sessionId: SessionId }> {
+  async createHeadlessSession(
+    writer: SessionWriter,
+    input: {
+      sessionId?: SessionId
+      agentKind: AgentKind
+      cwd: string
+      title?: string
+      spawnedBy?: string
+      machineId?: MachineId
+      ownerUserId: UserId
+      createdBy?: Attribution
+      issueId?: IssueId
+      accountId?: AccountId
+      model?: string
+      effort?: string
+      requireNoTools?: boolean
+    },
+  ): Promise<{ sessionId: SessionId }> {
     if (input.requireNoTools && !harnessSupportsNoTools(input.agentKind)) {
       throw new Error(`harness ${input.agentKind} cannot enforce a no-tools headless session`)
     }
@@ -230,7 +278,7 @@ export class HeadlessService {
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
     })
     this.deps.registerSession(session)
-    await this.deps.persist(session)
+    await this.deps.persist(writer, session)
     this.deps.broadcastSessions()
     // Establish the daemon-side headless session over the existing WS relay.
     // Fire-and-forget: a turn that lands before the bind reports `not_running`
@@ -240,11 +288,18 @@ export class HeadlessService {
     // without it the daemon refuses with "server-minted SessionBinding
     // instruction is required" (POD-4806).
     const observationLease = await this.deps.fenceObservation(session)
-    try {
-      this.deps.toMachine(machineId, this.spawnFrameFor(session, authored.binding, observationLease))
-    } catch {
-      // Establishment is best-effort; the turn path reports the failure.
-    }
+    // The frame AFTER THE COMMIT (POD-6419): the fence and the row are the
+    // write; a rolled-back create sends the daemon nothing.
+    await afterCommitOrNow(() => {
+      try {
+        this.deps.toMachine(
+          machineId,
+          this.spawnFrameFor(session, authored.binding, observationLease),
+        )
+      } catch {
+        // Establishment is best-effort; the turn path reports the failure.
+      }
+    }, 'headless-establish')
     return { sessionId }
   }
 
@@ -316,10 +371,7 @@ export class HeadlessService {
         ...(session.issueId ? { issueId: session.issueId } : {}),
       }).binding
       const observationLease = await this.deps.fenceObservation(session)
-      this.deps.toMachine(
-        session.machineId,
-        this.spawnFrameFor(session, binding, observationLease),
-      )
+      this.deps.toMachine(session.machineId, this.spawnFrameFor(session, binding, observationLease))
     } catch {
       // Establishment is best-effort; the ladder retry reports the outcome.
     }
@@ -335,16 +387,17 @@ export class HeadlessService {
    * Record the harness's own session id on a headless session once the first
    * turn reports it — the resume ref every later turn (and the "open in
    * terminal" escape hatch) reattaches to. Persisted + broadcast, mirroring how
-   * PTY sessions learn their resume refs from the daemon.
+   * PTY sessions learn their resume refs from the daemon. Through `writer`: the
+   * caller's (POD-6606).
    */
-  setHeadlessResume(sessionId: SessionId, resume: ResumeRef): void {
+  setHeadlessResume(writer: SessionWriter, sessionId: SessionId, resume: ResumeRef): void {
     const session = this.deps.getSession(sessionId)
     if (!session?.headless) return
     // Through `setResume` on the draft [POD-3330]: a bag has no setter, so a
     // bare assignment would skip the `conversationBinding` promotion — on the
     // very path whose comment at the mint site says this call is what promotes
     // a headless session off its `'never'` claim.
-    this.deps.write(session, (draft) => session.setResume(resume, draft))
+    this.deps.write(writer, session, (draft) => session.setResume(resume, draft))
     this.deps.broadcastSessions()
   }
 
@@ -355,6 +408,37 @@ export class HeadlessService {
   broadcastHeadlessActivity(sessionId: SessionId, event: HeadlessActivityEvent): void {
     const msg: LiveServerMessage = { type: 'headlessActivity', sessionId, event }
     for (const c of this.deps.clients()) c.send(msg)
+  }
+
+  /**
+   * Why a superagent turn on this session may not run, or undefined when it
+   * may (POD-6740, decision POD-6739 (a)). A machine's own logins belong to the
+   * person who looks after it, so a member's superagent never runs on another
+   * person's login. The resolver decides, as for every launch
+   * (`credentialAccess`; credential management §9); only the words of the
+   * custodian refusal name the superagent role's fix. The superagent awaits
+   * this before dispatch, so a refusal ends the turn before anything is sent.
+   */
+  async superagentLoginRefusal(
+    sessionId: SessionId,
+    agent: AgentKind,
+  ): Promise<string | undefined> {
+    const session = this.deps.getSession(sessionId)
+    if (!session) return undefined
+    const access = await this.deps.credentialAccess({
+      agentKind: agent,
+      accountId: session.accountId ?? asAccountId(''),
+      ownerUserId: session.ownerUserId,
+      machineId: session.machineId,
+      sessionId,
+    })
+    if (access.ok) return undefined
+    if (access.refusal !== 'own-credential-required') return access.message
+    return (
+      "This is someone else's machine: its logins belong to the person who looks after it, " +
+      "and Podium never runs your superagent on another person's login. Connect your own " +
+      'account in Settings → Credentials and select it for the superagent role.'
+    )
   }
 
   /**
@@ -382,8 +466,12 @@ export class HeadlessService {
       contextPrompt?: string
       systemPrompt?: string
       mcpConfig?: string
-      allowedTools?: string[]
-      permissionMode?: string
+      /** The turn's launch terms (POD-6858). Absent: the session's. */
+      posture?: SessionPosture
+      /** The old Claude-worded allow list, sent only for daemons that predate
+       *  posture (see `legacyHarnessAllowedTools`). */
+      // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
+      legacyAllowedTools?: string[]
       toolPolicy?: 'none'
       resumeValue?: string
       sessionUuid?: string
@@ -395,7 +483,7 @@ export class HeadlessService {
       throw new Error(`harness ${input.agent} cannot enforce a no-tools headless turn`)
     }
     const session = this.deps.getSession(input.sessionId)
-    const machineId = session?.machineId ?? await this.deps.defaultMachine()
+    const machineId = session?.machineId ?? (await this.deps.defaultMachine())
     const accountId = session?.accountId ?? asAccountId('')
     if (input.toolPolicy === 'none') {
       if (!accountId.startsWith(`native:${input.agent}:`)) {
@@ -409,19 +497,43 @@ export class HeadlessService {
         )
       }
     }
+    // THE TURN'S CREDENTIAL (POD-6733), resolved at the moment of use for
+    // the session's owner on its machine. It rides THIS turn: the headless
+    // driver runs a process per turn, and a session the daemon re-adopts after
+    // a restart never gets its establish frame again. A refusal is a verdict,
+    // not a transport gap: nothing is sent, and the turn never runs on the
+    // machine's own login instead.
+    let access: AccessField | undefined
+    if (session) {
+      const resolved = await this.deps.credentialAccess({
+        agentKind: input.agent,
+        accountId,
+        ownerUserId: session.ownerUserId,
+        machineId,
+        sessionId: input.sessionId,
+      })
+      if (!resolved.ok) return { ok: false, error: resolved.message }
+      access = resolved.access
+    }
     const model = input.model && input.model !== 'auto' ? input.model : undefined
     const effort = input.effort && input.effort !== 'auto' ? input.effort : undefined
     // The daemon enforces the budget this call waits on: a one-shot turn
     // always carries it, since an absent deadline means none at all.
     const budgetMs = input.timeoutMs ?? 600_000
+    // THE OLD WORDS BESIDE THE POSTURE (POD-6858). A daemon that predates
+    // posture strips it and launches from these, and recomputes the digest
+    // over them; so the digest is minted over these too, never over posture.
+    // LEGACY(remove-after: 2027-02): pre-posture daemons read this; removing it drops them
+    const permissionMode = input.posture ? legacyPermissionModeFor(input.posture) : undefined
+    const allowedTools = input.legacyAllowedTools
     const requestDigest = createHash('sha256')
       .update(
         canonicalHeadlessContractFacts({
           prompt: input.prompt,
           ...(model !== undefined ? { model } : {}),
           ...(effort !== undefined ? { effort } : {}),
-          ...(input.allowedTools !== undefined ? { allowedTools: [...input.allowedTools] } : {}),
-          ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+          ...(allowedTools !== undefined ? { allowedTools: [...allowedTools] } : {}),
+          ...(permissionMode !== undefined ? { permissionMode } : {}),
           ...(input.toolPolicy !== undefined ? { toolPolicy: input.toolPolicy } : {}),
           ...(input.mcpConfig !== undefined ? { mcpConfig: input.mcpConfig } : {}),
           ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
@@ -462,13 +574,20 @@ export class HeadlessService {
         return
       }
       if (event.t === 'item' && onEvent) {
-        const item = (event as { item?: { kind?: string; item?: { id?: string; text?: string } } }).item
+        const item = (event as { item?: { kind?: string; item?: { id?: string; text?: string } } })
+          .item
         if (item?.kind === 'partial' && typeof item.item?.text === 'string') {
           const id = item.item.id ?? ''
-          const hint = id.startsWith(`headless:${input.turnId}:`) ? id.slice(`headless:${input.turnId}:`.length) || undefined : undefined
+          const hint = id.startsWith(`headless:${input.turnId}:`)
+            ? id.slice(`headless:${input.turnId}:`.length) || undefined
+            : undefined
           const text = item.item.text
           try {
-            onEvent(hint ? { kind: 'partial-text', text, itemHint: hint } : { kind: 'partial-text', text })
+            onEvent(
+              hint
+                ? { kind: 'partial-text', text, itemHint: hint }
+                : { kind: 'partial-text', text },
+            )
           } catch {
             // Progress fan-out is best-effort; it must not fail the turn.
           }
@@ -484,8 +603,9 @@ export class HeadlessService {
           text: input.prompt,
           origin: 'system',
           delivery: 'when-ready',
-          ...(input.allowedTools ? { allowedTools: [...input.allowedTools] } : {}),
-          ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
+          ...(input.posture ? { posture: input.posture } : {}),
+          ...(allowedTools ? { allowedTools: [...allowedTools] } : {}),
+          ...(permissionMode ? { permissionMode } : {}),
           ...(input.toolPolicy ? { toolPolicy: input.toolPolicy } : {}),
           ...(input.mcpConfig ? { mcpConfig: input.mcpConfig } : {}),
           ...(input.resumeValue ? { resumeValue: input.resumeValue } : {}),
@@ -497,6 +617,7 @@ export class HeadlessService {
           timeoutMs: budgetMs,
           ...(model ? { model } : {}),
           ...(effort ? { effort } : {}),
+          ...(access ? { access } : {}),
         })
       } catch (error) {
         return {
@@ -529,7 +650,11 @@ export class HeadlessService {
         return { ok: false, deliveryStatus: 'unknown', error: DELIVERY_UNKNOWN_ERROR }
       }
       if (receipt.outcome === 'queued') {
-        return { ok: false, error: 'headless turn was queued; expected direct dispatch', retryable: true }
+        return {
+          ok: false,
+          error: 'headless turn was queued; expected direct dispatch',
+          retryable: true,
+        }
       }
       // accepted
       wantedEpoch = receipt.turnEpoch
@@ -546,24 +671,38 @@ export class HeadlessService {
         }
         return { ok: false, deliveryStatus: 'unknown', error: DELIVERY_UNKNOWN_ERROR }
       }
-      const term = (terminal as { ev: { ev: string; verdict?: string; reason?: string; detail?: string } }).ev
+      const term = (
+        terminal as { ev: { ev: string; verdict?: string; reason?: string; detail?: string } }
+      ).ev
       // Read the canonical output + resume after the fence. Best-effort: a
       // history/snapshot miss must not turn a completed turn into a failure.
       let output: string | undefined
       let harnessSessionId: string | undefined
       try {
-        const hist = await store.history({ sessionId: input.sessionId, direction: 'before', limit: 1000 })
+        const hist = await store.history({
+          sessionId: input.sessionId,
+          direction: 'before',
+          limit: 1000,
+        })
         const items = hist.items
         for (let i = items.length - 1; i >= 0; i--) {
           const item = items[i]
-          if (item && (item as { role?: string }).role === 'assistant' && typeof (item as { text?: string }).text === 'string' && (item as { text: string }).text) {
+          if (
+            item &&
+            (item as { role?: string }).role === 'assistant' &&
+            typeof (item as { text?: string }).text === 'string' &&
+            (item as { text: string }).text
+          ) {
             output = (item as { text: string }).text
             break
           }
         }
         if (output === undefined) {
           const texts = items
-            .filter((it) => typeof (it as { text?: string }).text === 'string' && (it as { text: string }).text)
+            .filter(
+              (it) =>
+                typeof (it as { text?: string }).text === 'string' && (it as { text: string }).text,
+            )
             .map((it) => (it as { text: string }).text)
           if (texts.length > 0) output = texts[texts.length - 1]
         }
@@ -627,7 +766,8 @@ export class HeadlessService {
     requestDigest: string,
     accountId: AccountId,
   ): Promise<void> {
-    const machineId = this.deps.getSession(sessionId)?.machineId ?? await this.deps.defaultMachine()
+    const machineId =
+      this.deps.getSession(sessionId)?.machineId ?? (await this.deps.defaultMachine())
     this.deps.toMachine(machineId, {
       type: 'headlessTurnAck',
       sessionId,
@@ -660,7 +800,7 @@ export class HeadlessService {
     resumeValue: string
   }): Promise<{ ok: boolean; error?: string }> {
     const session = this.deps.getSession(input.sessionId)
-    const machineId = session?.machineId ?? await this.deps.defaultMachine()
+    const machineId = session?.machineId ?? (await this.deps.defaultMachine())
     try {
       const ownerUserId = session?.ownerUserId
       const observationLease = session ? await this.deps.fenceObservation(session) : undefined

@@ -1,5 +1,6 @@
 import { pageHistory } from '@podium/harness/driver/host'
 import { AGENT_MANIFESTS, promptEchoCorrelation } from '@podium/harness'
+import { testHarnessContext, testSessionTerms } from '../../testing/harness-context.js'
 /**
  * THE TERMINAL DRIVER UNDER THE DRIVER CONFORMANCE CORPUS (POD-1761 W3).
  *
@@ -679,6 +680,8 @@ function makeWorld(options: WorldOptions): {
       },
       spec: () => ({
         harness,
+        ...testSessionTerms(),
+        harnessContext: testHarnessContext({ kind: 'codex' }),
         selection: { auth: 'subscription', platform: 'linux', available: [profile.driverId] },
         workdir: '/tmp/conformance',
         instrumentation: { endpointUrl: 'http://localhost:1/hooks/test' },

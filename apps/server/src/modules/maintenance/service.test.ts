@@ -1,5 +1,14 @@
-import { asIssueId, asMachineId, asSessionId, asThreadId, firstAdminMemberId } from '@podium/model'
 import {
+  asIssueId,
+  asMachineId,
+  asMutationId,
+  asSessionId,
+  asThreadId,
+  firstAdminMemberId,
+} from '@podium/model'
+import {
+  APPLIED_MUTATION_PRUNE_BATCH_ROWS,
+  appliedMutationsPruneRunKey,
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
   CHANGE_PRUNE_BATCH_ROWS,
@@ -16,13 +25,17 @@ import {
   MAINTENANCE_SCHEMA_VERSION,
   maintenanceCommandsPruneRunKey,
   messageExpiryRunKey,
+  QUEUED_MESSAGE_MAX_AGE_MS,
+  queuedMessagesExpiryRunKey,
   sessionAutoArchiveRunKey,
   stewardPollRunKey,
   worktreeGcRunKey,
 } from '@podium/protocol'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MessageRow, SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
+import { APPLIED_MUTATIONS_MAX_AGE_MS } from '../sessions/session-shared'
 import { MaintenanceService } from './service'
 
 const baseMessage = (over: Partial<MessageRow> = {}): MessageRow => ({
@@ -72,7 +85,15 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
           return write()
         },
       },
-      { now: () => nowMs, leaseTtlMs: 90_000 },
+      {
+        now: () => nowMs,
+        leaseTtlMs: 90_000,
+        // The delivery service's own expiry write, over this store (POD-6602).
+        messages: {
+          expireObserved: async (input) =>
+            await store.messages.expireObserved(fixtureWriteScope(), input),
+        },
+      },
     )
   })
 
@@ -108,9 +129,9 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     const message = baseMessage({
       deliveredTo: asSessionId('sess_previous'),
       hop: 2,
-      clampedFrom: 'interrupt',
+      clampedFrom: '{"urgency":"interrupt"}',
     })
-    await store.messages.addMessage(message)
+    await store.messages.addMessage(fixtureWriteScope(), message)
     const lease = await handshake('gen_a')
     expect(lease.status).toBe('ready')
     if (lease.status !== 'ready') throw new Error('expected lease')
@@ -140,7 +161,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(events[0]?.payload).toMatchObject({
       deliveredTo: 'sess_previous',
       hop: 2,
-      clampedFrom: 'interrupt',
+      clampedFrom: '{"urgency":"interrupt"}',
     })
     expect(funnelWrites).toBe(3)
   })
@@ -149,7 +170,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     // Not due yet, so only the observation check can answer `precondition`: the
     // guarded move (which also refuses a handed-on row) is never reached.
     const message = baseMessage({ expiresAt: '2026-07-19T00:00:00.000Z' })
-    await store.messages.addMessage(message)
+    await store.messages.addMessage(fixtureWriteScope(), message)
     const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
@@ -169,14 +190,19 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     }
     // Handed on between the read and the command: the observation no longer
     // describes the row, so the command is stale rather than an expiry.
-    await store.messages.markDispatched(message.id, asSessionId('sess_next'), message.createdAt)
+    await store.messages.markDispatched(
+      fixtureWriteScope(),
+      message.id,
+      asSessionId('sess_next'),
+      message.createdAt,
+    )
     expect(await service.apply(command)).toMatchObject({ status: 'stale', reason: 'precondition' })
     expect((await store.messages.getMessage(message.id))?.deliveryStatus).toBe('dispatched')
   })
 
   it('returns stale for a superseded fence, changed facts, and not-yet-due work', async () => {
     const explicit = baseMessage({ expiresAt: '2026-07-19T00:00:00.000Z' })
-    await store.messages.addMessage(explicit)
+    await store.messages.addMessage(fixtureWriteScope(), explicit)
     const lease = await handshake('gen_a')
     if (lease.status !== 'ready') throw new Error('expected lease')
     const observed = {
@@ -265,6 +291,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     })
     expect(plan.thresholdSeq).toBeGreaterThan(0)
     const observed = {
+      tenantId: 'local',
       keepRows: CHANGE_KEEP_ROWS,
       maxAgeMs: CHANGE_MAX_AGE_MS,
       thresholdSeq: plan.thresholdSeq,
@@ -283,6 +310,48 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(reply).toMatchObject({ status: 'applied' })
     expect(reply.status === 'applied' && (reply.deleted ?? 0) > 0).toBe(true)
     expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
+  })
+
+  it("prunes its own workspace's feed and refuses another workspace's (POD-7021)", async () => {
+    await store.sync.appendChanges(
+      Array.from({ length: 5 }, (_, i) => ({
+        entity: 'issueProjection' as const,
+        entityId: `i${i}`,
+        op: 'upsert' as const,
+        payload: '{}',
+      })),
+      nowMs - CHANGE_MAX_AGE_MS - 1_000,
+    )
+    const lease = await handshake('gen_tenants')
+    if (lease.status !== 'ready') throw new Error('expected lease')
+    const commands = [store.sync.workspaceId, 'other/tenant'].map((tenantId) => {
+      const observed = {
+        tenantId,
+        keepRows: CHANGE_KEEP_ROWS,
+        maxAgeMs: CHANGE_MAX_AGE_MS,
+        thresholdSeq: 5,
+        batchSize: CHANGE_PRUNE_BATCH_ROWS,
+        fromSeq: 1,
+      }
+      return {
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'change-log-prune' as const,
+        runKey: changeLogPruneRunKey(observed),
+        fencingToken: lease.fencingToken,
+        observed,
+      }
+    })
+    expect(commands[0]!.runKey).not.toBe(commands[1]!.runKey)
+    expect(await service.apply(commands[1]!)).toMatchObject({
+      status: 'stale',
+      reason: 'precondition',
+    })
+    expect(await store.sync.changesSince(0)).toHaveLength(5)
+    expect(await service.apply(commands[0]!)).toMatchObject({ status: 'applied', deleted: 5 })
+    expect(await store.sync.changesSince(0)).toEqual([])
+    expect(await service.apply(commands[0]!)).toMatchObject({ status: 'already-applied' })
+    expect(await store.sync.readFeedState()).toEqual({ headSeq: 5, floorSeq: 6 })
   })
 
   it('[POD-925] issue auto-archive revalidates via issues seam at apply', async () => {
@@ -385,27 +454,27 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       const command = await withSessions(tryAutoArchiveStoppedObserved)
       expect(await service.apply(command)).toMatchObject({ status: 'applied' })
       expect(tryAutoArchiveStoppedObserved).toHaveBeenCalledWith(observed, nowMs)
-      expect(await store.maintenance.getCommand('session-auto-archive', command.runKey)).toBeDefined()
+      expect(
+        await store.maintenance.getCommand('session-auto-archive', command.runKey),
+      ).toBeDefined()
     })
 
     // POD-6206: the seam is async. Compared un-awaited, a Promise never equals
     // 'not-due' or 'precondition', so every refusal was recorded as applied.
-    it.each(['not-due', 'precondition'] as const)(
-      'a %s refusal is stale and records nothing',
-      async (reason) => {
-        const command = await withSessions(async () => reason)
-        expect(await service.apply(command)).toMatchObject({ status: 'stale', reason })
-        expect(
-          await store.maintenance.getCommand('session-auto-archive', command.runKey),
-        ).toBeUndefined()
-      },
-    )
+    it.each([
+      'not-due',
+      'precondition',
+    ] as const)('a %s refusal is stale and records nothing', async (reason) => {
+      const command = await withSessions(async () => reason)
+      expect(await service.apply(command)).toMatchObject({ status: 'stale', reason })
+      expect(
+        await store.maintenance.getCommand('session-auto-archive', command.runKey),
+      ).toBeUndefined()
+    })
 
     it('answers only once the archive has settled', async () => {
       let settle!: (outcome: 'applied') => void
-      const command = await withSessions(
-        () => new Promise((resolve) => (settle = resolve)),
-      )
+      const command = await withSessions(() => new Promise((resolve) => (settle = resolve)))
       let replied = false
       const reply = service.apply(command).then((r) => {
         replied = true
@@ -491,6 +560,143 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     expect(await store.maintenance.getCommand('message-expiry', 'recent/1')).toBeDefined()
   })
 
+  describe('[POD-7035] the mutation receipt prune', () => {
+    const DAY = 24 * 60 * 60 * 1000
+    const pruneCommand = (fencingToken: number, cutoffAppliedAt: number, batch = 0) => {
+      const observed = {
+        maxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
+        cutoffAppliedAt,
+        batchSize: APPLIED_MUTATION_PRUNE_BATCH_ROWS,
+        fromAppliedAt: 0,
+        batch,
+      }
+      return {
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'applied-mutations-prune' as const,
+        runKey: appliedMutationsPruneRunKey(observed),
+        fencingToken,
+        observed,
+      }
+    }
+
+    it('hands the janitor the receipt and queue horizons with the lease', async () => {
+      expect(await handshake('gen_a')).toMatchObject({
+        appliedMutationMaxAgeMs: APPLIED_MUTATIONS_MAX_AGE_MS,
+        queuedMessageMaxAgeMs: QUEUED_MESSAGE_MAX_AGE_MS,
+      })
+    })
+
+    it('deletes one batch of receipts past the horizon, once', async () => {
+      const lease = await handshake('gen_a')
+      if (lease.status !== 'ready') throw new Error('expected lease')
+      const horizon = nowMs - APPLIED_MUTATIONS_MAX_AGE_MS
+      for (let i = 0; i < APPLIED_MUTATION_PRUNE_BATCH_ROWS + 5; i += 1) {
+        await store.sync.recordAppliedMutation(
+          asMutationId(`old-${i}`),
+          'p',
+          '"r"',
+          horizon - DAY - i,
+        )
+      }
+      await store.sync.recordAppliedMutation(asMutationId('young'), 'p', '"r"', horizon + DAY)
+      const command = pruneCommand(lease.fencingToken, horizon - 1)
+      expect(await service.apply(command)).toMatchObject({
+        status: 'applied',
+        deleted: APPLIED_MUTATION_PRUNE_BATCH_ROWS,
+      })
+      // The same occurrence again is the receipt, not a second batch.
+      expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
+      expect(await service.apply(pruneCommand(lease.fencingToken, horizon - 1, 1))).toMatchObject({
+        status: 'applied',
+        deleted: 5,
+      })
+      expect(await store.sync.getAppliedMutation(asMutationId('young'))).toBe('"r"')
+    })
+
+    it('refuses a cutoff inside the horizon: a queued write may still need that receipt', async () => {
+      const lease = await handshake('gen_a')
+      if (lease.status !== 'ready') throw new Error('expected lease')
+      const horizon = nowMs - APPLIED_MUTATIONS_MAX_AGE_MS
+      await store.sync.recordAppliedMutation(asMutationId('inside'), 'p', '"r"', horizon + 1_000)
+      expect(await service.apply(pruneCommand(lease.fencingToken, horizon + 60_000))).toMatchObject(
+        {
+          status: 'stale',
+          reason: 'precondition',
+        },
+      )
+      expect(await store.sync.getAppliedMutation(asMutationId('inside'))).toBe('"r"')
+    })
+  })
+
+  describe("[POD-7035] the expiry of a parked session's old queue", () => {
+    const expiryCommand = (fencingToken: number, sessionId: string, throughQueuedAt: number) => {
+      const observed = {
+        sessionId: asSessionId(sessionId),
+        maxAgeMs: QUEUED_MESSAGE_MAX_AGE_MS,
+        throughQueuedAt,
+        rows: 1,
+      }
+      return {
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        jobKind: 'queued-messages-expiry' as const,
+        runKey: queuedMessagesExpiryRunKey(observed),
+        fencingToken,
+        observed,
+      }
+    }
+    const queue = async (id: string, sessionId: string, queuedAt: number) =>
+      await store.sync.enqueueMessage({ id, sessionId: asSessionId(sessionId), text: id, queuedAt })
+    const queued = async (sessionId: string) =>
+      (await store.sync.queuedMessageCounts(asSessionId(sessionId))).get(asSessionId(sessionId)) ??
+      0
+
+    it("expires a parked session's rows through the observed time and keeps the later ones", async () => {
+      const lease = await handshake('gen_a')
+      if (lease.status !== 'ready') throw new Error('expected lease')
+      const horizon = nowMs - QUEUED_MESSAGE_MAX_AGE_MS
+      await queue('q1', 's_parked', horizon - 2_000)
+      await queue('q2', 's_parked', horizon - 1_000)
+      await queue('q3', 's_parked', horizon + 1_000)
+      expect(
+        await service.apply(expiryCommand(lease.fencingToken, 's_parked', horizon - 1_000)),
+      ).toMatchObject({ status: 'applied', deleted: 2 })
+      expect(await queued('s_parked')).toBe(1)
+    })
+
+    it("leaves a running session's queue to its delivery", async () => {
+      const running = new MaintenanceService(
+        store,
+        { run: <T>({ write }: { write: () => T }): T => write() },
+        { now: () => nowMs, leaseTtlMs: 90_000, liveSessionIds: () => new Set(['s_live']) },
+      )
+      const lease = await running.handshake({
+        protocolVersion: MAINTENANCE_PROTOCOL_VERSION,
+        schemaVersion: MAINTENANCE_SCHEMA_VERSION,
+        generationId: 'gen_a',
+      })
+      if (lease.status !== 'ready') throw new Error('expected lease')
+      const horizon = nowMs - QUEUED_MESSAGE_MAX_AGE_MS
+      await queue('q1', 's_live', horizon - 1_000)
+      expect(
+        await running.apply(expiryCommand(lease.fencingToken, 's_live', horizon - 1_000)),
+      ).toMatchObject({ status: 'stale', reason: 'precondition' })
+      expect(await queued('s_live')).toBe(1)
+    })
+
+    it('says not-due for a row younger than the horizon', async () => {
+      const lease = await handshake('gen_a')
+      if (lease.status !== 'ready') throw new Error('expected lease')
+      const horizon = nowMs - QUEUED_MESSAGE_MAX_AGE_MS
+      await queue('q1', 's_parked', horizon + 1_000)
+      expect(
+        await service.apply(expiryCommand(lease.fencingToken, 's_parked', horizon + 1_000)),
+      ).toMatchObject({ status: 'stale', reason: 'not-due' })
+      expect(await queued('s_parked')).toBe(1)
+    })
+  })
+
   it('[POD-925 B2] steward-poll rechecks fence after side effects before recording', async () => {
     let release!: () => void
     const paused = new Promise<void>((r) => {
@@ -548,7 +754,8 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
     // Freeze "now" for upsert so lastSeenAt is controlled.
     const oldSeenMs = nowMs - 6 * 60_000
     const oldSeen = new Date(oldSeenMs).toISOString()
-    vi.useFakeTimers()
+    // Only the clock: the store's Postgres I/O waits on real timers (POD-6994).
+    vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(oldSeenMs)
     try {
       await store.machines.upsertMachine({

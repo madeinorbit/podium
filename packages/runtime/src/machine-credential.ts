@@ -65,6 +65,8 @@ export function createMachineCredential(credentialDir: string): MachineCredentia
   const path = join(credentialDir, MACHINE_KEY_FILE)
   try {
     writeFileSync(path, `${JSON.stringify(credential, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
+    fsyncPath(path)
+    fsyncPath(credentialDir)
     return credential
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error

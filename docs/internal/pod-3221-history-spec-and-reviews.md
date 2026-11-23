@@ -168,7 +168,7 @@ These are the places where "make it async" changes correctness, not just signatu
 | Who | Access | Consequence under Postgres |
 |---|---|---|
 | Janitor (`apps/janitor/src/janitor.ts:1250`, hosted in a worker thread of the server process since POD-2505, `apps/server/src/janitor-host.ts`) | second connection, read-only, `query_only` | becomes a client with its own role |
-| `podium auth mint-session` (`packages/runtime/src/session-mint.ts:116`) | second **writer** | must go through the server, not the DB |
+| `podium auth mint-session` (`packages/runtime/src/session-token.ts:116`) | second **writer** | must go through the server, not the DB |
 | Daemon transfer (`apps/daemon/src/server-transfer.ts:350`) | opens a staged candidate `podium.db` | file-level; no analogue |
 | Migration ledger guard (`packages/runtime/src/migration-ledger.ts:58`) | reads `__drizzle_migrations` | needs a client |
 | Backup, restore, snapshot verifier, `wal_checkpoint`, transfer fence, Litestream plan | copy the file, `PRAGMA quick_check` in a child | entire subsystem is per-backend |
@@ -178,7 +178,7 @@ These are the places where "make it async" changes correctness, not just signatu
 
 | Construct | Count | Portable? |
 |---|---|---|
-| `INSERT OR REPLACE` | 13 (+1 in `session-mint`) | No. It deletes and re-inserts: fresh rowid, and every unnamed column resets to its default. None of the target tables is a foreign-key parent, so no cascade is involved (rev 10.1). Convert only with every column named. |
+| `INSERT OR REPLACE` | 13 (+1 in the former filesystem sign-in writer) | No. It deletes and re-inserts: fresh rowid, and every unnamed column resets to its default. None of the target tables is a foreign-key parent, so no cascade is involved (rev 10.1). Convert only with every column named. |
 | `INSERT OR IGNORE` | 12 | `onConflictDoNothing` on both dialects |
 | `ON CONFLICT … DO UPDATE` | 38 | yes |
 | `RETURNING` | 1 | yes |
@@ -411,7 +411,7 @@ size-one queue is the community's answer and this plan's.
      conversion adds one characterisation test that plants a corrupt blob and asserts the load
      survives, because no fixture does today;
    - `INSERT OR REPLACE` (13 statements in the server once step 9 retires the boot upgrade's,
-     plus `session-mint.ts:186`, which stays until B′ routes the mint through the server): the
+     plus the former filesystem sign-in writer, which stays until B′ routes the mint through the server): the
      cascade hazard headlined in earlier revisions **does not apply to any of them**, because
      none of the target tables (`meta`, `telegram_chat_bindings`, `user_layout`,
      `user_preferences`, `grants`, `client_sessions`, `accounts`, `user_read_position`,

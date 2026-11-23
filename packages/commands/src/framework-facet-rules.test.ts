@@ -84,23 +84,18 @@ const OFFLINE_ELIGIBLE_EXCEPTIONS: Record<string, string> = {
 }
 
 describe('the contract-table scan itself', () => {
-  it('finds every table this package exports, by name — so a later "no violations" means something', () => {
-    const found = TABLES.map((table) => table.export).sort()
-
-    // Both migrations' tables, named explicitly. If POD-642's handoff table (or
-    // anyone else's) lands and this list is stale, the count assertion below is
-    // what notices — the rule still covers it either way.
-    expect(found).toEqual(
-      expect.arrayContaining([
-        'pinCommands',
-        'sessionCommandPlane',
-        'sessionStateCommands',
-        'snoozeCommands',
-        'tabCommands',
-      ]),
+  it('covers execution, session state and snooze commands independently', () => {
+    for (const table of [
+      commands.sessionCommandPlane,
+      commands.sessionStateCommands,
+      commands.snoozeCommands,
+    ]) {
+      expect(TABLES.find((found) => found.defs === table.defs)?.namespace).toBe(table.namespace)
+      expect(Object.keys(table.defs).length).toBeGreaterThan(0)
+    }
+    expect(ALL_CONTRACTS.map(({ name }) => name)).toEqual(
+      expect.arrayContaining(['sessions.create', 'sessions.sendText', 'sessions.kill']),
     )
-    expect(TABLES.length).toBeGreaterThanOrEqual(5)
-    expect(ALL_CONTRACTS.length).toBeGreaterThanOrEqual(20)
   })
 
   it('the scan discriminates — it does not sweep up every exported object', () => {
@@ -164,5 +159,35 @@ describe('the facets that are meaningless when absent', () => {
       if ((def.exposure ?? []).length === 0) continue
       expect(def.policy, `${name} is served somewhere but declares no policy`).toBeDefined()
     }
+  })
+})
+
+/**
+ * `CommandDef`'s `visibility`, `exposure` and `policy` are OPTIONAL in the type,
+ * and an omission resolves silently: visibility to `personal` (ADR 9 D4),
+ * exposure to served nowhere (ADR 3 D3). So every def in every table must WRITE
+ * all three. Read off the running objects, so a spread from a sibling def
+ * counts and a cast cannot hide an omission. Moved here from
+ * the deleted session-family audit (`visibility-totality`,
+ * `exposure-totality`, `policy-totality`; POD-6595).
+ */
+describe('every def declares the facets an omission would answer silently', () => {
+  it('visibility, exposure and policy are written on every def of every table', () => {
+    const missing = ALL_CONTRACTS.flatMap(({ name, def }) =>
+      (['visibility', 'exposure', 'policy'] as const)
+        .filter((facet) => def[facet] === undefined)
+        .map((facet) => `${name}: ${facet}`),
+    )
+    // The population is the scan's, which the first describe pins as non-empty.
+    expect(missing).toEqual([])
+  })
+
+  it('the visibility class agrees with the policy resource: per-user state both ways', () => {
+    const disagree = ALL_CONTRACTS.filter(
+      ({ def }) =>
+        (def.policy?.resource === 'per-user-state') !== (def.visibility === 'per-user-state'),
+    ).map(({ name }) => name)
+    expect(disagree).toEqual([])
+    expect(ALL_CONTRACTS.some(({ def }) => def.visibility === 'per-user-state')).toBe(true)
   })
 })

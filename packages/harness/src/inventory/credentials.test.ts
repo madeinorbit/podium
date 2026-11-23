@@ -1,17 +1,16 @@
+import { createHash } from 'node:crypto'
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { claudeKeychainSeams } from '../adapters/claude-code/credentials.js'
 import type { ClaudeStorageLockFactory } from '../adapters/claude-code/keychain-lock.js'
-import type {
-  SecurityResult,
-  SecurityRunner,
-} from '../adapters/claude-code/keychain-security.js'
+import type { SecurityResult, SecurityRunner } from '../adapters/claude-code/keychain-security.js'
 import {
   handleCredentialExport,
   handleCredentialInstall,
   installPortableCredential,
+  PreservedLoginError,
   readPortableCredential,
 } from './credentials.js'
 
@@ -310,51 +309,55 @@ describe('inventory credential fixtures (fresh / stale / absent / foreign-env)',
     grok: { dir: '.grok', file: 'auth.json', envVar: 'GROK_HOME' },
   }
 
-  it.each(['claude-code', 'codex', 'grok'] as const)(
-    'reads a fresh %s login through the Inventory section',
-    async (kind) => {
-      const { dir, file } = LAYOUT[kind] as { dir: string; file: string }
-      mkdirSync(join(source, dir), { recursive: true })
-      writeFileSync(join(source, dir, file), FRESH[kind] as string)
-      const bundle = await readPortableCredential(kind, source)
-      expect(bundle?.kind).toBe(kind)
-    },
-  )
+  it.each([
+    'claude-code',
+    'codex',
+    'grok',
+  ] as const)('reads a fresh %s login through the Inventory section', async (kind) => {
+    const { dir, file } = LAYOUT[kind] as { dir: string; file: string }
+    mkdirSync(join(source, dir), { recursive: true })
+    writeFileSync(join(source, dir, file), FRESH[kind] as string)
+    const bundle = await readPortableCredential(kind, source)
+    expect(bundle?.kind).toBe(kind)
+  })
 
-  it.each(['claude-code', 'codex', 'grok'] as const)(
-    'refuses a stale %s login under the propagation guard',
-    async (kind) => {
-      const { dir, file } = LAYOUT[kind] as { dir: string; file: string }
-      mkdirSync(join(source, dir), { recursive: true })
-      writeFileSync(join(source, dir, file), STALE[kind] as string)
-      await expect(readPortableCredential(kind, source, { guarded: true })).resolves.toBeNull()
-    },
-  )
+  it.each([
+    'claude-code',
+    'codex',
+    'grok',
+  ] as const)('refuses a stale %s login under the propagation guard', async (kind) => {
+    const { dir, file } = LAYOUT[kind] as { dir: string; file: string }
+    mkdirSync(join(source, dir), { recursive: true })
+    writeFileSync(join(source, dir, file), STALE[kind] as string)
+    await expect(readPortableCredential(kind, source, { guarded: true })).resolves.toBeNull()
+  })
 
-  it.each(['claude-code', 'codex', 'grok'] as const)(
-    'reports an absent %s credential as null, never as an error',
-    async (kind) => {
-      await expect(readPortableCredential(kind, source)).resolves.toBeNull()
-    },
-  )
+  it.each([
+    'claude-code',
+    'codex',
+    'grok',
+  ] as const)('reports an absent %s credential as null, never as an error', async (kind) => {
+    await expect(readPortableCredential(kind, source)).resolves.toBeNull()
+  })
 
-  it.each(['claude-code', 'codex', 'grok'] as const)(
-    'honours the %s home redirect, except under a real-home read',
-    async (kind) => {
-      const { dir, file, envVar } = LAYOUT[kind] as {
-        dir: string
-        file: string
-        envVar: string
-      }
-      const redirected = join(source, 'managed-home', dir)
-      mkdirSync(redirected, { recursive: true })
-      writeFileSync(join(redirected, file), FRESH[kind] as string)
-      const env = { [envVar]: redirected }
-      const bundle = await readPortableCredential(kind, source, { env })
-      expect(bundle?.kind).toBe(kind)
-      await expect(readPortableCredential(kind, source, { env, realHome: true })).resolves.toBeNull()
-    },
-  )
+  it.each([
+    'claude-code',
+    'codex',
+    'grok',
+  ] as const)('honours the %s home redirect, except under a real-home read', async (kind) => {
+    const { dir, file, envVar } = LAYOUT[kind] as {
+      dir: string
+      file: string
+      envVar: string
+    }
+    const redirected = join(source, 'managed-home', dir)
+    mkdirSync(redirected, { recursive: true })
+    writeFileSync(join(redirected, file), FRESH[kind] as string)
+    const env = { [envVar]: redirected }
+    const bundle = await readPortableCredential(kind, source, { env })
+    expect(bundle?.kind).toBe(kind)
+    await expect(readPortableCredential(kind, source, { env, realHome: true })).resolves.toBeNull()
+  })
 })
 
 describe('credential handlers', () => {
@@ -416,5 +419,91 @@ describe('credential handlers', () => {
     })
     expect(installed.installed).toEqual(['codex'])
     expect(reportInventory).toHaveBeenCalledOnce()
+  })
+})
+
+/**
+ * POD-6301: a ticked login is copied only as the account the owner ticked, and
+ * a destination holding a different (or unknown) login keeps it.
+ */
+describe('identity-checked native propagation', () => {
+  const previousCodexHome = process.env.CODEX_HOME
+  beforeEach(() => {
+    delete process.env.CODEX_HOME
+  })
+  afterEach(() => {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME
+    else process.env.CODEX_HOME = previousCodexHome
+  })
+
+  const sha = (value: string) => createHash('sha256').update(value).digest('hex')
+  const codexAs = (account: string | undefined, freshness: number, access = account ?? 'anon') =>
+    JSON.stringify({
+      tokens: {
+        ...(account ? { account_id: account } : {}),
+        access_token: access,
+        refresh_token: `${access}-refresh`,
+        expires_at: freshness,
+      },
+    })
+  const writeCodex = (home: string, contents: string) => {
+    mkdirSync(join(home, '.codex'), { recursive: true })
+    writeFileSync(join(home, '.codex', 'auth.json'), contents)
+  }
+  const guarded = (expectedFingerprint: string) => ({
+    realHome: true,
+    guarded: true,
+    expectedFingerprint,
+  })
+  const alice = sha('acct-alice')
+
+  it('exports only when the local login is still the ticked account', async () => {
+    writeCodex(source, codexAs('acct-alice', 200))
+    expect(await readPortableCredential('codex', source, guarded(alice))).not.toBeNull()
+    writeCodex(source, codexAs('acct-other', 200))
+    expect(await readPortableCredential('codex', source, guarded(alice))).toBeNull()
+  })
+
+  it('installs into an empty slot', async () => {
+    const bundle = await (async () => {
+      writeCodex(source, codexAs('acct-alice', 200))
+      return await readPortableCredential('codex', source, guarded(alice))
+    })()
+    if (!bundle) throw new Error('bundle missing')
+    expect(await installPortableCredential(bundle, target, guarded(alice))).toBe(true)
+    expect(readFileSync(join(target, '.codex', 'auth.json'), 'utf8')).toContain('acct-alice')
+  })
+
+  it.each([
+    ['a different valid login', codexAs('acct-bob', 300)],
+    ['a different expired login', codexAs('acct-bob', 100, '')],
+    ['a login of unknown identity', codexAs(undefined, 100, '')],
+  ])('keeps %s on the destination and says so', async (_label, local) => {
+    writeCodex(target, local)
+    const bundle = {
+      kind: 'codex' as const,
+      contentBase64: Buffer.from(codexAs('acct-alice', 500)).toString('base64'),
+    }
+    await expect(installPortableCredential(bundle, target, guarded(alice))).rejects.toThrow(
+      PreservedLoginError,
+    )
+    expect(readFileSync(join(target, '.codex', 'auth.json'), 'utf8')).toBe(local)
+
+    const reply = await handleCredentialInstall(
+      { homeDir: target, snapshotRuntime: async () => undefined, reportInventory: () => {} },
+      { requestId: 'r', bundles: [bundle], propagation: true, expectedFingerprint: alice },
+    )
+    expect(reply).toMatchObject({ installed: [], failed: ['codex'], preserved: ['codex'] })
+    expect(readFileSync(join(target, '.codex', 'auth.json'), 'utf8')).toBe(local)
+  })
+
+  it('refreshes an expired copy of the same account', async () => {
+    writeCodex(target, codexAs('acct-alice', 100, ''))
+    const bundle = {
+      kind: 'codex' as const,
+      contentBase64: Buffer.from(codexAs('acct-alice', 500, 'fresh')).toString('base64'),
+    }
+    expect(await installPortableCredential(bundle, target, guarded(alice))).toBe(true)
+    expect(readFileSync(join(target, '.codex', 'auth.json'), 'utf8')).toContain('fresh')
   })
 })

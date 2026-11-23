@@ -19,7 +19,10 @@ import { asIssueId, asSessionId, type MessageDeliveryStatus } from '@podium/mode
 import { bunSqliteClient, openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it, vi } from 'vitest'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { createBunStoreExecutor } from '../store/executor'
+import { legacyWorkspaceQueries } from '../store/executor/sync-drizzle'
+import { JanitorReadsRepository } from '../store/janitor-reads'
 import { MessagesRepository } from '../store/messages'
 import { runDrizzleMigrations } from '.'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
@@ -115,6 +118,21 @@ const allRows = (db: SqlDatabase) =>
   db.prepare('SELECT * FROM messages ORDER BY id').all() as Array<Record<string, unknown>>
 
 /** A database one migration short of the drop, holding rows of every legacy status. */
+/**
+ * The workspace column the repository's reads name (POD-7017), added to a legacy copy the way
+ * the workspace migration adds it (a default, no index), so the copy can plan those reads
+ * against its own indexes.
+ */
+function withWorkspaceColumn(db: SqlDatabase): SqlDatabase {
+  for (const table of ['messages', 'message_reads', 'sessions', 'subscriptions']) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+    if (columns.length > 0 && !columns.some((column) => column.name === 'workspace_id')) {
+      db.prepare(`ALTER TABLE ${table} ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'local'`).run()
+    }
+  }
+  return db
+}
+
 function legacyDatabase(): SqlDatabase {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, DELIVERY))
@@ -256,7 +274,14 @@ describe('the drop-legacy-message-status migration', () => {
     const db = legacyDatabase()
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
     const prepare = vi.spyOn(db, 'prepare')
-    const due = await new MessageExpiryReader(db).read({
+    // The janitor reads one workspace's messages (POD-7020); every index leads with it
+    // (POD-7024). Its reads are the store's definitions since POD-6993, built here over
+    // this database as the janitor's worker builds them over its read session.
+    const queries = createBunStoreExecutor({ database: db }).queries
+    const reads = new JanitorReadsRepository(
+      legacyWorkspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID),
+    )
+    const due = await new MessageExpiryReader({ scan: async (fn) => await fn(reads) }).read({
       now: '2026-07-21T00:00:00.000Z',
       waitImplicitCutoff: '2026-07-31T00:00:00.000Z',
       limit: 100,
@@ -264,12 +289,21 @@ describe('the drop-legacy-message-status migration', () => {
     // Only the row the server still holds is a candidate; the rest were handed
     // on or ended, so they cannot expire.
     expect(due.map((row) => row.messageId)).toEqual(['held'])
+    const scans = prepare.mock.calls
+      .map(([sql]) => sql)
+      .filter((sql) => /\bfrom "?messages"?\b/i.test(sql))
+    expect(scans).toHaveLength(2)
     const plan = (sql: string) =>
-      (db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all() as Array<{ detail: string }>)
+      (
+        db
+          .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+          .all(
+            'local',
+            ...Array.from({ length: (sql.match(/\?/g) ?? []).length - 1 }, () => null),
+          ) as Array<{ detail: string }>
+      )
         .map((row) => row.detail)
         .join('\n')
-    const scans = prepare.mock.calls.map(([sql]) => sql).filter((sql) => /FROM messages/.test(sql))
-    expect(scans).toHaveLength(2)
     expect(scans.map(plan).join('\n')).toMatch(
       /SEARCH messages USING (COVERING )?INDEX idx_messages_delivery_expiry_implicit/,
     )
@@ -279,14 +313,14 @@ describe('the drop-legacy-message-status migration', () => {
   })
 
   it('keeps every repository read that had an index on one', async () => {
-    const legacy = legacyDatabase()
+    const legacy = withWorkspaceColumn(legacyDatabase())
     const upgraded = legacyDatabase()
     runDrizzleMigrations(upgraded, DRIZZLE_MIGRATIONS)
     const raw = bunSqliteClient(upgraded)
     if (!raw) throw new Error('expected a bun:sqlite handle')
     const queries = createBunStoreExecutor({ database: upgraded }).queries
     if (!queries) throw new Error('the synchronous query capability is absent on this handle')
-    const repo = new MessagesRepository(queries)
+    const repo = new MessagesRepository(legacyWorkspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID))
 
     const prepare = vi.spyOn(raw, 'prepare')
     const session = asSessionId('sess_to')
@@ -312,7 +346,9 @@ describe('the drop-legacy-message-status migration', () => {
       await repo.alreadyCommunicated('iss_from', to, '2026-07-01T00:00:00.000Z')
     }
     await repo.pendingForPages(
-      recipients.flatMap((to) => (to.kind === 'operator' ? [] : [{ to: { kind: to.kind, id: to.id } }])),
+      recipients.flatMap((to) =>
+        to.kind === 'operator' ? [] : [{ to: { kind: to.kind, id: to.id } }],
+      ),
     )
     await repo.pendingSummaryForSession(issue, session)
     await repo.countPendingForSession(issue, session)

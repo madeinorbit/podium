@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
+import { MobxPool, type SessionModel } from '@podium/client-graph'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import {
   type ArtifactId,
   asArtifactId,
@@ -24,6 +25,11 @@ import { OfferBar } from './OfferBar'
 
 const openArtifact = vi.fn()
 const openFileInWorktree = vi.fn()
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useHttpOrigin: () => 'http://h',
+  useUiValue: (key: string) => (key === 'openArtifact' ? openArtifact : openFileInWorktree),
+}))
 let issues: IssueViewModel[] = []
 let publication = 0
 const storeListeners = new Set<() => void>()
@@ -72,7 +78,14 @@ function publishUnchangedSelection(): void {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: useTestStoreSelector,
+  readFixture: useTestStoreSelector,
+}))
+// These tile/layout checks supply the issue answer directly. The panel test
+// exercises the real normalized issue/artifact lookup.
+vi.mock('./use-chat-context', async (original) => ({
+  ...(await original<typeof import('./use-chat-context')>()),
+  useChatArtifactIssue: (session: SessionModel) =>
+    useTestStoreSelector(() => issues.find((issue) => issue.id === session.issueId)),
 }))
 
 const art = (path: string, addedAt: string, artifactId?: ArtifactId): IssuePanelArtifact => ({
@@ -90,7 +103,7 @@ const makeIssue = (artifacts: IssuePanelArtifact[]): IssueViewModel =>
     sessions: [],
   }) as unknown as IssueViewModel
 
-const session = { sessionId: asSessionId('sess_1'), issueId: 'iss_1' } as unknown as SessionView
+const session = { sessionId: asSessionId('sess_1'), issueId: 'iss_1' } as unknown as SessionModel
 
 const offerWith = (artifacts: string[]): SessionOffer => ({
   message: 'm',
@@ -132,6 +145,67 @@ const extraTile = () =>
 const pngs = (n: number) => Array.from({ length: n }, (_, i) => `shot-${i}.png`)
 
 describe('OfferArtifactStrip [POD-120, POD-2111]', () => {
+  it('holds the live condition and updates implicit evidence without a parent render', async () => {
+    issues = [
+      makeIssue([
+        art('old.png', '2026-07-21T08:00:00.000Z'),
+        art('new.png', '2026-07-21T09:30:00.000Z'),
+      ]),
+    ]
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    pool.apply({
+      type: 'replace',
+      rows: [
+        {
+          kind: 'session',
+          id: 'sess_1',
+          value: {
+            sessionId: 'sess_1',
+            issueId: 'iss_1',
+            title: 'Evidence',
+            agentKind: 'codex',
+            cwd: '/wt',
+            status: 'live',
+            createdAt: '2026-07-21T08:00:00.000Z',
+          } as never,
+        },
+      ],
+    })
+    const live = liveFixture(pool)
+    try {
+      act(() =>
+        root.render(
+          <OfferArtifactStrip offer={offerWith([])} session={pool.sessionObject('sess_1')} />,
+        ),
+      )
+      expect(thumbs()).toHaveLength(0)
+      expect(live.live.watchedSessions('session.condition')).toContain('sess_1')
+
+      await act(async () =>
+        live.sessionCondition('sess_1', {
+          busy: false,
+          requestsGated: 0,
+          lastInputAt: '2026-07-21T09:00:00.000Z',
+        }),
+      )
+      expect([...thumbs()].map((tile) => tile.textContent)).toEqual(['new.png'])
+
+      await act(async () =>
+        live.sessionCondition('sess_1', {
+          busy: false,
+          requestsGated: 0,
+          lastInputAt: '2026-07-21T10:00:00.000Z',
+        }),
+      )
+      expect(thumbs()).toHaveLength(0)
+      act(() => root.render(null))
+      expect(live.live.watchedSessions('session.condition')).not.toContain('sess_1')
+    } finally {
+      act(() => root.render(null))
+      pool.dispose()
+    }
+  })
+
   it('does not rerender when a store publication leaves its selected fields unchanged', () => {
     issues = [makeIssue([art('shot.png', '2026-07-21T09:00:00.000Z')])]
     let updates = 0

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const runtime = vi.hoisted(() => {
   const setActive = vi.fn()
   const dispose = vi.fn()
-  const mountSession = vi.fn(() => ({
+  const mountSession = vi.fn((_el: unknown, _opts: unknown) => ({
     connection: { state: () => ({ connected: true }) },
     view: {
       onScroll: () => () => {},
@@ -32,9 +32,26 @@ const { preloadTerminalRuntime, useTerminalSession } = await import('@podium/ter
 
 const hub = {} as never
 const sessionId = asSessionId('terminal-lazy-test')
+const knownGeometry = { cols: 132, rows: 43 }
 
-function Probe({ enabled, active }: { enabled: boolean; active: boolean }) {
-  const { containerRef } = useTerminalSession({ hub, sessionId, enabled, active })
+function Probe({
+  enabled,
+  active,
+  id = sessionId,
+  waiting = false,
+}: {
+  enabled: boolean
+  active: boolean
+  id?: typeof sessionId
+  waiting?: boolean
+}) {
+  const { containerRef } = useTerminalSession({
+    hub,
+    sessionId: id,
+    enabled,
+    active,
+    initialGeometry: waiting ? undefined : knownGeometry,
+  })
   return <div ref={containerRef} />
 }
 
@@ -91,5 +108,33 @@ describe('useTerminalSession lazy runtime', () => {
     await act(async () => root.render(<Probe enabled={false} active={false} />))
     await flush()
     expect(runtime.dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('cancels a pending size wait on disable and grants a fresh wait on reenable', async () => {
+    vi.useFakeTimers()
+    await act(async () => root.render(<Probe enabled active waiting />))
+    await act(async () => vi.advanceTimersByTimeAsync(400))
+    expect(runtime.mountSession).not.toHaveBeenCalled()
+    await act(async () => root.render(<Probe enabled={false} active waiting />))
+    await act(async () => vi.advanceTimersByTimeAsync(500))
+    expect(runtime.mountSession).not.toHaveBeenCalled()
+    await act(async () => root.render(<Probe enabled active waiting />))
+    await act(async () => vi.advanceTimersByTimeAsync(499))
+    expect(runtime.mountSession).not.toHaveBeenCalled()
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(runtime.mountSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not use a previous session deadline when the session changes while waiting', async () => {
+    vi.useFakeTimers()
+    await act(async () => root.render(<Probe enabled active waiting />))
+    await act(async () => vi.advanceTimersByTimeAsync(400))
+    const nextId = asSessionId('next-terminal')
+    await act(async () => root.render(<Probe enabled active waiting id={nextId} />))
+    await act(async () => vi.advanceTimersByTimeAsync(499))
+    expect(runtime.mountSession).not.toHaveBeenCalled()
+    await act(async () => vi.advanceTimersByTimeAsync(1))
+    expect(runtime.mountSession).toHaveBeenCalledTimes(1)
+    expect(runtime.mountSession.mock.calls[0]?.[1]).toMatchObject({ sessionId: nextId })
   })
 })

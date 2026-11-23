@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Provider accounts become personal.** A managed account (an API key or a Claude setup-token under Settings → AI accounts) now belongs to one person. Nobody else runs with it unless its owner or an admin shares it under **Share with**. A new account starts private. Podium does not know which machine an existing account came from, so on upgrade every existing managed account goes to the earliest admin and is shared with everyone, so everyone's agents keep working as before and their use is billed to that admin's key. On a one-person instance that is you, and nothing changes. On an instance with several people, the admin can set **Share with** to **Only you** or to specific people; members it is no longer shared with connect their own.
+- **Copying CLI logins to your other machines is now your choice, per account.** Each Claude or Codex login Podium finds on your machines has a box: "Use on all my machines". Ticked, Podium copies it to every machine you look after, now and in future, and never over a different login already there. An upgrade ticks it for every login already on your machines, so copying carries on as before. On a new install the box starts unticked, so nothing is copied until you tick it.
+
+## [0.3.1] - 2026-11-06
+
+### Fixed
+
+- Fixed update failures in rare configurations.
+
+## [0.3.1-edge.2] - 2026-11-06
+
+### Fixed
+
+- Restore macOS Codex transcript recovery when native hooks are missing or not yet trusted, and install hooks using the same verified Codex installation used to launch the session.
+- Include all registration, retained-client recovery, bundled startup rescue, ownership-state and server-shutdown fixes from 0.3.1-edge.1.
+
+### Testing
+
+- This edge build includes the macOS Codex hotfix from commit 4543f1c2f. Packaged macOS agent acceptance and the full signed-update-after-rescue journey remain under verification.
+
+## [0.3.1-edge.1] - 2026-11-06
+
+### Fixed
+
+- Desktop clients register automatically after sign-in so their companion runtime can receive managed updates, while preserving the installation identity and client-only role.
+- Retained clients recover rejected credentials through a fresh verified sign-in. Expired pairing attempts stay bounded, and concurrent config changes are preserved.
+- A newer matching-channel desktop bundle can rescue an older companion runtime at cold start, with checks that protect active updates, pinned targets, identities and data.
+- Claiming desktop update ownership no longer stops the companion respawn monitor or shares the shutdown flag.
+- Server shutdown waits for the turn reaper before draining the database scheduler, preventing a shutdown error.
+
+### Testing
+
+- This edge build is published for testing. Targeted component and combined Rust/server checks passed; the final combined lean gate, signed update after rescue, and macOS GUI lifecycle checks remain incomplete.
+
 ## [0.3.0] - 2026-11-05
 
 **One flight deck for the whole mission, a calmer chat, and a server that uses far less memory.**

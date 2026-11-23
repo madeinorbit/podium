@@ -10,7 +10,6 @@
  * it remembered to write the check.
  */
 
-import type { MutationId } from '@podium/model'
 import {
   type AdvanceIdempotencyPort,
   type AnyCommandContract,
@@ -22,6 +21,7 @@ import {
   type WorkflowContractName,
   workflowAdvanceOf,
 } from '@podium/commands'
+import type { MutationId } from '@podium/model'
 import {
   adoptHandler,
   assignStepHandler,
@@ -30,13 +30,7 @@ import {
   skipHandler,
 } from './handlers/advances'
 import type { WorkflowHandlerContext } from './handlers/context'
-import {
-  assignHandler,
-  createHandler,
-  forkHandler,
-  publishHandler,
-  reviseHandler,
-} from './handlers/library'
+import { createHandler, forkHandler, publishHandler, reviseHandler } from './handlers/library'
 
 /** One contract joined to the handler that implements it. */
 export interface WorkflowCommand {
@@ -63,7 +57,6 @@ export const WORKFLOW_COMMANDS = {
   revise: { contract: WORKFLOW_CONTRACTS.revise, handler: reviseHandler },
   fork: { contract: WORKFLOW_CONTRACTS.fork, handler: forkHandler },
   publish: { contract: WORKFLOW_CONTRACTS.publish, handler: publishHandler },
-  assign: { contract: WORKFLOW_CONTRACTS.assign, handler: assignHandler },
   checkpoint: {
     contract: WORKFLOW_CONTRACTS.checkpoint,
     handler: checkpointHandler,

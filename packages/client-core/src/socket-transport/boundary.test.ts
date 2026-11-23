@@ -4,12 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const sourcePath = fileURLToPath(new URL('./socket-hub.ts', import.meta.url))
 const source = readFileSync(sourcePath, 'utf8')
-const portSource = readFileSync(
-  fileURLToPath(new URL('./legacy-feed-port.ts', import.meta.url)),
-  'utf8',
-)
-const moduleSource = `${source}\n${portSource}`
-const executable = moduleSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+const executable = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
 
 describe('transport ownership boundary', () => {
   it('contains no feed position, healing, WATERMARK, RESCOPE, or EVICT semantics', () => {
@@ -38,7 +33,7 @@ describe('transport ownership boundary', () => {
     }
     expect(executable).not.toMatch(/\bwatermark\b/i)
     expect(executable).not.toMatch(/\bevict\b/i)
-    expect(moduleSource).not.toMatch(/from ['"]\.\.\/replica(?:\/|['"])/)
+    expect(source).not.toMatch(/from ['"]\.\.\/replica(?:\/|['"])/)
   })
 
   /**
@@ -57,7 +52,9 @@ describe('transport ownership boundary', () => {
     expect(executable).toMatch(/const helloFields = this\.opts\.feed\?\.helloFields\(\) \?\? null/)
     expect(executable).toMatch(/\.\.\.\(helloFields \?\? \{\}\)/)
     // What the sink is told it bought is a boolean derived from PRESENCE alone.
-    expect(executable).toMatch(/this\.opts\.feed\?\.connected\(!this\.opts\.feed\.syncHttp && helloFields === null\)/)
+    expect(executable).toMatch(
+      /this\.opts\.feed\?\.connected\(!this\.opts\.feed\.syncHttp && helloFields === null\)/,
+    )
   })
 
   it.each([

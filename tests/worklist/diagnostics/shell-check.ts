@@ -19,7 +19,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { SHELL_SCHEMA, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 import { shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { MachineWire } from '@podium/model/browser'
+import { type MachineFacts, MachineWire, serverMoveEligibilityOf } from '@podium/model/browser'
 import { allIssueViewModels } from './reference/issue-view-models'
 import type { ReferenceState as Store } from './reference-state'
 import { type CheckRow, compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
@@ -28,8 +28,12 @@ const fields = (value: object, keys: readonly string[]) =>
   Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? null]))
 const row = (id: string, value: object): CheckRow => ({ id, fields: { value } })
 // Models expose wire fields through getters; their own keys hold pool internals.
-const machineFields = (value: Store['machines'][number]) =>
-  fields(value, Object.keys(MachineWire.shape))
+// A server move's eligibility joins the record with online (POD-6644): both
+// sides answer it through the same join.
+const machineFields = (value: MachineFacts) => ({
+  ...fields(value, Object.keys(MachineWire.shape)),
+  serverMoveEligibility: serverMoveEligibilityOf(value as never, value.online),
+})
 const missionExpanded = (value: Pick<IssueNavigationModel, 'type' | 'childCount'> | undefined) =>
   Boolean(value && value.childCount >= 6)
 function closeFields(
@@ -115,7 +119,6 @@ export function legacyShellSnapshot(
     pending: 0,
     sections: [
       { key: 'window', fields: fields(state, SHELL_SCHEMA.shellWindow.fields), rows: [] },
-      { key: 'approvals', fields: {}, rows: state.approvals.map((value) => row(value.id, value)) },
       { key: 'files', fields: {}, rows: state.fileTabs.map((value) => row(value.id, value)) },
       { key: 'close', fields: closeFields(state.workspaces[key], key, state.fileTabs), rows: [] },
       {
@@ -123,7 +126,6 @@ export function legacyShellSnapshot(
         fields: {
           repoCount: repos.length,
           worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0),
-          sessionCount: sessions.length,
           missionRootId: missionRoot?.id ?? null,
           missionExpanded: missionExpanded(missionRoot),
         },
@@ -154,20 +156,6 @@ export function legacyShellSnapshot(
         fields: {},
         rows: state.machines.map((value) => row(value.id, machineFields(value))),
       },
-      {
-        key: 'sessions',
-        fields: {},
-        rows: sessions.map((value) => row(value.sessionId, fields(value, SHELL_SUMMARIES.session))),
-      },
-      {
-        key: 'issues',
-        fields: {},
-        rows: [...issues]
-          .sort((a, b) => a.id.localeCompare(b.id))
-          .map((value) =>
-            row(value.id, fields(value, [...SHELL_SUMMARIES.issue, 'prefix', 'displayRef'])),
-          ),
-      },
     ],
   }
 }
@@ -194,14 +182,14 @@ export function dockSnapshot(views: ReturnType<typeof shellViews>) {
 export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
   const views = shellViews(pool),
     state = views.window(),
-    approvals = views.approvals(),
     files = views.files(),
     close = views.close(),
     chrome = views.chrome(),
     dock = dockSnapshot(views),
     shipping = dock === LOADING ? LOADING : dock.shipping,
-    sessions = views.sessions(),
-    issues = views.issues(),
+    // POD-7088: the shell no longer lists every session or issue; the
+    // shipping fields read the issues the pool holds.
+    issues = [...pool.tables.issue.values()] as unknown as IssueViewModel[],
     lanes = views.lanes(),
     shipOrders = headerIds(pool, 'shipOrder').flatMap((id) => {
       const order = here(pool.row('shipOrder', id)) as Store['shipOrders'][number] | undefined
@@ -210,14 +198,11 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
   if (
     !state ||
     state === LOADING ||
-    approvals === LOADING ||
     files === LOADING ||
     close === LOADING ||
     chrome === LOADING ||
     dock === LOADING ||
     shipping === LOADING ||
-    sessions === LOADING ||
-    issues === LOADING ||
     lanes === LOADING
   )
     return { pending: 1, sections: [] }
@@ -225,11 +210,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     pending: 0,
     sections: [
       { key: 'window', fields: fields(state, SHELL_SCHEMA.shellWindow.fields), rows: [] },
-      {
-        key: 'approvals',
-        fields: {},
-        rows: (approvals ?? []).map((value) => row(value.id, value)),
-      },
       { key: 'files', fields: {}, rows: (files ?? []).map((value) => row(value.id, value)) },
       {
         key: 'close',
@@ -242,7 +222,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
           ? {
               repoCount: chrome.repoCount,
               worktreeCount: chrome.worktreeCount,
-              sessionCount: chrome.sessionCount,
               missionRootId: chrome.missionRoot?.id ?? null,
               missionExpanded: missionExpanded(chrome.missionRoot),
             }
@@ -281,22 +260,6 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
         key: 'machines',
         fields: {},
         rows: views.machines().map((value) => row(value.id, machineFields(value))),
-      },
-      {
-        key: 'sessions',
-        fields: {},
-        rows: (sessions ?? []).map((value) =>
-          row(value.sessionId, fields(value, SHELL_SUMMARIES.session)),
-        ),
-      },
-      {
-        key: 'issues',
-        fields: {},
-        rows: [...(issues ?? [])]
-          .sort((a, b) => a.id.localeCompare(b.id))
-          .map((value) =>
-            row(value.id, fields(value, [...SHELL_SUMMARIES.issue, 'prefix', 'displayRef'])),
-          ),
       },
     ],
   }

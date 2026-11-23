@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -27,7 +28,9 @@ import {
   mintInstallationIdentity,
 } from '@podium/runtime/installation-identity'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fileKeyProvider, vaultCheckValue } from '@podium/runtime/vault-key'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from './control/access'
 import type { DaemonContext } from './control/context'
 
 const targetMachineId = 'target-machine'
@@ -64,16 +67,26 @@ const fileEntry = (path: string, content: Buffer | string): ServerTransferManife
   sha256: createHash('sha256').update(content).digest('hex'),
 })
 
-async function candidateFiles(machineId = targetMachineId, identity?: InstallationIdentity, revoked = false): Promise<Record<string, Buffer>> {
+/** The vault table as the credential-vault migration creates it, with the source's wrapped row. */
+type CandidateVault = { keyId: string; wrapped: string } | 'empty'
+
+async function candidateFiles(
+  machineId = targetMachineId,
+  identity?: InstallationIdentity,
+  revoked = false,
+  placement: 'same' | 'other' | 'wrong-epoch' | 'ambiguous' = 'same',
+  vault?: CandidateVault,
+): Promise<Record<string, Buffer>> {
   const path = join(stateRoot, `candidate-${randomUUID()}.db`)
   const db = openDatabase(path)
   try {
     db.exec(`
       CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
-      CREATE TABLE machines (id TEXT PRIMARY KEY, revoked_at TEXT);
-      CREATE TABLE feed_identity (
-        singleton INTEGER PRIMARY KEY,
+      CREATE TABLE machines (workspace_id TEXT NOT NULL, id TEXT NOT NULL, revoked_at TEXT,
+        PRIMARY KEY (workspace_id, id));
+      CREATE TABLE sync_feed (
+        workspace_id TEXT PRIMARY KEY,
         feed_id TEXT NOT NULL,
         epoch TEXT NOT NULL
       );
@@ -81,15 +94,45 @@ async function candidateFiles(machineId = targetMachineId, identity?: Installati
     `)
     if (identity) {
       const { privateKey, ...metadata } = identity
-      db.prepare('INSERT INTO meta VALUES (?, ?)').run(INSTALLATION_META_KEY, JSON.stringify(metadata))
-      db.prepare('INSERT INTO server_secrets VALUES (?, ?, ?)').run(INSTALLATION_PRIVATE_KEY, privateKey, identity.createdAt)
+      db.prepare('INSERT INTO meta VALUES (?, ?)').run(
+        INSTALLATION_META_KEY,
+        JSON.stringify(metadata),
+      )
+      db.prepare('INSERT INTO server_secrets VALUES (?, ?, ?)').run(
+        INSTALLATION_PRIVATE_KEY,
+        privateKey,
+        identity.createdAt,
+      )
     }
-    db.prepare('INSERT INTO machines (id, revoked_at) VALUES (?, ?)').run(machineId, revoked ? 'now' : null)
-    db.prepare('INSERT INTO feed_identity (singleton, feed_id, epoch) VALUES (1, ?, ?)').run(
-      'feed-1',
-      'epoch-1',
+    db.prepare('INSERT INTO machines (workspace_id, id, revoked_at) VALUES (?, ?, ?)').run(
+      placement === 'other' ? 'other' : 'source',
+      machineId,
+      revoked ? 'now' : null,
     )
+    db.prepare('INSERT INTO sync_feed (workspace_id, feed_id, epoch) VALUES (?, ?, ?)').run(
+      'source',
+      'feed-1',
+      placement === 'wrong-epoch' ? 'another-epoch' : 'epoch-1',
+    )
+    if (placement === 'other')
+      db.prepare('INSERT INTO sync_feed VALUES (?, ?, ?)').run('other', 'another-feed', 'epoch-1')
+    if (placement === 'ambiguous') {
+      db.prepare('INSERT INTO machines VALUES (?, ?, NULL)').run('duplicate', machineId)
+      db.prepare('INSERT INTO sync_feed VALUES (?, ?, ?)').run('duplicate', 'feed-1', 'epoch-1')
+    }
     db.prepare('INSERT INTO __drizzle_migrations (name) VALUES (?)').run('schema-1')
+    if (vault) {
+      // One row per workspace since the workspace store (POD-6959); a self-hosted file holds one.
+      db.exec(`CREATE TABLE vault_key (
+        id integer NOT NULL, key_id text NOT NULL, wrapped_data_key text NOT NULL,
+        created_at text NOT NULL, workspace_id text NOT NULL,
+        CONSTRAINT vault_key_pk PRIMARY KEY (workspace_id, id),
+        CONSTRAINT "vault_key_one_row" CHECK(id = 1))`)
+      if (vault !== 'empty')
+        db.prepare(
+          "INSERT INTO vault_key (id, key_id, wrapped_data_key, created_at, workspace_id) VALUES (1, ?, ?, ?, 'ws_self')",
+        ).run(vault.keyId, vault.wrapped, 'then')
+    }
   } finally {
     db.close()
   }
@@ -101,13 +144,42 @@ async function candidateFiles(machineId = targetMachineId, identity?: Installati
 function readDatabaseIdentity(path: string): InstallationIdentity | undefined {
   const db = openDatabase(path)
   try {
-    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(INSTALLATION_META_KEY) as { value: string } | undefined
+    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(INSTALLATION_META_KEY) as
+      | { value: string }
+      | undefined
     if (!row) return undefined
-    const secret = db.prepare('SELECT value FROM server_secrets WHERE key = ?').get(INSTALLATION_PRIVATE_KEY) as { value: string }
+    const secret = db
+      .prepare('SELECT value FROM server_secrets WHERE key = ?')
+      .get(INSTALLATION_PRIVATE_KEY) as { value: string }
     return { ...JSON.parse(row.value), privateKey: secret.value }
-  } finally { db.close() }
+  } finally {
+    db.close()
+  }
 }
 
+/** Files under `dir` holding `key` raw, in hex or in base64 (standard or url-safe). */
+async function filesHolding(dir: string, key: Buffer): Promise<string[]> {
+  const needles = [
+    key,
+    Buffer.from(key.toString('hex')),
+    Buffer.from(key.toString('hex').toUpperCase()),
+    Buffer.from(key.toString('base64')),
+    Buffer.from(key.toString('base64url')),
+  ]
+  const found: string[] = []
+  const walk = async (path: string): Promise<void> => {
+    const info = await stat(path).catch(() => undefined)
+    if (!info) return
+    if (info.isDirectory()) {
+      for (const name of await readdir(path)) await walk(join(path, name))
+      return
+    }
+    const bytes = await readFile(path)
+    if (needles.some((needle) => bytes.includes(needle))) found.push(path)
+  }
+  await walk(dir)
+  return found
+}
 
 async function invoke(
   type:
@@ -135,6 +207,7 @@ async function invoke(
       ...(restartAfterTransfer ? { restartAfterTransfer } : {}),
       ...(serverTransferCrashPoint ? { serverTransferCrashPoint } : {}),
       ...(retireAfterTransfer ? { retireAfterTransfer } : {}),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     handlers[type](
       ctx,
@@ -151,7 +224,7 @@ async function invoke(
   })
 }
 
-async function prepareAndValidateCandidate(): Promise<{
+async function prepareAndValidateCandidate(vault?: CandidateVault): Promise<{
   transferId: string
   files: Record<string, Buffer>
   manifestDigest: string
@@ -161,7 +234,7 @@ async function prepareAndValidateCandidate(): Promise<{
   const transferId = randomUUID()
   const incomingIdentity = mintInstallationIdentity()
   const files: Record<string, Buffer> = {
-    ...(await candidateFiles(targetMachineId, incomingIdentity)),
+    ...(await candidateFiles(targetMachineId, incomingIdentity, false, 'same', vault)),
     'transcripts/session.txt': Buffer.from('incoming-transcript'),
   }
   const entries = Object.entries(files)
@@ -246,7 +319,12 @@ describe('server transfer target daemon', () => {
     await rm(stateRoot, { recursive: true, force: true })
   })
 
-  it.each(['../config.json', 'C:/state/config.json', String.raw`C:\state\config.json`, String.raw`transcripts\session.jsonl`])('machine paths: rejects nonportable transfer entry %s before creating a stage', async path => {
+  it.each([
+    '../config.json',
+    'C:/state/config.json',
+    String.raw`C:\state\config.json`,
+    String.raw`transcripts\session.jsonl`,
+  ])('machine paths: rejects nonportable transfer entry %s before creating a stage', async (path) => {
     const transferId = randomUUID()
     const manifest = [{ path, size: 1, mode: 0o644, sha256: '0'.repeat(64) }]
     const response = await invoke('serverTransferPrepareRequest', {
@@ -449,7 +527,9 @@ describe('server transfer target daemon', () => {
     expect(await readFile(join(stateRoot, 'transcripts', 'session.txt.part'), 'utf8')).toBe(
       'legitimate-part-file',
     )
-    expect(JSON.parse(await readFile(join(stateRoot, 'machine.json'), 'utf8')).machineId).toBe(targetMachineId)
+    expect(JSON.parse(await readFile(join(stateRoot, 'machine.json'), 'utf8')).machineId).toBe(
+      targetMachineId,
+    )
     expect(await readFile(join(stateRoot, 'daemon.secret'), 'utf8')).toBe('target-daemon-secret')
     expect(JSON.parse(await readFile(join(stateRoot, 'config.json'), 'utf8'))).toMatchObject({
       mode: 'server',
@@ -699,10 +779,13 @@ describe('server transfer target daemon', () => {
   })
 
   it.each([
-    ['revoked', true, false],
-    ['active', false, true],
-  ] as const)('requires an active target enrollment in a %s candidate', async (_, revoked, ok) => {
-    const files = await candidateFiles(targetMachineId, undefined, revoked)
+    ['revoked', true, 'same', false],
+    ['active', false, 'same', true],
+    ['another workspace', false, 'other', false],
+    ['wrong feed epoch', false, 'wrong-epoch', false],
+    ['ambiguous workspace identity', false, 'ambiguous', false],
+  ] as const)('requires an active target enrollment in the source workspace: %s', async (_, revoked, placement, ok) => {
+    const files = await candidateFiles(targetMachineId, undefined, revoked, placement)
     const manifest = Object.entries(files)
       .map(([path, content]) => fileEntry(path, content))
       .sort((a, b) => a.path.localeCompare(b.path))
@@ -875,7 +958,9 @@ describe('server transfer target daemon', () => {
         ok: true,
         idempotent: true,
       })
-      expect(readDatabaseIdentity(join(stateRoot, 'podium.db'))?.generation).toBe(incoming.generation + 1)
+      expect(readDatabaseIdentity(join(stateRoot, 'podium.db'))?.generation).toBe(
+        incoming.generation + 1,
+      )
       expect(await readFile(backupDb, 'utf8')).toBe('original-target-db')
       expect(JSON.parse(await readFile(backupConfig, 'utf8'))).toMatchObject({
         mode: 'daemon',
@@ -1094,5 +1179,233 @@ describe('server transfer target daemon', () => {
     expect(rolledBackJournal).not.toHaveProperty('promotion')
     // The reachability endpoint was already persisted by prepare, before promotion.
     expect(rolledBackJournal.publicUrl).toBe('https://podium.example.com')
+  })
+
+  describe('vault data key hand-over', () => {
+    let keyRoot = ''
+    let targetKeyPath = ''
+    let previousKeyFile: string | undefined
+    // Obviously fake: a fixed pattern, never a real key.
+    const dataKey = Buffer.alloc(32, 0x5a)
+    let sourceRow: { keyId: string; wrapped: string }
+
+    const liveVaultRow = (): { key_id: string; wrapped_data_key: string } | undefined => {
+      const db = openDatabase(join(stateRoot, 'podium.db'))
+      try {
+        return db.prepare('SELECT key_id, wrapped_data_key FROM vault_key WHERE id = 1').get() as
+          | { key_id: string; wrapped_data_key: string }
+          | undefined
+      } finally {
+        db.close()
+      }
+    }
+    const vaultRowCount = (): number => {
+      const db = openDatabase(join(stateRoot, 'podium.db'))
+      try {
+        return (db.prepare('SELECT count(*) AS n FROM vault_key').get() as { n: number }).n
+      } finally {
+        db.close()
+      }
+    }
+    const withKey = (
+      input: Record<string, unknown>,
+      transferId: string,
+      key: Buffer = dataKey,
+    ): Record<string, unknown> => ({
+      ...input,
+      vaultDataKey: key.toString('base64'),
+      vaultCheck: vaultCheckValue(dataKey, transferId),
+    })
+
+    beforeAll(async () => {
+      keyRoot = await mkdtemp(join(tmpdir(), 'podium-daemon-vault-key-'))
+      const source = await fileKeyProvider(join(keyRoot, 'source', 'vault-source.key'))
+      const wrapped = await source.wrap(dataKey)
+      sourceRow = { keyId: source.keyId, wrapped: wrapped.toString('base64') }
+    })
+
+    beforeEach(async () => {
+      previousKeyFile = process.env.PODIUM_VAULT_KEY_FILE
+      targetKeyPath = join(keyRoot, `target-${randomUUID()}`, 'vault-target.key')
+      process.env.PODIUM_VAULT_KEY_FILE = targetKeyPath
+      // Only a paired daemon can become the server.
+      saveConfig({ mode: 'daemon', serverUrl: 'wss://source.example.com' })
+    })
+
+    afterEach(() => {
+      if (previousKeyFile === undefined) delete process.env.PODIUM_VAULT_KEY_FILE
+      else process.env.PODIUM_VAULT_KEY_FILE = previousKeyFile
+    })
+
+    afterAll(async () => {
+      await rm(keyRoot, { recursive: true, force: true })
+    })
+
+    it('wraps the data key under its own key file, proves it, and gives one row on a repeat', async () => {
+      const { transferId, promoteInput } = await prepareAndValidateCandidate(sourceRow)
+      const first = await invoke(
+        'serverTransferPromoteRequest',
+        withKey(promoteInput, transferId),
+        async (e) => e,
+      )
+      expect(first, first.error).toMatchObject({
+        ok: true,
+        state: 'promoted',
+        vaultCheck: vaultCheckValue(dataKey, transferId),
+      })
+
+      const target = await fileKeyProvider(targetKeyPath)
+      const row = liveVaultRow()
+      expect(row?.key_id).toBe(target.keyId)
+      expect(row?.key_id).not.toBe(sourceRow.keyId)
+      expect(await target.unwrap(Buffer.from(row?.wrapped_data_key ?? '', 'base64'))).toEqual(
+        dataKey,
+      )
+      expect((await stat(targetKeyPath)).mode & 0o777).toBe(0o600)
+
+      const again = await invoke(
+        'serverTransferPromoteRequest',
+        { ...withKey(promoteInput, transferId), requestId: `again-${transferId}` },
+        async (e) => e,
+      )
+      expect(again).toMatchObject({
+        ok: true,
+        state: 'promoted',
+        idempotent: true,
+        vaultCheck: first.vaultCheck,
+      })
+      expect(vaultRowCount()).toBe(1)
+      expect(liveVaultRow()).toEqual(row)
+    })
+
+    it('keeps the key out of the stage: no raw, hex or base64 copy, and the search finds a canary', async () => {
+      const { transferId, promoteInput } = await prepareAndValidateCandidate(sourceRow)
+      const canary = Buffer.alloc(32, 0x3c)
+      const stage = join(stateRoot, '.server-transfer', transferId)
+      await writeFile(join(stage, 'canary.bin'), canary.toString('hex'))
+      expect(await filesHolding(stage, canary)).toEqual([join(stage, 'canary.bin')])
+      await rm(join(stage, 'canary.bin'))
+
+      const promoted = await invoke(
+        'serverTransferPromoteRequest',
+        withKey(promoteInput, transferId),
+        async (e) => e,
+      )
+      expect(promoted, promoted.error).toMatchObject({ ok: true, state: 'promoted' })
+      expect(await filesHolding(stage, dataKey)).toEqual([])
+      expect(await filesHolding(stateRoot, dataKey)).toEqual([])
+    })
+
+    it('refuses a key that does not match the check before changing anything', async () => {
+      const { transferId, promoteInput } = await prepareAndValidateCandidate(sourceRow)
+      await writeFile(join(stateRoot, 'podium.db'), 'original-target-db')
+      const corrupted = Buffer.from(dataKey)
+      corrupted[0] = (corrupted[0] ?? 0) ^ 0xff
+
+      const refused = await invoke(
+        'serverTransferPromoteRequest',
+        withKey(promoteInput, transferId, corrupted),
+        async (e) => e,
+      )
+      expect(refused).toMatchObject({
+        ok: false,
+        state: 'validated',
+        errorCode: 'refused',
+        vaultCheck: vaultCheckValue(corrupted, transferId),
+      })
+      expect(refused.vaultCheck).not.toBe(vaultCheckValue(dataKey, transferId))
+      expect(await readFile(join(stateRoot, 'podium.db'), 'utf8')).toBe('original-target-db')
+      expect(await stat(targetKeyPath).catch(() => undefined)).toBeUndefined()
+      expect(
+        JSON.parse(
+          await readFile(join(stateRoot, '.server-transfer', transferId, 'state.json'), 'utf8'),
+        ),
+      ).toMatchObject({ state: 'validated' })
+    })
+
+    it('refuses a key sent without its check value', async () => {
+      const { transferId, promoteInput } = await prepareAndValidateCandidate(sourceRow)
+      expect(
+        await invoke(
+          'serverTransferPromoteRequest',
+          { ...promoteInput, vaultDataKey: dataKey.toString('base64') },
+          async (e) => e,
+        ),
+      ).toMatchObject({ ok: false, state: 'validated', errorCode: 'invalid-request' })
+      expect(await stat(targetKeyPath).catch(() => undefined)).toBeUndefined()
+    })
+
+    it('rolls the vault back when promotion fails after the hand-over', async () => {
+      const { transferId, promoteInput } = await prepareAndValidateCandidate(sourceRow)
+      const failed = await invoke(
+        'serverTransferPromoteRequest',
+        withKey(promoteInput, transferId),
+        async () => {
+          throw new Error('the promoted server did not come up')
+        },
+      )
+      expect(failed).toMatchObject({ ok: false, state: 'uncertain' })
+      // The copied row is back; nothing wrapped by this transfer remains.
+      expect(liveVaultRow()).toEqual({
+        key_id: sourceRow.keyId,
+        wrapped_data_key: sourceRow.wrapped,
+      })
+      expect(await stat(targetKeyPath).catch(() => undefined)).toBeUndefined()
+    })
+
+    it('never deletes a key file the target had before the transfer', async () => {
+      const own = await fileKeyProvider(targetKeyPath)
+      await own.wrap(Buffer.alloc(32, 0x11))
+      const before = await readFile(targetKeyPath)
+      const { transferId, promoteInput } = await prepareAndValidateCandidate(sourceRow)
+      const failed = await invoke(
+        'serverTransferPromoteRequest',
+        withKey(promoteInput, transferId),
+        async () => {
+          throw new Error('the promoted server did not come up')
+        },
+      )
+      expect(failed).toMatchObject({ ok: false, state: 'uncertain' })
+      expect(await readFile(targetKeyPath)).toEqual(before)
+      expect(liveVaultRow()?.key_id).toBe(sourceRow.keyId)
+    })
+
+    it('removes a key file it created when the transfer is aborted', async () => {
+      const { transferId, manifestDigest, promoteInput } =
+        await prepareAndValidateCandidate(sourceRow)
+      const crashed = await invoke(
+        'serverTransferPromoteRequest',
+        withKey(promoteInput, transferId),
+        async (e) => e,
+        (point) => {
+          if (point === 'before-backup') throw new Error('simulated crash before backup')
+        },
+      )
+      expect(crashed).toMatchObject({ ok: false, state: 'validated' })
+      expect((await stat(targetKeyPath)).isFile()).toBe(true)
+
+      expect(
+        await invoke('serverTransferAbortRequest', {
+          type: 'serverTransferAbortRequest',
+          requestId: `abort-${transferId}`,
+          transferId,
+          manifestDigest,
+        }),
+      ).toMatchObject({ ok: true, state: 'aborted', cleaned: true })
+      expect(await stat(targetKeyPath).catch(() => undefined)).toBeUndefined()
+    })
+
+    it('transfers an empty vault without creating a key', async () => {
+      const { promoteInput } = await prepareAndValidateCandidate('empty')
+      const promoted = await invoke(
+        'serverTransferPromoteRequest',
+        { ...promoteInput, vaultDataKey: null },
+        async (e) => e,
+      )
+      expect(promoted, promoted.error).toMatchObject({ ok: true, state: 'promoted' })
+      expect(promoted).not.toHaveProperty('vaultCheck')
+      expect(vaultRowCount()).toBe(0)
+      expect(await stat(targetKeyPath).catch(() => undefined)).toBeUndefined()
+    })
   })
 })

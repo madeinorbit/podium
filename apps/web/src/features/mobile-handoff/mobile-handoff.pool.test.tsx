@@ -1,20 +1,19 @@
-import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
-import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { LOADING, MobxPool } from '@podium/client-graph'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { useHasFirstTask } from './mobile-handoff'
 
 const mode = vi.hoisted(() => ({ value: 'pool' as 'legacy' | 'pool', legacyReads: 0 }))
-
 
 const NOW = Date.parse('2026-10-01T08:00:00Z')
 const pools: MobxPool[] = []
@@ -65,42 +64,25 @@ describe('declared pool first-task value', () => {
     ['archived', { archived: true }, true],
     ['draft', { isDraftVessel: true }, true],
     ['deleted', { deletedAt: new Date(NOW).toISOString() }, false],
-    ['empty deletion stamp', { deletedAt: '' }, true],
-  ] as const)('preserves the predicate for %s-only data without loading cold rows', (_name, patch, expected) => {
+    // A deletion stamp counts as deleted, as in every count (`deletedAt == null` is live).
+    ['empty deletion stamp', { deletedAt: '' }, false],
+  ] as const)('preserves the predicate for %s-only data without loading rows', (_name, patch, expected) => {
     const { pool, load } = makePool([issue(patch)])
     const model = vi.spyOn(pool, 'issueObject')
     expect(settingsHasFirstTask(pool)).toBe(expected)
     expect(load).not.toHaveBeenCalled()
     expect(model).not.toHaveBeenCalled()
-    if (_name === 'archived' || _name === 'deleted') expect(pool.tables.issue.size).toBe(0)
   })
 
   it('returns false for an empty pool', () => {
     expect(settingsHasFirstTask(makePool([]).pool)).toBe(false)
   })
 
-  it('reads the maintained value without walking resident or cold history', () => {
+  it('reads the maintained value without walking resident history', () => {
     const { pool } = makePool([issue(), issue({ id: 'second-task' })], false)
     const read = vi.spyOn(pool, 'row')
-    const coldIds = vi.spyOn(pool.residency ?? { ids: () => [] }, 'ids')
     expect(settingsHasFirstTask(pool)).toBe(true)
     expect(read).not.toHaveBeenCalled()
-    expect(coldIds).not.toHaveBeenCalled()
-  })
-
-  it('keeps a missing cold summary LOADING and batches the row load', () => {
-    const archived = issue({ archived: true })
-    const { pool, source, load, schedule } = makePool([])
-    vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
-    source.set(archived.id, archived)
-    pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id, value: archived }] })
-    expect(settingsHasFirstTask(pool)).toBe(LOADING)
-    expect(settingsHasFirstTask(pool)).toBe(LOADING)
-    expect(load).not.toHaveBeenCalled()
-    expect(schedule).toHaveBeenCalledOnce()
-    expect(pool.hydrate()).toBe(1)
-    expect(load).toHaveBeenCalledOnce()
-    expect(settingsHasFirstTask(pool)).toBe(true)
   })
 
   it('tracks cold summary changes, eviction, and replacement without retaining a task', () => {
@@ -174,7 +156,7 @@ describe('first-task startup switch', () => {
     let runtime: ClientRuntime | undefined
     let pool: MobxPool | null = null
     function Capture() {
-      runtime = useStoreHandle() as ClientRuntime
+      runtime = useClientRuntime() as ClientRuntime
       pool = useWorklistPool()
       return null
     }

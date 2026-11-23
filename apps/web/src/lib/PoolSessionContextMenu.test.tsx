@@ -1,12 +1,12 @@
-import { headerEntities } from '@podium/client-graph/header-entities'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph'
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
+import { headerEntities } from '@podium/client-graph/header-entities'
 import { asIssueId, asMachineId, asSessionId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
+import { historyLoader } from '../../../../tests/worklist/shared/src/history-loader'
 import { PoolSessionContextMenu } from './PoolSessionContextMenu'
 import type { SessionContextMenuProps } from './SessionContextMenu'
 
@@ -15,13 +15,15 @@ const f = vi.hoisted(() => ({
   derivations: 0,
   menu: null as SessionContextMenuProps | null,
 }))
-vi.mock('@podium/client-core/react', () => {
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+
   const owner = {
     getSnapshot: () => {
       throw new Error('Menu reader reached the old store')
     },
   }
-  return { useStoreHandle: () => owner }
+  return { ...fixtureRuntimeHooks(() => owner) }
 })
 vi.mock('./SessionContextMenu', () => ({
   SessionContextMenu: (props: SessionContextMenuProps) => {
@@ -71,10 +73,6 @@ const row = (id: string, issueId: string): SessionView => ({
   title: 'Pool session',
   agentKind: 'codex',
   status: 'exited',
-  controllerId: null,
-  geometry: { cols: 80, rows: 24 },
-  epoch: 0,
-  clientCount: 0,
   origin: { kind: 'spawn' },
   archived: true,
   readAt: null,
@@ -84,11 +82,11 @@ const row = (id: string, issueId: string): SessionView => ({
   lastActiveAt: stamp,
 })
 function open(scale: number) {
+  // The addressed session is history: not on the device, behind the loader.
   const chosen = row('chosen-session', 'chosen-issue')
-  const seats = [
-    chosen,
-    ...Array.from({ length: 64 * scale - 1 }, (_, i) => row(`unrelated-${i}`, 'background-issue')),
-  ]
+  const seats = Array.from({ length: 64 * scale - 1 }, (_, i) =>
+    row(`unrelated-${i}`, 'background-issue'),
+  )
   const issues = ['chosen-issue', 'background-issue'].map((id) =>
     makeIssue({
       id,
@@ -98,14 +96,9 @@ function open(scale: number) {
       updatedAt: '2026-09-20T12:00:00Z',
     }),
   )
-  const input = new Map<string, object>([
-    ...seats.map((seat) => [`session:${seat.sessionId}`, seat] as const),
-    ...issues.map((issue) => [`issue:${issue.id}`, issue] as const),
-  ])
-  const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
+  const history = historyLoader([{ kind: 'session', id: chosen.sessionId, value: chosen as never }])
   const pool = new MobxPool({ coarseNow: Date.parse(stamp), selectedIssueId: null }, undefined, {
-    load,
-    summaries: MISSION_VIEW_SUMMARIES,
+    loader: () => history.port,
     schedule: () => () => {},
   })
   pools.push(pool)
@@ -134,9 +127,7 @@ function open(scale: number) {
       },
     },
   ])
-  expect(pool.tables.session.has('chosen-session')).toBe(false)
-  expect(pool.tables.issue.has('chosen-issue')).toBe(false)
-  return { pool, load }
+  return { pool, history }
 }
 const props = {
   sessionId: asSessionId('chosen-session'),
@@ -157,26 +148,24 @@ function MenuClick() {
   )
 }
 
-it('batches the addressed cold session and supplies pool inputs with equal click work at 1x and 4x', async () => {
+it('loads the addressed session through the loader and supplies pool inputs with equal click work at 1x and 4x', async () => {
   const work: Array<{ rows: number; derivations: number }> = []
   for (const scale of [1, 4]) {
-    const { pool, load } = open(scale)
+    const { pool, history } = open(scale)
     f.pool = pool
     f.derivations = 0
     const read = vi.spyOn(pool, 'row')
     render(<MenuClick />)
     expect(read).not.toHaveBeenCalled()
     expect(f.derivations).toBe(0)
+    expect(history.asked).toEqual([])
     fireEvent.click(screen.getByRole('button', { name: 'Session actions' }))
     expect(screen.queryByTestId('pool-session-menu')).toBeNull()
-    expect(load).not.toHaveBeenCalled()
     await act(async () => {
-      expect(pool.hydrate()).toBe(1)
+      expect(history.answer(pool)).toBe(1)
     })
     expect(screen.getByTestId('pool-session-menu').textContent).toBe('Pool session')
-    expect(load.mock.calls).toEqual([
-      ['session', 'chosen-session'],
-    ])
+    expect(history.asked).toEqual([['session', 'chosen-session']])
     expect(
       read.mock.calls
         .filter(([entity]) => entity === 'session')
@@ -201,12 +190,12 @@ it('batches the addressed cold session and supplies pool inputs with equal click
 it('waits for pool attachment and drops obsolete menu inputs when the pool detaches', async () => {
   const view = render(<PoolSessionContextMenu {...props} />)
   expect(screen.queryByTestId('pool-session-menu')).toBeNull()
-  const { pool } = open(1)
+  const { pool, history } = open(1)
   f.pool = pool
   view.rerender(<PoolSessionContextMenu {...props} />)
   expect(screen.queryByTestId('pool-session-menu')).toBeNull()
   await act(async () => {
-    pool.hydrate()
+    history.answer(pool)
   })
   expect(screen.getByTestId('pool-session-menu').textContent).toBe('Pool session')
   f.pool = null

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
-import { asAccountId, asMachineId, asSessionId, asUserId, firstAdminMemberId, isMachineOfflineForLiveTerminal } from '@podium/model'
+import { asMachineId, asSessionId, asUserId, firstAdminMemberId, isMachineOfflineForLiveTerminal } from '@podium/model'
 import type { DaemonPtyInputBatch, MachineSupervisorControlMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
@@ -12,13 +12,14 @@ import type { CommandPrincipal } from '../../command-principal'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
 import type { MachineOwnershipIndex } from '../../machine-access'
 import { SessionStore } from '../../store'
-import { testClientPrincipal } from '../../test-support/client-principal'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { openTestStore } from '../../test-support/open-test-store'
 import { EventBus } from '../bus'
 import { machinesForPrincipal } from '../sessions/command-ctx'
 import type { Send } from '../sessions/session'
 import { sha256 } from './enrollment'
 import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
+import { seedRows } from '../../test-support/seed-rows'
 
 /** Only the socket bookkeeping is exercised here — none of these paths touch the store. */
 function makeService(): MachinesService {
@@ -40,8 +41,6 @@ function makeService(): MachinesService {
     } as unknown as MachinesDeps['store'],
     hostMachineId: asMachineId('host-under-test'),
 
-    clients: () => [],
-    machinesForPrincipal: async () => [],
   } satisfies MachinesDeps
   return new MachinesService(deps)
 }
@@ -78,7 +77,7 @@ function recorder(): { send: Send<ControlMessage>; got: ControlMessage[] } {
 async function storedService(
   recoveryOnly = false,
 ): Promise<{ svc: MachinesService; store: SessionStore }> {
-  const store = await SessionStore.open(':memory:')
+  const store = await SessionStore.open(':memory:', undefined, { changeCapture: 'whenLogAttaches' })
   await store.machines.upsertMachine({
     assignment: { server: false, agentExecution: true },
     id: MACHINE,
@@ -93,8 +92,6 @@ async function storedService(
     recoveryOnly,
     hostMachineId: store.hostMachineId,
 
-    clients: () => [],
-    machinesForPrincipal: async () => [],
   } satisfies MachinesDeps)
   return { svc, store }
 }
@@ -473,7 +470,7 @@ describe('promoted server host identity', () => {
   test('a server-only promoted host reuses its target row without minting another machine', async () => {
     const source = asMachineId('former-host')
     const target = asMachineId('promoted-host')
-    const store = await SessionStore.open(':memory:', target)
+    const store = await SessionStore.open(':memory:', target, { changeCapture: 'whenLogAttaches' })
     for (const id of [source, target]) {
       await store.machines.upsertMachine({
     assignment: { server: false, agentExecution: true },
@@ -489,8 +486,6 @@ describe('promoted server host identity', () => {
       store,
       hostMachineId: target,
 
-      clients: () => [],
-      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     const before = (await store.machines.listMachines()).map(({ id }) => id)
 
@@ -602,7 +597,7 @@ describe('pair/hello writes are visible to the next read (POD-1479)', () => {
 
   async function pairingService(): Promise<{ svc: MachinesService; store: SessionStore }> {
     const store = await openTestStore(':memory:')
-    if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    if (!await store.users.get(firstAdminMemberId())) await memberFacts(store).create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const codes = new Map<string, PairingGrant>()
     const svc = new MachinesService({
       instanceId: 'default', installationId: 'installation-test',
@@ -621,8 +616,6 @@ describe('pair/hello writes are visible to the next read (POD-1479)', () => {
         },
       },
 
-      clients: () => [],
-      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }
@@ -723,8 +716,6 @@ describe('MachinesService inventory persistence (#222)', () => {
       store,
       hostMachineId: store.hostMachineId,
 
-      clients: () => [],
-      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     return { svc, store }
   }
@@ -764,8 +755,7 @@ describe('MachinesService inventory persistence (#222)', () => {
       store,
       hostMachineId: store.hostMachineId,
       bus,
-      clients: () => [],
-      machinesForPrincipal: async () => [],
+
     } satisfies MachinesDeps)
     await store.machines.upsertMachine({
       assignment: { server: false, agentExecution: true },
@@ -835,6 +825,7 @@ describe('MachinesService inventory persistence (#222)', () => {
         icon: { id: 'claude-code', viewBox: '0 0 24 24', d: 'M0 0h24v24H0z' },
         capabilities: { argvPrompt: true, effort: true, systemPrompt: true },
         catalog: { models: [], efforts: [], liveMerge: 'live-wins-when-non-empty' },
+        accepts: [],
       },
     ]
     await svc.recordInventory(MACHINE, INV, descriptors)
@@ -871,7 +862,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(latest)
   })
 
-  test('records the native identity fingerprint selected on the target machine', async () => {
+  test('names the harness login the target machine reports', async () => {
     const { svc, store } = await makeStoreService()
     await store.machines.upsertMachine({
     assignment: { server: false, agentExecution: true },
@@ -892,12 +883,9 @@ describe('MachinesService inventory persistence (#222)', () => {
       ],
     })
 
-    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex'))).toBe(
-      'native:codex:fp-a',
-    )
-    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
-      'native:codex:fp-b',
-    )
+    expect(await svc.harnessLoginAccountId(MACHINE, 'codex')).toBe('native:codex:fp-a')
+    // A harness that reports no identity is named by its bare id.
+    expect(await svc.harnessLoginAccountId(MACHINE, 'claude-code')).toBe('native:claude-code')
   })
 
   test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {
@@ -1039,13 +1027,14 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       hostMachineId: store.hostMachineId,
       userExists: (id) => known.has(id),
 
-      clients: () => [{ principal: testClientPrincipal('c1'), send: () => {} }],
-      // Called once per client on every broadcast. Reading the owner here is the
-      // load-bearing part: a broadcast sent before the write lands a stale
-      // entry in this array.
-      machinesForPrincipal: async () => {
-        broadcasts.push((await svc.effectiveOwner(MACHINE)))
-        return []
+      // Called on every write of the machine's records (POD-6644). Reading the
+      // owner here is the load-bearing part: a write made before the custody
+      // change lands a stale entry in this array.
+      compareMachineRecords: async (write) => {
+        // The write's own transaction; this test reads no log (POD-6920).
+        const result = await seedRows(store, write)
+        broadcasts.push(await svc.effectiveOwner(MACHINE))
+        return result
       },
     } satisfies MachinesDeps)
     await store.machines.upsertMachine({
@@ -1056,6 +1045,10 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       tokenHash: sha256('tok'),
       ownerUserId: asUserId(OWNER_A),
     })
+    // The fixture's custody edge republishes the records after its commit;
+    // only what the transfer writes is counted.
+    for (let turn = 0; turn < 20; turn++) await new Promise((resolve) => setTimeout(resolve, 0))
+    broadcasts.length = 0
     return { svc, store, dir, broadcasts }
   }
 
@@ -1066,7 +1059,6 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     try {
       // Read on the pre-transfer fleet first, so the read-back is a second read.
       expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_A)
-      expect(broadcasts).toHaveLength(0)
 
       await svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
@@ -1075,10 +1067,11 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // 2 — THE FLEET. The same public read as above, with no manual step in
       // between.
       expect((await svc.effectiveOwner(MACHINE))).toBe(OWNER_B)
-      // 3 — THE BROADCAST, and its ORDERING: exactly one went out, and the fleet
-      // it was built from already showed the new owner — so it was emitted
-      // AFTER the transition committed, not before.
-      expect(broadcasts).toEqual([OWNER_B])
+      // 3 — THE RECORDS, and their ORDERING: they were written, and every
+      // write already read the new owner, so none was made before the
+      // transition committed (the grant change may republish them too).
+      expect(broadcasts.length).toBeGreaterThan(0)
+      expect(broadcasts.every((owner) => owner === OWNER_B)).toBe(true)
       // 4 — THE LEDGER, which is the commit point the row merely projects.
       expect(await svc.effectiveOwner(MACHINE)).toBe(OWNER_B)
     } finally {
@@ -1107,10 +1100,17 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       const currentCustodian = await svc.effectiveOwner(MACHINE)
       expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toEqual([])
       }
-      expect(await store.settingsAudit.list()).toEqual([expect.objectContaining({
-        command: 'takeover', actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin,
-        detail: { machineId: MACHINE, previousOwnerUserId: OWNER_A, newOwnerUserId: admin },
-      })])
+      // The admin's share is audited too (POD-6700), under the admin's own name.
+      expect(await store.settingsAudit.list()).toEqual([
+        expect.objectContaining({
+          command: 'machines.share', actorKind: 'user', actorId: admin, onBehalfOf: admin,
+          detail: { machineId: MACHINE, grantee: OWNER_B, verb: 'use' },
+        }),
+        expect.objectContaining({
+          command: 'takeover', actorKind: 'agent', actorId: 'session:admin-agent', onBehalfOf: admin,
+          detail: { machineId: MACHINE, previousOwnerUserId: OWNER_A, newOwnerUserId: admin },
+        }),
+      ])
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
@@ -1141,6 +1141,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     const { svc, store, dir } = await transferWorld()
     try {
       await svc.shareMachine(MACHINE, OWNER_B, 'use', { actor: OWNER_A, onBehalfOf: OWNER_A })
+      // The share writes its own audit row (POD-6700); the takeover must add none.
+      const auditBefore = await store.settingsAudit.list()
+      expect(auditBefore).toEqual([expect.objectContaining({ command: 'machines.share' })])
       const append = vi.spyOn(store.settingsAudit, 'append').mockRejectedValueOnce(new Error('audit unavailable'))
       await expect(svc.transferMachineOwnership(MACHINE, firstAdminMemberId(), firstAdminMemberId())).rejects.toThrow('audit unavailable')
       append.mockRestore()
@@ -1149,7 +1152,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       const currentCustodian = await svc.effectiveOwner(MACHINE)
       expect((await svc.grantsForMachine(MACHINE)).filter(edge => edge.grantee !== currentCustodian)).toHaveLength(1)
       }
-      expect(await store.settingsAudit.list()).toEqual([])
+      expect(await store.settingsAudit.list()).toEqual(auditBefore)
     } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 
@@ -1274,8 +1277,6 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         hostMachineId: store.hostMachineId,
         userExists: (id) => known.has(id),
 
-        clients: () => [],
-        machinesForPrincipal: async () => [],
       } satisfies MachinesDeps)
     const svc = build()
     await store.machines.upsertMachine({
@@ -1512,8 +1513,6 @@ describe('listMachines resolves the fleet channel once per call (POD-3840)', () 
         return 'stable'
       },
 
-      clients: () => [],
-      machinesForPrincipal: async () => [],
     } satisfies MachinesDeps)
     for (const id of ['m-1', 'm-2', 'm-3']) {
       await store.machines.upsertMachine({
@@ -1550,9 +1549,9 @@ describe('retained revocation and explicit replacement', () => {
         peek: (code) => codes.get(code),
         redeem: (code) => { const grant = codes.get(code); codes.delete(code); return grant },
       },
-       clients: () => [], machinesForPrincipal: async () => [],
+      
     })
-    if (!await store.users.get(firstAdminMemberId())) await store.users.create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
+    if (!await store.users.get(firstAdminMemberId())) await memberFacts(store).create({ id: firstAdminMemberId(), displayName: 'Pairer', role: 'admin', createdAt: new Date().toISOString(), disabledAt: null }, 'hash')
     const frame = { type: 'pair' as const, publicKey: publicKeyWire(mintSigningKeyPair()), machineId: MACHINE, hostname: 'revocation.test' }
     // Explicit stage-1 fixture: replacement moves this old bearer row to a keypair.
     const token = 'stage-1-token'
@@ -1655,4 +1654,209 @@ test.each([
     await expect(svc.requireMachineForRepo(MACHINE, cwd)).resolves.toBeUndefined()
     await expect(svc.requireMachineForRepo(MACHINE, sibling)).rejects.toThrow('no repo registered')
   } finally { svc.dispose(); await store.close() }
+})
+
+// The authenticated desktop uses the same replacement transaction as explicit
+// pairing. Local history is a request, never authorization to replace a row.
+describe('administrator client registration recovery', () => {
+  async function fixture() {
+    const store = await openTestStore(':memory:')
+    const { PairingManager } = await import('../../hub/pairing')
+    const pairing = new PairingManager({ installationId: 'client-recovery' })
+    const svc = new MachinesService({
+      instanceId: 'default',
+      installationId: 'client-recovery',
+      store,
+      hostMachineId: store.hostMachineId,
+      pairing,
+
+    })
+    const actor = firstAdminMemberId()
+    const key = publicKeyWire(mintSigningKeyPair())
+    const id = asMachineId('retained-client')
+    const request = { machineId: id, publicKey: key }
+    const frame = {
+      type: 'pair' as const,
+      machineId: id,
+      publicKey: key,
+      hostname: 'retained-client',
+      assignment: { server: false, agentExecution: false },
+    }
+    return { store, svc, actor, key, id, request, frame, pairing }
+  }
+
+  test('binds new enrollment to one identity/key before consuming the code', async () => {
+    const f = await fixture()
+    try {
+      const code = await f.svc.mintClientRegistrationCode(f.request, f.actor)
+      for (const conflict of [
+        { machineId: asMachineId('other-client') },
+        { publicKey: publicKeyWire(mintSigningKeyPair()) },
+      ]) {
+        expect(await f.svc.authenticateDaemon({ ...f.frame, ...conflict, code })).toMatchObject({
+          ok: false,
+        })
+        expect(f.pairing.peek(code)).toBeDefined()
+      }
+      expect(
+        await f.svc.authenticateDaemon(
+          { ...f.frame, assignment: { server: true, agentExecution: true }, code },
+          { source: 'supervisor' },
+        ),
+      ).toMatchObject({ ok: true, enrolledPublicKey: f.key })
+      expect(f.pairing.peek(code)).toBeUndefined()
+      expect(await f.store.machines.getMachine(f.id)).toMatchObject({
+        podiumManaged: true,
+        serviceAssignment: f.frame.assignment,
+      })
+      await expect(f.svc.mintClientRegistrationCode(f.request, f.actor)).rejects.toThrow(
+        'already registered',
+      )
+    } finally {
+      f.svc.dispose()
+      await f.store.close()
+    }
+  })
+
+  test('restores revoked retained identity with current admin authority and preserves explicit unmanaged policy/history', async () => {
+    const f = await fixture()
+    try {
+      const original = f.svc.mintPairingCode({ ownerUserId: f.actor, podiumManaged: false })
+      await f.svc.authenticateDaemon({ ...f.frame, code: original })
+      await f.svc.renameMachine(f.id, 'Preserved name')
+      const before = await f.store.machines.getMachine(f.id)
+      await f.svc.revokeMachine(f.id)
+      const code = await f.svc.mintClientRegistrationCode(f.request, f.actor)
+      expect(f.pairing.peek(code)).toMatchObject({
+        replaceMachineId: f.id,
+        replaceIncarnation: f.key,
+        podiumManaged: false,
+        copyAgentCredentials: false,
+      })
+      expect(
+        await f.svc.authenticateDaemon({ ...f.frame, code }, { source: 'supervisor' }),
+      ).toMatchObject({ ok: true, enrolledPublicKey: f.key })
+      expect(await f.store.machines.getMachine(f.id)).toMatchObject({
+        id: f.id,
+        revokedAt: null,
+        podiumManaged: false,
+        createdAt: before!.createdAt,
+        name: 'Preserved name',
+      })
+      expect(
+        (await f.store.settingsAudit.list()).filter((row) => row.command === 'machines.replace'),
+      ).toHaveLength(1)
+    } finally {
+      f.svc.dispose()
+      await f.store.close()
+    }
+  })
+
+  test('keeps the enrollment decision statement count constant as the fleet grows', async () => {
+    const { expectConstantStatements, expectArmed } = await import(
+      '../../test-support/statement-count'
+    )
+    const pin = {
+      name: 'admin client registration decision',
+      setup: async (size: number) => {
+        const f = await fixture()
+        for (let i = 0; i < size; i++)
+          await f.store.machines.upsertMachine({
+            id: `other-${i}`,
+            name: `other-${i}`,
+            hostname: 'other',
+            tokenHash: `token-${i}`,
+            ownerUserId: f.actor,
+          })
+        return f
+      },
+      target: (f: Awaited<ReturnType<typeof fixture>>) => f.store,
+      run: (f: Awaited<ReturnType<typeof fixture>>) =>
+        f.svc.mintClientRegistrationCode(f.request, f.actor),
+      check: (code: unknown, f: Awaited<ReturnType<typeof fixture>>) => {
+        expect(f.pairing.peek(String(code))).toMatchObject({ clientRegistration: f.request })
+      },
+      teardown: async (f: Awaited<ReturnType<typeof fixture>>) => {
+        f.svc.dispose()
+        await f.store.close()
+      },
+    }
+    await expectConstantStatements(pin, 2)
+    await expectArmed(pin, 2, (f, size) => {
+      const read = f.store.machines.getMachine.bind(f.store.machines)
+      const spy = vi.spyOn(f.store.machines, 'getMachine').mockImplementation(async (id) => {
+        for (let i = 0; i < size; i++) await read(asMachineId(`other-${i}`))
+        return read(id)
+      })
+      return () => spy.mockRestore()
+    })
+  })
+
+  test('refuses missing/non-admin authority, unrelated keys, supersession and stale replacement incarnations', async () => {
+    const f = await fixture()
+    try {
+      await expect(
+        f.svc.mintClientRegistrationCode(f.request, asUserId('missing-login')),
+      ).rejects.toThrow('administrator')
+      const member = asUserId('not-an-admin')
+      await memberFacts(f.store).create(
+        {
+          id: member,
+          displayName: 'Member',
+          role: 'member',
+          createdAt: new Date().toISOString(),
+          disabledAt: null,
+        },
+        'hash',
+      )
+      await expect(f.svc.mintClientRegistrationCode(f.request, member)).rejects.toThrow(
+        'administrator',
+      )
+      const code = await f.svc.mintClientRegistrationCode(f.request, f.actor)
+      await f.svc.authenticateDaemon({ ...f.frame, code })
+      const before = await f.store.machines.getMachine(f.id)
+      await expect(
+        f.svc.mintClientRegistrationCode(
+          { ...f.request, publicKey: publicKeyWire(mintSigningKeyPair()) },
+          f.actor,
+        ),
+      ).rejects.toThrow('already registered')
+      expect(await f.store.machines.getMachine(f.id)).toEqual(before)
+      await f.svc.revokeMachine(f.id)
+      await expect(
+        f.svc.mintClientRegistrationCode(
+          { ...f.request, publicKey: publicKeyWire(mintSigningKeyPair()) },
+          f.actor,
+        ),
+      ).rejects.toThrow('does not match')
+      const stale = await f.svc.mintClientRegistrationCode(f.request, f.actor)
+      const explicit = await f.svc.mintReplacementPairingCode(f.id, { ownerUserId: f.actor }, true)
+      const replacementKey = publicKeyWire(mintSigningKeyPair())
+      expect(
+        await f.svc.authenticateDaemon({ ...f.frame, publicKey: replacementKey, code: explicit }),
+      ).toMatchObject({ ok: true })
+      await f.svc.revokeMachine(f.id)
+      expect(await f.svc.authenticateDaemon({ ...f.frame, code: stale })).toMatchObject({
+        ok: false,
+        reason: 'replacement credential has changed',
+      })
+      expect(f.pairing.peek(stale)).toBeDefined()
+      // A superseded row remains ineligible even if its retained key agrees.
+      const replacementId = asMachineId('successor-client')
+      await f.store.machines.upsertMachine({
+        id: replacementId,
+        hostname: 'successor',
+        name: 'successor',
+        tokenHash: 'other',
+        ownerUserId: f.actor,
+      })
+      await f.svc.supersedeMachine(f.id, replacementId, f.actor)
+      await expect(
+        f.svc.mintClientRegistrationCode({ ...f.request, publicKey: replacementKey }, f.actor),
+      ).rejects.toThrow('superseded')
+    } finally {
+      f.svc.dispose()
+      await f.store.close()
+    }
+  })
 })

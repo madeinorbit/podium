@@ -29,6 +29,8 @@ const CLI_ALIASES: Record<string, string> = {
   agent: 'defaultAgent',
   model: 'defaultModel',
   effort: 'defaultEffort',
+  profile: 'agentProfile',
+  createLabel: 'createLabels',
   machine: 'machineId',
   start: 'startNow',
 }
@@ -45,6 +47,16 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     patchKeys.delete('archived')
     const cliKeys = mapCliKeys(cliShape('update'))
     cliKeys.delete('id') // outer input field, not part of the patch
+    // `--pinned` is not a field of the task: it creates or removes the caller's
+    // human's own pin record of it (POD-6692).
+    cliKeys.delete('pinned')
+    // Revision arbitration and close confirmation belong to the command
+    // envelope, not to the persisted issue patch.
+    for (const field of ['expectedRevision', 'confirmInterrupt']) {
+      expect(cliKeys.has(field), `CLI declares ${field}`).toBe(true)
+      expect(shapeKeys(serverInput).has(field), `server envelope declares ${field}`).toBe(true)
+      cliKeys.delete(field)
+    }
     expect([...cliKeys].sort()).toEqual([...patchKeys].sort())
   })
 
@@ -73,8 +85,9 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
   it('start: every server field is settable from the CLI, and vice versa', () => {
     const serverKeys = shapeKeys(issueRegistry.defs.start.input)
     // Intentional gaps — each must stay justified:
+    //  - sessionId: the device-minted session identity, supplied by transports.
     //  - mutationId/expectedRev/…: sync plumbing from `env`, supplied by transports.
-    for (const k of ['mutationId', 'expectedRev', 'origin']) serverKeys.delete(k)
+    for (const k of ['mutationId', 'expectedRev', 'origin', 'sessionId']) serverKeys.delete(k)
     // start's proc spells the harness `agentKind` (a one-shot override) where create's
     // spells it `defaultAgent`; the CLI flag is `--agent` on both, and CLI_ALIASES maps
     // it to `defaultAgent`. Normalise onto that so the pin compares like with like.
@@ -91,13 +104,15 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     const input = issueRegistry.defs.attachSession.input as z.ZodObject<z.ZodRawShape>
     const sub = input.shape.newSubissue as z.ZodOptional<z.ZodObject<z.ZodRawShape>>
     expect(Object.keys(sub.unwrap().shape)).toEqual(['title'])
-    expect(input.safeParse({ sessionId: asSessionId('s1'), confirmRehome: true }).success).toBe(true)
+    expect(input.safeParse({ sessionId: asSessionId('s1'), confirmRehome: true }).success).toBe(
+      true,
+    )
   })
 
   it('keeps the label palette and excludes task color flags', () => {
     expect(LabelColor.options).toEqual([...LABEL_COLOR_SLOTS])
     for (const name of ['create', 'update']) {
-      const command = ISSUE_COMMANDS.find(command => command.name === name)!
+      const command = ISSUE_COMMANDS.find((command) => command.name === name)!
       const input = name === 'create' ? { repoPath: '/r', title: 'x' } : { id: '1' }
       expect(command.args.safeParse(input).success).toBe(true)
       expect(command.args.safeParse({ ...input, color: 'violet' }).success).toBe(false)

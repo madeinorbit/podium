@@ -3,7 +3,9 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { opencodeFileId } from './transcript.js'
+import type { AgentStateEvent } from '../../agent-state/types.js'
+import { testAccount } from '../../driver/testing/harness-context.js'
+import { initialAgentState, reduceAgentState } from '../../observer.js'
 import {
   loadOpencodeMessageParts,
   loadOpencodeTranscriptTail,
@@ -12,8 +14,7 @@ import {
 import { agentStateProviderFor } from '../../registry.js'
 import { encodeCursor } from '../../store/cursor-codec.js'
 import { observeOpencodeState, opencodeStateProvider } from './state.js'
-import { initialAgentState, reduceAgentState } from '../../observer.js'
-import type { AgentStateEvent } from '../../agent-state/types.js'
+import { opencodeFileId } from './transcript.js'
 
 // Mock the opencode DB module so the gate test can (a) count handle opens and the
 // per-tick session query and (b) drive the mtime gate deterministically. The
@@ -34,7 +35,7 @@ vi.mock('../../opencode/db.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../../opencode/db.js')>()
   return {
     ...real,
-    openOpencodeDb: (homeDir?: string, databasePath?: string) => {
+    openOpencodeDb: (homeDir: string, databasePath?: string) => {
       const db = real.openOpencodeDb(homeDir, databasePath)
       dbHooks.openCount += 1
       if (db) {
@@ -50,7 +51,7 @@ vi.mock('../../opencode/db.js', async (importOriginal) => {
       dbHooks.getCount += 1
       return real.getOpencodeSession(db, id)
     },
-    opencodeDbMtimeMs: (homeDir?: string, databasePath?: string) =>
+    opencodeDbMtimeMs: (homeDir: string, databasePath?: string) =>
       dbHooks.mtimeMs ?? real.opencodeDbMtimeMs(homeDir, databasePath),
   }
 })
@@ -177,7 +178,7 @@ describe('opencode state provider', () => {
     const events = await opencodeStateProvider.bootEvents?.({
       cwd: '/repo/opencode',
       resumeValue: 'ses_boot',
-      homeDir: home,
+      account: testAccount('opencode', home),
     })
     expect(events).toEqual([
       {
@@ -768,7 +769,7 @@ describe('observeOpencodeState interrupted verdict', () => {
       if (!bootEventsProvider) throw new Error('OpenCode state provider must expose boot events')
       const bootEvents = await bootEventsProvider({
         cwd: '/repo/interrupt',
-        homeDir: home,
+        account: testAccount('opencode', home),
         resumeValue: 'ses_interrupt',
       })
       expect(bootEvents).toEqual([
@@ -785,7 +786,7 @@ describe('observeOpencodeState interrupted verdict', () => {
         homeDir: home,
         resumeValue: 'ses_interrupt',
         pollMs: 10,
-      loadSource,
+        loadSource,
         onEvents: () => {},
         onTranscriptItems: (next) => reloadItems.push(...next),
       })
@@ -884,6 +885,7 @@ describe('OpenCode adopt rebinding (POD-4794 defect 1)', () => {
     const items: unknown[] = []
     const obs = observeOpencodeState({
       cwd: '/repo/adopt',
+      homeDir: '/nonexistent-podium-home',
       databasePath,
       resumeValue: 'ses_stale_gone',
       pollMs: 10,
@@ -915,6 +917,7 @@ describe('OpenCode adopt rebinding (POD-4794 defect 1)', () => {
     const seen: string[] = []
     const obs = observeOpencodeState({
       cwd: '/repo/old',
+      homeDir: '/nonexistent-podium-home',
       databasePath,
       pollMs: 10,
       loadSource,

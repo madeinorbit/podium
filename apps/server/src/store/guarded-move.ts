@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE GUARDED STATUS WRITE for a declared state machine (POD-4765, POD-4720
  * §5.4 block 2).

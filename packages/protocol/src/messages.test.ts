@@ -8,6 +8,7 @@ import {
   asThreadId,
   asUserId,
   ConversationSummaryWire,
+  ConversationDiscoveryWire,
   GitRepositoryWire,
   MachineWire,
   ResumeRef,
@@ -73,15 +74,10 @@ describe('shared schemas', () => {
       title: 'fix the bug',
       cwd: '/home/u/proj',
       status: 'live' as const,
-      controllerId: 'c0',
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 1,
       createdAt: '2026-06-03T00:00:00.000Z',
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
       archived: false,
-      contextUsagePercent: 42.5,
     }
     expect(SessionMeta.parse(meta)).toEqual(meta)
   })
@@ -105,10 +101,6 @@ describe('shared schemas', () => {
       title: 't',
       cwd: '/w',
       status: 'live' as const,
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
       createdAt: '2026-06-03T00:00:00.000Z',
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
@@ -127,10 +119,6 @@ describe('shared schemas', () => {
       cwd: '/w',
       status: 'exited' as const,
       exitCode: 0,
-      controllerId: null,
-      geometry: { cols: 100, rows: 30 },
-      epoch: 2,
-      clientCount: 0,
       createdAt: '2026-06-03T00:00:00.000Z',
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'resume' as const, conversationId: 'conv-9' },
@@ -147,10 +135,6 @@ describe('shared schemas', () => {
       title: 'new',
       cwd: '/w',
       status: 'starting' as const,
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
       createdAt: '2026-06-03T00:00:00.000Z',
       lastActiveAt: '2026-06-03T00:00:00.000Z',
       origin: { kind: 'spawn' as const },
@@ -167,10 +151,6 @@ describe('shared schemas', () => {
     title: 't',
     cwd: '/w',
     status: 'live' as const,
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' as const },
@@ -242,7 +222,7 @@ describe('shared schemas', () => {
     expect(ConversationSummaryWire.parse(min)).toEqual(min)
   })
 
-  it('round-trips ConversationSummaryWire.sizeBytes (the mirror dirty signal)', () => {
+  it('round-trips ConversationDiscoveryWire.sizeBytes (the mirror dirty signal)', () => {
     const sized = {
       id: 'x',
       agentKind: 'claude-code' as const,
@@ -250,10 +230,12 @@ describe('shared schemas', () => {
       path: '/home/u/.claude/projects/-p/x.jsonl',
       sizeBytes: 4096,
     }
-    expect(ConversationSummaryWire.parse(sized)).toEqual(sized)
+    expect(ConversationDiscoveryWire.parse(sized)).toEqual(sized)
+    expect(ConversationSummaryWire.parse(sized)).not.toHaveProperty('sizeBytes')
+    expect(ConversationSummaryWire.parse(sized)).not.toHaveProperty('path')
     // Negative / fractional sizes are wire corruption, not evidence.
-    expect(() => ConversationSummaryWire.parse({ ...sized, sizeBytes: -1 })).toThrow()
-    expect(() => ConversationSummaryWire.parse({ ...sized, sizeBytes: 1.5 })).toThrow()
+    expect(() => ConversationDiscoveryWire.parse({ ...sized, sizeBytes: -1 })).toThrow()
+    expect(() => ConversationDiscoveryWire.parse({ ...sized, sizeBytes: 1.5 })).toThrow()
   })
 
   it('round-trips a GitRepositoryWire with worktrees', () => {
@@ -312,8 +294,6 @@ describe('ServerMessage', () => {
     status: 'live' as const,
     controllerId: 'c0',
     geometry,
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' as const },
@@ -328,7 +308,7 @@ describe('ServerMessage', () => {
     resume: { kind: 'codex-thread', value: 'conv-1' },
   }
   const cases: ServerMessage[] = [
-    { type: 'welcome', clientId: 'c0' },
+    { type: 'welcome', kindTokens: {}, clientId: 'c0' },
     { type: 'attached', sessionId: asSessionId('s1'), controllerId: 'c0', geometry, epoch: 0 },
     { type: 'attached', sessionId: asSessionId('s1'), controllerId: null, geometry, epoch: 0 },
     { type: 'outputFrame', sessionId: asSessionId('s1'), seq: 3, epoch: 1, data: 'eA==' },
@@ -367,8 +347,6 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
     status: 'live',
     controllerId: 'c0',
     geometry,
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -396,7 +374,7 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
 
   it('parses non-collection messages strictly', () => {
     const { message, dropped } = parseServerMessageLenient(
-      JSON.stringify({ type: 'welcome', clientId: 'c0' }),
+      JSON.stringify({ type: 'welcome', kindTokens: {}, clientId: 'c0' }),
     )
     expect(dropped).toBe(0)
     expect(message?.type).toBe('welcome')
@@ -404,55 +382,6 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
 
   it('throws on a structurally malformed frame (not a quarantine case)', () => {
     expect(() => parseServerMessageLenient('{not json')).toThrow()
-  })
-
-  // POD-2199. `approvalsChanged` is a full-list SNAPSHOT, not a delta, so a
-  // refused frame does not merely skip an update — it freezes the operator's
-  // pending list at whatever it last saw. The op catalog grows (a new kind, a
-  // new `channel` target like `dev`), and every value a newer server adds is one
-  // an older bundle's closed schema rejects, so that growth must cost the one
-  // unreadable request and nothing else.
-  const approval = (id: string, op: unknown) => ({
-    id,
-    machineId: 'm1',
-    sessionId: 's1',
-    issueId: null,
-    issueSeq: null,
-    issueTitle: null,
-    op,
-    status: 'pending',
-    createdAt: '2026-08-16T00:00:00.000Z',
-    decidedAt: null,
-    resultText: null,
-  })
-
-  it('quarantines an approval whose op this build cannot read, and still shows the rest', () => {
-    const raw = JSON.stringify({
-      type: 'approvalsChanged',
-      pending: [
-        approval('a', { kind: 'update' }),
-        // What a build that predates the widening sees when a newer server
-        // relays an agent's `podium channel dev` request.
-        approval('unreadable', { kind: 'channel', target: 'a-channel-this-build-lacks' }),
-        approval('c', { kind: 'stop' }),
-      ],
-    })
-    const { message, dropped } = parseServerMessageLenient(raw)
-    expect(dropped).toBe(1)
-    expect(message?.type === 'approvalsChanged' && message.pending.map((p) => p.id)).toEqual([
-      'a',
-      'c',
-    ])
-  })
-
-  it('passes a pending list this build reads fully — it does not drop what it understands', () => {
-    const raw = JSON.stringify({
-      type: 'approvalsChanged',
-      pending: [approval('a', { kind: 'channel', target: 'dev' })],
-    })
-    const { message, dropped } = parseServerMessageLenient(raw)
-    expect(dropped).toBe(0)
-    expect(message?.type === 'approvalsChanged' && message.pending.length).toBe(1)
   })
 
   // Kind-tolerance ([spec:SP-3fe2] #258): a NEWER server may stream metadata
@@ -766,8 +695,8 @@ describe('codec', () => {
 })
 
 describe('Layer 3 reattach messages', () => {
-  it('SessionStatus includes reconnecting + hibernated', () => {
-    expect(SessionStatus.options).toContain('reconnecting')
+  it('SessionStatus includes hibernated, and not reconnecting (a derived condition, ADR 12 D1)', () => {
+    expect(SessionStatus.options).not.toContain('reconnecting')
     expect(SessionStatus.options).toContain('hibernated')
   })
 
@@ -1135,10 +1064,6 @@ describe('agent runtime state', () => {
       title: 't',
       cwd: '/tmp',
       status: 'live',
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
       createdAt: '2026-06-12T10:00:00.000Z',
       lastActiveAt: '2026-06-12T10:00:00.000Z',
       origin: { kind: 'spawn' },
@@ -1178,10 +1103,6 @@ describe('agent runtime state', () => {
       title: 't',
       cwd: '/w',
       status: 'live',
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
       createdAt: '2026-06-19T00:00:00.000Z',
       lastActiveAt: '2026-06-19T00:00:00.000Z',
       origin: { kind: 'spawn' },
@@ -1201,10 +1122,6 @@ describe('agent runtime state', () => {
       title: 't',
       cwd: '/w',
       status: 'live',
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
       createdAt: '2026-07-01T00:00:00.000Z',
       lastActiveAt: '2026-07-01T00:00:00.000Z',
       origin: { kind: 'spawn' },

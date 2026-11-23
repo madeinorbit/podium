@@ -1,218 +1,333 @@
-import { followVisibleRequest } from '@podium/client-graph/visible-request'
-import { observer } from 'mobx-react-lite'
+import type { MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
+import type { MemberRosterAnswer } from '@podium/client-graph/member-roster'
 import { useOpeningView } from '@podium/client-graph/react'
-import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
-import { useWorklistPool } from '@/app/store-worklist-pool'
-import { useCallback } from 'react'
-import { useEffect, useState } from 'react'
-import { serverConfig } from '@/app/trpc'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { memberRequest } from '@/features/setup/member-api'
-import { Section } from './shared'
-
 import type { MemberModel } from '@podium/client-graph/requested-models'
-const createDirectory = (pool: import('@podium/client-graph/pool').MobxPool) => new MemberDirectory(pool)
+import { followVisibleRequest } from '@podium/client-graph/visible-request'
+import { Link, Plus } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
+import { useCallback, useEffect, useState } from 'react'
+import { toast } from 'sonner'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { serverConfig } from '@/app/trpc'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { authRequest, memberRequest } from '@/features/setup/member-api'
+import { webAuth } from '@/lib/accounts'
+import { AdminViewerError } from '../AdminViewerError'
+import { useAdminSections } from '../admin-viewer'
+import { settingsSectionId } from '../page-definitions'
+import { SettingsPageActions, useSettingsFrame } from '../settings-frame'
+import { type MemberSignInsAnswer, MembersPage, memberRoleLabel } from './members-data'
+import { InviteMember, type MemberLinkReceipt } from './members-invite'
+import { MemberLinkResult } from './members-link-result'
+import { MemberPerson } from './members-person'
+import { ConfirmInline, EntityRow, Section } from './shared'
+
+const createPage = (pool: import('@podium/client-graph/pool').MobxPool) => new MembersPage(pool)
 
 export const MembersSection = observer(function MembersSection() {
   const origin = serverConfig(window.location).httpOrigin
-  const data = useOpeningView(useWorklistPool(), createDirectory)
-  const [email, setEmail] = useState('')
-  const [memberId, setMemberId] = useState('')
-  const [role, setRole] = useState('member')
-  const [sendEmail, setSendEmail] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [link, setLink] = useState('')
-  const [notice, setNotice] = useState('')
-  const [removing, setRemoving] = useState<MemberModel>()
-  const reload = useCallback(() => data?.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list')), [data, origin])
-  useEffect(() => followVisibleRequest(() => { if (!data?.loading) void reload() }, {
-    visible: () => document.visibilityState !== 'hidden',
-    subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
-  }), [data, reload])
-  async function mutate(action: string, body: unknown) {
-    setBusy(true)
-    setError('')
-    setNotice('')
-    try {
-      const result = await memberRequest<{ url?: string; mailSent?: boolean }>(origin, action, body)
-      if (result.url) {
-        setLink(result.url)
-        setNotice(
-          sendEmail
-            ? result.mailSent
-              ? 'Invitation emailed.'
-              : 'Email wasn’t sent. Copy the link below.'
-            : 'Invitation ready to share.',
-        )
+  const data = useOpeningView(useWorklistPool(), createPage)
+  const viewer = useAdminSections()
+  const admin = viewer.status === 'ready' && viewer.sections.includes('people')
+  const { openTakeover } = useSettingsFrame()
+  const reload = useCallback(async () => {
+    if (!data || viewer.status !== 'ready') return
+    await Promise.all([
+      data.read(async () => {
+        if (!admin) return await memberRequest<MemberRosterAnswer>(origin, 'directory')
+        // What this server's sign-in edition offers decides invitations, resets and sign-outs.
+        const [directory, status] = await Promise.all([
+          memberRequest<MemberDirectoryAnswer>(origin, 'list'),
+          webAuth.fetchAuthStatus(origin),
+        ])
+        return { ...directory, capabilities: status.capabilities }
+      }),
+      ...(admin
+        ? [data.devices.load(() => authRequest<MemberSignInsAnswer>(origin, 'admin/sign-ins'))]
+        : []),
+    ])
+  }, [admin, data, origin, viewer.status])
+  useEffect(() => {
+    if (!data || viewer.status !== 'ready') return
+    return followVisibleRequest(
+      () => {
+        if (!data.loading) void reload()
+      },
+      {
+        visible: () => document.visibilityState !== 'hidden',
+        subscribe: (changed) => {
+          document.addEventListener('visibilitychange', changed)
+          return () => document.removeEventListener('visibilitychange', changed)
+        },
+      },
+    )
+  }, [data, reload, viewer.status])
+
+  if (viewer.status === 'error') return <AdminViewerError viewer={viewer} />
+  if (!data || viewer.status === 'loading')
+    return (
+      <p className="settings-prose" role="status">
+        Loading members…
+      </p>
+    )
+
+  return (
+    <>
+      {admin && (
+        <SettingsPageActions>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              openTakeover({
+                title: 'Invite someone',
+                content: <InviteMember data={data} origin={origin} reload={reload} />,
+              })
+            }
+          >
+            <Plus size={14} aria-hidden="true" />
+            Invite
+          </Button>
+        </SettingsPageActions>
+      )}
+      <Section list>
+        {data.error && (
+          <div className="settings-list-note">
+            <p className="settings-prose text-destructive" role="alert">
+              {data.error}
+            </p>
+            <Button size="sm" variant="ghost" onClick={() => void reload()}>
+              Retry
+            </Button>
+          </div>
+        )}
+        {!data.answer && data.loading && (
+          <p className="settings-list-note settings-prose" role="status">
+            Loading members…
+          </p>
+        )}
+        {data.members.map((member) => (
+          <MemberListRow
+            key={member.id}
+            member={member}
+            data={data}
+            admin={admin}
+            onOpen={() =>
+              openTakeover({
+                title: member.displayName,
+                content: (
+                  <MemberPerson
+                    key={member.id}
+                    member={member}
+                    data={data}
+                    origin={origin}
+                    reload={reload}
+                  />
+                ),
+              })
+            }
+          />
+        ))}
+        {data.answer && !data.members.length && (
+          <p className="settings-list-note settings-prose">No members.</p>
+        )}
+      </Section>
+      {admin && (
+        <Section id={settingsSectionId('pending-invites')} title="Pending invites" list>
+          {data.invites.length ? (
+            data.invites.map((invite) => (
+              <PendingInvite
+                key={invite.id}
+                invite={invite}
+                data={data}
+                origin={origin}
+                reload={reload}
+              />
+            ))
+          ) : (
+            <div className="settings-list-note">
+              <p className="settings-label">No pending invites</p>
+              <p className="settings-prose mt-1">Invite links work once and expire after 7 days.</p>
+            </div>
+          )}
+        </Section>
+      )}
+    </>
+  )
+})
+
+const MemberListRow = observer(function MemberListRow({
+  member,
+  data,
+  admin,
+  onOpen,
+}: {
+  member: MemberModel
+  data: MembersPage
+  admin: boolean
+  onOpen: () => void
+}) {
+  const person = data.person(member)
+  return (
+    <EntityRow
+      leading={person.initials}
+      title={member.displayName}
+      pills={
+        <>
+          {person.self && <Badge variant="outline">You</Badge>}
+          {admin && member.disabledAt && <Badge variant="destructive">Disabled</Badge>}
+        </>
       }
-      setRemoving(undefined)
+      subtitle={
+        admin ? (
+          <>
+            {member.email || 'No email'} ·{' '}
+            {data.devices.error
+              ? 'Devices unavailable'
+              : !data.devices.answer
+                ? 'Loading devices…'
+                : `${data.devicesTruncated ? 'At least ' : ''}${person.devices.length} device${person.devices.length === 1 ? '' : 's'} signed in`}
+          </>
+        ) : undefined
+      }
+      trailing={<span className="settings-prose">{memberRoleLabel(member.role)}</span>}
+      onClick={admin ? onOpen : undefined}
+    />
+  )
+})
+
+type Invite = MemberDirectoryAnswer['invites'][number]
+const PendingInvite = observer(function PendingInvite({
+  invite,
+  data,
+  origin,
+  reload,
+}: {
+  invite: Invite
+  data: MembersPage
+  origin: string
+  reload: () => Promise<unknown>
+}) {
+  const [pending, setPending] = useState<'revoke' | 'replace'>()
+  const [busy, setBusy] = useState(false)
+  const [receipt, setReceipt] = useState<MemberLinkReceipt>()
+  const label = invite.email || 'Shareable link'
+  const recovery = Boolean(invite.memberId && data.actionsFor(invite.memberId).includes('recovery'))
+  const needsPassword = data.hasOwnCredential && (recovery || invite.role === 'admin')
+
+  const replace = async (current: string) => {
+    if (busy) return
+    setBusy(true)
+    try {
+      const result = await memberRequest<{ url: string }>(
+        origin,
+        recovery ? 'recovery' : 'invite',
+        recovery
+          ? { id: invite.memberId, current }
+          : {
+              ...(invite.memberId ? { memberId: invite.memberId } : {}),
+              ...(invite.email ? { email: invite.email } : {}),
+              role: invite.role,
+              current,
+            },
+      )
+      // Preserve the usable result even if the second request fails.
+      setReceipt({ url: result.url, notice: 'New link created. Replacing the old link…' })
+      try {
+        await memberRequest(origin, 'revoke', { id: invite.id })
+      } catch (cause) {
+        setReceipt({
+          url: result.url,
+          notice:
+            'New link created, but the old link could not be revoked. Revoke it before sharing this one.',
+        })
+        throw cause
+      }
+      // Keep the result in a separate takeover: refreshing removes the old row.
+      let notice = 'New link ready. The old link no longer works.'
+      try {
+        await navigator.clipboard.writeText(result.url)
+        notice = 'New link copied. The old link no longer works.'
+      } catch {
+        /* The result keeps a selectable link and Copy action. */
+      }
+      openResult(result.url, notice)
       await reload()
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Unable to save')
     } finally {
       setBusy(false)
     }
   }
+  const { openTakeover } = useSettingsFrame()
+  const openResult = (url: string, notice: string) =>
+    openTakeover({
+      title: recovery ? 'Password reset link' : 'Invite link',
+      content: (
+        <Section title={recovery ? 'Password reset link' : 'Invite link'}>
+          <MemberLinkResult
+            label={recovery ? 'Password reset link' : 'Invite link'}
+            url={url}
+            notice={notice}
+          />
+        </Section>
+      ),
+    })
   return (
-    <Section
-      title="Members"
-      hint="Invite people to this workspace. Copy a link to share it with them."
-    >
-      {(error || data?.error) && <p role="alert">{error || data?.error}</p>}
-      {data && (
-        <div className="space-y-6">
-          <ul className="space-y-3">
-            {data.members.map((member) => (
-              <li key={member.id} className="flex items-center justify-between gap-3">
-                <div>
-                  <strong>{member.displayName}</strong>
-                  <p className="settings-prose">
-                    {member.email || 'No email'} · {member.role}
-                  </p>
-                </div>
-                {member.id !== data.currentMemberId && (
-                  <Button variant="ghost" disabled={busy} onClick={() => setRemoving(member)}>
-                    Remove {member.displayName}
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-          {removing && (
-            <div role="alertdialog" aria-label="Remove member" className="space-y-2">
-              <p>
-                Remove {removing.displayName}? They will lose access. Their issues and sessions will
-                be kept.
-              </p>
-              <Button
-                variant="destructive"
-                disabled={busy}
-                onClick={() => void mutate('remove', { id: removing.id })}
-              >
-                Confirm removal
-              </Button>
-              <Button variant="ghost" onClick={() => setRemoving(undefined)}>
-                Cancel
-              </Button>
-            </div>
-          )}
-          <form
-            className="max-w-sm space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              void mutate('invite', {
-                ...(memberId ? { memberId } : {}),
-                ...(email.trim() ? { email } : {}),
-                role,
-                sendEmail,
-              })
-            }}
-          >
-            <h3 className="font-medium">Invite a member</h3>
-            <label className="block">
-              Member
-              <select
-                className="block w-full bg-background p-2"
-                value={memberId}
-                onChange={(e) => {
-                  setMemberId(e.target.value)
-                  const member = data.members.find((m) => m.id === e.target.value)
-                  setEmail(member?.email ?? '')
-                }}
-              >
-                <option value="">New member</option>
-                {data.members.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.displayName}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              Email (optional)
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                maxLength={254}
-              />
-            </label>
-            {!memberId && (
-              <label className="block">
-                Role
-                <select
-                  className="block w-full bg-background p-2"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                >
-                  <option value="member">Member</option>
-                  <option value="admin">Admin</option>
-                </select>
-              </label>
-            )}
-            {data.mailAvailable && (
-              <label className="flex gap-2">
-                <input
-                  type="checkbox"
-                  checked={sendEmail}
-                  onChange={(e) => setSendEmail(e.target.checked)}
-                />
-                Send by email
-              </label>
-            )}
-            <p className="settings-prose">Invitations expire in 7 days and can be used once.</p>
-            <Button type="submit" disabled={busy || (sendEmail && !email.trim())}>
-              Create invite
+    <div>
+      <EntityRow
+        leading={<Link size={18} />}
+        title={label}
+        subtitle={`${memberRoleLabel(invite.role)} · Expires ${new Date(invite.expiresAt).toLocaleDateString()}`}
+        trailing={
+          <>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPending('replace')}>
+              New link
             </Button>
-          </form>
-          {link && (
-            <div className="space-y-2">
-              <p role="status">{notice}</p>
-              <Input
-                aria-label="Invite link"
-                readOnly
-                value={link}
-                onFocus={(e) => e.target.select()}
-              />
-              <Button
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(link)
-                    setNotice('Link copied.')
-                  } catch {
-                    setNotice('Select the link above and copy it.')
-                  }
-                }}
-              >
-                Copy link
-              </Button>
-            </div>
-          )}
-          <div className="space-y-3">
-            <h3 className="font-medium">Pending invitations</h3>
-            {data.invites.length === 0 && <p className="settings-prose">No pending invitations.</p>}
-            {data.invites.map((invite) => (
-              <div key={invite.id} className="flex items-center justify-between gap-3">
-                <span>
-                  {invite.email || 'Shareable link'} · {invite.role} ·{' '}
-                  {Date.parse(invite.expiresAt) <= Date.now()
-                    ? 'Expired'
-                    : `Expires ${new Date(invite.expiresAt).toLocaleDateString()}`}
-                </span>
-                <Button
-                  variant="ghost"
-                  disabled={busy}
-                  onClick={() => void mutate('revoke', { id: invite.id })}
-                >
-                  Revoke invite
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setPending('revoke')}>
+              Revoke
+            </Button>
+          </>
+        }
+      />
+      {pending === 'replace' && (
+        <ConfirmInline
+          key="replace"
+          sentence={`Create a new link for ${label}? The old one stops working.`}
+          actionLabel="Create new link"
+          hasPassword={needsPassword}
+          pending={busy}
+          onConfirm={replace}
+          onCancel={() => setPending(undefined)}
+        />
       )}
-    </Section>
+      {pending === 'revoke' && (
+        <ConfirmInline
+          key="revoke"
+          sentence={`Revoke the invite for ${label}? The link stops working.`}
+          actionLabel="Revoke invite"
+          destructive
+          pending={busy}
+          onConfirm={async () => {
+            setBusy(true)
+            try {
+              await memberRequest(origin, 'revoke', { id: invite.id })
+              setPending(undefined)
+              toast('Invite revoked')
+              await reload()
+            } finally {
+              setBusy(false)
+            }
+          }}
+          onCancel={() => setPending(undefined)}
+        />
+      )}
+      {receipt && (
+        <MemberLinkResult
+          key={receipt.url}
+          label={recovery ? 'Password reset link' : 'Invite link'}
+          {...receipt}
+        />
+      )}
+    </div>
   )
 })

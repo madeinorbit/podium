@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * THE SETTINGS AUDIT TRAIL (POD-421, 3.7d) — the append-only record of who
  * changed what on the settings family, and what they were refused.
@@ -44,11 +45,12 @@
  */
 
 import type { RedactionReport } from '@podium/commands'
-import { asc, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, lt, or, sql } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
-import { settingsAuditEvents } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { prepared } from './executor/sync-drizzle'
+import type { settingsAuditEvents } from '../migrations/schema'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, preparedFamily, WORKSPACE } from './executor/sync-drizzle'
+import { prefixUpperBound } from './prefix-range'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
  *  a trail that records only successes cannot answer "who TRIED to rotate this
@@ -121,10 +123,11 @@ export function settingsAuditRow(input: {
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const appendAudit = prepared((db: StoreDrizzle) =>
+const appendAudit = prepared((db, t) =>
   db
-    .insert(settingsAuditEvents)
+    .insert(t.settingsAuditEvents)
     .values({
+      workspaceId: WORKSPACE,
       command: sql.placeholder('command'),
       outcome: sql.placeholder('outcome'),
       actorKind: sql.placeholder('actorKind'),
@@ -137,28 +140,103 @@ const appendAudit = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const auditInOrder = prepared((db: StoreDrizzle) =>
+const auditInOrder = prepared((db, t) =>
   db
     .select()
-    .from(settingsAuditEvents)
-    .orderBy(asc(settingsAuditEvents.id))
+    .from(t.settingsAuditEvents)
+    .where(inWorkspace(t.settingsAuditEvents))
+    .orderBy(asc(t.settingsAuditEvents.id))
     .limit(sql.placeholder('limit'))
     .prepare(),
 )
 
+/**
+ * THE SECURITY EVENTS (POD-6299; design §2.6): member, role, admission, custody
+ * and machine events, the secret writes and comment moderation. Preference
+ * patches are not security events, and their detail carries preference values.
+ */
+export const SECURITY_EVENT_PREFIXES = ['members.', 'machines.'] as const
+export const SECURITY_EVENT_COMMANDS = [
+  'takeover',
+  'settings.setSecret',
+  'settings.clearSecret',
+  'accounts.unsend',
+  'issues.editComment',
+  'issues.deleteComment',
+] as const
+
+export const SECURITY_EVENT_KINDS = ['people', 'machines', 'credentials', 'comments'] as const
+export type SecurityEventKind = (typeof SECURITY_EVENT_KINDS)[number]
+export interface SecurityEventFilters {
+  /** The human actor, including agents acting on this member's behalf. */
+  actor?: string
+  kind?: SecurityEventKind
+  refusedOnly?: boolean
+}
+
+type SecurityEventShape = `${SecurityEventKind | 'all'}|${0 | 1}|${0 | 1}`
+
+const securityEventsNewestFirst = preparedFamily((db, t, shape: SecurityEventShape) => {
+  const [kind, actor, refused] = shape.split('|')
+  const prefix = (value: string) =>
+    and(
+      gte(t.settingsAuditEvents.command, value),
+      lt(t.settingsAuditEvents.command, prefixUpperBound(value)),
+    )
+  const commands =
+    kind === 'people'
+      ? prefix('members.')
+      : kind === 'machines'
+        ? or(prefix('machines.'), eq(t.settingsAuditEvents.command, 'takeover'))
+        : kind === 'credentials'
+          ? inArray(t.settingsAuditEvents.command, [
+              'settings.setSecret',
+              'settings.clearSecret',
+              'accounts.unsend',
+            ])
+          : kind === 'comments'
+            ? inArray(t.settingsAuditEvents.command, ['issues.editComment', 'issues.deleteComment'])
+            : or(
+                ...SECURITY_EVENT_PREFIXES.map(prefix),
+                inArray(t.settingsAuditEvents.command, [...SECURITY_EVENT_COMMANDS]),
+              )
+  return db
+    .select()
+    .from(t.settingsAuditEvents)
+    .where(
+      inWorkspace(
+        t.settingsAuditEvents,
+        lt(t.settingsAuditEvents.id, param(t.settingsAuditEvents.id, 'beforeId')),
+        commands,
+        actor === '1'
+          ? eq(t.settingsAuditEvents.onBehalfOf, param(t.settingsAuditEvents.onBehalfOf, 'actor'))
+          : undefined,
+        refused === '1' ? eq(t.settingsAuditEvents.outcome, 'refused') : undefined,
+      ),
+    )
+    .orderBy(desc(t.settingsAuditEvents.id))
+    .limit(sql.placeholder('limit'))
+    .prepare()
+})
+
+/** One stored security event, with its row id as the page cursor. */
+export interface SecurityEventRow extends SettingsAuditRow {
+  readonly id: number
+}
+
 export class SettingsAuditRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -193,9 +271,32 @@ export class SettingsAuditRepository {
    * re-redacted before it ships. Said here so the next person adding one meets
    * the constraint rather than discovering it.
    */
+  /**
+   * The security events, newest first, `limit` at most, older than `beforeId`
+   * when given (POD-6299). The admin area projects these; it never sends a
+   * row's detail as stored.
+   */
+  async securityEvents(
+    limit: number,
+    beforeId?: number,
+    filters: SecurityEventFilters = {},
+  ): Promise<SecurityEventRow[]> {
+    const shape: SecurityEventShape = `${filters.kind ?? 'all'}|${filters.actor ? 1 : 0}|${filters.refusedOnly ? 1 : 0}`
+    const rows = await securityEventsNewestFirst(this.db, shape).all({
+      limit,
+      beforeId: beforeId ?? Number.MAX_SAFE_INTEGER,
+      actor: filters.actor,
+    })
+    return rows.map((r) => ({ id: r.id, ...this.rowOf(r) }))
+  }
+
   async list(limit = 100): Promise<SettingsAuditRow[]> {
     const rows = await auditInOrder(this.db).all({ limit })
-    return rows.map((r) => ({
+    return rows.map((r) => this.rowOf(r))
+  }
+
+  private rowOf(r: typeof settingsAuditEvents.$inferSelect): SettingsAuditRow {
+    return {
       command: r.command,
       // `outcome` and `actor_kind` are plain text() columns held to their
       // vocabularies by CHECK constraints rather than by a drizzle `$type`, so
@@ -208,7 +309,7 @@ export class SettingsAuditRepository {
       detail: parseJson(r.detailJson),
       redactedPaths: (parseJson(r.redactedPaths) as string[] | undefined) ?? [],
       createdAt: r.createdAt,
-    }))
+    }
   }
 }
 

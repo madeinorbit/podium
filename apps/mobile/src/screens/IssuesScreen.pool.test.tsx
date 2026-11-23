@@ -3,6 +3,7 @@
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MobxPool } from '@podium/client-graph/pool'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
+import { refreshingScreenFixture } from '@podium/client-graph/refreshing-screen.test.fixture'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Profiler, type ReactNode, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -16,9 +17,16 @@ const router = vi.hoisted(() => ({ push: vi.fn() }))
 vi.mock('expo-router', () => ({ useRouter: () => router, Stack: { SearchBar: () => null } }))
 vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => state.pool }))
 vi.mock('../client/hooks', () => ({ useBooting: () => false, useStoreActions: () => ({}) }))
+vi.mock('@podium/client-core/react', () => ({
+  useCommands: () => ({ issues: { markRead: async () => {}, update: async () => {} } }),
+}))
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
+vi.mock('../lib/issue-row-actions', () => ({ useIssueRowActions: () => ({}) }))
 vi.mock('../hooks/usePersistedUiState', () => ({
   usePersistedUiState: () => [{ ordering: 'priority', showAgentTasks: false }, () => {}],
+}))
+vi.mock('../hooks/useIssuesFilters', () => ({
+  useIssuesFilters: () => [{ assignedTo: 'me', showAgentTasks: false, source: {} }, () => {}],
 }))
 vi.mock('../hooks/useCollapsed', () => ({
   useCollapsed: (_key: string, initial: boolean) => {
@@ -38,27 +46,39 @@ vi.mock('../hooks/useRefreshableTab', () => ({
     onRefresh: () => {},
   }),
 }))
-vi.mock('../components/Screen', () => ({
-  Screen: ({ right, children }: { right: ReactNode; children: ReactNode }) => (
-    <div>
-      {right}
-      {children}
-    </div>
-  ),
-  HeaderButton: ({
-    label,
-    onPress,
-    children,
-  }: {
-    label: string
-    onPress: () => void
-    children: ReactNode
-  }) => (
-    <button type="button" aria-label={label} onClick={onPress}>
-      {children}
-    </button>
-  ),
-}))
+vi.mock('../components/Screen', async () => {
+  const { ScreenRefreshMark } = await import('../components/ScreenRefreshMark')
+  return {
+    Screen: ({
+      right,
+      children,
+      refreshing,
+    }: {
+      right: ReactNode
+      children: ReactNode
+      refreshing?: boolean
+    }) => (
+      <div>
+        <ScreenRefreshMark refreshing={refreshing ?? false} />
+        {right}
+        {children}
+      </div>
+    ),
+    HeaderButton: ({
+      label,
+      onPress,
+      children,
+    }: {
+      label: string
+      onPress: () => void
+      children: ReactNode
+    }) => (
+      <button type="button" aria-label={label} onClick={onPress}>
+        {children}
+      </button>
+    ),
+  }
+})
 vi.mock('../components/PressableScale', () => ({
   PressableScale: ({
     children,
@@ -137,11 +157,30 @@ vi.mock('../components/TaskFiltersSheet', () => ({ TaskFiltersSheet: () => null 
 vi.mock('../components/WorkIssueMenu', () => ({ WorkIssueMenu: () => null }))
 vi.stubEnv('EXPO_OS', 'web')
 const { IssuesScreen } = await import('./IssuesScreen')
+
+it('the real phone board opens offline data with one refreshing mark and updates its rows in place', async () => {
+  const f = await refreshingScreenFixture()
+  state.pool = f.pool
+  f.mark(f.owned.board)
+  const view = render(<IssuesScreen />)
+  try {
+    expect(screen.getAllByLabelText('Refreshing')).toHaveLength(1)
+    const row = screen.getByRole('button', { name: /Task 1: Cached root/ })
+    expect(view.container.textContent).not.toContain('Loading')
+    await act(async () => f.land())
+    expect(screen.queryByLabelText('Refreshing')).toBeNull()
+    expect(screen.getByRole('button', { name: /Task 1: Cached root updated/ })).toBe(row)
+    expect(f.requested).toEqual([])
+  } finally {
+    view.unmount()
+    state.pool = null
+    f.dispose()
+  }
+})
 const now = Date.parse('2026-10-03T12:00:00Z')
 async function attachTasks(pool: MobxPool) {
   attachPreferenceSource(pool, {
     get: () => '{"ordering":"priority"}',
-    peek: () => '{"ordering":"priority"}',
     set: () => {},
     subscribe: () => () => {},
   })

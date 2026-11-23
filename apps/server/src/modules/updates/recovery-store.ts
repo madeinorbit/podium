@@ -1,7 +1,11 @@
+// workspace-scoped (POD-6959)
+
 import { UpdateChannel } from '@podium/model'
 import { CONVERGENCE_STATES, UpdateGrantMessage, UpdateTarget } from '@podium/protocol'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { z } from 'zod'
+import type { StoreDb, TransactionRunner } from '../../store/executor/sync-drizzle'
+import { MachineRecordWrites } from '../../store/machine-record-writes'
+import { readUpdateRecoveryValue, writeUpdateRecoveryValue } from '../../store/update-recovery'
 
 export const MachineFailureReason = z.object({
   code: z.string().optional(),
@@ -37,11 +41,18 @@ const RecoverySnapshot = z.object({
   format: z.literal(1),
   lastGrantAuthority: z.number(),
   targets: z.array(z.tuple([UpdateChannel, UpdateTarget])),
-  withdrawnTargets: z.array(z.tuple([UpdateChannel, z.object({
-    target: UpdateTarget,
-    reason: z.string(),
-    withdrawnAt: z.number(),
-  })])).optional(),
+  withdrawnTargets: z
+    .array(
+      z.tuple([
+        UpdateChannel,
+        z.object({
+          target: UpdateTarget,
+          reason: z.string(),
+          withdrawnAt: z.number(),
+        }),
+      ]),
+    )
+    .optional(),
   machines: z.array(z.tuple([z.string(), RecoveryState])),
   grants: z.array(z.tuple([z.string(), RecoveryGrant])),
   // Optional for checkpoints written before retired execution proof was retained.
@@ -59,25 +70,50 @@ const RecoverySnapshot = z.object({
 export type UpdateRecoverySnapshot = z.infer<typeof RecoverySnapshot>
 export interface UpdateRecoveryPersistence {
   read(): UpdateRecoverySnapshot | undefined
-  write(snapshot: UpdateRecoverySnapshot): void
+  write(snapshot: () => UpdateRecoverySnapshot): void | Promise<void>
 }
 
-/** One atomic coordinator checkpoint in the existing database. No constructor
- * writes: recoveryOnly can restore it from a query-only database. Invalid proof
- * fails closed instead of silently restoring an empty grant map. */
-export class UpdateRecoveryStore implements UpdateRecoveryPersistence {
-  constructor(private readonly db: SqlDatabase) {}
+/**
+ * What the store is handed: a handle that runs global definitions (a workspace
+ * handle does too) and the transaction runner the machine records commit in.
+ * In the server that is the workspace's, so the records' change capture lands
+ * in that workspace's change log.
+ */
+export interface UpdateRecoveryQueries {
+  readonly db: StoreDb
+  readonly createOrJoinTransaction: TransactionRunner
+}
 
-  read(): UpdateRecoverySnapshot | undefined {
-    const row = this.db
-      .prepare('SELECT value FROM meta WHERE key = ?')
-      .get('updates.execution.v1') as { value: string } | undefined
-    return row ? RecoverySnapshot.parse(JSON.parse(row.value)) : undefined
+/** The checkpoint and any changed machine display records commit together. */
+export class UpdateRecoveryStore {
+  constructor(
+    private readonly queries: UpdateRecoveryQueries,
+    private readonly records = new MachineRecordWrites(),
+  ) {}
+
+  async read(): Promise<UpdateRecoverySnapshot | undefined> {
+    const value = await readUpdateRecoveryValue(this.queries.db)
+    return value === undefined ? undefined : RecoverySnapshot.parse(JSON.parse(value))
   }
 
-  write(snapshot: UpdateRecoverySnapshot): void {
-    this.db
-      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-      .run('updates.execution.v1', JSON.stringify(snapshot))
+  async write(snapshot: () => UpdateRecoverySnapshot): Promise<void> {
+    // Fleet reads and ticks often leave execution proof unchanged. Compare on
+    // the read lane first, so those calls never queue a write transaction.
+    const current = await readUpdateRecoveryValue(this.queries.db)
+    if (current === JSON.stringify(snapshot())) return
+    await this.queries.createOrJoinTransaction(async () => {
+      const previous = await readUpdateRecoveryValue(this.queries.db)
+      // Build after acquiring the write lane. Concurrent observers persist the
+      // current runtime proof when their turn arrives.
+      const next = snapshot()
+      const value = JSON.stringify(next)
+      if (previous === value) return
+      // One change-log commit: the capture fires only when a published
+      // target version moved, and the machine records it reaches are
+      // appended with the checkpoint (POD-6920).
+      await this.records.compare(async () => {
+        await writeUpdateRecoveryValue(this.queries.db, value)
+      })
+    })
   }
 }

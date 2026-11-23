@@ -186,6 +186,7 @@ export function composerInputReady(
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
   const { hub, sessionId } = opts
+  let disposed = false
   const crop = opts.crop ?? 'clip'
   const viewportEl = opts.viewportEl ?? el
   const diagnostics = createTerminalDiagnosticRecorder(sessionId)
@@ -656,9 +657,18 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   if (opts.focusOnMount !== false) view.focus()
 
   let testApi: unknown
+  const testGlobal = globalThis as unknown as { __podium?: unknown }
   if (opts.test) {
+    // Saved method references outlive the global itself. Revoke every capability
+    // at this mount's disposal, while hidden warm panes remain live.
+    const live =
+      <Args extends unknown[], Result>(call: (...args: Args) => Result) =>
+      (...args: Args): Result => {
+        if (disposed) throw new Error('Terminal session is disposed')
+        return call(...args)
+      }
     const api = {
-      state: () => connection.state(),
+      state: live(() => connection.state()),
       /**
        * THE LOCAL GRID — what xterm is actually at (POD-3239).
        *
@@ -667,27 +677,31 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
        * a reading that depends on which renderer loaded and on the font. The two
        * disagreeing is the whole subject of this issue, so both are readable.
        */
-      grid: () => ({ cols: view.cols(), rows: view.rows() }),
-      echoLatency: () => connection.echoLatency(),
-      diagnostics: () => terminalDiagnosticsSnapshot(sessionId),
+      grid: live(() => ({ cols: view.cols(), rows: view.rows() })),
+      echoLatency: live(() => connection.echoLatency()),
+      diagnostics: live(() => terminalDiagnosticsSnapshot(sessionId)),
       // Client switch-latency traces [POD-701]. Read through the introspection
       // global the collector registers (client-core), so the terminal package
       // never imports it — an empty list before the collector module loads.
-      switchTraces: () =>
-        (
-          globalThis as { __podiumSwitchTraces?: { recent(): unknown[] } }
-        ).__podiumSwitchTraces?.recent() ?? [],
-      screenHash: (screenOpts?: { dropDim?: boolean }) => view.screenHash(screenOpts),
-      screenText: () => view.screenText(),
-      composerInputReady: (kind: string) => composerInputReady(kind, view),
-      sendInput,
-      setEchoLatencyEnabled: (enabled: boolean) => connection.setEchoLatencyEnabled?.(enabled),
+      switchTraces: live(
+        () =>
+          (
+            globalThis as { __podiumSwitchTraces?: { recent(): unknown[] } }
+          ).__podiumSwitchTraces?.recent() ?? [],
+      ),
+      screenHash: live((screenOpts?: { dropDim?: boolean }) => view.screenHash(screenOpts)),
+      screenText: live(() => view.screenText()),
+      composerInputReady: live((kind: string) => composerInputReady(kind, view)),
+      sendInput: live(sendInput),
+      setEchoLatencyEnabled: live((enabled: boolean) =>
+        connection.setEchoLatencyEnabled?.(enabled),
+      ),
       // The same takeover the product's own action performs — one name, one
       // meaning, so a browser test cannot pass against a path nothing ships.
-      takeControl,
-      sessions: () => opts.testSessions?.() ?? [],
-      attach: (id: SessionId) => hub.attach(id),
-      simulateKeyboard: (inset: number) => {
+      takeControl: live(takeControl),
+      sessions: live(() => opts.testSessions?.() ?? []),
+      attach: live((id: SessionId) => hub.attach(id)),
+      simulateKeyboard: live((inset: number) => {
         // Percentage heights don't resolve when the parent has auto height, so we
         // compute the explicit pixel value from the element's current rendered height.
         // This ensures FitAddon sees a genuinely smaller container and recomputes rows.
@@ -712,10 +726,10 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         // The same one ask the product sends, so a browser test cannot pass
         // against a path nothing ships (POD-3239 B4).
         ask('simulate-keyboard', false)
-      },
+      }),
     }
     testApi = api
-    ;(globalThis as unknown as { __podium?: unknown }).__podium = api
+    testGlobal.__podium = api
   }
 
   return {
@@ -727,7 +741,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       connection.setEchoLatencyEnabled?.(enabled)
     },
     setActive(next: boolean): void {
-      if (next === active) return
+      if (disposed || next === active) return
       active = next
       trace('panel:active-change', { next })
       syncRendererLease()
@@ -736,7 +750,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (active) {
         // The E2E API follows the pane a real click activated, even though warm
         // hidden panes remain mounted and retain their own terminal views.
-        if (testApi) (globalThis as unknown as { __podium?: unknown }).__podium = testApi
+        if (testApi) testGlobal.__podium = testApi
         reveal()
       }
       // going inactive: do nothing — never resize a hidden panel
@@ -768,6 +782,10 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       awaitFontReadiness()
     },
     dispose() {
+      if (disposed) return
+      disposed = true
+      // Another warm/new mount may own the global by the time this one retires.
+      if (testApi && testGlobal.__podium === testApi) delete testGlobal.__podium
       trace('dispose')
       if (readyTimer !== undefined) clearTimeout(readyTimer)
       if (boxTimer !== undefined) clearTimeout(boxTimer)

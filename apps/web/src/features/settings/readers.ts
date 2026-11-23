@@ -1,18 +1,22 @@
 import type { MachineModel, MobxPool } from '@podium/client-graph'
-import { omitGone } from '@podium/client-graph/lookup'
-import { preferenceSource } from '@podium/client-graph/preference-source'
+import { here, omitGone } from '@podium/client-graph/lookup'
 import { useOpeningView } from '@podium/client-graph/react'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
-import type { GitRepositoryWire } from '@podium/model'
+import type { CheckoutRepository, GitRepositoryWire } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
-import type { Store } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { useSettingsOpening } from './opening-context'
 import { useSettingsClient } from './stable-access'
 
-const EMPTY_CATALOG: Pick<Store, 'machines' | 'repos'> = { machines: [], repos: [] }
+/** My machines (models: online is the LiveStore's) and the registered
+ *  repositories, from the synced records (POD-6644). */
+export interface SettingsCatalog {
+  readonly machines: MachineModel[]
+  readonly repos: CheckoutRepository[]
+}
+const EMPTY_CATALOG: SettingsCatalog = { machines: [], repos: [] }
 const EMPTY_SETUP: { usage: ReadonlyMap<string, number>; defaultAgent: string; pending: number } = {
   usage: new Map<string, number>() as ReadonlyMap<string, number>,
   // The product default harness, as an identifier (POD-5614).
@@ -22,18 +26,34 @@ const EMPTY_SETUP: { usage: ReadonlyMap<string, number>; defaultAgent: string; p
 const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
 
-export function useSettingsCatalog(): Pick<Store, 'machines' | 'repos'> {
-  const pool = useWorklistPool()
-  const inherited = useSettingsOpening()
-  const own = useOpeningView(pool, createSettingsViews, !inherited)
-  const view = inherited?.settings ?? own
-  const read = useCallback(() => view?.catalog() ?? EMPTY_CATALOG, [view])
-  return useWorklistPoolProjection(read, EMPTY_CATALOG)
+const readUnsyncedChangeCount = (pool: MobxPool) => pool.live?.unsyncedChangeCount ?? null
+/** null until this account's pool is attached; sign-out waits for its count. */
+export function useSettingsUnsyncedChangeCount(): number | null {
+  return useWorklistPoolProjection(readUnsyncedChangeCount, null)
+}
+
+function readCatalog(pool: MobxPool): SettingsCatalog {
+  const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
+  if (!loaded(catalog)) return EMPTY_CATALOG
+  return {
+    // The machines I may see: those with my own access row.
+    machines: catalog.machines.flatMap((id) => {
+      const machine = here(pool.model('machine', id))
+      return machine && machine.use !== undefined ? [machine] : []
+    }),
+    repos: catalog.repositories.flatMap((id) => {
+      const row = omitGone(pool.row('settingsRepository', id))
+      return loaded(row) ? [row] : []
+    }),
+  }
+}
+
+export function useSettingsCatalog(): SettingsCatalog {
+  return useWorklistPoolProjection(readCatalog, EMPTY_CATALOG)
 }
 
 const EMPTY_MACHINE_IDS: readonly string[] = []
 const EMPTY_MACHINES: MachineModel[] = []
-const EMPTY_TARGETS: Record<string, string> = {}
 export function useSettingsMachineIds(): readonly string[] {
   const view = useSettingsOpening()
   const read = useCallback(
@@ -69,21 +89,12 @@ export function useSettingsMachine(id: string | null): MachineModel | null {
   )
   return useWorklistPoolProjection(read, null)
 }
-export function useSettingsMachineTargets(channel: string | null): Record<string, string> {
-  const view = useSettingsOpening()
-  const read = useCallback(
-    (_pool: MobxPool) => view?.machines.targets(channel) ?? EMPTY_TARGETS,
-    [view, channel],
-  )
-  return useWorklistPoolProjection(read, EMPTY_TARGETS)
-}
-
 const readTab = (pool: MobxPool) => {
   const row = omitGone(pool.row('settingsWindow', 'window'))
-  return loaded(row) ? row.settingsTab : 'sessions'
+  return loaded(row) ? row.settingsTab : 'agents'
 }
 export function useSettingsTab(): SettingsRows['settingsWindow']['settingsTab'] {
-  return useWorklistPoolProjection(readTab, 'sessions')
+  return useWorklistPoolProjection(readTab, 'agents')
 }
 
 export function useSettingsSessionPresent(id: string | null): boolean {
@@ -118,7 +129,6 @@ function usePoolPreference<T>(
   serialize: (value: T) => string | null,
 ): [T, Dispatch<SetStateAction<T>>] {
   const { uiState } = useSettingsClient()
-  const pool = useWorklistPool()
   const read = useCallback(
     (pool: MobxPool) => {
       const row = omitGone(pool.row('preference', key))
@@ -136,9 +146,8 @@ function usePoolPreference<T>(
         typeof next === 'function' ? (next as (previous: T) => T)(current.current) : next
       current.current = resolved
       uiState.set(key, serialize(resolved))
-      if (pool) preferenceSource(pool)?.refreshKey(key)
     },
-    [uiState, pool, key, serialize],
+    [uiState, key, serialize],
   )
   return [value, set]
 }

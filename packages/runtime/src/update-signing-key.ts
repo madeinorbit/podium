@@ -169,25 +169,46 @@ function withDatabase<T>(source: SqlDatabase | string, fn: (db: SqlDatabase) => 
   try { return fn(db) } finally { db.close() }
 }
 
-function readOrCreate(db: SqlDatabase, opts: { allowCreate?: boolean; confirmNoPins?: boolean }): UpdateSigningKey {
-  const raw = readSecret(db, KEY)
-  const anchor = readSecret(db, ANCHOR)
+/** The two `server_secrets` rows the update signing key is kept in. */
+export const UPDATE_SIGNING_KEY_SECRETS = Object.freeze({ key: KEY, anchor: ANCHOR })
+
+/** The update signing key's stored values, as `server_secrets` holds them. */
+export interface StoredUpdateSigningKey {
+  readonly key?: string
+  readonly anchor?: string
+}
+
+/**
+ * The read-or-create rule over the stored values, with no database: the key, and the
+ * values to write (only those that change). A store that cannot be read synchronously
+ * (a Postgres store, POD-6994) reads the two rows, decides here and writes the result
+ * in the same transaction, as {@link readOrCreateUpdateSigningKey} does on SQLite.
+ */
+export function decideUpdateSigningKey(
+  stored: StoredUpdateSigningKey,
+  opts: { allowCreate?: boolean; confirmNoPins?: boolean } = {},
+): { readonly key: UpdateSigningKey; readonly write: StoredUpdateSigningKey } {
+  const { key: raw, anchor } = stored
   if (raw !== undefined) {
     const key = parsePersistedKey(KEY, raw)
     if (!opts.confirmNoPins) {
       if (anchor === undefined) throw new Error('persisted update signing key is missing its public anchor')
       assertAnchor(anchor, key)
-    } else {
-      writeSecret(db, ANCHOR, key.publicKey)
+      return { key, write: {} }
     }
-    return key
+    return { key, write: { anchor: key.publicKey } }
   }
   if (opts.allowCreate === false || (anchor !== undefined && !opts.confirmNoPins)) {
     throw new Error('refusing to mint a replacement update signing key: enrolled machines may still trust the missing key. Restore the installation database; if no machine ever pinned it, run `podium update-key initialize --confirm-no-pins`.')
   }
   const key = mintUpdateSigningKey()
-  writeSecret(db, KEY, JSON.stringify(key))
-  writeSecret(db, ANCHOR, key.publicKey)
+  return { key, write: { key: JSON.stringify(key), anchor: key.publicKey } }
+}
+
+function readOrCreate(db: SqlDatabase, opts: { allowCreate?: boolean; confirmNoPins?: boolean }): UpdateSigningKey {
+  const { key, write } = decideUpdateSigningKey({ key: readSecret(db, KEY), anchor: readSecret(db, ANCHOR) }, opts)
+  if (write.key !== undefined) writeSecret(db, KEY, write.key)
+  if (write.anchor !== undefined) writeSecret(db, ANCHOR, write.anchor)
   return key
 }
 

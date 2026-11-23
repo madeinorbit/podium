@@ -1,9 +1,10 @@
+import { AnswerRefresh, type AnswerSignal } from '@podium/client-graph/answer-refresh'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
-import { action, observable, observableRef, runInAction } from 'mobx'
 import type { MachineId } from '@podium/model'
+import { action, observable, observableRef, runInAction } from 'mobx'
 import type { Trpc } from '@/app/trpc'
-import { parseDiff, type ParsedDiff } from './diff-model'
-import { untrackedDiff, type StatusEntry } from './git-panel'
+import { type ParsedDiff, parseDiff } from './diff-model'
+import { type StatusEntry, untrackedDiff } from './git-panel'
 
 export interface DiffState {
   loading: boolean
@@ -12,6 +13,7 @@ export interface DiffState {
   note?: string
 }
 interface DiffPorts {
+  refreshSignal?: AnswerSignal
   gitDiffFile: (input: {
     machineId?: MachineId
     root: string
@@ -39,21 +41,42 @@ export class DiffView {
   readonly states = observable.map<string, DiffState>(undefined, { deep: false })
   @observableRef accessor totals = { settled: 0, added: 0, removed: 0 }
   private generation = 0
+  private readonly entries = new Map<string, StatusEntry>()
+  private readonly refreshes: AnswerRefresh
   constructor(
     private readonly cwd: string,
     private readonly machineId: MachineId | undefined,
     private readonly ports: DiffPorts,
     private readonly sources?: Record<string, string>,
     private readonly commitSha?: string,
-  ) {}
-  @action async load(entry: StatusEntry): Promise<void> {
-    if (this.states.has(entry.path)) return
+  ) {
+    // Commit diffs are immutable, explicitly stored for this opening.
+    this.refreshes = new AnswerRefresh(async () => {
+      await Promise.all([...this.entries.values()].map((entry) => this.load(entry, true)))
+    }, ports.refreshSignal)
+  }
+  open(): void {
+    // React loads the selected entry. Opening only subscribes to later
+    // invalidations; an initial refresh would race that read and fetch it twice.
+    // Recorded and commit diffs are immutable for this opening.
+    if (!this.commitSha && !this.sources) this.refreshes.open({ initial: false })
+  }
+  @action async load(entry: StatusEntry, changed = false): Promise<void> {
+    this.entries.set(entry.path, entry)
+    if (!changed && this.states.has(entry.path)) return
     const generation = this.generation
+    const previous = this.states.get(entry.path)
+    if (previous && !previous.loading)
+      this.totals = {
+        settled: this.totals.settled - 1,
+        added: this.totals.added - (previous.parsed?.added ?? 0),
+        removed: this.totals.removed - (previous.parsed?.removed ?? 0),
+      }
     const pending = { loading: true }
     this.states.set(entry.path, pending)
     const request = new RequestAnswer<Omit<DiffState, 'loading' | 'error'>>()
     await request.load(async () => {
-      const given = this.sources?.[entry.path]
+      const given = changed ? undefined : this.sources?.[entry.path]
       if (this.commitSha) {
         const result = await this.ports.gitCommitDiffFile({
           machineId: this.machineId,
@@ -100,6 +123,8 @@ export class DiffView {
     })
   }
   @action close(): void {
+    this.refreshes.close()
+    this.entries.clear()
     ++this.generation
     this.states.clear()
     this.totals = { settled: 0, added: 0, removed: 0 }

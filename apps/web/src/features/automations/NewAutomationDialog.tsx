@@ -1,10 +1,10 @@
-import { AutomationOpening } from '@/app/automation-readers'
+import { AUTO } from '@podium/client-core/agent-models'
 import type { AutomationSessionMode, MachineId } from '@podium/model/browser'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { memo, useMemo, useState } from 'react'
-import { observer } from 'mobx-react-lite'
-import { AutomationEditDraft, localDateTimeValue } from './automation-edit-draft'
 import {
+  AutomationOpening,
   useAutomationTarget,
   useAutomationTargetForPath,
   useAutomationTargetMachine,
@@ -31,10 +31,10 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { AUTO } from '@podium/client-core/agent-models'
 import { ISSUE_AGENT_KINDS, issueAgentLabel, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import type { Automation } from './AutomationsView'
+import { AutomationEditDraft, localDateTimeValue } from './automation-edit-draft'
 import {
   AUTOMATION_HEAD_FIELDS,
   AUTOMATION_SUBFORMS,
@@ -55,8 +55,8 @@ import {
   type TriggerKind,
   visibleFields,
 } from './automation-form'
+import { automationWrites } from './automation-writes'
 import type { Frequency } from './cron-format'
-
 
 function initialState(defaultTarget: string): AutomationFormState {
   return {
@@ -164,9 +164,15 @@ const AutomationForm = observer(function AutomationForm({
   const [newState, setNewState] = useState<AutomationFormState>(() =>
     initialState(firstTarget?.value ?? GLOBAL_TARGET),
   )
-  const edits = useMemo(() => automation ? new AutomationEditDraft(automation, patch =>
-    trpc.automations.update.mutate({ id: automation.id, patch }),
-  ) : null, [automation, trpc])
+  const edits = useMemo(
+    () =>
+      automation
+        ? new AutomationEditDraft(automation, (patch) =>
+            automationWrites(trpc).update.mutate({ id: automation.id, patch }),
+          )
+        : null,
+    [automation, trpc],
+  )
   const state = edits ?? newState
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -175,7 +181,7 @@ const AutomationForm = observer(function AutomationForm({
 
   const patch = (next: Partial<AutomationFormState>): void => {
     if (edits) edits.patch(next)
-    else setNewState(prev => ({ ...prev, ...next }))
+    else setNewState((prev) => ({ ...prev, ...next }))
   }
 
   // One rights evaluation, the same predicate the automation cards use.
@@ -237,7 +243,7 @@ const AutomationForm = observer(function AutomationForm({
     setError('')
     const request = edits
       ? Promise.resolve(edits.submit())
-      : trpc.automations.create.mutate(automationInput(state, null))
+      : automationWrites(trpc).create.mutate(automationInput(state, null))
     request
       .then(() => onSaved())
       // A denial is surfaced and the dialog stays exactly as the user left it —
@@ -303,7 +309,15 @@ const AutomationForm = observer(function AutomationForm({
 
         <DialogFooter>
           {edits?.isDirty && (
-            <Button type="button" variant="ghost" disabled={saving} onClick={() => { edits.reset(); setError('') }}>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={saving}
+              onClick={() => {
+                edits.reset()
+                setError('')
+              }}
+            >
               Discard
             </Button>
           )}

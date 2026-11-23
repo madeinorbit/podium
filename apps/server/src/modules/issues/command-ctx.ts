@@ -23,14 +23,25 @@
  * signature), so the table contributes no runtime edge back to this module.
  */
 
-import { asSessionId, asUserId } from '@podium/model'
-import type { SessionId, SessionMeta, IssueId, MutationId } from '@podium/model'
+import type { IssueId, MutationId, SessionId, SessionMeta } from '@podium/model'
+import { asSessionId, asUserId, isPersonCapability } from '@podium/model'
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
 import { type CommandPrincipal, onBehalfOfUser } from '../../command-principal'
 import { authorize, type Capability, type IssueAccessReader } from '../../issue-authz'
+import type { IssueRow } from '../../store/types'
+import {
+  type MessageSender,
+  type MessageSendInput,
+  type MessageSendResult,
+  senderFromPrincipal,
+} from '../messages/service'
+import type { ShippingService } from '../shipping'
 import type { IssueAuthorityArbitration } from './authority-arbitration'
-import type { MessageSender, MessageSendInput, MessageSendResult } from '../messages/service'
+import type { ExecutionFactsStore } from './execution-visibility'
+import type { SyncWriteEntry } from '../sync-write/entry'
+import type { IssueArtifactEffectPort } from './artifact-effect-record'
+import type { IssueGitEffectPort } from './git-effects'
 import type {
   IssueAttentionCapability,
   IssueCommentsMailCapability,
@@ -40,19 +51,82 @@ import type {
   IssueReportsCapability,
   IssueTrackerCapabilities,
 } from './service'
-import type { ShippingService } from '../shipping'
 import type { IssueReader } from './service/reads'
+import type { IssueWriter, WriterRest } from './service/types'
+import type { IssueWorkEffectPort } from './work-effects'
 
 /** Who is calling (authz identity) — the same pair the router Context carries. */
 export interface IssueCaller {
   capability: Capability
+  /**
+   * The writer of the command this call is (ADR 12 D9, POD-6594): the sync write
+   * entry point's `SyncWriteContext.ledger`. Absent for an issue command that
+   * runs as an effect record's run (`forEffectRun`, the `issues.server`
+   * origin); no served command runs a handler without one (POD-6603).
+   */
+  writer?: IssueWriter
   /** Authenticated transport principal; production dispatchers always provide it. */
   principal?: CommandPrincipal
   /** The agent passed --outside-scope: a knowing write outside its subtree. */
   overrideScope?: boolean
 }
 
+/** Who a session this caller starts is spawned by, as the session row records it. */
+export function spawnProvenanceOf(capability: IssueCaller['capability']): string {
+  if (capability.actorSessionId) return `session:${capability.actorSessionId}`
+  if (isPersonCapability(capability)) return 'user'
+  if (capability.scope.kind === 'subtree') return `issue:${capability.scope.rootId}`
+  return 'agent'
+}
+
+/** A send's delivery outcome, as a send answers it (`MessageSendResult`'s part). */
+export type MailHandOn = Pick<
+  MessageSendResult,
+  'ok' | 'queued' | 'reason' | 'position' | 'disposition'
+>
+
 export interface IssueCommandDeps {
+  /**
+   * The writer of a handler run whose caller brings none. The served dispatcher
+   * has none: every issue write is a sync command, which brings its own, or an
+   * effect record, which never runs a handler in the request (POD-6603). Set
+   * only by {@link IssueCommandDispatcher.forEffectRun} (an effect record's
+   * run, after its commit) and by a dispatcher a test builds by hand.
+   */
+  directWriter?: IssueWriter
+  /**
+   * The writer of an effect record's run (`issues.server`): the issue
+   * service's own work for a record that already committed, outside any
+   * client command. {@link IssueCommandDispatcher.forEffectRun} uses it.
+   */
+  effectRunWriter?: IssueWriter
+  /**
+   * Merge, rebase, PR and integrate as effect records (POD-6394): the command
+   * creates the record and answers once it settles. Absent only in a dispatcher
+   * a test builds by hand, which then runs the git work inline as before.
+   */
+  gitEffects?: IssueGitEffectPort
+  /**
+   * The sync write entry point (ADR 12 D2), read per call: it is composed after
+   * this dispatcher. When present, a relayed or MCP call of a command written
+   * through it (`SYNCED_ISSUE_COMMANDS`) goes there (POD-6413). Absent only in a
+   * dispatcher a test builds by hand.
+   */
+  syncWrite?: () => Pick<SyncWriteEntry, 'submitDetailed'>
+  /**
+   * Start, stop, sessions, cleanup, ship and the assistant as effect records
+   * (POD-6414): the command creates the record and answers once it settles.
+   * Absent in the executors' own dispatcher and in one a test builds by hand,
+   * which run the work inline.
+   */
+  workEffects?: IssueWorkEffectPort
+  /**
+   * Adding, publishing and removing artifacts as effect records (POD-6420): the
+   * old panelApply route creates the record and answers once it settles, and the
+   * entry point's commit reads the record. Absent in a dispatcher a test builds
+   * by hand, which moves the files inline.
+   */
+  artifactEffects?: IssueArtifactEffectPort
   /** Fully constructed tracker; command dispatch is activated after features. */
   issues: IssueTrackerCapabilities
   /** Cross-aggregate Shipping application port. Command handlers may nominate
@@ -67,12 +141,13 @@ export interface IssueCommandDeps {
    */
   attachSession(
     caller: IssueCaller,
-    input: Parameters<IssueAttentionCapability['attachSession']>[0],
+    input: WriterRest<IssueAttentionCapability['attachSession']>[0],
   ): ReturnType<IssueAttentionCapability['attachSession']>
   /** Cross-aggregate issue tombstone + member-session deletion coordinator. */
-  deleteIssue(id: string): unknown
+  /** `by` is whose sessions the deletion ends (POD-6287): the deleter's own. */
+  deleteIssue(writer: IssueWriter, id: string, by?: import('@podium/model').UserId): unknown
   /** Cross-aggregate issue + member-session tombstone restoration coordinator. */
-  restoreIssue(id: string): unknown
+  restoreIssue(writer: IssueWriter, id: string): unknown
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): `@podium/sync`'s `MutationLedger`, injected.
    *
@@ -86,16 +161,45 @@ export interface IssueCommandDeps {
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  REQUIRED since POD-3857 — the full-list port it used to fall back to is
    *  gone, so the compiler keeps issue commands off the projection. */
-  sessionById(
-    sessionId: SessionId,
-  ): Promise<SessionMeta | undefined>
+  sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, wired [POD-1639]. `issues.get` embeds
    *  them in its reply, so these do cross to a reader — but only an issue's
-   *  own handful, never the fleet. */
+   *  own handful, never the fleet. `forUser` is the reader: a read handed to a
+   *  person carries only the sessions they may read (POD-6285). Omitted, it is
+   *  the server's own lookup. */
   listSessionsForIssue(
     worktreePath: string | null,
     issueId: IssueId,
+    forUser?: import('@podium/model').UserId,
   ): Promise<SessionMeta[]>
+  /** The reads behind the execution-private field rule (design §4.2,
+   *  POD-6288): task rows by id plus the custodian and session-owner facts.
+   *  Every result a person or an agent receives is reduced through it. */
+  executionFacts: {
+    rows(ids: readonly string[]): Promise<ReadonlyMap<string, IssueRow>>
+    readonly store: ExecutionFactsStore
+  }
+  /** Which of these mail rows the caller may see (POD-6288): the mail read
+   *  rule (`MessageGate.visibleMailIds`), for a task mailbox read outside the
+   *  caller's own subtree. Absent (a single-member harness): no filter. */
+  mailVisibleIds?(
+    capability: import('@podium/model').Capability,
+    ids: readonly string[],
+  ): Promise<ReadonlySet<string>>
+  /**
+   * WHERE THE CALLER STANDS ON A MACHINE (POD-6296, design §2.4 and §5 Q4):
+   * whether it holds `use` there, through its own human's grants and narrowed
+   * by its delegation, and who has custody. Starting work in a task's worktree
+   * needs `use` on that task's machine. Absent (a bare test dispatcher): no gate.
+   */
+  machineStanding?(
+    principal: CommandPrincipal,
+    machineId: import('@podium/model').MachineId,
+  ): Promise<{
+    use: boolean
+    custodian: import('@podium/model').UserId | null
+    name: string
+  }>
   /** Registered repo paths, all machines (RepoRegistry.list() semantics). */
   repoPaths(): string[] | Promise<string[]>
   /** cwd → repo inference (RepoRegistry.inferFromPath semantics) — serves the
@@ -105,14 +209,19 @@ export interface IssueCommandDeps {
    *  sent. Optional so bare test dispatchers that never send keep working;
    *  mailSend refuses when it is absent. */
   sendMessage?(
+    writer: IssueWriter,
     from: MessageSender,
     input: MessageSendInput,
   ): MessageSendResult | Promise<MessageSendResult>
+  /** What a send's hand-on after its commit found (POD-6525,
+   *  `MessageDeliveryService.handOnOf`): `mailSend`'s old doors answer with it. */
+  mailHandOnOf?(messageId: string): Promise<MailHandOn | undefined>
   /** Deliver a Tray answer to the asking agent session (issue #53): the shared
    *  answer_question matching path (modules/superagent/answer-delivery) with
    *  text fallback for sessions without a live menu. Injected by the relay;
    *  optional so existing test deps literals stay valid. */
   answerSessionQuestion?(
+    writer: IssueWriter,
     sessionId: SessionId,
     answer: string,
     caller: IssueCaller,
@@ -123,6 +232,8 @@ export interface IssueCommandDeps {
     issueId: IssueId
     force?: boolean
     callerSessionId?: SessionId
+    /** Stop only this member's sessions on the task (POD-6287, MU-24). */
+    ownedBy?: import('@podium/model').UserId
     /** Who asked for the stop — stamped onto the free-worktree audit comment (POD-1344). */
     principal: CommandPrincipal
   }): Promise<{
@@ -143,12 +254,103 @@ export type IssueCommandAccess = IssueAccessReader &
 export function commandAccess(tracker: IssueTrackerCapabilities): IssueCommandAccess {
   return {
     has: async (id) => await tracker.reports.has(id),
-    ownedTarget: async (id, action) => await tracker.reports.ownedTarget(id, action),
     ancestorIds: async (id) => await tracker.hierarchy.ancestorIds(id),
     getMeta: async (id) => await tracker.reports.getMeta(id),
     resolveRef: async (ref, scopeRepoPath) => await tracker.reports.resolveRef(ref, scopeRepoPath),
   }
 }
+
+/** A function whose first parameter is the writer, without it. */
+type DropWriter<F> = F extends (writer: IssueWriter, ...rest: infer A) => infer R
+  ? (...rest: A) => R
+  : never
+
+/**
+ * A capability with its write methods `K` bound to one writer (ADR 12 D9). The
+ * keys are listed per capability below; a write method left off its list keeps
+ * its writer parameter, so a handler that calls it without one does not compile.
+ */
+export type Bound<T, K extends keyof T> = Omit<T, K> & { readonly [P in K]: DropWriter<T[P]> }
+
+/**
+ * The writer is resolved when a WRITE method is called, never when the view is
+ * taken: a read (a query handler, the reads before a write) reaches the same
+ * capability view and has no writer to give (POD-6603).
+ */
+function bindWriter<T extends object, K extends keyof T>(
+  target: T,
+  writer: () => IssueWriter,
+  keys: readonly K[],
+): Bound<T, K> {
+  const view = Object.create(target) as Record<PropertyKey, unknown>
+  for (const key of keys) {
+    const method = target[key] as unknown as (...args: unknown[]) => unknown
+    view[key as PropertyKey] = (...args: unknown[]) => method.call(target, writer(), ...args)
+  }
+  return view as unknown as Bound<T, K>
+}
+
+const CRUD_WRITES = [
+  'setState',
+  'panelApply',
+  'panelArtifactAdd',
+  'panelArtifactUpload',
+  'panelArtifactTransfer',
+  'panelArtifactRemove',
+  'panelChatUploadClaim',
+  'create',
+  'update',
+  'restoreTextRevision',
+  'move',
+  'markIssueRead',
+  'markIssueUnread',
+  'setIssueTucked',
+  'setLabels',
+  'claim',
+  'setCoordinator',
+  'close',
+  'applySuggestion',
+  'dismissSuggestion',
+] as const satisfies readonly (keyof IssueCrudCapability)[]
+const HIERARCHY_WRITES = [
+  'addDep',
+  'removeDep',
+  'reparent',
+  'supersede',
+  'duplicate',
+] as const satisfies readonly (keyof IssueHierarchyCapability)[]
+const MAIL_WRITES = [
+  'addComment',
+  'addCallerComment',
+  'editComment',
+  'deleteComment',
+  'mailInbox',
+  'mailClaim',
+] as const satisfies readonly (keyof IssueCommentsMailCapability)[]
+const ATTENTION_WRITES = [
+  'recordParticipation',
+  'joinIssue',
+  'dismissAssignment',
+  'attachSession',
+  'createDraftFor',
+  'archive',
+  'defer',
+  'undefer',
+  'setNeedsHuman',
+  'clearNeedsHuman',
+  'markIssueRead',
+  'markIssueUnread',
+  'setIssueTucked',
+] as const satisfies readonly (keyof IssueAttentionCapability)[]
+const SHIPPING_WRITES = [
+  'enqueueCurrent',
+  'resolveHold',
+  'cancel',
+] as const satisfies readonly (keyof IssueCommandDeps['shipping'])[]
+const WORKFLOW_WRITES = [
+  'rehome',
+  'createAndMaybeStart',
+] as const satisfies readonly (keyof IssueGitWorkflowCapability)[]
 
 /**
  * Per-call execution context handed to every command handler: the caller's
@@ -164,26 +366,43 @@ export class IssueCommandCtx {
     _targetOf?: (input: Record<string, unknown>) => string | undefined,
   ) {}
 
-  get crud(): IssueCrudCapability {
-    return this.deps.issues.crud
+  /**
+   * The writer this command's writes commit on: its own, or an effect record
+   * run's (see {@link IssueCommandDeps.directWriter}).
+   */
+  get writer(): IssueWriter {
+    const own = this.caller.writer
+    if (own !== undefined) return own
+    const direct = this.deps.directWriter
+    if (direct === undefined) {
+      throw new Error(`issues.${this.name} has no writer: it runs outside sync.submit`)
+    }
+    return direct
   }
-  get hierarchy(): IssueHierarchyCapability {
-    return this.deps.issues.hierarchy
+
+  /** The capabilities, with their write methods bound to {@link writer}: a
+   *  handler calls `ctx.crud.update(id, patch)` and the write is the command's. */
+  get crud(): Bound<IssueCrudCapability, (typeof CRUD_WRITES)[number]> {
+    return bindWriter(this.deps.issues.crud, () => this.writer, CRUD_WRITES)
   }
-  get commentsMail(): IssueCommentsMailCapability {
-    return this.deps.issues.commentsMail
+  get hierarchy(): Bound<IssueHierarchyCapability, (typeof HIERARCHY_WRITES)[number]> {
+    return bindWriter(this.deps.issues.hierarchy, () => this.writer, HIERARCHY_WRITES)
   }
-  get attention(): IssueAttentionCapability {
-    return this.deps.issues.attention
+  get commentsMail(): Bound<IssueCommentsMailCapability, (typeof MAIL_WRITES)[number]> {
+    return bindWriter(this.deps.issues.commentsMail, () => this.writer, MAIL_WRITES)
   }
-  get gitWorkflow(): IssueGitWorkflowCapability {
-    return this.deps.issues.gitWorkflow
+  get attention(): Bound<IssueAttentionCapability, (typeof ATTENTION_WRITES)[number]> {
+    return bindWriter(this.deps.issues.attention, () => this.writer, ATTENTION_WRITES)
+  }
+  get gitWorkflow(): Bound<IssueGitWorkflowCapability, (typeof WORKFLOW_WRITES)[number]> {
+    return bindWriter(this.deps.issues.gitWorkflow, () => this.writer, WORKFLOW_WRITES)
   }
   get reports(): IssueReportsCapability {
     return this.deps.issues.reports
   }
-  get shipping(): IssueCommandDeps['shipping'] {
-    return this.deps.shipping
+  /** The ship commands, bound to this command's writer like the capabilities. */
+  get shipping(): Bound<IssueCommandDeps['shipping'], (typeof SHIPPING_WRITES)[number]> {
+    return bindWriter(this.deps.shipping, () => this.writer, SHIPPING_WRITES)
   }
   get access(): IssueCommandAccess {
     return commandAccess(this.deps.issues)
@@ -208,6 +427,30 @@ export class IssueCommandCtx {
     return principal
   }
 
+  /**
+   * WHOSE PER-USER MARKERS this command reads and writes (design §4.1 "Self",
+   * POD-6288): the person calling, or an agent's human. `undefined` for a
+   * system job, whose marker reads and writes fall to the task's assignee (POD-6291).
+   */
+  markerUser(): import('@podium/model').UserId | undefined {
+    const principal = this.caller.principal
+    if (principal) return onBehalfOfUser(principal) ?? undefined
+    return this.caller.capability.onBehalfOf
+  }
+
+  /** The member a per-user write lands on; refused when the caller acts for
+   *  nobody (a system job has no personal rows). */
+  requireMarkerUser(): import('@podium/model').UserId {
+    const user = this.markerUser()
+    if (!user) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'personal task records need a human principal',
+      })
+    }
+    return user
+  }
+
   private readerUser(): string {
     const principal = this.caller.principal
     const user = principal ? onBehalfOfUser(principal) : null
@@ -217,26 +460,33 @@ export class IssueCommandCtx {
     return user
   }
 
+  /**
+   * MAY THE CALLER READ THIS TASK: yes, for every task that exists, when there
+   * is a human behind the call (design §2.2, D4; POD-6288). An agent reads what
+   * its human reads. Issue grants decide nothing. The feed decides the same way
+   * (`feed-visibility.ts` `mayReadIssue`), so the two never disagree; what a
+   * reader may not RECEIVE of a task is taken out of the result by the
+   * dispatcher (`execution-visibility.ts`).
+   */
   async mayReadIssue(id: string): Promise<boolean> {
-    const target = await this.reports.ownedTarget(id, 'read')
-    const user = this.readerUser()
-    return target !== undefined && (target.owner === user || target.grants.includes(user))
+    this.readerUser()
+    return await this.reports.has(id)
   }
 
   /**
-   * The caller as a report reader (POD-6191): a listing filters by its user in
-   * SQL with the rule {@link mayReadIssue} applies per row, and asks
-   * `mayRead` for the single issues it shows beside them.
+   * The caller as a report reader (POD-6191): every listing holds every task
+   * (no filter by reader), `mayRead` answers for the single issues a report
+   * shows beside them, and `viewer` decides whose sessions ride the report.
    */
   issueReader(): IssueReader {
     return {
-      readableBy: () => asUserId(this.readerUser()),
+      viewer: () => asUserId(this.readerUser()),
       mayRead: async (id) => await this.mayReadIssue(id),
     }
   }
 
   async requireReadableIssue(id: string): Promise<void> {
-    if (!await this.mayReadIssue(id)) {
+    if (!(await this.mayReadIssue(id))) {
       throw new TRPCError({ code: 'NOT_FOUND', message: `unknown issue ${id}` })
     }
   }
@@ -259,10 +509,10 @@ export class IssueCommandCtx {
     return { nodes, edges: graph.edges.filter((edge) => ids.has(edge.from) && ids.has(edge.to)) }
   }
   deleteIssue(id: string): unknown {
-    return this.deps.deleteIssue(id)
+    return this.deps.deleteIssue(this.writer, id, this.markerUser())
   }
   restoreIssue(id: string): unknown {
-    return this.deps.restoreIssue(id)
+    return this.deps.restoreIssue(this.writer, id)
   }
 
   /** Framework idempotency, bound to this command's wire name (issues.<name>). */
@@ -299,6 +549,22 @@ export class IssueCommandCtx {
    *  unwrapped/unclamped as the human ("unwrapped = operator" invariant).
    *  Client input NEVER contributes sender fields. */
   messageSender(): MessageSender {
+    const sender = this.capabilitySender()
+    // The authenticated principal names the ATTRIBUTION: a person sends as
+    // themselves, an agent for its own human (POD-6285). Never the first admin,
+    // which is what an unattributed sender used to resolve to. The sender's kind
+    // (operator or agent) stays the capability's, as it decides the envelope.
+    const principal = this.caller.principal
+    if (!principal) return sender
+    const { attribution, delegationRef } = senderFromPrincipal(principal)
+    return {
+      ...sender,
+      ...(attribution ? { attribution } : {}),
+      delegationRef: delegationRef ?? null,
+    }
+  }
+
+  private capabilitySender(): MessageSender {
     if (this.caller.capability.scope.kind === 'subtree') {
       return {
         kind: 'agent',
@@ -308,7 +574,7 @@ export class IssueCommandCtx {
           : {}),
       }
     }
-    if (this.caller.capability.scope.kind === 'all') return { kind: 'operator' }
+    if (isPersonCapability(this.caller.capability)) return { kind: 'operator' }
     return {
       kind: 'agent',
       ...(this.caller.capability.actorSessionId
@@ -320,24 +586,8 @@ export class IssueCommandCtx {
   /** Server-derived provenance for a session spawned by an issue command.
    *  Preserve the exact initiating session when one exists; otherwise distinguish
    *  the operator from legacy constrained callers. [spec:SP-ccb2] */
-  async ownerAttribution(id: string): Promise<{ actor: string; onBehalfOf: import('@podium/model').UserId }> {
-    const principal = this.caller.principal
-    const row = await this.reports.getMeta(id)
-    if (principal?.kind !== 'user' || !row || row.ownerUserId !== principal.user) {
-      throw new TRPCError({ code: 'FORBIDDEN', message: 'only the issue owner may change sharing' })
-    }
-    return { actor: principal.user, onBehalfOf: principal.user }
-  }
-
   spawnProvenance(): string {
-    if (this.caller.capability.actorSessionId) {
-      return `session:${this.caller.capability.actorSessionId}`
-    }
-    if (this.caller.capability.scope.kind === 'all') return 'user'
-    if (this.caller.capability.scope.kind === 'subtree') {
-      return `issue:${this.caller.capability.scope.rootId}`
-    }
-    return 'agent'
+    return spawnProvenanceOf(this.caller.capability)
   }
 
   /** Resolve an omitted mail issue ref to the caller's own bound issue (capability rootId). */
@@ -356,7 +606,8 @@ export class IssueCommandCtx {
     if (id) {
       const scopeRepoPath =
         this.caller.capability.scope.kind === 'subtree'
-          ? ((await this.reports.getMeta(this.caller.capability.scope.rootId))?.repoPath ?? undefined)
+          ? ((await this.reports.getMeta(this.caller.capability.scope.rootId))?.repoPath ??
+            undefined)
           : undefined
       return await this.reports.resolveRef(id, scopeRepoPath)
     }
@@ -390,7 +641,10 @@ export class IssueCommandCtx {
    *  its subtree (mirrors the scope gate, which cannot reach into the `source`
    *  shape). Relationship sources are resolved against the caller's own subtree
    *  at match time, so they never reach here. */
-  async assertSourceInSubtree(source: { kind: 'relationship' | 'issue' | 'session'; ref: string }): Promise<void> {
+  async assertSourceInSubtree(source: {
+    kind: 'relationship' | 'issue' | 'session'
+    ref: string
+  }): Promise<void> {
     if (source.kind === 'issue') {
       const id = await this.reports.resolveRef(source.ref)
       const decision = authorize(

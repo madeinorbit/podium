@@ -7,7 +7,7 @@ import type {
   SessionId,
 } from '@podium/model'
 import type { DriverFamily } from '@podium/harness/metadata'
-import type { LiveServerMessage, ServerMessage } from '@podium/protocol'
+import { CAP_TOPICS_V1, type LiveServerMessage, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
 import { withReadScope } from '../../store/executor/read-scope'
@@ -118,12 +118,29 @@ export interface HostSessionView {
   issueClosed?: boolean | undefined
 }
 
+/** One session's terminal proof as the reaper reads it (POD-7036). */
+export interface HostTerminalProof {
+  /** A confirmed, unconsumed proof whose facts still hold: the session may be parked. */
+  ok: boolean
+  /** No proof stored at all (no fence or no candidate), as opposed to a stale one. */
+  missing: boolean
+}
+
 export interface HostsDeps {
   getSettings(): PodiumSettings | Promise<PodiumSettings>
   /** Physical SQLite transfer fence; live metrics continue, lifecycle writes wait. */
   transferFenceActive(): boolean
-  /** Connected client fan-out (hostMetricsChanged — live-only, message-class). */
-  clients(): Iterable<{ send(msg: LiveServerMessage): void }>
+  /**
+   * Connected client fan-out of the PRE-TOPICS frame (hostMetricsChanged). Only a
+   * client without `topics.v1` gets it; a capable client subscribes to
+   * `machine.metrics:<id>` instead (ADR 7 Amendment 2, POD-6680 removes this).
+   */
+  clients(): Iterable<{ send(msg: LiveServerMessage): void; readonly caps?: ReadonlySet<string> }>
+  /**
+   * The newest sample for one machine, to its `machine.metrics` topic. Undefined
+   * is `unknown`: the machine's socket went away and its numbers with it.
+   */
+  publishMetrics?(machineId: MachineId, sample: HostMetricsWire | undefined): void
   /** Display name for a machineId — stamps inbound samples. */
   machineName(id: string): string | Promise<string>
   /** Live sessions, projected — the auto-hibernate candidate pool. */
@@ -144,10 +161,16 @@ export interface HostsDeps {
    */
   killShellSession(input: { sessionId: SessionId }): Promise<void>
   hasScheduledWakeup(sessionId: SessionId, now: number): boolean | Promise<boolean>
-  /** Server-authoritative, atomically revalidated two-pass terminal proof. */
-  hasValidTerminalProof(sessionId: SessionId): boolean | Promise<boolean>
-  /** Distinguish mixed-version/no-proof terminals from a present but stale proof. */
-  terminalProofMissing(sessionId: SessionId): boolean | Promise<boolean>
+  /**
+   * The server-authoritative two-pass terminal proof of each of a set of
+   * sessions, read together (POD-7036): `ok` when it is usable now, `missing`
+   * when none is stored (a mixed-version or never-proven terminal, as opposed to
+   * a present but stale proof). One read per table for the set, so a sample's
+   * cost does not grow with the number of idle sessions it considers.
+   */
+  terminalProofs(
+    sessionIds: readonly SessionId[],
+  ): Promise<ReadonlyMap<SessionId, HostTerminalProof>>
   /**
    * The ONE daemon-RPC correlator (POD-318), taken as the broker's own exported
    * port instead of a locally re-declared function type.
@@ -230,7 +253,10 @@ export class HostsService {
       // a loop nobody can still be watching, and leaving it in the snapshot
       // would report a fleet larger than the one reporting.
       this.latestLoopMinutes.delete(machineId)
-      if (this.latestHostMetrics.delete(machineId)) this.broadcastHostMetrics()
+      if (this.latestHostMetrics.delete(machineId)) {
+        this.deps.publishMetrics?.(machineId, undefined)
+        this.broadcastHostMetrics()
+      }
     })
   }
 
@@ -256,7 +282,7 @@ export class HostsService {
     }
     if (this.deps.transferFenceActive()) {
       this.deferredPressureMachines.add(machineId)
-      this.latestHostMetrics.set(machineId, tagged)
+      this.install(machineId, tagged)
       this.broadcastHostMetrics()
       return
     }
@@ -272,7 +298,7 @@ export class HostsService {
     // nothing to live in once these calls acquire awaits, and the scans return.
     await withReadScope(async () => {
       const idleCapUnmet = await this.maybeAutoHibernate(machineId, tagged)
-      this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
+      this.install(machineId, { ...tagged, idleCapUnmet })
     })
     this.broadcastHostMetrics()
   }
@@ -286,7 +312,7 @@ export class HostsService {
       this.deferredPressureMachines.delete(machineId)
       if (!sample) continue
       const idleCapUnmet = await this.maybeAutoHibernate(machineId, sample)
-      this.latestHostMetrics.set(machineId, { ...sample, idleCapUnmet })
+      this.install(machineId, { ...sample, idleCapUnmet })
       changed = true
     }
     if (changed) this.broadcastHostMetrics()
@@ -327,6 +353,16 @@ export class HostsService {
     return Object.fromEntries(this.latestLoopMinutes) as Record<MachineId, LoopMinuteWire>
   }
 
+  /** The newest sample one machine reported, for a `machine.metrics` snapshot. */
+  latestFor(machineId: MachineId): HostMetricsWire | undefined {
+    return this.latestHostMetrics.get(machineId)
+  }
+
+  private install(machineId: MachineId, sample: HostMetricsWire): void {
+    this.latestHostMetrics.set(machineId, sample)
+    this.deps.publishMetrics?.(machineId, sample)
+  }
+
   hostMetricsMessage(): LiveServerMessage {
     return { type: 'hostMetricsChanged', hosts: [...this.latestHostMetrics.values()] }
   }
@@ -338,7 +374,9 @@ export class HostsService {
 
   private broadcastHostMetrics(): void {
     const msg = this.hostMetricsMessage()
-    for (const c of this.deps.clients()) c.send(msg)
+    for (const c of this.deps.clients()) {
+      if (c.caps?.has(CAP_TOPICS_V1) !== true) c.send(msg)
+    }
   }
 
   /** Apply memory, load, and idle-count pressure independently [spec:SP-c29e].
@@ -801,6 +839,14 @@ export class HostsService {
     return true
   }
 
+  /** The terminal proofs of these sessions, in one read; none asked of an empty set. */
+  private async terminalProofsOf(
+    sessions: readonly HostSessionView[],
+  ): Promise<ReadonlyMap<SessionId, HostTerminalProof>> {
+    if (sessions.length === 0) return new Map()
+    return await this.deps.terminalProofs(sessions.map((session) => session.sessionId))
+  }
+
   /** The backstop selects old sessions but cannot waive agent parking evidence. */
   private async applyIdleBackstop(
     machineId: MachineId,
@@ -823,7 +869,7 @@ export class HostsService {
         session.purpose !== 'login' &&
         this.quietSinceMs(session) <= cutoff,
     )
-    const unscheduled: HostSessionView[] = []
+    const gated: HostSessionView[] = []
     for (const session of quiet) {
       if (await this.deps.hasScheduledWakeup(session.sessionId, now)) continue
       if (session.agentKind !== 'shell') {
@@ -834,10 +880,16 @@ export class HostsService {
           this.isUnobservedPhase(session) &&
           !this.isFullyQuietFor(session, this.unknownQuietWindowMs(backstopMinutes), now)
         ) continue
-        if (!await this.deps.hasValidTerminalProof(session.sessionId)) continue
       }
-      unscheduled.push(session)
+      gated.push(session)
     }
+    // The agents that passed every gate above, proven together (POD-7036).
+    const proofs = await this.terminalProofsOf(
+      gated.filter((session) => session.agentKind !== 'shell'),
+    )
+    const unscheduled = gated.filter(
+      (session) => session.agentKind === 'shell' || proofs.get(session.sessionId)?.ok === true,
+    )
     const target = unscheduled.sort(
       (a, b) => this.quietSinceMs(a) - this.quietSinceMs(b),
     )[0]
@@ -939,15 +991,15 @@ export class HostsService {
   }
 
   /**
-   * A SEQUENTIAL LOOP, NOT AN ASYNC `.filter` PREDICATE.
+   * THE CHEAP GATES FIRST, THEN ONE PROOF READ FOR THE SURVIVORS (POD-7036).
    *
-   * `hasValidTerminalProof` is the atomically revalidated two-pass check, so it
-   * is not a pure read: asking it for a session that the cheap gates above would
-   * have rejected is an extra revalidation the `&&` chain never performed.
-   * Resolving the whole set up front with `Promise.all` would do exactly that,
-   * and handing an async callback to `.filter` would disable the predicate
-   * outright (a promise is always truthy). Awaiting in order preserves both the
-   * call set and the sequence the short-circuiting predicate had.
+   * The terminal proof is asked only of a session that passed every cheap gate
+   * below, as the short-circuiting `&&` chain always asked it; asking it of a
+   * session the gates reject would be a revalidation the chain never performed.
+   * It used to be asked one session at a time, which on a host with hundreds of
+   * idle sessions was hundreds of reads per sample, every few seconds (the
+   * POD-7027 audit's `pendingForSessionProof` burst). The survivors are now
+   * proven together, one read per table, and the answers are the same.
    */
   private async eligibleCandidates(
     machineId: MachineId,
@@ -959,7 +1011,7 @@ export class HostsService {
     const idleCutoff = now - idleMinutes * 60_000
     const unknownQuietMs = this.unknownQuietWindowMs(idleMinutes)
     const pool = await this.idleLiveSessions(machineId, idleMinutes, now, idleShellMinutes)
-    const eligible: HostSessionView[] = []
+    const gated: { session: HostSessionView; terminal: boolean }[] = []
     for (const session of pool) {
       if (excluded.has(session.sessionId)) continue
       // Shells never go through hibernateSession — idleShellMinutes owns them.
@@ -984,31 +1036,30 @@ export class HostsService {
           this.effectiveIdleSinceMs(session) <= idleCutoff &&
           (this.isContractBacked(session) || now - session.lastOutputAtMs >= OUTPUT_QUIET_MS)
         if (!phaseEligible) continue
-        if (await this.deps.hasValidTerminalProof(session.sessionId)) {
-          this.missingProofLogged.delete(session.sessionId)
-          eligible.push(session)
-          continue
-        }
-        if (
-          (await this.deps.terminalProofMissing(session.sessionId)) &&
-          !this.missingProofLogged.has(session.sessionId)
-        ) {
-          this.missingProofLogged.add(session.sessionId)
-          log.warn(
-            'auto-hibernate skipped a terminal candidate — missing durable terminal proof (possible mixed-version observer)',
-            { sessionId: session.sessionId },
-          )
-        }
+        gated.push({ session, terminal: true })
         continue
       }
 
       // The unknown-phase floor is additional policy, never a proof substitute.
-      if (
-        this.isUnobservedPhase(session) &&
-        this.isFullyQuietFor(session, unknownQuietMs, now) &&
-        await this.deps.hasValidTerminalProof(session.sessionId)
-      ) {
+      if (this.isUnobservedPhase(session) && this.isFullyQuietFor(session, unknownQuietMs, now)) {
+        gated.push({ session, terminal: false })
+      }
+    }
+    const proofs = await this.terminalProofsOf(gated.map(({ session }) => session))
+    const eligible: HostSessionView[] = []
+    for (const { session, terminal } of gated) {
+      const proof = proofs.get(session.sessionId)
+      if (proof?.ok) {
+        if (terminal) this.missingProofLogged.delete(session.sessionId)
         eligible.push(session)
+        continue
+      }
+      if (terminal && proof?.missing && !this.missingProofLogged.has(session.sessionId)) {
+        this.missingProofLogged.add(session.sessionId)
+        log.warn(
+          'auto-hibernate skipped a terminal candidate — missing durable terminal proof (possible mixed-version observer)',
+          { sessionId: session.sessionId },
+        )
       }
     }
     return eligible.sort(

@@ -31,35 +31,18 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
-
 afterEach(() => {
   vi.useRealTimers()
 })
 
 describe('SocketHub rooms and principal lifecycle', () => {
-  it('registers legacy and canonical feed sinks through the same durable route', () => {
-    const legacyFeed = {
-      bind: vi.fn(),
-      connected: vi.fn(),
-      disconnected: vi.fn(),
-      dispose: vi.fn(),
-      frame: vi.fn(),
-      seed: vi.fn(),
-    }
-    const hub = new SocketHub({
-      url: 'ws://transport.test',
-      makeSocket: () => new FakeSocket(),
-      legacyFeed,
-    })
-    expect(hub.subscriptionSnapshot()).toEqual([expect.objectContaining({ durability: 'durable' })])
-    hub.dispose()
-  })
   it('shares one durable/lossy registry, maps visibility forward, and never sends identity', () => {
     const socket = new FakeSocket()
     const hub = new SocketHub({
       url: 'ws://transport.test',
       makeSocket: () => socket,
       feed: {
+        kindTokens: () => {},
         helloFields: () => null,
         connected: vi.fn(),
         disconnected: vi.fn(),
@@ -142,7 +125,7 @@ describe('SocketHub rooms and principal lifecycle', () => {
     hub.connect()
     const first = sockets[0] as FakeSocket
     first.open()
-    first.receive({ type: 'welcome', clientId: 'client-one' })
+    first.receive({ type: 'welcome', kindTokens: {}, clientId: 'client-one' })
     first.receive({
       type: 'attached',
       sessionId,

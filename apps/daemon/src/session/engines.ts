@@ -34,6 +34,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { type AppliedTerms, withTrailingArgs } from '@podium/harness'
 import type {
   EngineAttachment,
   EngineBindingRecord,
@@ -45,13 +46,15 @@ import type {
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import {
-  scopeUnitName,
   type DurableAdapter,
   type DurableProcess,
   type HostDurableAttachment,
+  scopeUnitName,
 } from '@podium/process/durable'
 import { SUN_PATH_MAX, unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
+import { deliveryOverlay, type SessionAccessStore, withLeadingArgs } from '../control/access'
 import { noDurableBackendRefusal } from '../durable-backend'
+import { nodePrepareLaunchPorts, type PrepareLaunchPorts, prepareLaunch } from '../session-posture'
 import { createEngineJournal } from './journal.js'
 import type { SessionRegistry } from './registry.js'
 
@@ -110,6 +113,20 @@ export interface SessionEngineScopeOptions {
    *  one no-durable-host sentence terminal spawns use (POD-4617). Absent =
    *  assumed available. */
   hostAvailable?: () => boolean
+  /** Where a start writes its launch files and applies its home edits
+   *  (POD-6858). Defaults to the real filesystem; tests hand a fake. */
+  prepareLaunchPorts?: (context: Record<string, unknown>) => PrepareLaunchPorts
+  /** Where a session engine's applied terms go once they are known, before
+   *  the process starts (POD-6858 Task 11): the server, with the session's
+   *  driver decision. A one-shot turn serves no session and reports none. */
+  onLaunchTerms?: (sessionId: SessionId, applied: AppliedTerms) => void
+  /**
+   * Each session's credential, held in memory (credential management §8). An
+   * engine started for a session gets it here, at the one place every engine
+   * starts, so no family has to carry it, journal it or remember to apply it.
+   * Absent: engines get none (tests of engines that serve no credential).
+   */
+  access?: Pick<SessionAccessStore, 'awaitAccess' | 'agentKindOf'>
 }
 
 /**
@@ -163,7 +180,31 @@ export class SessionEngineScope implements EngineProcessOwner {
   async startEngine(req: EngineSpawnRequest): Promise<EngineHold> {
     if (!(this.options.hostAvailable?.() ?? true)) throw new Error(noDurableBackendRefusal())
     const adapter = engineAdapter(this.durable, req.label)
-    const { retention, listen, sessionId, ...spawn } = req
+    const { retention, listen, sessionId, command, ...spawn } = req
+    // THE LAUNCH'S TERMS (POD-6858), once, before the process exists: its
+    // files, its home edits, and what could not be met, reported for the
+    // session it serves. A failed home edit does not stop the start.
+    const applied = await prepareLaunch(
+      command,
+      (this.options.prepareLaunchPorts ?? nodePrepareLaunchPorts)({
+        label: req.label,
+        launch: 'engine',
+        ...(sessionId !== undefined ? { sessionId } : {}),
+      }),
+    )
+    if (sessionId !== undefined) this.options.onLaunchTerms?.(sessionId, applied)
+    // THE SESSION'S CREDENTIAL (credential management §8), from memory. A
+    // daemon that restarted waits here for the server's refresh and refuses
+    // the start after a bounded wait: an engine never starts on the
+    // machine's own login in its place. The delivered variable is taken off
+    // the family's strip list, which names every inherited credential.
+    const delivered =
+      sessionId !== undefined && this.options.access
+        ? deliveryOverlay(
+            this.options.access.agentKindOf(sessionId),
+            await this.options.access.awaitAccess(sessionId),
+          )
+        : undefined
     const address = listen ? this.mintAddress(req.label, sessionId) : undefined
     if (sessionId !== undefined) {
       // A fresh engine: whatever address an earlier one had is not this one's.
@@ -174,9 +215,22 @@ export class SessionEngineScope implements EngineProcessOwner {
         ...(address !== undefined ? { address } : {}),
       }
     }
-    const args = listen && address !== undefined ? [...spawn.args, ...listen.argv(address)] : spawn.args
+    const hidden = delivered ? withLeadingArgs(command, delivered.args) : command
+    const bound =
+      listen && address !== undefined ? withTrailingArgs(hidden, listen.argv(address)) : hidden
     const attachment = toEngineAttachment(
-      await adapter.spawnHeadless({ ...spawn, args, ...retention }),
+      await adapter.spawnHeadless({
+        ...spawn,
+        ...(delivered
+          ? {
+              env: { ...spawn.env, ...delivered.env },
+              stripEnv: spawn.stripEnv.filter((key) => !delivered.keep.includes(key)),
+            }
+          : {}),
+        cmd: bound.cmd,
+        args: [...bound.args],
+        ...retention,
+      }),
     )
     return { attachment, ...(address !== undefined ? { address } : {}) }
   }
@@ -347,9 +401,9 @@ export class SessionEngineScope implements EngineProcessOwner {
   private journalIn(namespace: string): EngineJournal<{ sessionId: SessionId }> {
     const existing = this.journals.get(namespace)
     if (existing) return existing
-    const journal = this.options.journalFor?.(namespace) ?? readingLegacyAddress(
-      createEngineJournal<{ sessionId: SessionId }>({ namespace }),
-    )
+    const journal =
+      this.options.journalFor?.(namespace) ??
+      readingLegacyAddress(createEngineJournal<{ sessionId: SessionId }>({ namespace }))
     this.journals.set(namespace, journal)
     return journal
   }

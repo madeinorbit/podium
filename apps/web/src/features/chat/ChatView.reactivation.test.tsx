@@ -87,8 +87,6 @@ const fakeReplica = {
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow: () => undefined,
-  putTranscriptWindow: () => {},
 }
 
 vi.mock('@/app/store', () => {
@@ -115,7 +113,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (storeDrafts[id] ?? '')),
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -139,10 +137,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -153,7 +147,12 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
   } as unknown as SessionMeta
 }
 
-function turn(id: string, cursor: string, role: 'user' | 'assistant', text: string): TranscriptItem {
+function turn(
+  id: string,
+  cursor: string,
+  role: 'user' | 'assistant',
+  text: string,
+): TranscriptItem {
   return { id, cursor, role, text }
 }
 
@@ -188,7 +187,7 @@ async function flush(): Promise<void> {
     await Promise.resolve()
     await vi.dynamicImportSettled()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -218,7 +217,7 @@ describe('POD-4719 warm re-activation keeps the transcript', () => {
     await flush()
     // Startup already requests this exact newest window. Activation must not
     // issue another read and supersede it before its response can be used.
-    expect(reads.map(read => read.input)).toEqual([
+    expect(reads.map((read) => read.input)).toEqual([
       { sessionId: asSessionId('s1'), direction: 'before', limit: 200 },
     ])
     expect(fakeHub.subscribes).toHaveLength(0)

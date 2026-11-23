@@ -76,13 +76,7 @@ export class MemorySearchService {
     const limit = Math.min(200, Math.max(1, opts.limit ?? 50))
     const scopedVisibility =
       visibility ??
-      await this.visibility.forRequest(await this.store.sessions.loadSessions(), {
-        // The native conversation-list RPC can return one row per distinct
-        // issue. Prime those owner and grant rows as one request-local batch;
-        // the omni search caller passes its own visibility context and keeps
-        // its existing memoized path unchanged.
-        batchIssueOwners: true,
-      })
+      await this.visibility.forRequest(await this.store.sessions.loadSessions())
     // Revocation makes a stale allow unsafe: this batch belongs only to this
     // request, and only an explicit true survives the synchronous filter.
     const visible = async (rows: readonly ConversationIndexRow[]) => {
@@ -179,7 +173,7 @@ export class MemorySearchService {
     // match, by id (POD-6195). Both used to be found in every issue at once.
     const ascii = /^[\x00-\x7f]*$/.test(lower)
     const textIssues = await this.store.issues.listIssueRowsWhere(
-      { repo: false, readable: false, live: true, ...(ascii ? { text: true } : {}), order: 'path-seq' },
+      { repo: false, live: true, ...(ascii ? { text: true } : {}), order: 'path-seq' },
       ascii ? { text: lower } : {},
     )
     const comments = await this.store.issues.searchIssueComments(text, null)

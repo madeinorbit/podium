@@ -1,12 +1,13 @@
+import type { Trpc } from '@/app/trpc'
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueUpdatePatch } from '@podium/commands'
 import { agentSettingsDraft } from '@podium/client-graph/write/agent-settings-draft'
 import { observer } from 'mobx-react-lite'
 import { asMachineId, HOST_REPOS } from '@podium/model/browser'
 import { Check, ChevronDown, LoaderCircle } from 'lucide-react'
-import { type JSX, useCallback, useEffect, useMemo, useState } from 'react'
-import { useSettingsRecord } from '@/features/settings/record-readers'
-import { useRuntimeSelector } from '@/app/store'
+import { type JSX, useEffect, useMemo, useState } from 'react'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { Button } from '@/components/ui/button'
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
 import { machineOptionLabel, useMachineChoices } from '@/features/machines/machine-choices'
@@ -21,7 +22,10 @@ import { useAgentFleetOptions } from './use-agent-fleet-options'
 
 type SettingsIssue = Pick<IssueViewModel, 'id'> &
   Partial<
-    Pick<IssueViewModel, 'repoPath' | 'defaultAgent' | 'defaultModel' | 'defaultEffort' | 'machineId'>
+    Pick<
+      IssueViewModel,
+      'repoPath' | 'defaultAgent' | 'defaultModel' | 'defaultEffort' | 'machineId'
+    >
   >
 type SettingsPatch = Pick<
   IssueUpdatePatch,
@@ -50,11 +54,12 @@ export const IssueAgentSettings = observer(function IssueAgentSettings({
   menuOwner?: string
   onSavingChange?: (saving: boolean) => void
 }): JSX.Element {
-  const updateIssue = useRuntimeSelector((s) => s.updateIssue)
-  const trpc = useRuntimeSelector((s) => s.trpc)
-  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
-  const settingsRequest = useSettingsRecord(readSettings)
-  const selected = useMemo(() => agentSettingsDraft(issue, patch => updateIssue(issue.id, patch)), [issue, updateIssue])
+  const updateIssue = useCommands<Trpc>().issues.update
+  const codingHarness = useMyCodingHarness()
+  const selected = useMemo(
+    () => agentSettingsDraft(issue, (patch) => updateIssue(issue.id, patch)),
+    [issue, updateIssue],
+  )
   const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [error, setError] = useState('')
   useEffect(() => {
@@ -69,10 +74,12 @@ export const IssueAgentSettings = observer(function IssueAgentSettings({
 
   const save = (patch: SettingsPatch): void => {
     if (disabled || state === 'saving') return
-    if (!patch.defaultAgent &&
+    if (
+      !patch.defaultAgent &&
       ((patch.defaultModel && patch.defaultModel !== 'auto') ||
         (patch.defaultEffort && patch.defaultEffort !== 'auto')) &&
-      (!selected.defaultAgent || selected.defaultAgent === 'auto')) {
+      (!selected.defaultAgent || selected.defaultAgent === 'auto')
+    ) {
       patch = { ...patch, defaultAgent: agentKind }
     }
     Object.assign(selected, patch)
@@ -91,7 +98,7 @@ export const IssueAgentSettings = observer(function IssueAgentSettings({
     })()
   }
 
-  const agentKind = issueDefaultAgentKind(selected.defaultAgent, settingsRequest?.model?.codingHarness)
+  const agentKind = issueDefaultAgentKind(selected.defaultAgent, codingHarness)
   const AgentIcon = agentIconFor(agentKind)
   const agentOptions = useAgentFleetOptions(issue)
   const machine = machines.find((m) => m.id === selected.machineId)

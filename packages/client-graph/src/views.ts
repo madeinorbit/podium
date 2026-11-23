@@ -1,3 +1,4 @@
+import { issueRefText } from '@podium/protocol'
 import { isClosed, issueAbandoned } from './shared/predicates'
 import { machinePathKey } from '@podium/model/browser'
 /**
@@ -165,6 +166,8 @@ export interface ViewInputs {
   seatList(id: string): readonly string[]
   /** The selection local: `selectedIssueId === id`. */
   selected(id: string): boolean
+  /** Did I pin issue `id`? My `pin` record (POD-6692), never a row field. */
+  issuePinned(id: string): boolean
   /** `coarseNow >= t`. */
   reached(t: number): boolean
   /** `coarseNow > t`. */
@@ -182,8 +185,8 @@ export function parseMs(value: string | null | undefined): number | null {
 // -------------------------------------------------------------- own-row rules
 
 /** Order band: 0 pinned or returned from defer, 2 snoozed, 1 otherwise (spec §3 R-ORDER). */
-export function bandOf(issue: SliceIssue, input: Pick<ViewInputs, 'reached'>): 0 | 1 | 2 {
-  if (issue.pinned === true) return 0
+export function bandOf(issue: SliceIssue, input: Pick<ViewInputs, 'reached' | 'issuePinned'>): 0 | 1 | 2 {
+  if (input.issuePinned(issue.id)) return 0
   if (issue.deferUntil === DEFER_NEXT_MESSAGE) return 2
   const until = parseMs(issue.deferUntil)
   if (until === null) return 1
@@ -192,7 +195,8 @@ export function bandOf(issue: SliceIssue, input: Pick<ViewInputs, 'reached'>): 0
 
 /** `prefix-seq`, else `#seq` (spec §3 R-SUM). */
 export function displayRefOf(seq: number, prefix: string | null | undefined): string {
-  return prefix ? `${prefix}-${seq}` : `#${seq}`
+  // A new issue's pending number reads `PREFIX-…` (POD-6400).
+  return issueRefText(seq, prefix)
 }
 
 // The current row/local channels carry no served descriptors. Use the canonical
@@ -277,7 +281,7 @@ export interface CloseFacts {
   readonly parentGone?: boolean
 }
 
-export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed' | 'reached'>, facts?: CloseFacts): OwnPart {
+export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed' | 'reached' | 'issuePinned'>, facts?: CloseFacts): OwnPart {
   // Keep the plain rule object narrow too: reading band or repoKey must
   // not ask the model for its independent close/finished computeds.
   return {
@@ -285,7 +289,7 @@ export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed'
     get repoKey() { return issue.repoId ?? machinePathKey(issue.repoPath) },
     get closed() { return closedOf(issue, false, input, facts) },
     get dismissed() { return this.closed && (issueAbandoned(issue) || issue.tuckedAt != null) },
-    get pinned() { return issue.pinned === true },
+    get pinned() { return input.issuePinned(issue.id) },
     get sortKey() { return issue.sortKey ?? null },
     get createdAt() { return issue.createdAt },
     get seq() { return issue.seq },

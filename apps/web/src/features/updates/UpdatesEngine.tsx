@@ -26,20 +26,28 @@
  * request in the same window as every other boot request, long before any update
  * can be offered.
  */
+
+import { serviceWorkerContainer } from '@podium/client-core/service-worker'
+import { observer } from '@podium/client-graph/react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRegisterSW } from '@/app/pwa-register'
-import { serverConfig } from '@/app/trpc'
+import { makeTrpc, serverConfig } from '@/app/trpc'
 import { forceReload } from '@/lib/force-reload'
 import { swLog, updatesLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
-import { withReloadPreparation } from '@/lib/reload-preparation'
-import { serviceWorkerContainer } from '@/lib/sw-container'
+import { RELOAD_COMMIT_GRACE_MS, withReloadPreparation } from '@/lib/reload-preparation'
+import { updateStatus } from '@/lib/update-status'
 import { registerUpdatePanelOpener } from './open-panel'
 import { DONE_COLLAPSE_MS } from './operation-view'
 import { ReleaseProposalCard } from './ReleaseProposalCard'
-import { type ReloadHandshakeStatus, startReloadHandshake } from './reload-handshake'
+import {
+  notReloadedStatus,
+  type ReloadHandshakeStatus,
+  startReloadHandshake,
+} from './reload-handshake'
 import { UpdatePanel } from './UpdatePanel'
+import { UpdateSpaceNotice } from './UpdateSpaceNotice'
 import { publishUpdates, resetUpdates, type UpdatesContextValue } from './updates-panel-context'
 import { type PanelActionKind, useUpdateState } from './use-update-state'
 
@@ -49,7 +57,12 @@ export interface UpdatesEngineProps {
   httpOrigin?: string
 }
 
-export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element | null {
+/**
+ * An `observer`: the update-status reader's state (POD-6683) is what redraws it.
+ */
+export const UpdatesEngine = observer(function UpdatesEngine({
+  httpOrigin,
+}: UpdatesEngineProps): JSX.Element | null {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
   const [reloadStatus, setReloadStatus] = useState<ReloadHandshakeStatus | null>(null)
   const refreshRef = useRef(() => {})
@@ -127,10 +140,13 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
    * state to the panel. A stalled handoff loads through the network entry after
    * preserving drafts and local queue commits, without clearing their storage.
    */
+  const notReloadedTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(notReloadedTimer.current), [])
   const reload = useCallback(async () => {
     const serviceWorker = serviceWorkerContainer()
     const currentRegistration = registration
-    await startReloadHandshake({
+    window.clearTimeout(notReloadedTimer.current)
+    const outcome = await startReloadHandshake({
       serviceWorker,
       trigger: 'panel',
       registration: currentRegistration,
@@ -141,9 +157,21 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
       reload: () => withReloadPreparation(() => navigateReload('handshake', 'replacement-ready')),
       recover: () => forceReload('service-worker-handoff-incomplete', false),
     })
+    // A started navigation that has not replaced this document within the grace
+    // period was lost (POD-7154): say so, and let Reload and Reset act again.
+    if (outcome.outcome !== 'reloading') return
+    notReloadedTimer.current = window.setTimeout(() => {
+      updatesLog.warn('the page did not reload after the reload started', {
+        waitedMs: RELOAD_COMMIT_GRACE_MS,
+      })
+      setReloadStatus((status) =>
+        notReloadedStatus(status, outcome.snapshot, RELOAD_COMMIT_GRACE_MS),
+      )
+    }, RELOAD_COMMIT_GRACE_MS)
   }, [registration])
 
   const resolvedOrigin = httpOrigin ?? serverConfig(window.location).httpOrigin
+  const spaceClient = useMemo(() => makeTrpc(resolvedOrigin), [resolvedOrigin])
   const {
     view,
     pending,
@@ -217,12 +245,24 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     })
   }, [collapsed, situation])
 
-  // "Auto-collapses after a few seconds" (§6.2.4). The success announcement is
-  // worth a moment and nothing more; the operation is in history either way.
+  // "Auto-collapses after a few seconds" (§6.2.4). The success announcement
+  // stays open while the pointer, focus or scrolled notes show it is being read.
   // Keyed on the situation so a SECOND finished update re-arms the timer.
   const doneKey = view.state === 'done' ? situation : null
+  const [reading, setReading] = useState<{ key: string; active: boolean }>()
+  const onReadingChange = useCallback(
+    (active: boolean) => {
+      setReading((current) =>
+        current?.key === situation && current.active === active
+          ? current
+          : { key: situation, active },
+      )
+    },
+    [situation],
+  )
+  const readingDone = reading?.key === doneKey && reading.active
   useEffect(() => {
-    if (doneKey === null) return
+    if (doneKey === null || readingDone) return
     const timer = window.setTimeout(() => {
       setCollapsed(true)
       // "the indicator clears" (§6.2.4) — a finished update is not a standing
@@ -230,10 +270,14 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
       acknowledge()
     }, DONE_COLLAPSE_MS)
     return () => window.clearTimeout(timer)
-  }, [acknowledge, doneKey])
+  }, [acknowledge, doneKey, readingDone])
 
   const hasPanelContent = view.state !== 'none' || showingProposal
   const open = hasPanelContent && !collapsed
+
+  // The expanded panel is an open update screen: the reader keeps it current
+  // while it shows, and stops when it collapses.
+  useEffect(() => (open ? updateStatus(resolvedOrigin).watch() : undefined), [open, resolvedOrigin])
 
   const hide = useCallback(() => {
     // Record the user's collapse choice and acknowledge terminal outcomes.
@@ -372,12 +416,19 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   }
   return (
     <UpdatePanel
+      key={view.operationId ?? view.version ?? situation}
       view={view}
+      onReadingChange={onReadingChange}
       pending={pending}
       onAction={onAction}
       onHide={hide}
       {...(reloadStatus ? { reloadStatus } : {})}
       onResetCachedInterface={resetCachedInterface}
+      {...(view.state === 'offer' && view.primary?.kind === 'start'
+        ? {
+            spacePreview: <UpdateSpaceNotice client={spaceClient} expectedVersion={view.version} />,
+          }
+        : {})}
     />
   )
-}
+})

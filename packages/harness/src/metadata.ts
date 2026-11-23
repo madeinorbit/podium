@@ -45,12 +45,46 @@
  * it belongs on `apps/daemon`, which is what the machine host is.
  */
 
+// The prompt-echo text predicate (POD-5615): a pure fact about what a harness
+// wrote — whether submitted text matches a recorded transcript prompt after
+// the terminal's whitespace normalization. No process, no host, no action.
+export { claudePromptTextMatches } from './accept-correlation.js'
+// Pure vendor file-format readers: what a harness wrote, never an action on a
+// host. The Codex auth shape (token pair, JWT clock, login validity) is owned
+// by the harness package; the server shell keeps only its own file reads and
+// error types.
+export {
+  codexAccessTokenExpiryMs,
+  hasValidCodexCredential,
+  parseCodexAuthContents,
+} from './adapters/codex/auth-identity.js'
+// The model provider Codex runs a ChatGPT plan under (epic Task 15): a credential
+// switch records it in a moved thread (Task 11).
+export {
+  CODEX_PLAN_PROVIDER_ID,
+  codexModelProvider,
+  codexModelProviderChange,
+} from './adapters/codex/plan-provider.js'
+export type { AgentStateEvent } from './agent-state/types.js'
+// Two prompt-pointer string constants. Data the server renders into agent
+// prompts; they name no process and reach no host.
+export { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointer.js'
+// Types only. Erased at build, so they carry nothing at all; listed rather than
+// starred for the same reason as everything above.
+export type {
+  DriverFamily,
+  HarnessCapabilities,
+  HarnessLogin,
+  HideFromCommands,
+  LoginIdentity,
+  PortableCredential,
+} from './manifest.js'
+// Static driver vocabulary for consumers that fingerprint declaration-derived facts.
+export { DRIVER_IDS, RETIRED_DRIVER_IDS } from './manifest.js'
 // The observation-ledger causal state machine (cursor succession, binding
 // version, terminal fence). Harness-AGNOSTIC — its only imports are types from
 // `@podium/protocol` — and merely FILED in this package; the boundary-allowlist
 // entry it replaces said exactly that.
-export { acceptAgentObservation, compareProviderCursor } from './observer.js'
-
 // The AGENT-STATE FOLD, and the event shape it folds (POD-2820). Same argument
 // as `compareProviderCursor` directly above, applied to the module beside it:
 // `observer.ts` imports two TYPES from `@podium/model` and nothing
@@ -68,26 +102,13 @@ export { acceptAgentObservation, compareProviderCursor } from './observer.js'
 // server's re-derived over there — and the two would not have stayed the same
 // function. That drift renders as a session whose phase depends on which side
 // you asked, which is the bug the single named reducer exists to prevent.
-export { initialAgentState, reduceAgentState } from './observer.js'
-export type { AgentStateEvent } from './agent-state/types.js'
-
-// Two prompt-pointer string constants. Data the server renders into agent
-// prompts; they name no process and reach no host.
-export { ISSUE_SYSTEM_POINTER, SPEC_SYSTEM_POINTER } from './issue-system-pointer.js'
-// Types only. Erased at build, so they carry nothing at all; listed rather than
-// starred for the same reason as everything above.
-export type {
-  DriverFamily,
-  HarnessCapabilities,
-  HarnessLogin,
-  LoginIdentity,
-  PortableCredential,
-} from './manifest.js'
+export {
+  acceptAgentObservation,
+  compareProviderCursor,
+  initialAgentState,
+  reduceAgentState,
+} from './observer.js'
 export type { HarnessComposerReadiness, HarnessInterrupt } from './registry.js'
-// The prompt-echo text predicate (POD-5615): a pure fact about what a harness
-// wrote — whether submitted text matches a recorded transcript prompt after
-// the terminal's whitespace normalization. No process, no host, no action.
-export { claudePromptTextMatches } from './accept-correlation.js'
 // Static per-CLI facts. Each resolves through `manifestFor`, which returns
 // `undefined` for a harness this build has never heard of rather than
 // substituting another CLI's row.
@@ -95,10 +116,12 @@ export {
   CREDENTIAL_PROPAGATION_HARNESSES,
   driverFamilyForId,
   driverIdIsServerFamily,
+  harnessAccepts,
   harnessCapabilitiesFor,
   harnessComposerReadiness,
   harnessDetectLogin,
   harnessDisplayName,
+  harnessHideFromCommands,
   harnessInterrupt,
   harnessNeedsSubmitVerification,
   harnessObservationProvider,
@@ -119,14 +142,10 @@ export {
   isServerFamilyResumeKind,
   transcriptRecordMapperFor,
 } from './registry.js'
-// Pure vendor file-format readers: what a harness wrote, never an action on a
-// host. The Codex auth shape (token pair, JWT clock, login validity) is owned
-// by the harness package; the server shell keeps only its own file reads and
-// error types.
-export {
-  codexAccessTokenExpiryMs,
-  hasValidCodexCredential,
-  parseCodexAuthContents,
-} from './adapters/codex/auth-identity.js'
 
-export { isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from './session-title'
+export {
+  isCommandWrapperText,
+  isGenericClaudeTitle,
+  isTransientTitle,
+  stripSpinnerFrame,
+} from './session-title'

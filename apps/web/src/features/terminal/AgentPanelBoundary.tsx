@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import type { AgentPanelProps } from './agent-panel-props'
 

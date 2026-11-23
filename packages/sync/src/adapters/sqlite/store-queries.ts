@@ -49,14 +49,15 @@
 
 import type { EmptyRelations } from 'drizzle-orm'
 import type { SQLiteAsyncDatabase } from 'drizzle-orm/sqlite-core'
+import type { WorkspaceHandle } from './prepared'
 
 /**
  * What a write reports back.
  *
  * `bigint` is the driver's, not a widening: SQLite row ids exceed
- * `Number.MAX_SAFE_INTEGER` and the handle says so. `appendChanges` reads
- * `lastInsertRowid` to derive the seqs it just assigned, so this is a member the
- * adapter genuinely depends on rather than a shape copied over wholesale.
+ * `Number.MAX_SAFE_INTEGER` and the handle says so. The driver reports
+ * `lastInsertRowid` for other repositories; sync numbers come from the tenant
+ * feed row rather than that engine-specific value.
  */
 export interface SyncRunResult {
   readonly changes: number | bigint
@@ -107,5 +108,17 @@ export interface StoreQueries {
   /** The ambient drizzle instance a repository queries through. */
   readonly rootDb: StoreDrizzle
   /** Creates a root transaction or joins the enclosing transaction when nested. */
+  readonly createOrJoinTransaction: TransactionRunner
+}
+
+/**
+ * WHAT THE SYNC REPOSITORY IS HANDED (POD-7021, POD-6959 design 2.4): one
+ * workspace's query handle, which fills the `workspaceId` of every statement,
+ * and that workspace's transaction runner. `apps/server`'s `WorkspaceQueries`
+ * satisfies it structurally.
+ */
+export interface SyncQueries {
+  readonly db: WorkspaceHandle<StoreDrizzle>
+  /** Opens this workspace's transaction, or joins the enclosing one of the same workspace. */
   readonly createOrJoinTransaction: TransactionRunner
 }

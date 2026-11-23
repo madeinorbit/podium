@@ -1,6 +1,6 @@
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import type { MobxPool } from '@podium/client-graph'
 // @vitest-environment happy-dom
 import type { SessionId, SessionMeta } from '@podium/model'
@@ -49,11 +49,17 @@ vi.mock('./operator-focus', () => ({
   useOperatorFocus: () => ({ focusedIssueId: null, setFocusedIssueId: vi.fn() }),
 }))
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useHarnessDescriptors: () => ({ served: [] }),
-  useStoreHandle: () => fixtureOwner(),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    useHarnessDescriptors: () => ({ served: [] }),
+    ...fixtureRuntimeHooks(() => fixtureOwner()),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(() =>
+      fixtureOwner(),
+    ),
+  }
+})
 
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => false,
@@ -152,7 +158,7 @@ function fixtureOwner() {
 let replicaIssues: IssueViewModel[] = [task]
 
 vi.mock('./store', () => ({
-  useRuntimeSelector: (selector: (s: Record<string, unknown>) => unknown) =>
+  readFixture: (selector: (s: Record<string, unknown>) => unknown) =>
     selector(
       new Proxy(state, {
         get(target, key) {
@@ -177,6 +183,12 @@ vi.mock('./store-worklist-pool', () => ({
       row: (_entity: string, id: string) =>
         (state.sessions as SessionMeta[]).find((row) => row.sessionId === id),
     } as unknown as MobxPool),
+}))
+// The registered repositories are checkout records in the pool (POD-6644);
+// this fixture's fake pool serves them from its state.
+vi.mock('./header-data', async (original) => ({
+  ...(await original<typeof import('./header-data')>()),
+  usePoolRepositories: () => (state as { repos?: unknown[] }).repos ?? [],
 }))
 vi.mock('./workspace-mission', () => ({
   useWorkspaceMission: () => {
@@ -240,6 +252,12 @@ beforeEach(() => {
   uiListeners.clear()
   state = {
     sessions: [session('s1'), session('s2'), session('s3')],
+    // The engine's mission is present even when the view's deliberately
+    // separate projection has not arrived or has already archived the row.
+    navigation: fixtureNavigation({
+      issues: () => [task] as never,
+      sessions: () => state.sessions as never,
+    }),
     selectedWorktree: '/repo/wt',
     selectedIssueId: task.id,
     paneA: 's2',

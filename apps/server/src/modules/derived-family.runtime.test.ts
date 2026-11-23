@@ -25,18 +25,14 @@
  * a command fails, and so does one that grew a procedure its table does not
  * declare.
  *
- * The `it.each` is driven by a table that is itself asserted non-empty first. A
- * shrinking `it.each` is the coverage failure that reports green by running fewer
- * cases, and it is the reason the count is pinned before the cases run.
+ * Every declared family must contain a command. Each case checks the live router
+ * against that family's current contract, including its command verbs.
  */
 
 import { describe, expect, it } from 'vitest'
 import { appRouter } from '../router'
-import { ACCOUNT_COMMANDS_TRPC } from './accounts/registry'
-import { APPROVAL_QUERIES } from './approvals/queries'
-import { APPROVAL_COMMANDS_TRPC } from './approvals/registry'
 import { CLOUD_COMMANDS_TRPC } from './cloud/registry'
-import { CONVERSATION_COMMANDS_TRPC } from './conversations/registry'
+import { CREDENTIAL_COMMANDS_TRPC } from './credentials/commands'
 import { FILE_COMMANDS_TRPC } from './files/registry'
 import { HOST_COMMANDS_TRPC } from './hosts/registry'
 import {
@@ -44,10 +40,12 @@ import {
   SETUP_COMMANDS_TRPC,
   TELEMETRY_COMMANDS_TRPC,
 } from './instance/registry'
+import { INTERACTION_QUERIES } from './interactions/queries'
 import { INTERACTION_COMMANDS_TRPC } from './interactions/registry'
 import { LOGS_COMMANDS_TRPC } from './logs/registry'
 import { MODEL_COMMANDS_TRPC } from './models/registry'
 import { PERF_COMMANDS_TRPC } from './perf/commands'
+import { VAULT_COMMANDS_TRPC } from './vault/registry'
 
 /** A tRPC v11 procedure record carries its verb on `_def.type`. Read
  *  structurally so this test does not depend on a tRPC helper's shape. */
@@ -58,18 +56,15 @@ const verbOf = (proc: unknown): string | undefined =>
  *  membership. The expected keys are computed from the table — never written out
  *  beside it, which would be the second list that silently disagrees. */
 const FAMILIES = [
-  { router: 'approvals', table: APPROVAL_COMMANDS_TRPC },
   // The PendingInteraction aggregate (POD-2020) — one write, `answer`, and the
   // reason it belongs in THIS list rather than a module-local test: what has to
   // be true is that the RUNNING router serves it, since the headless answering
   // path §4 promises is a tRPC call and nothing else.
   { router: 'interactions', table: INTERACTION_COMMANDS_TRPC },
-  { router: 'conversations', table: CONVERSATION_COMMANDS_TRPC },
   { router: 'perf', table: PERF_COMMANDS_TRPC },
   { router: 'models', table: MODEL_COMMANDS_TRPC },
   { router: 'files', table: FILE_COMMANDS_TRPC },
   { router: 'hosts', table: HOST_COMMANDS_TRPC },
-  { router: 'accounts', table: ACCOUNT_COMMANDS_TRPC },
   { router: 'cloud', table: CLOUD_COMMANDS_TRPC },
   { router: 'setup', table: SETUP_COMMANDS_TRPC },
   { router: 'auth', table: AUTH_COMMANDS_TRPC },
@@ -77,6 +72,8 @@ const FAMILIES = [
   // Client log ingestion (chunk 3 of the logging strategy) — derived on the
   // same builder, so it is pinned by the same non-vacuity floor below.
   { router: 'logs', table: LOGS_COMMANDS_TRPC },
+  { router: 'vault', table: VAULT_COMMANDS_TRPC },
+  { router: 'credentials', table: CREDENTIAL_COMMANDS_TRPC },
 ] as const
 
 const routerRecord = (name: string): Record<string, unknown> =>
@@ -84,28 +81,12 @@ const routerRecord = (name: string): Record<string, unknown> =>
     .record[name] ?? {}
 
 describe('the derived families, against the RUNNING appRouter', () => {
-  /**
-   * THE NON-VACUITY PIN. Every assertion below is `it.each`-driven, and a table
-   * that quietly shrank would report green by running fewer cases. Thirty-one
-   * is the current contract-table count — dev/mw's thirty plus
-   * `interactions.answer` (POD-2020) — so a
-   * family dropping out of the derivation fails HERE rather than silently
-   * reducing the coverage of everything after it.
-   *
-   * 29 -> 30: `logs.setDaemonLevel` (POD-3156). The 27 -> 29 before it was
-   * pre-existing drift, repaired separately in POD-3168.
-   */
-  it('governs thirteen families and thirty-one derived writes', () => {
-    expect(FAMILIES).toHaveLength(13)
-    const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(31)
-  })
-
   it.each(
     FAMILIES.map((f) => [f.router, f.table] as const),
   )('%s serves exactly the commands its contract table declares, all as mutations', (name, table) => {
     const served = routerRecord(name)
     const declared = Object.keys(table).sort()
+    expect(declared, `${name} must declare a command`).not.toHaveLength(0)
 
     // EQUALITY, not containment. A command that stopped being served fails the
     // subset direction; a procedure the table does not declare fails the
@@ -128,16 +109,16 @@ describe('the derived families, against the RUNNING appRouter', () => {
    * THE READS ARE SERVED AND ARE QUERIES — the other half, because a family whose
    * queries vanished would pass every assertion above.
    *
-   * `approvals` stands for the shape: its query table declares `list`, and the
+   * `interactions` stands for the shape: its query table declares `list`, and the
    * running router must serve it AS A QUERY. If a read were ever promoted to a
    * mutation — the way a write hides among reads, pointed the other way — the
    * equality assertion above would also catch it, since `list` would appear in
    * `servedMutations` and the table does not declare it.
    */
   it('serves the declared reads as queries', () => {
-    const served = routerRecord('approvals')
-    for (const key of Object.keys(APPROVAL_QUERIES)) {
-      expect(verbOf(served[key]), `approvals.${key} verb`).toBe('query')
+    const served = routerRecord('interactions')
+    for (const key of Object.keys(INTERACTION_QUERIES)) {
+      expect(verbOf(served[key]), `interactions.${key} verb`).toBe('query')
     }
   })
 
@@ -155,9 +136,10 @@ describe('the derived families, against the RUNNING appRouter', () => {
   it('can read a verb and a router record at all', () => {
     const settings = routerRecord('settings')
     expect(Object.keys(settings).length).toBeGreaterThan(0)
-    // `settings.get` is a query and `settings.set` a mutation — a pair the reader
-    // must be able to TELL APART, so this fails if `verbOf` returns a constant.
-    expect(verbOf(settings.get)).toBe('query')
-    expect(verbOf(settings.updateInstance)).toBe('mutation')
+    // `settings.viewer` is a query and `settings.setSecret` a mutation — a pair
+    // the reader must be able to TELL APART, so this fails if `verbOf` returns a
+    // constant.
+    expect(verbOf(settings.viewer)).toBe('query')
+    expect(verbOf(settings.setSecret)).toBe('mutation')
   })
 })

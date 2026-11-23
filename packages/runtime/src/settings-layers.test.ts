@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  LAYERED_KEYS,
   LAYERED_ENV,
+  LAYERED_KEYS,
   LAYERED_SCOPES,
-  resolveSetting,
   type LayeredKey,
   type LayeredSettings,
   type PodiumConfig,
+  resolveSetting,
 } from './config'
 
 const probe = 'ed25519:' + 'A'.repeat(43)
@@ -49,16 +49,6 @@ const cases: Record<
     file: { allowedOrigins: ['https://app.test'] },
     value: ['https://app.test'],
   },
-  authMode: {
-    env: { PODIUM_AUTH_MODE: 'cloud' },
-    file: { auth: { mode: 'cloud' } },
-    value: 'cloud',
-  },
-  authSignInUrl: {
-    env: { PODIUM_AUTH_SIGN_IN_URL: 'https://login.test' },
-    file: { auth: { signInUrl: 'https://login.test' } },
-    value: 'https://login.test',
-  },
   updateChannel: {
     env: { PODIUM_UPDATE_CHANNEL: 'dev' },
     file: { updateChannel: 'dev' },
@@ -68,6 +58,11 @@ const cases: Record<
     env: { PODIUM_UPDATE_FEED: 'https://feed.test' },
     file: { updateFeed: 'https://feed.test' },
     value: 'https://feed.test',
+  },
+  updateFeedPolling: {
+    env: { PODIUM_UPDATE_FEED_POLLING: 'off' },
+    file: { updateFeedPolling: false },
+    value: false,
   },
   updateScope: {
     env: { PODIUM_UPDATE_SCOPE: 'fleet-only' },

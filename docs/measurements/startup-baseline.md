@@ -85,6 +85,98 @@ their declared summaries (counts, search, closed tabs), and after loading
 (1,544 rows) every answer equals the control. The second full bootstrap shows
 the check is not noisy.
 
+### The policy set with markers (POD-7086)
+
+Since POD-7085 the first download is the policy's collections, so the device
+holds the policy set: live, asking and recent sessions, the sidebar and recent
+issues, what they come with (parents, a session's issue, a sidebar issue's
+sessions that are not archived), every other kind whole, and every issue as a
+stub, each collection with its marker. Today's readers read whole records from
+the pool (stubs are kept out of it) and do not read markers, so they answer
+smaller numbers instead of LOADING. `policySetPool` in `startup-states.ts`
+builds this state; `no-wrong-number.test.ts` asserts these answers exactly, so
+a change that makes them worse fails. POD-7088 moves the readers onto markers
+and stubs and must bring every wrong answer to zero (vega, 2026-11-18, `h1a1`,
+seed 4443; equal / LOADING / wrong):
+
+| Candidate state | First screen | Counts | Search | Board archive | Closed children |
+| --- | --- | --- | --- | --- | --- |
+| Policy set with markers | 24 / 0 / 0 | 0 / 0 / **4** | 0 / 25 / 0 | 0 / 0 / **1** | 39 / 0 / **57** |
+
+The wrong answers: all four counts (issues, sessions, undeleted issues,
+proposed); the archived issues; and the child counts, model
+counts and mission progress of the parents whose closed children are not in
+the policy set (one board card's progress among them). The full list is in
+the test's result file, `startup-no-wrong-number-policy-set-h1a1`.
+
+### The moved readers (POD-7088)
+
+POD-7088 moved the counts, the board's columns and closed tabs, and the
+closed-children readers onto collections, markers and stubs, and extended the
+question list with them: the undeleted count, "first task", the proposal
+deck's total, every board column's count (with and without agent tasks), the
+archived and closed tabs' counts, and the board card's child counts. The
+device's own counts (`heldCount`) are not asked: they are no question of all
+history. `no-wrong-number.test.ts` now requires zero wrong answers outside
+search in the policy set and in every first-download state; the search
+surfaces are POD-7089's. The search entries below were updated by POD-7089
+on the combined tree; every other entry is unchanged (agent VM, 2026-11-18,
+`h1a1`, seed 4443; equal / LOADING / wrong):
+
+| Candidate state | First screen | Counts | Search | Board archive | Closed children |
+| --- | --- | --- | --- | --- | --- |
+| Policy set with markers | 11 / 13 / 0 | 17 / 0 / 0 | 0 / 25 / 0 | 3 / 0 / 0 | 121 / 23 / 0 |
+| First download, always and live | 0 / 24 / 0 | 1 / 16 / 0 | 0 / 25 / 0 | 0 / 3 / 0 | 0 / 144 / 0 |
+
+The 13 first-screen answers that are LOADING in the policy set read a record
+the device does not hold: these pools have no residency, and since POD-7088
+such a lookup asks the loader as a production pool does, instead of answering
+"gone". The lazy pool proof (`no-wrong-number.lazy.test.ts`) does not finish
+loading within its 16 rounds since the board column questions were added;
+that is open.
+
+### Device-first search (POD-7089)
+
+The search group now asks 25 questions: one typed command-palette search, and
+local text, mentions, board text, phone link targets, phone Work and shared web
+target choices for each of four needles. A device answer stays visible at once;
+the search answer declares itself incomplete until its server request succeeds.
+The check reads that completeness as `LOADING`, so an incomplete device result
+is never mistaken for the full-history answer. Server result IDs go through the
+collection loader as cached one-record instances; rows read the shared models.
+
+After rebasing onto POD-7088, the combined tree (`c5f3d34498`) passes all eight
+`no-wrong-number.test.ts` tests on `h1a1`, seed 4443. Every group has zero wrong
+answers in the policy set and in every first-download state. The search bounds
+are zero; POD-7088's cleared entries remain cleared. Search answers are:
+
+| Candidate state | Equal | LOADING | Wrong |
+| --- | ---: | ---: | ---: |
+| Policy set with markers | 0 | 25 | 0 |
+| Always and live | 0 | 25 | 0 |
+| Always, live and recent | 0 | 25 | 0 |
+| Always, live, recent and sidebar | 0 | 25 | 0 |
+| Always, live, recent, sidebar and stubs | 0 | 25 | 0 |
+
+The earlier focused search check also passed on `h1a1`, `h1a4`, `h10a1` and
+`h10a4` (seed 4443), for the first step and the policy set of each. Its control
+uses the old full-device local results; an intentionally corrupted search ID is
+rejected in every cell. Separate surface and real-loader tests cover the
+eventual server answer, offline behavior and superseded requests. The four-cell
+proof is from the initial candidate; the combined-tree proof above ran on an
+agent VM on 2026-11-18.
+
+The combined-tree follow-up also passes all 17 palette/shared-picker tests and
+the lean gate (165 tests), including the typecheck-cache audit after moving the
+pure ID reader into client-graph. The four added web pickers share the reader
+covered by `issue-menu-readers.test.ts`. The existing palette test now opens an
+archived server match absent from the device. **Lean gate green.**
+
+The legacy all-history lazy comparison still reaches its sixteen-round
+hydration limit (POD-7110). The phase coordinator owns that failure after the
+sibling screen task reproduced it. It was excluded from this combined-tree run
+as requested.
+
 The current sidebar returns a WorklistIssue companion. The check reads its
 displayed fields explicitly; recursively serializing its model/view ownership
 would encounter a cycle. A regression test requires failed reads, cyclic

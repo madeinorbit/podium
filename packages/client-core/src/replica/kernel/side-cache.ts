@@ -1,62 +1,23 @@
-/**
- * THE CLIENT-SIDE BULK CACHE, which is deliberately NOT replica data.
- *
- * Three things the engine reads through the `Replica` interface have no home in
- * the kernel Replica and must not acquire one:
- *
- *   - **transcript windows** — the brief says so in as many words ("the
- *     transcript-window LRU stays a client-side bulk-plane cache and is out of
- *     replica scope"). They are a bounded cache of a bulk read, re-fetchable at
- *     will, and putting them in the entity cache would put ~200 items × 50
- *     conversations through the feed's transactional path for no gain.
- *   - **ui-state** — a local preference. It has no authority row, it is never
- *     synced, and a `discardCache()` (an epoch bump, a rescope) must not throw
- *     away which sidebar tab you had open.
- *   - **the outbox queue** — see `facade.ts`; on this branch it stays on the
- *     client Outbox's own storage seam rather than being re-minted as kernel
- *     command envelopes.
- *
- * So this module is a small JSON-blob store over the same `StorageApi` seam the
- * legacy replica uses, with the same cross-tab `storage`-event behaviour. It is
- * NOT a second replica: nothing here is ever compared against the Authority, and
- * the shadow comparison does not look at it.
- *
- * WHAT IT DOES NOT CARRY OVER, stated rather than discovered. Flipping the
- * `kernel-replica` flag moves ui-state from the legacy path's TanStack
- * collection blob to this module's own key. Preferences written under the
- * legacy path before the flip are not read back: the raw pre-collection
- * localStorage keys ARE migrated (same list, same one-time fold as the legacy
- * path), but values that only ever existed inside the collection blob are not,
- * because parsing another library's private on-disk shape to recover a sidebar
- * width is a worse trade than losing the sidebar width.
- */
+/** Persistent outbox homes plus the raw device-storage port used by UiStore.
+ * No screen state or record data is held here. UI values are owned by UiStore
+ * and its persistence; transcript history has its own database. */
 
 import { createLogger } from '@podium/logger'
-import type { TranscriptItem } from '@podium/model'
-import { interruptFirstTaskDraftUploads } from '../../first-task-draft'
-import { OUTBOX_LS_KEY, type OutboxEntry, type OutboxStorage } from '../../outbox'
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '../../ui-state'
-import {
-  LEGACY_UI_KEYS,
-  LEGACY_UI_MAP_PREFIXES,
-  LEGACY_UI_PREFIXES,
-  MIRRORED_UI_KEYS,
-  REPLICA_TRANSCRIPT_CONVERSATION_CAP,
-  REPLICA_TRANSCRIPT_ITEM_CAP,
-  type StorageApi,
-  type StorageEventApi,
-  type TranscriptWindow,
-  type UiState,
-} from '../contract'
+import type { OutboxStorage } from '../../outbox'
+import { createOutboxStorage } from '../../runtime-root/outbox/storage'
+import type { StorageApi, StorageEventApi } from '../contract'
 
 const log = createLogger('client-core:side-cache')
 
+// The outbox's storage error, re-exported where the kernel replica's callers find it.
+export { OutboxNotDurableError } from '../../runtime-root/outbox/storage'
+
 export interface SideCacheInit {
+  flush?: () => void | Promise<void>
   storage: StorageApi
   storageEventApi?: StorageEventApi
   enumerateKeys?: () => string[]
   keyPrefix?: string
-  now?: () => number
   /** Only a single-process native owner can know persisted uploads lost their
    * promises. Web tabs share storage with other owners whose uploads may be live. */
   recoverInterruptedDraftUploads?: boolean
@@ -79,581 +40,94 @@ export interface SideCacheInit {
    * the store still adopts it. Declining to adopt is not the same as discarding.
    */
   adoptLegacyOutbox?: boolean
-  /**
-   * Trailing throttle window for transcript shard persistence (POD-5536).
-   *
-   * `putTranscriptWindow` updates the in-memory window synchronously on every
-   * frame but serializes at most once per window: the first schedule arms one
-   * timer, later schedules only replace the pending snapshot, and the timer
-   * fires with whatever is newest. A pure debounce that re-armed per call
-   * would starve forever under a steady stream — exactly the workload this
-   * exists for — so staleness is bounded by this delay instead. Defaults to
-   * 250ms to match the async-storage bridge's quiet window.
-   */
-  transcriptSettleMs?: number
 }
 
 /** The read/write surface `facade.ts` delegates its non-entity duties to. */
 export interface SideCache {
-  uiState(): UiState
-  transcriptWindow(conversationKey: string): TranscriptWindow | undefined
-  putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void
+  deviceStorage(): import('../../ui/device-storage').DeviceStorage
   outboxStorage(): OutboxStorage
   outboxAwaitingStorage(): OutboxStorage
   outboxDeadLetterStorage(): OutboxStorage
-  /**
-   * Synchronously persist any coalesced transcript shards (POD-5536).
-   * Best-effort like every other transcript write: never throws. Lifecycle
-   * owners call this on reload/background boundaries so a mid-stream close
-   * keeps the latest snapshot; the trailing timer covers everything else.
-   */
-  flush(): void
-  /** Flush pending transcripts, then detach this principal's listeners before
-   *  another principal opens. */
+  /** Detach this principal's listeners before another principal opens. */
   dispose(): void
-}
-
-/** Hot transcript shards may be coalesced by async storage adapters. The index
- * is deliberately excluded: it is the commit record for shard membership and
- * must keep its order relative to shard writes and evictions. */
-export function isTranscriptWindowStorageKey(key: string): boolean {
-  return key.includes('.transcript-window.v2.')
-}
-
-/** Never throws: a poisoned or foreign blob reads as empty, like the legacy
- *  replica's loader (spec invariant 2). */
-function readJson<T>(storage: StorageApi, key: string, fallback: T): T {
-  try {
-    const raw = storage.getItem(key)
-    if (raw === null) return fallback
-    const parsed: unknown = JSON.parse(raw)
-    return parsed === null || typeof parsed !== 'object' ? fallback : (parsed as T)
-  } catch {
-    return fallback
-  }
+  /**
+   * Refuse every later write through this cache: the principal's namespace is
+   * being erased (sign-out). Reads and removals still work. A writer that is
+   * still live when the erase starts (the screen document flushed by an
+   * unmounting pane, a draft, a queued write) would otherwise put the signed-out
+   * person's data back after it was removed (POD-6908).
+   */
+  seal(): void
 }
 
 /**
- * Where a queued write can be sitting when the flag flips.
- *
- * Two homes, because the legacy path itself has two: the PRE-collection JSON
- * array at `podium.outbox.v1` (`OUTBOX_LS_KEY`, which the legacy replica folds
- * in on its own first use), and the collection blob at
- * `podium.replica.outbox.v1` once it has. A migration that read only one of them
- * would lose whichever the user happened to have.
+ * The chat-history keys this module wrote before POD-5801 moved chat history to
+ * its own database: per-chat windows, their index, and the v1 blob, under every
+ * principal's prefix. Deleted on first start WITHOUT importing them — the server
+ * has every message, and the space they held goes back to UI state and drafts.
  */
-const DEFAULT_LEGACY_OUTBOX_KEYS = [OUTBOX_LS_KEY, 'podium.replica.outbox.v1'] as const
-
-/**
- * Read a legacy outbox blob WITHOUT knowing which of the two shapes it is in.
- *
- * The pre-collection blob is a JSON ARRAY of entries. The collection blob is
- * TanStack's own on-disk format — an object whose values are the rows — and its
- * exact envelope is the library's private business, not a contract this module
- * may depend on. So the read is structural rather than format-aware: walk one
- * level of whatever is there and keep the values that LOOK like an entry
- * (`mutationId` + `kind` + `queuedAt`). A shape it cannot recognise yields
- * nothing, which is the same outcome as today's silent loss and never worse.
- *
- * This is duck-typing a foreign format on purpose, and the reason it is
- * acceptable here is the failure direction: a false negative loses nothing that
- * was not already lost, and a false positive replays a mutation the server
- * dedupes by `mutationId`.
- */
-function readLegacyOutbox(storage: StorageApi, key: string): OutboxEntry[] {
-  let parsed: unknown
-  try {
-    const raw = storage.getItem(key)
-    if (raw === null) return []
-    parsed = JSON.parse(raw)
-  } catch {
-    return []
-  }
-  const candidates: unknown[] = Array.isArray(parsed)
-    ? parsed
-    : parsed !== null && typeof parsed === 'object'
-      ? Object.values(parsed as Record<string, unknown>)
-      : []
-  const entries: OutboxEntry[] = []
-  for (const candidate of candidates) {
-    if (candidate === null || typeof candidate !== 'object') continue
-    const row = candidate as Partial<OutboxEntry>
-    if (typeof row.mutationId !== 'string') continue
-    if (typeof row.kind !== 'string') continue
-    if (typeof row.queuedAt !== 'number') continue
-    entries.push(row as OutboxEntry)
-  }
-  return entries
+export function isLegacyTranscriptStorageKey(key: string): boolean {
+  return (
+    key.includes('.transcript-window.v2.') ||
+    key.endsWith('.transcripts-index.v2') ||
+    key.endsWith('.transcripts.v1')
+  )
 }
 
-/** Best-effort — UI-STATE AND TRANSCRIPTS ONLY. A quota failure there degrades
- *  persistence and does not break the UI: a lost sidebar width is not a
- *  correctness bug, and a preference write that took the app down would be a
- *  worse defect than the one it guarded against. The outbox is NOT this; see
- *  `writeQueued`. */
-function writeJson(storage: StorageApi, key: string, value: unknown): void {
-  try {
-    storage.setItem(key, JSON.stringify(value))
-  } catch {
-    // best-effort, exactly like the legacy path's degraded mode
-  }
-}
-
-/**
- * THE OUTBOX IS NOT BEST-EFFORT.
- *
- * ADR 6 D4.3 puts queued entries on the same footing as entity rows: losing them
- * on a crash is a correctness bug, not degraded UX. The legacy path routed the
- * outbox family through a separate loud wrapper for exactly this reason, and
- * dropping that on the way to the kernel path is a regression rather than a
- * simplification — an empty catch here means a user's offline rename is gone and
- * the app said nothing.
- *
- * Log, surface (D4.4 clause 3), and RETHROW. The rethrow is the load-bearing
- * part: a caller must not be allowed to believe a queued write is safe when it
- * is not. The asymmetry is the whole argument — a lost queued write is not
- * recoverable, while a replayed one is a no-op, because every entry carries a
- * stable `mutationId` the server dedupes on.
- */
-function writeQueued(
-  storage: StorageApi,
-  key: string,
-  entries: readonly OutboxEntry[],
-  onDegraded: (error: unknown) => void,
-): void {
-  try {
-    storage.setItem(key, JSON.stringify(entries))
-  } catch (error) {
-    const failure = new OutboxNotDurableError(key, entries, storage, error)
-    log.error(failure.message, { key, err: error })
-    onDegraded(failure)
-    throw failure
-  }
-}
-
-/**
- * A DENIED OUTBOX WRITE, SAID DETERMINATELY.
- *
- * The legacy path's observable — "queued offline writes MAY be LOST on reload"
- * (POD-785 watched it fire in a real client) — is the defect wearing the costume
- * of its own fix. It reports that something might have happened, names no
- * mutation, and cannot be told apart from a run in which nothing was lost. A
- * signal a reader cannot act on leaves the queue exactly as unaccountable as the
- * empty catch did; it just makes the log longer.
- *
- * So this reads the store back and DIFFS it. A blob rewrite that throws leaves
- * the previous value in place (measured, not assumed — see the suite's
- * bounded-loss case), which means the durable set is knowable at the moment of
- * failure and the shortfall is exactly the entries missing from it. `notDurable`
- * is that shortfall by mutationId: what is in memory, is not on disk, and will
- * not survive a reload.
- *
- * The read-back is itself guarded. A store that denies a write may well refuse a
- * read, and a diagnostic that throws while explaining a throw would replace a
- * determinate answer with none — so an unreadable store degrades to "every entry
- * is unaccounted for", which is the honest reading of it.
- */
-export class OutboxNotDurableError extends Error {
-  readonly kind = 'outbox-not-durable' as const
-  /** Which home refused: the queued, awaiting-truth or dead-letter blob. */
-  readonly stage: string
-  /** In memory, NOT on disk. These are the writes a reload would lose. */
-  readonly notDurable: readonly string[]
-  /** Confirmed on disk after the failure — the queue that a reload still sees. */
-  readonly durable: readonly string[]
-
-  constructor(
-    stage: string,
-    attempted: readonly OutboxEntry[],
-    storage: StorageApi,
-    override readonly cause: unknown,
-  ) {
-    const durable = readDurableIds(storage, stage)
-    const notDurable = attempted.map((e) => e.mutationId).filter((id) => !durable.has(id))
-    super(
-      `[podium] OUTBOX write NOT durable (${stage}): ${notDurable.length} of ${attempted.length} ` +
-        `queued writes are not on disk and will be lost on reload — ` +
-        `${notDurable.length === 0 ? 'none' : notDurable.join(', ')}`,
-    )
-    this.name = 'OutboxNotDurableError'
-    this.stage = stage
-    this.durable = [...durable]
-    this.notDurable = notDurable
-  }
-}
-
-/** What the store will still hand back after a refused write. An unreadable or
- *  unparseable store yields NOTHING durable rather than a guess. */
-function readDurableIds(storage: StorageApi, key: string): Set<string> {
-  const ids = new Set<string>()
-  try {
-    const raw = storage.getItem(key)
-    if (raw === null) return ids
-    const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return ids
-    for (const row of parsed) {
-      const id = (row as { mutationId?: unknown } | null)?.mutationId
-      if (typeof id === 'string') ids.add(id)
+/** Remove every {@link isLegacyTranscriptStorageKey} key. Best-effort, never throws. */
+export function eraseLegacyTranscriptKeys(storage: StorageApi, keys: readonly string[]): void {
+  for (const key of keys) {
+    if (!isLegacyTranscriptStorageKey(key)) continue
+    try {
+      storage.removeItem(key)
+    } catch {
+      // A key that cannot be removed now is retried on the next start.
     }
-  } catch {
-    return new Set<string>()
   }
-  return ids
 }
 
 export function createSideCache(init: SideCacheInit): SideCache {
   const prefix = init.keyPrefix ?? 'podium.kernel-replica'
-  const now = init.now ?? (() => Date.now())
-  const uiKey = `${prefix}.uistate.v1`
-  const legacyTranscriptKey = `${prefix}.transcripts.v1`
-  const transcriptIndexKey = `${prefix}.transcripts-index.v2`
-  const transcriptWindowKey = (conversationKey: string) =>
-    `${prefix}.transcript-window.v2.${encodeURIComponent(conversationKey)}`
-  const outboxKey = `${prefix}.outbox.v1`
-  const awaitingKey = `${prefix}.outbox-awaiting.v1`
-  // POD-316: parked entries. A THIRD key old builds never read, for the same
-  // reason the awaiting home is separate — a build that predates the state would
-  // re-drain a definitively-refused mutation as live work.
-  const deadLetterKey = `${prefix}.outbox-dead-letter.v1`
-  const { storage } = init
-
-  // ---- ui-state ----------------------------------------------------------
-  let ui = readJson<Record<string, string>>(storage, uiKey, {})
-  const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
-  migrateLegacyUiKeys()
-  if (init.recoverInterruptedDraftUploads) {
-    // The native owner opts in after legacy keys have reached this cache.
-    const recoveredDraft = interruptFirstTaskDraftUploads(
-      ui[FIRST_TASK_ACTIVATION_DRAFT_KEY] ?? null,
-    )
-    if (recoveredDraft !== null && recoveredDraft !== ui[FIRST_TASK_ACTIVATION_DRAFT_KEY]) {
-      ui[FIRST_TASK_ACTIVATION_DRAFT_KEY] = recoveredDraft
-      writeJson(storage, uiKey, ui)
-    }
-  }
-
-  function migrateLegacyUiKeys(): void {
-    if (storage.getItem(`${uiKey}.migrated`) !== null) return
-    const retire = new Set<string>()
-    const enumerate =
-      init.enumerateKeys ??
-      (() => {
-        try {
-          return Object.keys(storage as unknown as Record<string, unknown>)
-        } catch {
-          return []
-        }
-      })
-    const mirrored = new Set<string>(MIRRORED_UI_KEYS)
-    const take = (key: string, target = key): void => {
-      const value = storage.getItem(key)
-      if (value === null) return
-      ui[target] = value
-      if (!mirrored.has(key)) retire.add(key)
-    }
-    for (const key of LEGACY_UI_KEYS) take(key)
-    for (const key of MIRRORED_UI_KEYS) take(key)
-    let enumerated: string[] = []
-    try {
-      enumerated = enumerate()
-    } catch {
-      enumerated = []
-    }
-    for (const key of enumerated) {
-      if (LEGACY_UI_PREFIXES.some((p) => key.startsWith(p))) take(key)
-      for (const [prefixKey, target] of Object.entries(LEGACY_UI_MAP_PREFIXES)) {
-        if (!key.startsWith(prefixKey)) continue
-        const value = storage.getItem(key)
-        if (value === null) continue
-        const map = JSON.parse(ui[target] ?? '{}') as Record<string, string>
-        map[key.slice(prefixKey.length)] = value
-        ui[target] = JSON.stringify(map)
-        retire.add(key)
+  // Every writer of this principal's keys holds THIS object, never the raw
+  // storage, so one flag stops them all.
+  let sealed = false
+  const storage: StorageApi = {
+    getItem: (key) => init.storage.getItem(key),
+    setItem: (key, value) => {
+      if (sealed) {
+        log.debug('write refused after sign-out erase began', { key })
+        return
       }
-    }
-    try {
-      // Persist the acting principal's copy and marker before retiring raw
-      // inputs. A crash can replay an idempotent fold; it cannot make a second
-      // principal inherit inputs already consumed by the first.
-      storage.setItem(uiKey, JSON.stringify(ui))
-      storage.setItem(`${uiKey}.migrated`, '1')
-      for (const key of retire) storage.removeItem(key)
-    } catch {
-      // A storage that cannot complete the fold leaves raw inputs for retry.
-    }
-  }
-
-  // Cross-tab: another tab's write to our key re-reads and notifies, matching
-  // the legacy collection's `storage` event behaviour.
-  // Exact namespaced-key equality is the principal isolation boundary.
-  const onStorage = (event: StorageEvent): void => {
-    if (event.key !== uiKey) return
-    const next = readJson<Record<string, string>>(storage, uiKey, {})
-    const changed = new Set(
-      [...Object.keys(ui), ...Object.keys(next)].filter((key) => ui[key] !== next[key]),
-    )
-    ui = next
-    for (const cb of uiListeners) cb(changed)
-  }
-  init.storageEventApi?.addEventListener('storage', onStorage)
-  const uiState: UiState = {
-    get: (key) => ui[key] ?? null,
-    flush: () => storage.setItem(uiKey, JSON.stringify(ui)),
-    set: (key, value) => {
-      if (value === null) {
-        if (!(key in ui)) return
-        delete ui[key]
-      } else {
-        if (ui[key] === value) return
-        ui[key] = value
-      }
-      writeJson(storage, uiKey, ui)
-      const changed = new Set([key])
-      for (const cb of uiListeners) cb(changed)
+      init.storage.setItem(key, value)
     },
-    subscribe: (cb) => {
-      uiListeners.add(cb)
-      return () => uiListeners.delete(cb)
-    },
+    removeItem: (key) => init.storage.removeItem(key),
   }
+  // Enumerate the real storage: the wrapper above has no keys of its own.
+  const enumerateKeys = init.enumerateKeys ?? (() => Object.keys(init.storage))
 
-  // ---- transcript windows (bounded, LRU) ---------------------------------
-  //
-  // v1 rewrote one blob containing as many as 10,000 transcript items for each
-  // live delta. v2 keeps the same cache and caps, but stores one bounded window
-  // per conversation. The small index is oldest-to-newest LRU order.
-  //
-  // Migration is lazy and loss-tolerant. Until v2's index exists, the v1 blob
-  // is the source. Once the index exists, an indexed conversation without a v2
-  // shard falls back to its v1 window. This lets the first v2 write establish
-  // membership without rewriting all 50 windows, and leaves the old recovery
-  // copy intact if a best-effort shard write fails.
-  const legacyTranscripts = readJson<Record<string, TranscriptWindow>>(
+  // ---- outbox storage: the outbox service's (POD-6681) --------------------
+  const outbox = createOutboxStorage({
     storage,
-    legacyTranscriptKey,
-    {},
-  )
-  const storedTranscriptIndex = readJson<unknown>(storage, transcriptIndexKey, null)
-  const hasTranscriptIndex =
-    Array.isArray(storedTranscriptIndex) &&
-    storedTranscriptIndex.every((key) => typeof key === 'string')
-  let transcriptIndexPersisted = hasTranscriptIndex
-  const initialTranscriptKeys = hasTranscriptIndex
-    ? (storedTranscriptIndex as string[])
-    : Object.keys(legacyTranscripts).sort(
-        (a, b) => (legacyTranscripts[a]?.savedAt ?? 0) - (legacyTranscripts[b]?.savedAt ?? 0),
-      )
-  const transcriptLru = initialTranscriptKeys.slice(-REPLICA_TRANSCRIPT_CONVERSATION_CAP)
-  const transcripts: Record<string, TranscriptWindow> = {}
-  for (const conversationKey of transcriptLru) {
-    const window = readJson<TranscriptWindow | null>(
-      storage,
-      transcriptWindowKey(conversationKey),
-      null,
-    )
-    const recovered = window ?? legacyTranscripts[conversationKey]
-    if (recovered !== undefined) transcripts[conversationKey] = recovered
-  }
-
-  const writeTranscriptIndex = (): void => {
-    writeJson(storage, transcriptIndexKey, transcriptLru)
-    transcriptIndexPersisted = true
-  }
-
-  // ---- coalesced transcript persistence (POD-5536) -------------------------
-  //
-  // R12: every streaming frame sliced the newest 200 items AND synchronously
-  // JSON.stringified them before the async-storage bridge could coalesce
-  // anything — up to 200*u item serializations/s per busy stream. The bridge
-  // still coalesces backing writes, but it cannot take back main-thread
-  // serialization work that already happened.
-  //
-  // So the snapshot coalesces BEFORE serialization. `putTranscriptWindow`
-  // updates the in-memory window synchronously (reads stay immediate) and only
-  // marks the shard dirty; serialization + storage land at most once per
-  // trailing window, with the LATEST snapshot winning. Shards flush before the
-  // index so the index stays the commit record for shard membership, matching
-  // the order the synchronous path always wrote in. Eviction `removeItem`s stay
-  // synchronous — they carry no serialization cost.
-  //
-  // Durability is bounded staleness, not loss: the timer covers steady streams,
-  // `flush()` covers lifecycle/reload boundaries, and `dispose()` flushes
-  // before detaching. The cache stays best-effort and re-fetchable — a crash
-  // inside one window loses at most that window's tail, exactly the posture
-  // the quota-degraded path already has.
-  const settleMs = init.transcriptSettleMs ?? 250
-  const pendingShardKeys = new Set<string>()
-  let transcriptIndexDirty = false
-  let transcriptFlushTimer: ReturnType<typeof setTimeout> | undefined
-
-  const flushPendingTranscripts = (): void => {
-    if (transcriptFlushTimer !== undefined) {
-      try {
-        clearTimeout(transcriptFlushTimer)
-      } catch {
-        // best-effort; clearing a dead timer must not break the flush itself
-      }
-      transcriptFlushTimer = undefined
-    }
-    if (pendingShardKeys.size === 0 && !transcriptIndexDirty) return
-    const dirty = [...pendingShardKeys]
-    pendingShardKeys.clear()
-    for (const key of dirty) {
-      const window = transcripts[key]
-      // Evicted after being marked dirty: the eviction already removed the
-      // shard, so there is nothing to write.
-      if (window === undefined) continue
-      writeJson(storage, transcriptWindowKey(key), window)
-    }
-    if (transcriptIndexDirty) {
-      transcriptIndexDirty = false
-      writeTranscriptIndex()
-    }
-  }
-
-  const scheduleTranscriptFlush = (): void => {
-    // Trailing throttle, not debounce: an armed timer already picks up this
-    // newer snapshot when it fires. Re-arming here would push the write out
-    // indefinitely under a steady stream.
-    if (transcriptFlushTimer !== undefined) return
-    transcriptFlushTimer = setTimeout(() => {
-      transcriptFlushTimer = undefined
-      flushPendingTranscripts()
-    }, Math.max(0, settleMs))
-    transcriptFlushTimer.unref?.()
-  }
-
-  // Opportunistic reload guard: a synchronous StorageApi write inside `pagehide`
-  // survives navigation where a timer never fires. Best-effort and removable —
-  // `dispose()` detaches it, and environments without a window skip it.
-  let detachPageHide: (() => void) | undefined
-  try {
-    const candidate = (globalThis as { window?: unknown }).window as
-      | { addEventListener?: unknown; removeEventListener?: unknown }
-      | undefined
-    if (
-      candidate !== undefined &&
-      typeof candidate.addEventListener === 'function' &&
-      typeof candidate.removeEventListener === 'function'
-    ) {
-      const onPageHide = (): void => {
-        flushPendingTranscripts()
-      }
-      ;(candidate.addEventListener as (type: string, listener: () => void) => void)(
-        'pagehide',
-        onPageHide,
-      )
-      detachPageHide = (): void => {
-        try {
-          ;(candidate.removeEventListener as (type: string, listener: () => void) => void)(
-            'pagehide',
-            onPageHide,
-          )
-        } catch {
-          // best-effort; detaching must not break principal teardown
-        }
-      }
-    }
-  } catch {
-    // best-effort; a host without a subscribable window keeps timer + flush
-  }
-
-  // ---- outbox storage ----------------------------------------------------
-  //
-  // FOLD THE LEGACY QUEUE IN ON FIRST USE, because the alternative is losing
-  // user-authored work at the moment somebody flips a flag.
-  //
-  // Turning `kernel-replica` on moves the engine's outbox from the legacy
-  // replica's collection to this module's key. Anything queued OFFLINE under
-  // the old path — a rename, an archive, a snooze the user made on a train —
-  // would otherwise sit in a blob nothing reads again, and the user would never
-  // be told. ADR 6 D4.3 puts queued entries in the same durability class as
-  // entity rows, and POD-377's brief is explicit that queued work is never
-  // silently discarded. A cache can be re-derived; this cannot.
-  //
-  // Raw blobs retire after the acting principal's copy and marker are durable;
-  // leaving them for rollback would let a second principal consume the queue.
-  migrateLegacyOutbox()
-
-  function migrateLegacyOutbox(): void {
-    // Attribution first: an unattributable queue is LEFT WHERE IT IS, not
-    // adopted and not destroyed, and the fold stays un-marked so a later
-    // attributable boot can still take it.
-    if (init.adoptLegacyOutbox === false) return
-    if (storage.getItem(`${outboxKey}.migrated`) !== null) return
-    const found: OutboxEntry[] = []
-    for (const key of init.legacyOutboxKeys ?? DEFAULT_LEGACY_OUTBOX_KEYS) {
-      for (const entry of readLegacyOutbox(storage, key)) {
-        if (!found.some((e) => e.mutationId === entry.mutationId)) found.push(entry)
-      }
-    }
-    if (found.length > 0) {
-      const existing = readJson<OutboxEntry[]>(storage, outboxKey, [])
-      const merged = [...existing]
-      for (const entry of found) {
-        if (!merged.some((e) => e.mutationId === entry.mutationId)) merged.push(entry)
-      }
-      writeQueued(storage, outboxKey, merged, (error) => init.onDegraded?.(error))
-    }
-    try {
-      storage.setItem(`${outboxKey}.migrated`, '1')
-      for (const key of init.legacyOutboxKeys ?? DEFAULT_LEGACY_OUTBOX_KEYS) {
-        storage.removeItem(key)
-      }
-    } catch {
-      // The namespaced copy is durable. A failed marker/removal causes an
-      // idempotent retry by mutationId; it never drops queued work.
-    }
-  }
-
-  const outboxAt = (key: string): OutboxStorage => ({
-    load: () => readJson<OutboxEntry[]>(storage, key, []) as OutboxEntry[],
-    save: (entries: OutboxEntry[]) =>
-      writeQueued(storage, key, entries, (error) => init.onDegraded?.(error)),
+    keyPrefix: prefix,
+    ...(init.legacyOutboxKeys !== undefined ? { legacyOutboxKeys: init.legacyOutboxKeys } : {}),
+    ...(init.adoptLegacyOutbox !== undefined ? { adoptLegacyOutbox: init.adoptLegacyOutbox } : {}),
+    ...(init.onDegraded !== undefined ? { onDegraded: init.onDegraded } : {}),
   })
 
   return {
-    uiState: () => uiState,
-    transcriptWindow: (conversationKey) => transcripts[conversationKey],
-    putTranscriptWindow: (conversationKey, items) => {
-      transcripts[conversationKey] = {
-        items: items.slice(-REPLICA_TRANSCRIPT_ITEM_CAP),
-        savedAt: now(),
-      }
-      pendingShardKeys.add(conversationKey)
-
-      // Move a touched conversation to the newest end. Repeated live updates
-      // for the already-newest conversation do not even mark the small index
-      // dirty, so a busy stream coalesces to one hot shard key.
-      const previousPosition = transcriptLru.indexOf(conversationKey)
-      const orderChanged = previousPosition !== transcriptLru.length - 1
-      if (previousPosition >= 0) transcriptLru.splice(previousPosition, 1)
-      transcriptLru.push(conversationKey)
-      while (transcriptLru.length > REPLICA_TRANSCRIPT_CONVERSATION_CAP) {
-        const stale = transcriptLru.shift()
-        if (stale === undefined) break
-        delete transcripts[stale]
-        pendingShardKeys.delete(stale)
-        try {
-          storage.removeItem(transcriptWindowKey(stale))
-        } catch {
-          // best-effort; the index makes an unremoved stale shard unreachable
-        }
-      }
-      if (!transcriptIndexPersisted || orderChanged) transcriptIndexDirty = true
-      scheduleTranscriptFlush()
-    },
-    outboxStorage: () => outboxAt(outboxKey),
-    outboxAwaitingStorage: () => outboxAt(awaitingKey),
-    outboxDeadLetterStorage: () => outboxAt(deadLetterKey),
-    flush: () => {
-      flushPendingTranscripts()
-    },
-    dispose: () => {
-      flushPendingTranscripts()
-      detachPageHide?.()
-      detachPageHide = undefined
-      init.storageEventApi?.removeEventListener('storage', onStorage)
+    deviceStorage: () => ({
+      storage,
+      keyPrefix: prefix,
+      enumerateKeys,
+      flush: init.flush,
+      ...(init.recoverInterruptedDraftUploads ? { recoverInterruptedDraftUploads: true } : {}),
+    }),
+    outboxStorage: outbox.outboxStorage,
+    outboxAwaitingStorage: outbox.outboxAwaitingStorage,
+    outboxDeadLetterStorage: outbox.outboxDeadLetterStorage,
+    dispose: () => {},
+    seal: () => {
+      sealed = true
     },
   }
 }

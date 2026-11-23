@@ -10,9 +10,14 @@
 // this module never touches the filesystem — the staged MCP path arrives as
 // a value.
 
-import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
-import { resolvedHarnessPath } from '../../../executable-runtime.js'
-import { claudeSdkHarnessKind } from './session.js'
+import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
+import type { HarnessContext } from '../../../harness-context-types.js'
+import {
+  type AgentTermsInput,
+  agentLaunchTerms,
+  type LaunchPosture,
+} from '../../../launch-terms.js'
+import { asksBypassPermissions } from './protocol.js'
 
 /** The turn, as this family reads it: prompt facts plus supervisor facts. */
 export interface ClaudeDurableTurnSpec {
@@ -23,8 +28,6 @@ export interface ClaudeDurableTurnSpec {
   contextPrompt?: string
   /** The raw MCP config JSON. Only mounted when `toolPolicy` allows tools. */
   mcpConfig?: string
-  allowedTools?: string[]
-  permissionMode?: string
   /** Fail-closed capability request. `none` removes every tool. */
   toolPolicy?: 'none'
   /** Harness session id to resume; absent = first turn. */
@@ -33,28 +36,26 @@ export interface ClaudeDurableTurnSpec {
   sessionUuid?: string
 }
 
-/** The resolved executable for a durable Claude turn, off the adapter. */
-export function claudeDurableExecutable(snapshot: ResolvedHarnessInventory): string {
-  return resolvedHarnessPath(snapshot, claudeSdkHarnessKind)
-}
-
 /**
  * The `claude -p …` invocation for one durable turn.
  *
- * Variadic, keep last: the real user prompt rides stdin, not argv. `--resume`
- * continues, `--session-id` mints; `toolPolicy: 'none'` removes tools, MCP
- * and every setting source rather than merely declining to mount them.
+ * The real user prompt rides stdin, not argv. `--resume` continues,
+ * `--session-id` mints; `toolPolicy: 'none'` removes tools, MCP and every
+ * setting source rather than merely declining to mount them.
  * `knownSessionId` is the conversation this turn belongs to, for the durable
- * journal to record. The executable arrives resolved (see
- * `claudeDurableExecutable`) — argv building never resolves it twice.
+ * journal to record. argv[0] is the installation `context` pinned. The turn
+ * runs on the harness's `turn` terms, or on no-agent terms when tool-less:
+ * the permission mode and the allow rules are the posture section's
+ * (POD-6858). This path has no bypass companion flag and no `IS_SANDBOX`, so a
+ * native `bypassPermissions` pick runs as `auto` here, as it always has.
  */
 export function buildClaudeDurableTurn(
   spec: ClaudeDurableTurnSpec,
   paths: { mcp: string },
-  executable: string,
+  context: Pick<HarnessContext, 'installation'>,
+  terms: AgentTermsInput,
 ): {
-  cmd: string
-  args: string[]
+  command: BoundCommand
   stdin: string
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   knownSessionId?: string
@@ -63,15 +64,12 @@ export function buildClaudeDurableTurn(
     .map((part) => part?.trim())
     .filter(Boolean)
     .join('\n\n')
-  const mode = spec.permissionMode === 'bypassPermissions' ? 'auto' : spec.permissionMode || 'auto'
   const args = [
     '-p',
     '--verbose',
     '--output-format',
     'stream-json',
     '--include-partial-messages',
-    '--permission-mode',
-    mode,
     ...(instructions ? ['--append-system-prompt', instructions] : []),
     ...(spec.model && spec.model !== 'auto' ? ['--model', spec.model] : []),
     ...(spec.effort ? ['--effort', spec.effort] : []),
@@ -81,22 +79,23 @@ export function buildClaudeDurableTurn(
       : spec.sessionUuid
         ? ['--session-id', spec.sessionUuid]
         : []),
-    // Variadic: keep last, and feed the real user prompt on stdin.
-    ...(spec.allowedTools?.length && spec.toolPolicy !== 'none'
-      ? ['--allowedTools', spec.allowedTools.join(',')]
-      : []),
     ...(spec.toolPolicy === 'none' ? ['--setting-sources', '', '--tools', ''] : []),
   ]
   const knownSessionId = spec.resumeValue ?? spec.sessionUuid
   return {
-    cmd: executable,
-    args,
+    command: harnessCommand(
+      context,
+      { args },
+      agentLaunchTerms(terms.manifest, 'turn', withoutBypass(terms.posture), spec.toolPolicy),
+    ),
     stdin: spec.prompt,
     ...(knownSessionId ? { knownSessionId } : {}),
   }
 }
 
-/** The executable the in-process SDK path resolves for its host child. */
-export function claudeSdkExecutablePath(snapshot: ResolvedHarnessInventory): string {
-  return resolvedHarnessPath(snapshot, claudeSdkHarnessKind)
+/** A native `bypassPermissions` pick, as `auto`: see {@link buildClaudeDurableTurn}. */
+function withoutBypass(posture: LaunchPosture): LaunchPosture {
+  return asksBypassPermissions(posture.posture)
+    ? { ...posture, posture: { ...posture.posture, mode: { native: 'auto' } } }
+    : posture
 }

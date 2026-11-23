@@ -1,3 +1,4 @@
+import { STICKY_PROMPTS_KEY } from '@podium/client-core/ui-state'
 import {
   type ChatRow,
   chatActivityState,
@@ -14,7 +15,6 @@ import { here, omitGone } from '@podium/client-graph/lookup'
 import { currentMessageRecord } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
 import { lazy } from '@podium/mobx-helpers'
-import type { MachineWire } from '@podium/model/browser'
 import { isAgentComputing, isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { actionBound, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import type { PendingItem } from './chat'
@@ -29,7 +29,9 @@ export class ChatViewModel {
     this.isOperatorPromptRow(row),
   )
   @observable accessor active = true
-  @observable accessor stickyPrompts = false
+  @lazy get stickyPrompts(): boolean {
+    return this.conversation.runtime.ui.getDevicePref(STICKY_PROMPTS_KEY) !== 'false'
+  }
   @observable accessor ctxSeq: number | null = null
   @observableRef accessor backendPick: {
     model?: string
@@ -38,6 +40,18 @@ export class ChatViewModel {
   } = {}
   readonly reply: MailReply
   private release: (() => void) | undefined
+  private releaseReveal: (() => void) | undefined
+  @observableRef accessor transcriptReveal:
+    | import('@podium/client-core/ui').TranscriptRevealRequest
+    | null = null
+  @actionBound revealTranscript(
+    request: import('@podium/client-core/ui').TranscriptRevealRequest,
+  ): void {
+    this.transcriptReveal = request
+  }
+  @actionBound clearTranscriptReveal(nonce: number): void {
+    if (this.transcriptReveal?.nonce === nonce) this.transcriptReveal = null
+  }
 
   constructor(
     readonly conversation: WebConversation,
@@ -48,24 +62,32 @@ export class ChatViewModel {
     this.reply = new MailReply(
       conversation.pool,
       {
-        show: (id) => conversation.runtime.access.trpc.messages.show.query({ id }),
-        reply: (id, body) => conversation.runtime.access.trpc.messages.reply.mutate({ id, body }),
+        show: (id) => conversation.runtime.api.messages.show.query({ id }),
+        reply: (id, body) => conversation.runtime.api.messages.reply.mutate({ id, body }),
       },
-      (id) => currentMessageRecord(conversation.pool, conversation.runtime.access.replica, id),
+      (id) => currentMessageRecord(conversation.pool, conversation.runtime.replica, id),
     )
   }
 
-  open(): void {
+  @actionBound open(): void {
     this.release = this.conversation.addView(this.presentation)
+    const sessionId = this.conversation.sessionId
+    if (sessionId)
+      this.releaseReveal = this.conversation.runtime.transcriptReveals.listen(
+        sessionId,
+        this.revealTranscript,
+      )
   }
-  close(): void {
+  @actionBound close(): void {
     this.reply.cancel()
+    this.releaseReveal?.()
+    this.releaseReveal = undefined
+    this.transcriptReveal = null
     this.release?.()
     this.release = undefined
   }
-  @actionBound setOptions(active: boolean, stickyPrompts: boolean): void {
+  @actionBound setActive(active: boolean): void {
     this.active = active
-    this.stickyPrompts = stickyPrompts
   }
   @lazy get session(): SessionModel | undefined {
     return this.conversation.session
@@ -185,7 +207,6 @@ export class ChatViewModel {
       headless: this.headless,
       turnRunning: this.conversation.turnRunning,
       compact: this.compact,
-      wakeRequestedAt: this.conversation.sends.wakeRequestedAt,
     })
     return this.conversation.ready ? state : { ...state, deliverable: false, sendable: false }
   }
@@ -195,7 +216,6 @@ export class ChatViewModel {
       headless: this.headless,
       turnRunning: this.conversation.turnRunning,
       justSent: this.conversation.sends.justSent,
-      wakeRequestedAt: this.conversation.sends.wakeRequestedAt,
     })
   }
   @lazy get turnActive(): boolean {
@@ -205,7 +225,7 @@ export class ChatViewModel {
           this.conversation.sends.justSent
   }
   @lazy get turnError(): string | null {
-    return this.conversation.turnError ?? this.conversation.visibleFailure?.error ?? null
+    return this.conversation.turnError ?? this.conversation.visibleFailure?.message ?? null
   }
   @lazy({ equals: compareShallow }) get pending(): PendingItem[] {
     return this.conversation.sends.bubbles.map((bubble) =>
@@ -239,12 +259,11 @@ export class ChatViewModel {
     if (!this.active) return null
     const pool = this.conversation.pool
     const id = this.session?.machineId
-    const machine =
-      id === undefined
-        ? undefined
-        : (omitGone(pool.row('machine', id)) as MachineWire | symbol | undefined)
-    return machine && typeof machine !== 'symbol' && isMachineOfflineForLiveTerminal(machine)
-      ? (this.session?.machineName ?? machine.name ?? id ?? null)
+    // Presence is the machine model's LiveStore reading. Its durable row has
+    // no online flag and cannot answer whether a terminal is disconnected.
+    const machine = id === undefined ? undefined : here(pool.model('machine', id))
+    return machine && isMachineOfflineForLiveTerminal(machine)
+      ? machine.name || this.session?.machineName || id || null
       : null
   }
   @lazy({ equals: compareStructural }) get attached() {
@@ -259,10 +278,6 @@ export class ChatViewModel {
       label: session?.name ?? session?.title ?? id,
       clear: this.clearAttachedSession,
     }
-  }
-  @lazy get transcriptReveal() {
-    const row = omitGone(this.conversation.pool.row('chatWindow', 'window'))
-    return row && typeof row !== 'symbol' ? row.transcriptReveal : null
   }
   @lazy({ equals: compareStructural }) get backend() {
     const model = this.backendPick.model ?? this.conversation.thread?.model ?? 'auto'
@@ -284,13 +299,27 @@ export class ChatViewModel {
       agentKind: model === 'auto' ? null : (agentKind ?? this.backendPick.agentKind),
       effort: 'auto',
     }
+    this.saveBackend({ model, effort: 'auto' })
   }
   @actionBound setBackendEffort(effort: string): void {
     this.backendPick = { ...this.backendPick, effort }
+    this.saveBackend({ effort })
+  }
+  /**
+   * The pick is the thread's own choice (POD-6675): a queued edit of its
+   * record, its one writer, so it holds for later turns and on my other
+   * devices. The send still carries the pick for its own turn, which runs with
+   * it even when the edit has not landed yet. A thread with no record yet (a
+   * concierge intake before its first send) has nothing to edit.
+   */
+  private saveBackend(choice: { model?: string; effort?: string }): void {
+    const thread = this.conversation.thread
+    if (this.superThread === undefined || thread === undefined) return
+    void this.conversation.runtime.commands.threads.setBackend(thread.id, choice).catch(() => {})
   }
   @actionBound captureContext(): void {
     if (!this.compact) return
-    const id = this.conversation.runtime.access.getUserFocus().issueId
+    const id = this.conversation.runtime.ui.getUserFocus().issueId
     this.ctxSeq = id ? (here(this.conversation.pool.model('issue', id))?.seq ?? null) : null
   }
   isOperatorPromptRow = (row: ChatRow): boolean =>

@@ -1,3 +1,4 @@
+import type { BlobKey } from '@podium/blob-store'
 import type {
   AccountId,
   ArtifactId,
@@ -12,14 +13,10 @@ import type {
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import type {
-  EntityChangeSpec,
-  LedgerCommitOp,
-  LedgerCommitResult,
-} from '@podium/sync'
+import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
-import type { llmClient } from '../../../llm'
 import type { IssueRow, SessionStore } from '../../../store'
+import type { CompleteInput, CompleteResult } from '../../inference/complete'
 import type { SessionFacts } from '../../sessions/facts'
 import type { PendingUploadStore } from '../pending-uploads'
 
@@ -43,15 +40,18 @@ export interface IssueFunnel {
  *  diffs the full wire truth (including removes) for the derived-ripple and
  *  boot paths. Structurally satisfied by {@link @podium/sync.Ledger}; narrow
  *  so tests can fake it. */
+/**
+ * What an issue write commits on (ADR 12 D9, POD-6594): the writer of the command
+ * that asked, or a named server origin's for the server's own issue writes. The
+ * service's write methods take it per call; it never lives in the service.
+ */
+export type IssueWriter = Pick<IssueLedger, 'commit'>
+
+/** The parameters of a writer-first method, after its writer. */
+export type WriterRest<F> = F extends (writer: IssueWriter, ...rest: infer A) => unknown ? A : never
+
 export interface IssueLedger {
   commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
-  /** Reconcile normalized issues, their companions and repository facts. */
-  reconcile(
-    entity: 'issueProjection' | 'issueUserState' | 'issueGitState' | 'issueDep' | 'repo',
-    rows: { id: string; value: unknown }[],
-  ): Promise<MetadataChange[]>
-  /** Append partial truth without diffing unrelated baseline rows (POD-210). */
-  capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
 }
 
 /** Read-gated auto-archive window (issue #127): a done+read issue auto-archives
@@ -66,11 +66,12 @@ export { UNSNOOZE_BACKDATE_MS } from '@podium/model'
 
 /** One mutation on the agent-published human panel — see IssueService.panelApply. */
 export type IssuePanelOp =
-  | { op: 'todo-add'; text: string }
-  | { op: 'todo-done' | 'todo-undone' | 'todo-remove'; index: number }
+  | { op: 'todo-add'; text: string; itemId?: string }
+  | { op: 'todo-done' | 'todo-undone' | 'todo-remove'; index?: number; itemId?: string }
   | { op: 'todo-clear' }
   | {
       op: 'artifact-add'
+      itemId?: string
       path: string
       title?: string
       /** Permanent-store snapshot fields ([spec:SP-0fc9]) — set by panelArtifactAdd
@@ -85,9 +86,12 @@ export type IssuePanelOp =
       chatUploadId?: string
       chatUploadOwner?: UserId
     }
-  | { op: 'artifact-remove'; index: number }
-  | { op: 'deferred-add'; text: string }
-  | { op: 'deferred-remove'; index: number }
+  | { op: 'artifact-remove'; index?: number; itemId?: string }
+  /** An artifact effect's removal (POD-6420): the entry under this path (and
+   *  snapshot, when given); already gone is no change. */
+  | { op: 'artifact-remove'; path: string; artifactId?: ArtifactId }
+  | { op: 'deferred-add'; text: string; itemId?: string }
+  | { op: 'deferred-remove'; index?: number; itemId?: string }
 
 /** One edge endpoint in a dep report: enough to render "#12 title (open, blocks)". */
 export interface DepReportRef {
@@ -149,8 +153,34 @@ export interface SpawnedSessionResult {
 /** Async read and spawn ports deliberately require promises (rule 52b).
  * This rejects synchronous implementations; callers still need behavioral
  * coverage because a promise can be inspected without awaiting its value. */
+/**
+ * MENTIONS IN ISSUE COMMENTS (POD-6881, credential management spec §13): the
+ * comment write asks which members a body mentions, stores them on the comment,
+ * and hands the ADDED ones over to be told; names an edit or a delete drops have
+ * their notices resolved. Every call runs inside the comment's own transaction.
+ */
+export interface CommentMentionsPort {
+  /** The active members `body` mentions (`@<display name>`), in text order. */
+  find(body: string): Promise<UserId[]>
+  /** Tell each newly mentioned member who may read the issue, except the author. */
+  raise(i: {
+    readonly issueId: IssueId
+    readonly issueRef: string
+    readonly issueTitle: string
+    readonly commentId: string
+    readonly authorName: string
+    readonly authorUserId: UserId | null
+    readonly body: string
+    readonly mentioned: readonly UserId[]
+  }): Promise<void>
+  /** Resolve the mention notices of these members for this comment. */
+  resolve(commentId: string, users: readonly UserId[]): Promise<void>
+}
+
 export interface IssueDeps {
   store: SessionStore
+  /** Mentions in comments (POD-6881). Absent: comments store and raise none. */
+  commentMentions?: CommentMentionsPort
   /** The resident RUNNING sessions' facts (live, starting, reconnecting):
    *  synchronous and free of I/O, for the worktree occupancy guards (POD-6160). */
   runningSessionFacts(): SessionFacts[]
@@ -160,18 +190,38 @@ export interface IssueDeps {
   readSessionFactsById(sessionId: SessionId): Promise<SessionFacts | undefined>
   /** The member sessions of ONE issue, from the database (`sessionsForIssue`'s
    *  membership: its id, or a cwd in its worktree for an unattached session). */
-  readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]>
+  readSessionFactsByIssue(
+    worktreePath: string | null,
+    issueId: IssueId | undefined,
+  ): Promise<SessionFacts[]>
+  /** {@link readSessionFactsByIssue} for a set of issues, read together (POD-7036). */
+  readSessionFactsByIssues(
+    issues: readonly { worktreePath: string | null; issueId: IssueId }[],
+  ): Promise<Map<IssueId, SessionFacts[]>>
   /** ONE session by id, without the full reader-scoped pass [POD-1646]. */
   sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
   /** The member sessions of ONE issue, WIRED [POD-1639] — for the two reads
-   *  whose output carries the sessions to a client (`issues.get`, the tree). */
-  listSessionsForIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
+   *  whose output carries the sessions to a client (`issues.get`, the tree).
+   *  `forUser` is the reader those sessions are handed to; omitted, the read is
+   *  the service's own (POD-6285). */
+  listSessionsForIssue(
+    worktreePath: string | null,
+    issueId: IssueId,
+    forUser?: UserId,
+  ): Promise<SessionMeta[]>
   /** A KNOWN SET of sessions, wired [POD-2322]. The issue tree selects member
-   *  ids across the whole subtree from facts, then projects only those. */
-  sessionsById(sessionIds: Iterable<SessionId>): Promise<SessionMeta[]>
+   *  ids across the whole subtree from facts, then projects only those.
+   *  `forUser` as for {@link listSessionsForIssue}. */
+  sessionsById(sessionIds: Iterable<SessionId>, forUser?: UserId): Promise<SessionMeta[]>
   /** Current label from MachinesService; omitted by fixtures that only know ids. */
   machineName?(machineId: MachineId): Promise<string>
-  getSettings(): Promise<PodiumSettings>
+  /** The server's own daemon link to a machine, for the shown session status
+   *  (`shownSessionStatus`, ADR 12 D1); omitted by fixtures (not known). */
+  machineOnline?(machineId: MachineId): boolean
+  /** Settings as `forUser` sees them: their personal preferences on the
+   *  instance's. A spawn names the person it runs for (POD-6285); instance-tier
+   *  reads (git workflow, worktree GC) may omit it. */
+  getSettings(forUser?: UserId): Promise<PodiumSettings>
   /** Spawn a session in the issue's worktree. `initialPrompt` hands the agent its
    *  first prompt at spawn (argv for capable agents, draft-seed fallback otherwise —
    *  resolved inside createSession), which is the race-free way to start the work.
@@ -196,6 +246,8 @@ export interface IssueDeps {
     ownerUserId?: import('@podium/model').UserId
     /** The agent profile the session starts from (POD-6107). */
     agentProfileId?: string
+    /** The credential the start named, already resolved (`null`: none). */
+    credentialId?: import('@podium/model').CredentialId | null
   }): Promise<SpawnedSessionResult>
   /**
    * The read-only half of {@link repoOp} that create uses to choose a parent branch
@@ -283,7 +335,14 @@ export interface IssueDeps {
   funnel: IssueFunnel
   /** The write-seam change log ([spec:SP-3fe2] #255): issue writes commit their
    *  change rows atomically with the row write; derived ripples reconcile. */
+  /**
+   * The issues service's OWN writer, a `server` origin (`issues.server`): the
+   * boot reconciles and the server's own issue writes. A command's write never
+   * uses it; it passes its writer per call.
+   */
   ledger: IssueLedger
+  /** Wrap a writer in the issue revision arbitration (`IssueAuthorityArbitration.wrap`). */
+  arbitrate?: (writer: IssueWriter) => IssueWriter
   /** Publish-spec factory (modules/issues/publish) for the funnel's tail. */
   now?(): string
   /** The session's explicit issue attachment (issue-as-workspace), read from
@@ -291,19 +350,27 @@ export interface IssueDeps {
    *  deps literals stay valid. */
   readSessionIssueId?(sessionId: SessionId): Promise<IssueId | null>
   /** Move a session's explicit issue attachment (persist + sessions broadcast). */
-  setSessionIssueId?(sessionId: SessionId, issueId: IssueId | null): void | Promise<void>
+  setSessionIssueId?(
+    writer: IssueWriter,
+    sessionId: SessionId,
+    issueId: IssueId | null,
+  ): void | Promise<void>
   /** Restamp a session cwd (hopscotch start onto a freshly minted worktree). */
-  setSessionCwd?(sessionId: SessionId, cwd: string): void | Promise<void>
+  setSessionCwd?(writer: IssueWriter, sessionId: SessionId, cwd: string): void | Promise<void>
   /** Archive/unarchive a session (persist + sessions broadcast). Injected by the
    *  relay; optional so existing test deps literals stay valid. Used to cascade an
    *  issue archive onto its member sessions (issue #133) so archiving an issue never
    *  leaves a bare, session-less worktree row in the sidebar. */
-  setSessionArchived?(sessionId: SessionId, archived: boolean): void | Promise<void>
+  setSessionArchived?(
+    writer: IssueWriter,
+    sessionId: SessionId,
+    archived: boolean,
+  ): void | Promise<void>
   /** Clear a session's agent action offer [spec:SP-c7f1]. Injected by the relay;
    *  optional so existing test deps literals stay valid. Used to retire pending
    *  decisions when an issue closes (POD-290) so a delegate offer cannot keep
    *  demanding attention after the work is finished elsewhere. */
-  clearSessionOffer?(sessionId: SessionId): Promise<void>
+  clearSessionOffer?(writer: IssueWriter, sessionId: SessionId): Promise<void>
   /** Fired after a worktree is successfully created (POD-665) so connected clients
    *  can re-fetch repos — otherwise a freshly-started issue's worktree is invisible
    *  in every menu until reload. [spec:SP-4ef9] worktree is a per-(branch,machine)
@@ -311,7 +378,12 @@ export interface IssueDeps {
    *  the relay; optional so existing test deps literals stay valid. */
   onWorktreesChanged?(repoPath: string, machineId?: MachineId): void
   defaultRepoBranch?(repoPath: string): Promise<string>
-  llm?: typeof llmClient
+  /**
+   * Podium's own model calls (credential management §9): the composition root
+   * binds `complete` with the machine transport. Absent, calls run over HTTP
+   * credentials only, on this store.
+   */
+  complete?(i: CompleteInput): Promise<CompleteResult>
   linearSearch?(key: string, q: string): Promise<LinearIssue[]>
   /**
    * Fired after a durable closed-predicate flip so session teardown can begin.
@@ -324,7 +396,25 @@ export interface IssueDeps {
    * defers its own tail past the commit, so the close does not wait on worktree
    * work.
    */
-  onIssueClosed?(input: { issueId: IssueId }): Promise<void>
+  onIssueClosed?(input: {
+    issueId: IssueId
+    /** Whose sessions the close stops (POD-6287, MU-24): the human who closed
+     *  it, else the task's assignee. Nobody else's. */
+    closedBy: UserId
+  }): Promise<void>
+  /**
+   * A task's assignee changed (POD-6287, design §2.2/§4.3). The composition
+   * root tells both people in their inbox. Called after the write committed;
+   * `by` is the member who reassigned it.
+   */
+  onIssueReassigned?(input: {
+    issueId: IssueId
+    seq: number
+    title: string
+    from: UserId
+    to: UserId
+    by: UserId
+  }): Promise<void>
   /**
    * An issue came into existence, for a composition root that publishes it
    * (podium-cloud's analytics subscriber).
@@ -341,7 +431,11 @@ export interface IssueDeps {
    * the outermost commit, never for a write that rolled back (POD-6158, for
    * POD-6160's message routing).
    */
-  onIssueWorktreeMoved?(event: { issueId: IssueId; previousWorktreePath: string | null; worktreePath: string | null }): void
+  onIssueWorktreeMoved?(event: {
+    issueId: IssueId
+    previousWorktreePath: string | null
+    worktreePath: string | null
+  }): void
   /** Shell lifetime verbs for the worktree-free trigger (POD-4525). The free
    *  removes the dock mapping, then parks/kills each freed shell per the same
    *  rule the stop path uses (teardown inputs with worktreeFreed true). Live
@@ -370,12 +464,16 @@ export interface IssueDeps {
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
   artifacts?: {
     transfer?: import('../artifact-store').IssueArtifactStore['transfer']
+    /** Publish a staged CLI upload under a given id (POD-6420). */
+    publishUpload?: import('../artifact-store').IssueArtifactStore['publishUpload']
     snapshot(o: {
       issueId: IssueId
       root: string
       machineId?: MachineId
       sourcePath: string
       extraPaths?: string[]
+      /** Snapshot under this id, replacing what is there (POD-6420). */
+      artifactId?: ArtifactId
     }): Promise<{
       artifactId: ArtifactId
       entry: string
@@ -388,25 +486,20 @@ export interface IssueDeps {
       files: { path: string; size: number }[]
       sourcePaths?: string[]
     }>
-    /** Read one snapshotted file back out (POD-1999) — server-local, so it
+    /** Stream one snapshotted file back out (POD-1999) — server-local, so it
      *  answers with the owning machine offline. Null = no such stored file. */
-    read(
+    readStream(
       issueId: IssueId,
       artifactId: ArtifactId,
       relPath: string,
-    ): Promise<{ bytes: Buffer; contentType: string } | null>
+    ): Promise<{ body: ReadableStream<Uint8Array>; contentType: string; size: number } | null>
     remove(issueId: IssueId, artifactId: ArtifactId): Promise<void>
     removeIssue(issueId: IssueId): Promise<void>
-    /** Move an artifact dir back out to `toDir` — a chat upload whose task
-     *  failed to launch returns to pending (POD-2148). */
-    relinquish?(o: { issueId: IssueId; artifactId: ArtifactId; toDir: string }): Promise<void>
-    /** Move a claimed chat upload's file dir in as an artifact (POD-2148). */
-    adopt?(o: {
-      issueId: IssueId
-      artifactId: ArtifactId
-      fromDir: string
-      entry: string
-    }): Promise<{
+    /** Move a chat upload's artifact back to `to`, its pending key — a chat
+     *  upload whose task failed to launch returns to pending (POD-2148). */
+    relinquish?(o: { issueId: IssueId; artifactId: ArtifactId; to: BlobKey }): Promise<void>
+    /** Move a claimed chat upload's file, at `from`, in as an artifact (POD-2148). */
+    adopt?(o: { issueId: IssueId; artifactId: ArtifactId; from: BlobKey; entry: string }): Promise<{
       artifactId: ArtifactId
       entry: string
       files: { path: string; size: number }[]
@@ -416,7 +509,7 @@ export interface IssueDeps {
    *  (POD-2148). Absent ⇒ chat uploads cannot be claimed. */
   pendingUploads?: Pick<
     PendingUploadStore,
-    'meta' | 'markClaimed' | 'markUnclaimed' | 'fileDir' | 'claimedBy'
+    'meta' | 'markClaimed' | 'markUnclaimed' | 'fileKey' | 'claimedBy'
   >
 }
 
@@ -469,7 +562,6 @@ export interface CreateIssueInput
       | 'machineId'
       | 'priority'
       | 'type'
-      | 'assignee'
       | 'parentId'
       | 'draft'
     > {
@@ -513,7 +605,6 @@ export type IssuePatch = Partial<
     | 'archived'
     | 'priority'
     | 'type'
-    | 'assignee'
     | 'parentId'
     | 'acceptance'
     | 'dueAt'
@@ -532,17 +623,6 @@ export type IssuePatch = Partial<
     | 'coordinatorSessionId'
   >
 > & {
-  /**
-   * PER-USER, and therefore NOT a `Pick` of the row (POD-1076).
-   *
-   * `pinned` is still what the API accepts — pinning is a verb the caller uses —
-   * but it is no longer a column on `IssueRow`, so `update()` intercepts it and
-   * writes the actor's `(userId, issueId)` row instead of `Object.assign`-ing it
-   * onto the shared issue. Listing it in the `Pick` would not compile, which is
-   * the point: the type refuses the shape that silently made one person's pin
-   * everybody's.
-   */
-  pinned?: boolean
   /**
    * An agent profile by NAME or id (POD-6107), as the CLI and the router take it;
    * `null` clears it. `update()` resolves it to `agentProfileId` before anything

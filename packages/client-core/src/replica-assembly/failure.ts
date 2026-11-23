@@ -1,4 +1,5 @@
 import type { ServerReadiness } from '@podium/model'
+import { type HttpsRequiredRefusal, httpsRequiredRefusal } from '@podium/protocol'
 import { replicaNamespaceKey } from '../replica/principal-storage'
 
 export type ReplicaFailure =
@@ -10,8 +11,8 @@ export type ReplicaFailure =
   | { readonly kind: 'server-starting'; readonly readiness: ServerReadiness }
   /** Reachable, open, ready — and no account row to attach the work to. */
   | { readonly kind: 'account-missing' }
-  /** A bearer credential was offered over plain HTTP and refused. */
-  | { readonly kind: 'auth-insecure' }
+  /** The server refused HTTP, or a credential cannot travel over HTTP. */
+  | { readonly kind: 'auth-insecure'; readonly guidance?: HttpsRequiredRefusal }
   /** The status route refused outright. */
   | { readonly kind: 'auth-refused'; readonly status: number }
   /** 200, but the body was not the answer — a proxy or SPA fallback replied. */
@@ -91,8 +92,8 @@ export function replicaBootCopy(failure: ReplicaFailure): {
     case 'auth-insecure':
       return {
         label: 'SECURE CONNECTION REQUIRED',
-        headline: 'Your token needs a secure connection.',
-        body: 'Connect to the server over HTTPS, then retry.',
+        headline: 'Connect with HTTPS',
+        body: (failure.guidance ?? httpsRequiredRefusal()).message,
       }
     case 'auth-refused':
       return {

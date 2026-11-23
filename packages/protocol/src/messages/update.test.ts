@@ -18,6 +18,17 @@ const target = {
 }
 
 describe('update frames', () => {
+  it('keeps the space preview on the supervisor channel, separate from grants and status', () => {
+    const request = { type: 'updateSpaceCheck', requestId: 'preview-1', targetFingerprint: 'exact', target }
+    expect(MachineSupervisorControlMessage.parse(request)).toEqual(request)
+    expect(UpdateGrantMessage.safeParse(request).success).toBe(false)
+    expect(ControlMessage.safeParse(request).success).toBe(false)
+    const result = { type: 'updateSpaceResult', requestId: 'preview-1', targetFingerprint: 'exact',
+      status: 'low', checkedAt: 1, volumes: [] }
+    expect(MachineSupervisorMessage.parse({ ...result, machineId: 'forged' })).toEqual(result)
+    expect(UpdateStatusMessage.safeParse(result).success).toBe(false)
+  })
+
   it('parses a grant', () => {
     const g = UpdateGrantMessage.parse({ type: 'updateGrant', grantId: 'g1', target })
     expect(g.target.version).toBe('0.4.2')

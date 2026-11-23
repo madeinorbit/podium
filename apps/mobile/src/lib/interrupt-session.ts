@@ -1,17 +1,21 @@
 import type { SessionId } from '@podium/model'
-import type { MobileTrpc } from '../client/trpc'
 
-/** Deliver a stop request with the exact queued message selected by the controller. */
+/**
+ * Stop the turn on screen (POD-6397): a `session.interrupt` effect record
+ * naming that turn (`turnStartedAt` of the session's agent state) and the
+ * queued message the controller selected. It resolves once the record is
+ * durably queued; the session model shows Interrupting…, and Kill if the turn
+ * runs on, from the record.
+ */
 export async function interruptSession(
-  sessions: Pick<MobileTrpc['sessions'], 'interrupt'>,
+  store: { interruptTurn(sessionId: SessionId, args: { turn?: string; messageId?: string }): Promise<string> },
+  session: { readonly turnStartedAt?: string | undefined } | undefined,
   sessionId: SessionId,
   messageId?: string,
 ): Promise<void> {
-  const result = await sessions.interrupt.mutate({
-    sessionId,
+  const turn = session?.turnStartedAt
+  await store.interruptTurn(sessionId, {
+    ...(turn !== undefined ? { turn } : {}),
     ...(messageId ? { messageId } : {}),
   })
-  if (result?.ok === false) {
-    throw new Error(result.reason ?? 'the agent refused the interrupt')
-  }
 }

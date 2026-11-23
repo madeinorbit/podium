@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-client-registration-status"
+description = "Enables the client_registration_status command without any pre-configured scope."
+commands.allow = ["client_registration_status"]
+
+[[permission]]
+identifier = "deny-client-registration-status"
+description = "Denies the client_registration_status command without any pre-configured scope."
+commands.deny = ["client_registration_status"]

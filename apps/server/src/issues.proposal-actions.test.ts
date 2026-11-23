@@ -19,6 +19,7 @@ import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
   const capability: Capability =
@@ -49,11 +50,17 @@ async function setup() {
   const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId)
   const op = ctx(reg, OPERATOR)
-  const root = await op.issues.create({ repoPath: '/r', title: 'mission', startNow: false })
+  const root = await op.issues.create({
+    repoPath: '/r',
+    title: 'mission',
+    startNow: false,
+    parentBranch: 'main',
+  })
   const task = await op.issues.create({
     repoPath: '/r',
     title: 'task',
     startNow: false,
+    parentBranch: 'main',
     parentId: root.id,
   })
   const agent = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: task.id } })
@@ -61,6 +68,7 @@ async function setup() {
     repoPath: '/r',
     title: 'found while working',
     startNow: false,
+    parentBranch: 'main',
   })
   expect(proposal.stage).toBe('proposed')
   return { reg, op, agent, root, task, proposal }
@@ -136,9 +144,20 @@ describe('proposal Dismiss closes as cancelled ("declined")', () => {
 describe('proposal actions stay operator decisions', () => {
   it('an agent may not promote, dismiss or start a proposal', async () => {
     const { reg, proposal } = await setup()
-    // Scoped to the proposal itself, so the scope guard cannot be what refuses.
-    const agent = ctx(reg, { role: 'worker', scope: { kind: 'subtree', rootId: proposal.id } })
     try {
+      await reg.sessionStore.machines.addMachineComponent(reg.sessionStore.hostMachineId, 'daemon')
+      await attachHostDaemon(reg)
+      const actor = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/r',
+        issueId: proposal.id,
+      })
+      // Both admission and effect replay see this real proposal-scoped writer.
+      const agent = ctx(reg, {
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: proposal.id },
+        actorSessionId: actor.sessionId,
+      })
       await expect(agent.issues.promote({ id: proposal.id })).rejects.toThrow(/operator/i)
       await expect(agent.issues.close({ id: proposal.id, reason: 'declined' })).rejects.toThrow(
         /operator/i,

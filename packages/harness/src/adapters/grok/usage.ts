@@ -10,15 +10,15 @@
 import type { Dirent } from 'node:fs'
 import { createReadStream } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { AgentQuotaWire, QuotaWindowWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
 import {
-  supported,
+  type HarnessAccountScope,
   type HarnessUsage,
   type QuotaProbeOptions,
+  supported,
 } from '../../manifest.js'
 import {
   bucketize,
@@ -144,11 +144,10 @@ function appendWindows(
   return windows
 }
 
-function grokHome(homeDir?: string): string {
-  if (homeDir) return join(homeDir, '.grok')
-  const env = process.env.GROK_HOME?.trim()
-  if (env) return env
-  return join(homedir(), '.grok')
+/** The account's Grok root (POD-6534): `GROK_HOME` in the account env, else
+ *  `<home>/.grok` — the adapter's `roots` rule, never the daemon's env. */
+function grokHome(account: HarnessAccountScope): string {
+  return account.roots.state
 }
 
 /** First OIDC entry in ~/.grok/auth.json that has an access token. */
@@ -173,9 +172,7 @@ function pickAuthEntry(raw: unknown): GrokAuthEntry | undefined {
   return undefined
 }
 
-export async function fetchGrokQuota(
-  deps: QuotaProbeOptions = {},
-): Promise<AgentQuotaWire> {
+export async function fetchGrokQuota(deps: QuotaProbeOptions): Promise<AgentQuotaWire> {
   const now = deps.now ?? Date.now()
   const fetchImpl = deps.fetchImpl ?? fetch
   const base = {
@@ -183,7 +180,7 @@ export async function fetchGrokQuota(
     windows: [] as QuotaWindowWire[],
     fetchedAt: new Date(now).toISOString(),
   }
-  const authPath = join(grokHome(deps.homeDir), 'auth.json')
+  const authPath = join(deps.account.roots.credentials ?? grokHome(deps.account), 'auth.json')
   let entry: GrokAuthEntry | undefined
   try {
     entry = pickAuthEntry(JSON.parse(await readFile(authPath, 'utf8')))
@@ -280,9 +277,8 @@ export async function fetchGrokQuota(
  *
  * Sessions live under `~/.grok/sessions/<percent-encoded-cwd>/<id>/`, with
  * optional children at `<id>/subagents/<child>/`. The walk follows that shape
- * only — it does not recurse into `terminal/` or other session scratch. A
- * non-default `GROK_HOME` is followed only when the caller did not pass
- * `homeDir` (tests pin a fake home; production may isolate accounts).
+ * only — it does not recurse into `terminal/` or other session scratch. The
+ * sessions root is the account's resolved `roots.transcripts` (POD-6534).
  */
 export function grokUsageFromSession(
   signals: unknown,
@@ -317,7 +313,7 @@ export function grokUsageFromSession(
 
 export async function scanGrokUsage(opts: {
   sinceMs: number
-  homeDir?: string
+  account: HarnessAccountScope
   cache?: UsageScanCache
 }): Promise<UsageFileScan[]> {
   return scanGrokSnapshots(opts)
@@ -403,11 +399,8 @@ async function collectGrokSignalFiles(dir: string, kind: GrokWalk, out: string[]
   }
 }
 
-function grokSessionsDir(homeDir?: string): string {
-  if (homeDir) return join(homeDir, '.grok', 'sessions')
-  const env = process.env.GROK_HOME?.trim()
-  if (env) return join(env, 'sessions')
-  return join(homedir(), '.grok', 'sessions')
+function grokSessionsDir(account: HarnessAccountScope): string {
+  return account.roots.transcripts ?? join(grokHome(account), 'sessions')
 }
 
 /**
@@ -417,10 +410,10 @@ function grokSessionsDir(homeDir?: string): string {
  */
 async function scanGrokSnapshots(opts: {
   sinceMs: number
-  homeDir?: string
+  account: HarnessAccountScope
   cache?: UsageScanCache
 }): Promise<UsageFileScan[]> {
-  const sessionsDir = grokSessionsDir(opts.homeDir)
+  const sessionsDir = grokSessionsDir(opts.account)
   const paths: string[] = []
   await collectGrokSignalFiles(sessionsDir, 'roots', paths)
   const out: UsageFileScan[] = []
@@ -557,10 +550,10 @@ async function grokAccountEmail(home: string): Promise<string | undefined> {
 export async function scanGrokQuotaHistory(opts: {
   sinceMs: number
   machineId: string
-  homeDir?: string
+  account: HarnessAccountScope
 }): Promise<QuotaHistorySampleWire[]> {
-  const home = grokHome(opts.homeDir)
-  const email = await grokAccountEmail(home)
+  const home = grokHome(opts.account)
+  const email = await grokAccountEmail(opts.account.roots.credentials ?? home)
   const path = join(home, 'logs', 'unified.jsonl')
   const samples: QuotaHistorySampleWire[] = []
   try {

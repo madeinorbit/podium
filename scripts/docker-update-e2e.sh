@@ -727,6 +727,7 @@ container_exec() {
     --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" \
     --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
     --env PODIUM_PORT=18787 \
     "$container" "$@"
 }
@@ -764,7 +765,8 @@ wait_for() {
 # product was still working through". That ambiguity cost this epic hours. Note
 # the 300s waits equal the download timeout exactly: they were sized from one
 # half of the budget and the margin was missed.
-UPDATE_MACHINES_SILENCE_BUDGET_S=$((5 * 60 + 2 * 60))
+# The delivery stall bound is one minute; the machines step adds one minute.
+UPDATE_MACHINES_SILENCE_BUDGET_S=$((60 + 60))
 say_watch_budget() {
   local waited=$1
   (( waited < UPDATE_MACHINES_SILENCE_BUDGET_S )) || return 0
@@ -900,6 +902,7 @@ fresh_install() {
   unit="$(unit_name)"
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
     "$container" bash -lc "exec '$command' setup >>/tmp/podium-source.log 2>&1"
   wait_for 60 "fresh setup server" \
@@ -943,6 +946,7 @@ diagnostic_version() {
   if output="$(docker exec --user podium \
       --env HOME=/home/podium \
       --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
       --env "PODIUM_STATE_DIR=$foreign" \
       "$FLEET_A" "$(command_path)" --version \
       2>"$WORK/logs/diagnostic-version.stderr")" &&
@@ -1228,6 +1232,7 @@ coordinator_version_is() {
 launch_coordinator_setup() {
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
     --env PODIUM_DEV_SOURCE_ROOT=/work/source \
     --env PODIUM_NO_RELAY=1 --env PODIUM_NO_SCOPE=1 \
@@ -1244,6 +1249,7 @@ launch_coordinator_parent() {
   fi
   docker exec -d --user podium --env HOME=/home/podium \
     --env "XDG_RUNTIME_DIR=/run/user/$HOST_UID" --env "PODIUM_INSTANCE=$INSTANCE" \
+    --env PODIUM_UPDATE_FEED_POLLING=off \
     --env PODIUM_PORT=18787 --env PODIUM_HOST=0.0.0.0 \
     --env PODIUM_DEV_SOURCE_ROOT=/work/source \
     --env PODIUM_DEV_ARTIFACT_BASE_URL="$ADVERTISED_URL" \
@@ -2426,7 +2432,7 @@ main() {
   for tool in awk df docker; do
     command -v "$tool" >/dev/null 2>&1 || die "missing command '$tool'"
   done
-  docker info >/dev/null
+  docker info >/dev/null || die "Docker daemon is unavailable; check its socket permissions and service"
   DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}')"
   START_FREE="$(free_bytes)"
   if (( START_FREE < MIN_FREE_GB * 1024 * 1024 * 1024 )); then

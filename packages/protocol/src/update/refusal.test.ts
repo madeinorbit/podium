@@ -140,3 +140,20 @@ describe('the shared refusal table', () => {
     )
   })
 })
+
+describe('artifact publication races', () => {
+  it('classifies ordinary artifact 404s as retry-later, including older daemon reports', () => {
+    expect(classifyUpdateFailureDetail('artifact download returned 404')).toBe(
+      'artifact-not-published',
+    )
+    expect(
+      classifyUpdateFailureDetail(
+        'artifact download returned 404 — not published yet; retry later',
+      ),
+    ).toBe('artifact-not-published')
+    expect(classifyUpdateFailureDetail('artifact download returned 503')).toBe('download-failed')
+    expect(classifyUpdateFailureDetail('published artifact digest verification FAILED')).toBe(
+      'machine-artifact-rejected',
+    )
+  })
+})

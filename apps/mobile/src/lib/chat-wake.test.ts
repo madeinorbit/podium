@@ -16,7 +16,6 @@ describe('phone wake outcome', () => {
       hub: {
         on: () => () => {},
         sendDraftEdit: () => true,
-        connectionHealth: () => ({ status: 'ok', since: 0, rttMs: null }),
       },
     })
     pool.bindSessionDrafts(drafts)

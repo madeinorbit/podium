@@ -3,8 +3,8 @@ import {
   asMachineId,
   HOST_REPOS,
   type MachineActionCopy,
+  type MachineFacts,
   type MachineId,
-  type MachineWire,
   machinePathSeparator,
 } from '@podium/model/browser'
 import {
@@ -39,6 +39,7 @@ import {
   machineOptionLabel,
   useMachineChoices,
 } from '../machines/machine-choices'
+import { FolderTrustNotice } from './folder-trust-notice'
 import { GitHubProjectIntake } from './GitHubProjectIntake'
 import { SetupBusyOverlay, SetupError } from './SetupFeedback'
 
@@ -70,7 +71,7 @@ type DirectoryListing = {
 /** POD-2700 adds `components` and `use`: this screen states a REQUIREMENT now,
  *  and the predicate that answers it reads the structural and `use` axes. */
 type RepoPickerMachine = Pick<
-  MachineWire,
+  MachineFacts,
   'id' | 'name' | 'hostname' | 'online' | 'inventory' | 'components' | 'use'
 >
 
@@ -85,6 +86,7 @@ type RepoPickerMachine = Pick<
  * repos nested below is the scan's job.
  */
 export function RepoPickerModal({
+  embedded = false,
   onClose,
   onPick,
   onScan,
@@ -100,6 +102,8 @@ export function RepoPickerModal({
   selectedMachineId,
   onMachineChange,
 }: {
+  /** Reuse the picker inside a settings takeover, with no portal or backdrop. */
+  embedded?: boolean
   onClose: () => void
   /** Add the browsed folder as a repo (only reachable when it IS a repo). */
   onPick: (path: string) => Promise<void>
@@ -159,7 +163,13 @@ export function RepoPickerModal({
   const [rowMenu, setRowMenu] = useState<{ entry: DirectoryEntry; x: number; y: number } | null>(
     null,
   )
-  const dialogRef = useRef<HTMLDivElement | null>(null)
+  const dialogRef = useRef<HTMLElement | null>(null)
+  const setPickerRef = useCallback((element: HTMLElement | null) => {
+    dialogRef.current = element
+  }, [])
+  useEffect(() => {
+    if (embedded) dialogRef.current?.focus({ preventScroll: true })
+  }, [embedded])
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const historyRef = useRef<string[]>([])
@@ -429,28 +439,34 @@ export function RepoPickerModal({
     onMachineChange !== undefined &&
     (repoChoices.options.length > 1 || repoChoices.exclusionNote !== undefined)
 
+  const Title = embedded ? 'h4' : DialogTitle
   return (
-    <Dialog
-      open
-      modal={isMobile ? 'trap-focus' : true}
-      onOpenChange={(o) => {
-        if (!o) onClose()
-      }}
+    <RepositoryPickerFrame
+      embedded={embedded}
+      isMobile={isMobile}
+      onClose={onClose}
+      rootRef={setPickerRef}
+      busy={saving || scanning}
     >
-      {/* sm:max-w-* overrides DialogContent's base sm:max-w-sm; a plain max-w loses
-          to it at desktop width and pins the modal to 384px (POD-832). */}
-      <DialogContent
-        ref={dialogRef}
-        className="flex max-h-[calc(100dvh-48px)] w-full max-w-[calc(100%-24px)] flex-col gap-0 overflow-hidden rounded-[14px] border-0 bg-popover p-0 text-foreground shadow-popover sm:max-w-[1100px] [&>button]:right-6 [&>button]:top-[22px] [&>button]:size-7 [&>button]:rounded-lg [&>button]:text-muted-foreground"
-      >
+      <>
         {resultPanel ? (
           resultPanel
         ) : (
           <>
-            <DialogHeader className="gap-[7px] px-6 pt-[22px] pr-16 pb-[18px]">
-              <DialogTitle className="text-[21px] leading-[1.15] font-semibold tracking-[-0.015em] text-foreground">
+            <DialogHeader
+              className={
+                embedded ? 'gap-2 px-4 pt-4 pb-4' : 'gap-[7px] px-6 pt-[22px] pr-16 pb-[18px]'
+              }
+            >
+              <Title
+                className={
+                  embedded
+                    ? 'settings-h2'
+                    : 'text-[21px] leading-[1.15] font-semibold tracking-[-0.015em] text-foreground'
+                }
+              >
                 {onScan ? 'Find a repository' : 'Add a repository'}
-              </DialogTitle>
+              </Title>
               <p className="text-[13.5px] leading-[1.5] text-muted-foreground">
                 Choose a repository already on this machine, or bring one in from GitHub.
               </p>
@@ -545,8 +561,8 @@ export function RepoPickerModal({
                       }}
                     >
                       {/* Offline machines stay LISTED and disabled — they can
-                          host repos, just not this second. Machines that run no
-                          daemon are absent by construction and counted below. */}
+                            host repos, just not this second. Machines that run no
+                            daemon are absent by construction and counted below. */}
                       {repoChoices.options.map((choice) => (
                         <option
                           key={choice.machine.id}
@@ -645,7 +661,7 @@ export function RepoPickerModal({
                       </Button>
                     )}
                     {/* The route a machine with nothing on its disk never had
-                        (POD-1295): make the repository here instead of finding one. */}
+                          (POD-1295): make the repository here instead of finding one. */}
                     {onCreateFolder && (
                       <Button
                         variant="ghost"
@@ -695,11 +711,11 @@ export function RepoPickerModal({
                 aria-busy={loading}
               >
                 {/* THE EMPTY STATE, AXIS-AWARE (POD-2700 §4.2). The line this
-                    replaces fired on CONNECTIVITY — "No machines are connected"
-                    — which was the right instinct with the wrong trigger: it
-                    said the same thing whether every repo host was asleep or the
-                    only machine was a coordinator that can never host one. Those
-                    need opposite advice, so they now get different words. */}
+                      replaces fired on CONNECTIVITY — "No machines are connected"
+                      — which was the right instinct with the wrong trigger: it
+                      said the same thing whether every repo host was asleep or the
+                      only machine was a coordinator that can never host one. Those
+                      need opposite advice, so they now get different words. */}
                 {!selectedMachine && (
                   <MachineEmptyStateNotice
                     state={
@@ -876,6 +892,7 @@ export function RepoPickerModal({
                   <Input
                     id="repo-machine-path"
                     aria-label={machinePathLabel}
+                    aria-describedby="repo-machine-path-trust"
                     className={cn(
                       'h-[38px] rounded-[9px] border-0 bg-background px-[13px] font-mono text-[13px] text-foreground inset-ring inset-ring-border placeholder:text-muted-foreground',
                       // The offered path is what the button will act on, so it reads as
@@ -899,6 +916,7 @@ export function RepoPickerModal({
                     Use repository
                   </Button>
                 </div>
+                <FolderTrustNotice id="repo-machine-path-trust" />
               </div>
             </div>
             {rowMenu && (
@@ -926,8 +944,8 @@ export function RepoPickerModal({
               />
             )}
             {/* Only the long writes take the overlay. Creating a plain folder or
-                renaming one is a single syscall and finishes before a curtain
-                would finish fading in. */}
+                  renaming one is a single syscall and finishes before a curtain
+                  would finish fading in. */}
             {(saving || scanning || writingKind === 'repo') && (
               <SetupBusyOverlay
                 title={
@@ -948,6 +966,63 @@ export function RepoPickerModal({
             )}
           </>
         )}
+      </>
+    </RepositoryPickerFrame>
+  )
+}
+
+/** The picker body is shared; settings reuses it without a second modal layer. */
+function RepositoryPickerFrame({
+  embedded,
+  isMobile,
+  onClose,
+  rootRef,
+  busy,
+  children,
+}: {
+  embedded: boolean
+  isMobile: boolean
+  onClose: () => void
+  rootRef: (element: HTMLElement | null) => void
+  busy: boolean
+  children: ReactNode
+}) {
+  if (embedded)
+    return (
+      <section
+        aria-label="Repository picker"
+        ref={rootRef}
+        tabIndex={-1}
+        className="relative flex min-w-0 flex-col overflow-hidden rounded-lg border border-border"
+        onKeyDown={(event) => {
+          if (event.key !== 'Escape' || event.defaultPrevented) return
+          event.preventDefault()
+          event.stopPropagation()
+          onClose()
+        }}
+      >
+        <div className="border-b border-border px-4 py-2">
+          <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={onClose}>
+            <ChevronLeft size={14} aria-hidden="true" />
+            Back
+          </Button>
+        </div>
+        {children}
+      </section>
+    )
+  return (
+    <Dialog
+      open
+      modal={isMobile ? 'trap-focus' : true}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogContent
+        ref={rootRef}
+        className="flex max-h-[calc(100dvh-48px)] w-full max-w-[calc(100%-24px)] flex-col gap-0 overflow-hidden rounded-[14px] border-0 bg-popover p-0 text-foreground shadow-popover sm:max-w-[1100px] [&>button]:right-6 [&>button]:top-[22px] [&>button]:size-7 [&>button]:rounded-lg [&>button]:text-muted-foreground"
+      >
+        {children}
       </DialogContent>
     </Dialog>
   )

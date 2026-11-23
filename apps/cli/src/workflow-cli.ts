@@ -2,15 +2,19 @@ import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { type IssueTrpc, makeRelayIssueClient } from '@podium/issue-client'
-import type {
-  ApprovalOp,
-  WorkflowGitObservation,
-  WorkflowNextActionWire,
-  WorkflowRunWire,
-  WorkflowStep,
-  WorkflowWire,
+import { type WorkflowBindingTarget, workflowBindingRowId } from '@podium/model'
+import {
+  type ApprovalOp,
+  type SyncSubmitTransport,
+  submitNow,
+  type WorkflowGitObservation,
+  type WorkflowNextActionWire,
+  type WorkflowRunWire,
+  type WorkflowStep,
+  type WorkflowWire,
 } from '@podium/protocol'
 import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/config'
+import { requestApproval } from './approval-cli'
 import {
   declareFlags,
   type FlagDeclaration,
@@ -18,10 +22,9 @@ import {
   parseFlags,
   withUnknownFlagAs,
 } from './argv'
-import { requestApproval } from './approval-cli'
 import { makeOperatorIssueClient } from './operator-client'
 
-type WorkflowClient = Pick<IssueTrpc, 'workflows'>
+type WorkflowClient = Pick<IssueTrpc, 'workflows'> & SyncSubmitTransport
 type ArgValue = string | boolean
 
 export class WorkflowCliError extends Error {}
@@ -265,7 +268,35 @@ async function call(
   query = false,
 ): Promise<unknown> {
   const endpoint = client.workflows[proc]
-  return query ? endpoint.query(input) : endpoint.mutate(input)
+  if (query) return endpoint.query(input)
+  // A write goes on the sync write entry point (ADR 12 D2, POD-6418), over the
+  // operator's tRPC or the agent's relay alike. An advance's own `mutationId`
+  // is the envelope's, so a retried checkpoint is one write.
+  // LEGACY(remove-after: 2027-03): an older server, without `sync.submit` or
+  // without this command on it, takes the command's own route.
+  const mutationId = typeof input.mutationId === 'string' ? input.mutationId : undefined
+  return await submitNow(client, `workflows.${proc}`, input, {
+    ...(mutationId !== undefined ? { mutationId } : {}),
+    legacy: async () => await endpoint.mutate(input),
+  })
+}
+
+/**
+ * Make a target run a revision: the binding's generic edit on the sync write
+ * entry point (POD-6676; it replaced `workflows.assign`). A binding is keyed by
+ * its target, so the edit sets it whether or not one was set before.
+ */
+async function bind(
+  client: WorkflowClient,
+  targetKind: WorkflowBindingTarget,
+  targetId: string,
+  revisionId: string,
+): Promise<{ targetKind: WorkflowBindingTarget; targetId: string; revisionId: string }> {
+  await submitNow(client, 'records.workflowBinding.edit', {
+    id: workflowBindingRowId(targetKind, targetId),
+    patch: { revisionId },
+  })
+  return { targetKind, targetId, revisionId }
 }
 
 async function approved(deps: WorkflowCliDeps, op: ApprovalOp): Promise<string> {
@@ -360,7 +391,7 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
         'assign target must be issue or session; use default for shared defaults',
       )
     }
-    result = await call(deps.client, 'assign', { targetKind, targetId, revisionId })
+    result = await bind(deps.client, targetKind, targetId, revisionId)
   } else if (command === 'default') {
     const [targetKind, first, second] = positionals
     if (targetKind === 'global' && first && !second) {
@@ -372,11 +403,7 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
           revisionId: first,
         })
       }
-      result = await call(deps.client, 'assign', {
-        targetKind: 'global',
-        targetId: '',
-        revisionId: first,
-      })
+      result = await bind(deps.client, 'global', '', first)
     } else if (targetKind === 'repository' && first && second) {
       if (deps.relayEndpoint) {
         return approved(deps, {
@@ -386,11 +413,7 @@ export async function runWorkflowCli(argv: string[], deps: WorkflowCliDeps): Pro
           revisionId: second,
         })
       }
-      result = await call(deps.client, 'assign', {
-        targetKind: 'repository',
-        targetId: first,
-        revisionId: second,
-      })
+      result = await bind(deps.client, 'repository', first, second)
     } else {
       throw new WorkflowCliError(
         'usage: workflow default global <revision> | repository <repo-id> <revision>',

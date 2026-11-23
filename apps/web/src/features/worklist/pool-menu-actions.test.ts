@@ -1,10 +1,11 @@
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { headerView } from '@podium/client-graph/header-views'
-import { configureDevelopmentChecks } from '@podium/mobx-helpers'
-import { configure } from 'mobx'
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { LOADING } from '@podium/client-graph'
+import { headerView } from '@podium/client-graph/header-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { configureDevelopmentChecks } from '@podium/mobx-helpers'
+import { configure } from 'mobx'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { createPoolWorkActions } from './use-pool-unified-work'
 
@@ -70,7 +71,11 @@ it('resolves one sidebar menu with equal first/repeated row work at 1x/4x unrela
     })
     const rows = vi.spyOn(pool, 'row')
     try {
-      const actions = createPoolWorkActions(pool, { access: {} } as never, () => {})
+      const actions = createPoolWorkActions(
+        pool,
+        withKeyedInputs({ getSnapshot: () => ({}), subscribe: () => () => {} }) as never,
+        () => {},
+      )
       for (let n = 0; n < 2; n++) {
         rows.mockClear()
         sidebar.mockClear()
@@ -134,9 +139,11 @@ it('keeps an addressed pending member in the sidebar menu until its payload sett
     args[0] === 'session' && args[1] === 'own-seat' ? LOADING : row(...args),
   )
   try {
-    const menu = createPoolWorkActions(pool, { access: {} } as never, () => {}).resolveMenuData(
-      issue.id,
-    )
+    const menu = createPoolWorkActions(
+      pool,
+      withKeyedInputs({ getSnapshot: () => ({}), subscribe: () => () => {} }) as never,
+      () => {},
+    ).resolveMenuData(issue.id)
     expect(menu.single).toEqual([])
     expect(menu.poolInputs).toBe(LOADING)
   } finally {
@@ -148,14 +155,21 @@ it('keeps an addressed pending member in the sidebar menu until its payload sett
 let warnings: unknown[][] = []
 beforeEach(() => {
   warnings = []
-  vi.spyOn(console, 'warn').mockImplementation((...args) => { warnings.push(args) })
+  vi.spyOn(console, 'warn').mockImplementation((...args) => {
+    warnings.push(args)
+  })
   configureDevelopmentChecks(true)
 })
 afterEach(() => {
-  try { expect(warnings.filter(args => String(args[0]).startsWith('[mobx]'))).toEqual([]) }
-  finally {
-    configure({ enforceActions: 'never', computedRequiresReaction: false,
-      reactionRequiresObservable: false, observableRequiresReaction: false })
+  try {
+    expect(warnings.filter((args) => String(args[0]).startsWith('[mobx]'))).toEqual([])
+  } finally {
+    configure({
+      enforceActions: 'never',
+      computedRequiresReaction: false,
+      reactionRequiresObservable: false,
+      observableRequiresReaction: false,
+    })
     vi.restoreAllMocks()
   }
 })

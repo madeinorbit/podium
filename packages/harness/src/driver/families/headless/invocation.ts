@@ -14,16 +14,17 @@
 
 import { randomUUID } from 'node:crypto'
 import type { HarnessAgent } from '@podium/model'
-import { bindHarnessExec } from '../../../executable-runtime.js'
+import { type BoundCommand, harnessCommand } from '../../../bound-command.js'
+import { harnessInstallation } from '../../../harness-context.js'
+import type { HarnessInstallation } from '../../../harness-context-types.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
-import {
-  declaredValue,
-  type HarnessHeadless,
-  type HeadlessExecOptions,
-} from '../../../manifest.js'
+import { agentLaunchTerms, type LaunchPosture } from '../../../launch-terms.js'
+import { declaredValue, type HarnessHeadless, type HeadlessExecOptions } from '../../../manifest.js'
+import { noAgentTerms } from '../../../posture.js'
 import { cursorCreateChatInvocation, harnessAdapterFor } from '../../../registry.js'
-import { buildClaudeDurableTurn, claudeDurableExecutable } from '../claude-sdk/exec.js'
+import { buildClaudeDurableTurn } from '../claude-sdk/exec.js'
 import {
+  asksBypassPermissions,
   buildClaudeStreamInvocation,
   claudeStreamEnvOverlay,
   mcpConfigInline,
@@ -50,24 +51,45 @@ export function headlessFor(agent: HarnessAgent): HarnessHeadless {
  *  harness session id (pre-minted for grok/cursor/pi; absent on an opencode
  *  first turn, where the id is captured from the JSON event stream). Pure
  *  dispatch into the harness adapter registry (#158): each adapter's
- *  `headless.buildExec` owns its CLI's invocation shape. */
+ *  `headless.buildExec` owns its CLI's invocation shape. The turn runs on the
+ *  adapter's `turn` terms, or no-agent terms when tool-less. */
 export function buildHeadlessExec(
   agent: HarnessAgent,
   opts: HeadlessExecOptions,
-  snapshot: ResolvedHarnessInventory,
-): { cmd: string; args: string[]; env?: Record<string, string>; stdin?: string } {
+  installation: HarnessInstallation,
+  posture: LaunchPosture,
+): BoundCommand<{ args: string[]; env?: Record<string, string>; stdin?: string }> {
   const manifest = harnessAdapterFor(agent)
   const headless = manifest && declaredValue(manifest.headless)
   const buildExec = headless && declaredValue(headless.buildExec)
-  if (!buildExec) throw new Error(`agent kind ${String(agent)} has no headless exec builder`)
-  return bindHarnessExec(
-    snapshot,
-    agent,
-    buildExec({
-      ...opts,
-      env: opts.env ?? snapshot.commandEnvironment.env,
-    }),
+  if (!manifest || !buildExec) {
+    throw new Error(`agent kind ${String(agent)} has no headless exec builder`)
+  }
+  return harnessCommand(
+    { installation },
+    buildExec(opts),
+    agentLaunchTerms(manifest, 'turn', posture, opts.toolPolicy),
   )
+}
+
+/**
+ * The installation a headless turn runs: the one its session pinned
+ * (`executablePath`, sticky across turns) or else the snapshot's. Never a
+ * basename on the daemon's PATH.
+ */
+export function headlessInstallation(
+  spec: Pick<HeadlessTurnSpec, 'agent' | 'executablePath'>,
+  snapshot: ResolvedHarnessInventory,
+): HarnessInstallation {
+  if (spec.executablePath !== undefined) {
+    return Object.freeze({
+      kind: spec.agent,
+      executable: spec.executablePath,
+      version: snapshot.executables.get(spec.agent)?.version ?? '',
+      generation: snapshot.commandEnvironment.generation,
+    })
+  }
+  return harnessInstallation(snapshot, spec.agent)
 }
 
 /**
@@ -76,14 +98,11 @@ export function buildHeadlessExec(
  * write channel stays open for the whole turn (the stream-json claude turn
  * answers permission asks over it).
  */
-export type HeadlessStdin =
-  | { kind: 'none' }
-  | { kind: 'bytes'; data: string }
-  | { kind: 'live' }
+export type HeadlessStdin = { kind: 'none' } | { kind: 'bytes'; data: string } | { kind: 'live' }
 
 export interface HeadlessInvocation {
-  cmd: string
-  args: string[]
+  /** argv[0] is the turn's installation (see {@link headlessInstallation}). */
+  command: BoundCommand
   stdin: HeadlessStdin
   /** Adapter-bound env for THIS invocation (codex MCP bearer, POD-1021);
    *  merged under the instance-owned keys by the supervisor's composition. */
@@ -99,15 +118,24 @@ export interface HeadlessInvocation {
  *  before it can run (cursor's `create-chat`). */
 export function needsAllocation(spec: HeadlessTurnSpec): boolean {
   const headless = headlessFor(spec.agent)
-  return (
-    headless.resumeIdAllocation === 'create-chat' && !spec.resumeValue && !spec.sessionUuid
-  )
+  return headless.resumeIdAllocation === 'create-chat' && !spec.resumeValue && !spec.sessionUuid
 }
 
-/** The allocation command (`create-chat`), run to completion before the turn. */
-export function allocationInvocation(snapshot: ResolvedHarnessInventory): HeadlessInvocation {
-  const invocation = cursorCreateChatInvocation(snapshot)
-  return { cmd: invocation.cmd, args: [...invocation.args], stdin: { kind: 'none' } }
+/** The allocation command (`create-chat`), run to completion before the turn.
+ *  It only allocates a conversation id, so it runs on no-agent terms. */
+export function allocationInvocation(
+  spec: Pick<HeadlessTurnSpec, 'agent' | 'executablePath'>,
+  snapshot: ResolvedHarnessInventory,
+): HeadlessInvocation {
+  const installation = headlessInstallation(spec, snapshot)
+  return {
+    command: harnessCommand(
+      { installation },
+      cursorCreateChatInvocation(),
+      noAgentTerms('allocates a chat id: runs no agent'),
+    ),
+    stdin: { kind: 'none' },
+  }
 }
 
 /**
@@ -135,18 +163,27 @@ export function composeHeadlessInvocation(
   assertHeadlessToolPolicy(spec)
   const headless = headlessFor(spec.agent)
   if (headless.driver === 'claude-sdk') {
-    const executable = spec.executablePath ?? claudeDurableExecutable(snapshot)
+    const installation = { installation: headlessInstallation(spec, snapshot) }
+    const manifest = harnessAdapterFor(spec.agent)
+    if (!manifest) throw new Error(`no harness adapter for '${spec.agent}'`)
+    const terms = { manifest, posture: spec.launchPosture }
+    // A native bypass pick runs as root only inside a sandbox it is told of.
     const envOverlay = claudeStreamEnvOverlay({
-      ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
+      ...(asksBypassPermissions(spec.launchPosture.posture)
+        ? { permissionMode: 'bypassPermissions' }
+        : {}),
       isRoot: opts.isRoot,
     })
     if (spec.structuredPermissions) {
-      const { cmd, args } = buildClaudeStreamInvocation({ ...spec }, executable)
+      const command = buildClaudeStreamInvocation({ ...spec }, installation, {
+        ...terms,
+        mode: 'turn',
+      })
       const pinned = spec.resumeValue ?? spec.sessionUuid
       return {
-        cmd,
-        args,
+        command,
         stdin: { kind: 'live' },
+        ...wiringOf(command),
         ...(Object.keys(envOverlay).length > 0 ? { envOverlay } : {}),
         ...(pinned ? { pinnedSessionId: pinned } : {}),
       }
@@ -158,12 +195,13 @@ export function composeHeadlessInvocation(
       {
         mcp: spec.mcpConfig && spec.toolPolicy !== 'none' ? mcpConfigInline(spec.mcpConfig) : '',
       },
-      executable,
+      installation,
+      terms,
     )
     return {
-      cmd: turn.cmd,
-      args: turn.args,
+      command: turn.command,
       stdin: { kind: 'bytes', data: turn.stdin },
+      ...wiringOf(turn.command),
       ...(Object.keys(envOverlay).length > 0 ? { envOverlay } : {}),
       ...(turn.knownSessionId ? { pinnedSessionId: turn.knownSessionId } : {}),
     }
@@ -175,19 +213,22 @@ export function composeHeadlessInvocation(
     ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
     ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
     ...(spec.mcpConfig ? { mcpConfig: spec.mcpConfig } : {}),
-    ...(spec.permissionMode ? { permissionMode: spec.permissionMode } : {}),
     ...(spec.toolPolicy ? { toolPolicy: spec.toolPolicy } : {}),
     ...(spec.resumeValue ? { resumeValue: spec.resumeValue } : {}),
   }
   if (headless.driver === 'codex-json') {
     const manifest = harnessAdapterFor(spec.agent)
     if (!manifest) throw new Error(`no harness adapter for '${spec.agent}'`)
-    const { cmd, args, env } = buildCodexExecTurn(common, snapshot, { headless: manifest.headless })
+    const command = buildCodexExecTurn(
+      common,
+      headlessInstallation(spec, snapshot),
+      { headless: manifest.headless, posture: manifest.posture },
+      spec.launchPosture,
+    )
     return {
-      cmd,
-      args,
+      command,
       stdin: { kind: 'none' },
-      ...(env && Object.keys(env).length > 0 ? { execEnv: env } : {}),
+      ...wiringOf(command),
       ...(spec.resumeValue ? { pinnedSessionId: spec.resumeValue } : {}),
     }
   }
@@ -200,12 +241,25 @@ export function composeHeadlessInvocation(
   if (!sessionId && headless.resumeIdAllocation === 'create-chat') {
     throw new Error('headless turn needs an allocated conversation id before it can run')
   }
-  const exec = buildHeadlessExec(spec.agent, { ...common, ...(sessionId ? { sessionId } : {}) }, snapshot)
+  const { stdin, ...command } = buildHeadlessExec(
+    spec.agent,
+    { ...common, ...(sessionId ? { sessionId } : {}) },
+    headlessInstallation(spec, snapshot),
+    spec.launchPosture,
+  )
   return {
-    cmd: exec.cmd,
-    args: exec.args,
-    stdin: exec.stdin !== undefined ? { kind: 'bytes', data: exec.stdin } : { kind: 'none' },
-    ...(exec.env && Object.keys(exec.env).length > 0 ? { execEnv: exec.env } : {}),
+    command,
+    stdin: stdin !== undefined ? { kind: 'bytes', data: stdin } : { kind: 'none' },
+    ...wiringOf(command),
     ...(sessionId ? { pinnedSessionId: sessionId } : {}),
   }
+}
+
+/**
+ * The bound command's env as the turn's exec env: the adapter's own
+ * per-invocation env (codex's MCP bearer, POD-1021) and whatever the launch
+ * terms added. Both are wiring; absent when there is none.
+ */
+function wiringOf(command: BoundCommand): { execEnv?: Record<string, string> } {
+  return Object.keys(command.env).length > 0 ? { execEnv: { ...command.env } } : {}
 }

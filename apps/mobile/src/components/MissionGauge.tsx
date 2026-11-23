@@ -18,7 +18,8 @@ export interface DeckVitals {
 /** Shared FullDeck execution buckets and attention counts, independent of visible filters. */
 export function deckVitals(full: FullDeck): DeckVitals | null {
   if (!full.ready) return null
-  const { buckets, counts } = full
+  // Phone deck counts follow worklist progress (POD-2518, phone-only).
+  const { phoneBuckets: buckets, phoneCounts: counts } = full
   return {
     done: buckets.done,
     total: buckets.total,

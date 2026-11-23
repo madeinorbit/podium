@@ -1,57 +1,41 @@
-import { omitGone } from '@podium/client-graph/lookup'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
-import {
-  formatMemBytes,
-  hostMemoryView,
-  reclaimSpaceLabel,
-} from '@podium/client-core/values'
+import { useRequestClient, useUiValue } from '@podium/client-core/react'
+import { formatMemBytes, hostMemoryView, reclaimSpaceLabel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { omitGone } from '@podium/client-graph/lookup'
 import { asIssueId } from '@podium/model'
-import type {
-  AgentMemoryWire,
-  HostMemoryWire,
-  IssueId,
-  MachineId,
-  ProjectMemoryWire,
-} from '@podium/model/browser'
+import type { IssueId, MachineId } from '@podium/model/browser'
 import { machinePathBasename } from '@podium/model/browser'
+import type { HostMemoryBreakdown as Breakdown } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useState } from 'react'
-import { useHostMetrics, useRuntimeSelector } from '@/app/store'
+import { useState } from 'react'
+import { usePoolHeaderMetrics, usePoolPanelMetric } from '@/app/header-data'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useIssueActionOutcome } from '@/features/issues/issue-action-ending'
+import { useClock } from '@/lib/clock-hooks'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
-import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
+import { connectionSeverity, describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { HeaderSessionLabel } from './HeaderSessionLabel'
-import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
 import { ReclaimConfirmDialog } from './reclaim-lifecycle'
+import { useMachineProcesses } from './use-machine-processes'
 
 import { useReclaimInventory } from './use-reclaim-inventory'
 
-/** Shape of trpc hosts.memoryBreakdown — the daemon's answer minus wire plumbing. */
-interface Breakdown {
-  hostname: string
-  sampledAt: string
-  supported: boolean
-  memory: HostMemoryWire
-  agents: AgentMemoryWire[]
-  projects: ProjectMemoryWire[]
-  otherBytes: number
-}
-
-const REFRESH_MS = 5_000
-
+/** Paused (hibernated) sessions the device holds: memory pressure pauses
+ * sessions idle for minutes, so they are recent and on the device. No walk
+ * over every session (POD-7088). */
 const readParkedCount = (pool: MobxPool): number =>
-  pool.queries.ids({ kind: 'shellSessions' }).reduce((count, id) => {
+  pool.queries.ids({ kind: 'pausedSessions' }).reduce((count, id) => {
     if (pool.queries.collapsed(id)) return count
-    const row = omitGone(pool.row('session', id, 'summary-fields'))
+    const row = omitGone(pool.row('session', id))
     return (
       count +
       (row && typeof row !== 'symbol' && (row as { status?: string }).status === 'hibernated'
@@ -123,25 +107,21 @@ export function HostInfoView({
 
 /** Connection tab: live status, latency, and the explanatory detail line. */
 function ConnectionPanel(): JSX.Element {
-  const hostMetrics = useHostMetrics()
+  // The fleet machines' live samples (machine model fields, POD-5798).
+  const hostMetrics = usePoolHeaderMetrics()
   const health = useConnectionHealth()
-  const [, setTick] = useState(0)
-  useEffect(() => {
-    if (health.status === 'ok') return
-    const t = setInterval(() => setTick((n) => n + 1), 1000)
-    return () => clearInterval(t)
-  }, [health.status])
-  const { headline, detail } = describeHealth(health, Date.now())
-  const ping = health.rttMs !== null ? `${Math.max(1, Math.round(health.rttMs))} ms` : '—'
+  const now = useClock(1_000, connectionSeverity(health) !== 'ok')
+  const { headline, detail } = describeHealth(health, now)
+  const ping = health.pingMs !== undefined ? `${Math.max(1, Math.round(health.pingMs))} ms` : '—'
   return (
     <div className="flex flex-col gap-2.5 p-3.5">
       <div className="flex items-center gap-2 text-sm font-medium text-foreground">
         <span
           className={cn(
             'size-[9px] rounded-full',
-            health.status === 'degraded'
+            connectionSeverity(health) === 'degraded'
               ? 'bg-warning'
-              : health.status === 'down'
+              : connectionSeverity(health) === 'down'
                 ? 'bg-destructive'
                 : 'bg-success',
           )}
@@ -175,26 +155,13 @@ function MemoryPanel({
   onClose: () => void
   machineId?: MachineId
 }): JSX.Element {
-  const hostMetrics = useHostMetrics()
-  const { trpc, setView, setSettingsTab } = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      setView: s.setView,
-      setSettingsTab: s.setSettingsTab,
-    }),
-    shallowEqual,
-  )
+  const panelMetric = usePoolPanelMetric(machineId)
+  const { setView, setSettingsTab } = {
+    setView: useUiValue('setView'),
+    setSettingsTab: useUiValue('setSettingsTab'),
+  }
   const hibernation = useHibernationSetting()
-  // Host telemetry, not a row: a `/proc` walk on the daemon host, taken at the
-  // moment of asking. It polls — through the ONE polling utility (POD-1772),
-  // which gates on tab visibility (a hidden pane must not keep a machine walking
-  // `/proc` every 5 s) and keys its cache on the machine, so switching chips can
-  // never paint one host's breakdown under another host's headline.
-  const { data, error } = usePolledQuery<Breakdown>({
-    key: `hosts.memoryBreakdown:${machineId ?? ''}`,
-    intervalMs: REFRESH_MS,
-    read: () => trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined),
-  })
+  const { data, error } = useMachineProcesses(machineId)
 
   const idleSessionCount = useWorklistPoolProjection(readParkedCount, 0)
 
@@ -205,8 +172,7 @@ function MemoryPanel({
   // POD-2700 §3.3: no first-host fallback when a machine WAS named. A machine
   // that runs no daemon reports no metrics, and borrowing another host's sample
   // put a confident, wrong "12.3/32 GB used" under its name.
-  const headlineHost =
-    machineId === undefined ? hostMetrics[0] : hostMetrics.find((h) => h.machineId === machineId)
+  const headlineHost = panelMetric
   const headline = !data && headlineHost ? hostMemoryView(headlineHost) : null
 
   // Current memory pressure for the hibernation explainer — prefer the
@@ -216,8 +182,8 @@ function MemoryPanel({
         .pct
     : (headline?.pct ?? null)
 
-  const openHibernationSettings = (): void => {
-    setSettingsTab('hibernation')
+  const openIdleSessionsSettings = (): void => {
+    setSettingsTab('machines')
     setView('settings')
     onClose()
   }
@@ -253,7 +219,7 @@ function MemoryPanel({
               hibernation={hibernation}
               memPct={memPct}
               idleSessionCount={idleSessionCount}
-              onOpenSettings={openHibernationSettings}
+              onOpenSettings={openIdleSessionsSettings}
             />
           }
         />
@@ -285,20 +251,20 @@ function HibernationNote({
           {active ? (
             <>
               Memory is past the {hibernation.memoryPct}% threshold, so agents idle for{' '}
-              {hibernation.idleMinutes} min are being hibernated to free memory
-              {idleSessionCount > 0 ? ` (${idleSessionCount} hibernated). ` : '. '}
+              {hibernation.idleMinutes} min are being paused to free memory
+              {idleSessionCount > 0 ? ` (${idleSessionCount} paused). ` : '. '}
               One click resumes them.
             </>
           ) : (
             <>
-              Auto-hibernation is on: once memory crosses {hibernation.memoryPct}%, agents idle for{' '}
-              {hibernation.idleMinutes} min hibernate to free memory. One click resumes them.
+              Pause idle sessions is on: once memory crosses {hibernation.memoryPct}%, agents idle
+              for {hibernation.idleMinutes} min pause to free memory. One click resumes them.
             </>
           )}
         </p>
       ) : (
         <p className="m-0">
-          Auto-hibernation is off — idle agents keep their memory until you hibernate them by hand.
+          Pause idle sessions is off. Idle agents keep their memory until you pause them yourself.
         </p>
       )}
       <button
@@ -307,7 +273,7 @@ function HibernationNote({
         className="cursor-pointer self-start border-0 bg-transparent p-0 text-left text-primary underline underline-offset-2 hover:no-underline"
         onClick={onOpenSettings}
       >
-        Hibernation settings
+        Idle sessions settings
       </button>
     </div>
   )
@@ -465,11 +431,12 @@ function LegendSwatch({ className, label }: { className: string; label: string }
  * stopped. There is no apply-everything button on purpose: the operator asked
  * for the janitor's list to be approved row by row rather than accepted whole.
  *
- * Freeing keeps the branch (`issues.stop`); a dirty tree refuses and lands in
+ * Freeing keeps the branch (an `issue.stop` record); a dirty tree refuses and lands in
  * "held" with the server's reason.
  */
 function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
-  const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
+  const { trpc } = { trpc: useRequestClient<Trpc>() }
+  const stopIssue = useIssueActionOutcome()
   const lifecycle = useHostLifecycleSettings()
   const { inventory, error: inventoryError } = useReclaimInventory(trpc, machineId)
   const candidates = inventory?.candidates ?? []
@@ -502,7 +469,7 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
     })
 
   /**
-   * One free. `issues.stop` reports a refusal as `ok: true` with
+   * One free. A stop reports a refusal as `ok: true` with
    * `worktreeFreed: false` and a reason — it stopped the sessions, it just did
    * not take the disk — so the outcome is read off `worktreeFreed`, never off
    * "the call did not throw".
@@ -511,7 +478,11 @@ function ReclaimPanel({ machineId }: { machineId?: MachineId }): JSX.Element {
     const record = (reason: string): void =>
       setHeld((prev) => [...prev.filter((h) => h.issueId !== issueId), { issueId, reason }])
     try {
-      const result = await trpc.issues.stop.mutate({ id: issueId })
+      // An `issue.stop` record (POD-6526): its answer is the old command's.
+      const result = (await stopIssue(issueId, 'stop')) as {
+        worktreeFreed?: boolean
+        reason?: string
+      }
       if (result.worktreeFreed) {
         setFreed((prev) => (prev.includes(issueId) ? prev : [...prev, issueId]))
         setHeld((prev) => prev.filter((h) => h.issueId !== issueId))

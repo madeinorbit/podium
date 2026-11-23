@@ -10,7 +10,7 @@ import { makeIssue } from '@/lib/test-issue'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: <T,>(read: (state: object) => T) => read({}),
+  readFixture: <T,>(read: (state: object) => T) => read({}),
 }))
 
 afterEach(cleanup)

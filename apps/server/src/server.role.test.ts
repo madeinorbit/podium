@@ -11,6 +11,7 @@ import { noJanitorWorkerForTests } from './janitor-host'
 import { resolveServerRole } from './roles'
 import type { AppRouter } from './router'
 import { startServer } from './test-support/enrolled-server'
+import { renameMachine } from './test-support/machine-records'
 
 // Role composition (docs/offline-sync-architecture.md §4, issue #157): one
 // server binary, hub surfaces activated by role. These tests boot a REAL
@@ -91,11 +92,6 @@ describe('startServer with the hub role disabled (node shape)', () => {
   it('pairing/fleet procs are ABSENT: 404 NOT_FOUND, not permission-denied', async () => {
     for (const call of [
       () => trpc.machines.pairingCode.mutate(),
-      () =>
-        trpc.machines.rename.mutate({
-          id: handle.registry.modules.machines.hostMachineId,
-          name: 'nope',
-        }),
       () => trpc.machines.revoke.mutate({ id: handle.registry.modules.machines.hostMachineId }),
       () =>
         trpc.machines.moveServer.mutate({
@@ -182,11 +178,9 @@ describe('startServer with the hub role disabled (node shape)', () => {
       // written out: public-cutover.test.ts forbids that term repo-wide.)
       'machines.moveServer',
       'machines.pairingCode',
-      'machines.rename',
       'machines.revoke',
       // 34aa06cf2 (POD-4142) added assignment as a hub-gated fleet write.
       'machines.setAssignment',
-      'machines.setUpdateChannel',
       'machines.share',
       // 508b1c6c7 (POD-3965) added explicit machine supersession, hub-gated.
       'machines.supersede',
@@ -301,15 +295,17 @@ describe('startServer default role keeps hub surfaces on', () => {
    * everything, a handler that always throws, a name that never got built —
    * would produce the same 404-shaped evidence as a working role gate.
    */
-  it('machines.rename and machines.revoke work when the hub role IS on', async () => {
+  it('a machine rename and machines.revoke work when the hub role IS on', async () => {
     const trpc = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: `http://127.0.0.1:${handle.port}/trpc` })],
     })
     const host = handle.registry.modules.machines.hostMachineId
-    const renamed = await trpc.machines.rename.mutate({ id: host, name: 'renamed-host' })
-    expect(renamed.find((m) => m.id === host)?.name).toBe('renamed-host')
-    // The schema is the contract's, and it still refuses what it always refused.
-    await expect(trpc.machines.rename.mutate({ id: host, name: '' })).rejects.toThrow()
+    // A rename is a generic edit of the machine record (POD-6644).
+    const submitter = { sync: { submit: (envelope: never) => trpc.sync.submit.mutate(envelope) } }
+    await renameMachine(submitter as never, host, 'renamed-host')
+    expect((await trpc.machines.list.query()).find((m) => m.id === host)?.name).toBe('renamed-host')
+    // The record's schema still refuses what the command always refused.
+    await expect(renameMachine(submitter as never, host, '')).rejects.toThrow()
     // 23e55a7c2 (POD-4143) retains revoked rows for audit: revoke stamps
     // revokedAt instead of deleting, and listings keep the stamped row.
     const after = await trpc.machines.revoke.mutate({ id: 'joiner' })

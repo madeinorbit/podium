@@ -72,7 +72,6 @@
  * collections stay a review item.
  */
 
-import type { ColdQueries, HeldSummaries } from '@podium/client-graph/shared/cold-index'
 import { type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
 import { autorun } from 'mobx'
 import type { RowSource } from '../arm'
@@ -567,27 +566,6 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
     wrapSource(source: RowSource): RowSource {
       if (!enabled) return source
       const row = source.row?.bind(source)
-      const publications = new WeakMap<RowSourceEvent, RowSourceEvent>()
-      const indexes = new WeakMap<ColdQueries, ColdQueries>()
-      const wrapIndex = (index: ColdQueries): ColdQueries => {
-        const existing = indexes.get(index)
-        if (existing) return existing
-        // The index owns deltas by the original publication's identity;
-        // borrowing its rows must not sever that association.
-        const changes = (event: RowSourceEvent) => index.changes(publications.get(event) ?? event)
-        const methods = new Map<PropertyKey, unknown>()
-        const wrapped = new Proxy(index, {
-          get(target, key) {
-            if (key === 'changes') return changes
-            const value = Reflect.get(target, key, target)
-            if (typeof value !== 'function') return value
-            if (!methods.has(key)) methods.set(key, value.bind(target))
-            return methods.get(key)
-          },
-        })
-        indexes.set(index, wrapped)
-        return wrapped
-      }
       return {
         issueSessionFact: source.issueSessionFact,
         snapshot(kind) {
@@ -595,12 +573,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         },
         ...(source.companions ? { companions: () => source.companions!().map(borrowRecord) } : {}),
         ...(source.issueIdByRef ? { issueIdByRef: source.issueIdByRef.bind(source) } : {}),
-        // POD-5407: the feed's cold index answers declared questions, never
-        // rows; the arm reads every row through `row` below.
-        ...(source.cold
-          ? { cold: (summaries?: HeldSummaries) => wrapIndex(source.cold!(summaries)) }
-          : {}),
-        // A per-row read (a cold row's hydration, POD-4567) is a keyed read of
+        // A per-row read (whether the device holds a row) is a keyed read of
         // that row, and its value arrives borrowed like any other.
         ...(row === undefined
           ? {}
@@ -612,9 +585,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
             }),
         subscribe(listener) {
           return source.subscribe((event: RowSourceEvent) => {
-            const borrowed = { type: event.type, rows: event.rows.map(borrowRecord) }
-            publications.set(borrowed, event)
-            listener(borrowed)
+            listener({ type: event.type, rows: event.rows.map(borrowRecord) })
           })
         },
       }

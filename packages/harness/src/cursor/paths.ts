@@ -1,4 +1,3 @@
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 export interface CursorSessionPaths {
@@ -19,14 +18,16 @@ export function cursorProjectPathFromSlug(slug: string): string | undefined {
   return `/${trimmed.replace(/-/g, '/')}`
 }
 
-export function cursorRoot(homeDir?: string): string {
-  return join(homeDir ?? homedir(), '.cursor')
+/** The account home's Cursor folder (POD-6536: the home is required, never
+ *  `homedir()`). */
+export function cursorRoot(homeDir: string): string {
+  return join(homeDir, '.cursor')
 }
 
 export function cursorSessionPaths(opts: {
   cwd: string
   chatId: string
-  homeDir?: string
+  homeDir: string
 }): CursorSessionPaths {
   const projectSlug = cursorProjectSlug(opts.cwd)
   const transcriptDir = join(

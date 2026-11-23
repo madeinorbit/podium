@@ -23,7 +23,7 @@ import { makeIssue } from '@/lib/test-issue'
 
 const fixture = vi.hoisted(() => {
   const rows = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const infoQuery = vi.fn()
   return {
     issues: [] as ReturnType<typeof makeIssue>[],
@@ -38,9 +38,9 @@ const fixture = vi.hoisted(() => {
       set: (key: string, value: string | null) => {
         if (value === null) rows.delete(key)
         else rows.set(key, value)
-        for (const listener of listeners) listener()
+        for (const listener of listeners) listener(new Set([key]))
       },
-      subscribe: (listener: () => void) => {
+      subscribe: (listener: (keys: ReadonlySet<string>) => void) => {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
@@ -54,7 +54,7 @@ const fixture = vi.hoisted(() => {
 })
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (store: unknown) => unknown) =>
+  readFixture: (selector: (store: unknown) => unknown) =>
     selector(
       poolFixtureStore({
         uiState: fixture.uiState,

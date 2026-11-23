@@ -8,6 +8,7 @@ import { importUpdateSigningKey, mintUpdateSigningKey, rotateUpdateSigningKey } 
 import { acceptsUpdateKeyRotation } from '@podium/runtime/update-key-trust'
 import { asMachineId } from '@podium/model'
 import { SessionStore } from '../../store'
+import { testStoreEngine } from '../../test-support/pg-test-database'
 import { authenticateDaemon, type EnrollmentHost } from '../machines/enrollment'
 import { readOrCreateDevArtifactToken, readOrCreateUpdateSigningKey } from './signing-key'
 
@@ -30,7 +31,9 @@ afterEach(() => {
 })
 
 describe('server update signing key', () => {
-  it('imports the original pair through store upgrade, removes both files, and verifies with the paired pin after restart', async () => {
+  // The store upgrade imports a self-hosted install's legacy key files beside its database and a
+  // transfer copies that file; a Postgres install has neither (POD-6958 design 2.9).
+  it.skipIf(testStoreEngine() === 'pg')('imports the original pair through store upgrade, removes both files, and verifies with the paired pin after restart', async () => {
     const dir = temp()
     const original = mintUpdateSigningKey()
     writeFileSync(join(dir, 'update-signing-key.json'), JSON.stringify(original))

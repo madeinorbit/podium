@@ -1,5 +1,5 @@
 import { issueAgentKind, issueAgentLabel, modelName } from '@podium/client-core/agent-models'
-import { useHarnessDescriptors } from '@podium/client-core/react'
+import { useCommands, useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { sessionValues } from '@podium/client-core/session-values'
@@ -21,8 +21,8 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useStoreActions } from '../client/hooks'
 import { useScreenReadFocus } from '../client/screen-read-focus'
+import { useSessionCredentialLabel } from '../client/session-credential'
 import type { MobileTrpc } from '../client/trpc'
 import {
   useSessionContextBooting as useBooting,
@@ -251,7 +251,7 @@ const SessionMenus = forwardRef<
     onDeleted: () => void
   }
 >(function SessionMenus({ issue, onDeleted }, ref) {
-  const store = useStoreActions()
+  const store = useCommands<MobileTrpc>()
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   useImperativeHandle(ref, () => ({ confirmDelete: () => setConfirmDeleteOpen(true) }), [])
   // How many agents the draft-delete confirm names. Task scope, counted live:
@@ -270,7 +270,7 @@ const SessionMenus = forwardRef<
           destructive: true,
           onPress: () => {
             if (issue) {
-              void store.deleteIssue(issue.id).catch(() => {})
+              void store.issues.delete(issue.id).catch(() => {})
               onDeleted()
             }
           },
@@ -300,7 +300,9 @@ const SessionChrome = observer(function SessionChrome({
   const selectedModel = readoutModel(session)
   // Served descriptors for the session's machine (POD-4475): the harness
   // name and model render from the report, bundled copy offline.
-  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelName(kind, selectedModel, undefined, served)}` : ''}`
+  // The credential it runs on (credential management §9), read-only here.
+  const credential = useSessionCredentialLabel(session.credentialId)
+  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelName(kind, selectedModel, undefined, served)}` : ''}${credential && session.agentKind !== 'shell' ? ` · ${credential}` : ''}`
   const entries = useSessionMenuEntries(session, issue, menu)
   const menuTitle = sessionTitle(session)
   const actions = useMemo<readonly ScreenAction[]>(
@@ -335,9 +337,8 @@ function sessionMenuFacts(session: SessionView, issue: IssueViewModel | undefine
     snoozed: sessionValues(session).snoozedUntil !== undefined,
     errored: session.agentState?.phase === 'errored',
     live:
-      session.status === 'live' ||
-      session.status === 'starting' ||
-      session.status === 'reconnecting',
+      // A reconnecting session is a live or starting one (isSessionReconnecting).
+      session.status === 'live' || session.status === 'starting',
   }
 }
 type SessionMenuFacts = ReturnType<typeof sessionMenuFacts>
@@ -352,7 +353,7 @@ function useSessionMenuEntries(
   issue: IssueViewModel | undefined,
   handlers: SessionMenuHandlers,
 ): readonly ScreenMenuEntry[] {
-  const store = useStoreActions()
+  const store = useCommands<MobileTrpc>()
   const facts = useMemo(
     () => computed(() => sessionMenuFacts(session, issue), { equals: compareStructural }),
     [issue, session],
@@ -363,7 +364,7 @@ function useSessionMenuEntries(
   return useMemo(() => sessionMenuEntries(current, store, handlers), [handlers, key, store])
 }
 
-type SessionMenuStore = ReturnType<typeof useStoreActions>
+type SessionMenuStore = ReturnType<typeof useCommands<MobileTrpc>>
 
 function sessionMenuEntries(
   facts: SessionMenuFacts,
@@ -403,14 +404,14 @@ function sessionMenuEntries(
               {
                 label: facts.pinned ? 'Unpin' : 'Pin',
                 icon: facts.pinned ? PinOff : Pin,
-                onPress: () => void store.updateIssue(issueId, { pinned: !facts.pinned }),
+                onPress: () => void store.preferences.setPinned('issue', issueId, !facts.pinned),
               },
             ]
           : []),
         {
           label: facts.archived ? 'Unarchive' : 'Archive',
           icon: facts.archived ? ArchiveRestore : Archive,
-          onPress: () => void store.archiveSession(sessionId, !facts.archived),
+          onPress: () => void store.sessions.archive(sessionId, !facts.archived),
         },
         {
           title: 'Work State',
@@ -419,7 +420,7 @@ function sessionMenuEntries(
           items: WORK_STATES.map((ws) => ({
             label: ws ? ws[0].toUpperCase() + ws.slice(1) : 'Unsorted',
             selected: facts.workState === ws,
-            onPress: () => void store.setWorkState(sessionId, ws),
+            onPress: () => void store.sessions.setWorkState(sessionId, ws),
           })),
         },
         {
@@ -431,16 +432,16 @@ function sessionMenuEntries(
               items: [
                 {
                   label: 'Until Next Message',
-                  onPress: () => void store.setSnooze(sessionId, null),
+                  onPress: () => void store.sessions.snooze(sessionId, null),
                 },
                 {
                   label: 'For 1 Hour',
-                  onPress: () => void store.setSnooze(sessionId, snoozeUntil1h(Date.now())),
+                  onPress: () => void store.sessions.snooze(sessionId, snoozeUntil1h(Date.now())),
                 },
                 {
                   label: 'Until Tomorrow',
                   onPress: () =>
-                    void store.setSnooze(sessionId, snoozeUntilTomorrow5am(Date.now())),
+                    void store.sessions.snooze(sessionId, snoozeUntilTomorrow5am(Date.now())),
                 },
               ],
             },
@@ -450,7 +451,7 @@ function sessionMenuEntries(
                     items: [
                       {
                         label: 'Clear Snooze',
-                        onPress: () => void store.clearSnooze(sessionId),
+                        onPress: () => void store.sessions.clearSnooze(sessionId),
                       },
                     ],
                   },
@@ -467,7 +468,7 @@ function sessionMenuEntries(
               {
                 label: 'Continue After Error',
                 icon: RefreshCw,
-                onPress: () => void store.continueSession(sessionId),
+                onPress: () => void store.sessions.continueSession(sessionId),
               },
             ],
           },
@@ -481,7 +482,7 @@ function sessionMenuEntries(
                 label: 'Kill Session',
                 icon: XOctagon,
                 destructive: true,
-                onPress: () => void store.killSession(sessionId),
+                onPress: () => void store.sessions.killSession(sessionId),
               },
             ],
           },

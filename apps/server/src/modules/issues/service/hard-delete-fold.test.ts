@@ -34,7 +34,7 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
   }
 
   const draft = async (registry: SessionRegistry, title: string) =>
-    await registry.issues.crud.create({ repoPath: '/repo', title, draft: true, startNow: false })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/repo', title, draft: true, startNow: false })
 
   it('does not purge from memory when the enclosing span rolls back', async () => {
     const { store, registry } = await build()
@@ -78,14 +78,14 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
     // purge — including writes made earlier in that same span.
     const { store, registry } = await build()
     const doomed = await draft(registry, 'the abandoned vessel')
-    const bystander = await registry.issues.crud.create({
+    const bystander = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'committed title',
       startNow: false,
     })
 
     await expect(store.transact(async () => {
-        await registry.issues.crud.update(bystander.id, { title: 'written in the same span' })
+        await registry.issues.crud.update(registry.issues.reports.store.serverWriter, bystander.id, { title: 'written in the same span' })
         await registry.issues.crud.purgeEmptyDraft(doomed.id)
         throw new Error('enclosing span failed')
       }),
@@ -104,7 +104,7 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
     // database still has their parent.
     const { store, registry } = await build()
     const parent = await draft(registry, 'the abandoned vessel')
-    const child = await registry.issues.crud.create({
+    const child = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'a child pointing at it',
       parentId: parent.id,
@@ -130,7 +130,7 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
   it('leaves the map and the database agreeing after a rolled-back purge', async () => {
     const { store, registry } = await build()
     const doomed = await draft(registry, 'the abandoned vessel')
-    await registry.issues.crud.create({ repoPath: '/repo', title: 'committed issue', startNow: false })
+    await registry.issues.crud.create(registry.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'committed issue', startNow: false })
 
     await expect(store.transact(async () => {
         await registry.issues.crud.purgeEmptyDraft(doomed.id)

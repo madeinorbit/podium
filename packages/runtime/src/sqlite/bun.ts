@@ -22,7 +22,7 @@ interface BunDb {
 }
 type BunCtor = (new (
   path: string,
-  options?: { readonly?: boolean; create?: boolean },
+  options?: { readonly?: boolean; create?: boolean } | number,
 ) => BunDb) & {
   /** `sqlite3_deserialize` — a NEW in-memory database holding a COPY of `image`. */
   deserialize(image: Uint8Array, readOnly?: boolean): BunDb
@@ -61,7 +61,14 @@ export function aliasBunSqliteClient(original: SqlDatabase, alias: SqlDatabase):
   if (raw) rawByWrapper.set(alias, raw)
 }
 
+/** `SQLITE_OPEN_READONLY | SQLITE_OPEN_URI`: bun:sqlite reads a `file:` URI only with these flags. */
+const READ_ONLY_URI = 0x1 | 0x40
+
 export function openBunDatabase(path: string, opts?: OpenOptions): SqlDatabase {
+  if (opts?.immutable) {
+    const uri = `file:${path.replace(/[?#%]/g, encodeURIComponent)}?mode=ro&immutable=1`
+    return wrap(new (database())(uri, READ_ONLY_URI))
+  }
   // bun:sqlite: `readonly` (lowercase), and read-write must opt into file creation.
   const db = opts?.readOnly
     ? new (database())(path, { readonly: true })

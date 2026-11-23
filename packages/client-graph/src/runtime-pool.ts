@@ -1,28 +1,22 @@
-import { DeadlineClock } from './clock'
-import { omitGone } from './lookup'
-import { worklistView } from './worklist/view-model'
-import { sessionPaneView } from './session-pane-view'
-import { shellViews } from './shell-views'
-import { attachPreferenceSource } from './preference-source'
-import type { SessionPhaseChange } from '@podium/client-core/sound'
-import { attachSettingsSource } from './settings-source'
-import { optimisticDraftSortKey } from '@podium/client-core/values'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { asUserId } from '@podium/model'
+import type { SessionPhaseChange } from '@podium/client-core/sound'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import { Reaction, runInAction } from 'mobx'
+import { asUserId, layoutRowId, matchesWhere, SIDEBAR_WHERE } from '@podium/model'
+import { Reaction, runInAction, untracked } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
+import { DeadlineClock } from './clock'
 import { createWorklistPool, type WorklistPoolHandle } from './create'
 import { attachHeaderSource } from './header-source'
+import { issueSearch } from './issue-search'
+import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
-import type { SettingsOwner } from './settings-source'
-import { createEngineLocals, type LocalsEngine } from './shared/engine-locals'
-import {
-  createRowSource,
-  type RowSourceReplica,
-  type RowSourceRuntime,
-} from './shared/row-source'
-import type { PoolSummaryFields } from './source-registry'
+import { attachPreferenceSource } from './preference-source'
+import { sessionPaneView } from './session-pane-view'
+import { attachSettingsSource } from './settings-source'
+import { createRowSource, type RowSourceRuntime } from './shared/row-source'
+import { shellViews } from './shell-views'
+import { draftSortKey } from './write/launch-rows'
+import { startEffects } from './write/start-effects'
 import {
   createPoolTransactions,
   type PoolTransactions,
@@ -136,7 +130,10 @@ interface ProjectionState<T> {
  * A hidden retained fold must pause before that check, otherwise marking the
  * snapshot dirty would already have recomputed its entire row graph. */
 class ProjectionReaction<T> extends Reaction {
-  constructor(private readonly state: ProjectionState<T>, invalidate: () => void) {
+  constructor(
+    private readonly state: ProjectionState<T>,
+    invalidate: () => void,
+  ) {
     super(state.name, invalidate)
   }
 
@@ -225,22 +222,23 @@ function releaseProjection<T>(state: ProjectionState<T>): void {
 
 /** Structural seam satisfied by the app's StoreProvider runtime. */
 export type WorklistRuntime = RowSourceRuntime &
-  LocalsEngine & {
+  Pick<
+    import('@podium/client-core/runtime-root').ClientRuntime,
+    'ui' | 'services' | 'replica' | 'pool' | 'attachPool' | 'api'
+  > & {
+    readonly live?: import('@podium/client-core/live').LiveStore
     /** Historical corpus harness only; production supplies no manual clock. */
     fixtureClock?: { now(): number; subscribe(tick: (now: number) => void): () => void }
-    readonly replica: RowSourceReplica
-    readonly ui?: RoutedUiState
-    attachWorklistSelection?(selection: { readonly selectedId: string | null; select(id: string | null): void }): () => void
+    readonly deviceState?: RoutedUiState
+    readonly layout?: import('@podium/client-core/ui').LayoutAccess
+    /** This user's LiveStore (POD-5798); machine models read their live fields from it. */
     attachSessionPhases?(read: () => readonly SessionPhaseChange[]): () => void
   }
-
-const spawnPools = new WeakMap<object, MobxPool>()
 
 /** What the transaction log needs from the runtime beyond the row feed. */
 type TransactionsRuntime = WorklistRuntime & {
   readonly principal: { userId: string }
   readonly subscribeOutboxOutcomes: PoolTransactionsPorts['outcomes']
-  readonly outbox: PoolTransactionsPorts['outbox'] & { enqueue: import('@podium/client-core/engine').EngineOutbox['enqueue']; retireAwaiting(id: import('@podium/model').MutationId): void }
   /** Routes the runtime's queued actions through the log (POD-5432). */
   readonly attachPoolWriter: (writer: PoolTransactions) => () => void
 }
@@ -248,33 +246,92 @@ type TransactionsRuntime = WorklistRuntime & {
 /** The transaction log over the app's runtime; fixtures reuse this wiring. */
 export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransactions {
   const rt = runtime as Partial<TransactionsRuntime>
+  const outbox = rt.services?.outbox.queue
   const subscribeAddressed = runtime.replica.subscribeAddressedBatch?.bind(runtime.replica)
-  if (!rt.principal || !rt.outbox || !rt.subscribeOutboxOutcomes ||
-    !rt.attachPoolWriter || !subscribeAddressed) {
-    throw new Error('Pool transactions require the runtime principal, outbox, outcome and addressed writer seams')
+  if (
+    !rt.principal ||
+    !outbox ||
+    !rt.subscribeOutboxOutcomes ||
+    !rt.attachPoolWriter ||
+    !subscribeAddressed
+  ) {
+    throw new Error(
+      'Pool transactions require the runtime principal, outbox, outcome and addressed writer seams',
+    )
   }
-  return createPoolTransactions({
+  const transactions = createPoolTransactions({
+    // THE STARTS' LAUNCH RECORDS (POD-6408, POD-6410, POD-6411): the attached
+    // pool's own effect models, a tracked read the log watches, so the paint
+    // reconciles after the publication that moved a record and reads what the
+    // pool shows. Unknown while no pool is attached.
+    launchEffects: () => {
+      const pool = runtime.pool as MobxPool | undefined
+      return pool === undefined ? undefined : startEffects(pool)
+    },
     userId: rt.principal.userId,
-    outbox: rt.outbox,
+    outbox,
     outcomes: rt.subscribeOutboxOutcomes,
-    enqueue: async (kind, input, opts) => { await rt.outbox!.enqueue(kind, input, opts) },
-    retire: id => rt.outbox!.retireAwaiting(id),
+    enqueue: async (kind, input, opts) => {
+      await outbox.enqueue(kind, input, opts)
+    },
     addressed: subscribeAddressed,
-    spawn: {
-      api: (runtime as unknown as { access: { trpc: import('@podium/client-core').PodiumClientApi } }).access.trpc,
-      userId: asUserId(rt.principal.userId),
-      notices: (runtime as unknown as { spawnNotices: import('@podium/client-core/engine').StoreNotices }).spawnNotices,
-      graceMs: (runtime as unknown as { spawnGraceMs?: number }).spawnGraceMs,
-      sortKey: target => runInAction(() => {
-        const pool = spawnPools.get(runtime)
-        if (!pool) throw new Error('Pool spawn placement is not attached')
-        const issues = pool.queries.indexed({ kind: 'spawnIssues', repoPath: target.repoPath, ...(target.repoId ? { repoId: target.repoId } : {}) })
-          // untracked-read: spawn-sort-peek
-          .map(id => omitGone(pool.row('issue', id, 'peek'))).filter(row => row && typeof row !== 'symbol')
-        return optimisticDraftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
+    // POD-7087: a command on a record the device does not hold makes no
+    // optimistic change; its result arrives through the feed.
+    holds: (entity, id) => {
+      const replica = runtime.replica
+      if (replica.row === undefined) return true
+      // untracked-read: command-target-held
+      return untracked(() => replica.row!(entity, id) !== undefined)
+    },
+    // A new record's placement guess (POD-6400): the held repos whose field
+    // matches (an issue's repo by its path). Repos only: a handful of rows, read
+    // when a create is reduced, never observed. Any other table answers none.
+    known: (entity, field, value) =>
+      // untracked-read: fresh-record-placement
+      untracked(() => {
+        const repos =
+          entity === 'repo' ? (runtime.pool as MobxPool | undefined)?.tables.repo : undefined
+        if (!repos) return []
+        const ids: string[] = []
+        for (const [id, row] of repos)
+          if ((row as Record<string, unknown>)[field] === value) ids.push(id)
+        return ids
       }),
+    spawn: {
+      userId: asUserId(rt.principal.userId),
+      notices: (runtime as unknown as { notices: import('@podium/client-core/notices').NoticeSink })
+        .notices,
+      sortKey: (target) =>
+        runInAction(() => {
+          const pool = runtime.pool as MobxPool | undefined
+          if (!pool) throw new Error('Pool spawn placement is not attached')
+          const issues = pool.queries
+            .indexed({
+              kind: 'spawnIssues',
+              repoPath: target.repoPath,
+              ...(target.repoId ? { repoId: target.repoId } : {}),
+            })
+            // untracked-read: spawn-sort-peek
+            .map((id) => omitGone(pool.row('issue', id, 'peek')))
+            // The top of the list a new task joins is the sidebar's: open
+            // issues that are not proposed, which the device holds whole
+            // (POD-7088, design "Position of a new task"). Closed history,
+            // which the device does not hold, never takes part.
+            .filter(
+              (row) =>
+                row &&
+                typeof row !== 'symbol' &&
+                // The sidebar rule tests no time, so no clock is read.
+                matchesWhere(SIDEBAR_WHERE, row as unknown as Record<string, unknown>, {
+                  now: 0,
+                  args: {},
+                }),
+            )
+          return draftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
+        }),
     },
   })
+  return transactions
 }
 
 /** Route the runtime's queued actions through the log; returns the detach. */
@@ -295,26 +352,25 @@ export function createRuntimeWorklistPool(
     preferences?: boolean
     settings?: boolean
     header?: boolean
-    summaries?: PoolSummaryFields
   } = {},
 ): WorklistPoolHandle & { readonly transactions: PoolTransactions } {
   const transactions = createRuntimeTransactions(runtime)
   let rows: ReturnType<typeof createRowSource>
   try {
-    rows = createRowSource(runtime, runtime.replica,
-      { pending: transactions.pending })
+    rows = createRowSource(runtime, runtime.replica, { pending: transactions.pending })
   } catch (error) {
     transactions.dispose()
     throw error
   }
   let stopWriter: (() => void) | undefined
-  let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
   let stopSelection: (() => void) | undefined
   let stopHeader: (() => void) | undefined
   let stopSounds: (() => void) | undefined
+  let release: (() => void) | undefined
+  let attached: WorklistPoolHandle
+  let disposed = false
   try {
-    locals = createEngineLocals(runtime)
     handle = createWorklistPool(
       {
         ...rows.source,
@@ -325,54 +381,82 @@ export function createRuntimeWorklistPool(
           : {}),
         subscribe: (listener) => rows.source.subscribe(listener),
       },
-      locals.source,
+      { get: () => ({ selectedIssueId: null }), subscribe: () => () => {} },
       // POD-5423: the worklist's lanes are filed only while a screen that
       // draws them holds them (its pool screen's attachment) or reads them.
       {
-        header: options.header,
         settings: options.settings,
-        summaries: options.summaries,
         worklist: 'demand',
         ...(runtime.fixtureClock ? { clock: new DeadlineClock(runtime.fixtureClock.now()) } : {}),
       },
-      runtime.attachWorklistSelection ? 'worklist' : 'locals',
+      'worklist',
     )
-    stopSelection = runtime.attachWorklistSelection?.(worklistView(handle.pool))
+    if (runtime.live) handle.pool.bindLive(runtime.live)
+    const pool = handle.pool
+    issueSearch(pool).bind((input) => runtime.api.issues.searchNormalized.query(input))
+    const principal = runtime.principal
+    let stopLayout: () => void = () => {}
+    if (runtime.layout && principal) {
+      const layout = runtime.layout
+      const readLayout = (key: string) => {
+        const model = pool.model('userLayout', layoutRowId(asUserId(principal.userId), key))
+        return model && typeof model !== 'symbol' && !('reason' in model) ? model.value : undefined
+      }
+      stopLayout = layout.attach(readLayout)
+      pool.bindLayout({
+        read: readLayout,
+        ready: (key) =>
+          typeof pool.model('userLayout', layoutRowId(asUserId(principal.userId), key)) !==
+          'symbol',
+        write: (key, value) => layout.set(key, value),
+      })
+    }
+    const disposePool = handle.dispose.bind(handle)
+    handle.dispose = () => {
+      stopLayout()
+      disposePool()
+    }
+    handle.pool.bindUi(runtime.ui)
     // This module loads behind the host's graph import. Register the screen
     // companions before it publishes the pool; eager hooks acquire only types.
     if (options.sessionPane) sessionPaneView(handle.pool)
     if (options.shell) shellViews(handle.pool)
     if (options.preferences || options.settings) {
-      if (!runtime.ui) throw new Error('Preferences require the existing runtime UI owner')
-      attachPreferenceSource(handle.pool, runtime.ui)
+      if (!runtime.deviceState) throw new Error('Preferences require the existing runtime UI owner')
+      attachPreferenceSource(handle.pool, runtime.deviceState)
     }
     if (options.settings) {
-      const owner = runtime as unknown as Partial<SettingsOwner> & Pick<SettingsOwner, 'readLocal'>
-      if (
-        typeof owner.onList !== 'function' ||
-        !Array.isArray(owner.readLocal('machines')) ||
-        owner.readLocal('settingsTab') === undefined
-      ) {
-        throw new Error('Settings require the existing runtime catalog and window owner')
+      const owner = { ui: runtime.ui, replica: runtime.replica }
+      if (owner.replica === undefined || owner.ui === undefined) {
+        throw new Error('Settings require the existing runtime replica and window owner')
       }
-      // The shared row-source seam exposes only its repo inputs. The provider
-      // runtime also owns the catalog/window fields checked above.
-      attachSettingsSource(handle.pool, runtime as WorklistRuntime & SettingsOwner, !options.header)
+      // Machines and repositories come from the replica's records (POD-6644);
+      // the provider runtime owns the window field checked above.
+      attachSettingsSource(handle.pool, { ui: owner.ui, replica: owner.replica })
     }
     if (options.header)
       stopHeader = attachHeaderSource(
         handle.pool,
         runtime as Parameters<typeof attachHeaderSource>[1],
       )
-    spawnPools.set(runtime, handle.pool)
     const phasePool = handle.pool
     stopSounds = runtime.attachSessionPhases?.(() => phasePool.sessionPhaseChanges.get())
     if (runtime.fixtureClock) {
-      const stopClock = runtime.fixtureClock.subscribe(value => handle!.pool.clock.advance(value))
+      const stopClock = runtime.fixtureClock.subscribe((value) => handle!.pool.clock.advance(value))
       const previousStop = stopSounds
-      stopSounds = () => { stopClock(); previousStop?.() }
+      stopSounds = () => {
+        stopClock()
+        previousStop?.()
+      }
     }
-    transactions.bind(rows)
+    // One action: the bind paints the starts queued before a reload, which
+    // place their task by this pool, and the log's launch watch first reads
+    // this pool's effects with the feed bound to judge them by.
+    attached = handle
+    runInAction(() => {
+      release = runtime.attachPool(phasePool, () => dispose())
+      transactions.bind(rows)
+    })
     handle.pool.attachTransactions(transactions, true)
     stopWriter = attachRuntimeWriter(runtime, transactions)
   } catch (error) {
@@ -381,32 +465,27 @@ export function createRuntimeWorklistPool(
     stopWriter?.()
     stopHeader?.()
     handle?.dispose()
-    locals?.dispose()
     transactions.dispose()
+    release?.()
     rows.dispose()
     throw error
   }
-  const attached = handle
-  let disposed = false
-  return {
-    pool: attached.pool,
-    transactions,
-    dispose(): void {
-      if (disposed) return
-      disposed = true
-      // First: no action may reach a log that is going away.
-      stopWriter?.()
-      stopSelection?.()
-      stopSounds?.()
-      spawnPools.delete(runtime)
-      stopHeader?.()
-      try {
-        attached.dispose()
-      } finally {
-        transactions.dispose()
-        locals?.dispose()
-        rows.dispose()
-      }
-    },
+  function dispose(): void {
+    if (disposed) return
+    disposed = true
+    // First: no action may reach a log that is going away.
+    stopWriter?.()
+    stopSelection?.()
+    stopSounds?.()
+    stopHeader?.()
+    // Let go of the pool before it empties its tables: the log's launch
+    // watch then has nothing to judge, rather than every start gone.
+    try {
+      attached.dispose()
+    } finally {
+      transactions.dispose()
+      rows.dispose()
+    }
   }
+  return { pool: attached.pool, transactions, dispose: release! }
 }

@@ -7,10 +7,12 @@
  * that opt-out is real rather than asserted.
  */
 
+import { createPrivateKey } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
+import { parseInstallationIdentity } from '@podium/runtime/installation-identity'
 import { openDatabase, openDatabaseFromImage, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
@@ -108,16 +110,76 @@ function allRows(db: SqlDatabase): Record<string, unknown[]> {
     rows[table] = (db.prepare(`SELECT * FROM "${table}"`).all() as Record<string, unknown>[]).map(
       (row) =>
         Object.fromEntries(
-          Object.entries(row).map(([column, value]) => [
-            column,
-            typeof value !== 'string'
-              ? value
-              : ISO_INSTANT.test(value)
-                ? '<instant>'
-                : BRANDED_ID.test(value)
-                  ? '<minted-id>'
-                  : value,
-          ]),
+          Object.entries(row).map(([column, value]) => {
+            // Each independent boot mints its installation secrets. Validate
+            // their shape before normalizing only generated identity values;
+            // all other DML values and secret rows still compare byte for byte.
+            // The fingerprint key is a workspace's own secret since POD-7013.
+            if (
+              table === 'workspace_secrets' &&
+              column === 'value' &&
+              row.key === 'settings.fingerprintKey'
+            ) {
+              expect(value).toMatch(/^[a-f0-9]{64}$/)
+              return [column, '<generated-fingerprint-key>']
+            }
+            if (table === 'server_secrets' && column === 'value') {
+              if (row.key === 'settings.fingerprintKey') {
+                expect(value).toMatch(/^[a-f0-9]{64}$/)
+                return [column, '<generated-fingerprint-key>']
+              }
+              if (row.key === 'installation.privateKey') {
+                const key = createPrivateKey({
+                  key: Buffer.from(String(value), 'base64'),
+                  format: 'der',
+                  type: 'pkcs8',
+                })
+                expect(key.asymmetricKeyType).toBe('ed25519')
+                return [column, '<generated-installation-key>']
+              }
+            }
+            // The tenant feed's identity is minted per database when no older
+            // identity exists (tenant-sync-feed, POD-6253): shape, not value.
+            if (table === 'sync_feed' && (column === 'feed_id' || column === 'epoch')) {
+              expect(value).toMatch(
+                new RegExp(`^${column === 'feed_id' ? 'feed' : 'epoch'}-[a-f0-9]{32}$`),
+              )
+              return [column, `<minted-${column}>`]
+            }
+            if (table === 'meta' && row.key === 'installation_identity' && column === 'value') {
+              const metadata = JSON.parse(String(value))
+              const secret = db
+                .prepare('SELECT value FROM server_secrets WHERE key = ?')
+                .get('installation.privateKey') as { value: string }
+              const identity = parseInstallationIdentity(
+                'migration fixture',
+                JSON.stringify({ ...metadata, privateKey: secret.value }),
+              )
+              expect(identity.createdAt).toMatch(ISO_INSTANT)
+              const createdAtMs = Date.parse(identity.createdAt)
+              expect(Number.isFinite(createdAtMs)).toBe(true)
+              expect(new Date(createdAtMs).toISOString()).toBe(identity.createdAt)
+              return [
+                column,
+                JSON.stringify({
+                  ...metadata,
+                  installationId: '<minted-installation-id>',
+                  publicKey: '<generated-public-key>',
+                  createdAt: '<instant>',
+                }),
+              ]
+            }
+            return [
+              column,
+              typeof value !== 'string'
+                ? value
+                : ISO_INSTANT.test(value)
+                  ? '<instant>'
+                  : BRANDED_ID.test(value)
+                    ? '<minted-id>'
+                    : value,
+            ]
+          }),
         ),
     )
   }
@@ -131,11 +193,15 @@ describe('migration suites keep the full 54-step path [POD-523]', () => {
     expect(storeDatabaseOpenerInstalled()).toBe(false)
   })
 
-  it('still applies every migration in the manifest on a fresh database', () => {
+  it('applies schema migrations before import retirement on a fresh database', () => {
     const db = openDatabase(':memory:')
     db.exec('PRAGMA foreign_keys = OFF')
     const applied = runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    expect(applied).toEqual(DRIZZLE_MIGRATIONS.map((m) => m.name))
+    expect(applied).toEqual(
+      DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import')).map(
+        (m) => m.name,
+      ),
+    )
     db.close()
   })
 
@@ -169,11 +235,13 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     expect(fromClone.rows, DISAGREEMENT).toEqual(fromChain.rows)
   })
 
-  it('carries the whole migration ledger, so nothing is left pending', async () => {
+  it('carries schema migrations and leaves import retirement pending', async () => {
     installPreMigratedStoreFixture()
     const store = await openTestStore(':memory:')
     expect([...appliedDrizzleNames(raw(store))].sort()).toEqual(
-      DRIZZLE_MIGRATIONS.map((m) => m.name).sort(),
+      DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import'))
+        .map((m) => m.name)
+        .sort(),
     )
     await store.close()
   })
@@ -184,7 +252,9 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
 
     const fresh = join(dir, 'fresh.db')
     const seeded = await openTestStore(fresh)
-    expect(appliedDrizzleNames(raw(seeded)).size).toBe(DRIZZLE_MIGRATIONS.length)
+    expect(appliedDrizzleNames(raw(seeded)).size).toBe(
+      DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import')).length,
+    )
     await seeded.close()
 
     // A database the test built on purpose (here: one migration deep) must NOT be
@@ -196,7 +266,9 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     old.close()
     const upgraded = await openTestStore(existing)
     // It advanced by its pending migrations rather than being replaced by the image.
-    expect(appliedDrizzleNames(raw(upgraded)).size).toBe(DRIZZLE_MIGRATIONS.length)
+    expect(appliedDrizzleNames(raw(upgraded)).size).toBe(
+      DRIZZLE_MIGRATIONS.filter((m) => !m.sql.startsWith('-- after-local-identity-import')).length,
+    )
     await upgraded.close()
   })
 })

@@ -9,8 +9,8 @@ import {
   updateFirstTaskDraftAttachments,
   withoutCreateReservation,
 } from './first-task-draft'
-import { memoryStorage, type StorageEventApi } from './replica/contract'
-import { createSideCache } from './replica/kernel/side-cache'
+import { memoryStorage } from './replica/contract'
+import { openLegacyDeviceKeys } from './ui/draft-storage'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from './ui-state'
 
 const image: ComposerAttachment = {
@@ -25,13 +25,9 @@ const image: ComposerAttachment = {
 describe('first-task attachment recovery', () => {
   it('keeps a live upload when another web tab opens the same draft storage', () => {
     const storage = memoryStorage()
-    const listeners = new Set<(event: StorageEvent) => void>()
-    const storageEventApi: StorageEventApi = {
-      addEventListener: (_type, listener) => void listeners.add(listener),
-      removeEventListener: (_type, listener) => void listeners.delete(listener),
-    }
-    const init = { storage, enumerateKeys: () => [], storageEventApi }
-    const tabA = createSideCache(init)
+    // A web owner never opts in: another tab may still own the upload promise.
+    const open = () => openLegacyDeviceKeys({ storage, keyPrefix: 'test', enumerateKeys: () => [] })
+    const tabA = open()
     const uploading: ComposerAttachment = {
       id: 'live-chip',
       name: 'shot.png',
@@ -44,34 +40,14 @@ describe('first-task attachment recovery', () => {
       attachments: [uploading, image],
       createMutationId: asMutationId('live-reservation'),
     }
-    persistFirstTaskDraft(tabA.uiState(), draft)
-    const uiKey = 'podium.kernel-replica.uistate.v1'
+    persistFirstTaskDraft(tabA, draft)
+    const uiKey = 'test.uistate.v1'
     const checkpoint = storage.getItem(uiKey)
 
-    // A still owns its upload promise when B opens on the same localStorage.
-    const tabB = createSideCache(init)
-    const fireStorage = () => {
-      for (const listener of listeners) listener({ key: uiKey } as StorageEvent)
-    }
-    try {
-      // Deliver any construction-time write from B back to A's live listener.
-      fireStorage()
-      const read = (tab: typeof tabA) =>
-        readFirstTaskDraft(tab.uiState().get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
-      expect(read(tabA)).toEqual(draft)
-      expect(read(tabB)).toEqual(draft)
-      expect(storage.getItem(uiKey)).toBe(checkpoint)
-
-      const completed = { ...uploading, state: 'ready' as const, ref: image.ref }
-      updateFirstTaskDraftAttachments(tabA.uiState(), (current) =>
-        current.map((chip) => (chip.id === uploading.id ? completed : chip)),
-      )
-      fireStorage()
-      expect(read(tabB).attachments).toEqual([completed, image])
-    } finally {
-      tabA.dispose()
-      tabB.dispose()
-    }
+    const tabB = open()
+    expect(readFirstTaskDraft(tabB.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))).toEqual(draft)
+    expect(storage.getItem(uiKey)).toBe(checkpoint)
+    expect(readFirstTaskDraft(tabA.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))).toEqual(draft)
   })
 
   it('marks orphan uploads as removable failures on native cold hydration and retains ready refs', () => {
@@ -82,25 +58,28 @@ describe('first-task attachment recovery', () => {
       previewUri: '',
       state: 'uploading',
     }
-    const before = createSideCache({ storage, enumerateKeys: () => [] })
-    persistFirstTaskDraft(before.uiState(), {
+    const open = (native = false) =>
+      openLegacyDeviceKeys({
+        storage,
+        keyPrefix: 'test',
+        enumerateKeys: () => [],
+        ...(native ? { recoverInterruptedDraftUploads: true } : {}),
+      })
+    const before = open()
+    persistFirstTaskDraft(before, {
       ...EMPTY_FIRST_TASK_DRAFT,
       title: 'Keep this prompt and the completed image',
       attachments: [uploading, image],
     })
     // Ordinary reads during a live upload must keep waiting for its promise.
-    expect(
-      readFirstTaskDraft(before.uiState().get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).attachments,
-    ).toEqual([uploading, image])
-    before.dispose()
+    expect(readFirstTaskDraft(before.get(FIRST_TASK_ACTIVATION_DRAFT_KEY)).attachments).toEqual([
+      uploading,
+      image,
+    ])
 
-    const reopened = createSideCache({
-      storage,
-      enumerateKeys: () => [],
-      recoverInterruptedDraftUploads: true,
-    })
-    try {
-      const ui = reopened.uiState()
+    // The next native run opens the device's keys again.
+    {
+      const ui = open(true)
       const recovered = readFirstTaskDraft(ui.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))
       expect(recovered).toMatchObject({
         title: 'Keep this prompt and the completed image',
@@ -120,8 +99,6 @@ describe('first-task attachment recovery', () => {
         ...recovered,
         attachments: [image],
       })
-    } finally {
-      reopened.dispose()
     }
   })
 
@@ -201,8 +178,8 @@ describe('first-task attachment recovery', () => {
       }),
       removeItem: () => {},
     }
-    const side = createSideCache({ storage, enumerateKeys: () => [] })
-    const ui = side.uiState()
+    // Upstream's device keys: the UiState over this device's storage.
+    const ui = openLegacyDeviceKeys({ storage, keyPrefix: 'test', enumerateKeys: () => [] })
     const changed = vi.fn()
     const stop = ui.subscribe(changed)
     try {
@@ -216,7 +193,6 @@ describe('first-task attachment recovery', () => {
       })
     } finally {
       stop()
-      side.dispose()
     }
   })
 

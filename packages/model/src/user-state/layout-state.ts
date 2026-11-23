@@ -74,8 +74,6 @@ export const LAYOUT_EXACT_KEYS = [
   'rightPanel',
   /** Per-session terminal presentation: chat vs native map. */
   'panelMode',
-  /** Default panel mode for new sessions. */
-  'panelModeDefault',
   /** Sidebar chrome layout variant (e.g. unified). */
   'sidebarLayout',
   /** Legacy sidebar sub-tab when present. */
@@ -84,6 +82,12 @@ export const LAYOUT_EXACT_KEYS = [
   'homeMode',
   /** Issues list display mode. */
   'issues.display',
+  /** Tasks filters that follow the member: Assigned to, Show agent tasks (POD-6294). */
+  'issues.filters',
+  /** Deliberate view options follow the user; screen geometry does not. */
+  'mission.options',
+  'phone.tasks.options',
+  'phone.board.lanes',
   /** HTML file tab presentation modes, map of tabId → mode. */
   'htmlmode',
   /** Markdown file tab presentation modes, map of tabId → mode. */
@@ -122,6 +126,8 @@ const EXACT_SET: ReadonlySet<string> = new Set(LAYOUT_EXACT_KEYS)
  * or a dynamic key under an allowed prefix.
  */
 export function isLayoutKey(key: string): boolean {
+  // LEGACY(remove-after: 2027-02): accept stored panelModeDefault layout rows; removing this rejects pre-redesign records.
+  if (key === 'panelModeDefault') return true
   if (EXACT_SET.has(key)) return true
   for (const prefix of LAYOUT_KEY_PREFIXES) {
     if (key.startsWith(`${prefix}.`) && key.length > prefix.length + 1) return true
@@ -145,7 +151,7 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
   'podium.superOpen.v2': 'superOpen',
   'podium:superagent:mode': 'superagent.mode',
   'podium.rightPanel': 'rightPanel',
-  // panelMode / panelModeDefault are deliberately NOT listed as string literals
+  // panelMode is deliberately NOT listed as a string literal
   // here: `panel-mode-duality` (POD-329) forbids restating those storage-key
   // spellings outside packages/client-core/src/ui-state.ts. They are mapped in
   // {@link layoutKeyFromLegacy} by composition instead.
@@ -153,6 +159,7 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
   'podium.sidebarTab': 'sidebarTab',
   'podium.homeMode': 'homeMode',
   'podium.issues.display': 'issues.display',
+  'podium.issues.filters': 'issues.filters',
   'podium.htmlmode': 'htmlmode',
   'podium.mdmode': 'mdmode',
   'podium.jsonmode': 'jsonmode',
@@ -175,9 +182,6 @@ export function layoutKeyFromLegacy(legacyKey: string): string | null {
   // the storage-key string literal.
   if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelMode') {
     return 'panelMode'
-  }
-  if (legacyKey.startsWith('podium.') && legacyKey.slice('podium.'.length) === 'panelModeDefault') {
-    return 'panelModeDefault'
   }
   // Section collapses: podium:sidebar:<name> except the reserved width/collapsed.
   if (legacyKey.startsWith('podium:sidebar:')) {

@@ -1,12 +1,41 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import {
+  preparePrincipalNamespace,
+  REPLICA_KEY_PREFIX,
+  replicaNamespaceKey,
+} from '@podium/client-core/replica'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// AsyncStorage's CommonJS entry loads Flow-typed React Native under vitest, so
+// every mobile test stands it in. On the phone web it IS localStorage: read
+// the markers the producer wrote there.
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: {
+    getAllKeys: async () => Object.keys(window.localStorage),
+    multiGet: async (keys: readonly string[]) =>
+      keys.map((key) => [key, window.localStorage.getItem(key)] as const),
+  },
+}))
+
 import { ReadinessGate } from './ReadinessGate'
 
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
   window.history.replaceState({}, '', '/')
+  window.localStorage.clear()
 })
+
+/** What a replica opening writes once the server named its member. */
+function holdReplica(): void {
+  preparePrincipalNamespace({
+    storage: window.localStorage,
+    enumerateKeys: () => Object.keys(window.localStorage),
+    basePrefix: REPLICA_KEY_PREFIX,
+    principal: replicaNamespaceKey({ syncBoundaryId: 'installation-a', memberId: 'mem_alice' }),
+  })
+}
 
 function response(body: unknown) {
   vi.stubGlobal(
@@ -105,5 +134,124 @@ describe('mobile server readiness gate', () => {
     )
     expect(await screen.findByText('Cannot reach this Podium server')).toBeTruthy()
     expect(screen.queryByText('OPERATOR PRODUCT')).toBeNull()
+  })
+
+  // POD-7176: offline, the phone opens what it holds, as the desktop shell does.
+  it('opens the data this device holds when the server cannot be asked at all', async () => {
+    holdReplica()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    )
+    render(
+      <ReadinessGate>
+        <div>OPERATOR PRODUCT</div>
+      </ReadinessGate>,
+    )
+    expect(await screen.findByText('OPERATOR PRODUCT')).toBeTruthy()
+    expect(screen.queryByText('Cannot reach this Podium server')).toBeNull()
+  })
+
+  it('still fails closed on an answer that is not a readiness fact, data held or not', async () => {
+    holdReplica()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('bad gateway', { status: 502 })),
+    )
+    render(
+      <ReadinessGate>
+        <div>OPERATOR PRODUCT</div>
+      </ReadinessGate>,
+    )
+    expect(await screen.findByText('Cannot reach this Podium server')).toBeTruthy()
+    expect(screen.queryByText('OPERATOR PRODUCT')).toBeNull()
+  })
+
+  // POD-7179: the gate asks again when the network comes back.
+  describe('when the network returns', () => {
+    const ready = () =>
+      new Response(JSON.stringify({ state: 'ready', reason: null, dataPlane: 'available' }), {
+        headers: { 'content-type': 'application/json' },
+      })
+
+    it('opens the app from "Cannot reach this Podium server" without a Retry', async () => {
+      const fetch = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockResolvedValue(ready())
+      vi.stubGlobal('fetch', fetch)
+      render(
+        <ReadinessGate>
+          <div>OPERATOR PRODUCT</div>
+        </ReadinessGate>,
+      )
+      expect(await screen.findByText('Cannot reach this Podium server')).toBeTruthy()
+      act(() => {
+        window.dispatchEvent(new Event('online'))
+      })
+      expect(await screen.findByText('OPERATOR PRODUCT')).toBeTruthy()
+      expect(fetch).toHaveBeenCalledTimes(2)
+    })
+
+    it('re-asks under an app opened offline, and leaves it mounted', async () => {
+      holdReplica()
+      let mounts = 0
+      function Product() {
+        useEffect(() => {
+          mounts += 1
+        }, [])
+        return <div>OPERATOR PRODUCT</div>
+      }
+      const fetch = vi
+        .fn()
+        .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              state: 'degraded',
+              reason: 'agent_unavailable',
+              dataPlane: 'available',
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          ),
+        )
+      vi.stubGlobal('fetch', fetch)
+      render(
+        <ReadinessGate>
+          <Product />
+        </ReadinessGate>,
+      )
+      expect(await screen.findByText('OPERATOR PRODUCT')).toBeTruthy()
+      act(() => {
+        window.dispatchEvent(new Event('online'))
+      })
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+      // A degraded answer does not pull the open app away for the review screen.
+      expect(screen.queryByText('Server online; no agent machine available')).toBeNull()
+      expect(screen.getByText('OPERATOR PRODUCT')).toBeTruthy()
+      expect(mounts).toBe(1)
+    })
+
+    it('stays open on the held data when the re-ask gets no answer either', async () => {
+      holdReplica()
+      const fetch = vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      })
+      vi.stubGlobal('fetch', fetch)
+      render(
+        <ReadinessGate>
+          <div>OPERATOR PRODUCT</div>
+        </ReadinessGate>,
+      )
+      expect(await screen.findByText('OPERATOR PRODUCT')).toBeTruthy()
+      act(() => {
+        window.dispatchEvent(new Event('online'))
+      })
+      await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+      expect(screen.getByText('OPERATOR PRODUCT')).toBeTruthy()
+      expect(screen.queryByText('Cannot reach this Podium server')).toBeNull()
+    })
   })
 })

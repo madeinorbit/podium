@@ -1,3 +1,4 @@
+import { pendingApprovals } from '@podium/client-graph/approval-effects'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
 import { headerView } from '@podium/client-graph/header-views'
@@ -11,6 +12,12 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { settingsView } from '@podium/client-graph/settings-views'
+import {
+  chatSourcePorts,
+  noticeSourcePorts,
+  replicaSourcePorts,
+  superagentSourcePorts,
+} from '@podium/client-graph/source-ports'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
@@ -27,37 +34,30 @@ import { automationViews } from '@podium/client-graph/automation-views'
 import { createChatContextReader } from '@podium/client-graph/chat-context'
 import {
   CHAT_CONTEXT_ENTITIES,
-  CHAT_CONTEXT_SUMMARIES,
 } from '@podium/client-graph/chat-context-schema'
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
-import { COMMAND_SUMMARIES } from '@podium/client-graph/command-launch-schema'
 import { attachCommandLaunchSource } from '@podium/client-graph/command-launch-source'
 import { boardCards } from '@podium/client-graph/issue-board-cards'
 import { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
 import {
   ISSUE_BOARD_ENTITIES,
-  ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { issuePages } from '@podium/client-graph/issue-page'
-import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
 import { missionRootId } from '@podium/client-graph/mission-screen'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import {
   MOBILE_INBOX_ENTITIES,
-  MOBILE_INBOX_SUMMARIES,
 } from '@podium/client-graph/mobile-inbox-schema'
 import { MobileInboxSource } from '@podium/client-graph/mobile-inbox-source'
 import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { createMobileSessionReader } from '@podium/client-graph/mobile-session-context'
-import { MOBILE_SESSION_SUMMARIES } from '@podium/client-graph/mobile-session-schema'
 import {
   createMobileSettingsSource,
   MOBILE_SETTINGS_ENTITIES,
 } from '@podium/client-graph/mobile-settings'
-import { NOTICE_ENTITIES, NOTICE_SUMMARIES } from '@podium/client-graph/notice-schema'
+import { NOTICE_ENTITIES, } from '@podium/client-graph/notice-schema'
 import { NoticeSource } from '@podium/client-graph/notice-source'
 import {
   noticeContinuity,
@@ -72,17 +72,14 @@ import {
 } from '@podium/client-graph/runtime-pool'
 import {
   SESSION_PANE_ENTITIES,
-  SESSION_PANE_SUMMARIES,
 } from '@podium/client-graph/session-pane-schema'
 import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
-import { SHELL_ENTITIES, SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
+import { SHELL_ENTITIES, } from '@podium/client-graph/shell-schema'
 import { ShellSource } from '@podium/client-graph/shell-source'
 import { shellViews } from '@podium/client-graph/shell-views'
-import { mergePoolSummaries } from '@podium/client-graph/source-registry'
 import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
-  SUPERAGENT_SUMMARIES,
   superagentCursor,
   superagentFeed,
   superagentFocus,
@@ -93,7 +90,7 @@ import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, asSessionId, DEFAULT_HARNESS_AGENT, isFinished } from '@podium/model/browser'
 import type { WorkflowRunWire } from '@podium/protocol'
-import { autorun, compareStructural, observable, runInAction } from 'mobx'
+import { autorun, compareStructural, runInAction } from 'mobx'
 import { resolvePoolWorkMenu as readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
 import {
   MobileSearchSections,
@@ -103,7 +100,6 @@ import {
   readFiles,
   readLaunchOrigin,
   readOpen,
-  readPalette,
   readTargetMachines,
 } from '../../../../apps/web/src/app/command-launch-readers'
 import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
@@ -308,11 +304,22 @@ export async function poolScreenCellsAt(
   // schedules, the startup ones included, is tagged and can be settled.
   const ledger = installAsyncLedger({ holdBeyondMs: SETTLE_MAX_DELAY_MS, startAt: FIXED_NOW })
   try {
-    const ctx = await startScenarioEngine(scale, { ownRows: true })
+    let ctx!: ScenarioEngine
+    ctx = await startScenarioEngine(scale, {
+      ownRows: true,
+      server: {
+        issueUpdate: async ({ id, patch }) => {
+          const row = ctx.cache.read('issueProjection', id)?.value
+          if (!row) throw new Error(`Unknown fixture issue: ${id}`)
+          upsertIssue(ctx, id, { ...(row as object), ...patch }, 3)
+          return {}
+        },
+      },
+    })
     try {
       return await measureScreenCells(ctx, scale, ledger, onCell, only, actions, scene)
     } finally {
-      ctx.engine.destroy()
+      ctx.engine.dispose()
     }
   } finally {
     ledger.dispose()
@@ -352,39 +359,38 @@ async function measureScreenCells(
     header: true,
     settings: true,
     preferences: true,
-    summaries: mergePoolSummaries(
-      COMMAND_SUMMARIES,
-      SHELL_SUMMARIES,
-      ISSUE_PAGE_SUMMARIES,
-      ISSUE_BOARD_SUMMARIES,
-      CHAT_CONTEXT_SUMMARIES,
-      NOTICE_SUMMARIES,
-      SESSION_PANE_SUMMARIES,
-      MISSION_VIEW_SUMMARIES,
-      SUPERAGENT_SUMMARIES,
-      MOBILE_INBOX_SUMMARIES,
-      MOBILE_SESSION_SUMMARIES,
-    ),
   })
   const pool = handle.pool
   const stops: (() => void)[] = []
   const values = new Map<string, unknown>()
   try {
     const commands = attachCommandLaunchSource(pool, ctx.engine)
-    stops.push(() => commands.dispose(), attachIssuePageSource(pool, ctx.engine))
+    stops.push(
+      () => commands.dispose(),
+      attachIssuePageSource(pool, replicaSourcePorts(ctx.engine)),
+    )
     pool.sources.register(SHELL_ENTITIES, new ShellSource(ctx.engine))
-    pool.sources.register(NOTICE_ENTITIES, new NoticeSource(ctx.engine))
+    pool.sources.register(NOTICE_ENTITIES, new NoticeSource(noticeSourcePorts(ctx.engine)))
     pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(ctx.engine))
-    pool.sources.register(SUPERAGENT_ENTITIES, await createSuperagentSource(ctx.engine))
+    pool.sources.register(
+      SUPERAGENT_ENTITIES,
+      await createSuperagentSource(superagentSourcePorts(ctx.engine)),
+    )
     pool.sources.register(AUTOMATION_ENTITIES, new AutomationSource(ctx.engine.replica))
-    pool.sources.register(MOBILE_INBOX_ENTITIES, new MobileInboxSource(ctx.engine, pool))
-    pool.sources.register(MOBILE_SETTINGS_ENTITIES, await createMobileSettingsSource(ctx.engine))
+    pool.sources.register(
+      MOBILE_INBOX_ENTITIES,
+      new MobileInboxSource(replicaSourcePorts(ctx.engine), pool),
+    )
+    pool.sources.register(
+      MOBILE_SETTINGS_ENTITIES,
+      await createMobileSettingsSource(replicaSourcePorts(ctx.engine)),
+    )
     // This app attachment shares the pane/notice/chat sources through ensure.
     // Register chat through its normal ensure key before the mobile attachment.
     await pool.sources.ensure(
       'chat-context',
       CHAT_CONTEXT_ENTITIES,
-      () => new ChatContextSource(ctx.engine, pool),
+      () => new ChatContextSource(chatSourcePorts(ctx.engine), pool),
     )
     // Pane and exit sources are attached below by the mobile seam; pane is already
     // installed above, so attach only the mobile reader/window with its factory.
@@ -395,7 +401,10 @@ async function measureScreenCells(
     pool.sources.register(MOBILE_SESSION_ENTITIES, createMobileSessionSource(ctx.engine, pool))
     const { createSessionExitSource } = await import('@podium/client-graph/session-exit-source')
     const { SESSION_EXIT_ENTITIES } = await import('@podium/client-graph/session-exit-schema')
-    pool.sources.register(SESSION_EXIT_ENTITIES, await createSessionExitSource(ctx.engine))
+    pool.sources.register(
+      SESSION_EXIT_ENTITIES,
+      await createSessionExitSource(replicaSourcePorts(ctx.engine)),
+    )
     const board = createIssueBoardSource(pool, ctx.engine)
     pool.sources.register(ISSUE_BOARD_ENTITIES, board)
     const shell = shellViews(pool),
@@ -432,22 +441,7 @@ async function measureScreenCells(
     const navigation = createPoolNavigationProvider(pool)
     ctx.engine.setNavigationProvider(navigation)
     if (scene === 'workspace') referenceState(ctx.engine).setView('workspace')
-    const locals = () => {
-      const state = referenceState(ctx.engine)
-      return {
-        selectedIssueId: state.selectedIssueId,
-        paneA: state.paneA,
-        paneB: state.paneB,
-        split: state.split,
-      }
-    }
-    const window = observable.box(locals(), { deep: false })
-    stops.push(
-      ctx.engine.onLocals(['selectedIssueId', 'paneA', 'paneB', 'split'], () => {
-        const next = locals()
-        if (!compareStructural(window.get(), next)) runInAction(() => window.set(next))
-      }),
-    )
+    const window = { get: () => ctx.engine.ui }
     worklistView(pool).setLayout(layout)
     const selected = () => window.get().selectedIssueId ?? ROOT
     const readers: ScreenReader[] = []
@@ -539,7 +533,7 @@ async function measureScreenCells(
     add('shell.catalogs', ['AppShell'], () => ({
       machines: shell.machines(),
       repos: shell.repositories(),
-      approvals: shell.approvals(),
+      approvals: pendingApprovals(pool),
       files: shell.files(),
       lanes: shell.lanes(),
       shipping: shell.dock.shipping,
@@ -592,7 +586,10 @@ async function measureScreenCells(
     stops.push(() => missionPane.dispose())
     add('mission.pane', ['PoolFlightDeck', 'MissionDeck'], () =>
       missionPane.read({
-        ...window.get(),
+        selectedIssueId: window.get().selectedIssueId,
+        paneA: window.get().paneA,
+        paneB: window.get().paneB,
+        split: window.get().split,
         mode: 'full',
       }),
     )
@@ -701,7 +698,6 @@ async function measureScreenCells(
     )
     add('issue-page.catalog', ['IssueContextMenu'], () => ({
       issues: page.issues(),
-      explorer: page.explorer(),
     }))
     // These clicks open the launcher palette, not the Tasks filter menu.
     add('board.catalog', ['useBoardCatalog', 'IssueBoard'], () =>
@@ -791,7 +787,6 @@ async function measureScreenCells(
           mapped,
           present: !!mappedPane,
           hasSessions: panes.hasSessions(),
-          reposLoaded: controls.reposLoaded,
           status: mappedPane?.session.status,
           archived: mappedPane?.session.archived,
           machineId: mappedPane?.session.machineId,
@@ -859,13 +854,8 @@ async function measureScreenCells(
     }))
     add(
       'mobile-inbox',
-      ['InboxScreen', 'SessionsScreen', 'ScreeningScreen', 'PodiumLinkHost'],
+      ['ScreeningScreen', 'PodiumLinkHost'],
       () => ({
-        inbox: {
-          groups: mobileInbox.inbox().groups,
-          booting: mobileInbox.inbox().booting,
-          outboxSize: mobileInbox.inbox().outboxSize,
-        },
         screening: {
           queue: mobileInbox.screening().queue,
           booting: mobileInbox.screening().booting,

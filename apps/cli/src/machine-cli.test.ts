@@ -282,7 +282,10 @@ it('an operator adopts over authenticated HTTP without an agent relay', async ()
     for await (const chunk of req) body += chunk
     requests.push({ url: req.url ?? '', cookie: req.headers.cookie, body })
     const data = req.url?.includes('listWithRepos')
-      ? { machines: [{ ...quiet, unowned: true }], repos: [] } : []
+      ? { machines: [{ ...quiet, unowned: true }], repos: [] }
+      : req.url?.includes('sync.submit')
+        ? { outcome: 'applied', result: [], receipt: { feedId: 'f', epoch: 'e', seq: 1 }, replayed: false }
+        : []
     res.writeHead(200, { 'content-type': 'application/json' })
     res.end(JSON.stringify([{ result: { data } }]))
   })
@@ -299,9 +302,22 @@ it('an operator adopts over authenticated HTTP without an agent relay', async ()
     await machineCliMain(['adopt', quiet.name, '--for', 'member'])
     expect(errors).not.toHaveBeenCalled()
     expect(requests).toHaveLength(2)
-    expect(requests.every((request) => request.cookie?.includes('podium_session=operator-token'))).toBe(true)
-    expect(requests[1]?.url).toContain('/trpc/machines.adopt')
-    expect(JSON.parse(requests[1]!.body)).toEqual({ '0': { id: quiet.id, newOwnerUserId: 'member' } })
+    // Every call carries the operator's credential as the shared-sign-in device cookie
+    // (plain HTTP to loopback, so the unprefixed name), never the retired `podium_session`
+    // cookie and never anonymously.
+    expect(requests.map((request) => request.cookie)).toEqual([
+      'podium.session_token=operator-token',
+      'podium.session_token=operator-token',
+    ])
+    // On the sync write entry point (POD-6417): the envelope names the command.
+    expect(requests[1]?.url).toContain('/trpc/sync.submit')
+    expect(JSON.parse(requests[1]!.body)).toEqual({
+      '0': expect.objectContaining({
+        command: 'machines.adopt',
+        version: 1,
+        input: { id: quiet.id, newOwnerUserId: 'member' },
+      }),
+    })
     expect(output).toHaveBeenCalledWith(expect.stringContaining('Adopted'))
   } finally {
     vi.unstubAllEnvs()

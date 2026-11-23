@@ -239,3 +239,90 @@ describe('misplaced flags on podium workflow (POD-3836)', () => {
     )
   })
 })
+
+describe('workflow writes on the sync write entry point (POD-6418)', () => {
+  function submittingClient(reply: (env: Record<string, unknown>) => unknown) {
+    const envelopes: Record<string, unknown>[] = []
+    const routed: string[] = []
+    const client = {
+      ...fakeClient((proc) => {
+        routed.push(proc)
+        return { message: 'via route', warnings: [], run: run(), currentStep: null, nextStep: null }
+      }),
+      sync: {
+        submit: {
+          mutate: async (env: Record<string, unknown>) => {
+            envelopes.push(env)
+            return reply(env)
+          },
+        },
+      },
+    } as WorkflowCliDeps['client']
+    return { client, envelopes, routed }
+  }
+
+  const applied = (result: unknown) => ({
+    outcome: 'applied',
+    result,
+    receipt: { feedId: 'f', epoch: 'e', seq: 1 },
+    replayed: false,
+  })
+
+  it('a checkpoint is sent on sync.submit, not on its route', async () => {
+    const { client, envelopes, routed } = submittingClient(() =>
+      applied({ run: run(), currentStep: null, nextStep: null, message: 'Next.', warnings: [] }),
+    )
+    const text = await runWorkflowCli(['checkpoint', 'complete', '--summary', 'ok'], {
+      cwd: '/repo/wt',
+      observeGit: () => observation,
+      client,
+    })
+    expect(text).toBe('Next.')
+    expect(routed).toEqual([])
+    expect(envelopes).toMatchObject([{ command: 'workflows.checkpoint', version: 1 }])
+    expect(envelopes[0]?.input).toMatchObject({ status: 'complete', summary: 'ok' })
+  })
+
+  it("an adopt's own mutationId is the envelope's, so a retry of it is one write", async () => {
+    const { client, envelopes } = submittingClient(() => applied(run()))
+    await runWorkflowCli(['adopt', 'wfr_2'], {
+      cwd: '/repo/wt',
+      newMutationId: () => 'mut_cli_adopt',
+      client,
+    })
+    expect(envelopes).toMatchObject([{ command: 'workflows.adopt', mutationId: 'mut_cli_adopt' }])
+    expect(envelopes[0]?.input).toMatchObject({ mutationId: 'mut_cli_adopt', revisionId: 'wfr_2' })
+  })
+
+  it("a refusal's words still turn a global publish into an approval request", async () => {
+    const ops: ApprovalOp[] = []
+    const { client } = submittingClient(() => ({
+      outcome: 'rejected',
+      refusal: { kind: 'unauthorized', message: 'approval required to change a global workflow' },
+    }))
+    await runWorkflowCli(['publish', 'wfr_1'], {
+      cwd: '/repo',
+      relayEndpoint: 'http://relay',
+      client,
+      approve: async (_endpoint, op) => {
+        ops.push(op)
+        return { text: 'published', exitCode: 0 }
+      },
+    })
+    expect(ops).toEqual([{ kind: 'workflow-publish', revisionId: 'wfr_1' }])
+  })
+
+  it('an older server without sync.submit takes the route', async () => {
+    const { client, routed } = submittingClient(() => {
+      throw Object.assign(new Error('No procedure found on path "sync.submit"'), {
+        data: { code: 'NOT_FOUND' },
+      })
+    })
+    await runWorkflowCli(['checkpoint', 'complete', '--summary', 'ok'], {
+      cwd: '/repo/wt',
+      observeGit: () => observation,
+      client,
+    })
+    expect(routed).toEqual(['checkpoint'])
+  })
+})

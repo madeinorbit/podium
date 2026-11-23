@@ -68,11 +68,13 @@ import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import {
   codexAppServerVersionProbe,
   grokAcpVersionProbe,
-  opencodeVersionProbeForExecutable,
+  opencodeVersionProbe,
 } from './version-probe'
+import { rigCommandEnv, stubHarnessContext } from '../test-support/stub-harness-context'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
 import { SessionRegistry } from '../session/registry.js'
+import { testEngineTerms } from '@podium/harness/driver/testing'
 
 const codexFacts = codexEngineFacts(manifestFor('codex')!)
 const grokFacts = grokEngineFacts(manifestFor('grok')!)
@@ -528,7 +530,12 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         resources: noResources,
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-        checkVersion: () => codexAppServerVersionProbe(),
+        checkVersion: (installation) =>
+          codexAppServerVersionProbe(installation, { env: rigCommandEnv() }),
+        // After the restart the context is rebuilt from the inventory: here,
+        // the rig's stub (POD-6546).
+        ...testEngineTerms(),
+        harnessContextFor: async () => stubHarnessContext('codex', join(binDir, 'codex')),
         dialSocket: sessionEngines.dialerFor(dialEngineSocket),
       })
       const codexRuntime = createCodexRuntime(codexHost, driverSlotsOver(testSessions()))
@@ -578,10 +585,12 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         resources: noResources,
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-        checkVersion: ({ executable }) =>
-          opencodeVersionProbeForExecutable(executable).then((v) =>
+        checkVersion: (installation) =>
+          opencodeVersionProbe(installation, { env: rigCommandEnv() }).then((v) =>
             v.drivable ? null : v.diagnostic,
           ),
+        ...testEngineTerms(),
+        harnessContextFor: async () => stubHarnessContext('opencode', join(binDir, 'opencode')),
       })
       const opencodeRuntime = createOpencodeRuntime(opencodeHost, driverSlotsOver(testSessions()))
       const adoptedOpencode = await opencodeRuntime.driver.adopt(opencodeBinding)
@@ -597,7 +606,9 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         resources: noResources,
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-        checkVersion: () => grokAcpVersionProbe(),
+        checkVersion: (installation) => grokAcpVersionProbe(installation, { env: rigCommandEnv() }),
+        ...testEngineTerms(),
+        harnessContextFor: async () => stubHarnessContext('grok', join(binDir, 'grok')),
       })
       const grokRuntime = createGrokAcpRuntime({ ...grokHost, stageAttachment: stageRuntimeAttachment }, driverSlotsOver(testSessions()))
       const adoptedGrok = await grokRuntime.driver.adopt(grokBinding)
@@ -613,6 +624,8 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         supervision: sessionEngines,
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
+        ...testEngineTerms(),
+        harnessContextFor: async () => stubHarnessContext('claude-code', join(binDir, 'claude')),
       })
       const claudeRuntime = createClaudeSdkSessionRuntime({ stageAttachment: stageRuntimeAttachment, driverSlots: driverSlotsOver(testSessions()),
         send: () => {},

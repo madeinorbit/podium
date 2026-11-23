@@ -2,14 +2,14 @@
  * THE SESSION-FAMILY READS (POD-314) — the queries that sat beside POD-382's
  * derived writes in `router.ts`, moved into the module that owns the service.
  *
- * FOUR ROUTERS, because the wire groups them that way: `sessions` (the reads),
- * `sync` (metadata-oplog catch-up), and the three per-user lists `pins`,
- * `snoozes` and `tabs`.
+ * TWO ROUTERS: `sessions` holds the session reads, and `snoozes` holds
+ * the caller's snoozed sessions.
  *
  * NOT CONTRACTS. A `visibility` class describes what a command WRITES and these
  * write nothing — the same line POD-382 drew when it left them hand-written, and
- * `scripts/audit-session-commands.ts` checks procedure TYPE so a write cannot
- * rejoin them by being spelled as a query. What changes here is only WHERE they
+ * a write cannot rejoin them by being spelled as a query: a write route is
+ * generated from a registration, and `write-routes.test.ts` refuses a query that
+ * carries one. What changes here is only WHERE they
  * are declared.
  *
  * THE THREE PER-USER LISTS READ `state.caller.userId`, which POD-380 established
@@ -19,34 +19,24 @@
  * able to decide whether they may have them.
  */
 
-import { asUserId, SessionIdField, type SessionId } from '@podium/model'
+import { asUserId, type SessionId, SessionIdField } from '@podium/model'
 import type { SessionIdentifierResolution } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
-import { mayReadOwned } from '../../issue-authz'
 import type { FamilyState } from '../derived-family'
 import { defineQuery } from '../query-table'
 import { ambiguousSessionPrefixMessage } from './session-access'
 
 const q = defineQuery<FamilyState>()
 
-// THE decision comes from the model (POD-335). This used to spell the rule out
-// here — `owner === caller.userId || grants.includes(caller.userId)` — which is
-// a second authorization surface (docs/multi-user-readiness.md §3.2) and, over
-// an absent owner and an absent caller, compared `undefined === undefined` and
-// answered ALLOW. `mayReadOwned` refuses an unowned entity by construction.
-async function mayReadSession(state: FamilyState, sessionId: SessionId): Promise<boolean> {
-  const target = await state.modules.sessions.sessionOwner(sessionId as never)
-  if (target === undefined) return false
-  return mayReadOwned(state.caller.userId, {
-    id: sessionId,
-    owner: target.owner,
-    grants: target.grants,
-  })
-}
-
+// THE PRIVATE CLASS (POD-6284, design §2.3): a session is read by its owner and
+// nobody else. Not by a grantee, not through its task, not by an admin. The rule
+// is `privateAccess.ownsSession` (`private-resources.ts`), which decides with the
+// one session-owner predicate every session path uses (`mayReachPrivate`,
+// POD-6283); a missing session and someone else's answer alike.
 async function assertMayReadSession(state: FamilyState, sessionId: SessionId): Promise<void> {
-  if (!(await mayReadSession(state, sessionId))) throw new TRPCError({ code: 'NOT_FOUND' })
+  if (!(await state.privateAccess.ownsSession(sessionId)))
+    throw new TRPCError({ code: 'NOT_FOUND' })
 }
 
 /** `Array.prototype.filter` over an ASYNC predicate. Written out because the
@@ -69,9 +59,9 @@ export async function resolveReadableIdentifier(
   const match = await state.modules.readToolkit.resolveIdentifier(identifier)
   if (match.kind === 'absent') return match
   if (match.kind === 'session') {
-    return (await mayReadSession(state, match.sessionId)) ? match : { kind: 'absent' }
+    return (await state.privateAccess.ownsSession(match.sessionId)) ? match : { kind: 'absent' }
   }
-  const readable = await filterAsync(match.candidates, (id) => mayReadSession(state, id))
+  const readable = await filterAsync(match.candidates, (id) => state.privateAccess.ownsSession(id))
   const only = readable[0]
   if (readable.length === 1 && only) return { kind: 'session', sessionId: only }
   if (readable.length === 0) return { kind: 'absent' }
@@ -93,12 +83,13 @@ export const SESSION_QUERIES = {
     async (s) =>
       await filterAsync(
         await s.modules.sessions.listSessions(s.caller.sessionState, 'rpc'),
-        (session) => mayReadSession(s, session.sessionId),
+        (session) => s.privateAccess.ownsSession(session.sessionId),
       ),
   ),
   /** Fleet-wide 12-hour concurrency samples for the global shell status strip. */
-  concurrencyHistory: q(z.object({}).passthrough().optional(), async (s) =>
-    await s.modules.sessions.agentConcurrencyHistory(),
+  concurrencyHistory: q(
+    z.object({}).passthrough().optional(),
+    async (s) => await s.modules.sessions.agentConcurrencyHistory(),
   ),
   /** Per-session phase-transition history (48h window) for the Flight Deck
    *  waterfall's on/off segments. Unreadable ids are silently omitted — the
@@ -108,7 +99,7 @@ export const SESSION_QUERIES = {
     z.object({ sessionIds: z.array(SessionIdField).max(200) }),
     async (s, input) =>
       await s.modules.sessions.sessionActivityHistory(
-        await filterAsync(input.sessionIds, (sessionId) => mayReadSession(s, sessionId)),
+        await filterAsync(input.sessionIds, (sessionId) => s.privateAccess.ownsSession(sessionId)),
       ),
   ),
   /** Authorized chat window. Live sessions use driver history; parked sessions
@@ -122,7 +113,10 @@ export const SESSION_QUERIES = {
     }),
     async (s, input) => {
       await assertMayReadSession(s, input.sessionId)
-      return await s.modules.rpc.readTranscript(input, { kind: 'user', id: asUserId(s.caller.userId) })
+      return await s.modules.rpc.readTranscript(input, {
+        kind: 'user',
+        id: asUserId(s.caller.userId),
+      })
     },
   ),
   /** Read toolkit tiers 1–2 (#237) [spec:SP-34d7]: structured status (phase,
@@ -130,16 +124,26 @@ export const SESSION_QUERIES = {
    *  transcript text). The /trpc surface is operator-authority; agents reach the
    *  same procs via the daemon relay's scope-gated sessions arm. Every read is
    *  event-logged by the toolkit. */
-  status: q(z.object({ ref: z.string() }), async (s, input) =>
-    await s.modules.readToolkit.status(input.ref, s.caller.actorSessionId ?? 'operator'),
-  ),
+  status: q(z.object({ ref: z.string() }), async (s, input) => {
+    // A ref may name a session or a task; either way the session it lands on
+    // must be the caller's own, and someone else's answers like no session.
+    const found = await s.modules.readToolkit.resolveTarget(input.ref)
+    if (!found || !(await s.privateAccess.ownsSession(found.sessionId))) {
+      throw new Error(`no session found for ${input.ref}`)
+    }
+    return await s.modules.readToolkit.status(
+      found.sessionId,
+      s.caller.actorSessionId ?? 'operator',
+    )
+  }),
   /** WHAT A SESSION LINK NAMES (POD-4637): a full id, a short id prefix or a
    *  birth ref, through the CLI's own rule. A link on the web or the phone asks
    *  this rather than matching a prefix client-side. Unreadable matches are
    *  dropped BEFORE counting, so a hidden session neither resolves nor makes a
    *  readable one ambiguous — either would be an existence oracle (D20.2). */
-  resolve: q(z.object({ identifier: z.string().min(1).max(200) }), async (s, input) =>
-    await resolveReadableIdentifier(s, input.identifier),
+  resolve: q(
+    z.object({ identifier: z.string().min(1).max(200) }),
+    async (s, input) => await resolveReadableIdentifier(s, input.identifier),
   ),
   read: q(
     z.object({
@@ -155,61 +159,19 @@ export const SESSION_QUERIES = {
   /** Read toolkit tier 3 (#237) [spec:SP-34d7 read-toolkit]: server-side recap
    *  since a watermark — repeated check-ins pay only for the delta (the watermark
    *  persists per (reader, target)). */
-  recap: q(z.object({ sessionId: SessionIdField, since: z.string().optional() }), async (s, input) => {
-    await assertMayReadSession(s, input.sessionId)
-    return await s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator')
-  }),
-} as const
-
-export const SYNC_QUERIES = {
-  /** Metadata-oplog catch-up (docs/spec/oplog-read-path.md): null cursor =
-   *  bootstrap snapshot; a valid cursor = the changes after it; a
-   *  compacted/future cursor falls back to snapshot. The client heals every WS
-   *  (re)connect through this. */
-  changesSince: q(z.object({ cursor: z.number().int().nonnegative().nullable() }), async (s, input) =>
-    await s.modules.sessions.syncChangesSince(
-      input.cursor,
-      s.feedPrincipal ??
-        (() => {
-          throw new Error('authenticated feed principal required')
-        })(),
-    ),
-  ),
-  /**
-   * THE AUTHORITY'S OWN VIEW OF THIS PRINCIPAL'S SLICE (POD-376).
-   *
-   * A DIAGNOSTIC READ, and the third snapshot of the shadow comparison. It exists
-   * so the comparison can classify an absence against what the Authority says
-   * rather than suppress it — see
-   * `docs/agents/pod-376-shadow-comparison-basis.md` §2.2.
-   *
-   * It leaks nothing the feed does not already deliver: it is
-   * `AuthorityPort.bootstrap` for the SAME principal, evaluated through the SAME
-   * policy object, reduced to keys. A principal that may not see a row does not
-   * receive its key here either — which is exactly the property that makes it
-   * usable as the comparison's basis.
-   */
-  feedSlice: q(z.object({}).optional(), async (s) =>
-    await s.modules.funnel.feedSlice(
-      s.feedPrincipal ??
-        (() => {
-          throw new Error('authenticated feed principal required')
-        })(),
-    ),
+  recap: q(
+    z.object({ sessionId: SessionIdField, since: z.string().optional() }),
+    async (s, input) => {
+      await assertMayReadSession(s, input.sessionId)
+      return await s.modules.readToolkit.recap(input, s.caller.actorSessionId ?? 'operator')
+    },
   ),
 } as const
 
 const noInput = z.object({}).passthrough().optional()
 
-/** PER-USER STATE (POD-380): each list is the CALLER's, not the instance's. */
-export const PIN_QUERIES = {
-  list: q(noInput, async (s) => await s.modules.sessions.state.listPins(s.caller.sessionState)),
-} as const
-
+/** PER-USER STATE (POD-380): the CALLER's, not the instance's. Pins and tab
+ *  orders are synced records since POD-6673 and have no request. */
 export const SNOOZE_QUERIES = {
   list: q(noInput, async (s) => await s.modules.sessions.state.listSnoozes(s.caller.sessionState)),
-} as const
-
-export const TAB_QUERIES = {
-  listOrders: q(noInput, async (s) => await s.modules.sessions.state.listTabOrders(s.caller.sessionState)),
 } as const

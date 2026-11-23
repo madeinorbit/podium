@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SessionIssueOutcome } from '@podium/client-core/values'
 import type { IssueModel, MobxPool, SessionModel } from '@podium/client-graph'
@@ -5,7 +6,13 @@ import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
 import type { SessionPanes } from '@podium/client-graph/session-pane-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { assertReactiveRead } from '@podium/mobx-helpers'
-import { asSessionId, type IssueId, type IssueStatus, type MachineWire, type SessionId } from '@podium/model/browser'
+import {
+  asSessionId,
+  type IssueId,
+  type IssueStatus,
+  type MachineFacts,
+  type SessionId,
+} from '@podium/model/browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
@@ -16,23 +23,34 @@ function sessionPanes(pool: MobxPool): SessionPanes {
   return view
 }
 
-const EMPTY_MACHINES: MachineWire[] = []
+const EMPTY_MACHINES: MachineFacts[] = []
 const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = {
   panelMode: {},
   dockShells: {},
-  reposLoaded: false,
 }
 export function usePaneSession(id: SessionId | undefined): SessionView | undefined {
   const read = useCallback((pool: MobxPool) => sessionPanes(pool).session(id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
+/** The session is running and its machine is known offline right now: the
+ *  derived condition (ADR 12 D1), read off the shared session model. */
+export function usePaneReconnecting(id: SessionId | undefined): boolean {
+  const read = useCallback(
+    (pool: MobxPool) => (id ? pool.sessionObject(id).reconnecting : false),
+    [id],
+  )
+  return useWorklistPoolProjection(read, false)
+}
 const machinesRead = (pool: MobxPool) => sessionPanes(pool).machines()
 /** How the session's issue ended, when that is what stopped it (POD-2151). */
 export function usePaneIssueOutcome(id: SessionId): SessionIssueOutcome | null {
-  const read = useCallback((pool: MobxPool) => sessionPanes(pool).loaded(id)?.issueOutcome ?? null, [id])
+  const read = useCallback(
+    (pool: MobxPool) => sessionPanes(pool).loaded(id)?.issueOutcome ?? null,
+    [id],
+  )
   return useWorklistPoolProjection(read, null)
 }
-export function usePaneMachines(): MachineWire[] {
+export function usePaneMachines(): MachineFacts[] {
   return useWorklistPoolProjection(machinesRead, EMPTY_MACHINES)
 }
 function windowRead(pool: MobxPool) {
@@ -46,14 +64,16 @@ export function usePaneSpawnConfirmed(id: SessionId) {
   return useWorklistPoolProjection(read, false)
 }
 export function usePanePanelModes() {
-  return usePoolPaneWindow().panelMode
+  // UiStore owns this choice. The session row can become available before
+  // the optional pane-window source installs; its empty fallback must never
+  // replace a saved choice while that source is loading.
+  return useUiValue('panelMode')
 }
 export interface DockPaneInputs {
   mapped: SessionId | undefined
   session: SessionModel | undefined
   pendingPresent: boolean
   hasSessions: boolean
-  reposLoaded: boolean
   loading: boolean
 }
 const EMPTY_DOCK: DockPaneInputs = {
@@ -61,7 +81,6 @@ const EMPTY_DOCK: DockPaneInputs = {
   session: undefined,
   pendingPresent: false,
   hasSessions: false,
-  reposLoaded: false,
   loading: true,
 }
 /** Read inside the dock shell's observer: each answer is its own field, so a
@@ -80,7 +99,6 @@ export function useDockPaneInputs(cwd: string, pending: string | null): DockPane
     session: present === true && mapped ? pool.sessionObject(mapped) : undefined,
     pendingPresent: !!panes.loaded(pending),
     hasSessions: panes.hasSessions(),
-    reposLoaded: controls.reposLoaded,
     loading: present === LOADING,
   }
 }

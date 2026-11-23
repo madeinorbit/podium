@@ -1,11 +1,15 @@
 import { asIssueId, asMachineId, asSessionId, firstAdminMemberId } from '@podium/model'
 import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
+import { CHANGE_LOG_OBSERVER } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { feedPrincipalOf } from './gateway/client-principal'
 import { SessionRegistry } from './relay'
 import type { IssueRow, SessionStore } from './store'
+import { authoritySnapshot } from './test-support/authority-snapshot'
 import { attachTestClient } from './test-support/client-transport'
+import { feedDelta } from './test-support/feed-delta'
 import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
@@ -120,7 +124,7 @@ async function seedSession(
   issueId: string | null = `iss_${i % ISSUE_COUNT}`,
 ): Promise<string> {
   const id = `sess_${i}`
-  await store.sessions.upsertSession({
+  await store.sessions.upsertSession(fixtureWriteScope(), {
     id: asSessionId(id),
     ownerUserId: firstAdminMemberId(),
     agentKind: 'shell',
@@ -151,7 +155,8 @@ async function seedSession(
 
 async function world(opts: { issues?: number; sessions?: number } = {}) {
   const store = await openTestStore(':memory:')
-  for (let i = 0; i < (opts.issues ?? ISSUE_COUNT); i++) await store.issues.upsertIssue(issueRow(i))
+  for (let i = 0; i < (opts.issues ?? ISSUE_COUNT); i++)
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(i))
   const sessionIds: string[] = []
   for (let i = 0; i < (opts.sessions ?? SESSION_COUNT); i++)
     sessionIds.push(await seedSession(store, i))
@@ -232,31 +237,29 @@ async function issueWorkForOneFieldSessionChange(
   sessionId: string,
 ): Promise<number> {
   await registry.modules.sessions.flushBroadcasts()
-  const before = await registry.modules.sessions.syncChangesSince(null)
-  await registry.modules.sessions.setWorkState({
+  const before = await authoritySnapshot(registry)
+  await registry.modules.sessions.setWorkState(registry.modules.sessions.serverWriter, {
     sessionId: asSessionId(sessionId),
     workState: 'testing',
   })
   await registry.modules.sessions.flushBroadcasts()
-  const after = await registry.modules.sessions.syncChangesSince(before.cursor)
-  if (after.kind !== 'delta') throw new Error('fresh fixture unexpectedly required a snapshot')
+  const after = await feedDelta(registry, before.cursor, CHANGE_LOG_OBSERVER)
   return after.changes.filter((change) => change.entity === 'issueProjection').length
 }
 
 describe('issueProjection is the only issue record', () => {
   const changesOf = async (registry: SessionRegistry, entity: string) => {
-    const boot = await registry.modules.sessions.syncChangesSince(null)
-    // A null cursor bootstraps to a snapshot; take a cursor from 0 to read the
-    // whole durable change log instead.
-    const all = await registry.modules.sessions.syncChangesSince(0)
-    return all.kind === 'delta'
-      ? all.changes.filter((c) => c.entity === entity)
-      : (boot.kind === 'delta' ? boot.changes : []).filter((c) => c.entity === entity)
+    const all = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
+    return all.changes.filter((c) => c.entity === entity)
   }
 
   it('only normalized issue rows are appended', async () => {
     const { registry } = await world({ issues: 3, sessions: 2 })
-    await registry.modules.issues.crud.update('iss_1', { title: 'edited' })
+    await registry.modules.issues.crud.update(
+      registry.modules.issues.reports.store.serverWriter,
+      'iss_1',
+      { title: 'edited' },
+    )
     await registry.modules.sessions.flushBroadcasts()
 
     const projections = await changesOf(registry, 'issueProjection')
@@ -280,12 +283,13 @@ describe('issueProjection is the only issue record', () => {
   it('cold snapshot includes all normalized issue collections for reload bootstrap', async () => {
     const { registry, store } = await world({ issues: 2, sessions: 0 })
     await store.repos.addRepo('/repo', store.hostMachineId)
-    await registry.modules.issues.reports.store.publishRepos()
-    await registry.modules.issues.hierarchy.addDep('iss_0', 'iss_1')
+    await registry.modules.issues.hierarchy.addDep(
+      registry.modules.issues.reports.store.serverWriter,
+      'iss_0',
+      'iss_1',
+    )
 
-    const snapshot = await registry.modules.sessions.syncChangesSince(null)
-    expect(snapshot.kind).toBe('snapshot')
-    if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
+    const snapshot = await authoritySnapshot(registry)
     expect(snapshot.issueProjections?.map((row) => row.id).sort()).toEqual(['iss_0', 'iss_1'])
     expect(snapshot.issueDeps).toHaveLength(1)
     expect(snapshot.repos).toHaveLength(1)
@@ -293,7 +297,7 @@ describe('issueProjection is the only issue record', () => {
 
   it('boot totalizes legacy cwd membership into the normalized snapshot the replica indexes', async () => {
     const store = await openTestStore(':memory:')
-    await store.issues.upsertIssue(issueRow(0))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(0))
     const sessionId = await seedSession(store, 0, null)
 
     const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -303,9 +307,7 @@ describe('issueProjection is the only issue record', () => {
     expect((await store.sessions.loadSessions()).find((row) => row.id === sessionId)?.issueId).toBe(
       'iss_0',
     )
-    const snapshot = await registry.modules.sessions.syncChangesSince(null)
-    expect(snapshot.kind).toBe('snapshot')
-    if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
+    const snapshot = await authoritySnapshot(registry)
     const projection = snapshot.issueProjections?.find((row) => row.id === 'iss_0')
     expect(projection).toBeDefined()
     expect(
@@ -314,9 +316,7 @@ describe('issueProjection is the only issue record', () => {
         .map((session) => session.sessionId),
     ).toEqual([sessionId])
 
-    const all = await registry.modules.sessions.syncChangesSince(0)
-    expect(all.kind).toBe('delta')
-    if (all.kind !== 'delta') throw new Error('expected delta')
+    const all = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
     const sessionChanges = all.changes.filter(
       (change) => change.entity === 'session' && change.id === sessionId,
     )
@@ -330,9 +330,7 @@ describe('issueProjection is the only issue record', () => {
     const reboot = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(reboot)
     reboot.modules.sessions.flushBroadcasts()
-    const after = await reboot.modules.sessions.syncChangesSince(cursor)
-    expect(after.kind).toBe('delta')
-    if (after.kind !== 'delta') throw new Error('expected delta')
+    const after = await feedDelta(reboot, cursor, CHANGE_LOG_OBSERVER)
     expect(
       after.changes.filter((change) => change.entity === 'session' && change.id === sessionId),
     ).toEqual([])
@@ -343,6 +341,7 @@ describe('issueProjection is the only issue record', () => {
     const before = (await registry.modules.issues.reports.get('iss_0'))?.updatedAt
 
     await registry.modules.issues.commentsMail.addComment(
+      registry.modules.issues.reports.store.serverWriter,
       'iss_0',
       'agent',
       'projection revision premise',
@@ -389,19 +388,13 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
     ).toEqual([])
     const principal = registry.clientGateway.principalOf(id)
     if (!principal) throw new Error('missing authenticated principal')
-    const authority = registry.syncDelta.authority
     const rows = new Map<string, Record<string, unknown>>()
-    for await (const page of authority.changesRange(
-      feedPrincipalOf(principal),
-      0,
-      await authority.captureHead(),
-      100,
-    )) {
-      if (page.kind !== 'batch') throw new Error('fresh fixture unexpectedly requires recovery')
-      for (const change of page.changes) {
-        if (change.entity === 'issueProjection' && change.op === 'upsert')
-          rows.set(change.entityId, change.value as Record<string, unknown>)
-      }
+    // Initial load streams model records. The log contains later source writes;
+    // boot does not manufacture history for these pre-existing fixture rows.
+    const loaded = await registry.changeLedger.authority.bootstrap(feedPrincipalOf(principal))
+    for (const change of loaded.changes) {
+      if (change.entity === 'issueProjection' && change.op === 'upsert')
+        rows.set(change.entityId, change.value as Record<string, unknown>)
     }
     const issues = [...rows.values()]
     expect(issues).toHaveLength(3)
@@ -417,16 +410,16 @@ describe('normalized dep emission [POD-797]', () => {
   }, async () => {
     const { registry } = await world()
     await registry.modules.sessions.flushBroadcasts()
-    const before = await registry.modules.sessions.syncChangesSince(0)
-    const beforeCount =
-      before.kind === 'delta'
-        ? before.changes.filter((change) => change.entity === 'issueDep').length
-        : 0
-    await registry.modules.issues.hierarchy.addDep('iss_1', 'iss_2')
+    const before = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
+    const beforeCount = before.changes.filter((change) => change.entity === 'issueDep').length
+    await registry.modules.issues.hierarchy.addDep(
+      registry.modules.issues.reports.store.serverWriter,
+      'iss_1',
+      'iss_2',
+    )
     await registry.modules.sessions.flushBroadcasts()
-    const after = await registry.modules.sessions.syncChangesSince(0)
-    const edges =
-      after.kind === 'delta' ? after.changes.filter((change) => change.entity === 'issueDep') : []
+    const after = await feedDelta(registry, 0, CHANGE_LOG_OBSERVER)
+    const edges = after.changes.filter((change) => change.entity === 'issueDep')
     expect(edges.length - beforeCount).toBe(1)
     expect(edges.at(-1)?.id).toBe('iss_1|iss_2|blocked-by')
   })

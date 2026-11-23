@@ -33,15 +33,20 @@
  * the pane an already-confirmed session cannot reproduce a race and would pass
  * against the defect.
  */
-import { useRuntimeSelector } from '@podium/client-core/react'
+import { knownReading } from '@podium/client-core/live'
+import { useCommands } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import { here } from '@podium/client-graph/lookup'
 import { asIssueId, asSessionId, asUserId, type SessionId, type SessionMeta } from '@podium/model'
+import { encode, parseTopicKey, type TopicKey } from '@podium/protocol'
 import type { MountSessionOptions } from '@podium/terminal-client/session-mount'
-import { cleanup } from '@testing-library/react'
+import { cleanup, waitFor } from '@testing-library/react'
+import { autorun, runInAction } from 'mobx'
 import { act, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { seedIssueFixtures } from '../client/issue-fixtures'
-import { renderWithMobileStore } from '../client/test-support'
+import { renderWithMobileStore, SilentSocket } from '../client/test-support'
 import { type TerminalControlState, terminalControlCopy } from './terminal-control'
 
 /**
@@ -130,6 +135,25 @@ const { TerminalPane } = await import('./TerminalPane')
 
 const TARGET = { path: '/repo/wt', repoPath: '/repo' }
 
+async function deliverSize(runtime: ClientRuntime, sessionId: SessionId) {
+  await act(async () => {
+    runInAction(() => {
+      runtime.live.applyTopic(
+        'session.terminalState',
+        sessionId,
+        knownReading({ controller: null, geometry: { cols: 103, rows: 28 } }, Date.now()),
+      )
+    })
+  })
+}
+
+/** General lifecycle cases receive the topic after the pane's first render. */
+async function renderWithTerminalStore(...args: Parameters<typeof renderWithMobileStore>) {
+  const view = await renderWithMobileStore(...args)
+  for (const session of args[1]?.sessions ?? []) await deliverSize(view.runtime, session.sessionId)
+  return view
+}
+
 /**
  * The create path in two moves, as the launch sheet performs it: spawn through
  * the store, THEN mount the pane on the returned id. Splitting them (rather than
@@ -142,7 +166,7 @@ let control: {
 } | null = null
 
 function CreateThenAttach() {
-  const store = useRuntimeSelector((s) => s)
+  const store = useCommands().sessions
   const [sessionId, setSessionId] = useState<SessionId | null>(null)
   control = {
     spawn: () => store.spawnDraftAgent({ target: TARGET, agentKind: 'claude-code' }).sessionId,
@@ -193,7 +217,7 @@ afterEach(cleanup)
 
 describe('TerminalPane on the create path (POD-1613)', () => {
   it('holds the attach back while the spawn is unconfirmed, then attaches when it lands', async () => {
-    const { replica } = await renderWithMobileStore(<CreateThenAttach />)
+    const { replica, runtime } = await renderWithMobileStore(<CreateThenAttach />)
     const ctl = control
     if (!ctl) throw new Error('harness did not render')
 
@@ -219,18 +243,116 @@ describe('TerminalPane on the create path (POD-1613)', () => {
       await Promise.resolve()
     })
 
-    // ...and only NOW does the pane attach — without a remount.
+    // Confirmation requests the live size; no attach is spent before its reply.
+    expect(mountSessionMock).not.toHaveBeenCalled()
+    await deliverSize(runtime, spawned)
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
   })
 
-  it('attaches immediately for an already-confirmed session (the remount path)', async () => {
+  it('waits for a confirmed session’s first live size before attaching', async () => {
     const sessionId = asSessionId('sess-confirmed')
-    await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
+    const view = await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
       sessions: [confirmedRow(sessionId)],
     })
+    expect(mountSessionMock).not.toHaveBeenCalled()
+    await deliverSize(view.runtime, sessionId)
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
+    expect(mountSessionMock.mock.calls[0]?.[1]).toMatchObject({
+      initialGeometry: { cols: 103, rows: 28 },
+    })
     // A scrolling crop selects the phone's spectator policy in mountSession.
     expect(lastMountOpts?.crop).toBe('scroll')
+  })
+})
+
+/**
+ * A SESSION STARTED HERE GETS ITS LIVE READINGS WITHOUT A RECONNECT (POD-6854).
+ *
+ * The live readings travel through the REAL hub here; only the socket is fake,
+ * and the test plays the server on it. Like the real one, this server refuses
+ * a session topic for a session it has no row for, and a refused key is asked
+ * again only after a reconnect. The placeholder a start paints must therefore
+ * hold no live topic: the first subscribe goes out when the server's row lands,
+ * which is also when the terminal mount is released.
+ */
+describe('TerminalPane live readings on the create path (POD-6854)', () => {
+  it('asks for a started session’s readings once its row lands, and builds the terminal at the real size', async () => {
+    const view = await renderWithMobileStore(<CreateThenAttach />)
+    const ctl = control
+    const socket = SilentSocket.opened.at(-1)
+    if (!ctl || !socket || !view.pool) throw new Error('harness did not render')
+    const socketsBefore = SilentSocket.opened.length
+
+    // The server: sessions it has a row for, and what it answered.
+    const rows = new Set<string>()
+    const refused: string[] = []
+    socket.onSend = (data) => {
+      const frame = JSON.parse(data) as { type?: string; key?: TopicKey }
+      if (frame.type !== 'topicSubscribe' || frame.key === undefined) return
+      const ref = parseTopicKey(frame.key)
+      if (ref?.kind !== 'session.terminalState' && ref?.kind !== 'session.condition') return
+      const key = frame.key
+      queueMicrotask(() => {
+        if (!rows.has(ref.id)) {
+          refused.push(key)
+          socket.recv(encode({ type: 'topicClosed', key, reason: 'refused' }))
+          return
+        }
+        const payload =
+          ref.kind === 'session.terminalState'
+            ? { controller: null, geometry: { cols: 103, rows: 28 } }
+            : { busy: true, requestsGated: 0, contextUsagePercent: 42 }
+        socket.recv(
+          encode({ type: 'topicSnapshot', key, position: { epoch: 'e1', seq: 0 }, payload }),
+        )
+      })
+    }
+
+    let spawned: SessionId | undefined
+    await act(async () => {
+      spawned = ctl.spawn()
+      ctl.show(spawned)
+      await Promise.resolve()
+    })
+    if (!spawned) throw new Error('spawn produced no session id')
+    const id = spawned
+
+    // A list row watching the session's condition, as the sidebar and offer strip do.
+    const pool = view.pool
+    const context: (number | undefined)[] = []
+    const stop = autorun(() => {
+      const model = here(pool.model('session', id)) as
+        | { contextUsagePercent: number | undefined }
+        | undefined
+      context.push(model?.contextUsagePercent)
+    })
+    try {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      })
+      // The placeholder asked the server for nothing it would refuse.
+      expect(mountSessionMock).not.toHaveBeenCalled()
+
+      // The server creates the session; its row reaches the device.
+      rows.add(id)
+      await act(async () => {
+        view.replica.applySnapshot('sessions', [confirmedRow(id)])
+        await Promise.resolve()
+      })
+
+      // Both readings arrive on this connection, and the terminal is born at
+      // the server's size, well inside the 500 ms the mount waits for it.
+      await waitFor(() => expect(mountSessionMock).toHaveBeenCalledTimes(1), { timeout: 400 })
+      expect(mountSessionMock.mock.calls[0]?.[1]).toMatchObject({
+        initialGeometry: { cols: 103, rows: 28 },
+      })
+      await waitFor(() => expect(context.at(-1)).toBe(42), { timeout: 400 })
+      expect(refused).toEqual([])
+      expect(SilentSocket.opened.length).toBe(socketsBefore)
+    } finally {
+      stop()
+      socket.onSend = null
+    }
   })
 })
 
@@ -265,7 +387,7 @@ describe('TerminalPane startup status (POD-393)', () => {
 
   it('says the PTY has printed nothing yet, and stops as soon as it does', async () => {
     const sessionId = asSessionId('sess-silent')
-    const view = await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
+    const view = await renderWithTerminalStore(<TerminalPane sessionId={sessionId} active />, {
       sessions: [confirmedRow(sessionId)],
     })
 
@@ -293,7 +415,7 @@ describe('TerminalPane startup status (POD-393)', () => {
 
   it('stays out of the way of a session that has already spoken', async () => {
     const sessionId = asSessionId('sess-talked')
-    const view = await renderWithMobileStore(<TerminalPane sessionId={sessionId} active />, {
+    const view = await renderWithTerminalStore(<TerminalPane sessionId={sessionId} active />, {
       sessions: [confirmedRow(sessionId)],
     })
     await attach(true)
@@ -319,7 +441,7 @@ describe('TerminalPane startup status (POD-393)', () => {
 describe('TerminalPane take control (POD-724)', () => {
   async function mountPane(sessionId: SessionId) {
     const published: TerminalControlState[] = []
-    const view = await renderWithMobileStore(
+    const view = await renderWithTerminalStore(
       <TerminalPane sessionId={sessionId} active onControlState={(s) => published.push(s)} />,
       { sessions: [confirmedRow(sessionId)] },
     )
@@ -403,7 +525,7 @@ describe('TerminalPane ref underlines (POD-724)', () => {
 
   it('marks only prefixes the live projection knows, colours them by live stage, and opens the task', async () => {
     const opened: string[] = []
-    const { replica } = await renderWithMobileStore(
+    const { replica } = await renderWithTerminalStore(
       <TerminalPane sessionId={SESSION} active onOpenIssue={(id) => opened.push(id)} />,
       {
         sessions: [confirmedRow(SESSION)],

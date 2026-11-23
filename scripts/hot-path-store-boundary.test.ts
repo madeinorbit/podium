@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { checkHotPathStoreBoundary } from './check-boundaries'
@@ -26,6 +26,18 @@ describe('hot-path store import boundary', () => {
     ['apps/server/src/feed-visibility.ts', "const x = import('./store/grants')"],
   ])('refuses store dependencies from %s', (file, source) => {
     expect(checkHotPathStoreBoundary(file, source)).toHaveLength(1)
+  })
+  it('admits operation metadata without admitting other executor modules', () => {
+    const file = 'apps/server/src/gateway/new.ts'
+    expect(
+      checkHotPathStoreBoundary(
+        file,
+        "import { withOperation } from '../store/executor/operation-scope'",
+      ),
+    ).toEqual([])
+    expect(
+      checkHotPathStoreBoundary(file, "import { execute } from '../store/executor/executor'"),
+    ).toHaveLength(1)
   })
   it('admits a named port and runs over every workspace', () => {
     expect(

@@ -6,7 +6,7 @@
  * true, so it is enforced here rather than reviewed by eye.
  *
  * Scope: EVERY oracle file, including the one outside apps/server
- * (packages/client-core/src/engine/outbox-coverage.oracle.test.ts). A ratchet
+ * (packages/client-core/src/runtime-root/outbox/outbox-coverage.oracle.test.ts). A ratchet
  * that scans one directory silently exempts the other.
  *
  * Parser: matches every vitest declaration form — `it(`, `test(`, and the
@@ -29,7 +29,9 @@ const repoRoot = resolve(here, '../../../../..')
 
 /** Oracle files OUTSIDE this directory. Listed explicitly so adding one without
  *  tagging it is a conscious act, not an accident of where it was filed. */
-const EXTERNAL_ORACLES = ['packages/client-core/src/engine/outbox-coverage.oracle.test.ts']
+const EXTERNAL_ORACLES = [
+  'packages/client-core/src/runtime-root/outbox/outbox-coverage.oracle.test.ts',
+]
 
 const ORACLE_FILES: { label: string; path: string }[] = [
   ...readdirSync(here)
@@ -75,7 +77,7 @@ describe('oracle tag ratchet', () => {
     expect(ORACLE_FILES.length).toBeGreaterThanOrEqual(7)
     expect(ORACLE_FILES.map((f) => f.label)).toContain('oracle-handoff.test.ts')
     expect(ORACLE_FILES.map((f) => f.label)).toContain(
-      'packages/client-core/src/engine/outbox-coverage.oracle.test.ts',
+      'packages/client-core/src/runtime-root/outbox/outbox-coverage.oracle.test.ts',
     )
     // Every listed path must actually exist — a moved file must not silently
     // drop out of the ratchet's reach.

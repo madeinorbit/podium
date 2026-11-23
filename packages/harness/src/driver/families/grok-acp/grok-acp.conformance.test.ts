@@ -13,6 +13,11 @@ import {
   assertAttachHonoursOneControlLease,
   expectTypedRefusal,
 } from '../../testing/conformance/suite.js'
+import {
+  testEngineTerms,
+  testHarnessContext,
+  testSessionTerms,
+} from '../../testing/harness-context.js'
 import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
 import { runConformance, createMemoryAttachmentStager } from '../../testing/index.js'
 import { createGrokAcpClient } from './client.js'
@@ -248,7 +253,7 @@ function historyItemsFromFrames(frames: readonly Record<string, unknown>[]): Tra
         const resultText = resultTextOf(update)
         if (resultText === undefined) break
         heldResults.set(toolUseId, {
-          id: `${toolUseId}:result`,
+          id: `${toolUseId}:out`,
           role: 'tool',
           text: '',
           ts: at,
@@ -313,6 +318,8 @@ function makeWorld(options: WorldOptions = {}): {
   }
   const processKey = (id: SessionId): string => `podium-gk-${id}`
   const host: GrokAcpRuntimeHost = {
+    ...testEngineTerms(),
+    harnessContextFor: async () => testHarnessContext({ kind: 'grok' }),
     stageAttachment: createMemoryAttachmentStager(),
     bindings,
     now: () => Date.UTC(2026, 7, 16) + ++seq * 1000,
@@ -606,6 +613,8 @@ function makeWorld(options: WorldOptions = {}): {
       },
       spec: () => ({
         harness: 'grok',
+        ...testSessionTerms(),
+        harnessContext: testHarnessContext({ kind: 'grok' }),
         selection: {
           auth: 'subscription',
           platform: 'linux',
@@ -660,7 +669,7 @@ describe('grok-acp tool result transcript', () => {
       expectToolPair(history, 'completed', 'canonical completed output')
       expectToolPair(history, 'failed', 'command failed')
       expectToolPair(history, 'explicit-empty', '')
-      expect(history.filter((item) => item.id === 'initially-absent:result')).toHaveLength(0)
+      expect(history.filter((item) => item.id === 'initially-absent:out')).toHaveLength(0)
 
       // An absent terminal payload is not absorbing. A later update that
       // explicitly carries empty output may resolve the same call.
@@ -724,7 +733,7 @@ describe('grok-acp tool result transcript', () => {
       expect(
         history.filter(
           (item) =>
-            item.id === 'duplicate-completed:result' || item.id === 'duplicate-failed:result',
+            item.id === 'duplicate-completed:out' || item.id === 'duplicate-failed:out',
         ),
       ).toHaveLength(2)
       const events: RuntimeEvent[] = []
@@ -734,8 +743,8 @@ describe('grok-acp tool result transcript', () => {
           (event) =>
             event.t === 'item' &&
             event.item.kind === 'complete' &&
-            (event.item.item.id === 'duplicate-completed:result' ||
-              event.item.item.id === 'duplicate-failed:result'),
+            (event.item.item.id === 'duplicate-completed:out' ||
+              event.item.item.id === 'duplicate-failed:out'),
         ),
       ).toHaveLength(0)
     } finally {
@@ -908,7 +917,7 @@ function expectToolPair(
   expect(callIndex).toBeGreaterThanOrEqual(0)
   expect(resultIndex).toBeGreaterThan(callIndex)
   expect(items[resultIndex]).toMatchObject({
-    id: `${toolUseId}:result`,
+    id: `${toolUseId}:out`,
     role: 'tool',
     toolUseId,
     toolResult,

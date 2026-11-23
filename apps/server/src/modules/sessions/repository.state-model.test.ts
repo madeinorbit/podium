@@ -25,8 +25,9 @@ import { firstAdminMemberId } from '@podium/model'
  */
 
 import { asMachineId, asSessionId } from '@podium/model'
-import { describe, expect, it, vi } from 'vitest'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
+import { describe, expect, it, vi } from 'vitest'
+import { repositoryWriter } from '../../test-support/session-repository-writer'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionRepository } from './repository'
 import { Session } from './session'
@@ -58,11 +59,13 @@ function fixture() {
     sessions,
     store: {
       sessions: {
-        upsertSession: (row: { id: string; title: string | null; name: string | null }) =>
-          upserted.push({ id: row.id, title: row.title, name: row.name }),
+        upsertSession: (
+          _scope: unknown,
+          row: { id: string; title: string | null; name: string | null },
+        ) => upserted.push({ id: row.id, title: row.title, name: row.name }),
       },
     },
-    ledger: {
+    writers: ((ledger) => ({ live: ledger, boot: ledger }))({
       commit: async ({ write }: { write: () => Promise<void> }) => {
         const hook = during
         during = null
@@ -75,8 +78,9 @@ function fixture() {
         return { changes: [] }
       },
       capture: () => [],
-    },
-    view: { buildProjectionPass: async () => ({}),
+    }),
+    view: {
+      buildProjectionPass: async () => ({}),
       wire: (s: Session, _pass: unknown, d: { title: string; name: string } = s) => ({
         sessionId: s.sessionId,
         title: d.title,
@@ -112,7 +116,7 @@ describe('the committed baseline is the draft, not a later re-capture', () => {
     f.duringNextWrite(() => {
       f.session.title = 'changed mid-write'
     })
-    await f.repo.persist(f.session)
+    await f.repo.persist(repositoryWriter(f.repo), f.session)
 
     expect(f.upserted).toEqual([{ id: 'model-1', title: 'written title', name: null }])
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('written title')
@@ -120,18 +124,16 @@ describe('the committed baseline is the draft, not a later re-capture', () => {
 
   it('does not move the baseline until the commit returns', async () => {
     const f = fixture()
-    await f.repo.persist(f.session)
+    await f.repo.persist(repositoryWriter(f.repo), f.session)
     f.session.title = 'second write'
 
     let observed: string | undefined
     f.duringNextWrite(() => {
       observed = f.repo.committedDurableState(f.session.sessionId)?.title
     })
-    await f.repo.persist(f.session)
+    await f.repo.persist(repositoryWriter(f.repo), f.session)
 
-    expect(observed, 'a reader inside the span sees the previous baseline').toBe(
-      'committed title',
-    )
+    expect(observed, 'a reader inside the span sees the previous baseline').toBe('committed title')
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('second write')
   })
 })
@@ -144,16 +146,18 @@ describe('a rollback racing a successful persist', () => {
     // write's own uncommitted fields would stay on the live object. Restoring
     // the latest committed state undoes them AND keeps the winner's.
     const f = fixture()
-    await f.repo.persist(f.session) // baseline: 'committed title'
+    await f.repo.persist(repositoryWriter(f.repo), f.session) // baseline: 'committed title'
 
     f.session.title = 'loser'
     f.duringNextWrite(async () => {
       // The winner runs inside the loser's span and commits first.
       f.session.title = 'winner'
-      await f.repo.persist(f.session)
+      await f.repo.persist(repositoryWriter(f.repo), f.session)
     })
     f.failNextWrite()
-    await expect(f.repo.persist(f.session)).rejects.toThrow('commit failed')
+    await expect(f.repo.persist(repositoryWriter(f.repo), f.session)).rejects.toThrow(
+      'commit failed',
+    )
 
     expect(f.session.title, 'the winner survives the loser rolling back').toBe('winner')
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('winner')
@@ -177,17 +181,17 @@ describe('a rollback racing a successful persist', () => {
     // same field the two behaviours are indistinguishable, which is why it took
     // this arm to find it.
     const f = fixture()
-    await f.repo.persist(f.session) // baseline: title 'committed title', name ''
+    await f.repo.persist(repositoryWriter(f.repo), f.session) // baseline: title 'committed title', name ''
 
     f.duringNextWrite(async () => {
       // The winner runs inside the loser's span and commits first.
-      await f.repo.write(f.session, (draft) => {
+      await f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
         draft.title = 'winner'
       })
     })
     f.failNextWrite()
     await expect(
-      f.repo.write(f.session, (draft) => {
+      f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
         draft.name = 'loser name'
       }),
     ).rejects.toThrow('commit failed')
@@ -208,11 +212,13 @@ describe('a rollback racing a successful persist', () => {
     // must still happen, or the guard would be indistinguishable from deleting
     // the restore altogether.
     const f = fixture()
-    await f.repo.persist(f.session) // baseline: 'committed title'
+    await f.repo.persist(repositoryWriter(f.repo), f.session) // baseline: 'committed title'
 
     f.session.title = 'never committed'
     f.failNextWrite()
-    await expect(f.repo.persist(f.session)).rejects.toThrow('commit failed')
+    await expect(f.repo.persist(repositoryWriter(f.repo), f.session)).rejects.toThrow(
+      'commit failed',
+    )
 
     expect(f.session.title).toBe('committed title')
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('committed title')
@@ -228,6 +234,7 @@ describe('a drafted write is invisible until its commit returns [POD-3330]', () 
     // with the previous name and nothing would fail anywhere else.
     const f = fixture()
     await f.repo.write(
+      repositoryWriter(f.repo),
       f.session,
       (draft) => {
         draft.title = 'drafted title'
@@ -245,13 +252,13 @@ describe('a drafted write is invisible until its commit returns [POD-3330]', () 
     // here — which is what the interleaving above does — captures that, and not
     // this writer's half-finished change.
     const f = fixture()
-    await f.repo.persist(f.session)
+    await f.repo.persist(repositoryWriter(f.repo), f.session)
 
     let observedLive: string | undefined
     f.duringNextWrite(() => {
       observedLive = f.session.title
     })
-    await f.repo.write(f.session, (draft) => {
+    await f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
       draft.title = 'in flight'
     })
 
@@ -268,14 +275,16 @@ describe('the live terminal half may change while persistence is awaiting', () =
     // recorded while the write was open survives the rollback that undoes the
     // metadata beside it.
     const f = fixture()
-    await f.repo.persist(f.session)
+    await f.repo.persist(repositoryWriter(f.repo), f.session)
 
     f.session.title = 'never committed'
     f.duringNextWrite(() => {
       f.session.terminal.recordResumeActivity()
     })
     f.failNextWrite()
-    await expect(f.repo.persist(f.session)).rejects.toThrow('commit failed')
+    await expect(f.repo.persist(repositoryWriter(f.repo), f.session)).rejects.toThrow(
+      'commit failed',
+    )
 
     expect(f.session.title, 'the durable half rolled back').toBe('committed title')
     expect(
@@ -285,84 +294,101 @@ describe('the live terminal half may change while persistence is awaiting', () =
   })
 })
 
-
 describe('driver columns participate in draft commits', () => {
-  it.each(['selection', 'bind', 'spawn error'] as const)(
-    '%s stays invisible until commit and survives a failed commit unchanged',
-    async (operation) => {
-      const session = makeSession()
-      session.selectedDriverId = 'opencode-server'
-      const sessions = new Map([[session.sessionId, session]])
-      let fail = false
-      let inspect = () => {}
-      let row = session.toRow()
-      const repo = new SessionRepository({
-        sessions,
-        store: { sessions: { upsertSession: (next: typeof row) => { row = next } } },
-        ledger: {
-          commit: async ({ write }: { write: () => Promise<void> }) => {
-            const previous = row
-            await write()
-            inspect()
-            if (fail) {
-              row = previous
-              throw new Error('commit failed')
-            }
-            return { changes: [] }
+  it.each([
+    'selection',
+    'bind',
+    'spawn error',
+  ] as const)('%s stays invisible until commit and survives a failed commit unchanged', async (operation) => {
+    const session = makeSession()
+    session.selectedDriverId = 'opencode-server'
+    const sessions = new Map([[session.sessionId, session]])
+    let fail = false
+    let inspect = () => {}
+    let row = session.toRow()
+    const repo = new SessionRepository({
+      sessions,
+      store: {
+        sessions: {
+          upsertSession: (_scope: unknown, next: typeof row) => {
+            row = next
           },
         },
-        view: { buildProjectionPass: async () => ({}), wire: () => ({}) },
-      } as never)
-      await repo.persist(session)
-      const lifecycle = new SessionDaemonLifecycle({
-        sessions,
-        persist: repo.persist.bind(repo),
-        write: repo.write.bind(repo),
-        broadcastSessions: vi.fn(),
-        emitSessionExited: vi.fn(),
-        autoContinue: { onSessionLive: vi.fn() },
-        inbox: { markSessionBound: vi.fn(), drain: vi.fn() },
-        // The bind arm bootstraps the runtime draft through the state port
-        // (draft sync via runtime contract). Production wiring provides the
-        // real SessionStateService; this fixture only needs the port the
-        // bind path touches, and it must return a promise — the call site
-        // attaches a `.catch` to it.
-        state: { initializeRuntimeDraft: vi.fn(async () => {}) },
-      } as never)
-      const principal = {
-        kind: 'machine' as const,
-        machine: MACHINE,
-        device: asDeviceId('driver-test'),
-        capability: asCapabilityRef('driver-test'),
-      }
-      const send = () => lifecycle.handle(principal, operation === 'spawn error'
-        ? { type: 'spawnError', sessionId: session.sessionId, message: 'refused' }
-        : operation === 'selection'
-          ? { type: 'driverSelected', sessionId: session.sessionId, driverId: 'generic-pty' }
-          : {
-              type: 'bind', sessionId: session.sessionId, driverId: 'generic-pty',
-              requestedDriverId: 'opencode-server', cmd: 'agent', cwd: '/work',
-              agentKind: 'claude-code', geometry: { cols: 80, rows: 24 },
-            })
-      const expected = operation === 'spawn error' ? undefined : 'generic-pty'
-      inspect = () => {
-        expect(session.selectedDriverId).toBe('opencode-server')
-        expect(session.requestedDriverId).toBeUndefined()
-        expect(row.selectedDriverId).toBe(expected ?? null)
-        expect(row.requestedDriverId).toBe(operation === 'bind' ? 'opencode-server' : null)
-      }
-      fail = true
-      await expect(send()).rejects.toThrow('commit failed')
+      },
+      writers: ((ledger) => ({ live: ledger, boot: ledger }))({
+        commit: async ({ write }: { write: () => Promise<void> }) => {
+          const previous = row
+          await write()
+          inspect()
+          if (fail) {
+            row = previous
+            throw new Error('commit failed')
+          }
+          return { changes: [] }
+        },
+      }),
+      view: { buildProjectionPass: async () => ({}), wire: () => ({}) },
+    } as never)
+    await repo.persist(repositoryWriter(repo), session)
+    const lifecycle = new SessionDaemonLifecycle({
+      sessions,
+      // The ports, with the repository's writer bound (POD-6601).
+      persist: (subject: Session) => repo.persist(repositoryWriter(repo), subject),
+      write: (subject: Session, mutate: Parameters<SessionRepository['write']>[2]) =>
+        repo.write(repositoryWriter(repo), subject, mutate),
+      broadcastSessions: vi.fn(),
+      emitSessionExited: vi.fn(),
+      autoContinue: { onSessionLive: vi.fn() },
+      inbox: { markSessionBound: vi.fn(), drain: vi.fn() },
+      // The bind arm bootstraps the runtime draft through the state port
+      // (draft sync via runtime contract). Production wiring provides the
+      // real SessionStateService; this fixture only needs the port the
+      // bind path touches, and it must return a promise — the call site
+      // attaches a `.catch` to it.
+      state: { initializeRuntimeDraft: vi.fn(async () => {}) },
+    } as never)
+    const principal = {
+      kind: 'machine' as const,
+      machine: MACHINE,
+      device: asDeviceId('driver-test'),
+      capability: asCapabilityRef('driver-test'),
+    }
+    const send = () =>
+      lifecycle.handle(
+        principal,
+        operation === 'spawn error'
+          ? { type: 'spawnError', sessionId: session.sessionId, message: 'refused' }
+          : operation === 'selection'
+            ? { type: 'driverSelected', sessionId: session.sessionId, driverId: 'generic-pty' }
+            : {
+                type: 'bind',
+                sessionId: session.sessionId,
+                driverId: 'generic-pty',
+                requestedDriverId: 'opencode-server',
+                cmd: 'agent',
+                cwd: '/work',
+                agentKind: 'claude-code',
+                geometry: { cols: 80, rows: 24 },
+              },
+      )
+    const expected = operation === 'spawn error' ? undefined : 'generic-pty'
+    inspect = () => {
       expect(session.selectedDriverId).toBe('opencode-server')
       expect(session.requestedDriverId).toBeUndefined()
-      expect(row.selectedDriverId).toBe('opencode-server')
-      expect(row.requestedDriverId).toBeNull()
-      fail = false
-      await send()
-      expect(session.selectedDriverId).toBe(expected)
-      expect(session.requestedDriverId).toBe(operation === 'bind' ? 'opencode-server' : undefined)
-    },
-  )
+      expect(row.selectedDriverId).toBe(expected ?? null)
+      expect(row.requestedDriverId).toBe(operation === 'bind' ? 'opencode-server' : null)
+    }
+    fail = true
+    await expect(send()).rejects.toThrow('commit failed')
+    expect(session.selectedDriverId).toBe('opencode-server')
+    expect(session.requestedDriverId).toBeUndefined()
+    expect(row.selectedDriverId).toBe('opencode-server')
+    expect(row.requestedDriverId).toBeNull()
+    fail = false
+    await send()
+    expect(session.selectedDriverId).toBe(expected)
+    expect(session.requestedDriverId).toBe(operation === 'bind' ? 'opencode-server' : undefined)
+  })
 })
 
 describe('two successful overlapping writes of different fields [POD-3720]', () => {
@@ -384,11 +410,13 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
       sessions,
       store: {
         sessions: {
-          upsertSession: (row: { id: string; title: string | null; name: string | null }) =>
-            upserted.push({ id: row.id, title: row.title, name: row.name }),
+          upsertSession: (
+            _scope: unknown,
+            row: { id: string; title: string | null; name: string | null },
+          ) => upserted.push({ id: row.id, title: row.title, name: row.name }),
         },
       },
-      ledger: {
+      writers: ((ledger) => ({ live: ledger, boot: ledger }))({
         commit: async ({ write }: { write: () => Promise<void> }) => {
           inFlight += 1
           maxInFlight = Math.max(maxInFlight, inFlight)
@@ -401,8 +429,9 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
           }
         },
         capture: () => [],
-      },
-      view: { buildProjectionPass: async () => ({}),
+      }),
+      view: {
+        buildProjectionPass: async () => ({}),
         wire: (s: Session, _pass: unknown, d: { title: string; name: string } = s) => ({
           sessionId: s.sessionId,
           title: d.title,
@@ -442,13 +471,13 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
 
   it('keeps both fields when two write() calls overlap on one session', async () => {
     const f = overlapFixture()
-    await f.repo.persist(f.session)
+    await f.repo.persist(repositoryWriter(f.repo), f.session)
     f.holdNextCommits()
 
-    const first = f.repo.write(f.session, (draft) => {
+    const first = f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
       draft.name = 'A name'
     })
-    const second = f.repo.write(f.session, (draft) => {
+    const second = f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
       draft.title = 'B title'
     })
     f.releaseCommits()
@@ -463,14 +492,14 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
     // persisted. A write() lease that recuts inside the lock does not cover
     // this; the stale whole-state draft has to overlay only what it changed.
     const f = overlapFixture()
-    await f.repo.persist(f.session)
+    await f.repo.persist(repositoryWriter(f.repo), f.session)
     const firstDraft = f.repo.draft(f.session)
     firstDraft.name = 'A name'
     const secondDraft = f.repo.draft(f.session)
     secondDraft.title = 'B title'
     f.holdNextCommits()
-    const first = f.repo.persistDraft(f.session, firstDraft)
-    const second = f.repo.persistDraft(f.session, secondDraft)
+    const first = f.repo.persistDraft(repositoryWriter(f.repo), f.session, firstDraft)
+    const second = f.repo.persistDraft(repositoryWriter(f.repo), f.session, secondDraft)
     f.releaseCommits()
     await Promise.all([first, second])
 
@@ -487,14 +516,14 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
     // whether an overlapping write loses a value depends on interleaving, but
     // whether it overlaps at all does not.
     const f = overlapFixture()
-    await f.repo.persist(f.session)
+    await f.repo.persist(repositoryWriter(f.repo), f.session)
     f.holdNextCommits()
 
-    const first = f.repo.write(f.session, (draft) => {
+    const first = f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
       draft.name = 'A name'
     })
     await f.untilWaiting(1)
-    const second = f.repo.write(f.session, (draft) => {
+    const second = f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
       draft.title = 'B title'
     })
     f.releaseOne()
@@ -502,7 +531,7 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
     await f.untilWaiting(1)
 
     // Arrives once the first write has settled and drained.
-    const third = f.repo.write(f.session, (draft) => {
+    const third = f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
       draft.name = 'C name'
     })
     f.releaseCommits()
@@ -523,10 +552,10 @@ describe('two successful overlapping writes of different fields [POD-3720]', () 
     const tail = (f.repo as unknown as { sessionWriteTail: Map<string, Promise<void>> })
       .sessionWriteTail
 
-    const first = f.repo.write(f.session, (draft) => {
+    const first = f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
       draft.name = 'A name'
     })
-    const second = f.repo.write(f.session, (draft) => {
+    const second = f.repo.write(repositoryWriter(f.repo), f.session, (draft) => {
       draft.title = 'B title'
     })
     expect(tail.has(f.session.sessionId), 'a write in flight holds its tail').toBe(true)

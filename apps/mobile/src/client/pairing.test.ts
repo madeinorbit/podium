@@ -110,16 +110,19 @@ describe('mobile pairing links', () => {
 // Compatible server fixtures track the same constants as the real /version route.
 // Literal versions below are intentional incompatibility cases.
 describe('server preflight', () => {
-  it('fails closed on native LAN HTTP before making a request', async () => {
+  it('fails closed on native LAN HTTP after credential-free guidance discovery', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     await expect(preflightServer('http://192.168.1.8:18787')).resolves.toMatchObject({
       ok: false,
       kind: 'cleartext-blocked',
       transport: 'insecure-lan',
-      title: 'LAN HTTP is unavailable',
+      title: 'Connect with HTTPS',
     })
-    expect(fetchMock).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('http://192.168.1.8:18787/auth/status')
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ credentials: 'omit' })
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toBeUndefined()
   })
 
   it('lets a DEV build preflight an open LAN server natively (the sim rig path)', async () => {
@@ -186,7 +189,7 @@ describe('server preflight', () => {
     await expect(preflightServer('http://localhost:18790')).resolves.toMatchObject({
       ok: false,
       kind: 'cleartext-blocked',
-      title: 'Secure sign-in required',
+      title: 'Connect with HTTPS',
       transport: 'insecure-lan',
     })
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
@@ -261,6 +264,12 @@ describe('server preflight', () => {
   })
 
   it('blocks LAN, Tailscale 100.x HTTP, and public HTTP natively', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('OS blocked HTTP discovery')
+      }),
+    )
     await expect(preflightServer('http://10.0.0.8')).resolves.toMatchObject({
       ok: false,
       kind: 'cleartext-blocked',

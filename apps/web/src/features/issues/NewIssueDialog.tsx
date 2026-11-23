@@ -1,4 +1,6 @@
-import { useSettingsRecord } from '@/features/settings/record-readers'
+import { issueWrites } from '@podium/commands/issues-synced'
+import { usePodiumDefaultParentBranch } from '@/lib/BaseBranchMenu'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { observer } from 'mobx-react-lite'
 import type { RepoView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
@@ -7,17 +9,18 @@ import { newTaskBase } from '@podium/client-graph/repo-base-branch'
 import {
   agentCapabilityRejection,
   agentLoginCondition,
+  asMachineId,
   DEFAULT_HARNESS_AGENT,
   ISSUE_STAGES,
   type IssueStage,
-  type MachineWire,
+  type MachineFacts,
   machinePathBasename,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
 } from '@podium/model/browser'
 import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, GitBranch, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { useCommandLaunchActions, useCommandLaunchCatalog, useCommandLaunchOrigin, useCommandTargetMachines } from '@/app/command-launch-data'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
@@ -116,9 +119,9 @@ const PillButton = forwardRef<
 PillButton.displayName = 'PillButton'
 
 const BASE_BRANCH_TITLE = {
-  repo: "This repository's base branch. Change it from the project's ⋯ menu or Settings → Repositories.",
+  repo: "This repository's base branch. Change it from the project's ⋯ menu or Settings › Projects.",
   podium:
-    'The Podium default parent branch (Settings → Git workflow). This repository has no base branch of its own.',
+    'The Podium default parent branch (Settings › Projects). This repository has no base branch of its own.',
   auto: 'Podium picks main, master or the checked-out branch when the task is created.',
 } as const
 
@@ -178,10 +181,10 @@ function MachineMenu({
   onSelect,
 }: {
   trigger: ReactNode
-  machines: MachineWire[]
+  machines: MachineFacts[]
   agentKind: string
   agentName: string
-  autoMachine: MachineWire | undefined
+  autoMachine: MachineFacts | undefined
   /** `''` = Auto. */
   value: string
   onSelect: (machineId: string) => void
@@ -276,7 +279,7 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
   initialStage?: IssueStage
 }): JSX.Element {
   const { machines } = data
-  const { trpc } = useCommandLaunchActions()
+  const { trpc, spawnIssueAgent } = useCommandLaunchActions()
   const isMobile = useIsMobile()
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
@@ -288,11 +291,9 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
   const [priority, setPriority] = useState(2)
   // Default repo = the most recently used one (mount-time snapshot).
   const [repoPath, setRepoPath] = useState(() => data.initialRepoPath)
-  // Placeholder until settings load (line ~258 resolves the coding role):
-  // the named product default, never a literal (POD-4737).
-  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
-  const settingsRequest = useSettingsRecord(readSettings)
-  const defaultAgent = settingsRequest?.model?.codingHarness ?? DEFAULT_HARNESS_AGENT
+  // The Podium-wide parent branch, from the synced instance settings (POD-6677).
+  const podiumDefaultBranch = usePodiumDefaultParentBranch()
+  const defaultAgent = useMyCodingHarness() ?? DEFAULT_HARNESS_AGENT
   // '' = use the configured default agent (no flag).
   const [agent, setAgent] = useState('')
   // 'auto' = inherit the settings default model/effort (no per-issue override).
@@ -371,34 +372,60 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
   const effectiveMachine = pinnedUnavailable ? undefined : pinnedMachine
   const canSubmit = Boolean(title.trim()) && Boolean(repoPath) && !busy
 
+  /**
+   * START WORK NOW IS AN `issue.start` (POD-6421): the pool paints the task and
+   * its starting agent on every device at once, from the record, while it waits
+   * (also for a machine that is away). A failure shows on the task's session and
+   * as a notice, a proposal as the proposed task it is (PoolLaunches). The
+   * dialog only waits until the start is durably queued.
+   */
+  const start = async (): Promise<void> => {
+    const started = spawnIssueAgent({
+      target: {
+        path: repoPath,
+        repoPath,
+        ...(effectiveMachine ? { machineId: asMachineId(effectiveMachine.id) } : {}),
+        ...(repoView?.repoId !== undefined ? { repoId: repoView.repoId } : {}),
+      },
+      title: title.trim(),
+      description: description.trim(),
+      // '' leaves the task on the configured default agent, as the create did.
+      agentKind,
+      ...(agent ? {} : { inheritAgent: true }),
+      ...(model !== AUTO ? { model } : {}),
+      ...(effort !== AUTO ? { effort } : {}),
+      ...(priority !== 2 ? { priority } : {}),
+      // The start reads In progress; another chosen stage is applied after it
+      // (Shipping is never chosen here: the menu offers board lanes only).
+      ...(stage !== 'backlog' && stage !== 'shipping' ? { stage } : {}),
+    })
+    if (!(await started.settled)) throw new Error("Couldn't start the task.")
+  }
+
   const submit = async () => {
     if (!canSubmit) return
     setBusy(true)
     setError('')
     try {
-      const created = await trpc.issues.create.mutate({
-        repoPath,
-        title: title.trim(),
-        description: description.trim() || undefined,
-        startNow,
-        // The runs-on band is the ONLY place these are chosen, and it is folded
-        // away when the task is not starting — so a deferred ticket carries no
-        // agent, model, effort or host, exactly as the collapsed band says.
-        ...(startNow
-          ? {
-              ...(agent ? { defaultAgent: agent } : {}),
-              ...(model !== AUTO ? { defaultModel: model } : {}),
-              ...(effort !== AUTO ? { defaultEffort: effort } : {}),
-              ...(effectiveMachine ? { machineId: effectiveMachine.id } : {}),
-            }
-          : {}),
-        // Omit fields at their defaults so a bare issue stays bare.
-        ...(priority !== 2 ? { priority } : {}),
-      })
-      // `create` always lands in Backlog, so honor the chosen stage with a follow-up
-      // patch. Backlog is the default — no patch needed.
-      if (stage !== 'backlog') {
-        await trpc.issues.update.mutate({ id: created.id, patch: { stage } })
+      if (startNow) {
+        await start()
+      } else {
+        const created = await issueWrites(trpc).create.mutate({
+          repoPath,
+          title: title.trim(),
+          description: description.trim() || undefined,
+          // The runs-on band is the ONLY place agent, model, effort and host are
+          // chosen, and it is folded away when the task is not starting — so a
+          // deferred ticket carries none of them, exactly as the band says.
+          startNow: false,
+          // Omit fields at their defaults so a bare issue stays bare.
+          ...(priority !== 2 ? { priority } : {}),
+        })
+        // `create` always lands in Backlog, so honor the chosen stage with a
+        // follow-up patch. Backlog is the default — no patch needed.
+        if (stage !== 'backlog') {
+          await trpc.issues.update.mutate({ id: created.id, patch: { stage } })
+        }
       }
       if (createMore) {
         // Keep the chosen properties; clear only the per-issue text and refocus.
@@ -506,11 +533,8 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
             selectedValue={stage}
             onSelect={(v) => setStage(v as IssueStage)}
           />
-          {settingsRequest?.model && (
-            <BaseBranchNote
-              repoId={repoView?.repoId}
-              podiumDefault={settingsRequest.model.gitWorkflow?.defaultParentBranch}
-            />
+          {podiumDefaultBranch !== undefined && (
+            <BaseBranchNote repoId={repoView?.repoId} podiumDefault={podiumDefaultBranch} />
           )}
           <span className="ml-auto font-mono text-[10px] text-text-faint">esc</span>
           <Button type="button" variant="ghost" size="icon-sm" aria-label="Close" onClick={onClose}>

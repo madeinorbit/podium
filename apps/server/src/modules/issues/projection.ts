@@ -5,20 +5,26 @@ import {
   actorUser,
   asAgentIdentityId,
   asUserId,
+  type IssueBriefWire,
   IssueDep,
   type IssueDepId,
   type IssueDepProjection,
+  type IssueDescriptionWire,
   type IssueId,
   type IssueProjection,
+  issueBriefText,
   issueDepId,
   issueDepToWire,
+  issueDescriptionText,
   machinePathBasename,
   Repo,
   type RepoId,
   type RepoProjection,
+  type SlimIssueProjection,
   repoNameFromOrigin,
   repoToWire,
   toWire,
+  withoutIssueBodies,
 } from '@podium/model'
 import { fromStorage } from '../../store/issue-storage'
 import type { IssueRow } from '../../store/types'
@@ -63,6 +69,37 @@ export function issueRowToProjection(row: IssueRow, labels: string[]): IssueProj
     // Unknown historical askers stay unknown; a stored question is never dropped.
     ...(question ? { asked: question } : {}),
   })
+}
+
+// ---- The fat fields, as records of their own [POD-6921] ----
+//
+// The synced issue record leaves out `brief`, `panel`, `description` and
+// `activityNotes`. The brief and the description are the `issueBrief` and
+// `issueDescription` records, keyed by the issue id and holding the whole
+// text; the panel and notes are the panel records. Each is a pure function of
+// the issue's projection, so any process builds the same records.
+
+/** The `issueBrief` record of one issue, or `undefined` when it has no brief. */
+export function issueBriefOf(projection: IssueProjection): IssueBriefWire | undefined {
+  const text = issueBriefText(projection.brief)
+  return text === undefined ? undefined : { id: projection.id, text }
+}
+
+/** The `issueDescription` record of one issue, or `undefined` when its
+ *  description is empty. */
+export function issueDescriptionOf(projection: IssueProjection): IssueDescriptionWire | undefined {
+  const text = issueDescriptionText(projection.description)
+  return text === undefined ? undefined : { id: projection.id, text }
+}
+
+/** The synced issue record: the projection without its body fields. */
+export function slimIssueProjection(projection: IssueProjection): SlimIssueProjection {
+  return withoutIssueBodies(projection) as SlimIssueProjection
+}
+
+/** BUILDER: the synced issue record of one stored issue. */
+export function slimIssueProjectionOfRow(row: IssueRow, labels: string[]): SlimIssueProjection {
+  return slimIssueProjection(issueRowToProjection(row, labels))
 }
 
 /**

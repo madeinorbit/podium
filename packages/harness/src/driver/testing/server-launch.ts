@@ -8,8 +8,10 @@
 
 import type { SessionId } from '@podium/model'
 import type { AgentInstruction } from '@podium/protocol'
+import type { HarnessContext } from '../../harness-context.js'
 import type { ServerFamilyLaunch } from '../families/server-family.js'
 import type { AcceptedDriverId } from '../families.js'
+import { testSessionTerms } from './harness-context.js'
 
 export function serverFamilyLaunch(input: {
   sessionId: SessionId
@@ -21,12 +23,17 @@ export function serverFamilyLaunch(input: {
   env?: Readonly<Record<string, string>>
   initialPrompt?: string
   instructions?: readonly AgentInstruction[]
+  /** The session's pinned harness context; a test builds one with
+   *  `testHarnessContext`. */
+  harnessContext: HarnessContext
 }): ServerFamilyLaunch {
   const driverId: AcceptedDriverId = input.driverId ?? 'claude-sdk'
   return {
     sessionId: input.sessionId,
     spec: {
       harness: input.harness ?? 'test-harness',
+      harnessContext: input.harnessContext,
+      ...testSessionTerms(),
       selection: {
         auth: 'unknown',
         platform: process.platform,

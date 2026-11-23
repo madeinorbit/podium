@@ -170,8 +170,7 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
     from: ['healing'],
     input: 'normal range completion',
     condition: 'every frame committed and source completed normally',
-    effect:
-      'Drain the buffered tail present at range completion, then publish live; newer frames drain in order as live updates.',
+    effect: 'Leave healing, then drain buffered frames while they stay contiguous.',
     to: ['live'],
     rung: 1,
     adr: 'ADR 2 D7 rung 1',
@@ -273,10 +272,10 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   },
   {
     id: 'D7-4-EPOCH',
-    from: ['live', 'healing', 'stale', 'bootstrapping'],
+    from: ['live', 'healing', 'stale'],
     input: 'delta frame or changesRange reply',
     condition:
-      'feedId or epoch differs from the held cursor — checked wherever a cursor exists, BEFORE any buffering branch',
+      'feedId or epoch differs from the held cursor — checked wherever a cursor exists, BEFORE any buffering branch; during a bootstrap walk the frame is buffered and held to the identity the walk installs (POD-6838)',
     effect:
       'Discard the replica entirely and re-bootstrap. Epoch is compared by EQUALITY only, never ordered.',
     to: ['bootstrapping'],
@@ -308,25 +307,27 @@ export const REPLICA_TRANSITIONS: readonly TransitionRow[] = [
   // ─── Bootstrap walk (D6 shape, D15 slice) ──────────────────────────────────
   {
     id: 'D6-BUFFER',
-    from: ['bootstrapping', 'healing', 'live'],
+    from: ['bootstrapping', 'healing'],
     input: 'delta frame',
-    condition: 'a bootstrap walk, heal, or buffered live commit is in flight',
+    condition: 'a bootstrap walk or a heal is in flight',
     effect:
       'Buffer the frame, PRESERVING the current posture. The rule is stated over FRAMES, not over ops, so watermarks and evicts buffer exactly like ordinary changes and no op kind can be forgotten. Frame shape and known-kind validation run BEFORE the frame is buffered.',
-    to: ['bootstrapping', 'healing', 'live'],
+    to: ['bootstrapping', 'healing'],
     rung: null,
     adr: 'ADR 2 D6.3; Amendment 1 D15.2',
   },
   {
     id: 'D6-BUFFER-COVERED',
-    // A heal stays healing until its buffered live tail has also committed.
-    // Bootstrap still folds its initial buffer at install, then drains live.
-    from: ['bootstrapping', 'live', 'healing'],
+    // Two postures, not three. The drop happens either inside a bootstrap install
+    // ('bootstrapping') or at the drain that follows a completed heal — and the
+    // drain runs only AFTER the heal has set 'live', so no path drops a covered
+    // frame while still healing. 'healing' was declared here and never reachable.
+    from: ['bootstrapping', 'live'],
     input: 'buffered frame, at install or at drain',
     condition: 'frame.seq <= cursor.seq (the snapshot or the heal already covers it)',
     effect:
       'DROP it. Not applied and not healed: our own cursor already certifies that range, so there is nothing to learn from it. Nothing from the frame reaches the store, so this is not acceptance of an overlapping frame.',
-    to: ['bootstrapping', 'live', 'healing'],
+    to: ['bootstrapping', 'live'],
     rung: null,
     adr: 'ADR 2 D6.3',
   },

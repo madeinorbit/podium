@@ -57,9 +57,8 @@ export function isControlPlanePath(pathname: string): boolean {
  * The auth surface a blocked-but-reachable instance keeps open: the status read,
  * and the login/logout that let an operator BECOME the admin who can restart it.
  *
- * Deliberately not all of `/auth/*`. `POST /auth/users` mints an account in the
- * live database, which is work — it belongs to the data plane and stays shut
- * until the process is running the config it was asked to run.
+ * Membership changes remain in the data plane and stay shut until the
+ * process is running the configuration it was asked to run.
  */
 const CONTROL_PLANE_AUTH_PATHS = new Set(['/auth/status', '/auth/login', '/auth/logout'])
 
@@ -75,7 +74,8 @@ export function isLoopbackAddress(address: string | undefined): boolean {
   )
 }
 
-function isLoopbackHost(host: string | undefined): boolean {
+/** Whether a Host value (`name[:port]`) names this computer: `localhost` or a loopback address. */
+export function isLoopbackHost(host: string | undefined): boolean {
   if (!host) return false
   try {
     const hostname = new URL(`http://${host}`).hostname
@@ -96,7 +96,7 @@ function isLoopbackHost(host: string | undefined): boolean {
  * ask for X-Forwarded-Proto, so a proxy set up as asked is caught here even when it
  * rewrites everything else.
  */
-const PROXY_ONLY_HEADERS = ['forwarded', 'x-forwarded-proto', 'x-real-ip'] as const
+export const PROXY_ONLY_HEADERS = ['forwarded', 'x-forwarded-proto', 'x-real-ip'] as const
 
 /** The native boundary overwrites x-podium-peer-address from Bun.requestIP, so
  * callers cannot nominate themselves as local. Host/origin/forwarding checks
@@ -122,11 +122,27 @@ export function isHostLocalRequest(request: Request): boolean {
     }
   }
 
-  const forwardedHost = request.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
-  if (forwardedHost && !isLoopbackHost(forwardedHost)) return false
-  const forwardedFor = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-  if (forwardedFor && !isLoopbackAddress(forwardedFor)) return false
-  return true
+  return (
+    everyForwardedEntry(request, 'x-forwarded-host', isLoopbackHost) &&
+    everyForwardedEntry(request, 'x-forwarded-for', isLoopbackAddress)
+  )
+}
+
+/**
+ * Whether every entry of a forwarding header names this machine. A proxy on
+ * this machine connects from loopback and appends the real peer after whatever
+ * the client sent, so the first entry is the client's word (POD-6754 finding
+ * F2). Any non-loopback entry anywhere in the chain, or one that cannot be read,
+ * makes the request remote. An absent header says nothing.
+ */
+function everyForwardedEntry(
+  request: Request,
+  name: string,
+  isLocal: (value: string | undefined) => boolean,
+): boolean {
+  const value = request.headers.get(name)
+  if (value === null) return true
+  return value.split(',').every((entry) => isLocal(entry.trim() || undefined))
 }
 
 export function readinessBoundary(opts: {

@@ -4,16 +4,22 @@ import { sessionPaneView } from './session-pane-view'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { createMobileSessionReader } from './mobile-session-context'
+import { liveFixture } from './live-fixture'
+import './synced-models'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
 
 it('reads only the conversation machine and keeps first demand and updates flat at 1x/4x', async () => {
   async function measured(scale: 1 | 4) {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    const machine = (id: string, online = true) => ({ kind: 'machine' as const, id, value: {
-      id, online, name: id, hostname: id, lastSeenAt: '2020-01-01',
-      availability: { epoch: 'one', server: false, daemon: online, supervisor: true },
-    } as never })
+    // A machine record with my access row; online and availability are its
+    // LiveStore condition (POD-6644).
+    const live = liveFixture(pool)
+    const machine = (id: string, online = true) => {
+      live.condition(id, { online, since: null, lastSeenAt: '2020-01-01',
+        availability: { epoch: 'one', server: false, daemon: online, supervisor: true } } as never)
+      return { kind: 'machine' as const, id, value: { id, name: id, hostname: id, loggedOutHarnesses: [], use: 'granted' } as never }
+    }
     headerEntities(pool).apply([machine('target'), ...Array.from({ length: 128 * scale }, (_, n) => machine(`foreign-${n}`))])
     const reader = createMobileSessionReader(pool), row = vi.spyOn(pool, 'row')
     const ids = vi.spyOn(headerView(pool), 'ids'), list = vi.spyOn(sessionPaneView(pool), 'machines')

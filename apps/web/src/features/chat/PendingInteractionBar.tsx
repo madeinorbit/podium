@@ -1,12 +1,11 @@
-import { observer } from 'mobx-react-lite'
-import { useStoreHandle } from '@podium/client-core/react'
 import type { PendingInteractionCard } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { OctagonAlert } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import { type JSX, useState } from 'react'
-import type { Trpc } from '@/app/trpc'
 import { cn } from '@/lib/utils'
+import { useAnswerSession } from './answer-session'
 import { usePoolInteractionCards } from './use-pool-notices'
 
 /**
@@ -36,23 +35,25 @@ import { usePoolInteractionCards } from './use-pool-notices'
  * Which buttons an ask offers, what the muted line says when it offers none,
  * and which asks the transcript's own AskUserQuestion card renders better are
  * all `pendingInteractionCards`' decisions, shared with mobile. This file is
- * layout, a mutation and an error line.
+ * layout, an answer (a `session.answer` record, POD-6415) and an error line.
  */
 const NO_ASKS: PendingInteractionWire[] = []
 
 type BarProps = { sessionId: SessionId; compact?: boolean }
 export function PendingInteractionBar({ sessionId, compact }: BarProps): JSX.Element | null {
   const cards = usePoolInteractionCards(sessionId)
-  return <InteractionBarBody cards={cards} compact={compact} />
+  return <InteractionBarBody sessionId={sessionId} cards={cards} compact={compact} />
 }
 const InteractionBarBody = observer(function InteractionBarBody({
+  sessionId,
   cards,
   compact,
 }: {
+  sessionId: SessionId
   cards: readonly PendingInteractionCard[]
   compact?: boolean
 }): JSX.Element | null {
-  const { trpc } = useStoreHandle<Trpc>().access
+  const answerSession = useAnswerSession()
   // Keyed by `${interactionId}:${actionId}` so two bars for one session (chat
   // mode keeps the native dock mounted) cannot disable each other's buttons.
   const [sending, setSending] = useState<string | null>(null)
@@ -115,10 +116,16 @@ const InteractionBarBody = observer(function InteractionBarBody({
                             // The ROW DISAPPEARS on success: the feed carries the
                             // open set only, so a resolved ask is removed and this
                             // bar unmounts. There is nothing optimistic to draw.
-                            await trpc.interactions.answer.mutate({
-                              id: card.id,
-                              answer: action.answer,
+                            // A `session.answer` record (POD-6415): its result
+                            // is the delivery's reply.
+                            const sent = await answerSession(sessionId, {
+                              via: 'interaction',
+                              interactionId: card.id,
+                              answer: action.answer as { kind: string } & Record<string, unknown>,
                             })
+                            if (!sent.ok) {
+                              setError(sent.reason ?? 'Could not send that answer. Try again.')
+                            }
                           } catch (cause) {
                             setError(
                               cause instanceof Error

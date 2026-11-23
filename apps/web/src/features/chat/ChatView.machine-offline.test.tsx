@@ -1,5 +1,4 @@
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
-import { sessionView } from '@podium/client-core/session-values'
 import { asMachineId, asSessionId, type SessionId, type TranscriptItem } from '@podium/model'
 import { waitFor } from '@testing-library/react'
 import { act } from 'react'
@@ -64,24 +63,20 @@ const fakeTrpc = {
 
 const fakeReplica = {
   available: true,
-  windows: new Map<string, { items: TranscriptItem[]; savedAt: number }>(),
-  puts: [] as Array<{ key: string; items: TranscriptItem[] }>,
   hydrate: async () => ({ sessions: [], issues: [], conversations: [], cursor: null }),
   applySnapshot: () => {},
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow(key: string) {
-    return this.windows.get(key)
-  },
-  putTranscriptWindow(key: string, items: TranscriptItem[]) {
-    this.puts.push({ key, items })
-    this.windows.set(key, { items, savedAt: Date.now() })
-  },
 }
 
 let storeSessions: SessionView[] = []
-let storeMachines: Array<{ id: string; name: string; online: boolean; availability?: { daemon: boolean } }> = []
+let storeMachines: Array<{
+  id: string
+  name: string
+  online: boolean
+  availability?: { daemon: boolean }
+}> = []
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({
@@ -107,7 +102,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -125,10 +120,6 @@ function meta(over: Partial<SessionViewInput>): SessionView {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -145,8 +136,6 @@ let root: Root
 beforeEach(() => {
   reads.length = 0
   fakeHub.subscribes.length = 0
-  fakeReplica.windows.clear()
-  fakeReplica.puts.length = 0
   storeSessions = [meta({})]
   storeMachines = []
   container = document.createElement('div')
@@ -164,7 +153,7 @@ async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -183,7 +172,9 @@ describe('ChatView machine-offline history (POD-4808)', () => {
       reads[0]?.resolve({ items: [], hasMore: false, offline: { machineName: 'desk' } })
     })
     await flush()
-    await waitFor(() => expect(container.querySelector('[data-testid="transcript-machine-offline"]')).not.toBeNull())
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="transcript-machine-offline"]')).not.toBeNull(),
+    )
     const marker = container.querySelector('[data-testid="transcript-machine-offline"]')
     expect(marker?.textContent).toContain('desk')
     expect(marker?.textContent?.toLowerCase()).toContain('offline')
@@ -319,7 +310,9 @@ describe('ChatView machine-offline history (POD-4808)', () => {
       reads[0]?.resolve({ items: [], hasMore: false, offline: { machineName: 'desk' } })
     })
     await flush()
-    await waitFor(() => expect(container.querySelector('[data-testid="transcript-machine-offline"]')).not.toBeNull())
+    await waitFor(() =>
+      expect(container.querySelector('[data-testid="transcript-machine-offline"]')).not.toBeNull(),
+    )
     // Machine reconnects: the chat re-reads and the offline message is
     // replaced by history — no reload.
     storeMachines = [{ id: 'm1', name: 'desk', online: true }]
@@ -343,18 +336,51 @@ describe('ChatView machine-offline history (POD-4808)', () => {
   })
 })
 
-
-it('the live offline banner uses the replicated session machine name', async () => {
-  const raw = meta({ status: 'live', machineId: asMachineId('m1'), machineName: 'Old session name',
-    agentState: { phase: 'working', since: new Date(Date.now() - 149_380).toISOString(), nativeSubagentCount: 0 } })
-  storeSessions = [sessionView(raw, { machine: { name: 'Renamed home', loggedOutHarnesses: [] } })]
-  storeMachines = [{ id: 'm1', name: 'Stale live frame', online: false }]
-  act(() => { setFakeStore({}); root.render(<ChatView sessionId={asSessionId('s1')} />) })
-  await act(async () => { reads[0]?.resolve({ items: [{ id: 'tool-home', cursor: 'c-home', role: 'tool',
-    text: '', toolName: 'Bash', toolInput: 'pwd', ts: new Date(Date.now() - 149_380).toISOString() } as TranscriptItem],
-    head: 'c-home', tail: 'c-home', hasMore: false }) })
+it('the live offline banner reads the machine record name beside its live condition', async () => {
+  const raw = meta({
+    status: 'live',
+    machineId: asMachineId('m1'),
+    machineName: 'Old session name',
+    agentState: {
+      phase: 'working',
+      since: new Date(Date.now() - 149_380).toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+  storeSessions = [raw]
+  // Listing-shaped fixtures publish name as a durable machine record and
+  // online as its separate live condition, just as the current feed does.
+  storeMachines = [{ id: 'm1', name: 'Renamed home', online: false }]
+  act(() => {
+    setFakeStore({})
+    root.render(<ChatView sessionId={asSessionId('s1')} />)
+  })
+  await act(async () => {
+    reads[0]?.resolve({
+      items: [
+        {
+          id: 'tool-home',
+          cursor: 'c-home',
+          role: 'tool',
+          text: '',
+          toolName: 'Bash',
+          toolInput: 'pwd',
+          ts: new Date(Date.now() - 149_380).toISOString(),
+        } as TranscriptItem,
+      ],
+      head: 'c-home',
+      tail: 'c-home',
+      hasMore: false,
+    })
+  })
   await flush()
   const marker = container.querySelector('[data-testid="transcript-machine-offline"]')
   expect(marker?.textContent).toContain('Renamed home')
-  expect(marker?.textContent).not.toContain('Stale live frame')
+  expect(marker?.textContent).not.toContain('Old session name')
+  act(() => {
+    storeMachines = [{ id: 'm1', name: 'Renamed again', online: false }]
+    setFakeStore({})
+    root.render(<ChatView sessionId={asSessionId('s1')} />)
+  })
+  await waitFor(() => expect(marker?.textContent).toContain('Renamed again'))
 })

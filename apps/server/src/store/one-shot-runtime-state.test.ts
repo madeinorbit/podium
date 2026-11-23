@@ -13,6 +13,9 @@ import {
 import {
   createMemoryAttachmentStager,
   createMemoryDriverSlots,
+  testHarnessContext,
+  testSessionTerms,
+  testTurnPosturePort,
 } from '../../../../packages/harness/src/driver/testing/index.js'
 import {
   createHeadlessRuntime,
@@ -25,6 +28,7 @@ import type { HeadlessTurnOutcome } from '../../../../packages/harness/src/drive
 import { SessionRegistry } from '../relay'
 import { attachTestClient } from '../test-support/client-transport'
 import { attachHostDaemon } from '../test-support/host-daemon'
+import { openTestStore } from '../test-support/open-test-store'
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => {
@@ -40,12 +44,14 @@ interface ControlledTurn {
 }
 
 async function fixture() {
-  const registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+  // The run's engine's store; a registry handed a store leaves closing it to its caller.
+  const store = await openTestStore(':memory:')
+  const registry = await SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const controls: ControlMessage[] = []
   await attachHostDaemon(registry, (frame) => { controls.push(frame) })
   const clients: ServerMessage[] = []
   const clientId = attachTestClient(registry.clientGateway, (frame) => { clients.push(frame) })
-  const { sessionId } = await registry.modules.sessions.headless.createHeadlessSession({
+  const { sessionId } = await registry.modules.sessions.headless.createHeadlessSession(registry.modules.superagentTurnsWriter, {
     agentKind: 'claude-code', cwd: '/fixture', ownerUserId: firstAdminMemberId(),
   })
   const machineId = registry.sessionStore.hostMachineId
@@ -86,6 +92,7 @@ async function fixture() {
     acknowledge: async () => {},
   }
   const host: HeadlessDriverHost = {
+    ...testTurnPosturePort(),
     stageAttachment: createMemoryAttachmentStager(),
     send: (frame) => { sent.push(frame) },
     snapshot: async () => testHarnessSnapshot(),
@@ -102,9 +109,11 @@ async function fixture() {
     readFileBytes: async () => new Uint8Array(), now: () => now,
   }
   const runtime = createHeadlessRuntime(host, createMemoryDriverSlots(), runners)
-  cleanups.push(async () => { runtime.dispose(); await registry.dispose() })
+  cleanups.push(async () => { runtime.dispose(); await registry.dispose(); await store.close() })
   const spec: SessionSpec = {
     harness: 'claude-code', workdir: '/fixture', model: {},
+    ...testSessionTerms(),
+    harnessContext: testHarnessContext({ kind: 'claude-code' }),
     selection: { auth: 'unknown' as const, platform: 'linux', available: [] },
     instructions: { supported: false as const, reason: 'fixture' },
     mcpServers: { supported: false as const, reason: 'fixture' },
@@ -146,13 +155,22 @@ async function fixture() {
   }
   function input(id: string, structured = false): TurnInput {
     const accountId = asAccountId('native:claude-code:fixture')
+    // A structured turn is a supervised one (POD-6858): its asks reach chat.
+    // Posture is never a digest fact.
     const facts = canonicalHeadlessContractFacts({
-      prompt: 'work', accountId, turnId: id, sessionId,
-      ...(structured ? { structuredPermissions: true as const } : {}),
+      prompt: 'work',
+      accountId,
+      turnId: id,
+      sessionId,
     })
-    const requestDigest = createHash('sha256')
-      .update(facts).digest('hex')
-    return { id, text: 'work', accountId, requestDigest, ...(structured ? { structuredPermissions: true } : {}) }
+    const requestDigest = createHash('sha256').update(facts).digest('hex')
+    return {
+      id,
+      text: 'work',
+      accountId,
+      requestDigest,
+      ...(structured ? { posture: { mode: 'supervised' as const } } : {}),
+    }
   }
   async function send(id: string, structured = false, interrupt = false) {
     const receipt = await handle.send(input(id, structured), {

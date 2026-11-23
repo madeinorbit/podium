@@ -1,4 +1,9 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import {
+  createMemoryTranscriptBackend,
+  createStoreTranscriptCache,
+  createTranscriptStore,
+} from '@podium/client-core/transcript-store'
 import type { TranscriptItem } from '@podium/model'
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { act, type ComponentProps, type ReactNode, useState } from 'react'
@@ -101,13 +106,19 @@ const session = {
 } as unknown as SessionView
 
 describe('native lifecycle footer first layout', () => {
-  it('shows cached replica history without a skeleton while the first network read is pending', async () => {
+  it('shows stored history without a skeleton while the first network read is pending', async () => {
     Platform.OS = 'ios'
-    const replica = createMobileTestReplica()
-    replica.applySnapshot('sessions', [session])
-    replica.putTranscriptWindow(session.sessionId, [
+    // History this device stored in an earlier run (upstream's transcript store).
+    const backend = createMemoryTranscriptBackend()
+    const earlier = createTranscriptStore({ backend })
+    const writer = createStoreTranscriptCache(earlier, { settleMs: 0 })
+    writer.write(session.sessionId, () => [
       { id: 'saved', role: 'assistant', text: 'Saved history.' } as TranscriptItem,
     ])
+    writer.flush()
+    await earlier.settled()
+    const replica = createMobileTestReplica({ transcripts: writer })
+    replica.applySnapshot('sessions', [session])
     replica.finishBootstrap()
     await renderWithMobileStore(<SessionConversation session={session} issue={undefined} />, {
       replica,
@@ -116,7 +127,10 @@ describe('native lifecycle footer first layout', () => {
     expect(screen.getByTestId('measuring-composer')).toBeTruthy()
     expect(layout.placeholderInsets).toEqual([])
     act(() => layout.report?.(148))
-    expect(screen.getByTestId('transcript-list')).toBeTruthy()
+    // The transcript store answers asynchronously; until it does the chat holds
+    // a blank frame, never the skeleton, and the stored history then shows
+    // while the network read is still pending.
+    await waitFor(() => expect(screen.getByTestId('transcript-list')).toBeTruthy())
     expect(layout.placeholderInsets).toEqual([])
   })
 

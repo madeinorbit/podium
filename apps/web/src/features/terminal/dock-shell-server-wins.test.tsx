@@ -1,9 +1,10 @@
+import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionId, type SessionMeta } from '@podium/model'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-
+import { publishScreenPoolFixture } from '@/test-support/mock-screen-pool'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 /**
@@ -29,6 +30,7 @@ const forWorktreeMutate = vi.fn(
 const setDockShell = vi.fn((cwd: string, sessionId: SessionId | null) => {
   if (sessionId) dockShells[cwd] = sessionId
   else delete dockShells[cwd]
+  publishScreenPoolFixture()
 })
 const setDockVisibleSession = vi.fn()
 
@@ -58,7 +60,7 @@ const mockState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(mockState),
+  readFixture: (sel: (s: unknown) => unknown) => sel(mockState),
 }))
 
 vi.mock('@podium/terminal-client-react', () => ({
@@ -79,7 +81,9 @@ vi.mock('./use-terminal-appearance', () => ({
 
 const { DockShellPanel } = await import('./DockShellPanel')
 
-function shellMeta(over: Omit<Partial<SessionMeta>, 'sessionId'> & { sessionId: string }): SessionMeta {
+function shellMeta(
+  over: Omit<Partial<SessionMeta>, 'sessionId'> & { sessionId: string },
+): SessionMeta {
   const { sessionId, ...rest } = over
   return {
     sessionId: asSessionId(sessionId),

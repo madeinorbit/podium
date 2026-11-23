@@ -6,8 +6,6 @@ import {
   HostDiskWire,
   HostMemoryWire,
   HostMetricsWire,
-  MachineIdField,
-  MachineWire,
   ProjectMemoryWire,
   SessionIdField,
   UsageBucketWire,
@@ -20,26 +18,10 @@ import { z } from 'zod'
 // packages/model/src/entities/machine.ts for why they are grouped and for the
 // see/use partition recorded on each field. What stays here is the FRAMES.
 
-export const MachinesChangedMessage = z.object({
-  type: z.literal('machinesChanged'),
-  machines: z.array(MachineWire),
-})
-
-// A git worktree was created for repoPath (POD-665) — daemon-created, so
-// connected clients otherwise never learn about it until reload. Carries
-// which repo changed (not the new worktree/repo payload itself: scanReposAll()
-// returns [] with a diagnostic when a fan-out degrades, and pushing that
-// unattended could clobber a good client repo list) so a future client could
-// re-fetch selectively; today the client just re-fetches everything via the
-// same discovery.refreshRepos path it already uses at boot. Unlike
-// machinesChanged, this is a one-shot invalidation — NOT re-served on attach;
-// the client's boot-time repo fetch is the catch-up path for anyone who missed
-// it. [spec:SP-4ef9] a worktree is a per-(branch,machine) materialization.
-export const WorktreesChangedMessage = z.object({
-  type: z.literal('worktreesChanged'),
-  repoPath: z.string(),
-  machineId: MachineIdField.optional(),
-})
+// Machines, their access and their checkouts reach clients as synced records
+// (`machine`, `machineAccess`, `checkout`; POD-6644). The `machinesChanged`
+// broadcast and the `worktreesChanged` invalidation that made clients re-fetch
+// repositories are gone.
 
 // Latest sample per daemon host. An array (not a single host) so the wire shape
 // already accommodates multiple machines each running a daemon.

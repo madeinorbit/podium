@@ -24,7 +24,11 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     },
     issueSessions(id) {
       const rows: SessionView[] = []
-      for (const key of pool.queries.ids({ kind: 'commandIssueSessions', issueId: id, archived: false })) {
+      for (const key of pool.queries.ids({
+        kind: 'commandIssueSessions',
+        issueId: id,
+        archived: false,
+      })) {
         const row = omitGone(pool.row('session', key))
         if (row === LOADING) return NAVIGATION_LOADING
         if (row) rows.push(row as unknown as SessionView)
@@ -32,10 +36,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       return rows
     },
     issue(id) {
-      let row = omitGone(pool.row('issue', id, 'summary')) as
-        | SliceIssue
-        | typeof LOADING
-        | undefined
+      let row = omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
       if (
         row &&
         row !== LOADING &&
@@ -60,16 +61,15 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       return ids === LOADING ? NAVIGATION_LOADING : ids
     },
     session(id) {
-      let row = omitGone(pool.row('session', id))
-      if (row === LOADING) return NAVIGATION_LOADING
-      if (row !== undefined || !parseSessionRef(id.trim())) return row as SessionView | undefined
-      const key = pool.queries.sessionReferenceId(id.trim())
-      if (!key) return undefined
-      row = omitGone(pool.row('session', key))
+      const token = id.trim()
+      const key = parseSessionRef(token) ? pool.queries.sessionReferenceId(token) : id
+      // No publication means the reference index cannot establish absence yet.
+      if (!key) return pool.deviceIndex().version === 0 ? NAVIGATION_LOADING : undefined
+      const row = omitGone(pool.row('session', key))
       return row === LOADING ? NAVIGATION_LOADING : (row as SessionView | undefined)
     },
     sessionMembership(id) {
-      const row = omitGone(pool.row('session', id, 'summary-fields'))
+      const row = omitGone(pool.row('session', id))
       return row === LOADING
         ? NAVIGATION_LOADING
         : (row as ReturnType<NonNullable<NavigationProvider['sessionMembership']>>)
@@ -108,7 +108,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     firstWorktree: () => pool.queries.firstWorktreePath(),
     hasWorktreeSession: (path) => pool.queries.hasSessionWithin(path),
     worktreeSession(id) {
-      const row = omitGone(pool.row('session', id, 'summary-fields'))
+      const row = omitGone(pool.row('session', id))
       return row === LOADING
         ? NAVIGATION_LOADING
         : (row as ReturnType<NonNullable<NavigationProvider['worktreeSession']>>)
@@ -132,12 +132,15 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
         read,
       ),
     // This port returns small scalar tuples, not memoized row identities.
-    watch: (read, changed) => createPoolProjection(pool, read, { equals: compareStructural }).subscribe(changed),
+    watch: (read, changed) =>
+      createPoolProjection(pool, read, { equals: compareStructural }).subscribe(changed),
   }
   // Runtime actions also use this port outside a reactive read. Permit those
   // addressed reads without detaching the same methods from watched projections.
-  const read = <A extends unknown[], R>(fn: (...args: A) => R) => (...args: A): R =>
-    allowImperativeRead(() => transaction(() => fn(...args)))
+  const read =
+    <A extends unknown[], R>(fn: (...args: A) => R) =>
+    (...args: A): R =>
+      allowImperativeRead(() => transaction(() => fn(...args)))
   return {
     ...provider,
     issue: read(provider.issue),

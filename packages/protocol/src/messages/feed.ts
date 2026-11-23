@@ -51,18 +51,26 @@
  */
 
 import {
+  AgentProfileWire,
   AutomationRunWire,
   AutomationWire,
   ChangeCursorSeqField,
-  ConversationSummaryWire,
+  ChangeProvenanceFields,
+  ConversationRecordWire,
+  EffectRecordWire,
   IssueDepProjection,
   IssueGitStateProjection,
-  IssueProjection,
   IssueUserStateWire,
   MachineProjection,
   RepoProjection,
   SessionMeta,
   SessionUserStateWire,
+  SlimIssueProjection,
+  SubscriptionWire,
+  WorkflowBindingWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
+  WorkflowWire,
 } from '@podium/model'
 import { ShipLaneProjection, ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
@@ -83,24 +91,39 @@ import { changeRowArm } from './change-row'
  * express inside a discriminated-union arm. It is NOT left to producers here
  * (that is how v1 stated it): {@link validateFeedDelta} enforces it on the frame,
  * where the range rules are enforced too.
+ *
+ * PROVENANCE (ADR 2 D8, POD-6274). `originId`, `causationId` and `mutationId` —
+ * the model's {@link ChangeProvenanceFields} instances — follow `value`, so the
+ * pinned `seq, entity, entityId, op, value` prefix is unchanged and a row
+ * without provenance encodes byte-identically to before. They are what lets a
+ * client recognise its own command coming back in a frame. v2 only: the v1
+ * `messages/sync.ts` row is left as it is, and an older v2 reader drops the
+ * keys because no arm is `.strict()`.
  */
 const feedChangeArm = <E extends z.ZodTypeAny, V extends z.ZodTypeAny>(entity: E, value: V) =>
-  changeRowArm('entityId', entity, ScopedChangeOp, value)
+  changeRowArm('entityId', entity, ScopedChangeOp, value).extend(ChangeProvenanceFields.shape)
 
 export const FeedChange = z.discriminatedUnion('entity', [
   feedChangeArm(z.literal('session'), SessionMeta),
-  feedChangeArm(z.literal('issueProjection'), IssueProjection),
+  feedChangeArm(z.literal('issueProjection'), SlimIssueProjection),
   feedChangeArm(z.literal('issueDep'), IssueDepProjection),
   feedChangeArm(z.literal('repo'), RepoProjection),
   feedChangeArm(z.literal('shipOrder'), ShipOrderProjection),
   feedChangeArm(z.literal('shipLane'), ShipLaneProjection),
-  feedChangeArm(z.literal('conversation'), ConversationSummaryWire),
+  feedChangeArm(z.literal('conversation'), ConversationRecordWire),
   feedChangeArm(z.literal('automation'), AutomationWire),
   feedChangeArm(z.literal('automationRun'), AutomationRunWire),
   feedChangeArm(z.literal('issueUserState'), IssueUserStateWire),
   feedChangeArm(z.literal('sessionUserState'), SessionUserStateWire),
   feedChangeArm(z.literal('machine'), MachineProjection),
   feedChangeArm(z.literal('issueGitState'), IssueGitStateProjection),
+  feedChangeArm(z.literal('effect'), EffectRecordWire),
+  feedChangeArm(z.literal('agentProfile'), AgentProfileWire),
+  feedChangeArm(z.literal('workflow'), WorkflowWire),
+  feedChangeArm(z.literal('workflowRevision'), WorkflowRevisionWire),
+  feedChangeArm(z.literal('workflowBinding'), WorkflowBindingWire),
+  feedChangeArm(z.literal('workflowRun'), WorkflowRunRecord),
+  feedChangeArm(z.literal('subscription'), SubscriptionWire),
 ])
 export type FeedChange = z.infer<typeof FeedChange>
 
@@ -123,6 +146,10 @@ export type FeedChange = z.infer<typeof FeedChange>
 export const FEED_ENTITY_KINDS: readonly string[] = FeedChange.options.map(
   (arm) => (arm.shape.entity as z.ZodLiteral<string>).value,
 )
+
+/** Opaque versions of the published record kinds, compared by equality. */
+export const SyncKindTokens = z.record(z.string().min(1), z.string().min(1))
+export type SyncKindTokens = Readonly<z.infer<typeof SyncKindTokens>>
 
 /** The catch-all arm — a kind THIS build does not know, from a newer server.
  *  Kinds this build CAN parse are excluded, so a known-kind row with an invalid
@@ -182,6 +209,12 @@ export const FeedDeltaMessage = z.object({
   type: z.literal('feedDelta'),
   ...CertifiedRangeFields,
   changes: z.array(FeedChange),
+  /**
+   * The principal's access moved in this range (POD-6947): a grant given or
+   * taken that names them. The replica applies the rows as usual; the client
+   * asks again for every live topic it was refused, and the server decides.
+   */
+  access: z.literal(true).optional(),
 })
 export type FeedDeltaMessage = z.infer<typeof FeedDeltaMessage>
 
@@ -190,6 +223,7 @@ export const FeedDeltaMessageLenient = z.object({
   type: z.literal('feedDelta'),
   ...CertifiedRangeFields,
   changes: z.array(FeedChangeLenient),
+  access: z.literal(true).optional(),
 })
 export type FeedDeltaMessageLenient = z.infer<typeof FeedDeltaMessageLenient>
 
@@ -208,10 +242,9 @@ export const FeedBootstrapMessage = z.object({
   changes: z.array(FeedChange),
   /** False on every chunk but the last. A replica installs on `last`. */
   last: z.boolean(),
-  /** The whole world's row count, stamped on every chunk so a first-sync UI can
-   *  show real progress from whichever chunk it reads first [POD-1249]. Rows are
-   *  entity-interleaved (`ORDER BY seq`), so a prefix carries no denominator of
-   *  its own. Optional: absent from older servers means UNKNOWN, never zero. */
+  /** The whole world's row count. Optional, and absent means UNKNOWN, never
+   *  zero: a load streamed from the model tables in one pass (POD-6770) knows
+   *  its count only at the end, and stamps it on the last chunk alone. */
   totalRows: z.number().int().nonnegative().optional(),
   /** Per-entity row counts for the same world — the `issue`/`session`/…
    *  denominators. Same optionality rule as `totalRows`. */
@@ -348,7 +381,8 @@ export type FeedFrameViolation =
  *
  *  - a row outside `(fromSeq, seq]` is a row the frame did not certify, so
  *    applying it advances a cursor over ground nobody evaluated;
- *  - unordered rows break the replica's single-pass apply;
+ *  - rows whose numbers DECREASE break the replica's single-pass apply (rows
+ *    may share a number: every row of a start-up load carries the head's);
  *  - an `upsert` with no value installs `undefined` as an entity;
  *  - a `remove`/`evict` WITH a value is a producer that thinks a deletion
  *    carries state — the ADR 2 D5 confusion this wire exists to prevent;
@@ -381,7 +415,15 @@ export function validateFeedFrame(frame: {
     if (change.seq <= frame.fromSeq || change.seq > frame.seq) {
       if (!violations.includes('row-outside-range')) violations.push('row-outside-range')
     }
-    if (change.seq <= previous && !violations.includes('rows-unordered')) {
+    // NON-DECREASING, not strictly increasing (wire version 5, POD-6770): rows
+    // may share a number. A start-up load is built from the model tables, whose
+    // records have no change number of their own, so every row carries the head
+    // number the load is stamped with; the replica's own rule (`validateFrame`)
+    // has always allowed a shared number. Rows an edge re-admits or evicts share
+    // the seq of the change that moved them too (ADR 2 Amendment 1 D14.3): a
+    // strict rule refused every frame that carried them, so a catch-up across one
+    // machine report stopped sync and a live one forced a re-bootstrap (POD-6834).
+    if (change.seq < previous && !violations.includes('rows-unordered')) {
       violations.push('rows-unordered')
     }
     previous = Math.max(previous, change.seq)

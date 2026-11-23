@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * Recap watermarks aggregate (#237) [spec:SP-34d7 read-toolkit tier 3] — one
  * row per (reader, target session): the transcript cursor the reader's last
@@ -7,53 +8,65 @@
 
 import type { SessionId } from '@podium/model'
 import { and, eq, sql } from 'drizzle-orm'
-import { recapWatermarks } from '../migrations/schema'
 import type { ReaderRef } from '../modules/sessions/read-toolkit'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { param, prepared } from './executor/sync-drizzle'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import { inWorkspace, param, prepared, WORKSPACE } from './executor/sync-drizzle'
 
-// Every query this repository runs, prepared once per store [POD-6147].
+// Every query this repository runs, prepared once per store [POD-6147], each
+// held to the repository's workspace (POD-6959 design 2.4): a reader's cursor
+// on a session is that workspace's row.
 
-const recapWatermarkOf = prepared((db: StoreDrizzle) =>
+const recapWatermarkOf = prepared((db, t) =>
   db
-    .select({ watermark: recapWatermarks.watermark })
-    .from(recapWatermarks)
-    .where(and(
-      eq(recapWatermarks.reader, param(recapWatermarks.reader, 'reader')),
-      eq(recapWatermarks.sessionId, param(recapWatermarks.sessionId, 'sessionId')),
-    ))
+    .select({ watermark: t.recapWatermarks.watermark })
+    .from(t.recapWatermarks)
+    .where(
+      inWorkspace(
+        t.recapWatermarks,
+        and(
+          eq(t.recapWatermarks.reader, param(t.recapWatermarks.reader, 'reader')),
+          eq(t.recapWatermarks.sessionId, param(t.recapWatermarks.sessionId, 'sessionId')),
+        ),
+      ),
+    )
     .prepare(),
 )
 
-const upsertRecapWatermark = prepared((db: StoreDrizzle) =>
+const upsertRecapWatermark = prepared((db, t) =>
   db
-    .insert(recapWatermarks)
+    .insert(t.recapWatermarks)
     .values({
+      workspaceId: WORKSPACE,
       reader: sql.placeholder('reader'),
       sessionId: sql.placeholder('sessionId'),
       watermark: sql.placeholder('watermark'),
       updatedAt: sql.placeholder('at'),
     })
     .onConflictDoUpdate({
-      target: [recapWatermarks.reader, recapWatermarks.sessionId],
+      target: [
+        t.recapWatermarks.workspaceId,
+        t.recapWatermarks.reader,
+        t.recapWatermarks.sessionId,
+      ],
       set: { watermark: sql.placeholder('watermark'), updatedAt: sql.placeholder('at') },
     })
     .prepare(),
 )
 
 export class ReadWatermarksRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  /** One workspace's queries (POD-6959 design 2.4): every statement binds its workspace. */
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
-  protected get db() {
-    return this.rootDb
+  protected get db(): WorkspaceDb {
+    return this.scope
   }
 
   /** `null` and not `undefined` when absent: the caller distinguishes the two,
@@ -73,7 +86,12 @@ export class ReadWatermarksRepository {
    * `DO UPDATE SET`; nothing reads it back through this repository, so its
    * golden test reads it off the table.
    */
-  async setRecapWatermark(reader: ReaderRef, sessionId: SessionId, watermark: string, at: string): Promise<void> {
+  async setRecapWatermark(
+    reader: ReaderRef,
+    sessionId: SessionId,
+    watermark: string,
+    at: string,
+  ): Promise<void> {
     await upsertRecapWatermark(this.db).run({ reader, sessionId, watermark, at })
   }
 }

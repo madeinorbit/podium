@@ -139,7 +139,7 @@ describe('runIssueCli', () => {
     for (const flag of ['done', 'undone', 'remove']) {
       expect(out).toMatch(new RegExp(`^  --${flag} <value>\\s*$`, 'm'))
     }
-    expect(out).toMatch(/^  --clear\s*$/m)
+    expect(out).toMatch(/^ {2}--clear\s*$/m)
   })
 
   it.each(TODO_INDEX_CASES)(
@@ -267,7 +267,8 @@ describe('runIssueCli', () => {
   })
 
   it('invalid args name the offending field', async () => {
-    await expect(runIssueCli(['claim', '--id', '1'], client)).rejects.toThrow(/assignee/)
+    // `claim --assignee` became optional (POD-6287); `--priority` still validates.
+    await expect(runIssueCli(['update', '1', '--priority', 'high'], client)).rejects.toThrow(/priority/)
   })
 
   it('forwards --confirm-rehome on attach as a boolean', async () => {
@@ -308,6 +309,22 @@ describe('runIssueCli', () => {
     const c = { issues: { addSession: { mutate: addSession } } } as any
     await runIssueCli(['add-session', '3', '--force-unknown-model'], c)
     expect(addSession).toHaveBeenCalledWith({ id: '3', forceUnknownModel: true })
+  })
+
+  it('start and add-session take --credential, and their help documents it (POD-6897)', async () => {
+    const start = vi.fn(async () => ({ seq: 3, branch: 'issue/3-x', worktreePath: '/w' }))
+    const addSession = vi.fn(async () => ({ seq: 3 }))
+    const c = {
+      issues: { start: { mutate: start }, addSession: { mutate: addSession } },
+    } as unknown as Parameters<typeof runIssueCli>[1]
+    await runIssueCli(['start', '3', '--credential', 'Work key'], c)
+    expect(start).toHaveBeenCalledWith({ id: '3', credential: 'Work key' })
+    await runIssueCli(['add-session', '3', '--credential', 'none'], c)
+    expect(addSession).toHaveBeenCalledWith({ id: '3', credential: 'none' })
+    for (const command of ['start', 'add-session']) {
+      const help = await runIssueCli([command, '--help'], c)
+      expect(help, command).toContain('--credential <label | id | none>')
+    }
   })
 
   it('unknown flags are rejected, never silently dropped (#345)', async () => {

@@ -1,12 +1,22 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import {
+  useClientRuntime,
+  useCommands,
+  useDeviceState,
+  useHttpOrigin,
+  useRequestClient,
+  useSocketHub,
+  useUi,
+} from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { here } from '@podium/client-graph/lookup'
+import type { ScreenState } from '@podium/client-core/ui'
+import { pendingApprovals } from '@podium/client-graph/approval-effects'
+import type { EffectModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { ShellDock, shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
+import type { MachineFacts } from '@podium/model/browser'
 import { useMemo } from 'react'
-import type { Store } from './store'
 import { useWorklistPool } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 
@@ -19,33 +29,37 @@ function shellView(pool: MobxPool): ReturnType<typeof shellViews> {
 
 /** Identity-stable actions/transports only; the existing runtime remains the
  * mutation owner. Live values never come from this one-time acquisition. */
-const ACTIONS = [
-  'trpc',
-  'hub',
-  'httpOrigin',
-  'uiState',
-  'navigateToSession',
-  'closeAutoContinuePrompt',
-  'setSelectedIssueId',
-  'setView',
-  'setSuperOpen',
-  'setPaletteOpen',
-  'setOpenIssueId',
-  'openArtifact',
-  'openFileInWorktree',
-  'closeFileTab',
-  'closeWorkspaceTab',
-  'setSettingsTab',
-] as const satisfies readonly (keyof Store)[]
-export function useShellActions(): Pick<Store, (typeof ACTIONS)[number]> {
-  const owner = useStoreHandle<Trpc>()
-  return useMemo(() => {
-    const state = owner.access
-    return Object.fromEntries(ACTIONS.map((key) => [key, state[key]])) as Pick<
-      Store,
-      (typeof ACTIONS)[number]
-    >
-  }, [owner])
+export function useShellActions() {
+  const owner = useClientRuntime<Trpc>()
+  const commands = useCommands<Trpc>()
+  const ui = useUi()
+  const trpc = useRequestClient<Trpc>()
+  const hub = useSocketHub()
+  const httpOrigin = useHttpOrigin()
+  const deviceState = useDeviceState()
+  return useMemo(
+    () => ({
+      trpc: trpc,
+      hub: hub,
+      httpOrigin: httpOrigin,
+      uiState: deviceState,
+      navigateToSession: ui.navigateToSession,
+      closeAutoContinuePrompt: owner.autoContinueDialog.close,
+      setPreferences: commands.preferences.setPreferences,
+      setSelectedIssueId: ui.setSelectedIssueId,
+      setView: ui.setView,
+      setSuperOpen: ui.setSuperOpen,
+      setPaletteOpen: owner.palette.setOpen,
+      setOpenIssueId: ui.setOpenIssueId,
+      openArtifact: ui.openArtifact,
+      openFileInWorktree: ui.openFileInWorktree,
+      closeFileTab: ui.closeFileTab,
+      closeWorkspaceTab: ui.closeWorkspaceTab,
+      setSettingsTab: ui.setSettingsTab,
+      decideApproval: commands.automations.decideApproval,
+    }),
+    [commands, ui, trpc, hub, httpOrigin, deviceState, owner],
+  )
 }
 /** The right dock's routing view: an observer reads each field where it is
  * shown (`dock.active`, `dock.gitIssue`, `dock.mailIssueId`, `dock.scope`). */
@@ -64,35 +78,68 @@ export function useShellShipping() {
 
 export function useShellWindow() {
   if (import.meta.env.DEV) assertReactiveRead('useShellWindow')
-  const pool = useWorklistPool()
-  return pool ? here(pool.row('shellWindow', 'window')) : undefined
+  const owner = useClientRuntime<Trpc>(),
+    ui = owner.ui
+  return {
+    get view() {
+      return ui.view
+    },
+    get paneA() {
+      return ui.paneA
+    },
+    get selectedIssueId() {
+      return ui.selectedIssueId
+    },
+    get selectedWorktree() {
+      return ui.selectedWorktree
+    },
+    get superOpen() {
+      return ui.superOpen
+    },
+    get paletteOpen() {
+      return owner.palette.open
+    },
+    get autoContinuePromptSessionId() {
+      return owner.autoContinueDialog.sessionId
+    },
+  }
 }
-export function useShellApprovals() {
+/** The agent requests waiting for this person, oldest first (POD-6674): the
+ *  pool's `approval` effect models. */
+export function useShellApprovals(): readonly EffectModel[] {
   if (import.meta.env.DEV) assertReactiveRead('useShellApprovals')
-  const pool = useWorklistPool(),
-    rows = pool ? shellView(pool).approvals() : LOADING
-  return rows && rows !== LOADING ? rows : EMPTY_APPROVALS
+  const pool = useWorklistPool()
+  return pool ? pendingApprovals(pool) : EMPTY_APPROVALS
 }
-const EMPTY_APPROVALS: Store['approvals'] = []
+const EMPTY_APPROVALS: readonly EffectModel[] = []
 
-const EMPTY_SESSIONS: import('@podium/client-core/session-values').SessionView[] = []
 export function useShellLinks() {
   const pool = useWorklistPool(),
     views = pool ? shellView(pool) : null
   return useMemo(
     () => ({
-      readSession: (identifier: string) => allowImperativeRead(() => {
-        const session = views?.linkedSession(identifier)
-        return session && session !== LOADING ? session : undefined
-      }),
-      readIssue: (identifier: string) => allowImperativeRead(() => {
-        const issue = views?.linkedIssue(identifier)
-        return issue && issue !== LOADING ? issue : undefined
-      }),
-      artifactIssue: (id: string) => allowImperativeRead(() => {
-        const row = views?.issue(id, true)
-        return row && row !== LOADING ? (row as IssueViewModel) : undefined
-      }),
+      readSession: (identifier: string) =>
+        allowImperativeRead(() => {
+          const session = views?.linkedSession(identifier)
+          return session && session !== LOADING ? session : undefined
+        }),
+      readIssue: (identifier: string) =>
+        allowImperativeRead(() => {
+          const issue = views?.linkedIssue(identifier)
+          return issue && issue !== LOADING ? issue : undefined
+        }),
+      /**
+       * The issue a reference names, also when the device holds it only as a
+       * stub (design POD-7059 "Search and references"): the stub knows the
+       * reference at once; its row may still be on its way.
+       */
+      issueId: (identifier: string) =>
+        allowImperativeRead(() => (views ? pool?.queries.linkedIssueId(identifier) : undefined)),
+      artifactIssue: (id: string) =>
+        allowImperativeRead(() => {
+          const row = views?.issue(id, true)
+          return row && row !== LOADING ? (row as IssueViewModel) : undefined
+        }),
       pool,
     }),
     [pool, views],
@@ -101,27 +148,21 @@ export function useShellLinks() {
 export function useShellSessionResolver() {
   const pool = useWorklistPool()
   return useMemo(
-    () => (id: string) => allowImperativeRead(() => {
-      const value = pool ? shellView(pool).session(id) : undefined
-      return value && value !== LOADING ? value : undefined
-    }),
+    () => (id: string) =>
+      allowImperativeRead(() => {
+        const value = pool ? shellView(pool).session(id) : undefined
+        return value && value !== LOADING ? value : undefined
+      }),
     [pool],
   )
 }
-export function useShellSessions() {
-  if (import.meta.env.DEV) assertReactiveRead('useShellSessions')
-  const pool = useWorklistPool(),
-    value = pool ? shellView(pool).sessions() : LOADING
-  return value && value !== LOADING ? value : EMPTY_SESSIONS
-}
-
 export function useShellClose() {
   if (import.meta.env.DEV) assertReactiveRead('useShellClose')
   const pool = useWorklistPool(),
     value = pool ? shellView(pool).close() : LOADING
   return value && value !== LOADING ? value : undefined
 }
-const EMPTY_MACHINES: Store['machines'] = []
+const EMPTY_MACHINES: MachineFacts[] = []
 export function useShellMachines() {
   if (import.meta.env.DEV) assertReactiveRead('useShellMachines')
   const pool = useWorklistPool()
@@ -129,14 +170,13 @@ export function useShellMachines() {
 }
 
 const EMPTY_CHROME = {
-  view: 'workspace' as Store['view'],
+  view: 'workspace' as ScreenState['view'],
   reposLoaded: false,
   superOpen: false,
   paletteOpen: false,
   repoCount: 0,
   worktreeCount: 0,
-  sessionCount: 0,
-  selectedIssueId: null as Store['selectedIssueId'],
+  selectedIssueId: null as ScreenState['selectedIssueId'],
   missionRoot: undefined as IssueViewModel | undefined,
   /** False while the snapshot loads: every field above is then a placeholder,
    *  not an answer (a cold selection reads as "no mission"). */
@@ -146,5 +186,13 @@ export function useShellChrome() {
   if (import.meta.env.DEV) assertReactiveRead('useShellChrome')
   const pool = useWorklistPool(),
     value = pool ? shellView(pool).chrome() : LOADING
-  return value && value !== LOADING ? { ...value, settled: true } : EMPTY_CHROME
+  const owner = useClientRuntime<Trpc>(),
+    ui = owner.ui
+  return {
+    ...(value && value !== LOADING ? { ...value, settled: true } : EMPTY_CHROME),
+    view: ui.view,
+    selectedIssueId: ui.selectedIssueId,
+    paletteOpen: owner.palette.open,
+    superOpen: ui.superOpen,
+  }
 }

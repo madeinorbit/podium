@@ -1,17 +1,20 @@
+import { issueSearch } from './issue-search'
+import { machineFacts } from './machine-facts'
 import type { MessageModel } from './message-models'
 import { omitGone } from './lookup'
+import { headerView } from './header-views'
 import { action, compareStructural, observable, observableRef, observe, runInAction, when } from 'mobx'
 import { headerEntities } from './header-entities'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { IssueId, IssuePanelArtifact, MachineWire } from '@podium/model'
+import type { IssueId, IssuePanelArtifact, MachineFacts } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
 import { companion, lazy } from '@podium/mobx-helpers'
-import type { PendingInteractionWire } from '@podium/protocol'
+import { issueRefText, type PendingInteractionWire } from '@podium/protocol'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
-import { headerIds } from './enumerate'
 import type { SessionModel } from './models'
 import type { MobxPool } from './pool'
+import { superagentState } from './superagent'
 import type { Loaded } from './worklist/rollup'
 
 // Loaded by the screen attachment only. Web hooks import the reader's type.
@@ -40,7 +43,7 @@ export function chatContextReadStats(pool: MobxPool): Readonly<ChatReadCounts> {
   )
 }
 export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
-  const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
+  const row = omitGone(pool.row('issue', id)) as Loaded<IssueViewModel>
   if (!row || loading(row)) return row
   const repoId = pool.relations.one('issue', id, 'repo')
   const repo = repoId ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
@@ -48,7 +51,7 @@ export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
     id: row.id, seq: row.seq, title: row.title, linearIdentifier: row.linearIdentifier,
     archived: row.archived, deletedAt: row.deletedAt, updatedAt: row.updatedAt, repoId: row.repoId,
     prefix: repo?.prefix,
-    displayRef: repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`,
+    displayRef: issueRefText(row.seq, repo?.prefix),
   } as IssueViewModel
 }
 export function chatMentionIssues(pool: MobxPool, counts = readerCounts(pool)) {
@@ -175,19 +178,23 @@ export function chatItemMessage(
 export function chatItemAttachments(pool: MobxPool, sessionId: string, itemId: string) {
   return chatItemMessage(pool, sessionId, itemId)?.attachments
 }
+/** The session's issue as its model, which answers the panel from its
+ *  records (POD-6778): the row carries none. */
 export function chatArtifactIssue(
   pool: MobxPool,
   session: Pick<SessionView, 'issueId' | 'sessionId'>,
-): Loaded<IssueViewModel> {
+): Loaded<IssueWithBodies> {
+  const model = (id: string) => pool.issueObject(id) as unknown as IssueWithBodies
   if (session.issueId) {
     const direct = omitGone(pool.row('issue', session.issueId))
     if (loading(direct)) return direct
-    if (direct && !(direct as IssueViewModel).deletedAt) return direct as IssueViewModel
+    if (direct && !(direct as IssueViewModel).deletedAt) return model(session.issueId)
   }
   // Normalized membership is the declared raw non-shell attachment relation.
   const owner = pool.relations.one('session', session.sessionId, 'pageIssue')
   const issue = owner ? (omitGone(pool.row('issue', owner)) as Loaded<IssueViewModel>) : undefined
-  return issue && !loading(issue) && issue.deletedAt ? undefined : issue
+  if (!issue || loading(issue)) return issue
+  return issue.deletedAt ? undefined : model(issue.id)
 }
 /** The stored copy of a file attached in this session's chat (POD-2148), by
  * the attachment id it was staged under, from the session's issue. Undefined
@@ -265,7 +272,7 @@ class ReferenceSessionSummary {
   ) {}
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     if (this.counts) this.counts.referenceSessionReads++
-    const row = omitGone(this.pool.row('session', this.model.id, 'summary-fields')) as Loaded<SessionView>
+    const row = omitGone(this.pool.row('session', this.model.id)) as Loaded<SessionView>
     if (!row || loading(row)) return row
     // Reference cards name their fields; the phone roster preserves the
     // richer declared summary and resident metadata it already consumed.
@@ -276,11 +283,11 @@ class ReferenceSessionSummary {
     return projected
   }
 }
-export function chatReferenceMachines(pool: MobxPool): MachineWire[] {
-  return headerIds(pool, 'machine').flatMap((id) => {
-    const row = omitGone(pool.row('machine', id))
-    return row && !loading(row) ? [row as MachineWire] : []
-  })
+/** My fleet's machine models: online is the LiveStore's (POD-6644). */
+/** My machines as plain facts for the composer (POD-6644): a new value when
+ *  one of them moves, so React readers see the change. */
+export function chatReferenceMachines(pool: MobxPool): MachineFacts[] {
+  return headerView(pool).machines().map(machineFacts)
 }
 export function chatRepositoryKey(pool: MobxPool): string {
   // This opaque key only drives a path-change effect. The header owner
@@ -316,37 +323,53 @@ export function createChatContextReader(pool: MobxPool) {
     sessions: () => chatReferenceSessions(pool, counts),
     machines: () => chatReferenceMachines(pool),
     repositoryKey: () => chatRepositoryKey(pool),
-    threads() {
-      const catalog = omitGone(pool.row('superThreadCatalog', 'catalog'))
-      const threads: import('@podium/client-core/values').SuperThreadView[] = []
-      let pending = loading(catalog) ? 1 : 0
-      if (catalog && !loading(catalog))
-        for (const id of catalog.ids) {
-          const row = omitGone(pool.row('superThread', id))
-          if (loading(row)) pending++
-          else if (row) threads.push(row)
-        }
-      return { threads, pending }
-    },
+    // My threads are synced records in the pool (POD-6675): always resident.
+    threads: () => ({ threads: superagentState(pool).threads, pending: 0 }),
   }
 }
 
 /** The open mention menu. A search asks the source for a bounded window of
  * identities; each shown entry reads its own row by id. */
 export class ReferencePicker {
-  @observableRef accessor issueIds: string[] = []
-  @observable accessor pending = 0
+  @observableRef private accessor localIds: string[] = []
+  @observable private accessor query: string | null = null
+  @observable private accessor limit = 5
   private stopLoading: (() => void) | undefined
   constructor(private readonly pool: MobxPool) {}
-  @action close() { this.stopLoading?.(); this.stopLoading = undefined }
+  @lazy get results() {
+    return this.query === null ? undefined : issueSearch(this.pool).read(this.query, this.localIds)
+  }
+  @lazy get issueIds(): string[] {
+    const ids: string[] = []
+    for (const id of this.results?.ids ?? []) {
+      if (ids.length >= this.limit) break
+      const issue = this.issue(id)
+      if (issue && !loading(issue) && !issue.deletedAt && !issue.archived) ids.push(id)
+    }
+    return ids
+  }
+  @lazy get pending(): number {
+    return Number(this.results?.pending ?? false)
+  }
+  @action close() {
+    this.stopLoading?.()
+    this.stopLoading = undefined
+    this.query = null
+  }
   @action search(query: string, limit = 5) {
     this.close()
+    this.query = query
+    this.limit = limit
     const result = chatMentionMatches(this.pool, query, limit)
-    this.issueIds = result.issues.map(issue => issue.id)
-    this.pending = result.pending
-    if (this.pending) this.stopLoading = when(() => chatMentionMatches(this.pool, query, limit).pending === 0,
-      () => this.search(query, limit))
+    this.localIds = result.issues.map((issue) => issue.id)
+    if (result.pending)
+      this.stopLoading = when(
+        () => chatMentionMatches(this.pool, query, limit).pending === 0,
+        () => this.search(query, limit),
+      )
   }
-  issue(id: string) { return chatIssue(this.pool, id) }
+  issue(id: string) {
+    return chatIssue(this.pool, id)
+  }
 }
 export const createReferencePicker = (pool: MobxPool) => new ReferencePicker(pool)

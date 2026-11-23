@@ -24,7 +24,7 @@ const control = process.env.PODIUM_SKEW_CONTROL_PORT ? Bun.serve({
     if (request.method === 'POST') {
       const { machineId, target } = await request.json() as { machineId: string; target: UpdateTarget }
       await server.registry.modules.machines.setUpdateChannel(asMachineId(machineId), 'dev')
-      updates.setTarget('dev', target)
+      await updates.setTarget('dev', target)
       return Response.json(await updates.authorizeMachine(asMachineId(machineId), {
         initiator: { kind: 'operator-apply' }, eligibility: 'customer upgrade skew acceptance',
       }))

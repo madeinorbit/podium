@@ -1,13 +1,13 @@
 import {
+  type ActivityComment,
   HIDDEN_ISSUE_EVENT_KINDS,
   IssueActivityHistory,
-  type ActivityComment,
   type IssueEvent,
 } from '@podium/client-core/values'
+import { companion, lazy } from '@podium/mobx-helpers'
 import type { IssueId } from '@podium/model/browser'
 import { action, observable, observableRef, reaction, runInAction } from 'mobx'
 import type { PageIssue } from './issue-page'
-import { companion, lazy } from '@podium/mobx-helpers'
 import type { MobxPool } from './pool'
 
 export interface IssueActivityMail {
@@ -167,6 +167,11 @@ export class IssueActivityStore {
       limit: ISSUE_HISTORY_PAGE,
       excludeKinds: HIDDEN_ISSUE_EVENT_KINDS,
     }
+  }
+  /** Read the thread again now: after an edit of one of its comments
+   * (POD-6295), which need not touch the task itself. */
+  reload(): void {
+    this.refresh(this.epoch)
   }
   private refresh(epoch: number) {
     const ports = this.ports

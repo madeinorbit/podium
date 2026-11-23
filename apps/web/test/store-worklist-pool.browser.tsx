@@ -1,4 +1,3 @@
-import { requireHere } from '@podium/client-graph/lookup'
 /** Fixture-only page: the real StoreProvider and attachment, with a private
  * kernel facade seeded from the pilot corpus. No app UI or live endpoint. */
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -6,7 +5,9 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider } from '@podium/client-core/react'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
+import { requireHere } from '@podium/client-graph/lookup'
 import { asUserId } from '@podium/model'
+import type { EntityRecord } from '@podium/sync/replica'
 import { useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot } from 'react-dom/client'
@@ -26,8 +27,8 @@ const issue = corpus.issues.find(
 )!
 const projection = corpus.issueProjections.find((row) => row.id === issue.id)!
 const id = issue.id
-const coldId = 'iss_offline_reference'
-const coldRepo = 'repo_offline_reference'
+const referenceId = 'iss_offline_reference'
+const referenceRepo = 'repo_offline_reference'
 let serverCalls = 0
 const api = {
   issues: {
@@ -43,6 +44,7 @@ let config = { httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.
 let current: MobxPool | null = null
 let currentReplica: ReturnType<typeof createKernelReplica> | undefined
 let observed: MobxPool | null = null
+let renameReference: ((title: string) => void) | undefined
 let replicas = 0
 let attachments = 0
 const failures: string[] = []
@@ -51,23 +53,23 @@ const root = createRoot(document.getElementById('root')!)
 
 function replica() {
   replicas += 1
-  const records = [
+  const records: EntityRecord[] = [
     { entity: 'issueProjection', entityId: id, value: projection, provenance: { seq: 1 } },
     {
       entity: 'repo',
-      entityId: coldRepo,
-      value: { id: coldRepo, repoPath: '/offline-reference', prefix: 'POD' },
+      entityId: referenceRepo,
+      value: { id: referenceRepo, repoPath: '/offline-reference', prefix: 'POD' },
       provenance: { seq: 1 },
     },
     {
       entity: 'issueProjection',
-      entityId: coldId,
+      entityId: referenceId,
       value: {
         ...projection,
-        id: coldId,
-        repoId: coldRepo,
+        id: referenceId,
+        repoId: referenceRepo,
         seq: 1234,
-        title: 'Cold offline issue',
+        title: 'Offline device issue',
         archived: true,
         deletedAt: null,
         stage: 'done',
@@ -87,6 +89,22 @@ function replica() {
     cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
   })
+  const facade = currentReplica
+  let seq = 1
+  renameReference = (title) => {
+    const index = records.findIndex((record) => record.entityId === referenceId)
+    const previous = records[index]
+    if (!previous || typeof previous.value !== 'object' || previous.value === null)
+      throw new Error('the offline device record is missing')
+    const record: EntityRecord = {
+      ...previous,
+      value: { ...previous.value, title },
+      provenance: { seq: ++seq },
+    }
+    // One synthetic device commit: update the authoritative cache, then publish its event.
+    records[index] = record
+    facade.onKernelEvent({ type: 'upserted', record, readmitted: false })
+  }
   return currentReplica
 }
 
@@ -117,8 +135,7 @@ function ReferenceProbe() {
   const pool = useWorklistPool()
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   if (pool === null) return null
-  // A missing sentinel proves the asynchronous production watcher is attached
-  // before the driver goes offline, without reading or warming the cold issue.
+  // A missing sentinel proves the production watcher is attached before the driver goes offline.
   return (
     <>
       <div id="offline-reference-host" ref={setHost}>
@@ -170,8 +187,8 @@ const fixture = {
   ],
   mountReference(): void {
     const host = document.getElementById('offline-reference-host')
-    if (!host || !current?.residency?.isCold('issue', coldId))
-      throw new Error('offline reference must begin with a cold issue')
+    if (!host || current === null || !current.tables.issue.has(referenceId))
+      throw new Error('offline reference must address a resident device record')
     const anchor = document.createElement('a')
     anchor.className = 'ref-link--issue'
     anchor.dataset.ref = 'POD-1234'
@@ -179,10 +196,14 @@ const fixture = {
     anchor.textContent = 'POD-1234'
     host.append(anchor)
   },
+  renameReference(title: string): void {
+    if (!renameReference) throw new Error('the device replica is not ready')
+    renameReference(title)
+  },
   referenceState: () => ({
     online: navigator.onLine,
-    cold: current?.residency?.isCold('issue', coldId) ?? false,
-    resident: current?.tables.issue.has(coldId) ?? false,
+    resident: current?.tables.issue.has(referenceId) ?? false,
+    title: current === null ? undefined : requireHere(current.model('issue', referenceId)).title,
     issueId: currentReplica?.issueIdByRef('POD-1234'),
     serverCalls,
   }),

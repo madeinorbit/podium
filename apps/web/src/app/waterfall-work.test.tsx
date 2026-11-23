@@ -1,14 +1,15 @@
 // @vitest-environment happy-dom
+
+import type { MobxPool } from '@podium/client-graph/pool'
+import { refreshClocks } from '@podium/mobx-helpers'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { refreshClocks } from '@podium/mobx-helpers'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
-import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
-import { projectWaterfallLane } from './waterfall-live-edge'
 import * as old from './flight-deck-waterfall.legacy.test.fixture'
+import { projectWaterfallLane } from './waterfall-live-edge'
+import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
 
 const state = vi.hoisted(() => ({
   pool: null as MobxPool | null,
@@ -17,19 +18,35 @@ const state = vi.hoisted(() => ({
 }))
 const query = (input: { sessionIds: string[] }) =>
   state.history?.(input) ?? Promise.resolve({ sessions: {} })
+const preferences = new Map<string, string>()
+const preferenceListeners = new Set<(keys: ReadonlySet<string>) => void>()
 const owner = {
   access: {
     renameSession: async () => {},
-    uiState: { get: () => null, set: () => {} },
+    uiState: {
+      get: (key: string) => preferences.get(key) ?? null,
+      set: (key: string, value: string | null) => {
+        if (value === null) preferences.delete(key)
+        else preferences.set(key, value)
+        for (const notify of preferenceListeners) notify(new Set([key]))
+      },
+      subscribe: (notify: (keys: ReadonlySet<string>) => void) => {
+        preferenceListeners.add(notify)
+        return () => preferenceListeners.delete(notify)
+      },
+    },
     trpc: { sessions: { activityHistory: { query } } },
   },
 }
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => owner,
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => owner),
+  }
+})
 vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (access: typeof owner.access) => unknown) => {
+  readFixture: (read: (access: typeof owner.access) => unknown) => {
     const selector = useRef(read)
     selector.current = read
     return useSyncExternalStore(
@@ -70,6 +87,7 @@ async function minuteStep() {
 }
 
 async function mount(count: number) {
+  preferences.clear()
   const f = await waterfallFixture(count)
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
@@ -240,7 +258,8 @@ describe('elements waterfall viewport', () => {
         history.mockClear()
         const liveLane = root.querySelector<HTMLElement>('[data-waterfall-live="true"]')!
         expect(liveLane).not.toBeNull()
-        const liveTailRatio = () => Number(liveLane.style.getPropertyValue('--waterfall-duration-ratio'))
+        const liveTailRatio = () =>
+          Number(liveLane.style.getPropertyValue('--waterfall-duration-ratio'))
         const ratioBefore = liveTailRatio()
         const widthBefore = liveLane.style.getPropertyValue('--waterfall-width')
         const nowBefore = root.style.getPropertyValue('--waterfall-now')

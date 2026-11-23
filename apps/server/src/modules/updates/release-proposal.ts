@@ -4,17 +4,17 @@ import { promisify } from 'node:util'
 import { commitShaFromDevVersion, type ReleaseProposalCommit } from '@podium/protocol'
 
 const execFileAsync = promisify(execFile)
+export const RELEASE_COMMIT_LIMIT = 200
 const MIGRATIONS_TREE = 'apps/server/src/migrations/drizzle'
 
 export interface ReleaseProposalFacts {
   branch: string
   commits: ReleaseProposalCommit[]
+  commitCount?: number
   addedMigrations: string[]
 }
 
-export interface ReleaseProposalGit {
-  (args: readonly string[]): Promise<string>
-}
+export type ReleaseProposalGit = (args: readonly string[]) => Promise<string>
 
 function gitAt(root: string): ReleaseProposalGit {
   return async (args) => {
@@ -96,9 +96,9 @@ export async function releaseProposalFacts(input: {
   const run = input.git ?? gitAt(input.root)
   const rangeBase = await resolveBaselineSha(input, run)
   const range = `${rangeBase}..${input.headSha}`
-  const [branchRaw, commitsRaw, migrationsRaw] = await Promise.all([
+  const [branchRaw, commitsRaw, migrationsRaw, countRaw] = await Promise.all([
     run(['rev-parse', '--abbrev-ref', 'HEAD']),
-    run(['log', '-z', '--format=%H%x00%s', range]),
+    run(['log', '-z', '--format=%H%x00%s', `--max-count=${RELEASE_COMMIT_LIMIT}`, range]),
     run([
       'diff',
       '--diff-filter=A',
@@ -109,13 +109,17 @@ export async function releaseProposalFacts(input: {
       '--',
       MIGRATIONS_TREE,
     ]),
+    run(['rev-list', '--count', range]),
   ])
+  const commits = parseCommits(commitsRaw)
+  const commitCount = Number.parseInt(countRaw.trim(), 10)
   return {
     branch:
       branchRaw.trim() === 'HEAD' || branchRaw.trim() === ''
         ? `detached@${input.headSha.slice(0, 7)}`
         : branchRaw.trim(),
-    commits: parseCommits(commitsRaw),
+    commits,
+    ...(commitCount > commits.length ? { commitCount } : {}),
     addedMigrations: migrationNames(migrationsRaw),
   }
 }

@@ -4,13 +4,13 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumClientApi } from '@podium/client-core/api'
-import type { CreateEngineOutbox, EngineOutbox, StoreNotices } from '@podium/client-core/engine'
 import {
   type ComposerAttachment,
   EMPTY_FIRST_TASK_DRAFT,
   readFirstTaskDraft,
   serializeFirstTaskDraft,
 } from '@podium/client-core/first-task-draft'
+import type { NoticeSink } from '@podium/client-core/notices'
 import {
   principalKeyPrefix,
   REPLICA_KEY_PREFIX,
@@ -18,6 +18,8 @@ import {
   type StorageApi,
 } from '@podium/client-core/replica'
 import type { LegacyIdentityEvidence } from '@podium/client-core/replica-assembly'
+import type { CreateEngineOutbox, EngineOutbox } from '@podium/client-core/runtime-root'
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import { asMutationId, asSessionId, IssueProjection } from '@podium/model'
 import type { SqlDatabaseLike } from '@podium/sync/adapters/mobile-sqlite'
@@ -214,7 +216,7 @@ function engineOutbox(opened: {
   return opened.createOutboxFn({
     api: STUB_API,
     replica: opened.replica,
-    notices: { error: () => {}, info: () => {} } as unknown as StoreNotices,
+    notices: { error: () => {}, info: () => {} } as unknown as NoticeSink,
     isOnline: () => false,
   })
 }
@@ -250,6 +252,7 @@ async function open(args: {
         const records = [
           {
             type: 'syncMeta',
+            kindTokens: {},
             formatVersion: 1,
             mode: 'snapshot',
             transferId: 'fixture',
@@ -386,9 +389,11 @@ describe('the mobile replica composition root', () => {
           ready,
         ],
       }
-      expect(
-        readFirstTaskDraft(opened.replica.uiState().get(FIRST_TASK_ACTIVATION_DRAFT_KEY)),
-      ).toMatchObject(expected)
+      // The runtime opens this replica's device keys at boot (upstream's draft store).
+      const device = openLegacyDeviceKeys(opened.replica.deviceStorage())
+      expect(readFirstTaskDraft(device.get(FIRST_TASK_ACTIVATION_DRAFT_KEY))).toMatchObject(
+        expected,
+      )
       const checkpoint = JSON.parse(storage.getItem(uiKey) ?? '{}')
       expect(readFirstTaskDraft(checkpoint[FIRST_TASK_ACTIVATION_DRAFT_KEY])).toMatchObject(
         expected,
@@ -483,15 +488,21 @@ describe('the mobile replica composition root', () => {
     // The kernel queue mints the id, so what identifies the row here is the
     // CONTRACT it was authored under — which is also the thing a replay is
     // judged against, and the thing a lossy write would lose.
-    await queue.enqueue('snoozeClear', { sessionId: asSessionId('s9') })
+    await queue.enqueue('dismissOffer', {
+      sessionId: asSessionId('s9'),
+      offerCreatedAt: '2026-11-05T00:00:00.000Z',
+    })
 
     // `enqueue` resolves only after the durable commit (ADR 6 D4.3), and this
     // reads through a SEPARATE connection: the store's in-memory mirror cannot
     // answer for the file.
     const rows = durableOutbox(file)
     expect(rows).toHaveLength(1)
-    expect((rows[0]?.record.command as { name: string }).name).toBe('snoozes.clear')
-    expect(rows[0]?.record.input).toEqual({ sessionId: 's9' })
+    expect((rows[0]?.record.command as { name: string }).name).toBe('sessions.dismissOffer')
+    expect(rows[0]?.record.input).toEqual({
+      sessionId: 's9',
+      offerCreatedAt: '2026-11-05T00:00:00.000Z',
+    })
     expect(rows[0]?.record.state).toBe('queued')
     queue.dispose()
     // Side-cache may write ui-state keys under the principal prefix; the outbox
@@ -972,6 +983,7 @@ describe('HTTP sync through the mobile assembly', () => {
       controller.enqueue(new TextEncoder().encode(JSON.stringify(record) + '\n'))
     const meta = {
       type: 'syncMeta',
+      kindTokens: {},
       formatVersion: 1,
       mode: 'snapshot',
       transferId: 'mobile',
@@ -1084,7 +1096,10 @@ it('reopens the same boundary/member queue after re-pairing and keeps member att
   const principal = JSON.stringify(['installation-a', 'member-a'])
   const first = await open({ file, storage: device, principal, clientPrincipal: 'member-a' })
   const queue = engineOutbox(first)
-  await queue.enqueue('snoozeClear', { sessionId: asSessionId('s9') })
+  await queue.enqueue('dismissOffer', {
+    sessionId: asSessionId('s9'),
+    offerCreatedAt: '2026-11-05T00:00:00.000Z',
+  })
   expect(durableOutbox(file)[0]?.record.attribution).toMatchObject({ onBehalfOf: 'member-a' })
   queue.dispose()
   await first.settled()

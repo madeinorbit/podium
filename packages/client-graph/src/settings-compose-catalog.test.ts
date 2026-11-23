@@ -2,11 +2,9 @@ import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
-import { SETUP_SESSION_SUMMARY_FIELDS } from './settings-schema'
-import { attachSettingsSource, type SettingsOwner } from './settings-source'
+import { settingsOwnerFixture } from './settings-owner-fixture'
+import { SettingsSource } from './settings-source'
 import { createSettingsViews } from './settings-views'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord } from './shared/source'
 
 it('keeps compose catalog setup on shared path queries, flat across unrelated history and cached between keystrokes', async () => {
@@ -24,24 +22,21 @@ it('keeps compose catalog setup on shared path queries, flat across unrelated hi
         stoppedAt: recent,
       },
     }))
-    const cold = createColdIndex(SCHEMA, { session: SETUP_SESSION_SUMMARY_FIELDS })
-    cold.apply({ type: 'replace', rows })
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(recent) }, undefined, {
       settings: true,
-      cold: () => cold,
       load: () => undefined,
+      schedule: () => () => {},
     })
     pool.apply({ type: 'replace', rows })
-    const repositories = new Map([
-      ['shown', { kind: 'repository', path: '/shown', worktrees: [{ path: '/shown/wt' }] }],
-    ])
-    attachSettingsSource(pool, {
-      listIds: (name: string) => (name === 'repos' ? [...repositories.keys()] : []),
-      listRow: (name: string, id: string) => (name === 'repos' ? repositories.get(id) : undefined),
-      readLocal: () => 'sessions',
-      onList: () => () => {},
-      onLocals: () => () => {},
-    } as unknown as SettingsOwner)
+    // Repositories are checkout records (POD-6644), through upstream's owner fixture.
+    const settings = settingsOwnerFixture({
+      repos: [{ kind: 'repository', path: '/shown', worktrees: [{ path: '/shown/wt' }] } as never],
+    })
+    pool.sources.register(
+      ['settingsCatalog', 'settingsRepository', 'settingsMachine'],
+      new SettingsSource(settings.owner),
+    )
+    settings.seed(pool)
     const opening = createSettingsViews(pool)
     const projection = createPoolProjection(pool, () => opening.setupCatalog())
     const paint = vi.fn()

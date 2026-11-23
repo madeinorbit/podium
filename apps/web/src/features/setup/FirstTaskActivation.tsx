@@ -8,7 +8,6 @@ import {
 } from '@podium/client-core/values'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { HOST_REPOS, machinesFor } from '@podium/model'
-import { resolveRole } from '@podium/runtime'
 import {
   ArrowLeft,
   ArrowRight,
@@ -21,8 +20,9 @@ import {
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
-import { useSettingsClient } from '@/features/settings/stable-access'
+import { serverConfig } from '@/app/trpc'
 import { useSettingsCatalog, useSettingsDraft } from '@/features/settings/readers'
+import { useSettingsClient } from '@/features/settings/stable-access'
 import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import {
   ISSUE_AGENT_KINDS,
@@ -32,10 +32,13 @@ import {
   issueAgentLabel,
   issueDefaultAgentKind,
 } from '@/lib/issue-agents'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { cn } from '@/lib/utils'
 import { ActivationShell } from './ActivationShell'
 import type { ActivationRoute } from './activation-route'
-import { serializeFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
+import { readFirstTaskDraft, serializeFirstTaskDraft } from './first-task-draft'
+import { authRequest } from './member-api'
+import { OnboardingAccountChoices } from './OnboardingAccountChoices'
 import { SetupError } from './SetupFeedback'
 
 /**
@@ -79,31 +82,36 @@ export function FirstTaskActivation({
       repos.filter((repo) => repo.kind !== 'worktree').sort((a, b) => a.path.localeCompare(b.path)),
     [repos],
   )
-  const [draft, setDraft] = useSettingsDraft(FIRST_TASK_ACTIVATION_DRAFT_KEY, readFirstTaskDraft, serializeFirstTaskDraft)
+  const [draft, setDraft] = useSettingsDraft(
+    FIRST_TASK_ACTIVATION_DRAFT_KEY,
+    readFirstTaskDraft,
+    serializeFirstTaskDraft,
+  )
   const [configuredAgent, setConfiguredAgent] = useState<IssueAgentKind | null>(null)
   const [loginBusyAgent, setLoginBusyAgent] = useState<IssueAgentKind | null>(null)
   const [loginSessionId, setLoginSessionId] = useState<SessionId | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [finishing, setFinishing] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    void trpc.settings.get
-      .query()
-      .then((settings) => {
-        if (!cancelled) {
-          setConfiguredAgent(
-            issueAgentKind(resolveRole(settings, 'coding').harness) ??
-              issueDefaultAgentKind(undefined),
-          )
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setConfiguredAgent(issueDefaultAgentKind(undefined))
-      })
-    return () => {
-      cancelled = true
+  const finishSetup = async (): Promise<void> => {
+    if (finishing) return
+    setFinishing(true)
+    setError(null)
+    try {
+      await authRequest(serverConfig(window.location).httpOrigin, 'admin/setup/finish', {})
+      onComplete()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+      setFinishing(false)
     }
-  }, [trpc])
+  }
+
+  // My coding default, from my synced settings (POD-6673).
+  const codingHarness = useMyCodingHarness()
+  useEffect(() => {
+    if (codingHarness === undefined) return
+    setConfiguredAgent(issueAgentKind(codingHarness) ?? issueDefaultAgentKind(undefined))
+  }, [codingHarness])
 
   const selectedRepo = repoChoices.find((repo) => repo.path === draft.repoPath) ?? repoChoices[0]
   useEffect(() => {
@@ -141,7 +149,7 @@ export function FirstTaskActivation({
     setLoginBusyAgent(agent)
     setError(null)
     try {
-      const result = await trpc.accounts.login.mutate({
+      const result = await trpc.credentials.login.mutate({
         harness: agent as HarnessAgent,
         machineId: machine.id,
       })
@@ -179,10 +187,12 @@ export function FirstTaskActivation({
         contentClassName="mt-8"
         frameClassName="lg:pt-14 lg:pb-11 [&>div:first-child]:bg-[#2a2418] [&>div:first-child]:shadow-[inset_0_0_0_1px_#4a4331]"
       >
+        {error && <SetupError>{error}</SetupError>}
         <div className="flex items-center gap-3.5">
           <button
             type="button"
             data-pressable
+            disabled={finishing}
             onClick={() => onRouteChange('agent')}
             className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
           >
@@ -193,10 +203,11 @@ export function FirstTaskActivation({
           <button
             type="button"
             data-pressable
-            onClick={onComplete}
+            onClick={() => void finishSetup()}
+            disabled={finishing}
             className="inline-flex h-[38px] items-center gap-2 rounded-[9px] bg-[#d9b477] px-[18px] text-[13.5px] leading-none font-semibold text-[#191308] hover:bg-[#e8ca97] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <span>Finish setup</span>
+            <span>{finishing ? 'Finishing setup…' : 'Finish setup'}</span>
             <ArrowRight size={17} aria-hidden="true" />
           </button>
         </div>
@@ -371,6 +382,8 @@ export function FirstTaskActivation({
           </div>
         )}
       </div>
+
+      <OnboardingAccountChoices />
 
       {error && (
         <div className="mt-3">

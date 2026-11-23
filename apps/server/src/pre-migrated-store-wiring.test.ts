@@ -48,7 +48,7 @@ describe('pre-migrated store fixture wiring [POD-523]', () => {
     const store = await openTestStore(':memory:')
     // @ts-expect-error private db — this test's subject is how the db was built
     const ledger = appliedDrizzleNames(store.db)
-    expect(ledger.size).toBe(DRIZZLE_MIGRATIONS.length)
+    expect(ledger.size).toBe(DRIZZLE_MIGRATIONS.filter(m => !m.sql.startsWith('-- after-local-identity-import')).length)
     await store.close()
   })
 })
@@ -76,7 +76,7 @@ describe("the fixture's own guards stay armed [POD-523]", () => {
       "it('gives every store an independent database'",
       "it('never lets a write reach the shared image'",
       "it('keys the cache on every migration name and sql'",
-      "it('still applies every migration in the manifest on a fresh database'",
+      "it('applies schema migrations before import retirement on a fresh database'",
     ]) {
       expect(source, `the fixture proof no longer contains ${required}`).toContain(required)
     }

@@ -40,13 +40,21 @@ import {
   DEFAULT_HARNESS_AGENT,
   machinePathBasename,
 } from '@podium/model/browser'
-import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, Folder, LoaderCircle, Monitor, Paperclip } from 'lucide-react'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
 import { useComposerChord } from '@/features/chat/use-composer-chord'
+import {
+  type CredentialPick,
+  CredentialPicker,
+  shownCredential,
+} from '@/features/credentials/session/CredentialPicker'
+import {
+  useHarnessAccepts,
+  useSessionCredentials,
+} from '@/features/credentials/session/use-session-credentials'
 import {
   useSettingsPersistedUiState as usePersistedUiState,
   useSettingsCatalog,
@@ -55,7 +63,6 @@ import {
 } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
 import { useTipMoment } from '@/features/tips'
-import { useGitHubStarOnNewPrompt } from '@/features/tips/github-star-tip'
 import { noteFirstSend } from '@/features/worklist/first-send-tip'
 import {
   agentFleetStatus,
@@ -64,13 +71,13 @@ import {
 } from '@/lib/agent-capability'
 import {
   ISSUE_AGENT_KINDS,
-  type IssueAgentKind,
   issueAgentIcon,
   issueAgentKind,
   issueAgentLabel,
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { modChord } from '@/lib/mod-chord'
+import { useMyCodingHarness } from '@/lib/my-preferences'
 import { PropertyMenu } from '@/lib/PropertyMenu'
 import {
   headlessRuntimeDrivers,
@@ -134,11 +141,13 @@ export function ColdStartComposer({
     focusIssueSession,
     spawnDraftAgent,
     spawnIssueAgent,
+    startIssueSession,
     setSelectedIssueId,
     setSelectedWorktree,
     setPane,
     setPanelMode,
     setView,
+    setOpenIssueId,
   } = useSettingsClient()
   const { repos, machines } = useSettingsCatalog()
   const { usage: repositoryUsage, defaultAgent: recentAgent } = useSettingsSetupSummary(repos)
@@ -190,13 +199,9 @@ export function ColdStartComposer({
     readFirstTaskDraft,
   )
   const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
-  /**
-   * The operator's harness, as `roles.coding` answers it — the same read the
-   * deleted sidebar chip made, and held as a raw string for the same reason it
-   * was there (POD-1469). It is written back from the agent menu below, which is
-   * what makes "the last one you used" a fact rather than a hope.
-   */
-  const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
+  // Launch choices stay in this composer's draft. Only Settings › Agents
+  // changes the synced default used by other launches.
+  const agentSetting = useMyCodingHarness()
   const [busy, setBusy] = useState(false)
   const runtimeDriversEnabled = useFeature('runtime-drivers')
   const HEADED_DRIVER = 'headed'
@@ -207,19 +212,6 @@ export function ColdStartComposer({
   // state is reserved for synchronous faults that never reached persistence.
   const [transientError, setError] = useState<string | null>(null)
   const error = draft.launchError || transientError
-
-  useEffect(() => {
-    let cancelled = false
-    void trpc.settings.get
-      .query()
-      .then((settings) => {
-        if (!cancelled) setAgentSetting(resolveRole(settings, 'coding').harness)
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
 
   /**
    * `use` IS A CODE-EXECUTION BOUNDARY, AND THIS IS NOW WHERE IT IS DRAWN
@@ -271,64 +263,12 @@ export function ColdStartComposer({
   /** A host the operator may see but not run on. Everything that starts work
    *  refuses on it; the picker still shows it, saying why. */
   const machineDenied = selectedMachine !== undefined && !authorized.has(selectedMachine.id)
-  /**
-   * WHICH HARNESS THIS BOX OPENS ON — the sidebar chip's rule, inherited whole
-   * (POD-1469).
-   *
-   * `New <Agent> in <Repo>` answered this with `resolveDefaultAgent` over the
-   * `roles.coding` harness, so that is the call, unchanged. In practice the
-   * settings read always yields a concrete harness — a native account NAMES its
-   * CLI (`native:codex`) and the role's default account names Claude Code — so
-   * what actually carries "the last one you used" is the write in
-   * `persistDefaultAgent` below, exactly as it did for the chip. The resolver's
-   * session fallback stays because it is the same resolver, and it is the right
-   * answer for the one input that can still arrive unresolved (`auto`).
-   *
-   * Then availability, and only then: a default that cannot start on the chosen
-   * machine is not a default, so it steps aside for the first harness that can.
-   * A pick made in THIS box outranks both — it is the most recent thing the
-   * operator said about this specific task.
-   */
+  // A choice in this draft wins, then the saved Agents default. Availability
+  // may choose another runnable harness for this launch without changing it.
   const defaultAgent =
     issueAgentKind(agentSetting && agentSetting !== 'auto' ? agentSetting : recentAgent) ??
     DEFAULT_HARNESS_AGENT
 
-  /**
-   * PICKING A HARNESS HERE IS A WRITE (POD-1469).
-   *
-   * This is the half of the sidebar chip's behaviour that did not survive the
-   * move. `New <Agent> in <Repo>` showed the last harness you chose because its
-   * menu PERSISTED the choice — `roles.coding.accountId` — so the next spawn,
-   * from any surface, opened on it. The composer only ever held the pick in its
-   * own draft: correct for one run of the box, forgotten by the issue page, the
-   * dock and the CLI, and gone the moment ui-state was cleared.
-   *
-   * It is deliberately the same key and the same account spelling
-   * (`nativeAccountId`), because the point is that every surface reads ONE
-   * answer to "which harness does this operator work in".
-   *
-   * IT FIRES ON LAUNCH, NOT ON SELECT, which is also the chip's own rule:
-   * `NewAgentMenu.pick()` persisted and spawned as ONE action, so the operator's
-   * global default only ever moved when work actually started on that harness.
-   * Writing it from the menu's `onSelect` would mean opening the chip to look at
-   * Codex, changing your mind, and navigating away had silently retargeted the
-   * issue page, the dock and the CLI — with nothing to undo it. The draft already
-   * carries the pick for THIS task; this key is only for the next one.
-   *
-   * Best-effort: the local read is updated first either way, so a failed write
-   * costs the operator the persistence and never the pick they just made.
-   */
-  const persistDefaultAgent = async (kind: IssueAgentKind): Promise<void> => {
-    setAgentSetting(kind)
-    try {
-      const updated = await trpc.settings.updatePersonal.mutate({
-        values: { 'roles.coding.accountId': nativeAccountId(kind) },
-      })
-      setAgentSetting(resolveRole(updated, 'coding').harness)
-    } catch {
-      // Kept optimistic — see above.
-    }
-  }
   const agent = launchAgentKind({
     picked: issueAgentKind(draft.agent),
     preferred: defaultAgent,
@@ -382,6 +322,23 @@ export function ColdStartComposer({
   // compiles while `createDraftAgent` silently drops it.
   const requestedDriverId =
     runtimeDriversEnabled && driverChoice !== HEADED_DRIVER ? selectedHeadlessDriver?.id : undefined
+  // THE CREDENTIAL (credential management §9): the default for this harness,
+  // or what the person picked for this harness on this machine. Sent as shown;
+  // nothing is sent until the list has loaded, and the server applies the default.
+  const credentials = useSessionCredentials()
+  const acceptsOf = useHarnessAccepts(selectedMachine?.id)
+  const [credentialPick, setCredentialPick] = useState<CredentialPick | undefined>(undefined)
+  const credentialInput = {
+    harness: agent,
+    machineId: selectedMachine?.id,
+    ...(requestedDriverId !== undefined ? { driverId: requestedDriverId } : {}),
+    views: credentials.views,
+    accepts: acceptsOf(agent),
+    defaultId: credentials.defaults[agent],
+    custodianOf: credentials.custodianOf,
+    pick: credentialPick,
+  }
+  const credentialId = shownCredential(credentialInput)
   /**
    * THE SAME REFUSAL VOCABULARY AS EVERY OTHER SPAWN MENU (POD-1201).
    *
@@ -457,7 +414,6 @@ export function ColdStartComposer({
     active: first,
     cards: firstPromptCards({ setGhost, setShowing: setTipShowing, focusComposer: focusField }),
   })
-  useGitHubStarOnNewPrompt({ first, setShowing: setTipShowing })
   useEffect(() => {
     const globals = globalThis as { __PODIUM_FOCUS_SESSION_PROMPT__?: () => void }
     globals.__PODIUM_FOCUS_SESSION_PROMPT__ = focusField
@@ -612,6 +568,7 @@ export function ColdStartComposer({
       ...(draft.model !== AUTO ? { model: draft.model } : {}),
       ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
+      ...(credentialId !== undefined ? { credentialId } : {}),
     })
     // The prompt was never written, so nothing is left to restore — but the
     // instruments were chosen and stay chosen for the next one.
@@ -661,9 +618,16 @@ export function ColdStartComposer({
         const pendingIssueId = draft.pendingIssueId
         const startMutationId = draft.startMutationId || asMutationId(randomUUID())
         setDraft({ ...draft, startMutationId, launchError: '' })
-        void trpc.issues.start
-          .mutate({ id: pendingIssueId, mutationId: startMutationId })
-          .then(async () => {
+        // An `issue.begin` record under the draft's mutation id (POD-6526): a
+        // retry writes the same record. Queued is launched; a later failure is
+        // told once, from the record.
+        void startIssueSession({
+          issueId: asIssueId(pendingIssueId),
+          mode: 'begin',
+          mutationId: startMutationId,
+        })
+          .settled.then(async (queued) => {
+            if (!queued) throw new Error("Couldn't start the task")
             clearFirstTaskDraft(uiState)
             attachments.clear()
             const opened = await focusIssueSession(pendingIssueId)
@@ -722,18 +686,8 @@ export function ColdStartComposer({
             clearFirstTaskDraft(uiState)
             return
           }
-          if (outcome === 'issue-only') {
-            setDraft({
-              ...launchDraft,
-              pendingIssueId: started.issueId,
-              createIssueId: '',
-              createSessionId: '',
-              createMutationId: '',
-              launchError: "The task was saved, but its agent couldn't start.",
-            })
-          } else {
-            setDraft({ ...launchDraft, launchError: "Couldn't start the task." })
-          }
+          // Not queued at all (a start that fails later shows on its task).
+          setDraft({ ...launchDraft, launchError: "Couldn't start the task." })
           setBusy(false)
         })
         if (first) noteFirstSend(uiState, started.issueId)
@@ -742,6 +696,14 @@ export function ColdStartComposer({
         setPanelMode(started.sessionId, 'chat')
         setPane('A', started.sessionId)
         setView('workspace')
+        // Filed as a proposal: no agent comes, so show the task rather than
+        // the pane of a session that will never exist.
+        void started.proposed.then((proposed) => {
+          if (!proposed) return
+          setPane('A', null)
+          setOpenIssueId(started.issueId)
+          setView('issues')
+        })
         return
       }
 
@@ -790,6 +752,7 @@ export function ColdStartComposer({
         ...(draft.model !== AUTO ? { model: draft.model } : {}),
         ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
         ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
+        ...(credentialId !== undefined ? { credentialId } : {}),
       })
       // Keep prompt, attachments and ids until the authority has accepted the
       // draft vessel and its first session. The mutation and client-minted ids
@@ -842,11 +805,6 @@ export function ColdStartComposer({
    *  starts a bare session. */
   const launch = (): void => {
     if (launchBlocked) return
-    // Starting work on a harness is what makes it the operator's harness — see
-    // `persistDefaultAgent`. Once, for both modes, and only when the pick is
-    // actually news: relaunching on the harness that is already the default has
-    // nothing to write.
-    if (agent !== defaultAgent) void persistDefaultAgent(agent)
     rememberLaunchPick(uiState, { machineId: selectedMachine!.id, harness: agent }, draft)
     // The new task gets the room, as it did when New task folded the deck.
     uiState.set(SUPERAGENT_MODE_KEY, 'folded')
@@ -1103,6 +1061,13 @@ export function ColdStartComposer({
                 placeholder="Choose a machine…"
                 onSelect={selectMachine}
               />
+              {selectedMachine ? (
+                <CredentialPicker
+                  {...credentialInput}
+                  onPick={setCredentialPick}
+                  className={chip}
+                />
+              ) : null}
               {runtimeDriversEnabled &&
               (availableHeadedDriver !== undefined || availableHeadlessDrivers.length > 0) ? (
                 <PropertyMenu
@@ -1224,6 +1189,7 @@ export function ColdStartComposer({
             <p className="cold-start-tip" style={tipShowing ? { visibility: 'hidden' } : undefined}>
               Something big?{' '}
               <button
+                data-pressable
                 type="button"
                 data-testid="cold-start-coordinator"
                 onClick={insertCoordinatorPrompt}

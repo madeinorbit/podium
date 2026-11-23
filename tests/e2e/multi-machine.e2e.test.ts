@@ -1,10 +1,18 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { asMachineId, firstAdminMemberId } from '@podium/model'
+import { directPtyDurableForTests } from '@podium/process/durable'
+import { wireSchemaDigest } from '@podium/protocol'
+import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import {
+  createMachineSupervisorConnection,
+  loadSupervisorState,
+  saveSupervisorState,
+} from '@podium/runtime/machine-supervisor'
 import { afterAll, describe, expect, it } from 'vitest'
 import { type DaemonOptions, startDaemon } from '../../apps/daemon/src/daemon'
-import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startServer } from '../../apps/server/src/test-support/enrolled-server'
 import { applyHarnessEnv, reapHarnessSessions } from './harness-env'
 
@@ -29,9 +37,9 @@ const FIXTURE = fileURLToPath(
   new URL('../../packages/pty/test/fixtures/fixture-tui.mjs', import.meta.url),
 )
 
-async function waitFor(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
+async function waitFor(pred: () => boolean | Promise<boolean>, timeoutMs = 10_000): Promise<void> {
   const start = Date.now()
-  while (!pred()) {
+  while (!(await pred())) {
     if (Date.now() - start > timeoutMs) throw new Error('waitFor: timed out')
     await new Promise((r) => setTimeout(r, 20))
   }
@@ -60,6 +68,7 @@ describe('e2e: two-daemon pairing + routing', () => {
       identityDir: tmp1,
       launch: fixtureLaunch,
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: {
         background: false,
         cachePath: join(tmp1, 'discovery.db'),
@@ -71,15 +80,45 @@ describe('e2e: two-daemon pairing + routing', () => {
     })
 
     // mint a pairing code for daemon2
-    const pairCode = srv.registry.modules.machines.mintPairingCode()
+    const ownerUserId = await firstAdminMemberId(srv.registry.sessionStore)
+    const pairCode = srv.registry.modules.machines.mintPairingCode({ ownerUserId })
+    const supervisorState = loadSupervisorState(tmp2)
+    supervisorState.assignment = { server: false, agentExecution: true }
+    supervisorState.generation = 1
+    saveSupervisorState(tmp2, supervisorState)
+    let daemon2: Awaited<ReturnType<typeof startDaemon>> | undefined
+    const supervisor = createMachineSupervisorConnection({
+      serverUrl,
+      stateDir: tmp2,
+      state: supervisorState,
+      pairCode,
+      name: 'routing-peer',
+      build: {
+        appVersion: 'fixture',
+        wireSchemaDigest: wireSchemaDigest(),
+        supervisorGeneration: 1,
+      },
+      deliveryCaps: [],
+      report: () => ({
+        server: { policy: 'disabled', state: 'stopped', observedAt: new Date().toISOString() },
+        agentExecution: {
+          policy: 'enabled',
+          state: daemon2?.connected ? 'available' : 'starting',
+          observedAt: new Date().toISOString(),
+        },
+      }),
+      onGrant: () => {},
+    })
+    supervisor.start()
+    expect(await supervisor.waitUntilConnected(15_000)).toBe(true)
 
     // daemon2: the "remote" machine that pairs with the code
-    const daemon2 = await startDaemon({
+    daemon2 = await startDaemon({
       serverUrl,
-      pairCode,
       identityDir: tmp2,
       launch: fixtureLaunch,
       backend: 'none',
+      durable: directPtyDurableForTests(),
       discovery: {
         background: false,
         cachePath: join(tmp2, 'discovery.db'),
@@ -91,10 +130,17 @@ describe('e2e: two-daemon pairing + routing', () => {
     })
 
     try {
+      await waitFor(() => daemon1.connected && daemon2?.connected === true)
+      supervisor.report()
+      await waitFor(
+        async () =>
+          (await srv.registry.sessionStore.machines.getMachine(supervisorState.machineId))
+            ?.serviceReport?.agentExecution.state === 'available',
+      )
       // 1) Both machines must appear online
-      const machines = srv.registry.modules.machines
-        .listMachines()
-        .filter((machine) => machine.online)
+      const machines = (await srv.registry.modules.machines.listMachines()).filter(
+        (machine) => machine.online,
+      )
       expect(machines).toHaveLength(2)
       expect(machines.every((m) => m.online)).toBe(true)
 
@@ -102,8 +148,7 @@ describe('e2e: two-daemon pairing + routing', () => {
       //    hostMachineId() so it attaches to the machine the server adopts at startup.
       //    daemon2 paired, so its id is the UUID minted in its own identity file.
       const daemon1Id = hostMachineId()
-      const daemon2Id = JSON.parse(readFileSync(join(tmp2, 'daemon.json'), 'utf8'))
-        .machineId as string
+      const daemon2Id = supervisorState.machineId
 
       // The two daemons must have distinct ids and both must be online.
       expect(daemon1Id).toBeTruthy()
@@ -113,9 +158,14 @@ describe('e2e: two-daemon pairing + routing', () => {
       expect(machines.find((m) => m.id === daemon2Id)?.online).toBe(true)
 
       const machine2Name = machines.find((m) => m.id === daemon2Id)?.name ?? ''
+      await srv.registry.modules.machines.changeAssignment(
+        asMachineId(daemon2Id),
+        { server: false, agentExecution: true },
+        'routing-fixture',
+      )
 
       // 3) Create a session explicitly targeting daemon2 (the "remote" paired machine)
-      const { sessionId } = srv.registry.modules.sessions.createSession({
+      const { sessionId } = await srv.registry.modules.sessions.createSession({
         // This runtime injects a fixture launcher, not an installed agent CLI.
         // Shell requires only the live daemon and still proves socket routing.
         agentKind: 'shell',
@@ -126,26 +176,32 @@ describe('e2e: two-daemon pairing + routing', () => {
       // 4) Wait for the session to go live: daemon2 received the spawn control message,
       //    executed the fixture, and sent a `bind` back — proving that the spawn was
       //    actually delivered to daemon2's socket, not daemon1's.
-      await waitFor(() => {
-        const s = srv.registry.modules.sessions
-          .listSessions()
-          .find((s) => s.sessionId === sessionId)
+      await waitFor(async () => {
+        const s = (await srv.registry.modules.sessions.listSessions()).find(
+          (s) => s.sessionId === sessionId,
+        )
         return s?.status === 'live'
       }, 10_000)
 
       // 5) Assert routing: the session is attributed to daemon2, NOT daemon1.
       //    The negative assertion (machineId !== daemon1Id) is the key proof —
       //    without it the test passes trivially if spawn lands on the wrong daemon.
-      const meta = srv.registry.modules.sessions
-        .listSessions()
-        .find((s) => s.sessionId === sessionId)
+      const meta = (await srv.registry.modules.sessions.listSessions()).find(
+        (s) => s.sessionId === sessionId,
+      )
       expect(meta).toBeDefined()
       expect(meta?.machineId).toBe(daemon2Id)
       expect(meta?.machineId).not.toBe(daemon1Id)
-      expect(meta?.machineName).toBe(machine2Name)
+      // Session wire records carry the machine identity; its name is joined
+      // from the separately scoped machine record.
+      expect(await srv.registry.sessionStore.machines.getMachine(meta!.machineId)).toMatchObject({
+        id: daemon2Id,
+        name: machine2Name,
+      })
     } finally {
       await daemon1.close({ reapSessions: true })
       await daemon2.close({ reapSessions: true })
+      supervisor.close()
       await srv.close()
       rmSync(tmp1, { recursive: true, force: true })
       rmSync(tmp2, { recursive: true, force: true })

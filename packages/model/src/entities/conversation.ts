@@ -1,25 +1,7 @@
-/**
- * The conversation projection — relocated verbatim from `@podium/protocol`'s
- * `messages/discovery.ts` at POD-300. Field names, order and optionality are
- * unchanged; byte-identical on the wire, pinned by
- * `packages/protocol/src/messages/wire-golden.json`.
- *
- * A conversation is a native harness transcript the daemon discovered, keyed by
- * a Podium-stable identity (docs/spec/conversation-registry.md). It belongs to
- * the PERSONAL set of `docs/multi-user-readiness.md` §3.1.1 (private to owner,
- * shareable), NOT to the per-machine group in `entities/machine.ts` — it is a
- * conversation that happens to have been found on a machine, not a fact about
- * the machine.
- *
- * `path` and `sizeBytes` are the exception worth naming: they are
- * machine-local discovery evidence, so a projection that hides a machine's
- * filesystem from a principal without `use` (§3.1.4 M1) must consider them
- * alongside the machine group's `USE` slice even though the entity itself is
- * personal.
- *
- * No owner/visibility/grant/instance_id field was added; both schemas are flat,
- * so those are purely additive later (POD-1075 / POD-1071).
- */
+/** Conversation summaries come from the stored index. File observations are
+ * daemon-to-server evidence, never part of the synced record, and neither are
+ * the activity stamps a growing transcript moves (see
+ * {@link ConversationRecordWire}). */
 
 import { z } from 'zod'
 import { ConversationIdField } from '../ids'
@@ -40,10 +22,6 @@ export const ConversationSummaryWire = z.object({
    *  brand exists for a native id and that none should: a resume that rolls into
    *  a new file gets a new one, which is the opposite of a stable identity. */
   id: z.string(),
-  /** Absolute transcript path on the owning machine (discovery evidence). The
-   *  registry records it on the conversation's segment so later reads locate the
-   *  file without deriving from a mutable cwd. Machine-local; optional. */
-  path: z.string().optional(),
   /** Podium-generated stable identity (docs/spec/conversation-registry.md). `id`
    *  above is the NATIVE agent session id — evidence, not identity: a resume that
    *  rolls into a new file gets a new `id` but keeps this `podiumId`. Server-
@@ -62,20 +40,32 @@ export const ConversationSummaryWire = z.object({
   projectPath: z.string().optional(),
   /** UNBRANDED: the parent's NATIVE id, same id space as `id` above. */
   parentConversationId: z.string().optional(),
-  statusHint: z.string().optional(),
   createdAt: z.string().optional(),
   updatedAt: z.string().optional(),
   messageCount: z.number().int().nonnegative().optional(),
-  /** Byte size of `path` at scan time — the transcript mirror's dirty signal:
-   *  the server enqueues a pull only when this differs from its mirrored cursor,
-   *  so a fully-mirrored fleet costs zero mirror round trips per scan/attach. */
-  sizeBytes: z.number().int().nonnegative().optional(),
-  git: ConversationGit.optional(),
   resume: ResumeRef.optional(),
   /** UNBRANDED: a provider NAME ('claude-code'), not an entity id. */
   providerId: z.string(),
 })
 export type ConversationSummaryWire = z.infer<typeof ConversationSummaryWire>
+
+/** The synced `conversation` record: the summary without `updatedAt` and
+ *  `messageCount`. Both move whenever the transcript grows, which made them most
+ *  of the conversation log rows (POD-6768: 4,085 of 13,293 changes in a 7-hour
+ *  window). The index keeps both for recency ordering and search; a client that
+ *  wants a recent list asks `conversations.search`. */
+export const ConversationRecordWire = ConversationSummaryWire.omit({
+  updatedAt: true,
+  messageCount: true,
+})
+export type ConversationRecordWire = z.infer<typeof ConversationRecordWire>
+
+/** Internal discovery evidence used to locate and mirror the transcript file. */
+export const ConversationDiscoveryWire = ConversationSummaryWire.extend({
+  path: z.string().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+})
+export type ConversationDiscoveryWire = z.infer<typeof ConversationDiscoveryWire>
 
 export const ConversationDiagnosticWire = z.object({
   severity: z.enum(['warning', 'error']),

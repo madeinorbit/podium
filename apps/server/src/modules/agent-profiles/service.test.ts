@@ -1,15 +1,23 @@
 /**
  * Agent profiles against the real migrated schema (POD-6107): the six seeded
- * starters, the people-only edit rule, the in-use delete guard, the .md
- * round trip, and the launch's first-usable-candidate pick.
+ * starters, the record writes (POD-6676) with the people-only rule and the
+ * in-use delete guard, the .md export, and the launch's first-usable-candidate
+ * pick. Import parses on the CLI now (`apps/cli/src/profile-cli.test.ts`).
  */
 import { asSessionId, asUserId, type MachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { SyncRepository } from '@podium/sync'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { syncServerTables } from '../../migrations/sync-server-tables'
+import { SELF_HOSTED_WORKSPACE_ID } from '../../self-hosted-workspace'
 import { AgentProfilesRepository } from '../../store/agent-profiles'
 import { createBunStoreExecutor } from '../../store/executor'
+import { workspaceQueries } from '../../store/executor/sync-drizzle'
+import { installChangeCapture } from '../../sync/capture-triggers'
+import { RECORD_SOURCES, type RecordSources } from '../../sync/record-sources'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
-import { type AgentProfileCaller, AgentProfileRefusal, AgentProfileService } from './service'
+import { recordTestWriter } from '../../test-support/record-writer'
+import { type AgentProfileCaller, AgentProfileService, type AgentProfileWriter } from './service'
 
 const ADMIN = asUserId('user:admin')
 const MEMBER = asUserId('user:member')
@@ -20,15 +28,34 @@ let db: SqlDatabase
 let runnable: Set<string>
 let probes: string[]
 let service: AgentProfileService
+let profiles: AgentProfilesRepository
 
-beforeEach(() => {
+let capture: { sync: SyncRepository; transact: <T>(fn: () => Promise<T>) => Promise<T> }
+
+beforeEach(async () => {
   db = openMigratedTestDatabase()
-  const queries = createBunStoreExecutor({ database: db }).queries
+  const executor = createBunStoreExecutor({ database: db })
+  const queries = executor.queries
   if (!queries) throw new Error('no synchronous query capability')
+  // The profile table's change capture, as a server installs it (POD-6920):
+  // a record write drains it into the test's Authority.
+  await executor.exclusive(
+    async (session) =>
+      await installChangeCapture(session, {
+        agentProfile: RECORD_SOURCES.agentProfile,
+      } as unknown as RecordSources),
+  )
+  // The feed is a workspace's: its writes run in the workspace's transaction.
+  const workspace = workspaceQueries(queries, SELF_HOSTED_WORKSPACE_ID)
+  capture = {
+    sync: new SyncRepository(workspace, syncServerTables, SELF_HOSTED_WORKSPACE_ID),
+    transact: async (fn) => await workspace.createOrJoinTransaction(fn),
+  }
   runnable = new Set(['claude-code', 'codex'])
   probes = []
+  profiles = new AgentProfilesRepository(workspace)
   service = new AgentProfileService({
-    store: new AgentProfilesRepository(queries),
+    store: profiles,
     now: () => '2026-10-14T12:00:00.000Z',
     listMachines: async () => [
       { id: 'm-flat', name: 'flatblock', hostname: 'flatblock', online: true } as never,
@@ -43,9 +70,9 @@ beforeEach(() => {
 
 const insertIssue = (seq: number, profileId: string, stage = 'in_progress'): void => {
   db.prepare(
-    `INSERT INTO issues (id, owner_user_id, created_by_actor, repo_path, seq, title, stage,
+    `INSERT INTO issues (workspace_id, id, owner_user_id, created_by_actor, repo_path, seq, title, stage,
        default_agent, agent_profile_id, created_at, updated_at)
-     VALUES (?, ?, ?, '/repo', ?, 't', ?, 'auto', ?, 't0', 't0')`,
+     VALUES ('local', ?, ?, ?, '/repo', ?, 't', ?, 'auto', ?, 't0', 't0')`,
   ).run(`iss_${seq}`, ADMIN, ADMIN, seq, stage, profileId)
 }
 
@@ -58,87 +85,84 @@ describe('agent profiles', () => {
     expect(review.instructions).toContain('review task')
   })
 
-  it('creates, renames and updates by name, resolving a machine name', async () => {
-    const created = await service.create(person, {
-      name: 'Docs',
+  // The record writes (POD-6676) commit on the command's writer; here an
+  // Authority builds the profile before and after each write (compare at
+  // save) and `changes` holds what it appended.
+  let writer: AgentProfileWriter
+  let changes: unknown[]
+  beforeEach(() => {
+    const records = recordTestWriter(
+      { agentProfiles: profiles, sync: capture.sync },
+      { kinds: ['agentProfile'], transact: capture.transact },
+    )
+    writer = records.writer
+    changes = records.appended
+  })
+
+  it('creates, renames and updates by id, resolving a machine name, with a change entry each', async () => {
+    const created = await service.createRecord(person, writer, 'agp_docs', {
+      name: 'docs',
       description: 'Writes docs',
       candidates: [{ harness: 'claude-code', model: 'auto', effort: 'low' }],
-      machine: 'flatblock',
+      machineId: 'flatblock',
     })
-    expect(created).toMatchObject({ name: 'docs', machineId: 'm-flat', machineName: 'flatblock' })
-    const updated = await service.update(person, { ref: 'docs', name: 'writing', machine: null })
+    expect(created).toMatchObject({ id: 'agp_docs', name: 'docs', machineId: 'm-flat' })
+    expect((await service.show('docs')).machineName).toBe('flatblock')
+    const updated = await service.editRecord(person, writer, 'agp_docs', {
+      name: 'writing',
+      machineId: null,
+    })
     expect(updated).toMatchObject({
-      id: created.id,
+      id: 'agp_docs',
       name: 'writing',
       machineId: null,
       description: 'Writes docs',
     })
-    await expect(service.create(person, { name: 'writing' })).rejects.toThrow(/already exists/)
-    await expect(service.update(person, { ref: 'writing', machine: 'nowhere' })).rejects.toThrow(
-      /no visible machine named 'nowhere'/,
-    )
+    expect(changes).toEqual([
+      { entity: 'agentProfile', id: 'agp_docs', op: 'upsert', value: created },
+      { entity: 'agentProfile', id: 'agp_docs', op: 'upsert', value: updated },
+    ])
+    await expect(
+      service.createRecord(person, writer, 'agp_other', { name: 'writing' }),
+    ).rejects.toThrow(/already exists/)
+    await expect(
+      service.editRecord(person, writer, 'agp_docs', { machineId: 'nowhere' }),
+    ).rejects.toThrow(/no visible machine named 'nowhere'/)
   })
 
   it('refuses every edit from an agent session, and from a non-admin person', async () => {
+    const build = await service.show('build')
     for (const edit of [
-      () => service.create(agent, { name: 'x' }),
-      () => service.update(agent, { ref: 'build', description: 'mine now' }),
-      () => service.delete(agent, { ref: 'build' }),
-      () => service.import(agent, { files: [{ text: '---\nname: x\n---\n' }] }),
+      () => service.createRecord(agent, writer, 'agp_x', { name: 'x' }),
+      () => service.editRecord(agent, writer, build.id, { description: 'mine now' }),
+      () => service.removeRecord(agent, writer, build.id),
     ]) {
       await expect(edit()).rejects.toThrow(/edited by people only/)
     }
     await expect(
-      service.create({ userId: MEMBER, actorSessionId: null }, { name: 'x' }),
+      service.createRecord({ userId: MEMBER, actorSessionId: null }, writer, 'agp_x', {
+        name: 'x',
+      }),
     ).rejects.toThrow(/instance admin/)
     expect((await service.show('build')).description).not.toBe('mine now')
   })
 
-  it('refuses to delete a profile an open issue uses, and allows it once the issue is closed', async () => {
+  it('refuses to remove a profile an open issue uses, and allows it once the issue is closed', async () => {
     const build = await service.show('build')
     insertIssue(7, build.id)
-    await expect(service.delete(person, { ref: 'build' })).rejects.toThrow(
+    await expect(service.removeRecord(person, writer, build.id)).rejects.toThrow(
       /used by 1 open issue\(s\) \(#7\)/,
     )
     db.prepare(`UPDATE issues SET stage = 'done' WHERE seq = 7`).run()
-    await expect(service.delete(person, { ref: 'build' })).resolves.toMatchObject({ name: 'build' })
+    await service.removeRecord(person, writer, build.id)
     expect(await service.find('build')).toBeNull()
+    expect(changes.at(-1)).toEqual({ entity: 'agentProfile', id: build.id, op: 'remove' })
   })
 
-  it('round-trips through the .md shape, creating or replacing by name', async () => {
+  it('exports the .md shape', async () => {
     const [exported] = await service.export('qa')
     expect(exported?.text).toContain('name: qa\n')
-    const edited = exported?.text.replace('effort: medium', 'effort: high') ?? ''
-    const results = await service.import(person, {
-      files: [
-        { name: 'qa', text: edited },
-        {
-          name: 'triage',
-          text: '---\ndescription: Sorts new issues\nmodel: auto\n---\nSort them.',
-        },
-      ],
-    })
-    expect(results).toEqual([
-      { name: 'qa', action: 'updated' },
-      { name: 'triage', action: 'created' },
-    ])
-    expect((await service.show('qa')).candidates[0]?.effort).toBe('high')
-    expect(await service.show('triage')).toMatchObject({
-      candidates: [{ harness: 'claude-code', model: 'auto', effort: 'auto' }],
-      instructions: 'Sort them.',
-    })
-  })
-
-  it('imports nothing when one file is bad', async () => {
-    await expect(
-      service.import(person, {
-        files: [
-          { name: 'ok', text: '---\nname: ok\n---\n' },
-          { name: 'bad', text: 'no frontmatter' },
-        ],
-      }),
-    ).rejects.toBeInstanceOf(AgentProfileRefusal)
-    expect(await service.find('ok')).toBeNull()
+    expect(exported?.text).toContain('effort: medium')
   })
 
   describe('launch', () => {

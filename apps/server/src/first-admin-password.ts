@@ -51,6 +51,16 @@
  * member row selected by `UsersRepository.earliestAdmin()`, not an id this build
  * compiles in. A staged password with no member to attach it to leaves the file
  * in place and says so, rather than writing a credential for a ghost.
+ *
+ * ---------------------------------------------------------------------------
+ * THE PASSWORD BELONGS TO THE ADMIN'S ACCOUNT (POD-6746)
+ * ---------------------------------------------------------------------------
+ *
+ * A password signs someone in only as the password of an account of the
+ * identity package, so both functions write through `MemberCredentials`
+ * to the shared identity account. An admin whose row has no account yet (a
+ * database from before shared sign-in that has not been upgraded) cannot take
+ * one: the staged file stays where it is and the next boot retries.
  */
 
 import { createLogger } from '@podium/logger'
@@ -61,43 +71,39 @@ import {
   hashPassword,
   readLegacyInstancePasswordHash,
 } from '@podium/runtime/auth-store'
+import { type MemberCredentials, MemberHasNoAccount } from './identity/member-credentials'
 
 const log = createLogger('server:first-admin-password')
 
-/** The slice of `UsersRepository` this file needs — narrow so a test can pass a fake and so
- *  nothing here can reach a repository method that mints accounts. */
+/** The slice of `UsersRepository` this file needs: who the first admin is, and nothing that writes. */
 export interface FirstAdminCredentialStore {
   earliestAdmin(): { id: string } | undefined | Promise<{ id: string } | undefined>
-  credentialFor(
-    userId: UserId,
-  ):
-    | { source: string; passwordHash: string | null }
-    | undefined
-    | Promise<{ source: string; passwordHash: string | null } | undefined>
-  setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void | Promise<void>
 }
 
+/** The first admin's password, through their account. */
+export type FirstAdminCredentials = Pick<MemberCredentials, 'hasPassword' | 'setPasswordHash'>
+
 export interface AdoptStagedPasswordResult {
-  /** What the boot actually did. `adopted` is the only outcome that wrote a credential. */
-  outcome: 'adopted' | 'nothing-staged' | 'no-first-admin' | 'verify-failed'
-  /** The member the credential was attached to — present only when `adopted`. */
+  /** What the boot actually did. `adopted` is the only outcome that wrote a password. */
+  outcome: 'adopted' | 'nothing-staged' | 'no-first-admin' | 'no-account' | 'verify-failed'
+  /** The member whose account got the password; present only when `adopted`. */
   userId?: UserId
 }
 
 export interface AdoptStagedPasswordOptions {
   users: FirstAdminCredentialStore
+  credentials: FirstAdminCredentials
   /** State dir holding the staged `auth.json`. Defaults to the real one. */
   authDir?: string | undefined
-  now?: () => Date
   warn?: (message: string) => void
 }
 
 /**
- * Move a staged password into the first admin's credential.
+ * Move a staged password onto the first admin's account.
  *
  * IDEMPOTENT BY CONSTRUCTION rather than by a flag: the trigger is the presence of
  * `auth.json`, and the last thing a successful run does is delete it. A second run finds
- * nothing to read and returns `nothing-staged` without touching the database — which is
+ * nothing to read and returns `nothing-staged` without touching the database, which is
  * also what a box that never had a password does, and what every boot after the first
  * does forever. `first-admin-password.test.ts` runs it twice and reddens if the second
  * run writes.
@@ -105,14 +111,14 @@ export interface AdoptStagedPasswordOptions {
 export async function adoptStagedFirstAdminPassword(
   opts: AdoptStagedPasswordOptions,
 ): Promise<AdoptStagedPasswordResult> {
-  const { users, authDir } = opts
+  const { users, credentials, authDir } = opts
   const warn = opts.warn ?? ((m: string) => log.warn(m))
 
   const stagedHash = readLegacyInstancePasswordHash(authDir)
   if (!stagedHash) return { outcome: 'nothing-staged' }
 
   // No member to attach it to: a database from before accounts, or one whose admins are
-  // all disabled. Leave the file — the instance keeps booting, and the next boot on a
+  // all disabled. Leave the file: the instance keeps booting, and the next boot on a
   // fixed build adopts it. Deleting here would strand the hash with nothing holding it.
   const firstAdmin = await users.earliestAdmin()
   if (!firstAdmin) {
@@ -124,27 +130,32 @@ export async function adoptStagedFirstAdminPassword(
   }
   const userId = asUserId(firstAdmin.id)
 
-  // Already a real per-user credential — an operator who set a password through the UI
-  // after upgrading. Their row wins; the file is stale and goes. NOT a silent overwrite:
-  // clobbering the newer credential with the older file is the one way this function could
-  // change someone's working password out from under them.
-  const existing = await users.credentialFor(userId)
-  if (existing?.source === 'per-user-scrypt' && existing.passwordHash) {
+  // The admin already has a password: one they set after upgrading. Theirs wins; the file
+  // is stale and goes. NOT a silent overwrite: replacing the newer password with the older
+  // file is the one way this function could change a working password under someone.
+  if (await credentials.hasPassword(userId)) {
     deleteLegacyInstancePasswordFile(authDir)
     return { outcome: 'nothing-staged' }
   }
 
-  const updatedAt = (opts.now?.() ?? new Date()).toISOString()
-  await users.setPasswordHash(userId, stagedHash, updatedAt)
+  try {
+    await credentials.setPasswordHash(userId, stagedHash)
+  } catch (error) {
+    if (!(error instanceof MemberHasNoAccount)) throw error
+    warn(
+      '[podium] the staged login password in auth.json could not be adopted: the first admin ' +
+        'has no account to sign in with yet. auth.json is left in place and the next boot will retry.',
+    )
+    return { outcome: 'no-account' }
+  }
 
   // THE RE-READ. Not a formality: it goes back to the database rather than trusting the
-  // write's return, because what must be true before the file goes is that a LOGIN would
-  // now succeed — and a login reads this row through exactly this call.
-  const written = await users.credentialFor(userId)
-  if (written?.source !== 'per-user-scrypt' || written.passwordHash !== stagedHash) {
+  // write's return, because what must be true before the file goes is that a sign-in
+  // would now find a password on this account.
+  if (!(await credentials.hasPassword(userId))) {
     warn(
-      '[podium] the staged login password in auth.json was NOT adopted: the credential did not ' +
-        'read back. auth.json is left in place, so login still works; the next boot will retry.',
+      '[podium] the staged login password in auth.json was NOT adopted: the password did not ' +
+        'read back. auth.json is left in place; the next boot will retry.',
     )
     return { outcome: 'verify-failed' }
   }
@@ -155,20 +166,21 @@ export async function adoptStagedFirstAdminPassword(
 
 /**
  * THE HEADLESS SEAM. `PODIUM_PASSWORD` lets a non-interactive deploy (a VPS, a
- * container) enable login without the setup UI. It writes the FIRST ADMIN's per-user
- * credential — the same account, the same login, one home.
+ * container) enable login without the setup UI. It writes the password of the FIRST
+ * ADMIN's account: the same account, the same login, one home.
  *
- * Still deliberately ONE-SHOT: it never overwrites an existing credential, so leaving the
+ * Still deliberately ONE-SHOT: it never overwrites an existing password, so leaving the
  * variable set across restarts cannot clobber a password the user later changed in the UI.
  * That was the shipped guarantee and it is preserved verbatim.
  *
  * The hosted image stops setting this variable (spec §10); nothing here knows that, and
- * nothing should — a self-hosted deploy is still entitled to it.
+ * nothing should: a self-hosted deploy is still entitled to it.
  */
 export async function applyEnvFirstAdminPassword(opts: {
   users: FirstAdminCredentialStore
+  credentials: FirstAdminCredentials
   env?: NodeJS.ProcessEnv
-  now?: () => Date
+  warn?: (message: string) => void
 }): Promise<{ applied: boolean; userId?: UserId }> {
   const env = opts.env ?? process.env
   const pw = env.PODIUM_PASSWORD
@@ -177,10 +189,17 @@ export async function applyEnvFirstAdminPassword(opts: {
   if (!firstAdmin) return { applied: false }
   const userId = asUserId(firstAdmin.id)
 
-  const existing = await opts.users.credentialFor(userId)
-  if (existing?.source === 'per-user-scrypt' && existing.passwordHash) return { applied: false }
+  if (await opts.credentials.hasPassword(userId)) return { applied: false }
 
-  const updatedAt = (opts.now?.() ?? new Date()).toISOString()
-  await opts.users.setPasswordHash(userId, await hashPassword(pw), updatedAt)
+  try {
+    // Hashed here, before any transaction: a password hash takes long on purpose.
+    await opts.credentials.setPasswordHash(userId, await hashPassword(pw))
+  } catch (error) {
+    if (!(error instanceof MemberHasNoAccount)) throw error
+    ;(opts.warn ?? ((m: string) => log.warn(m)))(
+      '[podium] PODIUM_PASSWORD was not applied: the first admin has no account to sign in with yet.',
+    )
+    return { applied: false }
+  }
   return { applied: true, userId }
 }

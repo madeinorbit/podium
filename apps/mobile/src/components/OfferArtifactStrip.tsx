@@ -6,6 +6,7 @@ import { authenticatedImageSource } from '../client/authenticated-assets'
 import { useHttpOrigin } from '../client/hooks'
 // Read the profile without importing the gate's boot graph.
 import { useServerProfile } from '../client/server-profile-context'
+import { useIssueModel } from '../client/use-issue-model'
 import { OFFER_STRIP_MAX, type OfferArtifactRow, offerArtifactRows } from '../lib/offer-artifacts'
 import { color, monoLabel, radius, sans, space } from '../theme/theme'
 import { ArtifactViewer, type ArtifactViewerItem } from './ArtifactViewer'
@@ -51,9 +52,12 @@ export function OfferArtifactStrip({
   const slots =
     width > 0 ? Math.max(1, Math.min(max, Math.floor((width + gap) / (tileWidth + gap)))) : max
 
+  // The panel the paths resolve against is its own records (POD-6778): the
+  // pool's issue model answers it; the session header's summary row carries none.
+  const model = useIssueModel(issue?.id)
   const { rows, extra, allRows } = offerArtifactRows({
     offer,
-    issue,
+    issue: model ?? undefined,
     httpOrigin,
     max: slots,
     ...(workspace ? { workspace } : {}),

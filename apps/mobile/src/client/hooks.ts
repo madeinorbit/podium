@@ -1,16 +1,27 @@
 /** Phone reads use the shared pool; actions and transport handles retain
  * their existing owner and API. Missing pool facts retain loading values. */
-import type { Store } from '@podium/client-core/engine'
-import { useStoreHandle } from '@podium/client-core/react'
+import type { LiveStore } from '@podium/client-core/live'
+import {
+  useClientRuntime,
+  useHttpOrigin as useCoreHttpOrigin,
+  useReplica as useCoreReplica,
+  useDeviceState,
+  useRequestClient,
+  useSocketHub,
+} from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { rememberedTab, workspaceKeyFor } from '@podium/client-core/values'
 import { omitGone } from '@podium/client-graph/lookup'
-import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
-import { settled } from '@podium/client-graph/mission-view'
+import {
+  MissionScreen,
+  missionOpeningResolved,
+  missionRootId,
+} from '@podium/client-graph/mission-screen'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { SessionId } from '@podium/model'
+import { reaction } from 'mobx'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { demoEnabled } from './demoData'
 import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
@@ -19,125 +30,94 @@ import type { MobileTrpc, TranscriptPage } from './trpc'
 export {
   useSessionContextBooting as useBooting,
   useSessionContextIssue as useIssue,
-  useSessionContextIssues as useIssues,
   useSessionContextSession as useSession,
-  useSessionContextSessions as useSessions,
   useSessionContextSpawnPending as useSpawnPending,
   useSessionContextSpawnPrompt as useSpawnPrompt,
 } from './use-session-context'
 
-type MobileStore = Store<MobileTrpc>
-
-/**
- * THE MUTATION SURFACE the phone's screens use, picked once. Every field is an
- * identity-stable engine action. Acquire them from the current owner without a
- * snapshot subscription; a principal/provider rebuild supplies a new owner.
- */
-const pickActions = (s: MobileStore) => ({
-  markIssueRead: s.markIssueRead,
-  markIssueUnread: s.markIssueUnread,
-  setIssueTucked: s.setIssueTucked,
-  setIssuePlacement: s.setIssuePlacement,
-  updateIssue: s.updateIssue,
-  closeIssue: s.closeIssue,
-  deleteIssue: s.deleteIssue,
-  restoreIssue: s.restoreIssue,
-  deferIssue: s.deferIssue,
-  undeferIssue: s.undeferIssue,
-  setIssueLabels: s.setIssueLabels,
-  setSnooze: s.setSnooze,
-  clearSnooze: s.clearSnooze,
-  setWorkState: s.setWorkState,
-  sendChat: s.sendChat,
-  resurrectSession: s.resurrectSession,
-  continueSession: s.continueSession,
-  archiveSession: s.archiveSession,
-  killSession: s.killSession,
-  dismissOffer: s.dismissOffer,
-  spawnDraftAgent: s.spawnDraftAgent,
-  refreshSuperThreads: s.refreshSuperThreads,
-})
-
-export type StoreActions = ReturnType<typeof pickActions>
-
-export function useStoreActions(): StoreActions {
-  const owner = useStoreHandle<MobileTrpc>()
-  return useMemo(() => pickActions(owner.access), [owner])
-}
-
 /**
  * THE LAST SESSION SHOWN ON A TASK, on this phone (POD-2432). The desktop's own
  * memory, not a copy: the device-local `podium.workspaces` layouts keyed by
- * mission root. The phone never makes a workspace current, so it reads the
- * mission's focused tab and records its seat without moving a pane.
+ * mission root, held by the UiStore. The phone never makes a workspace
+ * current, so it reads the mission's focused tab and records its seat without
+ * moving a pane.
  */
 export function useTaskSeatMemory(): {
   recall: (rootId: string) => string | null
   remember: (rootId: string, sessionId: SessionId) => void
 } {
-  const owner = useStoreHandle<MobileTrpc>()
+  const { ui } = useClientRuntime<MobileTrpc>()
   return useMemo(
     () => ({
-      recall: (rootId) =>
-        rememberedTab(owner.access.workspaces[workspaceKeyFor({ missionRootId: rootId })]),
+      recall: (rootId) => rememberedTab(ui.workspaces[workspaceKeyFor({ missionRootId: rootId })]),
       remember: (rootId, sessionId) =>
-        owner.access.rememberWorkspaceTab(workspaceKeyFor({ missionRootId: rootId }), sessionId),
+        ui.rememberWorkspaceTab(workspaceKeyFor({ missionRootId: rootId }), sessionId),
     }),
-    [owner],
+    [ui],
   )
 }
 
 /** The existing replica handle, acquired without a snapshot subscription. */
-export function useReplica(): MobileStore['replica'] {
-  return useStoreHandle<MobileTrpc>().access.replica
+export function useReplica(): import('@podium/client-core/replica').Replica {
+  return useCoreReplica()
 }
 
-/** The server this app is talking to, e.g. `http://ludovico:18787`. */
+/** The server this app is talking to, e.g. `https://podium.example.com`. */
 export function useHttpOrigin(): string {
-  return useStoreHandle<MobileTrpc>().access.httpOrigin
+  return useCoreHttpOrigin()
 }
 
 export function useTrpc(): MobileTrpc {
-  return useStoreHandle<MobileTrpc>().access.trpc
+  return useRequestClient<MobileTrpc>()
 }
 
 /** The app-wide transport hub; terminal views share it instead of opening a
  *  second socket. */
 export function useHub(): SocketHub {
-  return useStoreHandle<MobileTrpc>().access.hub
+  return useSocketHub()
 }
 
 /** ONE UI persistence mechanism: the replica's per-principal ui-state
  *  collection. No screen writes raw AsyncStorage (doc §3.3 / POD-329). */
 export function useUiState(): RoutedUiState {
-  return useStoreHandle<MobileTrpc>().access.uiState
-}
-
-function hubIsConnected(hub: SocketHub): boolean {
-  return typeof hub.connected === 'boolean'
-    ? hub.connected
-    : // Compatibility for narrow test/platform hubs that predate the exact
-      // connection bit. Production SocketHub always takes the first arm.
-      hub.connectionHealth().status !== 'down'
+  return useDeviceState()
 }
 
 /**
- * Transport liveness, as six mobile surfaces ask for it.
- *
- * NOT A SLICE, and not because it has too few consumers. Connection health is
- * stream-plane: ephemeral, blank offline, no durable row, nothing memoized
- * against an entity snapshot — the same reason presence gets its own publisher
- * (doc §3.4). It is read off the hub, which is where it lives.
+ * Transport liveness, as six mobile surfaces ask for it: the LiveStore's
+ * connection condition (POD-5798). Connected means the link is up and
+ * answering, slowly or not; the first dial and a link declared lost are not.
+ * The hub's health rule decides "lost", so a quick reconnect does not flicker
+ * an offline banner.
  *
  * Demo mode reports connected because there is no socket at all in it: the
  * fixture store is the whole world, and painting an offline banner over a design
  * fixture would be reporting a fact about a server nobody asked it to reach.
  */
 export function useConnected(): boolean {
-  const hub = useHub()
-  const [connected, setConnected] = useState(() => hubIsConnected(hub))
-  useEffect(() => hub.onConnectionHealth(() => setConnected(hubIsConnected(hub))), [hub])
+  const connected = useLiveValue(isLinkUp)
   return demoEnabled() ? true : connected
+}
+
+const isLinkUp = (live: LiveStore): boolean =>
+  live.connection.state === 'online' || live.connection.state === 'degraded'
+
+/** The server's build, from the newest `welcome` (LiveStore, POD-5798). */
+export function useServerBuild(): string | undefined {
+  return useLiveValue(serverBuildOf)
+}
+
+const serverBuildOf = (live: LiveStore): string | undefined => live.connection.serverBuild
+
+/**
+ * One LiveStore field for a component that is not an observer: re-renders
+ * only when `read`'s answer changes. `read` must be a stable function.
+ */
+function useLiveValue<T>(read: (live: LiveStore) => T): T {
+  const live = useClientRuntime<MobileTrpc>().live
+  const [value, setValue] = useState(() => read(live))
+  useEffect(() => reaction(() => read(live), setValue, { fireImmediately: true }), [live, read])
+  return value
 }
 
 function poolBooting(pool: MobxPool): boolean {
@@ -180,10 +160,7 @@ export function useMissionOpening(selectedId: string): {
     if (!screen) return
     return () => screen.close()
   }, [screen])
-  // An archived member can still own the current conversation. Its live
-  // crew is a shown field even though the deck's visible rows have settled.
-  const ready = Boolean(screen?.ready && settled(() => screen.crew) !== LOADING)
-  return { screen, resolved: ready || (!screen && rootId !== LOADING && !booting) }
+  return { screen, resolved: missionOpeningResolved(screen, rootId, booting) }
 }
 
 /** One page of a session transcript, newest-first, as both transcript readers

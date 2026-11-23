@@ -1,31 +1,30 @@
-import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
-import { type EngineState, workspaceKeyForState } from '@podium/client-core/engine'
+import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
+import { type ScreenState, workspaceKeyForState } from '@podium/client-core/ui'
 import { routeDefaults } from '@podium/client-core/ui-state'
 import { emptyWorkspace, openTab } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
-import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { computed } from '@podium/client-graph/react'
 import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
-import { mergePoolSummaries } from '@podium/client-graph/source-registry'
 import { asIssueId } from '@podium/model/browser'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { type ReactNode, useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
-import { planNavigation } from '../../../../packages/client-core/src/engine/navigation'
+import { planNavigation } from '../../../../packages/client-core/src/ui/navigation'
+import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
-import { NAVIGATION_SUMMARIES } from './pane-pool-screen'
 import { createPoolNavigationProvider } from './pool-navigation-provider'
 
 const binding = vi.hoisted(() => ({
-  state: {} as EngineState,
+  state: {} as ScreenState,
   pool: null as MobxPool | null,
-  missionReady: false,
 }))
-const workspaceOwner = withKeyedInputs({ getSnapshot: () => binding.state, subscribe: () => () => {} })
+const workspaceOwner = withKeyedInputs({
+  getSnapshot: () => binding.state,
+  subscribe: () => () => {},
+})
 vi.mock('./store', () => ({
-  useRuntimeSelector: (select: (state: EngineState) => unknown) => select(binding.state),
+  readFixture: (select: (state: ScreenState) => unknown) => select(binding.state),
 }))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPool: () => binding.pool,
@@ -38,8 +37,6 @@ vi.mock('./store-worklist-pool', () => ({
       projection?.subscribe ?? (() => () => {}),
       projection?.getSnapshot ?? (() => empty),
     )
-    if (value && typeof value === 'object' && 'loading' in value && value.loading === false)
-      binding.missionReady = true
     return value
   },
 }))
@@ -52,11 +49,17 @@ vi.mock('./NewPanelMenu', () => ({
 vi.mock('./operator-focus', () => ({
   useOperatorFocus: () => ({ focusedIssueId: null, setFocusedIssueId: vi.fn() }),
 }))
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => workspaceOwner,
-  useHarnessDescriptors: () => ({ served: [] }),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => workspaceOwner),
+    ...(await import('@podium/client-core/test-support/react')).fixtureUiHooks(
+      () => workspaceOwner,
+    ),
+    useHarnessDescriptors: () => ({ served: [] }),
+  }
+})
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 const { Workspace } = await import('./Workspace')
 afterEach(cleanup)
@@ -85,14 +88,16 @@ const output = (container: HTMLElement) =>
 it('renders identical workspace labels, tab order and layout after pool navigation', async () => {
   const ctx = await startScenarioEngine(1, { start: false, ownRows: true })
   const runtime = ctx.engine
-  const handle = createRuntimeWorklistPool(runtime, {
-    summaries: mergePoolSummaries(NAVIGATION_SUMMARIES, MISSION_VIEW_SUMMARIES),
-  })
+  const handle = createRuntimeWorklistPool(runtime, {})
   binding.pool = handle.pool
   const provider = createPoolNavigationProvider(handle.pool)
   try {
     const initial = referenceState(runtime)
-    initial.navigation = fixtureNavigation({ issues: () => initial.issueProjections, sessions: () => initial.sessions, markers: () => initial.issueUserStates })
+    initial.navigation = fixtureNavigation({
+      issues: () => initial.issueProjections,
+      sessions: () => initial.sessions,
+      markers: () => initial.issueUserStates,
+    })
     const target = asIssueId(ctx.targets.visibleRootId)
     const child = initial.issueProjections.find(
       (row) => row.parentId === target && !row.archived && !row.deletedAt,
@@ -104,19 +109,17 @@ it('renders identical workspace labels, tab order and layout after pool navigati
     const key = workspaceKeyForState({ ...initial, selectedIssueId: child.id })
     let layout = emptyWorkspace(key)
     for (const seat of seats) layout = openTab(layout, seat.sessionId, { permanent: true })
-    let legacy: EngineState = { ...initial, workspaces: { [key]: layout } }
-    let pool: EngineState = { ...legacy, navigation: provider }
+    let legacy: ScreenState = { ...initial, workspaces: { [key]: layout } }
+    let pool: ScreenState = { ...legacy, navigation: provider }
     let route = routeDefaults('issues')
-    const screen = async (state: EngineState) => {
-      binding.state = { ...state, workspaceKey: () => workspaceKeyForState(state) } as EngineState
-      binding.missionReady = false
+    const screen = async (state: ScreenState) => {
+      binding.state = { ...state, workspaceKey: () => workspaceKeyForState(state) } as ScreenState
       const view = render(<Workspace />)
       await waitFor(() => {
         handle.pool.hydrate()
-        expect(binding.missionReady).toBe(true)
+        expect(view.container.querySelectorAll('[data-tab-drag-id]').length).toBeGreaterThan(0)
       })
       const result = output(view.container)
-      expect(view.container.querySelectorAll('[data-tab-drag-id]').length).toBeGreaterThan(0)
       view.unmount()
       return result
     }
@@ -134,6 +137,6 @@ it('renders identical workspace labels, tab order and layout after pool navigati
   } finally {
     binding.pool = null
     handle.dispose()
-    runtime.destroy()
+    runtime.dispose()
   }
 }, 60_000)

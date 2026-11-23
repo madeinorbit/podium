@@ -2,7 +2,7 @@
 import type { MutationId, SessionId } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { OutboxSettlement } from './outbox'
-import type { EngineOutbox, OutboxKinds } from './engine/wiring'
+import type { EngineOutbox, OutboxKinds } from './runtime-root/outbox/wiring'
 
 const CHAT_KINDS = new Set<string>(['sendText', 'resumeAndSend'])
 

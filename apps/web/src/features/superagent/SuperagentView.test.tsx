@@ -1,6 +1,14 @@
 import type { IssueEventWire, SessionId } from '@podium/model'
 import '@/test-support/mock-core-store-handle'
-import { asSessionId, issueEventRowId } from '@podium/model'
+import {
+  asSessionId,
+  asThreadId,
+  asUserId,
+  issueEventRowId,
+  type SuperagentThreadWire,
+} from '@podium/model'
+import { fireEvent, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -30,17 +38,19 @@ const fakeHub = {
   },
 }
 
+/** My global thread's synced record (POD-6675), in the shape the test sets. */
 type SuperThreadFake = {
   id: string
   kind: 'global'
-  harnessSessionId?: string
+  /** The server holds a harness conversation (the record's `resumable`). */
+  resumable?: boolean
   podiumSessionId?: SessionId
   agentKind?: string
 }
 const GLOBAL_THREAD: SuperThreadFake = {
   id: 'global',
   kind: 'global' as const,
-  harnessSessionId: 'harness-1',
+  resumable: true,
   // POD-782: a thread has its headless session from the moment the pane opens
   // (superagent.ensureSession), which is what lets this pane mount the ORDINARY
   // ChatView instead of carrying a second composer for the empty case.
@@ -48,6 +58,21 @@ const GLOBAL_THREAD: SuperThreadFake = {
   agentKind: 'claude-code',
 }
 let superagentThreads: SuperThreadFake[] = [GLOBAL_THREAD]
+/** The records the replica holds for those threads. */
+const threadRecords = (): SuperagentThreadWire[] =>
+  superagentThreads.map((thread) => ({
+    threadId: asThreadId(thread.id),
+    ownerUserId: asUserId('operator'),
+    kind: thread.kind,
+    ...(thread.podiumSessionId ? { podiumSessionId: thread.podiumSessionId } : {}),
+    ...(thread.agentKind ? { agentKind: thread.agentKind } : {}),
+    archived: false,
+    resumable: thread.resumable === true,
+    turnRunning: false,
+    lastTurnFailure: null,
+    createdAt: '2026-07-22T00:00:00.000Z',
+    updatedAt: '2026-07-22T00:00:00.000Z',
+  }))
 
 let isMobile = false
 let storeSessions: Array<{ sessionId: SessionId; cwd: string }> = []
@@ -69,6 +94,7 @@ const issueEvent = (eventId: number, over: Partial<IssueEventWire> = {}): IssueE
 const uiStateMap = new Map<string, string>()
 const uiState = {
   get: (key: string): string | null => uiStateMap.get(key) ?? null,
+  subscribe: () => () => {},
   set: vi.fn((key: string, value: string) => {
     uiStateMap.set(key, value)
   }),
@@ -95,14 +121,13 @@ const setView = vi.fn()
 const setSessionDraft = vi.fn()
 const fakeTrpc = {
   superagent: {
-    listThreads: { query: vi.fn(async () => superagentThreads) },
     sendTurn: { mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: 'hp-1' })) },
     clear: { mutate: vi.fn(async () => {}) },
+    restart: { mutate: vi.fn(async () => {}) },
     openInTerminal: { mutate: vi.fn(async () => ({ sessionId: asSessionId('pty-1') })) },
     ensureSession: {
       mutate: vi.fn(async () => ({ threadId: 'global', podiumSessionId: asSessionId('hp-1') })),
     },
-    latestTurnFailure: { query: vi.fn(async () => null) },
   },
   issues: {
     events: { query: vi.fn(async () => []) },
@@ -120,7 +145,10 @@ const normalizedIssues = () =>
     const { sessions = [], ...normalized } = issue as typeof issue & {
       sessions?: Array<{ sessionId: string; cwd: string }>
     }
-    return { ...normalized, memberSessionIds: sessions.map((session: { sessionId: string }) => session.sessionId) }
+    return {
+      ...normalized,
+      memberSessionIds: sessions.map((session: { sessionId: string }) => session.sessionId),
+    }
   })
 
 const embeddedSessions = () =>
@@ -139,11 +167,9 @@ vi.mock('@/app/store', () => {
     issues: normalizedIssues(),
     issueEvents: storeIssueEvents,
     selectedIssueId: storeSelectedIssueId,
-    // POD-330: the thread list is STORE state now, not a view-local mirror
-    // refetched off a `superRefreshKey` bump.
-    superThreads: superagentThreads,
+    // POD-6675: the thread list is synced records the replica holds.
+    superagentThreads: threadRecords(),
     superThreadId: 'global',
-    refreshSuperThreads: async () => {},
     uiState,
     readPosition,
     setPane,
@@ -158,7 +184,7 @@ vi.mock('@/app/store', () => {
     useStore,
     useSession: (id: string | undefined) =>
       [...storeSessions, ...embeddedSessions()].find((session) => session.sessionId === id),
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 vi.mock('@/lib/hooks/use-is-mobile', () => ({
@@ -168,6 +194,13 @@ vi.mock('@/lib/voice', () => ({
   useVoiceInput: () => ({ supported: false, listening: false, toggle: vi.fn() }),
 }))
 vi.mock('@/lib/markdown', () => ({ renderMarkdown: (t: string) => `<p>${t}</p>` }))
+vi.mock('./use-superagent-inputs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./use-superagent-inputs')>()
+  return {
+    ...actual,
+    useSuperagentAccess: () => ({ ...actual.useSuperagentAccess(), readPosition }),
+  }
+})
 /**
  * THE CHAT IS STUBBED, AND THAT IS THE POINT OF THIS FILE (POD-782).
  *
@@ -274,7 +307,7 @@ describe('Superagent pane structure (POD-516 §1.2)', () => {
    * a different screen.
    */
   it('mints the thread’s headless session so the chat has something to render', async () => {
-    superagentThreads = [{ id: 'global', kind: 'global', harnessSessionId: 'harness-1' }]
+    superagentThreads = [{ id: 'global', kind: 'global', resumable: true }]
     await mount()
     expect(fakeTrpc.superagent.ensureSession.mutate).toHaveBeenCalledWith({ threadId: 'global' })
   })
@@ -289,16 +322,14 @@ describe('Superagent pane structure (POD-516 §1.2)', () => {
     expect(container.textContent).not.toContain('One thread across every task and session')
   })
 
-  it('lends its two actions to the dock title bar instead of a bar of its own', async () => {
+  it('lends its conversation menu to the dock title bar', async () => {
     await mount()
     expect(
-      dockHeaderSlot.querySelector('button[title="Clear context — start the global chat fresh"]'),
+      dockHeaderSlot.querySelector('button[aria-label="Superagent conversation actions"]'),
     ).not.toBeNull()
     expect(
-      dockHeaderSlot.querySelector('button[title="Open this conversation in a terminal session"]'),
-    ).not.toBeNull()
-    // …and nowhere else: two clear buttons is the failure this replaces.
-    expect(container.querySelector('button[title^="Clear context"]')).toBeNull()
+      container.querySelector('button[aria-label="Superagent conversation actions"]'),
+    ).toBeNull()
   })
 
   // "remove the tray functionality completely. code, ui, all incl. traces."
@@ -388,13 +419,11 @@ describe('standing event feed removal (POD-113)', () => {
 describe('Clear context', () => {
   it('routes through superagent.clear so the global thread restarts fresh', async () => {
     await mount()
-    const btn = dockHeaderSlot.querySelector<HTMLButtonElement>(
-      'button[title="Clear context — start the global chat fresh"]',
-    )
-    expect(btn).not.toBeNull()
     await act(async () => {
-      btn?.click()
-      await Promise.resolve()
+      await userEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Clear conversation' }))
     })
     expect(fakeTrpc.superagent.clear.mutate).toHaveBeenCalledWith({ threadId: 'global' })
   })
@@ -403,15 +432,13 @@ describe('Clear context', () => {
 describe('Open in terminal', () => {
   it('clears the issue selection so the pane lands on the PTY session, not an issue workspace', async () => {
     await mount()
-    const btn = dockHeaderSlot.querySelector<HTMLButtonElement>(
-      'button[title="Open this conversation in a terminal session"]',
-    )
-    expect(btn).not.toBeNull()
+    await act(async () => {
+      await userEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
+    })
     // The resumed PTY session lands in the sessions broadcast a beat later.
     storeSessions = [{ sessionId: asSessionId('pty-1'), cwd: '/home/u' }]
     await act(async () => {
-      btn?.click()
-      await Promise.resolve()
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Open in terminal' }))
     })
     await flush()
 
@@ -442,5 +469,19 @@ describe('legacy chrome stays gone (#66 preview correction)', () => {
     await mount()
     expect(container.textContent).not.toContain('Earlier conversation')
     expect(container.querySelector('input[placeholder="Search transcript…"]')).toBeNull()
+  })
+})
+
+describe('Start a fresh session', () => {
+  it('restarts the global harness without clearing the conversation', async () => {
+    await mount()
+    await act(async () => {
+      await userEvent.click(screen.getByRole('button', { name: 'Superagent conversation actions' }))
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Start a fresh session' }))
+    })
+    expect(fakeTrpc.superagent.restart.mutate).toHaveBeenCalledWith({ threadId: 'global' })
+    expect(fakeTrpc.superagent.clear.mutate).not.toHaveBeenCalled()
   })
 })

@@ -1,4 +1,4 @@
-import type { GitRepositoryWire, HarnessAgent, MachineWire } from '@podium/model'
+import type { GitRepositoryWire, HarnessAgent, MachineFacts } from '@podium/model'
 import { agentCapabilityRejectionForSelection } from '@podium/model'
 
 export type ActivationAgentReadiness = {
@@ -11,11 +11,11 @@ export type ActivationAgentReadiness = {
     | 'unauthorized'
     | 'checking'
     | 'unavailable'
-  machine?: MachineWire
+  machine?: MachineFacts
   account?: string
 }
 
-function repoMachines(repo: GitRepositoryWire, machines: readonly MachineWire[]): MachineWire[] {
+function repoMachines(repo: GitRepositoryWire, machines: readonly MachineFacts[]): MachineFacts[] {
   if (!repo.machineId) return [...machines]
   const exact = machines.find((machine) => machine.id === repo.machineId)
   return exact ? [exact] : []
@@ -28,7 +28,7 @@ function repoMachines(repo: GitRepositoryWire, machines: readonly MachineWire[])
  */
 export function activationAgentReadiness(
   repo: GitRepositoryWire | undefined,
-  machines: readonly MachineWire[],
+  machines: readonly MachineFacts[],
   agent: HarnessAgent,
 ): ActivationAgentReadiness {
   if (!repo) return { state: 'unavailable' }
@@ -42,7 +42,7 @@ export function activationAgentReadiness(
  * harness usable there" (POD-4639: it had none, and started signed-out Claude).
  */
 export function agentReadinessOnMachines(
-  candidates: readonly MachineWire[],
+  candidates: readonly MachineFacts[],
   agent: HarnessAgent,
 ): ActivationAgentReadiness {
   if (candidates.length === 0) return { state: 'unavailable' }

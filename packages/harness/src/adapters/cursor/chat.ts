@@ -10,15 +10,11 @@
 // the last stdout line. The supervisor owns the spawn (in-process child or
 // durable exec); this module owns the invocation shape and the id grammar.
 
-import { resolvedHarnessPath, type HarnessExecutableSnapshot } from '../../executable-runtime.js'
-
-/** The invocation that pre-allocates a headless chat. Nothing else — no
- *  prompt, no flags: allocation is not a turn. */
-export function cursorCreateChatInvocation(snapshot: HarnessExecutableSnapshot): {
-  cmd: string
-  args: readonly string[]
-} {
-  return { cmd: resolvedHarnessPath(snapshot, 'cursor'), args: ['create-chat'] }
+/** The argv that pre-allocates a headless chat. Nothing else — no prompt, no
+ *  flags: allocation is not a turn. No command either: the caller binds it to
+ *  the turn's installation (POD-6536). */
+export function cursorCreateChatInvocation(): { args: readonly string[] } {
+  return { args: ['create-chat'] }
 }
 
 /**

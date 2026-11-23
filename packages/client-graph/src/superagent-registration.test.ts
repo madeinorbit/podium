@@ -32,8 +32,8 @@ it('rejects a different key while the same entities are reserved or installed', 
 it('rejects a changed or duplicate entity declaration for an existing key', async () => {
   const registry = new PoolSources(), value = source()
   await registry.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () => value)
-  expect(() => registry.ensure(SUPERAGENT_SOURCE_KEY, ['superThread'], source)).toThrow(/declaration/)
-  expect(() => registry.ensure('duplicate', ['superThread', 'superThread'], source)).toThrow(/owner/)
+  expect(() => registry.ensure(SUPERAGENT_SOURCE_KEY, ['superagentLocal'], source)).toThrow(/declaration/)
+  expect(() => registry.ensure('duplicate', ['superagentLocal', 'superagentLocal'], source)).toThrow(/owner/)
   registry.dispose()
 })
 it('disposes a late factory result and refuses to reuse a disposed registry', async () => {

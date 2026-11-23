@@ -21,6 +21,7 @@ import { asSessionId } from '@podium/model'
 import type { DurableAttachment } from '@podium/process/screen'
 import { afterAll, expect, it, vi } from 'vitest'
 import { testSessions } from '../session/testing.js'
+import { memoryMarkers, SessionAccessStore } from './access'
 import type { DaemonContext } from './context'
 
 const holder = vi.hoisted(() => ({ durable: undefined as unknown }))
@@ -133,6 +134,7 @@ it('parks the losing Terminal when a reattach and an adopting spawn race for one
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
 
   // 1. The reattach passes its `attached` check and waits on the host.

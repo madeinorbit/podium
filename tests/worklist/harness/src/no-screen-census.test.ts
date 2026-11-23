@@ -1,5 +1,3 @@
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
  * POD-5423 (review finding 8, the structural guard): work follows the screen,
  * not memory. The app's pool (`createRuntimeWorklistPool`) with no list on
@@ -12,8 +10,10 @@ import { worklistGroups } from '@podium/client-graph/worklist/groups'
  * reaction and computed built while each phase runs, by debug name and owner.
  */
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { autorun, runInAction } from 'mobx'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { type FixtureScale, startScenarioEngine } from '../../shared/src/scenarios'
 import { type CensusSnapshot, startCensus } from './mobx-census'
 import { installMobxWarnTrap } from './mobx-trap'
@@ -51,25 +51,44 @@ const PER_ROW = ['IssueModel', 'SessionModel', 'WorktreeModel', 'GroupNode'] as 
 const perRow = (t: Tally) => PER_ROW.reduce((sum, owner) => sum + (t.computedsBy[owner] ?? 0), 0)
 
 async function phases(scale: FixtureScale) {
+  // This census measures the pool lifetime. Network/navigation services are
+  // unrelated owners; leave the fixture runtime stopped while attaching its pool.
+  const ctx = await startScenarioEngine(scale, { ownRows: true, start: false })
   let census = startCensus()
-  const ctx = await startScenarioEngine(scale, { ownRows: true })
   const handle = createRuntimeWorklistPool(ctx.engine)
   const pool = handle.pool
+  let stopReading: (() => void) | undefined
   try {
     while (pool.hydrate() > 0) {}
     const idle = tally(census.snapshot())
     census.stop()
-    const candidates = runInAction(() => pool.tables.issue.size)
+    const candidates = runInAction(
+      () => [...pool.tables.issue.keys()].filter((id) => pool.worklist.tracks(id)).length,
+    )
 
     census = startCensus()
     let sections: unknown
-    const stop = autorun(() => {
-      sections = sidebarView(pool).sections()
+    stopReading = autorun(() => {
+      const view = sidebarView(pool).sections()
+      // The returned companion is a live port; read what the mounted list paints.
+      sections = {
+        pinnedIds: [...view.pinnedIds],
+        bands: view.bands.map((band) => ({
+          key: band.key,
+          rows: [...band.rowIds],
+          closed: [...band.closedIds],
+        })),
+      }
     })
     while (pool.hydrate() > 0) {}
+    await vi.waitFor(() => {
+      pool.hydrate()
+      expect((sections as { bands: unknown[] }).bands.length).toBeGreaterThan(0)
+    })
     const mounted = tally(census.snapshot())
     const read = runInAction(() => worklistGroups(pool).layout)
-    stop()
+    stopReading()
+    stopReading = undefined
     const unmounted = tally(census.snapshot())
     census.stop()
     const emptied = runInAction(() => worklistGroups(pool).layout)
@@ -80,6 +99,7 @@ async function phases(scale: FixtureScale) {
     const released = runInAction(() => worklistGroups(pool).layout)
     return { idle, mounted, unmounted, candidates, sections, read, emptied, held, released }
   } finally {
+    stopReading?.()
     census.stop()
     handle.dispose()
     ctx.dispose()
@@ -105,6 +125,7 @@ describe('no screen mounted', () => {
       // Near zero, and not growing with the corpus.
       expect(Object.values(run.idle.live).reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(8)
       // A mounted list reader starts every candidate's filing.
+      expect(run.candidates).toBeGreaterThan(0)
       expect(run.mounted.filing).toBe(run.candidates)
       expect(perRow(run.mounted)).toBeGreaterThan(0)
       expect((run.sections as { bands: unknown[] }).bands.length).toBeGreaterThan(0)

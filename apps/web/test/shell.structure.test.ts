@@ -16,7 +16,12 @@ const readClientCore = (rel: string) =>
 // binding (P5b, issue #262). Structure assertions about the store's
 // implementation read the engine sources (plus the binding).
 const readStore = () =>
-  ['engine/runtime.ts', 'engine/boot.ts', 'engine/wiring.ts', 'react/provider.tsx']
+  [
+    'runtime-root/root.ts',
+    'runtime-root/outbox/wiring.ts',
+    'runtime-root/connection/hub.ts',
+    'react/provider.tsx',
+  ]
     .map(readClientCore)
     .join('\n')
 
@@ -55,19 +60,30 @@ describe('web shell structure', () => {
         'features/worklist/use-pool-unified-work.ts',
         'app/DesktopMenuHost.tsx',
       ].map(read),
-      readClientCore('values/slices/worklist/published.ts'),
+      readFileSync(
+        new URL('../../../packages/client-graph/src/worklist/groups.ts', import.meta.url),
+        'utf8',
+      ),
     ].join('\n')
 
   it('sidebar renders always-on project groups and the pinned issue section (#41, POD-166/169)', () => {
     const src = readWorklist()
-    expect(src).toContain('pool.sidebar.sections')
-    expect(src).toContain('ProjectGroupLabel')
+    expect(src).toContain('const sections = model.sections(state)')
+    const groupsView = read('features/worklist/pool-sidebar.tsx')
+    expect(groupsView).toContain('<ProjectFolderHeader')
+    expect(groupsView).toContain('data-testid="project-group"')
+    expect(groupsView).toContain('sections.bands')
     // Panel-pinning is retired (POD-169) — issue pinning renders its own section.
-    expect(src).toContain('splitPinnedWork')
-    // Check the call and its route to the rendered section, not an unused import.
-    expect(readClientCore('values/slices/worklist/published.ts')).toContain(
-      'const { pinned, rest } = splitPinnedWork(work)',
+    const sidebar = readFileSync(
+      new URL('../../../packages/client-graph/src/worklist/sidebar.ts', import.meta.url),
+      'utf8',
     )
+    expect(sidebar).toContain('pinnedIds: worklistGroups(this.pool).pinnedRootIds')
+    const groups = readFileSync(
+      new URL('../../../packages/client-graph/src/worklist/groups.ts', import.meta.url),
+      'utf8',
+    )
+    expect(groups).toContain('pinnedRootIds')
     expect(read('features/worklist/pool-sidebar.tsx')).toContain('sections.pinnedIds')
     expect(read('features/worklist/pool-sidebar.tsx')).toContain('data-testid="pinned-section"')
     // The negative invariant stays scoped to the component that must not regain
@@ -99,29 +115,13 @@ describe('web shell structure', () => {
 
   it('initial store load does not block on a conversation scan', () => {
     const src = readStore()
-    // Conversations are read on demand from the durable server index, so the
-    // boot fan-out is repos + pins + tab orders — never a conversation rescan.
-    const bootStart = src.indexOf('void Promise.all([')
-    const boot = src.slice(bootStart, src.indexOf('.catch', bootStart))
-    // The enrichments moved to `engine/boot.ts` with POD-404's split; the
-    // invariant is the SHAPE of the fan-out, not which object owns the methods.
-    expect(boot).toContain('refreshRepos()')
-    expect(boot).toContain('refreshPins()')
-    expect(boot).toContain('refreshTabOrders()')
+    // Conversations are read on demand from the durable server index, and
+    // nothing is fetched at boot: pins and tab orders (POD-6673), superagent
+    // threads (POD-6675), machines and repositories (POD-6644) are records.
+    expect(src).not.toContain('refreshRepos()')
+    expect(src).not.toContain('refreshPins()')
+    expect(src).not.toContain('refreshTabOrders()')
     expect(src).not.toContain('rescanConversations')
     expect(src).not.toContain('onConversations')
-  })
-})
-
-describe('memory breakdown view', () => {
-  it('fetches the clicked machine breakdown via the hosts endpoint and refreshes while open (#136)', () => {
-    const src = read('features/machines/HostMemoryView.tsx')
-    // Machine-aware: the breakdown is requested for the clicked machine (#136),
-    // not always the first online daemon.
-    expect(src).toContain(
-      'trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined)',
-    )
-    expect(src).toContain('setInterval')
-    expect(src).toContain('clearInterval')
   })
 })

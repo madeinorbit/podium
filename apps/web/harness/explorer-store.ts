@@ -52,7 +52,7 @@ const uiState = {
 
 const trpc = {
   features: { state: { query: async () => null } },
-  settings: { get: { query: async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } }) } },
+  settings: { get: { query: async () => ({ gitWorkflow: { } }) } },
   issues: {
     events: { query: async () => [] },
     comments: { query: async () => [] },
@@ -125,7 +125,7 @@ const store = (): Record<string, unknown> => ({
   archiveSession: noop,
 })
 
-export function useRuntimeSelector<T>(select: (s: Record<string, unknown>) => T): T {
+export function readFixture<T>(select: (s: Record<string, unknown>) => T): T {
   return select(store())
 }
 

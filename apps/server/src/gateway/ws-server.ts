@@ -7,8 +7,9 @@
  * gateway's already-tested client and daemon protocol layers.
  */
 
-import type { MachineWire, ServerReadiness, UserId, UserRole } from '@podium/model'
-import { CAP_SYNC_HTTP_V1, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION } from '@podium/protocol'
+import { createLogger } from '@podium/logger'
+import type { ServerReadiness, UserId, UserRole } from '@podium/model'
+import { CAP_SYNC_HTTP_V1, fencedMemberOf, memberFenceRefuses, WireVersionOffer, negotiateVersion, CLIENT_WIRE_VERSION, MIN_CLIENT_WIRE_VERSION, DAEMON_WIRE_VERSION, MIN_DAEMON_WIRE_VERSION, SIGN_IN_ENDED_CLOSE } from '@podium/protocol'
 import { measureTask } from '@podium/runtime/task-attribution'
 
 export interface NativeServer<T> {
@@ -27,6 +28,7 @@ interface NativeServerWebSocket<T> {
   sendBinary(data: Uint8Array, compress?: boolean): number
   ping(): number
   terminate(): void
+  close(code?: number, reason?: string): void
 }
 
 export interface NativeWebSocketHandler<T> {
@@ -85,6 +87,11 @@ export function serveNative<T>(options: NativeServeOptions<T>): NativeServer<T> 
 import type { SessionRegistry } from '../relay'
 import { wireClientSocket } from './client-socket'
 import { userClientPrincipal } from './client-principal'
+import {
+  ACCEPT_PLAIN_DAEMON_LINKS,
+  type DaemonLinkFacts,
+  PLAIN_DAEMON_LINK_REFUSAL,
+} from './daemon-link-kind'
 import { wireDaemonSocket, wireMachineSocket } from './daemon-socket'
 import {
   CLIENT_PLANE_LIVENESS,
@@ -93,6 +100,8 @@ import {
   type SweepTimers,
 } from './plane-liveness'
 import { type GatewaySocket, shouldCompressWebSocketFrame, WS_MAX_PAYLOAD_BYTES } from './ws-send'
+
+const log = createLogger('server:gateway:ws')
 
 export interface WsHandle {
   handleRequest(
@@ -107,9 +116,22 @@ export interface WsHandle {
 export interface WsClientPrincipal {
   userId: UserId
   userRole: UserRole
+  /**
+   * The device sign-in this socket was opened with, when there is one. Ending
+   * that sign-in closes the socket at once through `revokeClientCredential`.
+   */
   credentialId?: string
-  /** Revalidate this upgrade's external session; false or rejection closes its socket. */
+  /**
+   * Is the socket still entitled to stay open? Asked on every client heartbeat.
+   * False or a rejection closes the socket, and so does a check that has not
+   * answered within two heartbeats.
+   */
   maintain?: () => Promise<boolean>
+}
+
+/** An upgrade that is refused with its own HTTP answer instead of the plain 401. */
+export interface WsClientRefusal {
+  refused: { status: 400 | 401 | 403; body: { error: string } }
 }
 
 export interface WsAuthOptions {
@@ -119,15 +141,18 @@ export interface WsAuthOptions {
   roleForClient?: (request: Request) => UserRole | undefined
   principalForClient?: (
     request: Request,
-  ) => WsClientPrincipal | undefined | Promise<WsClientPrincipal | undefined>
-  maintainClientCredential?: (credentialId: string) => Promise<boolean>
+  ) =>
+    | WsClientPrincipal
+    | WsClientRefusal
+    | undefined
+    | Promise<WsClientPrincipal | WsClientRefusal | undefined>
 }
 
 /** Bun's own buffer limit: the application mark plus the largest single frame. */
 export const NATIVE_BACKPRESSURE_LIMIT_BYTES =
   CLIENT_PLANE_LIVENESS.sendBufferLimitBytes + WS_MAX_PAYLOAD_BYTES
 
-/** Credential validity fails closed if its heartbeat refresh is older than two ticks. */
+/** A socket's validity fails closed if its heartbeat refresh is older than two ticks. */
 export const CLIENT_CREDENTIAL_VALIDITY_MAX_AGE_MS = CLIENT_PLANE_LIVENESS.heartbeatIntervalMs * 2
 
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]'])
@@ -193,6 +218,14 @@ export function wsOriginVerdict(
 
 export interface WsTransportDeps {
   timers?: SweepTimers
+  /**
+   * The facts of a daemon's upgrade request, read the way sign-in reads them
+   * (its peer address and the trusted proxy hops are the server's). Absent: no
+   * link is recorded, so no daemon is judged safe for credentials.
+   */
+  daemonLink?: (request: Request) => DaemonLinkFacts
+  /** Tests only: the removal-date switch below, flipped. */
+  acceptPlainDaemonLinks?: boolean
   /** Exact origins from `allowedOrigins` that may open a browser socket. */
   allowedOrigins?: ReadonlySet<string>
   /**
@@ -211,11 +244,12 @@ export interface WsTransportDeps {
 interface SocketData {
   kind: 'client' | 'daemon' | 'machine'
   url: string
+  /** How a daemon's request reached the server (credential management §8). */
+  link?: DaemonLinkFacts
   userId?: UserId
   userRole?: UserRole
   credentialId?: string
   maintain?: () => Promise<boolean>
-  machines?: readonly MachineWire[]
   socket?: NativeGatewaySocket
 }
 
@@ -228,6 +262,8 @@ type SocketListener = (...args: never[]) => void
  */
 export class NativeGatewaySocket implements GatewaySocket {
   private readonly listeners = new Map<SocketEvent, SocketListener[]>()
+  /** Set by {@link end}: nothing the client sends after it is handled. */
+  private ended = false
 
   constructor(private readonly native: NativeServerWebSocket<SocketData>) {}
 
@@ -266,6 +302,16 @@ export class NativeGatewaySocket implements GatewaySocket {
     this.native.terminate()
   }
 
+  /**
+   * A closing handshake with a code the client can read, instead of a dropped
+   * connection (POD-6910). Bun shuts the socket down after sending the close
+   * frame; a frame the client sends meanwhile is not handled.
+   */
+  end(code: number, reason: string): void {
+    this.ended = true
+    this.native.close(code, reason)
+  }
+
   on(event: 'message', listener: (raw: string | Buffer) => void): this
   on(event: 'close', listener: () => void): this
   on(event: 'pong', listener: () => void): this
@@ -278,6 +324,7 @@ export class NativeGatewaySocket implements GatewaySocket {
   }
 
   emit(event: SocketEvent, ...args: unknown[]): void {
+    if (this.ended && event === 'message') return
     for (const listener of this.listeners.get(event) ?? []) listener(...(args as never[]))
   }
 }
@@ -307,52 +354,7 @@ export function attachWebSockets(
     }
   >()
   const clientsByCredential = new Map<string, Set<NativeGatewaySocket>>()
-  const credentialValidity = new Map<string, { valid: boolean; refreshedAt: number }>()
-  /**
-   * Revocation generation per credential. A maintenance pass reads the store
-   * asynchronously, so an explicit revoke can land while that read is in flight
-   * and the pass would then write back the `valid: true` its pre-revoke read saw
-   * — resurrecting a credential the operator just killed. The pass captures the
-   * generation before its read and discards its own result if a revoke bumped it,
-   * so a revocation always wins the race. Fail closed (rule 49).
-   */
-  const credentialRevocations = new Map<string, number>()
-  const revocationGeneration = (credentialId: string): number =>
-    credentialRevocations.get(credentialId) ?? 0
   const now = deps.now ?? Date.now
-  let credentialMaintenance = Promise.resolve()
-
-  const maintainClientCredentials = (): void => {
-    const credentialIds = [...clientsByCredential.keys()]
-    if (!auth.maintainClientCredential || credentialIds.length === 0) return
-    credentialMaintenance = credentialMaintenance
-      .then(async () => {
-        await Promise.all(
-          credentialIds.map(async (credentialId) => {
-            const generation = revocationGeneration(credentialId)
-            let valid = false
-            try {
-              valid = (await auth.maintainClientCredential?.(credentialId)) === true
-            } catch {
-              valid = false
-            }
-            // A revoke landed while this pass was reading; its verdict stands.
-            if (revocationGeneration(credentialId) !== generation) return
-            credentialValidity.set(credentialId, { valid, refreshedAt: now() })
-            if (!valid) {
-              for (const socket of clientsByCredential.get(credentialId) ?? []) socket.terminate()
-            }
-          }),
-        )
-      })
-      .catch(() => {
-        for (const credentialId of credentialIds) {
-          credentialValidity.set(credentialId, { valid: false, refreshedAt: now() })
-          for (const socket of clientsByCredential.get(credentialId) ?? []) socket.terminate()
-        }
-      })
-  }
-
   const maintainClientPrincipals = (): void => {
     for (const [socket, state] of principalValidity) {
       // A hung provider cannot keep a socket alive indefinitely or queue more work.
@@ -405,7 +407,7 @@ export function attachWebSockets(
         daemons.add(socket)
         aliveDaemons.add(socket)
         if (native.data.kind === 'machine') wireMachineSocket(socket, registry)
-        else wireDaemonSocket(socket, registry)
+        else wireDaemonSocket(socket, registry, native.data.link)
         return
       }
       clients.add(socket)
@@ -421,13 +423,11 @@ export function attachWebSockets(
         const current = clientsByCredential.get(native.data.credentialId)
         if (current) current.add(socket)
         else clientsByCredential.set(native.data.credentialId, new Set([socket]))
-        credentialValidity.set(native.data.credentialId, { valid: true, refreshedAt: now() })
       }
       aliveClients.add(socket)
       const id = wireClientSocket(socket, native.data.url, registry, {
         userId: native.data.userId,
         userRole: native.data.userRole,
-        machines: native.data.machines,
       })
       if (id === undefined) {
         clients.delete(socket)
@@ -461,21 +461,6 @@ export function attachWebSockets(
       if (native.data.kind === 'daemon' || native.data.kind === 'machine') {
         aliveDaemons.add(socket)
       } else {
-        if (
-          native.data.credentialId &&
-          auth.maintainClientCredential &&
-          (() => {
-            const validity = credentialValidity.get(native.data.credentialId)
-            return (
-              validity === undefined ||
-              !validity.valid ||
-              now() - validity.refreshedAt > CLIENT_CREDENTIAL_VALIDITY_MAX_AGE_MS
-            )
-          })()
-        ) {
-          native.terminate()
-          return
-        }
         aliveClients.add(socket)
       }
       socket.emit('pong')
@@ -499,10 +484,7 @@ export function attachWebSockets(
     clients,
     aliveClients,
     deps.timers,
-    () => {
-      maintainClientCredentials()
-      maintainClientPrincipals()
-    },
+    maintainClientPrincipals,
   )
   const daemonHeartbeat = DAEMON_PLANE_LIVENESS.startHeartbeat(daemons, aliveDaemons, deps.timers)
 
@@ -554,37 +536,59 @@ export function attachWebSockets(
             headers: { connection: 'close', 'content-type': 'application/json' },
           })
         }
-        const resolved = await auth.principalForClient?.(request)
+        const answer = await auth.principalForClient?.(request)
+        if (answer && 'refused' in answer) {
+          return new Response(JSON.stringify(answer.refused.body), {
+            status: answer.refused.status,
+            headers: { connection: 'close', 'content-type': 'application/json' },
+          })
+        }
+        const resolved = answer
         const userId = resolved?.userId ?? auth.userForClient?.(request)
         const userRole = resolved?.userRole ?? auth.roleForClient?.(request)
         if (
           (auth.principalForClient && resolved === undefined) ||
           (auth.userForClient && userId === undefined) ||
           (auth.roleForClient && userRole === undefined) ||
-          (auth.authorizeClient && !auth.authorizeClient(request))
+          (auth.authorizeClient && !auth.authorizeClient(request)) ||
+          // THE MEMBER FENCE (POD-6292, MU-12): a client opened for one member
+          // never opens a socket with another member's cookie.
+          memberFenceRefuses(fencedMemberOf(request), userId)
         ) {
           return new Response('Unauthorized', {
             status: 401,
             headers: { connection: 'close' },
           })
         }
-        const machines =
-          userId === undefined || userRole === undefined
-            ? []
-            : await registry.modules.sessions.clientControl.prepareMachines(
-                userClientPrincipal('upgrade', userId, userRole),
-              )
         data = {
           kind: 'client',
           url: request.url,
           userId,
           userRole,
-          machines,
           ...(resolved?.maintain ? { maintain: resolved.maintain } : {}),
           ...(resolved?.credentialId ? { credentialId: resolved.credentialId } : {}),
         }
       } else {
-        data = { kind: pathname === '/machine' ? 'machine' : 'daemon', url: request.url }
+        const link = deps.daemonLink?.(request)
+        if (link !== undefined && registry.daemonLinks.kindOf(link) === 'plain') {
+          // LEGACY(remove-after: 2027-02): accepts a plain ws daemon connection from another computer so local-network installs survive the upgrade; removing it refuses such a daemon at connect
+          const accepted = deps.acceptPlainDaemonLinks ?? ACCEPT_PLAIN_DAEMON_LINKS
+          if (!accepted) {
+            return new Response(PLAIN_DAEMON_LINK_REFUSAL, {
+              status: 403,
+              headers: { connection: 'close', 'content-type': 'text/plain; charset=utf-8' },
+            })
+          }
+          log.warn('accepted a daemon connection that is not encrypted', {
+            path: pathname,
+            clientAddress: link.clientAddress,
+          })
+        }
+        data = {
+          kind: pathname === '/machine' ? 'machine' : 'daemon',
+          url: request.url,
+          ...(link !== undefined ? { link } : {}),
+        }
       }
 
       return server.upgrade(request, { data })
@@ -592,11 +596,11 @@ export function attachWebSockets(
         : new Response('WebSocket upgrade failed', { status: 400 })
     },
     revokeClientCredential(credentialId) {
-      credentialRevocations.set(credentialId, revocationGeneration(credentialId) + 1)
-      credentialValidity.set(credentialId, { valid: false, refreshedAt: now() })
       const sockets = clientsByCredential.get(credentialId)
       if (!sockets) return
-      for (const socket of sockets) socket.terminate()
+      // The client reads the code to say "signed out on this device".
+      const { code, reason } = SIGN_IN_ENDED_CLOSE.signedOut
+      for (const socket of sockets) socket.end(code, reason)
       clientsByCredential.delete(credentialId)
     },
     async close() {
@@ -607,7 +611,6 @@ export function attachWebSockets(
       clients.clear()
       daemons.clear()
       clientsByCredential.clear()
-      credentialValidity.clear()
       principalValidity.clear()
     },
   }

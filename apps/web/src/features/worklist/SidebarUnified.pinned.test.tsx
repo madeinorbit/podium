@@ -51,10 +51,6 @@ function idleSess(id: string, issueId: string) {
     cwd: '/repo',
     title: id,
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-07-06T12:00:00.000Z',
     lastActiveAt: '2026-07-06T12:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -116,7 +112,7 @@ vi.mock('@/app/store', () => {
     pins: { panels: [], worktrees: [], repos: [] },
     setPinned: vi.fn(),
     issues: [
-      issue('pin', 'Pinned issue', { pinned: true, }),
+      issue('pin', 'Pinned issue', { pinned: true }),
       issue('plain', 'Plain issue'),
       issue('closed-a', 'Closed alpha', {
         stage: 'done',
@@ -171,7 +167,7 @@ vi.mock('@/app/store', () => {
     fileTabs: [],
     view: 'workspace',
     setView: vi.fn(),
-    sidebarSettings: { groupByRepo: false },
+    sidebarSettings: { },
     setSidebarSettings: vi.fn(),
     uiState: ui,
     spawnDraftAgent: vi.fn(),
@@ -180,7 +176,7 @@ vi.mock('@/app/store', () => {
   })
   return {
     useStore,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -232,8 +228,12 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     render(<SidebarUnified />)
     const group = screen.getByTestId('project-group')
     // POD-3911: windowing owns the scope and its direct draggable children.
-    const panel = screen.getByTestId('project-group-rows').querySelector<HTMLElement>('[data-drag-scope]')!
-    const pinnedPanel = screen.getByTestId('pinned-section-rows').querySelector<HTMLElement>('[data-drag-scope]')!
+    const panel = screen
+      .getByTestId('project-group-rows')
+      .querySelector<HTMLElement>('[data-drag-scope]')!
+    const pinnedPanel = screen
+      .getByTestId('pinned-section-rows')
+      .querySelector<HTMLElement>('[data-drag-scope]')!
     const row = rowButton('Plain issue').closest<HTMLElement>('[data-window-row]')
     const grip = row?.querySelector<HTMLElement>('[data-testid="row-grip"]')
     if (!row || !grip) throw new Error('plain issue is missing its draggable row contract')
@@ -290,7 +290,9 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(screen.queryByText('Closed result unseen')).toBeNull()
     expect(screen.getByText('Closed result selected')).toBeTruthy()
 
-    await act(async () => { fireEvent.click(toggle) })
+    await act(async () => {
+      fireEvent.click(toggle)
+    })
 
     expect(toggle.getAttribute('aria-selected')).toBe('true')
     expect(screen.getByText('Closed alpha')).toBeTruthy()
@@ -299,7 +301,9 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     // The selected open closure is Open's, not Closed's.
     expect(screen.queryByText('Closed result selected')).toBeNull()
 
-    await act(async () => { fireEvent.click(openTab()) })
+    await act(async () => {
+      fireEvent.click(openTab())
+    })
     await waitFor(() => expect(screen.queryByText('Closed alpha')).toBeNull())
   })
 
@@ -316,7 +320,9 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     const { rerender } = render(<SidebarUnified />)
     closedTab(3)
 
-    await act(async () => { fireEvent.click(rowButton('Plain issue')) })
+    await act(async () => {
+      fireEvent.click(rowButton('Plain issue'))
+    })
 
     expect(selection.issueId).toBe('plain')
     // The click lands in the mocked store; republish so the memo'd pool
@@ -329,12 +335,16 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
 
   it('keeps a closure clicked in Closed folded, and forgets that latch after focus moves', async () => {
     const { rerender } = render(<SidebarUnified />)
-    await act(async () => { fireEvent.click(closedTab(3)) })
+    await act(async () => {
+      fireEvent.click(closedTab(3))
+    })
     // The click lands on a folded row: declare the gesture context the pool
     // would learn from the action, then republish so the memo'd pool
     // components re-read the fixture.
     selection.wasFolded = true
-    await act(async () => { fireEvent.click(rowButton('Closed alpha')) })
+    await act(async () => {
+      fireEvent.click(rowButton('Closed alpha'))
+    })
     publishPoolFixture()
     rerender(<SidebarUnified />)
 
@@ -343,13 +353,21 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(rowButton('Closed alpha').getAttribute('data-selected')).toBe('true')
     expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
 
-    await act(async () => { fireEvent.click(openTab()) })
+    await act(async () => {
+      fireEvent.click(openTab())
+    })
     await waitFor(() => expect(screen.queryByText('Closed alpha')).toBeNull())
-    await act(async () => { fireEvent.click(closedTab(4)) })
+    await act(async () => {
+      fireEvent.click(closedTab(4))
+    })
     expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
 
-    await act(async () => { fireEvent.click(openTab()) })
-    await act(async () => { fireEvent.click(rowButton('Plain issue')) })
+    await act(async () => {
+      fireEvent.click(openTab())
+    })
+    await act(async () => {
+      fireEvent.click(rowButton('Plain issue'))
+    })
     publishPoolFixture()
     rerender(<SidebarUnified />)
     // Navigation from outside the sidebar has no folded-click latch. The
@@ -402,7 +420,9 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(band.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByText('Pinned issue')).toBeTruthy()
 
-    await act(async () => { fireEvent.click(band) })
+    await act(async () => {
+      fireEvent.click(band)
+    })
 
     expect(band.getAttribute('aria-expanded')).toBe('false')
     expect(band.getAttribute('data-collapsed')).toBe('true')
@@ -414,7 +434,9 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(screen.getByText('Plain issue')).toBeTruthy()
     expect(ui.get('podium:sidebar:pinned-fold')).toBe('true')
 
-    await act(async () => { fireEvent.click(band) })
+    await act(async () => {
+      fireEvent.click(band)
+    })
     expect(screen.getByText('Plain issue')).toBeTruthy()
     expect(screen.getByText('Pinned issue')).toBeTruthy()
     // Back to default = the key is CLEARED, not written 'false': an absent key
@@ -433,7 +455,9 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
       ?.replace(/^group:/, '')
     const band = screen.getByTestId('project-group-label')
 
-    await act(async () => { fireEvent.click(band) })
+    await act(async () => {
+      fireEvent.click(band)
+    })
 
     expect(group.getAttribute('data-collapsed')).toBe('true')
     // A shut band keeps its visited rows mounted for revisit (FoldPanel
@@ -451,7 +475,9 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(screen.getByText('Pinned issue')).toBeTruthy()
     expect(ui.get(`podium:sidebar:project-fold:${groupKey}`)).toBe('true')
 
-    await act(async () => { fireEvent.click(band) })
+    await act(async () => {
+      fireEvent.click(band)
+    })
     expect(screen.getByText('Plain issue')).toBeTruthy()
   })
 })

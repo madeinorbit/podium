@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory } from '@podium/model'
@@ -39,13 +39,10 @@ vi.mock('./runtime/instance-process-reaper', () => ({
   reapInstanceSessionProcesses: vi.fn(async () => ({ examined: 0, remaining: 0 })),
 }))
 vi.mock('./session-uploads', () => ({ removeSessionUploads: vi.fn() }))
-import { execHandlers } from './control/exec.js'
-import {
-  inventoryHandlers,
-  reportInventory,
-  runtimeDriverInventory,
-} from './control/inventory.js'
+
 import { scanHostUsageSources, scanQuotaHistory } from '@podium/harness/inventory'
+import { execHandlers } from './control/exec.js'
+import { inventoryHandlers, reportInventory, runtimeDriverInventory } from './control/inventory.js'
 import { stubDurable, testSessions } from './session/testing.js'
 
 describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
@@ -53,7 +50,10 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
     it.each([
       {
         name: 'account home wins over instance home',
-        ctx: { accountHome: { path: '/accounts/alice', source: 'named-instance' as const }, homeDir: '/instance/home' },
+        ctx: {
+          accountHome: { path: '/accounts/alice', source: 'named-instance' as const },
+          homeDir: '/instance/home',
+        },
         expected: '/accounts/alice',
       },
       {
@@ -93,9 +93,17 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
     })
 
     it.each([
-      { name: 'different credential homes', a: ['m1', '/home/a'] as const, b: ['m1', '/home/b'] as const },
+      {
+        name: 'different credential homes',
+        a: ['m1', '/home/a'] as const,
+        b: ['m1', '/home/b'] as const,
+      },
       { name: 'different machines', a: ['m1', '/home/a'] as const, b: ['m2', '/home/a'] as const },
-      { name: 'set home vs unset home', a: ['m1', '/home/a'] as const, b: ['m1', undefined] as const },
+      {
+        name: 'set home vs unset home',
+        a: ['m1', '/home/a'] as const,
+        b: ['m1', undefined] as const,
+      },
     ])('separates $name', ({ a, b }) => {
       expect(managementInventoryCacheKey(a[0], a[1])).not.toBe(
         managementInventoryCacheKey(b[0], b[1]),
@@ -104,21 +112,24 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
   })
 
   describe('managementLoginCommandFor resolves before any handle exists', () => {
+    // Argv only (POD-6536, contract §3.4): the declaration names no command;
+    // control/session.ts binds it to the login harness context's executable.
     it.each([
-      { harness: 'claude-code', cmd: 'claude', args: ['auth', 'login'] },
-      { harness: 'codex', cmd: 'codex', args: ['login'] },
-      { harness: 'grok', cmd: 'grok', args: ['login'] },
-      { harness: 'opencode', cmd: 'opencode', args: ['auth', 'login'] },
-    ])('returns the static $harness argv with no runtime', ({ harness, cmd, args }) => {
-      expect(managementLoginCommandFor(harness)).toEqual({ cmd, args })
+      { harness: 'claude-code', args: ['auth', 'login'] },
+      { harness: 'codex', args: ['login', '--device-auth'] },
+      { harness: 'grok', args: ['login'] },
+      { harness: 'opencode', args: ['auth', 'login'] },
+    ])('returns the static $harness argv with no runtime', ({ harness, args }) => {
+      expect(managementLoginCommandFor(harness)).toEqual({ args })
     })
 
-    it.each(['cursor', 'shell', 'unknown-harness-xyz'])(
-      'declares no login command for %s instead of substituting another harness',
-      (harness) => {
-        expect(managementLoginCommandFor(harness)).toBeUndefined()
-      },
-    )
+    it.each([
+      'cursor',
+      'shell',
+      'unknown-harness-xyz',
+    ])('declares no login command for %s instead of substituting another harness', (harness) => {
+      expect(managementLoginCommandFor(harness)).toBeUndefined()
+    })
   })
 
   describe('management handlers answer with no live-session services', () => {
@@ -160,15 +171,38 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
     })
 
     it('usage echoes historical sources only when asked, with source attribution', async () => {
-      const buckets = [{ hour: new Date('2026-09-01T10:00:00.000Z').toISOString(), model: 'm', inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheCreationTokens: 0, messages: 1 }]
-      const sources = [{ path: '/home/x/.claude/projects/p/s.jsonl', harness: 'claude-code', model: 'm', inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheCreationTokens: 0, messages: 1 }]
+      const buckets = [
+        {
+          hour: new Date('2026-09-01T10:00:00.000Z').toISOString(),
+          model: 'm',
+          inputTokens: 1,
+          outputTokens: 2,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          messages: 1,
+        },
+      ]
+      const sources = [
+        {
+          path: '/home/x/.claude/projects/p/s.jsonl',
+          harness: 'claude-code',
+          model: 'm',
+          inputTokens: 1,
+          outputTokens: 2,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          messages: 1,
+        },
+      ]
       const { ctx, sent } = managementOnlyCtx({
         usageMemo: { value: { atMs: Date.now(), sinceMs: 0, buckets, sources } },
       })
-      execHandlers.usageRequest(
-        ctx,
-        { type: 'usageRequest', requestId: 'u-src', sinceMs: 0, withSources: true },
-      )
+      execHandlers.usageRequest(ctx, {
+        type: 'usageRequest',
+        requestId: 'u-src',
+        sinceMs: 0,
+        withSources: true,
+      })
       await vi.waitFor(() =>
         expect(sent).toEqual([
           expect.objectContaining({
@@ -183,8 +217,29 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
     })
 
     it('usage without withSources omits the per-file breakdown', async () => {
-      const buckets = [{ hour: new Date('2026-09-01T10:00:00.000Z').toISOString(), model: 'm', inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheCreationTokens: 0, messages: 1 }]
-      const sources = [{ path: '/home/x/.claude/projects/p/s.jsonl', harness: 'claude-code', model: 'm', inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheCreationTokens: 0, messages: 1 }]
+      const buckets = [
+        {
+          hour: new Date('2026-09-01T10:00:00.000Z').toISOString(),
+          model: 'm',
+          inputTokens: 1,
+          outputTokens: 2,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          messages: 1,
+        },
+      ]
+      const sources = [
+        {
+          path: '/home/x/.claude/projects/p/s.jsonl',
+          harness: 'claude-code',
+          model: 'm',
+          inputTokens: 1,
+          outputTokens: 2,
+          cacheReadTokens: 0,
+          cacheCreationTokens: 0,
+          messages: 1,
+        },
+      ]
       const { ctx, sent } = managementOnlyCtx({
         usageMemo: { value: { atMs: Date.now(), sinceMs: 0, buckets, sources } },
       })
@@ -201,7 +256,13 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       const { ctx, sent } = managementOnlyCtx({
         quotaFetcher: {
           getAgentQuota: async () => [
-            { agent: 'codex', status: 'error', windows: [], error: 'boom', fetchedAt: new Date(0).toISOString() },
+            {
+              agent: 'codex',
+              status: 'error',
+              windows: [],
+              error: 'boom',
+              fetchedAt: new Date(0).toISOString(),
+            },
           ],
         },
       })
@@ -218,13 +279,18 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       const home = await mkdtemp(join(tmpdir(), 'mgmt-quota-empty-'))
       try {
         const { ctx, sent } = managementOnlyCtx({ homeDir: home })
-        execHandlers.quotaHistoryRequest(
-          ctx,
-          { type: 'quotaHistoryRequest', requestId: 'qh-empty', sinceMs: 0 },
-        )
+        execHandlers.quotaHistoryRequest(ctx, {
+          type: 'quotaHistoryRequest',
+          requestId: 'qh-empty',
+          sinceMs: 0,
+        })
         await vi.waitFor(() =>
           expect(sent).toEqual([
-            expect.objectContaining({ type: 'quotaHistoryResult', requestId: 'qh-empty', samples: [] }),
+            expect.objectContaining({
+              type: 'quotaHistoryResult',
+              requestId: 'qh-empty',
+              samples: [],
+            }),
           ]),
         )
       } finally {
@@ -254,7 +320,12 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
           requestId: 'closed-req-1',
           message: {
             model: 'claude-opus-4-6',
-            usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 },
+            usage: {
+              input_tokens: 100,
+              output_tokens: 50,
+              cache_read_input_tokens: 10,
+              cache_creation_input_tokens: 0,
+            },
           },
         })}\n`,
       )
@@ -284,7 +355,11 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
           ctx: {
             config: {
               creditUsagePercent: 12,
-              currentPeriod: { type: 'USAGE_PERIOD_TYPE_WEEKLY', start: '2026-08-25T00:00:00.000Z', end: '2026-09-01T00:00:00.000Z' },
+              currentPeriod: {
+                type: 'USAGE_PERIOD_TYPE_WEEKLY',
+                start: '2026-08-25T00:00:00.000Z',
+                end: '2026-09-01T00:00:00.000Z',
+              },
             },
           },
         })}\n`,
@@ -336,8 +411,14 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       const sentA: DaemonMessage[] = []
       const sentB: DaemonMessage[] = []
       let builds = 0
-      const invA: Inventory = { ...base, agents: [{ kind: 'codex', installed: true, version: 'v-a', login: { state: 'in' } }] }
-      const invB: Inventory = { ...base, agents: [{ kind: 'codex', installed: true, version: 'v-b', login: { state: 'in' } }] }
+      const invA: Inventory = {
+        ...base,
+        agents: [{ kind: 'codex', installed: true, version: 'v-a', login: { state: 'in' } }],
+      }
+      const invB: Inventory = {
+        ...base,
+        agents: [{ kind: 'codex', installed: true, version: 'v-b', login: { state: 'in' } }],
+      }
       const mk = (home: string, inv: Inventory, sent: DaemonMessage[]) =>
         ({
           send: (m: DaemonMessage) => sent.push(m),
@@ -376,10 +457,12 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       } as unknown as Parameters<typeof inventoryHandlers.modelProbeRequest>[0]
       inventoryHandlers.modelProbeRequest(ctx, { type: 'modelProbeRequest', requestId: 'mp-acct' })
       await vi.waitFor(() => expect(probeModels).toHaveBeenCalled())
-      expect(probeModels.mock.calls[0]?.[0]).toMatchObject({
-        homeDir: '/accounts/alice',
-        claude: { homeDir: '/accounts/alice' },
-      })
+      // POD-6534: the account reaches the probe as `accountFor`, not homeDir.
+      const opts = probeModels.mock.calls[0]?.[0] as {
+        accountFor: (kind: string) => { home: string }
+      }
+      expect(opts.accountFor('claude-code').home).toBe('/accounts/alice')
+      expect(opts.accountFor('codex').home).toBe('/accounts/alice')
       await vi.waitFor(() =>
         expect(sent).toEqual([{ type: 'modelProbeResult', requestId: 'mp-acct', byAgent: {} }]),
       )
@@ -393,10 +476,12 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       } as unknown as Parameters<typeof inventoryHandlers.modelProbeRequest>[0]
       inventoryHandlers.modelProbeRequest(ctx, { type: 'modelProbeRequest', requestId: 'mp-inst' })
       await vi.waitFor(() => expect(probeModels).toHaveBeenCalled())
-      expect(probeModels.mock.calls[0]?.[0]).toMatchObject({
-        homeDir: '/instance/home',
-        claude: { homeDir: '/instance/home' },
-      })
+      // POD-6534: the account reaches the probe as `accountFor`, not homeDir.
+      const opts = probeModels.mock.calls[0]?.[0] as {
+        accountFor: (kind: string) => { home: string }
+      }
+      expect(opts.accountFor('claude-code').home).toBe('/instance/home')
+      expect(opts.accountFor('codex').home).toBe('/instance/home')
     })
 
     it('still answers with an empty catalog when the probe throws', async () => {
@@ -447,9 +532,18 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         sessions: testSessions(),
         durableLabelFor: (id: string) => `podium-${id}`,
         sessionBinding: { transition: async () => ({ status: 'applied' }) },
-        composerEngine: { attach: () => false, onData: () => {}, detach: () => {}, has: () => false },
+        composerEngine: {
+          attach: () => false,
+          onData: () => {},
+          detach: () => {},
+          has: () => false,
+        },
         outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 1 },
-        observers: { initSessionObservers: () => {}, clearSession: () => {}, trackedState: () => undefined },
+        observers: {
+          initSessionObservers: () => {},
+          clearSession: () => {},
+          trackedState: () => undefined,
+        },
         tailSeedGate: () => {},
         sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
         hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
@@ -487,9 +581,18 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         sessions: testSessions(),
         durableLabelFor: (id: string) => `podium-${id}`,
         sessionBinding: { transition: async () => ({ status: 'applied' }) },
-        composerEngine: { attach: () => false, onData: () => {}, detach: () => {}, has: () => false },
+        composerEngine: {
+          attach: () => false,
+          onData: () => {},
+          detach: () => {},
+          has: () => false,
+        },
         outputScheduler: { enqueue: () => {}, remove: () => {}, priorityOf: () => 1 },
-        observers: { initSessionObservers: () => {}, clearSession: () => {}, trackedState: () => undefined },
+        observers: {
+          initSessionObservers: () => {},
+          clearSession: () => {},
+          trackedState: () => undefined,
+        },
         tailSeedGate: () => {},
         sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
         hookEndpointFor: () => '',
@@ -506,7 +609,10 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         geometry: { cols: 80, rows: 24 },
       } as never)
       expect(sent).toEqual([
-        expect.objectContaining({ type: 'spawnError', message: expect.stringContaining('does not declare') }),
+        expect.objectContaining({
+          type: 'spawnError',
+          message: expect.stringContaining('does not declare'),
+        }),
       ])
     })
   })

@@ -35,7 +35,14 @@
  *  - absent is never an error: an operation with no `steps`, no `updatedAt` and
  *    no `error` still renders.
  */
-import type { AwaitingAsk, Operation, OperationError, OperationStep } from '@podium/protocol'
+import type {
+  AwaitingAsk,
+  Operation,
+  OperationError,
+  OperationStep,
+  UpdateTarget,
+} from '@podium/protocol'
+import { isDevChannelVersion } from '@podium/protocol/update-dev-version'
 import type { IndicatorState } from './indicator-state'
 import {
   describeUpdateFailure,
@@ -81,6 +88,8 @@ export interface StepRow {
   state: StepRowState
   /** "1 of 3 · vmi3407763 downloading 62%" — always says what it is doing, never a bare bar. */
   substatus?: string
+  /** A real percentage reported by the named place, never a step-count estimate. */
+  percent?: number
 }
 
 export type PrimaryActionKind =
@@ -123,6 +132,14 @@ export interface UpdatePanelView {
   subtitle?: string
   operationId?: string
   version?: string
+  channel?: 'stable' | 'edge' | 'dev'
+  commits?: UpdateTarget['commits']
+  commitCount?: number
+  branch?: string
+  impactSummary?: { label: string; kind: 'interrupts' | 'background' | 'data' | 'needs-you' }[]
+  dismiss?: { label: string; primary?: boolean; hint?: string }
+  /** Freshness in the footer; elapsed running time stays in the subtitle. */
+  freshness?: string
   /** The plan, in order. Empty for an offer (no operation exists yet). */
   steps: StepRow[]
   /** "Step 2 of 4" — honest because the steps are the plan's own named steps. */
@@ -135,7 +152,7 @@ export interface UpdatePanelView {
   /** "Running for 40 s" / "No progress for 2 min" — never ambiguous (P4). */
   liveness?: string
   primary?: PrimaryAction
-  /** Offered only while every started step is still reversible (§3.2). */
+  /** Requests cancellation; the server owns the reversibility verdict (§3.2). */
   cancel?: { label: string; operationId: string }
   error?: ErrorPresentation
   /** A sentence about the last thing the user tried that the server declined (e.g. cancel). */
@@ -221,10 +238,63 @@ export function formatDuration(ms: number): string {
   return `${Math.round(minutes / 6) / 10} h`
 }
 
-function targetVersion(operation: Operation): string | undefined {
-  const details = operation.details as { target?: { version?: unknown } } | undefined
-  const version = details?.target?.version
-  return typeof version === 'string' ? version : undefined
+function operationTarget(operation: Operation): Partial<UpdateTarget> | undefined {
+  const target = (operation.details as { target?: unknown } | undefined)?.target
+  return target && typeof target === 'object' ? (target as Partial<UpdateTarget>) : undefined
+}
+
+function displayVersion(version: string): string {
+  return version.startsWith('dev+') ? version : (version.split('+')[0] ?? version)
+}
+
+function channelFor(version: string): 'stable' | 'edge' | 'dev' {
+  return isDevChannelVersion(version) ? 'dev' : version.includes('-edge.') ? 'edge' : 'stable'
+}
+
+function offerSubtitle(
+  offer: Extract<UpdateView, { state: 'available' | 'required' }>,
+): string | undefined {
+  const parts = offer.runningVersion ? [`You're on ${displayVersion(offer.runningVersion)}`] : []
+  if (channelFor(offer.version) === 'dev') {
+    const count = offer.commitCount ?? offer.commits?.length
+    if (count !== undefined)
+      parts.push(
+        `${count} new ${count === 1 ? 'commit' : 'commits'}${offer.branch ? ` on ${offer.branch}` : ''}`,
+      )
+    else if (offer.branch) parts.push(offer.branch)
+  } else if (offer.releasedAt) {
+    const date = new Date(offer.releasedAt)
+    if (Number.isFinite(date.getTime()))
+      parts.push(
+        `released ${new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(date)}`,
+      )
+  }
+  return parts.join(' · ') || offer.restartNote
+}
+
+function impactSummary(
+  offer: Extract<UpdateView, { state: 'available' | 'required' }>,
+): NonNullable<UpdatePanelView['impactSummary']> {
+  const summary: NonNullable<UpdatePanelView['impactSummary']> = []
+  if (offer.places.some((p) => p.kind === 'server'))
+    summary.push({ label: 'Server restarts', kind: 'interrupts' })
+  if (offer.machineCount)
+    summary.push({
+      label: `${offer.machineCount} ${offer.machineCount === 1 ? 'machine' : 'machines'}`,
+      kind: 'background',
+    })
+  else if (offer.places.some((p) => p.kind === 'machines'))
+    summary.push({ label: 'Machines update', kind: 'background' })
+  if (offer.places.some((p) => p.kind === 'database'))
+    summary.push({ label: 'Database migrates', kind: 'data' })
+  if (summary.length === 0) {
+    for (const place of offer.places)
+      summary.push({
+        label: `${place.label} ${place.kind === 'phone' ? 'needs a reload' : 'updates'}`,
+        kind: place.impact ?? 'background',
+      })
+  }
+  return summary
 }
 
 function stepTitle(step: OperationStep): string {
@@ -236,6 +306,12 @@ function stepTitle(step: OperationStep): string {
  * vocabulary (`downloading`, `restarting`, …) and is printed as it arrives:
  * a renderer that only knew a closed list would go silent on the first new one.
  */
+function realPercent(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 100
+    ? value
+    : undefined
+}
+
 function placeLine(place: {
   name?: string
   state?: string
@@ -249,7 +325,8 @@ function placeLine(place: {
     const reason = place.detail ? `: ${place.detail}` : ''
     return `${subject} cannot take delivery${reason}`
   }
-  const percent = typeof place.percent === 'number' ? ` ${Math.round(place.percent)}%` : ''
+  const percent =
+    realPercent(place.percent) !== undefined ? ` ${Math.round(place.percent ?? 0)}%` : ''
   if (name && state) return `${name} ${state}${percent}`
   if (name) return name
   if (state) return `${state}${percent}`
@@ -284,7 +361,7 @@ const PLACE_RESTING: ReadonlySet<string> = new Set(['pending', 'offline'])
 const PLACE_VERDICT: ReadonlySet<string> = new Set(['rejected', 'stuck'])
 
 /** The place a human wants named: the one actually moving, else the first one left. */
-function interestingPlace(step: OperationStep): string | undefined {
+function interestingPlace(step: OperationStep) {
   const places = step.places ?? []
   const left = places.filter(
     (place) => place.state === undefined || !PLACE_CONVERGED.has(place.state),
@@ -298,7 +375,7 @@ function interestingPlace(step: OperationStep): string | undefined {
   // Nothing is moving, so the machine that said why is the news — and on a
   // stalled or failed step it is the only place a machine gets named at all.
   const verdict = left.find((place) => place.state !== undefined && PLACE_VERDICT.has(place.state))
-  return placeLine(moving ?? verdict ?? left[0] ?? places[0] ?? {})
+  return moving ?? verdict ?? left[0] ?? places[0]
 }
 
 function substatusFor(step: OperationStep): string | undefined {
@@ -306,7 +383,7 @@ function substatusFor(step: OperationStep): string | undefined {
   if (step.progress && Number.isFinite(step.progress.total) && step.progress.total > 0) {
     parts.push(`${step.progress.done} of ${step.progress.total}`)
   }
-  const place = interestingPlace(step)
+  const place = placeLine(interestingPlace(step) ?? {})
   if (place) parts.push(place)
   if (step.detail) parts.push(step.detail)
   return parts.length > 0 ? parts.join(' · ') : undefined
@@ -337,11 +414,16 @@ export function stepRows(operation: Operation): StepRow[] {
     .filter((step) => step.state !== 'skipped')
     .map((step) => {
       const substatus = substatusFor(step)
+      const percent = interestingPlace(step)?.percent
       return {
         id: step.id,
         title: stepTitle(step),
         state: rowState(step),
         ...(substatus ? { substatus } : {}),
+        ...(realPercent(percent) !== undefined &&
+        (step.state === 'running' || step.state === 'stalled')
+          ? { percent }
+          : {}),
       }
     })
 }
@@ -673,6 +755,7 @@ function localAction(input: OperationViewInput): PrimaryAction | undefined {
       kind: 'install-desktop',
       label: 'Restart Podium',
       pendingLabel: 'Installing…',
+      consequence: 'Installs the update and restarts Podium. Your sessions keep running.',
     }
   }
   if (input.local.canReload) {
@@ -680,6 +763,7 @@ function localAction(input: OperationViewInput): PrimaryAction | undefined {
       kind: 'reload',
       label: 'Reload',
       pendingLabel: 'Reloading…',
+      consequence: 'Takes about 2 seconds. Your sessions keep running.',
     }
   }
   return undefined
@@ -725,11 +809,19 @@ function offerView(input: OperationViewInput): UpdatePanelView {
     }
   }
   if (offer.state === 'local-stale') {
+    const primary = localAction(input)
     return {
+      state: 'waiting-you',
+      title: finishTitle(primary),
+      subtitle: staleSubtitle(primary),
       version: offer.version,
       steps: [],
+      ...(offer.notes ? { notes: offer.notes } : {}),
+      ...(primary ? { primary } : {}),
       awaitingElsewhere: [],
-      ...finishView(input, offer.version),
+      indicator: 'attention',
+      indicatorLabel:
+        primary?.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish',
     }
   }
   if (offer.state !== 'available' && offer.state !== 'required') return noneView()
@@ -740,9 +832,13 @@ function offerView(input: OperationViewInput): UpdatePanelView {
   }
   return {
     state: 'offer',
-    title: offer.state === 'required' ? 'Update required' : 'Update available',
-    // The one fact people want before pressing the button, so it leads.
-    subtitle: offer.restartNote,
+    title: `Podium ${displayVersion(offer.version)}`,
+    subtitle: offerSubtitle(offer),
+    channel: channelFor(offer.version),
+    commits: offer.commits,
+    commitCount: offer.commitCount,
+    branch: offer.branch,
+    impactSummary: impactSummary(offer),
     version: offer.version,
     steps: [],
     places: offer.places,
@@ -756,68 +852,16 @@ function offerView(input: OperationViewInput): UpdatePanelView {
   }
 }
 
-/**
- * THE READY CARD (POD-2338). The shared work is over and only this surface is
- * behind, so the panel stops narrating and offers the new version: the finished
- * steps are dropped and the release notes the offer showed come back.
- *
- * Without a local action this surface cannot finish anything, so it only reports.
- */
-function finishView(
-  input: OperationViewInput,
-  version: string | undefined,
-): Pick<UpdatePanelView, 'state' | 'title' | 'subtitle' | 'indicator' | 'indicatorLabel'> &
-  Partial<Pick<UpdatePanelView, 'steps' | 'primary' | 'notes'>> {
-  const primary = localAction(input)
-  if (!primary) {
-    return {
-      state: 'waiting-you',
-      title: 'Updated, except this app',
-      subtitle: 'Your server and machines are updated. This tab is still on the old version.',
-      indicator: 'attention',
-      indicatorLabel: 'Reload to finish',
-    }
-  }
-  const notes = readyNotes(input, version)
-  const desktop = primary.kind === 'install-desktop'
-  return {
-    state: 'waiting-you',
-    // `+build` is metadata; the title names the release.
-    title: version ? `Podium ${version.split('+')[0]} is ready` : 'A new version is ready',
-    subtitle: desktop
-      ? 'Your server and machines are already on it. Restart Podium to catch up. Sessions keep running.'
-      : 'Your server and machines are already on it. Reload this tab to catch up. Sessions keep running.',
-    steps: [],
-    primary,
-    ...(notes ? { notes } : {}),
-    indicator: 'ready',
-    indicatorLabel: desktop ? 'Restart to update' : 'Reload to update',
-  }
+/** Without a local action this surface cannot finish anything, so it only reports. */
+function finishTitle(primary: PrimaryAction | undefined): string {
+  if (!primary) return 'Updated, except this app'
+  return primary.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish'
 }
 
-/**
- * The notes of the version this surface is about to move to. The operation row
- * carries the whole target it was started for, so its notes outlive the server
- * restart; without an operation, the offer's are the ones it matched to a version.
- */
-function readyNotes(
-  input: OperationViewInput,
-  version: string | undefined,
-): UpdatePanelView['notes'] {
-  const target = (
-    input.operation?.details as
-      | { target?: { version?: unknown; notes?: { summary?: unknown; url?: unknown } } }
-      | undefined
-  )?.target
-  if (target?.notes && target.version === version) {
-    const { summary, url } = target.notes
-    return {
-      ...(typeof summary === 'string' ? { summary } : {}),
-      ...(typeof url === 'string' ? { url } : {}),
-    }
-  }
-  const offer = input.offer
-  return offer && 'notes' in offer && offer.version === version ? offer.notes : undefined
+function staleSubtitle(primary: PrimaryAction | undefined): string {
+  return primary?.kind === 'install-desktop'
+    ? 'Your server and machines are updated. This app is still on the old version.'
+    : 'Your server and machines are updated. This tab is still on the old version.'
 }
 
 /**
@@ -857,7 +901,11 @@ export function operationView(input: OperationViewInput): UpdatePanelView {
   // The note is about the last thing that happened to the USER (a refused
   // cancel, a spent reload budget), not about the operation, so it rides on
   // whatever the operation happens to be saying right now.
-  return input.note && view.state !== 'none' ? { ...view, note: input.note } : view
+  const dismiss =
+    view.state === 'done'
+      ? { label: 'Got it', primary: true, hint: 'Closes by itself when you get back to work' }
+      : { label: view.state === 'offer' ? 'Later' : view.state === 'failed' ? 'Close' : 'Hide' }
+  return { ...view, dismiss, ...(input.note && view.state !== 'none' ? { note: input.note } : {}) }
 }
 
 function failureCanRetry(code: string | undefined): boolean {
@@ -924,7 +972,8 @@ function computeView(input: OperationViewInput): UpdatePanelView {
 
   const rows = stepRows(operation)
   const position = stepPositionOf(rows)
-  const version = targetVersion(operation)
+  const target = operationTarget(operation)
+  const version = typeof target?.version === 'string' ? target.version : undefined
   const deferred = deferredNote(operation)
   const hasDeliveryRefusal =
     (operation.deferred ?? []).some((place) => place.reason !== 'offline') ||
@@ -937,6 +986,7 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     steps: rows,
     ...(position ? { stepPosition: position } : {}),
     ...(version ? { version } : {}),
+    ...(target?.notes ? { notes: target.notes } : {}),
     ...(deferred ? { deferredNote: deferred } : {}),
     awaitingElsewhere: elsewhere,
   }
@@ -972,7 +1022,17 @@ function computeView(input: OperationViewInput): UpdatePanelView {
   // panel, later step — never a second dialog.
   if (operation.state === 'done') {
     if (input.local.behind) {
-      return { ...base, ...finishView(input, version) }
+      const primary = localAction(input)
+      return {
+        ...base,
+        state: 'waiting-you',
+        title: finishTitle(primary),
+        subtitle: staleSubtitle(primary),
+        ...(primary ? { primary } : {}),
+        indicator: 'attention',
+        indicatorLabel:
+          primary?.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish',
+      }
     }
     const permanentlyDeferred = (operation.deferred ?? []).some(
       (place) => place.reason === 'legacy-instance-trust',
@@ -980,13 +1040,27 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     return {
       ...base,
       state: 'done',
-      title:
-        (operation.deferred ?? []).length > 0
-          ? `Updated, except ${deferredSubject(operation.deferred ?? [])}`
-          : hasDeliveryRefusal
-            ? 'Updated, except some machines'
-            : 'Podium is up to date',
-      ...(deferred ? { subtitle: deferred } : {}),
+      title: version ? `You're on Podium ${displayVersion(version)}` : 'Podium is up to date',
+      subtitle:
+        [
+          deferred
+            ? `Updated, except ${deferredSubject(operation.deferred ?? [])}. ${deferred}`
+            : hasDeliveryRefusal
+              ? `Updated, except some machines. ${(operation.steps ?? [])
+                  .flatMap((step) =>
+                    (step.places ?? [])
+                      .filter((place) => place.state === 'cannot-take-delivery')
+                      .map((place) => placeLine(place)),
+                  )
+                  .filter(Boolean)
+                  .join(' · ')}`
+              : undefined,
+          operation.startedAt !== undefined && operation.finishedAt != null
+            ? `Updated in ${formatDuration(operation.finishedAt - operation.startedAt)}`
+            : undefined,
+        ]
+          .filter(Boolean)
+          .join(' ') || undefined,
       indicator: permanentlyDeferred ? 'attention' : 'idle-dot',
       indicatorLabel: permanentlyDeferred
         ? 'Manual fix needed'
@@ -1032,7 +1106,9 @@ function computeView(input: OperationViewInput): UpdatePanelView {
     if (primary) {
       return {
         ...base,
-        ...finishView(input, version),
+        state: 'waiting-you',
+        title: finishTitle(primary),
+        subtitle: staleSubtitle(primary),
         // NO LIVENESS LINE HERE, on purpose. Liveness reports on WORK; the
         // shared work has finished and the operation is waiting on a person, so
         // the same heartbeat that means "alive" while running would read as
@@ -1040,6 +1116,10 @@ function computeView(input: OperationViewInput): UpdatePanelView {
         // an alarm about their own hesitation. What the panel says instead is
         // what pressing the button will do.
         ...(input.desktopProgress !== undefined ? { liveness } : {}),
+        primary,
+        indicator: 'attention',
+        indicatorLabel:
+          primary.kind === 'install-desktop' ? 'Restart to finish' : 'Reload to finish',
       }
     }
     return {
@@ -1065,9 +1145,14 @@ function computeView(input: OperationViewInput): UpdatePanelView {
   return {
     ...base,
     state: 'running',
-    title: 'Updating…',
-    subtitle: 'Your sessions keep running.',
+    title: version ? `Updating to ${displayVersion(version)}` : 'Updating…',
+    subtitle: `Your agents keep working. ${liveness}.`,
     liveness,
+    freshness: liveness.startsWith('No progress')
+      ? liveness
+      : (step?.lastProgressAt ?? operation.updatedAt) !== undefined
+        ? `Live · updated ${formatDuration(input.now - (step?.lastProgressAt ?? operation.updatedAt ?? input.now))} ago`
+        : 'Working…',
     cancel: { label: 'Cancel', operationId: operation.id },
     indicator: stalled ? 'attention' : 'animating',
     indicatorLabel: position

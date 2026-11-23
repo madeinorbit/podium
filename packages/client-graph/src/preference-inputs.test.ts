@@ -5,14 +5,15 @@ import {
   updateFirstTaskDraftAttachments,
 } from '@podium/client-core/first-task-draft'
 import { createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { openLegacyDeviceKeys } from '@podium/client-core/ui'
 import {
   createRoutedUiState,
   FIRST_TASK_ACTIVATION_DRAFT_KEY,
   ISSUES_DISPLAY_KEY,
-  type ReplicatedUiStatePort,
+  type LayoutKeyPort,
 } from '@podium/client-core/ui-state'
 import { attachPreferenceSource, preferenceSource } from '@podium/client-graph/preference-source'
-import { autorun } from 'mobx'
+import { action, autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { checkPreferences } from '../../../tests/worklist/diagnostics/preference-check'
 import { omitGone } from './lookup'
@@ -25,19 +26,18 @@ const flush = async () => {
 
 function fixture() {
   const side = createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] })
-  const data = new Map<string, unknown>(),
+  const data = observable.map<string, unknown>(),
     listeners = new Set<(keys: ReadonlySet<string>) => void>()
-  const replicated: ReplicatedUiStatePort = {
+  const replicated: LayoutKeyPort = {
     get: (key) => data.get(key),
-    set: (key, value) => {
+    set: action((key: string, value: unknown) => {
       data.set(key, value)
       for (const wake of listeners) wake(new Set([key]))
-    },
-    clear: (key) => {
+    }),
+    clear: action((key: string) => {
       data.delete(key)
       for (const wake of listeners) wake(new Set([key]))
-    },
-    hydrate: async () => {},
+    }),
     subscribe: (wake) => {
       listeners.add(wake)
       return () => {
@@ -45,14 +45,14 @@ function fixture() {
       }
     },
   }
-  const ui = createRoutedUiState({ local: side.uiState(), replicated })
+  const ui = createRoutedUiState({ local: openLegacyDeviceKeys(side.deviceStorage()), replicated })
   const get = vi.spyOn(ui, 'get')
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   attachPreferenceSource(pool, ui)
   return { ui, get, pool, replicated }
 }
 
-it('returns the installed display on first demand without notifying or migrating during the read', async () => {
+it('returns the installed display on its first demand, with no loading frame (POD-2452)', () => {
   const f = fixture()
   f.replicated.set('issues.display', { ordering: 'updated' })
   const notified = vi.fn()
@@ -63,11 +63,7 @@ it('returns the installed display on first demand without notifying or migrating
     frames.push(row && row !== LOADING ? row.value : row)
   })
   try {
-    expect(frames).toEqual(['{"ordering":"updated"}'])
-    expect(f.get).not.toHaveBeenCalled()
-    expect(notified).not.toHaveBeenCalled()
-    await flush()
-    expect(f.get).toHaveBeenCalledExactlyOnceWith(ISSUES_DISPLAY_KEY)
+    // A screen never paints its default over an installed value.
     expect(frames).toEqual(['{"ordering":"updated"}'])
     expect(notified).not.toHaveBeenCalled()
   } finally {
@@ -94,7 +90,7 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
     }),
   )
   try {
-    expect(Object.values(seen)).toEqual([LOADING, LOADING, LOADING])
+    expect(Object.values(seen)).toEqual([null, null, null])
     await flush()
     expect(checkPreferences(f.pool, f.ui, keys)).toMatchObject({ differences: 0, pending: 0 })
     for (const key of keys) {
@@ -115,8 +111,10 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
     expect(f.get.mock.calls).toEqual([[keys[0]]])
     // A burst reads the final owner value once, after the existing batch ends.
     f.get.mockClear()
-    f.ui.set(keys[0]!, 'first')
-    f.ui.set(keys[0]!, 'final')
+    runInAction(() => {
+      f.ui.set(keys[0]!, 'first')
+      f.ui.set(keys[0]!, 'final')
+    })
     await flush()
     expect(seen[keys[0]!]).toBe('final')
     expect(f.get.mock.calls).toEqual([[keys[0]]])
@@ -141,7 +139,13 @@ it('preserves exact preference values and rejects a planted stale value in the p
     f.ui.set(key, '1')
     await flush()
     expect(checkPreferences(f.pool, f.ui, [key])).toMatchObject({ differences: 0, pending: 0 })
-    const get = f.get.mockImplementation(() => 'planted-stale-value')
+    const read = f.pool.row.bind(f.pool)
+    const get = vi.spyOn(f.pool, 'row').mockImplementation(((entity: never, id: string) => {
+      const row = read(entity, id)
+      return entity === 'preference' && row && typeof row === 'object'
+        ? { ...row, value: 'planted-stale-value' }
+        : row
+    }) as typeof f.pool.row)
     expect(checkPreferences(f.pool, f.ui, [key]).differences).toBe(1)
     get.mockRestore()
     expect(checkPreferences(f.pool, f.ui, [key]).differences).toBe(0)
@@ -165,31 +169,29 @@ it('publishes an addressed local draft before input-end while keeping other pref
     other = row && row !== LOADING ? row.value : row
   })
   try {
-    expect(draft).toBe(LOADING)
-    expect(other).toBe(LOADING)
+    expect(draft).toBeNull()
+    expect(other).toBeNull()
     await flush()
     f.get.mockClear()
-    f.ui.set(otherKey, 'first')
-    f.ui.set(otherKey, 'final')
+    runInAction(() => {
+      f.ui.set(otherKey, 'first')
+      f.ui.set(otherKey, 'final')
+    })
     f.ui.set(draftKey, 'abcdeZfghijklmnopqrst')
-    preferenceSource(f.pool)!.refreshKey(draftKey)
     // Deliberately before any await: this is the controlled-input boundary.
     expect(draft).toBe('abcdeZfghijklmnopqrst')
-    expect(other).toBeNull()
-    expect(f.get.mock.calls).toEqual([[draftKey]])
+    expect(other).toBe('final')
+    expect(f.get.mock.calls).toEqual([[otherKey], [draftKey]])
     await flush()
     expect(other).toBe('final')
-    expect(f.get.mock.calls).toEqual([[draftKey], [otherKey]])
+    expect(f.get.mock.calls).toEqual([[otherKey], [draftKey]])
     f.get.mockClear()
     f.ui.set(draftKey, null)
-    preferenceSource(f.pool)!.refreshKey(draftKey)
     expect(draft).toBeNull()
     await flush()
     expect(f.get.mock.calls).toEqual([[draftKey]])
     stopDraft()
     f.get.mockClear()
-    preferenceSource(f.pool)!.refreshKey(draftKey)
-    preferenceSource(f.pool)!.refreshKey('unobserved-key')
     expect(f.get).not.toHaveBeenCalled()
   } finally {
     stopDraft()

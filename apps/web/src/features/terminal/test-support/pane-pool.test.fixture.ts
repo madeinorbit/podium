@@ -1,27 +1,40 @@
-import { ConversationCache, DraftStore, type ConversationCacheOptions } from '@podium/client-core/conversation'
-import type { ClientRuntime } from '@podium/client-core/engine'
+// Machines are read as machine models (POD-6644): their classes load with the fixture.
+import '@podium/client-graph/synced-models'
+import {
+  ConversationCache,
+  type ConversationCacheOptions,
+  DraftStore,
+} from '@podium/client-core/conversation'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
+import type { SessionView } from '@podium/client-core/session-values'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { machineRecords } from '@podium/client-core/test-support/machine-records'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
-import { createWorklistPool } from '@podium/client-graph/create'
-import type { MobxPool } from '@podium/client-graph/pool'
-import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { CHAT_CONTEXT_ENTITIES } from '@podium/client-graph/chat-context-schema'
 import { ChatContextSource } from '@podium/client-graph/chat-context-source'
+import { createWorklistPool } from '@podium/client-graph/create'
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { liveFixture } from '@podium/client-graph/live-fixture'
 import { NOTICE_ENTITIES } from '@podium/client-graph/notice-schema'
 import { NoticeSource } from '@podium/client-graph/notice-source'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { SESSION_EXIT_ENTITIES } from '@podium/client-graph/session-exit-schema'
 import { createSessionExitSource } from '@podium/client-graph/session-exit-source'
 import { SESSION_PANE_ENTITIES } from '@podium/client-graph/session-pane-schema'
 import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
 import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
+import {
+  chatSourcePorts,
+  noticeSourcePorts,
+  replicaSourcePorts,
+} from '@podium/client-graph/source-ports'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import type { MachineWire, SessionMeta } from '@podium/model'
 import { asMachineId, asSessionId } from '@podium/model'
 import { observable, runInAction } from 'mobx'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import type { SessionView } from '@podium/client-core/session-values'
 import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 
 type PaneInputs = {
@@ -51,18 +64,30 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
     getSnapshot: () => state,
     subscribe: (listener: () => void) => {
       listeners.add(listener)
-      return () => { listeners.delete(listener) }
+      return () => {
+        listeners.delete(listener)
+      }
     },
-    get replica() { return replica },
+    get replica() {
+      return replica
+    },
     get drafts() {
-      return drafts ??= new DraftStore({
+      return (drafts ??= new DraftStore({
         storage: { get: () => null, set: () => {} },
-        hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never,
-        onChange: (id, text) => (readInputs() as PaneInputs & { setSessionDraft(id: string, text: string): void }).setSessionDraft(id, text),
-      })
+        hub: {
+          on: () => () => {},
+          sendDraftEdit: () => {},
+          connectionHealth: () => ({ status: 'ok' }),
+        } as never,
+        onChange: (id, text) =>
+          (
+            readInputs() as PaneInputs & { setSessionDraft(id: string, text: string): void }
+          ).setSessionDraft(id, text),
+      }))
     },
     outbox: { pending: () => [], deadLetters: () => [], subscribe: () => () => {} },
-    ownConversations: (options: ConversationCacheOptions) => conversations ??= new ConversationCache(options),
+    ownConversations: (options: ConversationCacheOptions) =>
+      (conversations ??= new ConversationCache(options)),
   })
   const runtime = owner as unknown as ClientRuntime
 
@@ -72,46 +97,94 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
 
   function publish() {
     const input = readInputs()
-    const normalized = 'issueProjections' in input
-      ? input as PaneInputs & ReturnType<typeof poolFixtureStore>
-      : poolFixtureStore(input)
+    const normalized =
+      'issueProjections' in input
+        ? (input as PaneInputs & ReturnType<typeof poolFixtureStore>)
+        : poolFixtureStore(input)
     // Historical display fixtures put companion names/login on the session.
     // Materialize their authoritative machine rows and leave only stored IDs.
     const machines = [...input.machines]
-    const sessions = input.sessions.map(value => {
-      const { machineName, condition, handoffTarget, displayRef: _displayRef, ...session } = value as SessionView
+    const sessions = input.sessions.map((value) => {
+      const {
+        machineName,
+        condition,
+        handoffTarget,
+        displayRef: _displayRef,
+        ...session
+      } = value as SessionView
       const machineId = session.machineId ?? asMachineId(`fixture-machine:${session.sessionId}`)
-      if (!machines.some(machine => machine.id === machineId)) machines.push({
-        id: machineId, name: machineName ?? '', online: true,
-        loggedOutHarnesses: condition === 'logged-out' ? [session.agentKind] : [],
-        inventory: { agents: [{ kind: session.agentKind, installed: true, login: { state: condition === 'logged-out' ? 'out' : 'in' } }], tools: [] },
-      } as unknown as MachineWire)
-      const handoffTargetMachineId = handoffTarget ? asMachineId(`fixture-handoff:${handoffTarget}`) : session.handoffTargetMachineId
-      if (handoffTarget && !machines.some(machine => machine.id === handoffTargetMachineId)) machines.push({
-        id: handoffTargetMachineId, name: handoffTarget, online: true,
-      } as unknown as MachineWire)
+      if (!machines.some((machine) => machine.id === machineId))
+        machines.push({
+          id: machineId,
+          name: machineName ?? '',
+          online: true,
+          loggedOutHarnesses: condition === 'logged-out' ? [session.agentKind] : [],
+          inventory: {
+            agents: [
+              {
+                kind: session.agentKind,
+                installed: true,
+                login: { state: condition === 'logged-out' ? 'out' : 'in' },
+              },
+            ],
+            tools: [],
+          },
+        } as unknown as MachineWire)
+      const handoffTargetMachineId = handoffTarget
+        ? asMachineId(`fixture-handoff:${handoffTarget}`)
+        : session.handoffTargetMachineId
+      if (handoffTarget && !machines.some((machine) => machine.id === handoffTargetMachineId))
+        machines.push({
+          id: handoffTargetMachineId,
+          name: handoffTarget,
+          online: true,
+        } as unknown as MachineWire)
       return { ...session, machineId, handoffTargetMachineId } as SessionMeta
     })
     state = { ...normalized, replica, dockShells: {}, reposLoaded: true }
     runInAction(() => {
-      spawnPrompts.replace([...input.pendingSpawnIds].map(id => [id, input.pendingSpawnPrompts.get(id) ?? null]))
-      for (const [id, text] of Object.entries(input.drafts)) owner.drafts.values.set(asSessionId(id), text)
+      spawnPrompts.replace(
+        [...input.pendingSpawnIds].map((id) => [id, input.pendingSpawnPrompts.get(id) ?? null]),
+      )
+      for (const [id, text] of Object.entries(input.drafts))
+        owner.drafts.values.set(asSessionId(id), text)
     })
     replica.applySnapshot('repos', [...normalized.replica.rows('repos')])
     replica.applySnapshot('issueProjections', normalized.issueProjections)
     replica.applySnapshot('issueUserStates', normalized.issueUserStates)
     replica.applySnapshot('issueGitStates', normalized.issueGitStates)
-    replica.applySnapshot('machines', machines.map(machine => ({ id: machine.id, name: machine.name, loggedOutHarnesses: (machine as MachineWire & { loggedOutHarnesses?: string[] }).loggedOutHarnesses ?? [] })) as never)
+    // Each machine's record and my access row (POD-6644).
+    const machineRows = machines.flatMap((machine) =>
+      machineRecords('fixture-user', {
+        ...machine,
+        loggedOutHarnesses:
+          (machine as MachineWire & { loggedOutHarnesses?: string[] }).loggedOutHarnesses ?? [],
+      }),
+    )
+    replica.applySnapshot(
+      'machines',
+      machineRows.filter((row) => row.entity === 'machine').map((row) => row.value) as never,
+    )
+    replica.applySnapshot(
+      'machineAccess',
+      machineRows.filter((row) => row.entity === 'machineAccess').map((row) => row.value) as never,
+    )
     replica.applySnapshot('sessions', sessions)
     for (const listener of listeners) listener()
     if (!pool) {
       const transactions = createPoolTransactions({
-        userId: 'fixture-user', outbox: { ...owner.outbox, awaiting: () => [] },
-        outcomes: () => () => {}, addressed: () => () => {}, enqueue: async () => {},
+        userId: 'fixture-user',
+        outbox: { ...owner.outbox, awaiting: () => [] },
+        outcomes: () => () => {},
+        addressed: () => () => {},
+        enqueue: async () => {},
       })
       const rows = createRowSource(owner, replica, { pending: transactions.pending })
       const handle = createWorklistPool(rows.source, {
-        get: () => ({ selectedIssueId: input.selectedIssueId ?? null, coarseNow: Date.parse('2026-06-03T00:00:00Z') }),
+        get: () => ({
+          selectedIssueId: input.selectedIssueId ?? null,
+          coarseNow: Date.parse('2026-06-03T00:00:00Z'),
+        }),
         subscribe: () => () => {},
       })
       pool = handle.pool
@@ -119,42 +192,81 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
       pool.attachTransactions({ mutate: transactions.mutate, spawnPrompts })
       sessionPaneView(pool)
       pool.sources.register(SESSION_PANE_ENTITIES, new SessionPaneSource(runtime))
-      pool.sources.register(NOTICE_ENTITIES, new NoticeSource(runtime))
-      pool.sources.register(CHAT_CONTEXT_ENTITIES, new ChatContextSource(runtime, pool))
-      pool.sources.register(SESSION_EXIT_ENTITIES, createSessionExitSource(runtime))
-      release = () => { handle.dispose(); rows.dispose(); transactions.dispose() }
+      pool.sources.register(NOTICE_ENTITIES, new NoticeSource(noticeSourcePorts(runtime)))
+      pool.sources.register(
+        CHAT_CONTEXT_ENTITIES,
+        new ChatContextSource(chatSourcePorts(runtime), pool),
+      )
+      pool.sources.register(
+        SESSION_EXIT_ENTITIES,
+        createSessionExitSource(replicaSourcePorts(runtime)),
+      )
+      release = () => {
+        handle.dispose()
+        rows.dispose()
+        transactions.dispose()
+      }
     }
-    pool.ingestLiveMachines(machines.map(machine => ({ id: machine.id, value: machine })))
-    headerEntities(pool).order('machine', machines.map(machine => machine.id))
-    pool.applyLocals({ selectedIssueId: input.selectedIssueId ?? null, coarseNow: Date.parse('2026-06-03T00:00:00Z') }, new Set(['selectedIssueId']))
+    // A machine's online is a LiveStore condition (POD-5798): the fixture's
+    // `online` is its reading, so a session on an offline machine reads as
+    // reconnecting (ADR 12 D1).
+    const live = liveFixture(pool)
+    for (const machine of machines) {
+      const online = (machine as { online?: boolean }).online
+      if (typeof online === 'boolean') live.online(machine.id, online)
+    }
+    headerEntities(pool).order(
+      'machine',
+      machines.map((machine) => machine.id),
+    )
+    pool.applyLocals(
+      {
+        selectedIssueId: input.selectedIssueId ?? null,
+        coarseNow: Date.parse('2026-06-03T00:00:00Z'),
+      },
+      new Set(['selectedIssueId']),
+    )
     for (const session of input.sessions) pool.row('session', session.sessionId)
     pool.hydrate()
   }
 
   return {
     owner,
+    get replica() {
+      return replica
+    },
     sync,
     dispose() {
-      conversations?.dispose(); conversations = undefined
-      release?.(); release = undefined; pool = undefined
-      drafts?.dispose(); drafts = undefined
+      conversations?.dispose()
+      conversations = undefined
+      release?.()
+      release = undefined
+      pool = undefined
+      drafts?.dispose()
+      drafts = undefined
       replica = createReplicaFixture()
       listeners.clear()
       runInAction(() => spawnPrompts.clear())
     },
     hooks: {
       useWorklistPool: () => pool ?? null,
-      useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T, empty: T, active = true) => {
-        const projection = useMemo(() => pool ? createPoolProjection(pool, read) : null, [pool, read])
+      useWorklistPoolProjection: <T>(read: (pool: MobxPool) => T, empty: T, active = true) => {
+        const projection = useMemo(
+          () => (pool ? createPoolProjection(pool, read) : null),
+          [pool, read],
+        )
         const last = useMemo(() => ({ paint: undefined as { value: T } | undefined }), [projection])
         projection?.setActive(active)
         useEffect(() => () => projection?.dispose(), [projection])
-        return useSyncExternalStore(active && projection ? projection.subscribe : () => () => {}, () => {
-          if (!active || !projection) return last.paint?.value ?? empty
-          const value = projection.getSnapshot()
-          last.paint = { value }
-          return value
-        })
+        return useSyncExternalStore(
+          active && projection ? projection.subscribe : () => () => {},
+          () => {
+            if (!active || !projection) return last.paint?.value ?? empty
+            const value = projection.getSnapshot()
+            last.paint = { value }
+            return value
+          },
+        )
       },
     },
   }

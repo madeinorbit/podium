@@ -12,8 +12,8 @@ import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useScreenReadFocus } from '../client/screen-read-focus'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
 import { MissionDeck, useRevealSeat } from '../components/MissionDeck'
+import { MissionNotFound } from '../components/MissionNotFound'
 import { Screen } from '../components/Screen'
-import { EmptyState } from '../components/ui'
 import { WorkIssueMenu, type WorkMenuSheet } from '../components/WorkIssueMenu'
 import { deckTaskOpen } from '../navigation/mission-deck-targets'
 
@@ -91,6 +91,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
       title={root?.title ?? 'Flight deck'}
       subtitle="Flight deck"
       underHeader
+      refreshing={screen?.refreshing ?? false}
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/work'))}
       backLabel={Platform.OS === 'web' ? 'Back' : 'Work'}
     >
@@ -109,7 +110,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
           onScreenProposals={screenProposals}
         />
       ) : (
-        <EmptyState fill title="Mission not found." />
+        <MissionNotFound fill />
       )}
       {menuIssue ? (
         <WorkIssueMenu

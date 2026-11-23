@@ -19,10 +19,12 @@ import {
   shipLaneId,
 } from '@podium/model'
 import type { EntityRef, VisibilityAnchorPort } from '@podium/sync'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
 
 /** One row's edge through the batched anchor port. */
@@ -83,8 +85,8 @@ const issueRow = (id: string, seq: number) => ({
   estimateMin: null,
   needsHuman: false,
   humanQuestion: null,
-  createdAt: 't0',
-  updatedAt: 't0',
+  createdAt: '2026-09-10T00:00:00.000Z',
+  updatedAt: '2026-09-10T00:00:00.000Z',
   archived: false,
 })
 
@@ -128,10 +130,16 @@ interface Fixture {
 async function fixture(size: number): Promise<Fixture> {
   const store = await openTestStore(':memory:')
   for (let i = 0; i < size; i++) {
-    await store.issues.upsertIssue(issueRow(`iss_${i}`, i + 1))
-    await store.shipping.createOrder(order(`order-${i}`, `iss_${i}`, `repo-${i}`))
-    await store.issues.upsertIssue(issueRow(`shared_${i}`, size + i + 1))
-    await store.shipping.createOrder(order(`shared-order-${i}`, `shared_${i}`, 'repo-shared'))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(`iss_${i}`, i + 1))
+    await store.shipping.createOrder(
+      fixtureWriteScope(),
+      order(`order-${i}`, `iss_${i}`, `repo-${i}`),
+    )
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow(`shared_${i}`, size + i + 1))
+    await store.shipping.createOrder(
+      fixtureWriteScope(),
+      order(`shared-order-${i}`, `shared_${i}`, 'repo-shared'),
+    )
   }
   await store.grants.upsert({
     resourceKind: 'issue',
@@ -140,7 +148,7 @@ async function fixture(size: number): Promise<Fixture> {
     verb: 'read',
     owner,
     visibility: 'personal',
-    createdAt: '2026-09-11T00:00:00Z',
+    createdAt: '2026-09-11T00:00:00.000Z',
     actorKind: 'user',
     actorId: owner,
     onBehalfOf: owner,
@@ -149,6 +157,7 @@ async function fixture(size: number): Promise<Fixture> {
     store,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: testStoreRecords(store).build,
   })
   return { store, policy, size }
 }
@@ -193,12 +202,13 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             entity: 'shipLane',
             entityId: shipLaneId(asRepoId(`repo-${f.size - 1}`), 'local:main'),
           }
+          // Every member reads every task, and so every lane holding one (design
+          // §2.2, §4.1; POD-6288 6d0dc46741): no grant edge decides any more.
           expect(s.mayRead(owner, lane)).toBe(true)
-          expect(s.mayRead(reader, lane)).toBe(false)
+          expect(s.mayRead(reader, lane)).toBe(true)
           expect(s.mayRead(owner, { entity: 'automation', entityId: 'automation-0' })).toBe(false)
-          // The grant edge decides: shared with the reader, and nothing else is.
           expect(s.mayRead(reader, { entity: 'issueProjection', entityId: 'shared_0' })).toBe(true)
-          expect(s.mayRead(reader, { entity: 'issueProjection', entityId: 'iss_0' })).toBe(false)
+          expect(s.mayRead(reader, { entity: 'issueProjection', entityId: 'iss_0' })).toBe(true)
         },
       ),
       // 7 table reads, plus the issue grants and the session grants in one
@@ -234,21 +244,31 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             expect(edges[0]?.audience).toEqual([reader])
             expect(edges[0]?.subjects).toEqual([
               { entity: 'issueProjection', entityId: 'iss_0' },
+              { entity: 'issueBrief', entityId: 'iss_0' },
+              { entity: 'issueDescription', entityId: 'iss_0' },
               { entity: 'issueGitState', entityId: 'iss_0' },
               { entity: 'issueDep', entityId: issueDepId('iss_0', 'shared_0', 'blocked-by') },
               { entity: 'shipOrder', entityId: 'order-0' },
               { entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-0'), 'local:main') },
+              { entity: 'effect', entityId: 'eff-0' },
             ])
             expect(edges[1]).toBeNull()
-            expect(edges[3]).toEqual({
-              audience: [reader],
-              subjects: [{ entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-shared'), 'local:main') }],
-            })
+            // The departed order's lane still holds tasks, which every member
+            // reads (design §2.2; POD-6288), so nobody loses it.
+            expect(edges[3]).toBeNull()
             expect(edges[4]).toBeNull()
-            // Installed subjects come back parsed; issueGitState was never installed.
-            expect(values[0]).toEqual({ id: 'iss_0' })
+            // The subjects' records as the tables hold them; the issue has no
+            // git observation, so that subject has no record.
+            expect(values[0]).toMatchObject({ id: 'iss_0' })
+            // No brief, so no brief record; the description is its own record.
             expect(values[1]).toBeUndefined()
-            expect(values[2]).toEqual({ id: issueDepId('iss_0', 'shared_0', 'blocked-by') })
+            expect(values[2]).toEqual({ id: 'iss_0', text: 'desc' })
+            expect(values[3]).toBeUndefined()
+            expect(values[4]).toMatchObject({
+              id: issueDepId('iss_0', 'shared_0', 'blocked-by'),
+              fromId: 'iss_0',
+              toId: 'shared_0',
+            })
           },
         ),
         setup: async (size) => {
@@ -260,47 +280,55 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
             verb: 'read',
             owner,
             visibility: 'personal',
-            createdAt: '2026-09-11T00:00:00Z',
+            createdAt: '2026-09-11T00:00:00.000Z',
             actorKind: 'user',
             actorId: owner,
             onBehalfOf: owner,
           })
           await f.store.shipping.transitionOrder(
+            fixtureWriteScope(),
             'shared-order-0',
             'queued',
             'cancelled',
             '2026-08-12T11:00:00.000Z',
           )
-          // The installed world: every issue, a dependency and an order each.
-          const rows = Array.from({ length: f.size }, (_, i) => {
-            const dep = issueDepId(`iss_${i}`, `shared_${i}`, 'blocked-by')
-            return [
-              { entity: 'issueProjection', entityId: `iss_${i}`, payload: { id: `iss_${i}` } },
-              { entity: 'issueProjection', entityId: `shared_${i}`, payload: { id: `shared_${i}` } },
-              { entity: 'issueDep', entityId: dep, payload: { id: dep } },
+          // An effect record on every issue: the edge reads only the batch's (POD-6401).
+          for (let i = 0; i < f.size; i++) {
+            await f.store.effects.insert(
+              fixtureWriteScope(),
               {
-                entity: 'shipOrder',
-                entityId: `order-${i}`,
-                payload: { issueId: `iss_${i}`, repoId: `repo-${i}`, destination: 'local:main', targetBranch: 'main', state: 'queued' },
+                id: `eff-${i}`,
+                kind: 'issue.merge',
+                target: { kind: 'issue', id: `iss_${i}` },
+                input: {},
+                deadlineAt: undefined,
+                createdBy: null,
               },
-              {
-                entity: 'shipOrder',
-                entityId: `shared-order-${i}`,
-                payload: { issueId: `shared_${i}`, repoId: 'repo-shared', destination: 'local:main', targetBranch: 'main', state: i === 0 ? 'cancelled' : 'queued' },
-              },
-            ]
-          })
-            .flat()
-            .map((row) => ({ entity: row.entity, entityId: row.entityId, op: 'upsert' as const, payload: JSON.stringify(row.payload) }))
-          // The kinds are real wire kinds; the literal union is not worth spelling per row.
-          await f.store.sync.appendChanges(rows as never, 1_000)
+              1_000,
+            )
+          }
+          // A dependency edge on every issue, in the edge table: the anchors
+          // list an issue's edges from it (POD-6770).
+          for (let i = 0; i < f.size; i++) {
+            await f.store.issues.addIssueDep(asIssueId(`iss_${i}`), asIssueId(`shared_${i}`))
+          }
           return f
         },
       },
-      // Audiences; the lane departure's order, owner, audience, lane members,
-      // member rows and member grants; the issues' sessions, dependency ids,
-      // order ids and order rows; and the subjects' values.
-      12,
+      // Shared task rows need no grant query; incoming live-effect projection
+      // adds one read; the issues' events in the feed's window are two
+      // (the window's oldest id, then the issues' events above it; POD-6766).
+      // (The base ran 18, not its pinned 14: the four panel kinds' reads of
+      // POD-6778 were never pinned.)
+      // RE-PINNED 18 -> 28 FOR POD-6770: the subjects' current values are built
+      // from the model tables, one `build` per kind the subjects name (the
+      // issue and its labels, its bodies, its git state, its edges, the order
+      // with its holds and receipt, the lane's plan, the effect), where one
+      // grouped read of the stored copy answered them all.
+      // RE-PINNED 28 -> 29 FOR POD-6921: the bodies are two kinds now
+      // (`issueBrief`, `issueDescription`), each built by its own `build`, so
+      // the issue rows are read once more. Still one read per kind, at any size.
+      29,
     )
   })
 
@@ -309,17 +337,16 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
       {
         ...pin(
           'laneDepartureEdge',
-          async (f) => await edgeOf(f.policy.anchors, { entity: 'shipOrder', entityId: 'shared-order-0' }),
-          // The reader could read only the departed order's issue.
-          (edge) =>
-            expect(edge).toEqual({
-              audience: [reader],
-              subjects: [{ entity: 'shipLane', entityId: shipLaneId(asRepoId('repo-shared'), 'local:main') }],
-            }),
+          async (f) =>
+            await edgeOf(f.policy.anchors, { entity: 'shipOrder', entityId: 'shared-order-0' }),
+          // The lane still holds tasks, which every member reads (design §2.2;
+          // POD-6288): the departure takes it from nobody.
+          (edge) => expect(edge).toBeNull(),
         ),
         setup: async (size) => {
           const f = await fixture(size)
           await f.store.shipping.transitionOrder(
+            fixtureWriteScope(),
             'shared-order-0',
             'queued',
             'cancelled',
@@ -328,8 +355,10 @@ describe('feed scoping: pinned statement counts at 5 and 200 rows per kind', () 
           return f
         },
       },
-      // 5 reads, plus the member issues' grants.
-      6,
+      // 5 reads. RE-PINNED 6 -> 5 FOR POD-6341: the member issues' grants are
+      // no longer read, since every member reads every task (design §2.2,
+      // §4.1; POD-6288).
+      5,
     )
   })
 })

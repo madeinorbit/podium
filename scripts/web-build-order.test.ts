@@ -34,22 +34,22 @@ describe('the order of the web build', () => {
   })
 
   it('judges the bundle only AFTER the dist has been named', () => {
-    // POD-2002: web-bundle-budget writes nothing — it is a pure assertion. In
+    // POD-2002: web-bundle-correctness writes nothing — it is a pure assertion. In
     // front of the stamp it left a complete, correct build with no
     // podium-build.json, which the server reads as "not the website for this
     // commit": it then rebuilt on every start-up, refused to pack a bundle, and
     // published no headless artifact. A bundle complaint must not make a good
     // build unusable; it still fails the command, which is what stops landings.
     expect(writingSteps).toContain('write-web-build-stamp')
-    expect(writingSteps).not.toContain('web-bundle-budget')
-    expect(buildScript.indexOf('web-bundle-budget')).toBeGreaterThan(
+    expect(writingSteps).not.toContain('web-bundle-correctness')
+    expect(buildScript.indexOf('web-bundle-correctness')).toBeGreaterThan(
       buildScript.indexOf('write-web-build-stamp'),
     )
   })
 
   it('still fails the build when the bundle check fails', () => {
     // `&&`, not `;` — the check must remain able to fail the command.
-    expect(buildScript).toMatch(/&&\s*bun [^&]*web-bundle-budget[^&]*--check\s*$/)
+    expect(buildScript).toMatch(/&&\s*bun [^&]*web-bundle-correctness\.ts dist\s*$/)
   })
 
   it('is the only production recipe, so no caller can skip the bundle check', () => {
@@ -58,9 +58,9 @@ describe('the order of the web build', () => {
     // different bytes from one commit, and the exemption quietly became the
     // normal path. There is now one script, it is the Turbo task, and a red
     // check is a red build for everyone — it is fixed in
-    // scripts/web-bundle-budget.ts, not routed around here.
+    // scripts/web-bundle-correctness.ts, not routed around here.
     expect(scripts['build:dist']).toBeUndefined()
-    expect(steps.at(-1)).toContain('web-bundle-budget')
+    expect(steps.at(-1)).toContain('web-bundle-correctness')
     expect(steps.at(-2)).toContain('write-web-build-stamp')
   })
 })

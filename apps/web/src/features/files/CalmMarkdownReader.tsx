@@ -320,6 +320,7 @@ function CalmReaderMargins({
             {outline.map((entry, i) => (
               <li key={entry.id}>
                 <button
+                  data-pressable
                   type="button"
                   data-level={entry.level}
                   aria-current={i === active ? 'location' : undefined}

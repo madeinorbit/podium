@@ -40,8 +40,16 @@ type Sink =
   | 'file handle'
   | 'journal'
   | 'headless engine stdin (no pty)'
+  | 'codex hook-trust probe stdin (no pty)'
 
 const INVENTORY: Record<string, Sink> = {
+  'session-posture-store.ts: store().write({ sessionId, posture })': 'journal',
+  // A throwaway `codex app-server` asked for its hook trust (credential
+  // management §10): JSON-RPC on its stdin, never a terminal.
+  "homes/codex-hook-probe.ts: child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\\n`)":
+    'codex hook-trust probe stdin (no pty)',
+  "homes/codex-hook-probe.ts: child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized' })}\\n`)":
+    'codex hook-trust probe stdin (no pty)',
   'terminal/terminal.ts: this.attachment.writeBytes(data)': 'the-counted-call',
   'terminal/terminal.ts: this.attachment.write(dataBase64)': 'the-counted-call',
   "terminal/headed-input.ts: terminal.writeBase64(Buffer.from(bytes, 'utf8').toString('base64'))":
@@ -66,6 +74,9 @@ const INVENTORY: Record<string, Sink> = {
   'shipping/journal.ts: return this.write({ ...existing, acknowledgedAt: at })': 'journal',
   'session/engines.ts: journal.write({ ...facts, ...(address !== undefined ? { address } : {}) })':
     'journal',
+  // A session's credential marker (id and delivery kind, never the secret),
+  // kept in the `session-access` engine journal (credential management §8).
+  'control/access.ts: this.options.markers.write({': 'journal',
   'session/engines.ts: write: (data) => session.connection.write(data),':
     'headless engine stdin (no pty)',
 }

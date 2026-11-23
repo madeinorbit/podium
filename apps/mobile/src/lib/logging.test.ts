@@ -1,6 +1,13 @@
 import type { LogsCrashInput, LogsForwardInput } from '@podium/commands'
 import { addSink, clearSinks, createLogger, type LogRecord, resetLogging } from '@podium/logger'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+// Exercise the native archive input independently of this checkout's release
+// number, including when a web page advertises a different version.
+vi.mock('../../app.json', () => ({
+  default: { expo: { version: '9.8.7', ios: { buildNumber: '42' } } },
+}))
+
 import {
   appVersion,
   type CaptureScope,
@@ -427,7 +434,7 @@ describe('appVersion', () => {
 
 describe('native TestFlight build identity', () => {
   it('reports the tracked archive build number even with an unstamped environment', () => {
-    expect(appVersion(undefined, undefined, 'ios')).toBe('1.0.0+13')
+    expect(appVersion(undefined, undefined, 'ios')).toBe('9.8.7+42')
   })
   it('native identity does not inherit a mobile-web stamp or override', () => {
     expect(
@@ -436,6 +443,6 @@ describe('native TestFlight build identity', () => {
         'dev',
         'ios',
       ),
-    ).toBe('1.0.0+13')
+    ).toBe('9.8.7+42')
   })
 })

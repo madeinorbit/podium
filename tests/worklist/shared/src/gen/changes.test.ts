@@ -231,10 +231,9 @@ describe('gen through the engine', () => {
         }
 
         // Every applied row change reached the feed under its own id: a real
-        // change, not a synthesised one. A worktree arrives through discovery
-        // (`worktreesChanged` → `refreshRepos`), not a kernel row; the feed
-        // emits its lane by path all the same (POD-4606), and the engine's own
-        // repos prove the change landed.
+        // change, not a synthesised one. A worktree arrives as its checkout
+        // record (POD-6644); the feed emits its lane by path (POD-4606), and
+        // the repositories derived from the checkouts prove the change landed.
         const lanes = new Set(
           referenceState(run.ctx.engine).repos.flatMap((r) => (r.worktrees ?? []).map((w) => w.path)),
         )

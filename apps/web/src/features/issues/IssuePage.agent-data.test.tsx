@@ -37,7 +37,7 @@ vi.mock('@/app/store', () => {
     ({
       trpc: (api ??= {
         settings: {
-          get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) },
+          get: { query: vi.fn(async () => ({ gitWorkflow: { } })) },
         },
         issues: {
           events: { query: vi.fn(async () => []) },
@@ -68,7 +68,7 @@ vi.mock('@/app/store', () => {
     }) as never
   return {
     useStore: () => state(),
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(state()),
+    readFixture: (sel: (s: unknown) => unknown) => sel(state()),
   }
 })
 

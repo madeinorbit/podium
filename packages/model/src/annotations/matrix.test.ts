@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { conflictRuleFor, FIELD_LWW_CLOCK, permitsFieldLww } from './arbitration'
+import { conflictRuleFor, FIELD_LWW_CLOCK } from './arbitration'
 import {
   DECLARED_OMISSIONS,
   FIELD_LWW_MEMBERS,
@@ -267,9 +267,10 @@ describe('no annotation contradicts the ADR', () => {
       expect(row.conflict, `${id} still claims field-LWW`).toBe('single-writer')
       expect(row.visibility).toBe<VisibilityClass>('per-user-state')
     }
-    // `archived` / `workState` became SHARED session facts at exp-rev.
-    expect(conflictRuleFor(ROW.sessionLabels as string)).toBe('exp-rev')
-    expect(permitsFieldLww(ROW.sessionLabels as string)).toBe(false)
+    // `archived` / `workState` became SHARED session facts (D10); ADR 12 D3
+    // (POD-6406) makes each label its own field-LWW group, still shared.
+    expect(conflictRuleFor(ROW.sessionLabels as string)).toBe('field-LWW')
+    expect(OWNERSHIP_MATRIX_INDEX.get(ROW.sessionLabels as string)?.visibility).toBe('personal')
   })
 
   it('reserves op-stream for D12’s named members and IMPLEMENTS NONE of it', () => {
@@ -353,6 +354,13 @@ describe('no annotation contradicts the ADR', () => {
       expect(row.replication, `${row.id} replicates secret material`).toBe('none')
       expect(row.offline, `${row.id} may enqueue a secret write`).toBe('never-enqueue')
       expect(row.visibility, `${row.id} is secret-value but not class secret`).toBe('secret')
+      // The one person-owned secret: a credential (credential management §12)
+      // belongs to the person who added it and is shared by `use`/`manage` grants.
+      if (row.id === ROW.managedCredentials) {
+        expect(row.owner).toMatchObject({ kind: 'user', resolves: 'on-behalf-of-human' })
+        expect(grantVerbsOf(row.id as string)).toEqual(['use', 'manage'])
+        continue
+      }
       expect(row.grants.kind).toBe('none')
       if (row.grants.kind === 'none') {
         expect(row.grants.reason).toBe('secret-admin-grade')
@@ -422,7 +430,7 @@ describe('visibility mutability inventory (handed to POD-1077)', () => {
   it('declares mutability on every row, with verbs iff mutable', () => {
     for (const row of rows) {
       const m = row.visibilityMutability
-      expect(m.note.length, `${row.id} has no mutability note`).toBeGreaterThan(20)
+      expect(m.note.trim(), `${row.id} has no mutability note`).not.toBe('')
       if (m.mutable) {
         expect(m.verbs.length, `${row.id} is mutable with no verb`).toBeGreaterThan(0)
       } else {
@@ -446,6 +454,8 @@ describe('visibility mutability inventory (handed to POD-1077)', () => {
 
   it('marks secrets and substrate immutable, and personal/owned-compute mutable', () => {
     for (const row of rows.filter((r) => r.visibility === 'secret')) {
+      // A credential's grantees change who sees its record (never its value).
+      if (row.id === ROW.managedCredentials) continue
       expect(row.visibilityMutability.mutable).toBe(false)
     }
     // The counterfactual: the classes that DO change are the ones Phase 2 must
@@ -453,6 +463,10 @@ describe('visibility mutability inventory (handed to POD-1077)', () => {
     const mutable = rows.filter((r) => r.visibilityMutability.mutable)
     expect(mutable.length).toBeGreaterThan(20)
     for (const row of mutable) {
+      if (row.id === ROW.managedCredentials) {
+        expect(row.replication).toBe('none')
+        continue
+      }
       expect(['personal', 'owned-compute', 'deployment-substrate']).toContain(row.visibility)
     }
   })

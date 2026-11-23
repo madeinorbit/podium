@@ -76,11 +76,9 @@ export interface BoardSnapshotData {
     orderedIdsForOpen: IssueId[]
   }
 }
+/** The board filter menu's projects, from the repository records (POD-7088). */
 export interface BoardCatalog {
-  scope: string[]
   projectPaths: string[]
-  assignees: string[]
-  labels: string[]
 }
 export interface BoardQuery {
   kind: 'board'
@@ -94,6 +92,8 @@ export interface IssueBoardSourceRows {
   issueBoardModel: PoolBoardData
   issueBoardPosition: BoardRowIssue & { closedReason?: string | null }
   issueBoardColumn: IssueId[]
+  /** A column's count over all history (POD-7088): local, stubs or its page. */
+  issueBoardColumnCount: { count: number }
   issueBoardOpenIds: IssueId[]
   issueBoardMenu: MissionActionInputs
   issueBoardDropIndex: { index: number }
@@ -111,6 +111,7 @@ export const ISSUE_BOARD_ENTITIES = [
   'issueBoardModel',
   'issueBoardPosition',
   'issueBoardColumn',
+  'issueBoardColumnCount',
   'issueBoardOpenIds',
   'issueBoardMenu',
   'issueBoardDropIndex',
@@ -125,13 +126,11 @@ export const ISSUE_BOARD_SUMMARIES = mergePoolSummaries(ISSUE_PAGE_SUMMARIES, {
     'priority',
     'createdAt',
     'type',
-    'description',
     'estimateMin',
     'dueAt',
     'intentOrigin',
     'closedAt',
     'branch',
-    'pinned',
     'tuckedAt',
     'defaultAgent',
   ],

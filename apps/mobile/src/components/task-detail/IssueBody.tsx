@@ -1,5 +1,5 @@
 import { relativeTime } from '@podium/client-core/focus'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { isClosed } from '@podium/model/browser'
 import { useState } from 'react'
@@ -33,7 +33,7 @@ export const IssueTitle = observer(function IssueTitle({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
 }) {
@@ -55,7 +55,7 @@ export const StatusStrip = observer(function StatusStrip({
   issue,
   exceptionsOnly = false,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   /** Drop the created/updated recency when the header pills already say it. */
   exceptionsOnly?: boolean
 }) {
@@ -130,7 +130,7 @@ export const IssueDescription = observer(function IssueDescription({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
 }) {
@@ -179,7 +179,7 @@ export const IssueDescriptionPreview = observer(function IssueDescriptionPreview
 /** The agent brief, folded by default — it is long, and it is written FOR an
  *  agent. It sits between two things a human reads, so it stays a hairline and a
  *  label until asked for. */
-export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueViewModel }) {
+export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueWithBodies }) {
   const [open, setOpen] = useState(false)
   if (!issue.brief) return null
   // A fold among folds now: no section gap of its own.
@@ -212,7 +212,7 @@ export const LongFormFields = observer(function LongFormFields({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssueCommands
 }) {

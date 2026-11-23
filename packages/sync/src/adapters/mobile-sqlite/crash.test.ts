@@ -47,9 +47,20 @@
 import type { MutationId } from '@podium/model'
 import { actorUser, asUserId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import {
+  commitPruneSlice,
+  expectCutSlice,
+  expectPruneWorldAgrees,
+  planPruneSlice,
+  pruneWorldState,
+  seedPruneWorld,
+} from '../../conformance/prune-crash'
 import type { OutboxRecord } from '../../outbox/records'
+import { instanceKey, instanceMetaKey } from '../../replica/cache-state'
+import { bucketOf } from '../../replica/disk-index'
+import type { InstanceOperation } from '../../replica/ports'
 import type { Cursor } from '../../replica/types'
-import { META_TABLE, PERSONAL_ROWS_COMPLETE_AT_KEY } from './schema'
+import { INDEX_TABLE, META_TABLE } from './schema'
 import { type DurabilityDegradation, type SqliteStoreView, SqliteSyncStore } from './store'
 import { FaultySqlDatabase, freshDatabaseFile, readDurable, sqliteEngine } from './test-support'
 
@@ -58,6 +69,14 @@ const M: MutationId = 'm-1' as MutationId
 
 const CURSOR_1: Cursor = { feedId: 'feed', epoch: 'e1', seq: 1 }
 const CURSOR_2: Cursor = { feedId: 'feed', epoch: 'e1', seq: 2 }
+
+/** The instance whose marker every case writes beside the rows it describes (POD-7086). */
+const SIDEBAR = { collection: 'issueProjection.sidebar', part: 'main' as const }
+const SIDEBAR_KEY = instanceKey(SIDEBAR)
+const mark = (completeAt: Cursor): InstanceOperation => ({
+  kind: 'mark',
+  instance: { ...SIDEBAR, key: SIDEBAR_KEY, completeAt },
+})
 
 const record = (state: OutboxRecord['state']): OutboxRecord => ({
   mutationId: M,
@@ -102,6 +121,88 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       },
     })
 
+  it('commits replaced rows, their tokens, repair receipt and marker together while keeping authored work', async () => {
+    const first = await open()
+    const view = first.viewFor(PRINCIPAL)
+    const issue = {
+      entity: 'issueProjection',
+      entityId: 'old',
+      value: { old: true },
+      provenance: { seq: 1 },
+    }
+    const repo = { entity: 'repo', entityId: 'keep', value: {}, provenance: { seq: 1 } }
+    const oldTokens = { issueProjection: 'old', repo: 'unchanged' }
+    await first.unitOfWork.transact(async (span) => {
+      view.cache.installSnapshot([issue, repo], CURSOR_1, [], span, {
+        kindTokens: oldTokens,
+        kindReloadVersion: 0,
+      })
+      expect(
+        await view.outbox.apply(
+          {
+            put: [record('queued')],
+            expect: [{ mutationId: M, expect: 'absent' }],
+          },
+          span,
+        ),
+      ).toEqual({ ok: true })
+    })
+    const newTokens = { ...oldTokens, issueProjection: 'new' }
+    // A kind reload's commit (POD-7086): the reloaded rows, the cursor with the
+    // new tokens and the reloaded instance's marker, in one transaction.
+    const replace = (store: SqliteSyncStore) =>
+      store.unitOfWork.transact(async (span) => {
+        store.viewFor(PRINCIPAL).cache.applyAtomic(
+          {
+            operations: [
+              { kind: 'remove', entity: issue.entity, entityId: 'old' },
+              {
+                kind: 'upsert',
+                entity: issue.entity,
+                entityId: 'new',
+                value: { old: false },
+                provenance: { seq: 2 },
+              },
+            ],
+            cursor: CURSOR_2,
+            kindTokens: newTokens,
+            kindReloadVersion: 1,
+            instances: [mark(CURSOR_2)],
+          },
+          span,
+        )
+      })
+    faulty.denyWriteAt({ at: 2, error: new Error('power loss') })
+    await expect(replace(first)).rejects.toThrow('power loss')
+    first.close()
+    const retry = await open()
+    expect(retry.viewFor(PRINCIPAL).cache.readKindTokens()).toEqual(oldTokens)
+    expect(retry.viewFor(PRINCIPAL).cache.readKindReloadVersion()).toBe(0)
+    expect(retry.viewFor(PRINCIPAL).cache.read(issue.entity, 'old')?.value).toEqual(issue.value)
+    expect(retry.viewFor(PRINCIPAL).cache.readInstances().size).toBe(0)
+    await replace(retry)
+    retry.close()
+
+    const reopened = await open()
+    try {
+      const saved = reopened.viewFor(PRINCIPAL)
+      expect(saved.cache.readCursor()).toEqual(CURSOR_2)
+      expect(saved.cache.readKindTokens()).toEqual(newTokens)
+      expect(saved.cache.readKindReloadVersion()).toBe(1)
+      expect(saved.cache.readInstances().get(SIDEBAR_KEY)?.completeAt).toEqual(CURSOR_2)
+      expect(
+        saved.cache
+          .readEntities()
+          .map((row) => row.entityId)
+          .sort(),
+      ).toEqual(['keep', 'new'])
+      expect(saved.cache.read(repo.entity, repo.entityId)?.value).toEqual(repo.value)
+      expect(await saved.outbox.read()).toEqual([record('queued')])
+    } finally {
+      reopened.close()
+    }
+  })
+
   /**
    * PRE: entity E@v0, cursor seq 1, and the user's command M durable in `applied`.
    *
@@ -129,13 +230,12 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
             },
           ],
           cursor: CURSOR_1,
-          personalRowsCompleteAt: CURSOR_1,
+          instances: [mark(CURSOR_1)],
         },
         span,
       )
     })
     store.close()
-    preCertification = durableView().personalRowsCompleteAt
     expectPre()
   }
 
@@ -158,7 +258,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
             },
           ],
           cursor: CURSOR_2,
-          personalRowsCompleteAt: CURSOR_2,
+          instances: [mark(CURSOR_2)],
         },
         span,
       )
@@ -168,55 +268,45 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
   const durableView = (): {
     entity: unknown
     cursor: unknown
-    personalRowsCompleteAt: unknown
+    /** The marker's `completeAt`; undefined when no marker row is durable. */
+    marker: unknown
     outbox: string[]
   } => {
     const rows = readDurable(file)
     const db = sqliteEngine.open(file)
-    let personalRowsCompleteAt: unknown
+    let marker: unknown
     try {
       const row = db
         .prepare(`SELECT value FROM ${META_TABLE} WHERE principal = ? AND key = ?`)
-        .get(PRINCIPAL, PERSONAL_ROWS_COMPLETE_AT_KEY) as { value: string } | undefined
-      personalRowsCompleteAt = row ? JSON.parse(row.value) : undefined
+        .get(PRINCIPAL, instanceMetaKey(SIDEBAR_KEY)) as { value: string } | undefined
+      marker = row ? (JSON.parse(row.value) as { completeAt: unknown }).completeAt : undefined
     } finally {
       db.close()
     }
     return {
       entity: rows.entities.find((row) => row.entityId === 'ADA-1')?.value,
       cursor: rows.cursors.find((row) => row.principal === PRINCIPAL)?.cursor,
-      personalRowsCompleteAt,
+      marker,
       outbox: rows.outbox.map((row) => row.mutationId),
     }
   }
 
-  let preCertification: unknown
-
-  /** All three regions and their scope binding at PRE. */
+  /** All three regions and the marker at PRE. */
   function expectPre(): void {
-    expect(preCertification).toMatchObject({
-      ...CURSOR_1,
-      scopeFingerprint: expect.stringMatching(/.+/),
-    })
     expect(durableView()).toEqual({
       entity: { v: 0 },
-      cursor: preCertification,
-      personalRowsCompleteAt: preCertification,
+      cursor: CURSOR_1,
+      marker: CURSOR_1,
       outbox: [M],
     })
   }
 
-  /** All three regions at POST. */
+  /** All three regions and the marker at POST. */
   function expectPost(): void {
-    const post = durableView()
-    expect(post.personalRowsCompleteAt).toMatchObject({
-      ...CURSOR_2,
-      scopeFingerprint: expect.stringMatching(/.+/),
-    })
-    expect(post).toEqual({
+    expect(durableView()).toEqual({
       entity: { v: 1 },
-      cursor: post.personalRowsCompleteAt,
-      personalRowsCompleteAt: post.personalRowsCompleteAt,
+      cursor: CURSOR_2,
+      marker: CURSOR_2,
       outbox: [],
     })
   }
@@ -235,16 +325,23 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
    * `writes` is the number of write statements the transaction issues; it is ASSERTED
    * per case rather than assumed, so a change that makes the commit carry fewer
    * statements fails these cases instead of silently collapsing them onto the same
-   * instant. Three regions plus completeness ⇒ four statements: the outbox delete, the entity upsert
-   * the cursor upsert and completeness upsert. (The in-transaction precondition `SELECT` is a read and is
+   * instant. Three regions plus a marker and their disk index rows (POD-7159) ⇒ six statements:
+   * the outbox delete, the entity upsert, the cursor upsert, the marker upsert, the
+   * record's index row and the instance's. (The in-transaction precondition `SELECT` is a read and is
    * not counted — see `FaultySqlDatabase`.)
    */
   const BOUNDARIES = [
     { at: 0, mode: 'deny' as const, what: 'before the outbox removal reached the store' },
     { at: 1, mode: 'deny' as const, what: 'between the outbox removal and the entity upsert' },
     { at: 2, mode: 'deny' as const, what: 'between the entity upsert and the cursor advance' },
-    { at: 3, mode: 'deny' as const, what: 'between the cursor advance and completeness marker' },
-    { at: 3, mode: 'crash' as const, what: 'after every write was issued and before the commit' },
+    { at: 3, mode: 'deny' as const, what: 'between the cursor advance and the instance marker' },
+    {
+      at: 4,
+      mode: 'deny' as const,
+      what: "between the instance marker and the record's index row",
+    },
+    { at: 5, mode: 'deny' as const, what: "between the record's index row and the instance's" },
+    { at: 5, mode: 'crash' as const, what: 'after every write was issued and before the commit' },
   ]
 
   for (const boundary of BOUNDARIES) {
@@ -257,10 +354,10 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       // SURFACED, not swallowed: the kernel that opened the unit of work is told.
       await expect(commitAllThree(store.viewFor(PRINCIPAL), store)).rejects.toThrow(/power loss/)
 
-      // The transaction really did carry four write statements, so the boundary this
+      // The transaction really did carry six write statements, so the boundary this
       // case names is the boundary it hit. `deny` refuses its target, so one fewer
-      // reaches the engine; `crash` lets all four through and then kills.
-      expect(faulty.writesIssued - before).toBe(boundary.mode === 'crash' ? 4 : boundary.at + 1)
+      // reaches the engine; `crash` lets all six through and then kills.
+      expect(faulty.writesIssued - before).toBe(boundary.mode === 'crash' ? 6 : boundary.at + 1)
       expect(faulty.denials).toBe(1)
       // A crash leaves a connection that CANNOT tidy up — the property that makes this
       // boundary unreachable by any `deny` index, asserted rather than described.
@@ -278,7 +375,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       const view = reopened.viewFor(PRINCIPAL)
       expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 0 })
       expect(view.cache.readCursor()).toEqual(CURSOR_1)
-      expect(view.cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_1)
+      expect(view.cache.readInstances().get(SIDEBAR_KEY)?.completeAt).toEqual(CURSOR_1)
       expect((await view.outbox.read()).map((r) => r.mutationId)).toEqual([M])
       reopened.close()
     })
@@ -298,7 +395,7 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
     const view = reopened.viewFor(PRINCIPAL)
     expect(view.cache.read('issueProjection', 'ADA-1')?.value).toEqual({ v: 1 })
     expect(view.cache.readCursor()).toEqual(CURSOR_2)
-    expect(view.cache.readPersonalRowsCompleteAt()).toEqual(CURSOR_2)
+    expect(view.cache.readInstances().get(SIDEBAR_KEY)?.completeAt).toEqual(CURSOR_2)
     expect(await view.outbox.read()).toEqual([])
     reopened.close()
   })
@@ -320,7 +417,8 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
       const cursorSeq = (durable.cursor as Cursor).seq
       const entityIsNew = JSON.stringify(durable.entity) === JSON.stringify({ v: 1 })
       expect(cursorSeq === CURSOR_2.seq && !entityIsNew).toBe(false)
-      expect(durable.personalRowsCompleteAt).toEqual(durable.cursor)
+      // A marker never claims rows the store lacks: it moves with the cursor.
+      expect(durable.marker).toEqual(durable.cursor)
       fresh.cleanup()
     }
   })
@@ -343,5 +441,195 @@ describe('mobile SQLite adapter — kill between writes, at every boundary', () 
     await commitAllThree(store.viewFor(PRINCIPAL), store)
     store.close()
     expectPost()
+  })
+})
+
+// ─── The index journal's fold (POD-7160) ──────────────────────────────────────
+
+/**
+ * Three commits leave three journal rows over 40 records (two changed, one
+ * removed); the fold writes the buckets those records land in and deletes the
+ * journal rows, in ONE transaction. Killed at any of its writes, the journal
+ * stays whole and the store reads the same index after a restart.
+ */
+const FOLD_ISSUE = 'issueProjection'
+const foldRow = (id: string, seq: number) => ({
+  kind: 'upsert' as const,
+  entity: FOLD_ISSUE,
+  entityId: id,
+  value: { v: seq },
+  provenance: { seq },
+  asOf: seq,
+})
+const foldAt = (seq: number): Cursor => ({ ...CURSOR_1, seq })
+const FOLD_KEYS = Array.from({ length: 40 }, (_, n) => `${FOLD_ISSUE}\u0000R${n}`)
+/** The fold's writes: a row per bucket the 40 records land in, and the three journal deletes. */
+const FOLD_WRITES = new Set(FOLD_KEYS.map((key) => bucketOf(key))).size + 3
+const FOLD_POINTS = [0, 1, Math.floor(FOLD_WRITES / 2), FOLD_WRITES - 1]
+
+describe('mobile SQLite adapter — the index journal fold, killed at every write (POD-7160)', () => {
+  let file: string
+  let cleanup: () => void
+  let faulty: FaultySqlDatabase
+  beforeEach(() => {
+    const fresh = freshDatabaseFile()
+    file = fresh.file
+    cleanup = fresh.cleanup
+  })
+  afterEach(() => {
+    cleanup()
+  })
+  const open = async (): Promise<SqliteSyncStore> =>
+    await SqliteSyncStore.open({
+      openDatabase: () => {
+        faulty = new FaultySqlDatabase(sqliteEngine.open(file))
+        return faulty
+      },
+      deleteDatabase: () => {
+        throw new Error('these cases never poison the file')
+      },
+      onDegraded: () => {},
+    })
+  const journaled = async (): Promise<void> => {
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    cache.applyAtomic({
+      operations: FOLD_KEYS.map((_, n) => foldRow(`R${n}`, 1)),
+      cursor: foldAt(1),
+    })
+    cache.applyAtomic({ operations: [foldRow('R3', 2), foldRow('R17', 2)], cursor: foldAt(2) })
+    cache.applyAtomic({
+      operations: [{ kind: 'remove', entity: FOLD_ISSUE, entityId: 'R5' }],
+      cursor: foldAt(3),
+    })
+    store.close()
+  }
+  const journalRows = (): number => {
+    const db = sqliteEngine.open(file)
+    const rows = db
+      .prepare(`SELECT key FROM ${INDEX_TABLE} WHERE principal = ?`)
+      .all(PRINCIPAL) as { key: string }[]
+    db.close()
+    return rows.filter((row) => row.key.startsWith('j')).length
+  }
+  const expectIndex = async (): Promise<void> => {
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    const index = cache.readDiskIndex()
+    expect(index.recordCount).toBe(39)
+    expect(index.record(`${FOLD_ISSUE}\u0000R3`)?.seq).toBe(2)
+    expect(index.record(`${FOLD_ISSUE}\u0000R5`)).toBeUndefined()
+    const rows = await cache.readDiskRows(FOLD_KEYS)
+    const values = new Map(rows.map((row) => [row.entityId, row.value]))
+    expect(values.get('R3')).toEqual({ v: 2 })
+    expect(values.get('R0')).toEqual({ v: 1 })
+    expect(values.has('R5')).toBe(false)
+    store.close()
+  }
+
+  it("POSITIVE CONTROL — the fold writes the journal's buckets and deletes its rows, in one transaction", async () => {
+    await journaled()
+    expect(journalRows()).toBe(3)
+    const store = await open()
+    const before = faulty.writesIssued
+    store.foldIndexJournals()
+    expect(faulty.writesIssued - before).toBe(FOLD_WRITES)
+    store.close()
+    expect(journalRows()).toBe(0)
+    await expectIndex()
+  })
+
+  for (const at of FOLD_POINTS)
+    for (const mode of at === FOLD_WRITES - 1 ? (['deny', 'crash'] as const) : (['deny'] as const))
+      it(`a fold killed at write ${at} (${mode}) leaves the journal whole and the index the same`, async () => {
+        await journaled()
+        const store = await open()
+        const before = faulty.writesIssued
+        faulty.denyWriteAt({ at, mode, error: new Error('power loss') })
+        store.foldIndexJournals()
+        expect(faulty.writesIssued - before).toBe(mode === 'crash' ? FOLD_WRITES : at + 1)
+        expect(faulty.denials).toBe(1)
+        store.close()
+        expect(journalRows()).toBe(3)
+        await expectIndex()
+      })
+})
+
+// ─── A prune slice (POD-7162) ─────────────────────────────────────────────────
+
+describe('mobile SQLite adapter — a prune slice killed at every write (POD-7162)', () => {
+  let file: string
+  let faulty: FaultySqlDatabase
+  const cleanups: (() => void)[] = []
+  afterEach(() => {
+    for (const cleanup of cleanups.splice(0)) cleanup()
+  })
+  const open = async (): Promise<SqliteSyncStore> =>
+    await SqliteSyncStore.open({
+      openDatabase: () => {
+        faulty = new FaultySqlDatabase(sqliteEngine.open(file))
+        return faulty
+      },
+      deleteDatabase: () => {
+        throw new Error('these cases never poison the file')
+      },
+      onDegraded: () => {},
+    })
+  /** A fresh device with the world on it, closed; then opened again with the slice planned. */
+  const seededAndPlanned = async () => {
+    const fresh = freshDatabaseFile()
+    file = fresh.file
+    cleanups.push(fresh.cleanup)
+    const seeding = await open()
+    seedPruneWorld(seeding.viewFor(PRINCIPAL).cache)
+    seeding.close()
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    const before = pruneWorldState(cache)
+    const plan = planPruneSlice(cache)
+    expectCutSlice(plan)
+    return { store, cache, before, plan }
+  }
+  const reopened = async (label: string) => {
+    const store = await open()
+    const { cache } = store.viewFor(PRINCIPAL)
+    await expectPruneWorldAgrees(cache, label)
+    const state = pruneWorldState(cache)
+    store.close()
+    return state
+  }
+
+  it('POSITIVE CONTROL — the slice commits whole, in one transaction, and the reopened store agrees', async () => {
+    const { store, cache, before, plan } = await seededAndPlanned()
+    commitPruneSlice(cache, plan)
+    const after = pruneWorldState(cache)
+    store.close()
+    expect(after).not.toEqual(before)
+    expect(after.trees.A).toMatch(/^pruning:/)
+    expect(await reopened('after the slice')).toEqual(after)
+  })
+
+  it('killed at any of its writes, the reopened store is as before the slice, and agrees', async () => {
+    const control = await seededAndPlanned()
+    const start = faulty.writesIssued
+    commitPruneSlice(control.cache, control.plan)
+    const writes = faulty.writesIssued - start
+    control.store.close()
+    expect(writes).toBeGreaterThan(2)
+    for (const at of [0, 1, Math.floor(writes / 2), writes - 1])
+      for (const mode of at === writes - 1 ? (['deny', 'crash'] as const) : (['deny'] as const)) {
+        const { store, cache, before, plan } = await seededAndPlanned()
+        faulty.denyWriteAt({ at, mode, error: new Error('power loss') })
+        try {
+          commitPruneSlice(cache, plan)
+        } catch {
+          // The refusal surfaces from the write itself.
+        }
+        expect(faulty.denials, `killed at ${at} (${mode})`).toBe(1)
+        store.close()
+        expect(await reopened(`killed at ${at} (${mode})`), `killed at ${at} (${mode})`).toEqual(
+          before,
+        )
+      }
   })
 })

@@ -1,10 +1,10 @@
 import { useRegisterSW as useRegisterSWVirtual } from 'virtual:pwa-register/react'
+import { serviceWorkerContainer } from '@podium/client-core/service-worker'
 import { toast } from 'sonner'
 import type { RegisterSWOptions } from 'vite-plugin-pwa/types'
 import { swLog } from '@/lib/logging/update-logs'
 import { navigateReload } from '@/lib/navigate'
 import { withReloadPreparation } from '@/lib/reload-preparation'
-import { serviceWorkerContainer } from '@/lib/sw-container'
 import { observeServiceWorker, workerFacts } from '@/lib/sw-observer'
 
 /**

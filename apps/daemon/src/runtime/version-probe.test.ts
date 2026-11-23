@@ -7,12 +7,17 @@ import { reportHarnessProbe, withHarnessVersionReporting } from '../harness-vers
 import { createVersionProbeCache, grokAcpVersionProbe, resetGrokAcpVersionProbe } from './version-probe'
 import {
   codexAppServerVersionProbe,
+  opencode2VersionProbe,
   opencodeVersionDiagnostic,
   opencodeVersionProbe,
-  opencodeVersionProbeForExecutable,
   resetCodexAppServerVersionProbe,
+  resetOpencode2VersionProbe,
   resetOpencodeVersionProbe,
 } from './version-probe'
+
+/** One installation every memo test below asks about (POD-6546: verdicts are
+ *  cached per installation). */
+const TEST_INSTALLATION = { executable: '/opt/rig/bin/harness', version: '', generation: 0 }
 
 type Verdict =
   | { drivable: true }
@@ -169,13 +174,19 @@ describe('grok ACP version probe memoization', () => {
   it('temporarily memoizes an unprobeable result', async () => {
     resetGrokAcpVersionProbe()
     let calls = 0
-    const first = await grokAcpVersionProbe(() => {
-      calls += 1
-      return { ok: false, output: 'timed out' }
+    const first = await grokAcpVersionProbe(TEST_INSTALLATION, {
+      env: {},
+      probe: () => {
+        calls += 1
+        return { ok: false, output: 'timed out' }
+      },
     })
-    const second = await grokAcpVersionProbe(() => {
-      calls += 1
-      return { ok: true, output: 'grok 0.2.118' }
+    const second = await grokAcpVersionProbe(TEST_INSTALLATION, {
+      env: {},
+      probe: () => {
+        calls += 1
+        return { ok: true, output: 'grok 0.2.118' }
+      },
     })
     expect(first).toMatchObject({ drivable: true, reason: 'unprobeable' })
     expect(second).toMatchObject({ drivable: true, reason: 'unprobeable' })
@@ -189,11 +200,15 @@ describe('grok ACP version probe memoization', () => {
       calls += 1
       return { ok: true, output: 'grok 0.2.22' }
     }
-    await expect(grokAcpVersionProbe(probe)).resolves.toMatchObject({
+    await expect(
+      grokAcpVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe }),
+    ).resolves.toMatchObject({
       drivable: false,
       reason: 'unsupported',
     })
-    await expect(grokAcpVersionProbe(probe)).resolves.toMatchObject({ reason: 'unsupported' })
+    await expect(
+      grokAcpVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe }),
+    ).resolves.toMatchObject({ reason: 'unsupported' })
     expect(calls).toBe(1)
   })
 })
@@ -206,9 +221,9 @@ describe('codex app-server version probe memoization', () => {
       calls += 1
       return { output: 'codex-cli 0.147.0', ok: true }
     }
-    await codexAppServerVersionProbe(probe)
-    await codexAppServerVersionProbe(probe)
-    await codexAppServerVersionProbe(probe)
+    await codexAppServerVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })
+    await codexAppServerVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })
+    await codexAppServerVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })
     // The binary on PATH does not change under a running daemon, and the probe
     // costs a fork of a 250MB executable.
     expect(calls).toBe(1)
@@ -221,8 +236,8 @@ describe('codex app-server version probe memoization', () => {
       calls += 1
       return { output: '', ok: false }
     }
-    await codexAppServerVersionProbe(probe)
-    await codexAppServerVersionProbe(probe)
+    await codexAppServerVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })
+    await codexAppServerVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })
     expect(calls).toBe(1)
   })
 })
@@ -236,7 +251,12 @@ describe('opencode version probe memoization and delegation', () => {
       writeFileSync(executable, '#!/bin/sh\nprintf "1.18.16\n"\n')
       chmodSync(executable, 0o755)
       process.env.PATH = '/usr/bin:/bin'
-      await expect(opencodeVersionProbeForExecutable(executable)).resolves.toEqual({
+      await expect(
+        opencodeVersionProbe(
+          { executable, version: '', generation: 0 },
+          { env: { PATH: '/usr/bin:/bin' } },
+        ),
+      ).resolves.toEqual({
         drivable: true,
       })
     } finally {
@@ -252,9 +272,9 @@ describe('opencode version probe memoization and delegation', () => {
       calls += 1
       return { output: '1.18.16', ok: true }
     }
-    await opencodeVersionProbe(probe)
-    await opencodeVersionProbe(probe)
-    await opencodeVersionProbe(probe)
+    await opencodeVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })
+    await opencodeVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })
+    await opencodeVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })
     // One fork of a 180MB binary per daemon, not one per session.
     expect(calls).toBe(1)
   })
@@ -266,17 +286,74 @@ describe('opencode version probe memoization and delegation', () => {
       calls += 1
       return calls === 1 ? { output: 'ETIMEDOUT', ok: false } : { output: '1.18.16', ok: true }
     }
-    expect((await opencodeVersionProbe(probe)).drivable).toBe(true)
+    expect((await opencodeVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })).drivable).toBe(true)
     // A spawn burst reuses the inconclusive result instead of repeating the
     // expensive process. Expiry behavior is pinned by the generic cache suite above.
-    expect((await opencodeVersionProbe(probe)).drivable).toBe(true)
+    expect((await opencodeVersionProbe(TEST_INSTALLATION, { env: {}, probe: probe })).drivable).toBe(true)
     expect(calls).toBe(1)
   })
 
   it('exposes only refusals through the old diagnostic surface', async () => {
     resetOpencodeVersionProbe()
-    await expect(opencodeVersionDiagnostic(() => ({ output: '1.18.16', ok: true }))).resolves.toBeNull()
+    await expect(opencodeVersionDiagnostic(TEST_INSTALLATION, { env: {}, probe: () => ({ output: '1.18.16', ok: true }) })).resolves.toBeNull()
     resetOpencodeVersionProbe()
-    await expect(opencodeVersionDiagnostic(() => ({ output: 'ENOENT', ok: false }))).resolves.toBeNull()
+    await expect(opencodeVersionDiagnostic(TEST_INSTALLATION, { env: {}, probe: () => ({ output: 'ENOENT', ok: false }) })).resolves.toBeNull()
+  })
+})
+
+/**
+ * GUARD (POD-6546): each of the four probe memos keys its verdict on one
+ * installation — executable path AND command-environment generation. The
+ * regression test that fails on the base is engine-harness-binding.test.ts
+ * ("a verdict for install A does not admit install B"); this pins the same
+ * rule for every memo, plus the generation half of the key.
+ */
+describe('version verdicts are keyed per installation', () => {
+  const probes = [
+    {
+      name: 'codex app-server',
+      probe: codexAppServerVersionProbe,
+      reset: resetCodexAppServerVersionProbe,
+      good: 'codex-cli 0.162.0',
+      bad: 'codex-cli 0.0.1',
+    },
+    {
+      name: 'grok acp',
+      probe: grokAcpVersionProbe,
+      reset: resetGrokAcpVersionProbe,
+      good: 'grok 1.0.46',
+      bad: 'grok 0.0.1',
+    },
+    {
+      name: 'opencode',
+      probe: opencodeVersionProbe,
+      reset: resetOpencodeVersionProbe,
+      good: '1.18.16',
+      bad: '0.0.1',
+    },
+    {
+      name: 'opencode2',
+      probe: opencode2VersionProbe,
+      reset: resetOpencode2VersionProbe,
+      good: '0.0.0-beta-18866',
+      bad: '0.0.1',
+    },
+  ] as const
+
+  it.each(probes)('$name: install A’s verdict never answers for install B or a new generation', async (entry) => {
+    entry.reset()
+    const answer = (output: string) => ({ env: {}, probe: () => ({ output, ok: true }) })
+    const a = { executable: '/opt/a/bin/harness', version: '', generation: 0 }
+    const b = { executable: '/opt/b/bin/harness', version: '', generation: 0 }
+
+    const first = await entry.probe(a, answer(entry.good))
+    expect(first.drivable).toBe(true)
+    // Same installation: the memo answers, the probe's own answer is ignored.
+    expect((await entry.probe(a, answer(entry.bad))).drivable).toBe(true)
+    // Another path: its own verdict.
+    expect((await entry.probe(b, answer(entry.bad))).drivable).toBe(false)
+    // The same path in a later generation: probed afresh (upgraded in place).
+    expect((await entry.probe({ ...a, generation: 1 }, answer(entry.bad))).drivable).toBe(false)
+    entry.reset()
   })
 })

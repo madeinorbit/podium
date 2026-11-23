@@ -1,4 +1,3 @@
-import { outboxCommandFor } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import {
   describeQueuedChange,
@@ -9,13 +8,13 @@ import {
   replaceAuthoredText,
   unsatisfiableConfirmationDetail,
 } from '@podium/client-core/outbox-recovery-copy'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useOutboxRecovery } from '@podium/client-core/react'
+import { outboxCommandFor } from '@podium/client-core/runtime-root'
 import type { ConfirmationRule } from '@podium/commands'
 import { recoveryPlanFor } from '@podium/sync/outbox'
 import * as Clipboard from 'expo-clipboard'
 import { useEffect, useState } from 'react'
 import { Alert, StyleSheet, Text, TextInput, View } from 'react-native'
-import type { MobileTrpc } from '../client/trpc'
 import { usePoolRecovery } from '../client/use-pool-notices'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
@@ -27,7 +26,7 @@ function confirmationRuleFor(kind: string): ConfirmationRule {
 }
 
 function DeadLetterCard({ parked }: { parked: OutboxDeadLetterEntry }) {
-  const { recoverOutbox } = useStoreHandle<MobileTrpc>().access
+  const recoverOutbox = useOutboxRecovery()
   const plan = recoveryPlanFor(parked.reason.code)
   const baseCopy = recoveryCopyFor(parked.reason.code)
   const rule = confirmationRuleFor(parked.entry.kind)

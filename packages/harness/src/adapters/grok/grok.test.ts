@@ -1,8 +1,8 @@
 import { asSessionId } from '@podium/model'
 import type { AgentObservationRebindAckMessage } from '@podium/protocol'
-import type { StatTick } from '../../store/index.js'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { HarnessObservationLease, HarnessObserverHost } from '../../manifest.js'
+import type { StatTick } from '../../store/index.js'
 
 const mocked = vi.hoisted(() => ({
   locate: vi.fn(),
@@ -39,6 +39,7 @@ vi.mock('./state-provider.js', async (importOriginal) => {
   }
 })
 
+import { testAccount } from '../../driver/testing/harness-context.js'
 import { grokManifest } from './index.js'
 
 class ManualStatTick implements StatTick {
@@ -89,7 +90,7 @@ function start(statTick: ManualStatTick) {
       cwd: '/repo',
       podiumSessionId: asSessionId('podium-grok'),
       resumeValue: 'session-a',
-      homeDir: '/isolated-home',
+      account: testAccount('grok', '/isolated-home'),
       transcriptRoot: '/isolated-state/transcripts',
       statTick,
       observationLease: lease('session-a'),

@@ -21,7 +21,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * context menu and the command palette). This module does not restate them — it
  * IMPORTS them, which is how the panel stopped being a third, disagreeing copy:
  * its own `canHibernate` read `!hibernated && !exited && resumable`, so it offered
- * Hibernate on a `starting` or `reconnecting` session, where the shared rule (and
+ * Hibernate on a `starting` session, where the shared rule (and
  * the server) says no.
  */
 import type { ExitedAction } from '@podium/client-core/values'

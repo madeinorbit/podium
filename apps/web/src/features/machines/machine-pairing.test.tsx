@@ -3,7 +3,9 @@ import { asMachineId } from '@podium/model'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
+
 import { findNewMachine, useMachinePairing } from './machine-pairing'
 
 function machine(id: string, online = true): MachineWire {
@@ -19,11 +21,11 @@ function machine(id: string, online = true): MachineWire {
 function trpcWithPairing(
   pairingCode = vi.fn().mockResolvedValue({ code: 'PAIR-CODE', joinCommand: 'podium join' }),
   setupInfo = vi.fn().mockResolvedValue({ publicUrl: 'https://podium.example.com' }),
-): Store['trpc'] {
+): import('@/app/trpc').Trpc {
   return {
     machines: { pairingCode: { mutate: pairingCode } },
     setup: { info: { query: setupInfo } },
-  } as unknown as Store['trpc']
+  } as unknown as import('@/app/trpc').Trpc
 }
 
 describe('machine pairing controller', () => {
@@ -39,7 +41,7 @@ describe('machine pairing controller', () => {
     await act(() => result.current.mint({ podiumManaged: false }))
 
     expect(pairingCode).toHaveBeenCalledWith({
-      copyAgentCredentials: true,
+      copyAgentCredentials: false,
       podiumManaged: false,
     })
     expect(setupInfo).toHaveBeenCalledOnce()

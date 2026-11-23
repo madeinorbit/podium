@@ -1,5 +1,6 @@
 import { asIssueId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 
 // Resolve profiling before importing the store/driver instrumentation.
@@ -16,6 +17,7 @@ afterAll(() => {
 import { queryAttributionSnapshot, resetQueryAttribution } from '@podium/runtime/sqlite'
 import { systemPrincipal } from '../../command-principal'
 import { harnessCapabilitiesFor } from '../../harness-manifest'
+import { memberFacts } from '../../store/fixtures/test-support'
 import { openTestStore } from '../../test-support/open-test-store'
 import { residentRecords } from '../../test-support/session-records'
 import { expectConstantStatements, type StatementPin } from '../../test-support/statement-count'
@@ -38,7 +40,7 @@ const machineId = asMachineId('projection-machine')
 async function fixture(count: number) {
   const store = await openTestStore(':memory:')
   await store.repos.addRepo('/projection', machineId, undefined, 'PASS')
-  await store.issues.upsertIssue({
+  await store.issues.upsertIssue(fixtureWriteScope(), {
     id: asIssueId('projection-issue'),
     ownerUserId: reader,
     visibility: 'personal',
@@ -65,8 +67,8 @@ async function fixture(count: number) {
     blockedBy: [],
     dependencyNote: null,
     prUrl: null,
-    createdAt: 't',
-    updatedAt: 't',
+    createdAt: '2026-09-11T00:00:00.000Z',
+    updatedAt: '2026-09-11T00:00:00.000Z',
     archived: false,
     priority: 2,
     type: 'task',
@@ -95,7 +97,10 @@ async function fixture(count: number) {
       geometry: { cols: 80, rows: 24 },
       machineId,
       toDaemon: () => {},
-      ownerUserId: [1, 3, 4].includes(i % 5) ? asUserId('other') : reader,
+      // Sessions are private (POD-6283): the reader sees exactly its own. Every
+      // fifth row is another person's, on a task the reader owns, with a legacy
+      // read grant to the reader below: neither makes it visible.
+      ownerUserId: i % 5 === 4 ? asUserId('other') : reader,
     })
     // Unique absent issues exercise negative caching as the corpus grows.
     if (i % 5 === 0) session.issueId = asIssueId(`missing-${i}`)
@@ -112,7 +117,10 @@ async function fixture(count: number) {
     return session
   })
   for (const [index, row] of rows.entries()) {
-    if (index % 5 === 1)
+    if (index % 5 === 4) {
+      row.issueId = asIssueId('projection-issue')
+    }
+    if (index % 5 === 4)
       await store.grants.upsert({
         resourceKind: 'session',
         resourceId: row.sessionId,
@@ -132,8 +140,13 @@ async function fixture(count: number) {
       queuedAt: 1,
     })
   }
-  await store.sessions.markSessionRead(reader, rows[0]!.sessionId, '2026-09-11T00:00:00.000Z')
-  await store.sessions.setSnooze(reader, rows[1]!.sessionId, null)
+  await store.sessions.markSessionRead(
+    fixtureWriteScope(),
+    reader,
+    rows[0]!.sessionId,
+    '2026-09-11T00:00:00.000Z',
+  )
+  await store.sessions.setSnooze(fixtureWriteScope(), reader, rows[1]!.sessionId, null)
   const sessions = new Map(rows.map((s) => [s.sessionId, s]))
   const authz = new SessionAuthz({ sessions, store } as never)
   const state = new SessionStateService({
@@ -157,7 +170,11 @@ async function fixture(count: number) {
     machineName: async () => 'Build box',
     agentLoginCondition: async () => 'logged-out' as const,
   }
-  const view = new SessionView({ records: residentRecords(sessions), store, state, sessionOccupancyCount: () => 3 })
+  const view = new SessionView({
+    records: residentRecords(sessions),
+    store,
+    state,
+  })
   // Reader-scoped calls still use their admitted principal; feed projection needs none.
   vi.spyOn(view, 'defaultPrincipal').mockResolvedValue(principal)
   return { store, rows, sessions, authz, state, machines, view }
@@ -190,7 +207,6 @@ async function legacyWire(s: Session, f: Awaited<ReturnType<typeof fixture>>) {
   return {
     ...meta,
     ...(queuedMessageCount > 0 ? { queuedMessageCount } : {}),
-    clientCount: 3,
     machineName: await f.machines.machineName(),
     ...(loginCondition ? { condition: loginCondition } : {}),
     ...(capabilities
@@ -239,25 +255,22 @@ describe('one projection pass', () => {
       // owner, issue owner (different from session owner), and unrelated reader.
       // Account status and actor kind are admission concerns: this API consumes
       // an admitted principal and historically consults neither user rows nor roles.
-      await f.store.users.create(
-        {
-          id: reader,
-          displayName: 'Reader',
-          role: 'member',
-          createdAt: '2026-09-10T00:00:00.000Z',
-          disabledAt: null,
-        },
-        'test-only',
-      )
+      // The reader's member row, through the two-engine member fixture (the one member
+      // writer underneath): active, later disabled.
+      const members = memberFacts(f.store)
+      await members.create({
+        id: reader,
+        displayName: 'Reader',
+        role: 'member',
+        createdAt: '2026-09-10T00:00:00.000Z',
+        disabledAt: null,
+      })
       expect(await f.store.users.get(reader)).toBeDefined()
       expect(
         await Promise.all(f.rows.map((s) => f.state.canReadSession(principal, s.sessionId))),
       ).toEqual([true, true, true, true, false])
-      // Test-only revocation: no user lifecycle write API exists yet.
-      // @ts-expect-error test-only access to the private database connection
-      await f.store.db
-        .prepare('UPDATE users SET disabled_at = ? WHERE id = ?')
-        .run('2026-09-11T00:00:00.000Z', reader)
+      await members.disable(reader)
+      expect(await f.store.users.get(reader)).toBeUndefined()
       // A previously admitted principal keeps this method's historical outcome.
       // The transport admission layer, not this visibility method, rejects it.
       expect(
@@ -282,9 +295,10 @@ describe('one projection pass', () => {
         userId: asUserId('unrelated'),
         capability: { role: 'admin', scope: { kind: 'all' } },
       } as SessionStatePrincipal
+      // The admin scope reaches nobody else's session (POD-6283).
       expect(
         await Promise.all(f.rows.map((s) => f.state.canReadSession(operator, s.sessionId))),
-      ).toEqual([true, true, true, true, true])
+      ).toEqual([false, false, false, false, false])
       expect(await f.state.canReadSession(operator, asSessionId('absent'))).toBe(false)
     } finally {
       await f.store.close()
@@ -329,7 +343,7 @@ describe('one projection pass', () => {
     }
   })
 
-  it('reads at most three statements for 200 visibility candidates and none for primed ownership', async () => {
+  it('reads no statement for 200 resident visibility candidates and none for primed ownership', async () => {
     const f = await fixture(200)
     try {
       resetQueryAttribution()
@@ -346,7 +360,8 @@ describe('one projection pass', () => {
       const count = statementCount() / recordingsPerStatement
       process.stdout.write(`visibility 200: ${count} physical statements\n`)
       expect(visible.size).toBe(160)
-      expect(count).toBe(3)
+      // Resident sessions carry their owner; nothing else is read (POD-6283).
+      expect(count).toBe(0)
       expect(sessionReads).not.toHaveBeenCalled()
       expect(userReads).not.toHaveBeenCalled()
 
@@ -354,10 +369,7 @@ describe('one projection pass', () => {
       // the registry, and its issue/grant inputs come from the enclosing pass.
       const pass = await f.view.buildProjectionPass(f.rows)
       resetQueryAttribution()
-      expect(await f.authz.sessionOwner(f.rows[3]!.sessionId, pass)).toEqual({
-        owner: reader,
-        grants: [],
-      })
+      expect(await f.authz.sessionOwner(f.rows[3]!.sessionId, pass)).toEqual({ owner: reader })
       expect(statementCount()).toBe(0)
       expect(sessionReads).not.toHaveBeenCalled()
       process.stdout.write('registered non-live ownership: 0 physical statements\n')
@@ -388,11 +400,10 @@ describe('one projection pass', () => {
         await f.store.close()
       }
     }
-    // Repo registry is warm from fixture creation. Three physical reads: issues,
-    // both grant kinds in one (POD-6217) and queue counts; no personal overlays.
-    // Calibration accounts for POD-3852 double recording, and still works after
-    // that fix lands.
-    expect(counts[0]).toBe(3)
+    // Repo registry is warm from fixture creation. Two physical reads: issues
+    // and queue counts; no grant read (sessions are private, POD-6283) and no
+    // personal overlays. Calibration accounts for POD-3852 double recording.
+    expect(counts[0]).toBe(2)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 
@@ -406,10 +417,20 @@ describe('one projection pass', () => {
         view: f.view,
         now: () => Date.now(),
         runScheduledBroadcast: async () => {},
-        ledger: {
-          capture: async (specs: { entity: string; id: string; op: string; value: unknown }[]) =>
-            specs.map((s, i) => ({ ...s, entityId: s.id, seq: i + 1 })),
-        },
+        // A change-log commit (POD-6920): it runs the write and reports one
+        // session change per dirty row, which the slice persists in one write.
+        writers: ((ledger) => ({ live: ledger, boot: ledger }))({
+          commit: async ({ write }: { write: (scope: unknown) => Promise<unknown> }) => ({
+            result: await write(fixtureWriteScope()),
+            changes: f.rows.map((row, i) => ({
+              entity: 'session',
+              entityId: row.sessionId,
+              op: 'upsert',
+              value: {},
+              seq: i + 1,
+            })),
+          }),
+        }),
       } as never)
       try {
         for (const s of f.rows) repo.markVolatileSessionDirty(s.sessionId)
@@ -429,11 +450,12 @@ describe('one projection pass', () => {
         await f.store.close()
       }
     }
-    // Repo registry is warm from fixture creation. Three physical reads: issues,
-    // both grant kinds in one (POD-6217) and queue counts; no personal overlays.
-    // Calibration accounts for POD-3852 double recording, and still works after
-    // that fix lands.
-    expect(counts[0]).toBe(3)
+    // Repo registry is warm from fixture creation. No grant read (sessions are
+    // private, POD-6283) and no personal overlays. Calibration accounts for
+    // POD-3852 double recording. Since POD-6920 the change-log commit builds
+    // the session records (the fake commit here builds none), so the issue
+    // and queue-count reads left this slice: one physical read remains.
+    expect(counts[0]).toBe(1)
     expect(counts).toEqual([counts[0], counts[0], counts[0]])
   })
 
@@ -481,34 +503,40 @@ describe('one projection pass', () => {
       teardown: async (f) => await f.store.close(),
     })
 
-    it('list: issues, both grant kinds in one read, and queue counts', async () => {
+    it('list: issues and queue counts', async () => {
       await expectConstantStatements(
-        pin('SessionView.list', (f) => f.view.list(principal, 'rpc'), (rows, size) =>
-          expect(rows).toHaveLength((size * 4) / 5),
+        pin(
+          'SessionView.list',
+          (f) => f.view.list(principal, 'rpc'),
+          (rows, size) => expect(rows).toHaveLength((size * 4) / 5),
         ),
-        3,
+        2,
       )
     })
 
-    it('byIds over every session: the same three reads', async () => {
+    it('byIds over every session: the same two reads', async () => {
       await expectConstantStatements(
         pin(
           'SessionView.byIds',
-          (f) => f.view.byIds(f.rows.map((s) => s.sessionId), principal),
+          (f) =>
+            f.view.byIds(
+              f.rows.map((s) => s.sessionId),
+              principal,
+            ),
           (rows, size) => expect(rows).toHaveLength((size * 4) / 5),
         ),
-        3,
+        2,
       )
     })
 
-    it('listForIssue: members carry an issue, so no session-grant read', async () => {
+    it('listForIssue: the same two reads', async () => {
       await expectConstantStatements(
         pin(
           'SessionView.listForIssue',
           (f) => f.view.listForIssue(null, asIssueId('projection-issue'), principal),
           (rows, size) => expect(rows).toHaveLength(size / 5),
         ),
-        3,
+        2,
       )
     })
 
@@ -519,7 +547,7 @@ describe('one projection pass', () => {
           (f) => f.view.byId(f.rows[3]!.sessionId, principal),
           (row) => expect(row).toMatchObject({ refSeq: 1, refLetter: 'b', queuedMessageCount: 1 }),
         ),
-        3,
+        2,
       )
     })
   })

@@ -24,7 +24,7 @@ export function menuIssues(pool: MobxPool): Loaded<IssueViewModel[]> {
       childIds: childIds.map(asIssueId),
       childCount: childIds.length,
       childDoneCount: childIds.filter((id) => {
-        const child = omitGone(pool.row('issue', id, 'summary')) as Loaded<{
+        const child = omitGone(pool.row('issue', id)) as Loaded<{
           stage?: string
           closedReason?: string | null
         }>

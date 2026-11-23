@@ -3,20 +3,31 @@ import {
   createSuperagentSource,
   SUPERAGENT_ENTITIES,
   SUPERAGENT_SOURCE_KEY,
-  SUPERAGENT_SUMMARIES,
 } from '@podium/client-graph/superagent'
 
 export const superagentPoolScreen: PoolScreen = {
   id: 'superagent',
-  options: () => ({ header: true, summaries: SUPERAGENT_SUMMARIES }),
+  options: () => ({ header: true }),
   async attach(runtime, pool) {
     await pool.sources.ensure(SUPERAGENT_SOURCE_KEY, SUPERAGENT_ENTITIES, () =>
-      createSuperagentSource(runtime),
+      createSuperagentSource({
+        ui: runtime.ui,
+        readPosition: runtime.readPosition,
+        replica: runtime.replica,
+      }),
     )
     const [{ NoticeSource, NOTICE_SOURCE_KEY }, { NOTICE_ENTITIES }] = await Promise.all([
       import('@podium/client-graph/notice-source'),
       import('@podium/client-graph/notice-schema'),
     ])
-    await pool.sources.ensure(NOTICE_SOURCE_KEY, NOTICE_ENTITIES, () => new NoticeSource(runtime))
+    await pool.sources.ensure(
+      NOTICE_SOURCE_KEY,
+      NOTICE_ENTITIES,
+      () =>
+        new NoticeSource({
+          replica: runtime.replica,
+          outbox: runtime.services.outbox.queue,
+        }),
+    )
   },
 }

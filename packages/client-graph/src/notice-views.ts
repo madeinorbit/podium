@@ -5,7 +5,6 @@ import { pendingInteractionCard } from './notice-card'
 import { omitGone } from './lookup'
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model'
-import type { HeaderRows } from './header-schema'
 import type { NoticeRows } from './notice-schema'
 import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -19,7 +18,7 @@ export class NoticeMessage implements MessageNotice {
   @lazy get sessionLabel(): string {
     const session = this.pool.sessionObject(this.sessionId)
     if (!session.known) {
-      const row = this.pool.row('session', this.sessionId, 'summary-fields')
+      const row = this.pool.row('session', this.sessionId)
       return typeof row === 'symbol' ? 'Loading session…' : 'a closed session'
     }
     return session.name?.trim() || session.title?.trim() || machinePathBasename(session.cwd ?? '') || session.agentKind || 'a closed session'
@@ -60,7 +59,7 @@ function messageNotice(pool: MobxPool, id: string): { notice?: NoticeMessage; pe
   if (message === LOADING) return { pending: 1 }
   if (!message || !isMessageRecordAttention(message.status)) return { pending: 0 }
   const notice = noticeCompanions(pool).message(message)
-  const labelPending = pool.resident('session', notice.sessionId, 'summary-fields') === 'loading'
+  const labelPending = pool.resident('session', notice.sessionId) === 'loading'
   return { notice, pending: labelPending ? 1 : 0, labelPending }
 }
 
@@ -125,8 +124,8 @@ export function noticeRecovery(pool: MobxPool) {
 
 export function noticeContinuity(pool: MobxPool) {
   const recovery = omitGone(pool.row('noticeRecoveryCatalog', 'catalog'))
-  const window = omitGone(pool.row('window', 'window')) as HeaderRows['window'] | undefined
-  return { outboxSize: window?.outboxSize ?? 0, deadLetters: recovery && recovery !== LOADING ? recovery.deadLetters.length : 0, pending: recovery === LOADING ? 1 : 0 }
+  // Unsent writes are a LiveStore condition (POD-5798).
+  return { outboxSize: pool.live?.outbox.pending ?? 0, deadLetters: recovery && recovery !== LOADING ? recovery.deadLetters.length : 0, pending: recovery === LOADING ? 1 : 0 }
 }
 
 /** Row-local delivery attention over the existing session index, never the full log.

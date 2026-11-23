@@ -1,7 +1,10 @@
 import type { MetadataChange } from '@podium/protocol'
 import { Ledger, type LedgerDeps, type StoredChangeRow } from '@podium/sync'
+import { ModelRecords, testLedgerWriter } from '@podium/sync/testing'
+import type { SessionStore } from '../../../store'
+import { installChangeLogHooks } from '../../../test-support/change-log-hooks'
+import { testStoreRecords } from '../../../test-support/record-writer'
 import type { IssueDeps } from './types'
-import { installedWorldOver } from '@podium/sync/testing'
 
 /**
  * TEST-ONLY funnel/ledger/publish plumbing for IssueDeps (issues #190, #255):
@@ -35,16 +38,44 @@ export function issueTestPlumbing(
    * the registry from inside the span is the same window an awaited commit will
    * open, and it is the only way to open one today.
    */
-  opts: { transact?: LedgerDeps['transact'] } = {},
-): Pick<IssueDeps, 'funnel' | 'ledger'> {
+  opts: {
+    transact?: LedgerDeps['transact']
+    /**
+     * The test's store (POD-6920): each commit drains the store's change
+     * capture and builds the records it reaches from this store. A test whose
+     * writes reach a store must pass it; without it nothing drains the
+     * capture and the store refuses the transaction.
+     */
+    store?: SessionStore
+  } = {},
+): Pick<IssueDeps, 'funnel' | 'ledger'> & {
+  /** The real Ledger behind `ledger`, for a test that reads the log back. */
+  readonly changeLog: Ledger
+} {
+  const emptyRecords = new ModelRecords()
+  // The Ledger reads the store's change capture, so the change log attaches
+  // to the store now (POD-6920); the first commit waits for it.
+  const attached = opts.store?.attachChangeLog()
+  // With a store, a commit is one store transaction, as in production: the
+  // write, its capture and the drain commit together.
+  const store = opts.store
+  const transact: LedgerDeps['transact'] =
+    opts.transact ??
+    (store === undefined ? async (fn) => await fn() : async (fn) => await store.transact(fn))
   const ledger = new Ledger({
     repo: memoryChangeLogStore(),
     now: Date.now,
-    transact: opts.transact ?? (async (fn) => await fn()),
+    transact: async (fn) => {
+      await attached
+      return await transact(fn)
+    },
+    records: opts.store === undefined ? emptyRecords : testStoreRecords(opts.store),
   })
   ledger.onAppended((changes) => {
     for (const change of changes) onPublished(change)
   })
+  // The store's own write funnels commit on this Ledger, as relay.ts wires them.
+  if (store !== undefined) installChangeLogHooks(store, testLedgerWriter(ledger))
   return {
     funnel: {
       run: async (op) => {
@@ -52,7 +83,8 @@ export function issueTestPlumbing(
         return await op.write()
       },
     },
-    ledger,
+    ledger: testLedgerWriter(ledger),
+    changeLog: ledger,
   }
 }
 
@@ -85,10 +117,5 @@ export function memoryChangeLogStore(): LedgerDeps['repo'] {
       rows.filter((r) => r.seq > from && r.seq <= through).slice(0, limit),
     planChangePrune: async () => ({ thresholdSeq: 0 }),
     pruneChangeBatch: async () => 0,
-    ...installedWorldOver(async () => {
-      const latest = new Map<string, Row>()
-      for (const r of rows) latest.set(`${r.entity} ${r.entityId}`, r)
-      return [...latest.values()]
-    }),
   }
 }

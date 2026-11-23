@@ -1,39 +1,39 @@
-import { addSink, createRingBufferSink } from '@podium/logger'
-import { openDatabase } from '@podium/runtime/sqlite'
+import { createPrivateKey, sign } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { addSink, createRingBufferSink } from '@podium/logger'
 import { asMachineId, asSessionId } from '@podium/model'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
   CAP_TERMINAL_PICTURE_V1,
+  DAEMON_WIRE_VERSION,
   DaemonPtyOutputMetadata,
   decodeBinaryEnvelope,
   encodeBinaryEnvelope,
   type PeerHello,
   type PeerHelloReply,
-  DAEMON_WIRE_VERSION,
 } from '@podium/protocol'
 import {
   CAP_DELIVERY_ACCEPTED,
   CAP_DELIVERY_NOT_IN_CONVERSATION,
   type DaemonMessage,
 } from '@podium/protocol/daemon'
-import { readConnectivityForTest, writeConnectivity } from '@podium/runtime/connectivity'
+import vectors from '@podium/protocol/server-locate-vectors'
 import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { readConnectivityForTest, writeConnectivity } from '@podium/runtime/connectivity'
 import { readDaemonHealth, writeDaemonHealth } from '@podium/runtime/daemon-health'
 import { ParentProcess } from '@podium/runtime/parent-process'
 import { removeRecord, writeRecord } from '@podium/runtime/run-registry'
 import { developmentSourceVersion } from '@podium/runtime/source-version'
+import { openDatabase } from '@podium/runtime/sqlite'
 import {
   readOrCreateUpdateSigningKey,
   rotateUpdateSigningKey,
 } from '@podium/runtime/update-signing-key'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createPrivateKey, sign } from 'node:crypto'
-import vectors from '@podium/protocol/server-locate-vectors'
 import type { RawData } from 'ws'
 import { buildReport } from './build-report'
 import { createDaemonConnection, describeSocketError } from './connection-state'
@@ -98,6 +98,76 @@ function connection(
     onTerminal: vi.fn(),
   })
 }
+
+describe('startup admission ownership', () => {
+  it.each([
+    false,
+    true,
+  ])('commits before application work and fences a losing claim (%s)', async (lose) => {
+    const order: string[] = []
+    const identity = { token: 'retained-token' }
+    const receive = vi.fn()
+    const options = localOptions(() => {}, {
+      machineToken: 'retained-token',
+      onAdmitted: () => {
+        order.push('commit')
+        if (lose) throw new Error('lost ownership election')
+      },
+    })
+    const state = createDaemonConnection({
+      options,
+      build: buildReport(process.env, undefined),
+      machineId: MACHINE_ID,
+      identity,
+      receiveApplicationFrame: receive,
+      sendApplicationFrame: vi.fn(() => true),
+      queueDrainOutbox: createQueueDrainOutbox(temp()),
+      runtimeEventOutbox: createRuntimeEventOutbox(temp()),
+      onConnected: () => {
+        order.push('application')
+      },
+      onTerminal: vi.fn(),
+    })
+    try {
+      if (lose) {
+        await expect(state.start()).rejects.toThrow(/lost ownership election/)
+        expect(state.state).toBe('blocked')
+        expect(order).toEqual(['commit'])
+        expect(receive).not.toHaveBeenCalled()
+        expect(identity.token).toBe('retained-token')
+      } else {
+        await state.start()
+        expect(order).toEqual(['commit', 'application'])
+        expect(state.state).toBe('connected')
+      }
+    } finally {
+      await state.close()
+    }
+  })
+
+  it('does not commit startup migrations when the server update-key pin refuses admission', async () => {
+    const admitted = vi.fn()
+    const options = localOptions(() => {}, { machineToken: 'retained-token', onAdmitted: admitted })
+    options.localLink = {
+      attach: async () => ({
+        established: true,
+        reply: { ...ok, updatePubkey: 'new-server-key' },
+        machineId: MACHINE_ID,
+        deliver: vi.fn(),
+        deliverOutput: vi.fn(),
+        close: vi.fn(),
+      }),
+    }
+    const state = connection(options, { token: 'retained-token', updatePubkey: 'old-server-key' })
+    try {
+      await expect(state.start()).rejects.toThrow(/publisher update key was replaced/)
+      expect(admitted).not.toHaveBeenCalled()
+      expect(state.state).toBe('blocked')
+    } finally {
+      await state.close()
+    }
+  })
+})
 
 describe('daemon connection credential state machine', () => {
   it.each([
@@ -374,7 +444,9 @@ describe('daemon connection credential state machine', () => {
 
   it('accepts a changed key only through a valid old-key-signed rotation', async () => {
     const signingDir = openDatabase(':memory:')
-    signingDir.exec('CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)')
+    signingDir.exec(
+      'CREATE TABLE server_secrets (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)',
+    )
     const original = readOrCreateUpdateSigningKey(signingDir)
     const firstOptions = localOptions(() => {}, { machineToken: 'stage-one-token' })
     const identityDir = firstOptions.identityDir as string
@@ -544,6 +616,7 @@ function remoteConnection(sockets: FakeSocket[], timers: ReconnectTimers, identi
   let socketIndex = 0
   const onConnected = vi.fn()
   const onTerminal = vi.fn()
+  const onLinkLost = vi.fn()
   const state = createDaemonConnection({
     options: { serverUrl: 'ws://server', identityDir, reconnectTimers: timers },
     build: buildReport(process.env, undefined),
@@ -555,13 +628,14 @@ function remoteConnection(sockets: FakeSocket[], timers: ReconnectTimers, identi
     runtimeEventOutbox: createRuntimeEventOutbox(temp()),
     onConnected,
     onTerminal,
+    onLinkLost,
     openSocket: () => {
       const active = sockets[socketIndex++]
       if (!active) throw new Error('test exhausted its fake sockets')
       return active
     },
   })
-  return { state, onConnected, onTerminal }
+  return { state, onConnected, onTerminal, onLinkLost }
 }
 
 function remoteHarness() {
@@ -684,7 +758,9 @@ const pictureBatch = {
 it.each([
   { caps: [] },
   { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1] },
-])('never sends a picture item to a server without terminal.picture.v1 (%j) (N8)', async ({ caps }) => {
+])('never sends a picture item to a server without terminal.picture.v1 (%j) (N8)', async ({
+  caps,
+}) => {
   const h = remoteHarness()
   const started = h.state.start()
   h.socket.emit('open')
@@ -1124,6 +1200,40 @@ it('normally reconnects and resets truthful connectivity state', async () => {
   await state.close()
 })
 
+it('reports each established link lost once, before the reconnect, and never a failed dial (D22)', async () => {
+  const sockets = [new FakeSocket(), new FakeSocket(), new FakeSocket()]
+  const harness = timerHarness()
+  const { state, onConnected, onLinkLost } = remoteConnection(sockets, harness.timers)
+
+  const started = state.start()
+  sockets[0]?.emit('open')
+  sockets[0]?.message(ok)
+  await started
+  expect(onLinkLost).not.toHaveBeenCalled()
+
+  // The server goes away: the loss is reported at once, while still in backoff.
+  sockets[0]?.emit('close')
+  expect(state.state).toBe('backoff')
+  expect(onLinkLost).toHaveBeenCalledTimes(1)
+
+  // A dial that never reaches `connected` was never a link.
+  harness.runNext(500)
+  sockets[1]?.emit('open')
+  sockets[1]?.emit('close')
+  expect(onLinkLost).toHaveBeenCalledTimes(1)
+
+  harness.runNext(1_000)
+  sockets[2]?.emit('open')
+  sockets[2]?.message(ok)
+  expect(state.state).toBe('connected')
+  expect(onConnected).toHaveBeenCalledTimes(2)
+  expect(onLinkLost).toHaveBeenCalledTimes(1)
+
+  // A deliberate close ends the link too, and only once.
+  await state.close()
+  expect(onLinkLost).toHaveBeenCalledTimes(2)
+})
+
 it('keeps the daemon boot identity when the live source changes before reconnect', async () => {
   const sockets = [new FakeSocket(), new FakeSocket()]
   let socketIndex = 0
@@ -1418,7 +1528,6 @@ it('retries the entire inventory handshake after a lookup failure and delivers t
   await conn.close()
 })
 
-
 it('retries the whole local handshake when host recovery fails', async () => {
   const state = connection(localOptions(() => {}, { machineToken: 'local-secret' }))
   try {
@@ -1476,7 +1585,9 @@ it('forwards superseded observations live and replays only retained events after
         established: true,
         reply: ok,
         machineId: MACHINE_ID,
-        deliver: (frame) => { delivered.push(frame) },
+        deliver: (frame) => {
+          delivered.push(frame)
+        },
         deliverOutput: vi.fn(),
         close: vi.fn(),
       }),
@@ -1495,21 +1606,38 @@ it('forwards superseded observations live and replays only retained events after
     onTerminal: vi.fn(),
   })
   const envelope = {
-    at: '2026-09-18T12:00:00.000Z', provenance: 'live' as const,
-    observerGeneration: 1, turnEpoch: 1,
+    at: '2026-09-18T12:00:00.000Z',
+    provenance: 'live' as const,
+    observerGeneration: 1,
+    turnEpoch: 1,
     cursor: { segmentId: 'segment', components: { seq: 1 } },
   }
   const live: Extract<DaemonMessage, { type: 'runtimeEvent' }>[] = [
-    { type: 'runtimeEvent', sessionId: asSessionId('s'), event: { ...envelope, t: 'state', change: { kind: 'activity' } } },
-    { type: 'runtimeEvent', sessionId: asSessionId('s'), event: { ...envelope, t: 'workspace', ev: { ev: 'cwd-changed', cwd: '/repo' } } },
-    { type: 'runtimeEvent', sessionId: asSessionId('s'), event: { ...envelope, t: 'draft', text: 'draft' } },
+    {
+      type: 'runtimeEvent',
+      sessionId: asSessionId('s'),
+      event: { ...envelope, t: 'state', change: { kind: 'activity' } },
+    },
+    {
+      type: 'runtimeEvent',
+      sessionId: asSessionId('s'),
+      event: { ...envelope, t: 'workspace', ev: { ev: 'cwd-changed', cwd: '/repo' } },
+    },
+    {
+      type: 'runtimeEvent',
+      sessionId: asSessionId('s'),
+      event: { ...envelope, t: 'draft', text: 'draft' },
+    },
   ]
   const bootstrap = {
-    ...live[0]!, deliveryId: 'bootstrap',
+    ...live[0]!,
+    deliveryId: 'bootstrap',
     event: { ...live[0]!.event, provenance: 'bootstrap' as const },
   }
   const receipt = {
-    type: 'runtimeEvent' as const, deliveryId: 'receipt', sessionId: asSessionId('s'),
+    type: 'runtimeEvent' as const,
+    deliveryId: 'receipt',
+    sessionId: asSessionId('s'),
     event: { ...envelope, t: 'delivery' as const, rowId: 'row', outcome: 'delivered' as const },
   }
   const legacy = { ...live[0]!, deliveryId: 'retained-before-upgrade' }
@@ -1543,6 +1671,95 @@ it('forwards superseded observations live and replays only retained events after
     expect(delivered).toEqual(live)
     expect(outbox.pending()).toEqual([])
     expect(harness.next(500)).toBeUndefined()
+  } finally {
+    await conn.close()
+    outbox.close()
+  }
+})
+
+it('resends only overdue runtime events on a live link, backing off while acks lag', async () => {
+  // The retry storm: every tick resent the WHOLE pending set, so a server whose
+  // acks lagged by L received each event L/500ms times, fell further behind,
+  // and the link dropped. A tick resends only events a full interval old.
+  const harness = timerHarness()
+  const delivered: DaemonMessage[] = []
+  const outbox = createRuntimeEventOutbox(temp())
+  const options = localOptions(() => {}, {
+    machineToken: 'local-secret',
+    reconnectTimers: harness.timers,
+    localLink: {
+      attach: async () => ({
+        established: true,
+        reply: ok,
+        machineId: MACHINE_ID,
+        deliver: (frame) => {
+          delivered.push(frame)
+        },
+        deliverOutput: vi.fn(),
+        close: vi.fn(),
+      }),
+    },
+  })
+  const conn = createDaemonConnection({
+    options,
+    build: buildReport(process.env, undefined),
+    machineId: MACHINE_ID,
+    identity: {},
+    receiveApplicationFrame: vi.fn(),
+    sendApplicationFrame: vi.fn(() => true),
+    queueDrainOutbox: createQueueDrainOutbox(temp()),
+    runtimeEventOutbox: outbox,
+    onConnected: vi.fn(),
+    onTerminal: vi.fn(),
+  })
+  const event = (deliveryId: string): Extract<DaemonMessage, { type: 'runtimeEvent' }> => ({
+    type: 'runtimeEvent',
+    deliveryId,
+    sessionId: asSessionId('s'),
+    event: {
+      at: '2026-11-17T12:00:00.000Z',
+      provenance: 'bootstrap',
+      observerGeneration: 1,
+      turnEpoch: 1,
+      cursor: { segmentId: 'segment', components: { seq: 1 } },
+      t: 'state',
+      change: { kind: 'activity' },
+    },
+  })
+  const ids = () => delivered.map((frame) => (frame as { deliveryId?: string }).deliveryId)
+  try {
+    await conn.start()
+    conn.send(event('a'))
+    expect(ids()).toEqual(['a'])
+    delivered.length = 0
+
+    // First tick: 'a' has been on the wire less than one interval. Not resent.
+    harness.runNext(500)
+    conn.send(event('b'))
+    expect(ids()).toEqual(['b'])
+    delivered.length = 0
+
+    // Second tick: 'a' went a full interval unacknowledged and is resent once;
+    // 'b' is still fresh and is not.
+    harness.runNext(500)
+    expect(ids()).toEqual(['a'])
+    delivered.length = 0
+
+    // Resending backs the interval off instead of firing every 500ms.
+    expect(harness.next(500)).toBeUndefined()
+    harness.runNext(1_000)
+    expect(ids()).toEqual(['b'])
+    delivered.length = 0
+    harness.runNext(2_000)
+    expect(ids()).toEqual(['a'])
+    delivered.length = 0
+
+    // Draining the pending set stops the retry and resets the interval.
+    conn.acknowledgeRuntimeEvent('a')
+    conn.acknowledgeRuntimeEvent('b')
+    expect(harness.next(4_000)).toBeUndefined()
+    conn.send(event('c'))
+    expect(harness.next(500)).toBeDefined()
   } finally {
     await conn.close()
     outbox.close()
@@ -1622,7 +1839,8 @@ describe('podium connect locator rescue (POD-4533)', () => {
     const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
       fetchCalls.push(url)
-      if (url.includes('/v1/installations/')) return new Response(locatorRecordBody(recordEndpoints))
+      if (url.includes('/v1/installations/'))
+        return new Response(locatorRecordBody(recordEndpoints))
       if (url.endsWith('/.well-known/podium/locate')) {
         const origin = url.replace(/\/\.well-known\/podium\/locate$/, '')
         if (opts.provers?.includes(origin)) return proofResponse(origin, init?.body)
@@ -1639,7 +1857,11 @@ describe('podium connect locator rescue (POD-4533)', () => {
     const socketUrls: string[] = []
     const onConnected = vi.fn()
     const state = createDaemonConnection({
-      options: { serverUrl: 'wss://old.example', identityDir: temp(), reconnectTimers: harness.timers },
+      options: {
+        serverUrl: 'wss://old.example',
+        identityDir: temp(),
+        reconnectTimers: harness.timers,
+      },
       build: buildReport(process.env, undefined),
       machineId: MACHINE_ID,
       identity: { token: 'token' },
@@ -1663,7 +1885,16 @@ describe('podium connect locator rescue (POD-4533)', () => {
     const republish = (endpoints: Array<{ url: string; priority: number }>): void => {
       recordEndpoints = endpoints
     }
-    return { state, onConnected, sockets, socketUrls, fetchCalls, locatorReads, republish, timers: harness }
+    return {
+      state,
+      onConnected,
+      sockets,
+      socketUrls,
+      fetchCalls,
+      locatorReads,
+      republish,
+      timers: harness,
+    }
   }
 
   const dropSocket = (socket: FakeSocket): void => {
@@ -1689,7 +1920,12 @@ describe('podium connect locator rescue (POD-4533)', () => {
   it('a dead server URL resolves, adopts the new URL through set-server, and reconnects', async () => {
     const h = rescueHarness({
       recordEndpoints: [{ url: 'https://new.example', priority: 100 }],
-      versions: { 'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY } },
+      versions: {
+        'https://new.example': {
+          installationId: INSTALLATION_ID,
+          installationPublicKey: INSTALLATION_KEY,
+        },
+      },
       identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
     })
     const started = h.state.start()
@@ -1743,7 +1979,12 @@ describe('podium connect locator rescue (POD-4533)', () => {
     // and a mandatory resolver would phone it (or refuse to dial at all).
     const h = rescueHarness({
       recordEndpoints: [{ url: 'https://new.example', priority: 100 }],
-      versions: { 'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY } },
+      versions: {
+        'https://new.example': {
+          installationId: INSTALLATION_ID,
+          installationPublicKey: INSTALLATION_KEY,
+        },
+      },
     })
     void h.state.start()
     dropSocket(h.sockets[0]!)
@@ -1788,7 +2029,10 @@ describe('podium connect locator rescue (POD-4533)', () => {
           { url: 'https://down.example', priority: 50 },
         ],
         versions: {
-          'https://impostor.example': { installationId: OTHER_ID, installationPublicKey: OTHER_KEY },
+          'https://impostor.example': {
+            installationId: OTHER_ID,
+            installationPublicKey: OTHER_KEY,
+          },
         },
         identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
       })
@@ -1797,7 +2041,10 @@ describe('podium connect locator rescue (POD-4533)', () => {
       await flush()
       const rejected = sink
         .snapshot()
-        .filter((record) => record.msg === 'locator candidate rejected; keeping the configured server URL')
+        .filter(
+          (record) =>
+            record.msg === 'locator candidate rejected; keeping the configured server URL',
+        )
       expect(rejected).toEqual([
         expect.objectContaining({
           level: 'warn',
@@ -1826,8 +2073,14 @@ describe('podium connect locator rescue (POD-4533)', () => {
     const h = rescueHarness({
       recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
       versions: {
-        'https://old.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
-        'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+        'https://old.example': {
+          installationId: INSTALLATION_ID,
+          installationPublicKey: INSTALLATION_KEY,
+        },
+        'https://new.example': {
+          installationId: INSTALLATION_ID,
+          installationPublicKey: INSTALLATION_KEY,
+        },
       },
       identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
     })
@@ -1868,7 +2121,10 @@ describe('podium connect locator rescue (POD-4533)', () => {
     const h = rescueHarness({
       recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
       versions: {
-        'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+        'https://new.example': {
+          installationId: INSTALLATION_ID,
+          installationPublicKey: INSTALLATION_KEY,
+        },
       },
       identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
     })
@@ -1895,7 +2151,12 @@ describe('podium connect locator rescue (POD-4533)', () => {
     try {
       const h = rescueHarness({
         recordEndpoints: [{ url: 'https://new.example', priority: 100 }],
-        versions: { 'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY } },
+        versions: {
+          'https://new.example': {
+            installationId: INSTALLATION_ID,
+            installationPublicKey: INSTALLATION_KEY,
+          },
+        },
         identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
       })
       const started = h.state.start()
@@ -1957,7 +2218,12 @@ describe('podium connect locator rescue (POD-4533)', () => {
     const h = rescueHarness({
       recordEndpoints: [{ url: 'https://new.example', priority: 100 }],
       // Names the right installation and key on /version, but cannot sign.
-      versions: { 'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY } },
+      versions: {
+        'https://new.example': {
+          installationId: INSTALLATION_ID,
+          installationPublicKey: INSTALLATION_KEY,
+        },
+      },
       identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
       proofVerified: true,
     })
@@ -1998,7 +2264,8 @@ describe('podium connect locator rescue (POD-4533)', () => {
     h.sockets[0]!.message(ok)
     await started
     await vi.waitFor(() => expect(loadConfig().connect?.locateProofVerified).toBe(true))
-    const proofCalls = () => h.fetchCalls.filter((url) => url.endsWith('/.well-known/podium/locate'))
+    const proofCalls = () =>
+      h.fetchCalls.filter((url) => url.endsWith('/.well-known/podium/locate'))
     expect(proofCalls()).toHaveLength(1)
     // The next connection does not ask its server again.
     h.sockets[0]!.finishClose()
@@ -2054,7 +2321,9 @@ describe('the accepted outcome on the daemon link (POD-4886)', () => {
             established: true,
             reply: { ...ok, caps: serverCaps },
             machineId: MACHINE_ID,
-            deliver: (frame) => { delivered.push(frame) },
+            deliver: (frame) => {
+              delivered.push(frame)
+            },
             deliverOutput: vi.fn(),
             close: vi.fn(),
           }
@@ -2129,9 +2398,7 @@ describe('the accepted outcome on the daemon link (POD-4886)', () => {
     const l = link([CAP_DELIVERY_ACCEPTED])
     await l.conn.start()
     l.conn.send(exited)
-    expect(l.delivered).toEqual([
-      { ...exited, event: { ...exited.event, cause: 'unconfirmed' } },
-    ])
+    expect(l.delivered).toEqual([{ ...exited, event: { ...exited.event, cause: 'unconfirmed' } }])
     expect(l.outbox.pending()).toEqual([exited])
     await l.conn.close()
   })

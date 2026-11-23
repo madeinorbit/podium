@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TranscriptItem } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fileByteSource } from './byte-source'
 import type { ChainEntry } from './file-chain'
 import { fileIdFor } from './file-chain'
 import * as slice from './slice'
@@ -42,7 +43,7 @@ async function oneFile(n: number): Promise<{ chain: ChainEntry[]; path: string }
   const lines: string[] = []
   for (let i = 0; i < n; i++) lines.push(rec(`u${i}`, String(i)))
   await writeFile(path, `${lines.join('\n')}\n`)
-  return { chain: [{ path, fileId: fileIdFor(path) }], path }
+  return { chain: [{ source: fileByteSource(path), fileId: fileIdFor(path) }], path }
 }
 
 afterEach(() => {
@@ -221,7 +222,7 @@ describe('readTranscriptSliceCached', () => {
   it('never caches when a chain file is missing (serves fresh, does not throw)', async () => {
     resetSliceCache()
     const chain: ChainEntry[] = [
-      { path: join(tmpdir(), 'does-not-exist-xyz.jsonl'), fileId: 'NONE' },
+      { source: fileByteSource(join(tmpdir(), 'does-not-exist-xyz.jsonl')), fileId: 'NONE' },
     ]
     const r = await readTranscriptSliceCached(chain, idxToItems, { direction: 'before', limit: 3 })
     expect(r.items).toEqual([])

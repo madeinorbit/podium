@@ -27,6 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import drizzleConfig from '../../../../drizzle.config'
+import { workspaceRef } from './branded-ref'
 import { automationRuns, automations, issueDeps, issues, sessionObservationRebinds } from './schema'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -43,8 +44,8 @@ function stripComments(source: string): string {
   return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '')
 }
 
-describe('brandedRef', () => {
-  it('still declares the foreign key it wraps', () => {
+describe('workspaceRef', () => {
+  it('declares the composite foreign key it wraps, workspace first on both sides', () => {
     const { foreignKeys } = getTableConfig(automationRuns)
     const references = foreignKeys.map((fk) => {
       const { columns, foreignColumns } = fk.reference()
@@ -55,8 +56,8 @@ describe('brandedRef', () => {
       }
     })
     expect(references).toContainEqual({
-      from: ['automation_id'],
-      to: ['id'],
+      from: ['workspace_id', 'automation_id'],
+      to: ['workspace_id', 'id'],
       onDelete: 'cascade',
     })
   })
@@ -67,13 +68,16 @@ describe('brandedRef', () => {
     }
   })
 
-  it('leaves the referenced primary keys branded', () => {
-    // A brand is type-level and emits no SQL, so nothing at runtime can read it
-    // back. What CAN be read is that the columns the foreign keys point at are
-    // still the primary keys they were declared against — the far side of the
-    // pair the type check compares.
-    expect(getTableConfig(automations).columns.find((c) => c.name === 'id')?.primary).toBe(true)
-    expect(getTableConfig(issues).columns.find((c) => c.name === 'id')?.primary).toBe(true)
+  it('refuses a key that does not lead with the workspace on both sides', () => {
+    const { columns } = getTableConfig(automations)
+    const byName = (name: string) => columns.find((column) => column.name === name)!
+    expect(() =>
+      workspaceRef({
+        name: 'fk_planted',
+        columns: [byName('id'), byName('workspace_id')] as never,
+        foreignColumns: [byName('id'), byName('workspace_id')] as never,
+      }),
+    ).toThrow(/must lead with workspace_id/)
   })
 })
 
@@ -85,14 +89,18 @@ describe('the drizzle schema files', () => {
     expect(SCHEMA_FILES).toContain(join(HERE, 'schema.ts'))
   })
 
-  it('declares every foreign key through brandedRef, never drizzle .references()', () => {
+  it('declares every foreign key through workspaceRef, never drizzle .references() or foreignKey()', () => {
     for (const file of SCHEMA_FILES) {
-      expect(stripComments(readFileSync(file, 'utf8'))).not.toMatch(/\.references\s*\(/)
+      const source = stripComments(readFileSync(file, 'utf8'))
+      expect(source).not.toMatch(/\.references\s*\(/)
+      // The sync adapter's capture guard is the one key between tables of no workspace.
+      if (!file.endsWith('adapters/sqlite/schema.ts'))
+        expect(source).not.toMatch(/\bforeignKey\s*\(/)
     }
     // …and the helper is genuinely in use, so the assertion above is not passing
     // because every foreign key quietly went away.
     expect(stripComments(readFileSync(join(HERE, 'schema.ts'), 'utf8'))).toMatch(
-      /\bbrandedRef\s*\(/,
+      /\bworkspaceRef\s*\(/,
     )
   })
 

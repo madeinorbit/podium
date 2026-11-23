@@ -24,11 +24,21 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   AGENT_MANIFESTS,
-  assertDeclinedReasonsValid,
-  sectionStatusesOf,
   type AgentManifest,
+  applyTerms,
+  assertDeclinedReasonsValid,
+  LAUNCH_MODES,
+  type LaunchMode,
+  launchTerms,
+  POSTURE_REQUIREMENTS,
+  sectionStatusesOf,
 } from '@podium/harness'
-import { BUILTIN_HARNESS_KINDS } from '@podium/protocol'
+import { testHarnessContext } from '@podium/harness/driver/testing'
+import {
+  BUILTIN_HARNESS_KINDS,
+  type BuiltinHarnessKind,
+  DEFAULT_SESSION_POSTURE,
+} from '@podium/protocol'
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(REPO, 'docs', 'architecture', 'harness-support-matrix.md')
@@ -125,7 +135,83 @@ function render(manifests: Record<string, AgentManifest>): string {
     }
     lines.push('')
   }
+  lines.push(...postureSection(manifests, kinds))
   return lines.join('\n')
+}
+
+/** A stand-in install for the posture table: fixed example folders, an
+ *  unread version (a section then assumes a current release). */
+const POSTURE_HOME = '/home/user'
+const POSTURE_WORKDIR = '/work/repo/.worktrees/issue-1'
+
+/**
+ * WHAT THE DEFAULT POSTURE COMES TO, PER HARNESS AND LAUNCH MODE (POD-6858
+ * Task 11, harness-session-posture.md §4.8 and §5): each adapter's posture
+ * section, run on its own fresh launch, read back as one word per
+ * requirement. `met`: by a flag, inline config or by default. `home edit`:
+ * only by an edit to the harness home. `unmet`: the launch cannot meet it;
+ * the reason follows the table.
+ */
+function postureSection(
+  manifests: Record<string, AgentManifest>,
+  kinds: readonly string[],
+): string[] {
+  const lines: string[] = []
+  const reasons: string[] = []
+  lines.push('## Default posture by launch mode')
+  lines.push('')
+  lines.push(
+    `What \`${JSON.stringify(DEFAULT_SESSION_POSTURE)}\` comes to for a current install, from each ` +
+      "adapter's posture section (`packages/harness/src/adapters/<harness>/posture.ts`). " +
+      '`met`: by a flag, inline config or by default. `home edit`: only by an edit to the ' +
+      'harness home. `unmet`: this launch cannot meet it; the reasons follow the table. ' +
+      'The mode column is the harness mode Podium asks for.',
+  )
+  lines.push('')
+  lines.push(`| harness | launch | mode | ${POSTURE_REQUIREMENTS.join(' | ')} |`)
+  lines.push(`| --- | --- | --- | ${POSTURE_REQUIREMENTS.map(() => '---').join(' | ')} |`)
+  for (const kind of kinds) {
+    const manifest = manifests[kind] as AgentManifest
+    const context = testHarnessContext({ kind: kind as BuiltinHarnessKind, home: POSTURE_HOME })
+    const runtimeDir = `${POSTURE_HOME}/.podium/session-instructions/s1`
+    const built = manifest.launch({ cwd: POSTURE_WORKDIR, harnessContext: context, runtimeDir })
+    for (const mode of LAUNCH_MODES as readonly LaunchMode[]) {
+      const { applied } = applyTerms(
+        { args: built.args, env: built.env ?? {}, files: built.files ?? [] },
+        launchTerms(manifest, {
+          mode,
+          posture: DEFAULT_SESSION_POSTURE,
+          grants: {
+            podiumCli: { name: 'podium', path: 'podium' },
+            uploadsDir: `${POSTURE_HOME}/.podium/uploads/s1`,
+            mcpServers: ['podium'],
+          },
+          workdir: POSTURE_WORKDIR,
+          repoRoot: '/work/repo',
+          runtimeDir,
+          context,
+        }),
+      )
+      const cells = POSTURE_REQUIREMENTS.map((requirement) => {
+        const unmet = applied.unmet.find((entry) => entry.requirement === requirement)
+        if (unmet) {
+          reasons.push(`- ${kind}, ${mode}, \`${requirement}\`: ${unmet.reason}`)
+          return 'unmet'
+        }
+        return applied.homeEdits.some((edit) => edit.serves === requirement) ? 'home edit' : 'met'
+      })
+      const requested = applied.requestedMode === null ? 'none' : `\`${applied.requestedMode}\``
+      lines.push(`| ${kind} | ${mode} | ${requested} | ${cells.join(' | ')} |`)
+    }
+  }
+  lines.push('')
+  if (reasons.length > 0) {
+    lines.push('Unmet, and why:')
+    lines.push('')
+    lines.push(...reasons)
+    lines.push('')
+  }
+  return lines
 }
 
 const check = process.argv.includes('--check')

@@ -19,16 +19,23 @@
 
 import {
   AgentProfileName,
+  CidrRange,
+  CredentialId,
   canonicalShippingDestination,
   DriverFamilyWire,
+  EFFECT_STATUSES,
+  EffectStatusOnWire,
   InviteId,
   LAYOUT_EXACT_KEYS,
   LayoutKeyField,
   LayoutSnapshot,
-  MemberId,
   MESSAGE_DELIVERY_STATUSES,
+  MemberId,
   MessageDeliveryStatusOnWire,
   MessageId,
+  NewEffectId,
+  NewIssueId,
+  NewSessionId,
   READ_STREAM_IDS,
   ReadPositionSnapshot,
   ReadStreamIdField,
@@ -38,17 +45,19 @@ import {
   ShipStep,
   ShipTrainLane,
   ShipTrainManifest,
-  shipRepairRef,
   ShipwrightAttemptResult,
   ShipwrightEvidenceRef,
+  shipRepairRef,
   TERMINAL_SHIP_STEP_STATES,
 } from '@podium/model'
 import type { z } from 'zod'
+import { HomeCredentialId } from '../messages/homes'
 import {
   ShippingEvidenceRequestMessage,
   ShippingRepairApplyRequestMessage,
   ShippingTrainExecution,
 } from '../messages/shipping'
+import { TopicKeyField, topicKey } from '../planes/topics'
 import type { SampleOptions } from './sampler'
 
 /** One exact key from the closed layout vocabulary — stable fixture pin. */
@@ -72,8 +81,15 @@ export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
   [InviteId, () => 'inv_0ujtsYcgvSTl8PAuAdqWYSMnLOv'],
   // `msg_` + a UUID (POD-4763): the path-derived "MessageId" fails the regex.
   [MessageId, () => 'msg_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e70'],
+  // `cred_` + a UUID (credential management, plan Task 1): same reason.
+  [CredentialId, () => 'cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71'],
+  // A home's credential segment (credential management §10, Task 8): `cred_`
+  // and a directory-safe tail; the path-derived "credentialId" fails it.
+  [HomeCredentialId, () => 'cred_0190f2a4-7c1e-7d3a-9b5e-2f6c8d4a1e71'],
   // A lowercase slug (POD-6107): the path-derived "AgentProfileName" fails the regex.
   [AgentProfileName, () => 'build'],
+  // A network range (credential management §8): a path-derived string is no range.
+  [CidrRange, () => '192.168.1.0/24'],
   // Closed isLayoutKey vocabulary (POD-1350 / POD-402). Path-derived samples
   // like "" / "entityId" / "key" fail the refine; pin the first exact key.
   [LayoutKeyField, () => FIXTURE_LAYOUT_KEY],
@@ -125,10 +141,7 @@ export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
   // walker must never emit it here. Alternate the two steady-state families
   // by arm so both keep wire coverage; the legacy value stays covered in
   // `messages/driver-family-wire.test.ts`.
-  [
-    DriverFamilyWire,
-    (opts: SampleOptions) => (opts.arm % 2 === 0 ? 'server' : 'terminal'),
-  ],
+  [DriverFamilyWire, (opts: SampleOptions) => (opts.arm % 2 === 0 ? 'server' : 'terminal')],
   // A status a client does not know reads as `typed` (still on its way)
   // instead of refusing the row (POD-4885): the generic walker's
   // path-derived string would take that branch and parse would rewrite it.
@@ -137,9 +150,20 @@ export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
   // the POD-4885 section of `messages.test.ts`.
   [
     MessageDeliveryStatusOnWire,
-    (opts: SampleOptions) =>
-      MESSAGE_DELIVERY_STATUSES[opts.arm % MESSAGE_DELIVERY_STATUSES.length],
+    (opts: SampleOptions) => MESSAGE_DELIVERY_STATUSES[opts.arm % MESSAGE_DELIVERY_STATUSES.length],
   ],
+  // The same rule for effect records (ADR 12 D5): an unknown status reads as
+  // `unknown`, so a path-derived string would record a parse rewrite. Cycle the
+  // known statuses; the unknown read is covered in `entities/effect.test.ts`.
+  [EffectStatusOnWire, (opts: SampleOptions) => EFFECT_STATUSES[opts.arm % EFFECT_STATUSES.length]],
+  // Device-minted ids (ADR 12 D4) are a prefix and a version-4 UUID: the
+  // path-derived string fails the shape check.
+  [NewEffectId, () => 'eff_0b6f3c2e-4d1a-4e8b-9c7d-5a2f1e3b4c6d'],
+  [NewIssueId, () => 'iss_0b6f3c2e-4d1a-4e8b-9c7d-5a2f1e3b4c6d'],
+  [NewSessionId, () => '0b6f3c2e-4d1a-4e8b-9c7d-5a2f1e3b4c6d'],
+  // A topic key is a well-formed `kind:id` (ADR 7 Am.2 D23): the path-derived
+  // string has no separator and fails the refine.
+  [TopicKeyField, () => topicKey('machine.condition', 'machineId')],
 ])
 
 export type SampleFixup = (value: unknown, opts: SampleOptions, path: string) => unknown

@@ -1,45 +1,43 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useDeviceState } from '@podium/client-core/react'
 import {
+  MOBILE_PROMO_DISMISSED_KEY,
   type RoutedUiState,
+  requireReplicatedLayoutKey,
   TIP_SEEN_KEY_PREFIX,
   UI_STATE_KEYS,
 } from '@podium/client-core/ui-state'
 import type { MobxPool } from '@podium/client-graph'
-import { headerView } from '@podium/client-graph/header-views'
 import { LOADING } from '@podium/client-graph/loading'
 import { isGone } from '@podium/client-graph/lookup'
-import { preferenceSource } from '@podium/client-graph/preference-source'
 import { lazy } from '@podium/mobx-helpers'
-import { action, observable, runInAction } from 'mobx'
-import { useEffect } from 'react'
-import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
-import { ALL_TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
+import { action, observable } from 'mobx'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { TIP_IDS, type TipId, type TipLog, type TipOutcome } from './types'
 
-export const ACCOUNT_TIP_IDS = ALL_TIP_IDS
-export type AccountTipLogContract = TipLog
+export const ACCOUNT_TIP_IDS = TIP_IDS
+export type AccountTipLogContract = Omit<TipLog, 'setEnabled'> & {
+  /** Re-enabling restores dismissed cards; the returned action restores their prior state. */
+  setEnabled(on: boolean): (() => void) | undefined
+}
 
 const tipKey = (id: TipId): string => `${TIP_SEEN_KEY_PREFIX}${id}`
-const keys = [UI_STATE_KEYS.tipsEnabled, ...ACCOUNT_TIP_IDS.map(tipKey)]
+const dismissedKeys = [...ACCOUNT_TIP_IDS.map(tipKey), MOBILE_PROMO_DISMISSED_KEY]
+const keys = [UI_STATE_KEYS.tipsEnabled, ...dismissedKeys]
 
 /** Reads the shared preference rows, never a second copy of account state. */
 export class AccountTipLog implements AccountTipLogContract {
-  @observable accessor hydrated = false
   @observable private accessor disposed = false
-  private loading: Promise<void> | undefined
 
   constructor(
     private readonly pool: MobxPool,
     private readonly ui: Pick<RoutedUiState, 'set'>,
-    private readonly hydrate: () => Promise<void>,
     private readonly now: () => string = () => new Date().toISOString(),
   ) {}
 
   @lazy get ready(): boolean {
-    if (this.disposed || !this.hydrated) return false
-    return keys.every((key) => {
-      const row = this.pool.row('preference', key)
-      return row !== LOADING && !isGone(row)
-    })
+    return (
+      !this.disposed && keys.every((key) => this.pool.layoutReady(requireReplicatedLayoutKey(key)))
+    )
   }
 
   @lazy get enabled(): boolean {
@@ -55,35 +53,12 @@ export class AccountTipLog implements AccountTipLogContract {
     return row === LOADING || isGone(row) ? null : row.value
   }
 
-  /** A cached empty layout is not proof of an unseen tip. Wait for the account's
-   * authoritative layout, including rollout seeding, before the engine can show. */
-  load(): Promise<void> {
-    if (this.disposed || this.hydrated) return Promise.resolve()
-    if (this.loading) return this.loading
-    this.loading = this.hydrate()
-      .then(() => {
-        if (this.disposed) return
-        runInAction(() => {
-          for (const key of keys) {
-            this.pool.row('preference', key)
-            preferenceSource(this.pool)?.refreshKey(key)
-          }
-          this.hydrated = true
-        })
-      })
-      .finally(() => {
-        this.loading = undefined
-      })
-    return this.loading
-  }
-
   @action dispose(): void {
     this.disposed = true
   }
 
-  private write(key: string, value: string): void {
+  private write(key: string, value: string | null): void {
     this.ui.set(key, value)
-    preferenceSource(this.pool)?.refreshKey(key)
   }
 
   @action record(id: TipId, outcome: TipOutcome): void {
@@ -95,9 +70,16 @@ export class AccountTipLog implements AccountTipLogContract {
     if (outcome === 'skipped-all') this.setEnabled(false)
   }
 
-  @action setEnabled(on: boolean): void {
-    if (!this.ready) return
+  @action setEnabled(on: boolean): (() => void) | undefined {
+    if (!this.ready || on === this.enabled) return
+    const changedKeys = on ? keys : [UI_STATE_KEYS.tipsEnabled]
+    const previous = changedKeys.map((key) => [key, this.value(key)] as const)
+    if (on) for (const key of dismissedKeys) this.write(key, null)
     this.write(UI_STATE_KEYS.tipsEnabled, String(on))
+    return action(() => {
+      if (!this.ready) return
+      for (const [key, value] of previous) this.write(key, value)
+    })
   }
 }
 
@@ -106,24 +88,12 @@ const pendingLog: AccountTipLogContract = {
   enabled: true,
   isSeen: () => false,
   record: () => {},
-  setEnabled: () => {},
+  setEnabled: () => undefined,
 }
 
-const connectionStatus = (pool: MobxPool) => headerView(pool).connection()?.status ?? null
-
+/** Readiness follows the same addressed pool records as the tip values. */
 export function useAccountTipLog(): AccountTipLogContract {
   const pool = useWorklistPool()
-  const connection = useWorklistPoolProjection(connectionStatus, null)
-  const { uiState, replicatedLayout } = useStoreHandle().access
-  const log = pool?.sources.view(
-    'account-tip-log',
-    () => new AccountTipLog(pool, uiState, () => replicatedLayout.hydrate()),
-  )
-  useEffect(() => {
-    // Network failure keeps ready=false. Retry after reconnect or remount;
-    // never show a tip against an account layout that has not arrived.
-    if (connection === 'down') return
-    void log?.load().catch(() => {})
-  }, [log, connection])
-  return log ?? pendingLog
+  const ui = useDeviceState()
+  return pool?.sources.view('account-tip-log', () => new AccountTipLog(pool, ui)) ?? pendingLog
 }

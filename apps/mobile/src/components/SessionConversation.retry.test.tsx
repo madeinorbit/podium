@@ -148,7 +148,7 @@ it.each([
       },
     },
   })
-  const subscribe = vi.spyOn(app.runtime.hub, 'subscribeTranscript')
+  const subscribe = vi.spyOn(app.runtime.services.connection.hub, 'subscribeTranscript')
   expect(read).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'closed' }))
   fireEvent.click(screen.getByRole('button', { name: 'retry' }))

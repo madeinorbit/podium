@@ -75,8 +75,8 @@ export const HISTORICAL_ALLOWLIST = new Set<string>([
 
 /**
  * CONTRACT STEPS a person decided to ship, each with its reason. Unlike the
- * historical allowlist this names the exact finding admitted — its kind and the
- * table it rebuilds — so anything ELSE destructive in the same file still fails
+ * historical allowlist this names the exact finding admitted — its kind, table
+ * and optional column — so anything ELSE destructive in the same file still fails
  * the gate. It is not a policy change: each entry is one reviewed decision.
  */
 export const APPROVED_CONTRACT_STEPS = new Map<
@@ -86,6 +86,131 @@ export const APPROVED_CONTRACT_STEPS = new Map<
     admits: ReadonlyArray<{ kind: DestructiveDdlKind; table: string; column?: string }>
   }
 >([
+  [
+    'apps/server/src/migrations/drizzle/20260812145728_superagent-thread-backend-and-queue/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies every queued input into the thread-backed queue and rebuilds its primary key and thread-order index',
+      admits: [
+        { kind: 'table-rebuild', table: 'superagent_queued_inputs' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260812175034_shipping-durable-model/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies every issue into the rebuilt table to admit the shipping and verifying stages required by the durable shipping model',
+      admits: [
+        { kind: 'table-rebuild', table: 'issues' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260814023533_shipping-train-authority/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies shipping attempts, orders and train members into tables carrying train-authority constraints after releasing the previous train generation',
+      admits: [
+        { kind: 'table-rebuild', table: 'ship_attempts' },
+        { kind: 'table-rebuild', table: 'ship_orders' },
+        { kind: 'table-rebuild', table: 'ship_train_members' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260814032110_shipping-train-proof-authority/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: rebuilds copied delivery receipts and train manifests with immutable proof and execution-location authority',
+      admits: [
+        { kind: 'table-rebuild', table: 'delivery_receipts' },
+        { kind: 'table-rebuild', table: 'ship_train_manifests' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260814032524_interactions-superseded/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies all pending interactions while widening the status CHECK to admit superseded',
+      admits: [
+        { kind: 'table-rebuild', table: 'pending_interactions' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260826195939_supervisor-machine-presence/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: backfills service assignments from recorded machine components, then removes the obsolete supervised flag',
+      admits: [
+        { kind: 'drop-column', table: 'machines', column: 'supervised' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260911082826_retire-the-solo-user/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: rewrites every solo-user reference to the installation-minted member id and copies all rows into tables without the retired literal owner defaults',
+      admits: [
+        { kind: 'table-rebuild', table: 'automation_runs' },
+        { kind: 'table-rebuild', table: 'automations' },
+        { kind: 'table-rebuild', table: 'execution_profiles' },
+        { kind: 'table-rebuild', table: 'issues' },
+        { kind: 'table-rebuild', table: 'sessions' },
+        { kind: 'table-rebuild', table: 'superagent_messages' },
+        { kind: 'table-rebuild', table: 'superagent_pending_turns' },
+        { kind: 'table-rebuild', table: 'superagent_queued_inputs' },
+        { kind: 'table-rebuild', table: 'superagent_threads' },
+        { kind: 'table-rebuild', table: 'workflow_bindings' },
+        { kind: 'table-rebuild', table: 'workflow_runs' },
+        { kind: 'table-rebuild', table: 'workflows' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20260917212210_machine-custody-grant-edges/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies recorded machine ownership into use and custody grant edges and grant audiences before dropping owner_user_id',
+      admits: [
+        { kind: 'drop-column', table: 'machines', column: 'owner_user_id' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261025170514_remove-task-colors/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: removes the retired task color field and rotates the feed epoch so replicas discard cached color payloads',
+      admits: [
+        { kind: 'drop-column', table: 'issues', column: 'color' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261109003141_issue-pins-as-pin-records/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: copies every issue pin and its original timestamp into pins before removing the redundant pinned_at marker',
+      admits: [
+        { kind: 'drop-column', table: 'issue_user_state', column: 'pinned_at' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261111133104_identity-import-retirement/migration.sql',
+    {
+      reason:
+        'POD-7196 historical review: drops local invite and credential tables only after the local identity import hook has carried their authority into the identity store',
+      admits: [
+        { kind: 'drop-table', table: 'member_invites' },
+        { kind: 'drop-table', table: 'user_credentials' },
+      ],
+    },
+  ],
   [
     'apps/server/src/migrations/drizzle/20260929145432_drop-legacy-message-status/migration.sql',
     {
@@ -174,6 +299,176 @@ export const APPROVED_CONTRACT_STEPS = new Map<
       admits: [{ kind: 'table-rebuild', table: 'issue_deps' }],
     },
   ],
+  [
+    'apps/server/src/migrations/drizzle/20261110205811_issue-panel-records/migration.sql',
+    {
+      reason:
+        'POD-6253 authorized panel records (POD-6778): validate and copy panel items and state fields into issue_panel_* before dropping their old columns and the migration-only validation table',
+      admits: [
+        // The CHECK helper has finished validating the source JSON before this drop.
+        { kind: 'drop-table', table: '__panel_migration_validation' },
+        // Backfilled into issue_panel_states.text and issue_panel_states.updated_at.
+        { kind: 'drop-column', table: 'issues', column: 'activity_notes' },
+        { kind: 'drop-column', table: 'issues', column: 'notes_updated_at' },
+        // Backfilled into issue_panel_todos, issue_panel_artifacts and issue_panel_deferred.
+        { kind: 'drop-column', table: 'issues', column: 'panel' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261111124333_sync-log-only/migration.sql',
+    {
+      reason:
+        'POD-6253 authorized removing the redundant change_latest copy (POD-6771): bootstrap reads canonical model tables and changes retains the replay log',
+      admits: [{ kind: 'drop-table', table: 'change_latest' }],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261111141656_tenant-sync-feed/migration.sql',
+    {
+      reason:
+        'POD-6253 authorized preserving re-keys for tenant numbering; all rows, generations and cursor bounds survive (POD-6775)',
+      admits: [
+        { kind: 'table-rebuild', table: 'changes' },
+        { kind: 'table-rebuild', table: 'sync_kind' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261118101144_workspace-column/migration.sql',
+    {
+      // POD-7012 (POD-6959 design 2.6, migration M1): the sync tables' tenant column
+      // is the workspace column, renamed in place; no reader of the old name is left.
+      reason: 'renames the sync tables tenant_id to workspace_id (POD-7012, design 2.6)',
+      admits: [
+        { kind: 'rename', table: 'changes', column: 'tenant_id' },
+        { kind: 'rename', table: 'sync_feed', column: 'tenant_id' },
+        { kind: 'rename', table: 'sync_kind', column: 'tenant_id' },
+      ],
+    },
+  ],
+  [
+    'apps/server/src/migrations/drizzle/20261118101338_workspace-keys/migration.sql',
+    {
+      // POD-7024 (POD-6959 design 2.2, 2.3, 2.6, migration M2): every workspace table
+      // is rebuilt so its keys, uniques and indexes lead with workspace_id; every row,
+      // rowid and column is copied (workspace-keys.test.ts holds them equal), and the
+      // legacy feed_identity singleton is dropped (design 2.1). An older binary cannot
+      // open a newer database (convergence.ts), so that rollback is refused by design.
+      reason: 'leads every key of a workspace table with workspace_id (POD-7024, design 2.6)',
+      admits: [
+        { kind: 'table-rebuild', table: 'issue_text_revisions' },
+        { kind: 'table-rebuild', table: 'labels' },
+        { kind: 'table-rebuild', table: 'lock_waiters' },
+        { kind: 'table-rebuild', table: 'podium_events' },
+        { kind: 'table-rebuild', table: 'settings_audit_events' },
+        { kind: 'table-rebuild', table: 'superagent_messages' },
+        { kind: 'table-rebuild', table: 'workflow_events' },
+        { kind: 'table-rebuild', table: 'workflow_revisions' },
+        { kind: 'table-rebuild', table: 'workflow_run_steps' },
+        { kind: 'table-rebuild', table: 'account_machine_sends' },
+        { kind: 'table-rebuild', table: 'accounts' },
+        { kind: 'table-rebuild', table: 'agent_profiles' },
+        { kind: 'table-rebuild', table: 'approval_requests' },
+        { kind: 'table-rebuild', table: 'artifact_uploads' },
+        { kind: 'table-rebuild', table: 'automation_runs' },
+        { kind: 'table-rebuild', table: 'automations' },
+        { kind: 'table-rebuild', table: 'carried_sign_ins' },
+        { kind: 'table-rebuild', table: 'checkout_lost' },
+        { kind: 'table-rebuild', table: 'checkout_reach' },
+        { kind: 'table-rebuild', table: 'checkouts' },
+        { kind: 'table-rebuild', table: 'client_sessions' },
+        { kind: 'table-rebuild', table: 'conversation_identities' },
+        { kind: 'table-rebuild', table: 'conversation_segment_incarnations' },
+        { kind: 'table-rebuild', table: 'conversation_segments' },
+        { kind: 'table-rebuild', table: 'conversations' },
+        { kind: 'table-rebuild', table: 'delivery_receipts' },
+        { kind: 'table-rebuild', table: 'effects' },
+        { kind: 'table-rebuild', table: 'grant_audiences' },
+        { kind: 'table-rebuild', table: 'grants' },
+        { kind: 'table-rebuild', table: 'issue_comments' },
+        { kind: 'table-rebuild', table: 'issue_deps' },
+        { kind: 'table-rebuild', table: 'issue_git_states' },
+        { kind: 'table-rebuild', table: 'issue_labels' },
+        { kind: 'table-rebuild', table: 'issue_message_user_state' },
+        { kind: 'table-rebuild', table: 'issue_messages' },
+        { kind: 'table-rebuild', table: 'issue_panel_artifacts' },
+        { kind: 'table-rebuild', table: 'issue_panel_deferred' },
+        { kind: 'table-rebuild', table: 'issue_panel_states' },
+        { kind: 'table-rebuild', table: 'issue_panel_todos' },
+        { kind: 'table-rebuild', table: 'issue_ref_letters' },
+        { kind: 'table-rebuild', table: 'issue_user_state' },
+        { kind: 'table-rebuild', table: 'issues' },
+        { kind: 'table-rebuild', table: 'locks' },
+        { kind: 'table-rebuild', table: 'machines' },
+        { kind: 'table-rebuild', table: 'maintenance_commands' },
+        { kind: 'table-rebuild', table: 'message_reads' },
+        { kind: 'table-rebuild', table: 'message_wake_cooldowns' },
+        { kind: 'table-rebuild', table: 'messages' },
+        { kind: 'table-rebuild', table: 'messaging_issue_topics' },
+        { kind: 'table-rebuild', table: 'messaging_session_attachments' },
+        { kind: 'table-rebuild', table: 'native_login_opt_ins' },
+        { kind: 'table-rebuild', table: 'native_login_transfers' },
+        { kind: 'table-rebuild', table: 'notification_facts' },
+        { kind: 'table-rebuild', table: 'offers' },
+        { kind: 'table-rebuild', table: 'operations' },
+        { kind: 'table-rebuild', table: 'pending_interactions' },
+        { kind: 'table-rebuild', table: 'pending_uploads' },
+        { kind: 'table-rebuild', table: 'pins' },
+        { kind: 'table-rebuild', table: 'queued_messages' },
+        { kind: 'table-rebuild', table: 'quota_windows' },
+        { kind: 'table-rebuild', table: 'recap_watermarks' },
+        { kind: 'table-rebuild', table: 'repo_draft_seq' },
+        { kind: 'table-rebuild', table: 'repo_prefixes' },
+        { kind: 'table-rebuild', table: 'repos' },
+        { kind: 'table-rebuild', table: 'root_integration_receipts' },
+        { kind: 'table-rebuild', table: 'runtime_event_checkpoints' },
+        { kind: 'table-rebuild', table: 'runtime_event_projection_cursors' },
+        { kind: 'table-rebuild', table: 'session_drafts' },
+        { kind: 'table-rebuild', table: 'session_observation_checkpoints' },
+        { kind: 'table-rebuild', table: 'session_observation_rebinds' },
+        { kind: 'table-rebuild', table: 'session_terminal_candidates' },
+        { kind: 'table-rebuild', table: 'session_user_state' },
+        { kind: 'table-rebuild', table: 'sessions' },
+        { kind: 'table-rebuild', table: 'ship_attempts' },
+        { kind: 'table-rebuild', table: 'ship_effect_envelopes' },
+        { kind: 'table-rebuild', table: 'ship_evidence' },
+        { kind: 'table-rebuild', table: 'ship_holds' },
+        { kind: 'table-rebuild', table: 'ship_lane_revisions' },
+        { kind: 'table-rebuild', table: 'ship_order_stack_edges' },
+        { kind: 'table-rebuild', table: 'ship_orders' },
+        { kind: 'table-rebuild', table: 'ship_recovery_revision' },
+        { kind: 'table-rebuild', table: 'ship_recovery_work' },
+        { kind: 'table-rebuild', table: 'ship_repair_candidates' },
+        { kind: 'table-rebuild', table: 'ship_steps' },
+        { kind: 'table-rebuild', table: 'ship_train_active_claims' },
+        { kind: 'table-rebuild', table: 'ship_train_manifests' },
+        { kind: 'table-rebuild', table: 'ship_train_members' },
+        { kind: 'table-rebuild', table: 'snoozes' },
+        { kind: 'table-rebuild', table: 'steward_state' },
+        { kind: 'table-rebuild', table: 'subscription_deliveries' },
+        { kind: 'table-rebuild', table: 'subscriptions' },
+        { kind: 'table-rebuild', table: 'superagent_pending_turns' },
+        { kind: 'table-rebuild', table: 'superagent_queued_inputs' },
+        { kind: 'table-rebuild', table: 'superagent_threads' },
+        { kind: 'table-rebuild', table: 'tab_order' },
+        { kind: 'table-rebuild', table: 'telegram_chat_bindings' },
+        { kind: 'table-rebuild', table: 'transcript_costs' },
+        { kind: 'table-rebuild', table: 'upstream_outbox' },
+        { kind: 'table-rebuild', table: 'user_dock_shell' },
+        { kind: 'table-rebuild', table: 'user_layout' },
+        { kind: 'table-rebuild', table: 'user_preferences' },
+        { kind: 'table-rebuild', table: 'user_read_position' },
+        { kind: 'table-rebuild', table: 'users' },
+        { kind: 'table-rebuild', table: 'workflow_bindings' },
+        { kind: 'table-rebuild', table: 'workflow_runs' },
+        { kind: 'table-rebuild', table: 'workflows' },
+        { kind: 'table-rebuild', table: 'applied_mutations' },
+        { kind: 'table-rebuild', table: 'sync_feed' },
+        { kind: 'drop-table', table: 'feed_identity' },
+      ],
+    },
+  ],
 ])
 
 /** The findings an approved contract step does not admit. Each admission is
@@ -206,6 +501,11 @@ function admitMatches(
   if (admit.kind === 'drop-table')
     return new RegExp(
       `\\bDROP\\s+TABLE\\s+(IF\\s+EXISTS\\s+)?${q}${admit.table}${q}\\s*(;|$)`,
+      'i',
+    ).test(statement)
+  if (admit.kind === 'rename' && admit.column)
+    return new RegExp(
+      `\\bALTER\\s+TABLE\\s+${q}${admit.table}${q}\\s+RENAME\\s+COLUMN\\s+${q}${admit.column}${q}\\s+TO\\b`,
       'i',
     ).test(statement)
   if (admit.kind === 'drop-column' && admit.column)
@@ -415,6 +715,23 @@ export function findDestructiveDdl(sql: string): DestructiveDdlFinding[] {
   const renameRe = /\bALTER\s+TABLE\b[\s\S]*?\bRENAME\b/i
   const addNotNullRe = /\bALTER\s+TABLE\b[\s\S]*?\bADD(?:\s+COLUMN)?\b[\s\S]*?\bNOT\s+NULL\b/i
   const defaultRe = /\bDEFAULT\b/i
+  // CHECK predicates can contain IS NOT NULL without constraining the column.
+  const columnConstraints = (statement: string): string => {
+    let depth = 0
+    return [...statement]
+      .map((char) => {
+        if (char === '(') {
+          depth++
+          return ' '
+        }
+        if (char === ')') {
+          depth--
+          return ' '
+        }
+        return depth > 0 ? ' ' : char
+      })
+      .join('')
+  }
 
   for (const [index, span] of spans.entries()) {
     if (covered.has(index)) continue
@@ -426,7 +743,10 @@ export function findDestructiveDdl(sql: string): DestructiveDdlFinding[] {
       kind = 'drop-column'
     } else if (renameRe.test(span.clean)) {
       kind = 'rename'
-    } else if (addNotNullRe.test(span.clean) && !defaultRe.test(span.clean)) {
+    } else if (
+      addNotNullRe.test(columnConstraints(span.clean)) &&
+      !defaultRe.test(columnConstraints(span.clean))
+    ) {
       kind = 'not-null-without-default'
     }
 

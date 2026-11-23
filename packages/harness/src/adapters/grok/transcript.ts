@@ -1,4 +1,4 @@
-import type { TranscriptItem, TranscriptTag } from '@podium/model'
+import type { TranscriptItem, TranscriptTag, TranscriptToolExecution } from '@podium/model'
 import { fileTranscript, supported, type TranscriptSourceInput } from '../../manifest.js'
 import type {
   HarnessRuntimeObservation,
@@ -7,6 +7,7 @@ import type {
 } from '../../transcript-types.js'
 import { SYNTHESIZED_ITEM_ID_PREFIX } from '../../transcript-types.js'
 import { toolInputPreview } from '../claude-code/transcript.js'
+import { commandExecution, executionOutput, executionText } from '../shared/execution.js'
 import { safeToolEditJsonFromInput } from '../shared/tool-edit.js'
 import { locateGrokTranscript } from './state-locate.js'
 
@@ -44,21 +45,37 @@ import { locateGrokTranscript } from './state-locate.js'
  * prompt: when Grok dispatched it, later than the send when it waited in
  * Grok's queue). The record's own `timestamp` is whole seconds and is not used.
  *
- * Ids are the record's position (the cursor the store stamps), except tool
- * items, which keep Grok's call id. They stay the same however the file is
- * read. Grok's own `promptId` is not on the chunk: it is on the
- * `hook_execution user_prompt_submit` record written just before it, which a
- * windowed read can cut off, so it is not folded into the id.
+ * IDS ARE GROK'S OWN, THE SAME ONES THE LIVE DRIVER NAMES (POD-7003). A prompt
+ * or reply record is named by its `_meta.eventId` ({@link grokPromptEntryId},
+ * {@link grokReplyItemId}); a tool item keeps Grok's call id. A chat-view
+ * session's latest page lays the grok-acp driver's items over this read and
+ * joins them by id, so a record named any other way here is shown twice. The
+ * driver can name a reply this way while it streams: Grok streams it as many
+ * chunks, each under its own eventId, and writes it here as ONE record under
+ * the last chunk's eventId and time (measured on 1.0.70; the 1.0.44
+ * `session/load` replay agrees). A record without an eventId (none seen) falls
+ * back to its position, the cursor the store stamps. The ids stay the same
+ * however the file is read. Grok's own `promptId` is not on the chunk: it is on
+ * the `hook_execution user_prompt_submit` record written just before it, which
+ * a windowed read can cut off, so it is not folded into the id.
  */
 export const grokRecordToItems: TranscriptRecordMapper = Object.assign(mapGrokRecord, {
   endsTurn: grokRecordEndsTurn,
 })
 
+/** The prompt entry recorded under Grok's `eventId` (POD-7003). */
+export const grokPromptEntryId = (eventId: string): string => `grok-user-${eventId}`
+
+/** The reply recorded under Grok's `eventId`: the last streamed chunk's (POD-7003). */
+export const grokReplyItemId = (eventId: string): string => `grok-assistant-${eventId}`
+
 function mapGrokRecord(record: unknown, previousRecord?: unknown): TranscriptItem[] {
   const params = recordField(record, 'params')
   const update = recordField(params, 'update')
   if (!params || !update) return []
-  const ts = eventTime(recordField(params, '_meta'))
+  const meta = recordField(params, '_meta')
+  const ts = eventTime(meta)
+  const eventId = stringField(meta, 'eventId')
   switch (stringField(update, 'sessionUpdate')) {
     case 'user_message_chunk': {
       if (recordField(update, '_meta')?.hideFromScrollback === true) return []
@@ -66,20 +83,25 @@ function mapGrokRecord(record: unknown, previousRecord?: unknown): TranscriptIte
       // Measured 35/35: the prompt's submit hook_execution is immediately
       // before its chunk. Reader-local context only; a clipped read has no id.
       const preceding = recordField(recordField(previousRecord, 'params'), 'update')
-      const promptId = stringField(preceding, 'sessionUpdate') === 'hook_execution' &&
+      const promptId =
+        stringField(preceding, 'sessionUpdate') === 'hook_execution' &&
         stringField(preceding, 'event_name') === 'user_prompt_submit'
-        ? stringField(preceding, 'prompt_id') : undefined
+          ? stringField(preceding, 'prompt_id')
+          : undefined
       if (!text && tags.length === 0) return []
       // A LATER CHUNK OF THE SAME PROMPT IS NOT ANOTHER ENTRY (POD-5923).
       // Measured on 1.0.46, a paste of image paths alone is recorded as a
       // text chunk of `[Image #N]` placeholders and then one image chunk per
       // image, all with the prompt's `promptIndex`. The image chunks are that
       // prompt's images; counted as entries they were unexplained prompts.
-      const companion = !text && stringField(preceding, 'sessionUpdate') === 'user_message_chunk' &&
-        promptIndexOf(preceding) !== undefined && promptIndexOf(preceding) === promptIndexOf(update)
+      const companion =
+        !text &&
+        stringField(preceding, 'sessionUpdate') === 'user_message_chunk' &&
+        promptIndexOf(preceding) !== undefined &&
+        promptIndexOf(preceding) === promptIndexOf(update)
       return [
         {
-          id: SYNTHESIZED_ITEM_ID_PREFIX,
+          id: eventId ? grokPromptEntryId(eventId) : SYNTHESIZED_ITEM_ID_PREFIX,
           role: 'user',
           ...(companion ? { promptEntry: false } : {}),
           ...(ts ? { ts } : {}),
@@ -92,7 +114,14 @@ function mapGrokRecord(record: unknown, previousRecord?: unknown): TranscriptIte
     case 'agent_message_chunk': {
       const { text } = contentBlock(update.content)
       if (!text) return []
-      return [{ id: SYNTHESIZED_ITEM_ID_PREFIX, role: 'assistant', ...(ts ? { ts } : {}), text }]
+      return [
+        {
+          id: eventId ? grokReplyItemId(eventId) : SYNTHESIZED_ITEM_ID_PREFIX,
+          role: 'assistant',
+          ...(ts ? { ts } : {}),
+          text,
+        },
+      ]
     }
     case 'tool_call': {
       const call = toolCallItem(update, ts)
@@ -169,6 +198,7 @@ function toolCallItem(
     ...(ts ? { ts } : {}),
     text: '',
     toolName: display.toolName,
+    ...(display.toolExecution ? { toolExecution: display.toolExecution } : {}),
     ...(display.toolInput ? { toolInput: display.toolInput } : {}),
     ...(display.toolTitle ? { toolTitle: display.toolTitle } : {}),
     ...(display.toolPaths?.length ? { toolPaths: display.toolPaths } : {}),
@@ -186,7 +216,7 @@ function toolCallItem(
  * `…for_prompt`), else the display content, else the few `rawOutput` shapes
  * that carry no display content (a directory listing, a background task's
  * output); checked against the tool results of 29 real Grok sessions
- * (2026-09-29). No text, no item — the same as an empty result before.
+ * (2026-09-29). Empty and non-text returns still carry completion metadata.
  */
 function toolResultItem(
   update: Record<string, unknown>,
@@ -197,22 +227,21 @@ function toolResultItem(
   const toolUseId = stringField(update, 'toolCallId')
   if (!toolUseId) return undefined
   const raw = recordField(update, 'rawOutput')
-  const text = (
-    stringField(raw, 'output_for_prompt') ??
+  const text =
+    textField(raw, 'output_for_prompt') ??
     variantForPrompt(raw) ??
-    displayText(update.content) ??
-    stringField(recordField(raw, 'Content'), 'content') ??
-    stringField(recordField(raw, 'Result'), 'output') ??
-    stringField(recordField(raw, 'Result'), 'message') ??
-    ''
-  ).trim()
-  if (!text) return undefined
+    (Array.isArray(update.content) && update.content.length > 0
+      ? executionText(update.content)
+      : undefined) ??
+    textField(recordField(raw, 'Content'), 'content') ??
+    textField(recordField(raw, 'Result'), 'output') ??
+    textField(recordField(raw, 'Result'), 'message')
   return {
     id: `${toolUseId}:out`,
     role: 'tool',
     ...(ts ? { ts } : {}),
     text: '',
-    toolResult: truncate(text, 2000),
+    ...executionOutput(text, { status }),
     toolUseId,
   }
 }
@@ -239,6 +268,7 @@ function displayText(content: unknown): string | undefined {
 }
 
 interface GrokToolDisplay {
+  toolExecution?: TranscriptToolExecution
   toolName: string
   toolInput?: string
   toolTitle?: string
@@ -264,6 +294,7 @@ function grokToolDisplay(wireName: string, input: unknown): GrokToolDisplay {
     case 'exec_command':
       return {
         toolName: 'Bash',
+        ...(command !== undefined ? { toolExecution: commandExecution(command, description) } : {}),
         ...(command || preview ? { toolInput: command ?? preview } : {}),
         ...(description ? { toolTitle: description } : {}),
       }
@@ -469,7 +500,8 @@ export async function grokChainPaths(input: TranscriptSourceInput): Promise<stri
     cwd: input.cwd,
     sessionId: input.resumeValue,
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
-    ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    homeDir: input.account.home,
+    env: input.account.env,
     ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
   })
   return path ? [path] : []
@@ -478,3 +510,7 @@ export async function grokChainPaths(input: TranscriptSourceInput): Promise<stri
 export const grokTranscript = supported(
   fileTranscript(grokChainPaths, grokRecordToItems, grokRuntime),
 )
+
+function textField(value: Record<string, unknown> | undefined, key: string): string | undefined {
+  return typeof value?.[key] === 'string' ? value[key] : undefined
+}

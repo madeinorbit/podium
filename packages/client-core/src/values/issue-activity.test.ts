@@ -204,11 +204,14 @@ describe('buildActivityFeed', () => {
   })
 
   it('drops hidden events from the feed', () => {
-    const feed = buildActivityFeed([], [
-      ...events,
-      ev({ id: 13, kind: 'issue.read', ts: '2026-07-07T00:00:05.000Z' }),
-      ev({ id: 14, kind: 'issue.unread', ts: '2026-07-07T00:00:06.000Z' }),
-    ])
+    const feed = buildActivityFeed(
+      [],
+      [
+        ...events,
+        ev({ id: 13, kind: 'issue.read', ts: '2026-07-07T00:00:05.000Z' }),
+        ev({ id: 14, kind: 'issue.unread', ts: '2026-07-07T00:00:06.000Z' }),
+      ],
+    )
     expect(feed.some((i) => i.kind === 'event' && i.line.text === 'issue.state')).toBe(false)
     expect(feed).toHaveLength(2)
   })
@@ -217,5 +220,64 @@ describe('buildActivityFeed', () => {
     const feed = buildActivityFeed(comments, events)
     const ids = feed.map((i) => i.id)
     expect(new Set(ids).size).toBe(ids.length)
+  })
+})
+
+describe('lines that name members (POD-6295)', () => {
+  it('a reassignment carries who did it and from whom to whom', () => {
+    expect(
+      formatIssueEvent(
+        ev({
+          kind: 'issue.reassigned',
+          payload: { from: 'mem_alice', to: 'mem_carol', by: 'mem_bob' },
+        }),
+      ),
+    ).toEqual({
+      icon: 'generic',
+      text: 'reassigned',
+      members: { by: 'mem_bob', from: 'mem_alice', to: 'mem_carol' },
+    })
+  })
+
+  it('a description edit and a brief restore carry the member they were written for', () => {
+    expect(
+      formatIssueEvent(
+        ev({ kind: 'issue.text_revised', payload: { field: 'description', by: 'mem_bob' } }),
+      ),
+    ).toEqual({ icon: 'generic', text: 'edited the description', members: { by: 'mem_bob' } })
+    expect(
+      formatIssueEvent(
+        ev({
+          kind: 'issue.text_revised',
+          payload: { field: 'brief', by: 'mem_bob', restoredFrom: 12 },
+        }),
+      ),
+    ).toEqual({ icon: 'generic', text: 'restored an earlier brief', members: { by: 'mem_bob' } })
+  })
+
+  it("a comment row keeps its id, its author's member id, its edit stamp and the reader's edit right", () => {
+    const [item] = buildActivityFeed(
+      [
+        {
+          id: 'c-1',
+          author: 'Bob Keller',
+          authorId: 'mem_bob',
+          body: 'Reviewed.',
+          createdAt: '2026-11-04T09:00:00.000Z',
+          editedAt: '2026-11-04T09:10:00.000Z',
+          editedBy: 'mem_bob',
+          mayEdit: true,
+        },
+      ],
+      [],
+    )
+    expect(item).toMatchObject({
+      kind: 'comment',
+      commentId: 'c-1',
+      authorId: 'mem_bob',
+      editedAt: '2026-11-04T09:10:00.000Z',
+      editedBy: 'mem_bob',
+      mayEdit: true,
+    })
   })
 })

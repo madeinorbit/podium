@@ -1,13 +1,13 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import { createMemoryRouterWindow } from '@podium/client-core/router'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import type { MobxPool } from '@podium/client-graph'
 import { settingsView } from '@podium/client-graph/settings-views'
 import type { HostMetricsWire } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { Alert, Platform } from 'react-native'
@@ -15,7 +15,10 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
+import type { AuthStatus } from '../client/auth'
+import { AuthStatusContext } from '../client/auth-context'
 import type { MobilePool } from '../client/mobile-pool'
+import { accountCapabilities } from '../test-support/auth-capabilities'
 
 const seams = vi.hoisted(() => ({
   host: undefined as MobilePool | undefined,
@@ -29,7 +32,7 @@ const seams = vi.hoisted(() => ({
   back: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),
-  devices: [] as MobileClientSession[],
+  devices: [] as DeviceSignInView[],
   reloadDevices: () => {},
   readDevices: vi.fn(),
 }))
@@ -135,26 +138,22 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-async function mount(count = 8, scale?: number) {
+async function mount(count = 8, scale?: number, status: AuthStatus | null = null) {
   seams.host = createMobilePool(false)
   const data = createHeaderFixture(count, count),
     errors: string[] = [],
     seen: unknown[] = []
   const scaledMachines = scale
     ? Array.from({ length: 16 * scale }, (_, i) => ({
-        id: `host-${i}`,
+        id: `host-${String(i).padStart(4, '0')}`,
         name: `Host ${i + 1}`,
         hostname: `host-${i}`,
         online: true,
         lastSeenAt: '2026-10-06T10:00:00Z',
       }))
     : null
-  if (scaledMachines) {
-    const discovery = await data.api.discovery.refreshRepos.mutate()
-    Object.assign(data.api.discovery.refreshRepos, {
-      mutate: async () => ({ ...discovery, machines: scaledMachines }),
-    })
-  }
+  // Machines are records; online is the live condition (POD-6644).
+  if (scaledMachines) data.putMachinesAndRepos({ machines: scaledMachines })
   // Include archived, deleted and draft rows in the count, and resume twins in
   // the session summary; count parity must not inherit worklist filtering.
   const issue = data.records.get('issueProjection:synthetic-0')!
@@ -188,7 +187,7 @@ async function mount(count = 8, scale?: number) {
   let runtime!: ClientRuntime
   let show!: (shown: boolean) => void
   function Surface() {
-    runtime = useStoreHandle() as ClientRuntime
+    runtime = useClientRuntime() as ClientRuntime
     const [shown, setShown] = useState(true)
     show = setShown
     seen.push(useMobilePool())
@@ -222,11 +221,15 @@ async function mount(count = 8, scale?: number) {
       routerWindow={createMemoryRouterWindow()}
       onFatalError={(error) => errors.push(error)}
       attachRuntime={(owner) => {
-        data.bindHub(owner.hub)
+        data.bindHub(owner.services.connection.hub, undefined, owner.live)
+        // This phone fixture starts offline with its saved records.
+        owner.live.setConnection({ state: 'offline', since: 0 })
         return seams.host!.host.attach(owner, (error) => errors.push(error.message))
       }}
     >
-      <Surface />
+      <AuthStatusContext.Provider value={status}>
+        <Surface />
+      </AuthStatusContext.Provider>
     </StoreProvider>,
   )
   await waitFor(
@@ -251,10 +254,11 @@ async function mount(count = 8, scale?: number) {
       hostname: row.hostname,
     }))
     await act(async () => {
-      ;(runtime.hub as unknown as { emit(kind: string, value: unknown): void }).emit(
-        'machines',
-        machines,
-      )
+      ;(
+        runtime.services.connection.hub as unknown as {
+          emit(kind: string, value: unknown): void
+        }
+      ).emit('machines', machines)
       data.publishHostMetrics(hosts as HostMetricsWire[])
     })
   }
@@ -264,10 +268,8 @@ async function mount(count = 8, scale?: number) {
 it('measures phone settings and its real device feed at 1x and 4x', async () => {
   for (const scale of [1, 4]) {
     seams.devices = Array.from({ length: 8 * scale }, (_, i) => ({
-      sessionId: `device-${i}`,
-      userId: 'operator',
-      label: 'mobile',
-      deviceId: `device-${i}`,
+      id: `device-${i}`,
+      kind: 'phone',
       deviceName: `Phone ${i}`,
       platform: 'ios',
       lastSeenAt: '2026-10-06T10:00:00Z',
@@ -356,28 +358,28 @@ it('renders the same Settings through the real no-pool to attached-pool transiti
 it('uses zero legacy selectors and issue models while relevant updates still paint', async () => {
   const enabled = await mount()
   const pool = enabled.seen.findLast((pool) => pool !== null) as MobxPool
-  const roster = vi.spyOn(settingsView(pool), 'sessions'),
-    count = vi.spyOn(settingsView(pool), 'sessionCount')
+  const count = vi.spyOn(settingsView(pool), 'sessionCount')
   await act(async () => {
     enabled.data.activity(1)
     enabled.data.publishMachines()
     enabled.data.publishMetrics(2)
+    // A rename is a change of each machine's record (POD-6644).
     const machines = referenceState(enabled.runtime).machines
-    const hub = enabled.runtime.hub as unknown as { emit: (kind: string, rows: unknown) => void }
-    hub.emit(
-      'machines',
-      machines.map((machine) => ({ ...machine, name: `${machine.name} updated` })),
-    )
+    enabled.data.putMachinesAndRepos({
+      machines: machines.map((machine) => ({
+        ...machine,
+        name: `${machine.name} updated`,
+      })) as never,
+    })
   })
   await waitFor(() => expect(enabled.view.getByText('Host 1 updated')).toBeTruthy())
-  expect(roster).not.toHaveBeenCalled()
   expect(count).not.toHaveBeenCalled()
   expect(dataLine(enabled.view.container)).toMatch(/ · 8 tasks$/)
   expect(enabled.errors).toEqual([])
 })
 
 it('keeps server controls and logout on their existing owners', async () => {
-  vi.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
+  const alert = vi.spyOn(Alert, 'alert').mockImplementation((_title, _message, buttons) => {
     buttons?.find((button) => button.style === 'destructive')?.onPress?.()
   })
   {
@@ -386,7 +388,7 @@ it('keeps server controls and logout on their existing owners', async () => {
     // A root tab and native pushes on iOS: no Screen hands out a dismiss handler.
     for (const done of current.view.getAllByText('Done')) fireEvent.click(done)
     fireEvent.click(current.view.getByLabelText('Version'))
-    fireEvent.click(current.view.getByLabelText('Connected devices'))
+    fireEvent.click(current.view.getByLabelText('Where you’re signed in'))
     fireEvent.click(current.view.getAllByLabelText('Add server')[0]!)
     fireEvent.click(current.view.getAllByLabelText('Add server')[1]!)
     fireEvent.click(current.view.getByLabelText('Switch to Other server'))
@@ -405,6 +407,7 @@ it('keeps server controls and logout on their existing owners', async () => {
     expect(reload).not.toHaveBeenCalled()
     expect(Alert.alert).not.toHaveBeenCalled()
     expect(current.view.getByText('Logged out')).toBeTruthy()
+    expect(alert).not.toHaveBeenCalled()
     await act(async () => fireEvent.click(current.view.getByLabelText('Remove Phone')))
     expect(seams.remove).toHaveBeenLastCalledWith('phone')
     expect(seams.replace).toHaveBeenLastCalledWith('/')
@@ -422,9 +425,60 @@ it('keeps server controls and logout on their existing owners', async () => {
   expect(seams.rename).toHaveBeenCalledWith('phone', 'Renamed phone')
 })
 
+it('keeps unsynced phone changes until sign-out is explicitly confirmed', async () => {
+  const alert = vi.spyOn(Alert, 'alert').mockImplementation(() => {})
+  const current = await mount()
+  await act(async () => {
+    await current.runtime.services.outbox.queue.enqueue('issueUpdate', {
+      id: 'synthetic-0',
+      patch: { title: 'Offline edit' },
+    })
+  })
+  await waitFor(() => expect(rowValue(current.view.container, 'Queued sends')).toBe('1'))
+  fireEvent.click(current.view.getByLabelText('Log out'))
+  expect(seams.logout).not.toHaveBeenCalled()
+  expect(seams.erase).not.toHaveBeenCalled()
+  expect(seams.credential).not.toHaveBeenCalled()
+  expect(alert).toHaveBeenLastCalledWith(
+    'Sign out with unsynced changes?',
+    "1 change on this device hasn't synced yet and will be lost.",
+    expect.any(Array),
+  )
+  const buttons = alert.mock.calls.at(-1)?.[2] ?? []
+  expect(buttons.find((button) => button.text === 'Wait')?.style).toBe('cancel')
+  await act(async () => buttons.find((button) => button.text === 'Wait')?.onPress?.())
+  expect(seams.erase).not.toHaveBeenCalled()
+  expect(current.runtime.services.outbox.queue.size()).toBe(1)
+  fireEvent.click(current.view.getByLabelText('Log out'))
+  await act(async () =>
+    alert.mock.calls
+      .at(-1)?.[2]
+      ?.find((button) => button.text === 'Sign out anyway')
+      ?.onPress?.(),
+  )
+  await waitFor(() => expect(seams.erase).toHaveBeenCalledOnce())
+  expect(seams.logout).toHaveBeenCalledOnce()
+  expect(seams.credential).toHaveBeenLastCalledWith(null)
+  expect(current.errors).toEqual([])
+})
+
 it('shares the device inventory between summary and detail and refreshes on demand', async () => {
   await mount()
   expect(seams.readDevices).toHaveBeenCalledTimes(1)
   await act(async () => seams.reloadDevices())
   expect(seams.readDevices).toHaveBeenCalledTimes(2)
+})
+
+it('account device management omits phone pairing instructions', async () => {
+  const current = await mount(8, undefined, {
+    needsAuth: true,
+    authed: true,
+    userId: asUserId('operator'),
+    prompt: 'email-password',
+    capabilities: accountCapabilities,
+  })
+  expect(current.view.getByRole('link', { name: 'Manage all account devices' })).toBeTruthy()
+  expect(current.view.container.textContent).not.toContain('Pairing')
+  expect(current.view.getByText(/Manage device sign-ins in your account/)).toBeTruthy()
+  expect(current.errors).toEqual([])
 })

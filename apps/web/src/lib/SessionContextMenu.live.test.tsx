@@ -17,34 +17,38 @@ const state: {
   issues: unknown[]
 } = { repos: [], machines: [], issues: [] }
 
-const handoffMutate = vi.fn(async () => ({ ok: true }))
+// A move is a `session.handoff` effect record (POD-6422): the action answers its id.
+const handoffSession = vi.fn(async () => 'eff_handoff')
 
-vi.mock('@podium/client-core/react', () => ({
-  useStoreHandle: () => ({
-    access: {
-      setPinned: vi.fn(),
-      setSnooze: vi.fn(),
-      clearSnooze: vi.fn(),
-      hibernateSession: vi.fn(),
-      resurrectSession: vi.fn(),
-      startBtw: vi.fn(),
-      markSessionRead: vi.fn(),
-      markSessionUnread: vi.fn(),
-      trpc: { sessions: { handoff: { mutate: handoffMutate } } },
-      get repos() {
-        throw new Error('Menu read legacy repositories')
+vi.mock('@podium/client-core/react', async () => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...fixtureRuntimeHooks(() => ({
+      access: {
+        setPinned: vi.fn(),
+        setSnooze: vi.fn(),
+        clearSnooze: vi.fn(),
+        hibernateSession: vi.fn(),
+        resurrectSession: vi.fn(),
+        startBtw: vi.fn(),
+        markSessionRead: vi.fn(),
+        markSessionUnread: vi.fn(),
+        handoffSession,
+        get repos() {
+          throw new Error('Menu read legacy repositories')
+        },
+        get machines() {
+          throw new Error('Menu read legacy machines')
+        },
+        get issues() {
+          throw new Error('Menu read legacy issues')
+        },
       },
-      get machines() {
-        throw new Error('Menu read legacy machines')
-      },
-      get issues() {
-        throw new Error('Menu read legacy issues')
-      },
-    },
-  }),
-}))
+    })),
+  }
+})
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: () => {
+  readFixture: () => {
     throw new Error('Menu subscribed to the old store')
   },
 }))
@@ -83,10 +87,6 @@ function meta(over: Partial<SessionViewInput> = {}): SessionView {
     cwd: '/Users/mw/Source/other/podium/.worktrees/issue-779',
     machineId: MAC,
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: '2026-07-01T00:00:00.000Z',
     lastActiveAt: '2026-07-17T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -121,7 +121,7 @@ const handoffItem = (): HTMLElement =>
 
 afterEach(() => {
   cleanup()
-  handoffMutate.mockClear()
+  handoffSession.mockClear()
   featureEnabled.value = true
   state.repos = []
   state.machines = []
@@ -146,7 +146,7 @@ describe('SessionContextMenu handoff (POD-821)', () => {
     open()
     fireEvent.click(handoffItem())
     fireEvent.click(screen.getByRole('menuitem', { name: LUD }))
-    expect(handoffMutate).toHaveBeenCalledWith({ sessionId: asSessionId('s'), machineId: LUD })
+    expect(handoffSession).toHaveBeenCalledWith(asSessionId('s'), LUD)
   })
 
   it('still shows Handoff — with the reason — when the session cannot move at all', () => {
@@ -179,7 +179,7 @@ describe('SessionContextMenu handoff (POD-821)', () => {
     expect(row.textContent).toContain('offline')
     expect((row as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(row)
-    expect(handoffMutate).not.toHaveBeenCalled()
+    expect(handoffSession).not.toHaveBeenCalled()
   })
 
   it('says so when no other machine has the repo', () => {

@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import { claudeRecordToItems } from './claude-code/transcript.js'
 import { codexRecordToItems } from './codex/transcript.js'
 import { grokRecordToItems } from './grok/transcript.js'
+import { fileByteSource } from '../store/byte-source.js'
 import { readFileItems } from '../store/slice.js'
 import { tailTranscript } from '../store/tailer.js'
 
@@ -31,7 +32,7 @@ describe('submit hook ids on recorded prompts (POD-4834)', () => {
       await writeFile(path, [hook, chunk, chunk, hook, { params: { update: { sessionUpdate: 'turn_completed' } } }, chunk]
         .map((record) => JSON.stringify(record) + '\n').join(''))
       for (let read = 0; read < 2; read++) {
-        const items = await readFileItems(path, 'updates', grokRecordToItems)
+        const items = await readFileItems(fileByteSource(path), 'updates', grokRecordToItems)
         expect(items.map((item) => item.harnessRef)).toEqual([[{ kind: 'grok-prompt', id: 'grok-id' }], undefined, undefined])
       }
       // Reading a chunk alone has no preceding record, and cannot borrow an id from another reader.

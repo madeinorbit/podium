@@ -10,8 +10,9 @@ import { buildHarnessExec } from './harness-exec.js'
  * REAL-BINARY smoke test (#84 post-mortem): the variadic --allowedTools bug
  * shipped because nothing ever ran the actual claude CLI against
  * buildHarnessExec's exact argv. This does — one trivial headless turn with the
- * real --append-system-prompt, a real --allowedTools list, and a dummy
- * mcp-config file, prompt delivered over stdin exactly like the daemon does.
+ * real --append-system-prompt, allow rules in the posture section's
+ * `--allowedTools=<rule>` spelling (POD-6858), and a dummy mcp-config file,
+ * prompt delivered over stdin exactly like the daemon does.
  * Guarded like the other env-dependent suites: skipped when claude isn't
  * installed (or can't report a version).
  */
@@ -27,7 +28,6 @@ const hasClaude = ((): boolean => {
   }
 })()
 
-
 describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasClaude)(
   '[real-agent:claude] real claude binary smoke (issue #84)',
   () => {
@@ -36,15 +36,16 @@ describe.skipIf(process.env.PODIUM_REAL_CLI !== '1' || !hasClaude)(
       const mcpConfigPath = join(dir, 'mcp.json')
       writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: {} }))
       try {
-        const { cmd, args, stdin } = buildHarnessExec(
-          'claude-code',
-          {
-            prompt: 'reply with the word pong',
-            systemPrompt: 'You are a smoke test. Answer in one word.',
-            mcpConfigPath,
-            allowedTools: ['Read', 'Grep'],
-          },
-        )
+        // A LIVE smoke: the developer's own `claude` on PATH stands in for the
+        // inventory's installation. Production binds argv to a context.
+        const cmd = 'claude'
+        const built = buildHarnessExec('claude-code', {
+          prompt: 'reply with the word pong',
+          systemPrompt: 'You are a smoke test. Answer in one word.',
+          mcpConfigPath,
+        })
+        const { stdin } = built
+        const args = [...built.args, '--allowedTools=Read', '--allowedTools=Grep']
         const started = Date.now()
         const { code, stdout, stderr } = await new Promise<{
           code: number | null

@@ -167,10 +167,7 @@ describe('RETIRED leaf-package + restricted-package-deps -> manifest-deps', () =
       ),
     ).toEqual([])
     expect(
-      rulesFor(
-        'packages/harness/src/store/source.ts',
-        `import { x } from '@podium/sync'`,
-      ),
+      rulesFor('packages/harness/src/store/source.ts', `import { x } from '@podium/sync'`),
     ).toContain('manifest-deps')
   })
 
@@ -248,7 +245,6 @@ describe('RETIRED agent-host-consumers -> manifest-consumers', () => {
   it.each([
     'apps/server/src/relay.ts',
     'apps/server/src/model-catalog.ts',
-    'apps/web/src/derive.ts',
   ])('refuses the barrel from %s', (file) => {
     // apps/web adds `manifest-platform` on top (browser-safe -> node-only), which
     // is a second true statement about the same edge, so this asserts the
@@ -258,10 +254,14 @@ describe('RETIRED agent-host-consumers -> manifest-consumers', () => {
     )
   })
 
-  it('refuses an UNDECLARED subpath too', () => {
-    expect(rulesFor('apps/web/src/x.ts', `import { y } from '@podium/harness/pty'`)).toContain(
-      'manifest-consumers',
+  it.each([
+    '@podium/harness',
+    '@podium/harness/pty',
+  ])('keeps host-only %s out of browser bundles', (specifier) => {
+    expect(rulesFor('apps/web/src/x.ts', `import { y } from '${specifier}'`)).toContain(
+      'manifest-browser-reach',
     )
+    expect(rulesFor('apps/web/src/x.ts', `import { y } from '@podium/harness/browser'`)).toEqual([])
   })
 
   it('admits the DECLARED open entrypoint, and only it', () => {
@@ -273,12 +273,6 @@ describe('RETIRED agent-host-consumers -> manifest-consumers', () => {
         `export { harnessDisplayName } from '@podium/harness/metadata'`,
       ),
     ).toEqual([])
-  })
-
-  it('refuses @podium/process from a server file — it declares NO open surface', () => {
-    expect(rulesFor('apps/server/src/x.ts', `import { spawnPty } from '@podium/process'`)).toEqual([
-      'manifest-consumers',
-    ])
   })
 })
 

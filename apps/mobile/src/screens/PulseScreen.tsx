@@ -16,7 +16,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { Platform, Pressable, ScrollView, StyleSheet, Text } from 'react-native'
 import { DEMO_HOST_METRICS, DEMO_MACHINES, demoEnabled } from '../client/demoData'
 import { useMobilePool } from '../client/mobile-pool'
-import { usePulseLive } from '../client/use-inbox-data'
+import { usePulseLive } from '../client/use-pool-links'
 import { NativePicker } from '../components/action-sheet-native'
 import { Icon } from '../components/Icon'
 import { ChevronDown } from '../components/icons'
@@ -121,7 +121,7 @@ export const PulseScreen = observer(function PulseScreen() {
       title="Pulse"
       grouped
       large
-      subtitle={cold && pulse?.error != null ? 'No reading' : pulseSubtitle(hero, range, cold)}
+      subtitle={cold && pulse?.usageFailed ? 'No reading' : pulseSubtitle(hero, range, cold)}
       // iOS: a native pull-down bar item. Web and Android keep the drawn button.
       {...(Platform.OS === 'ios'
         ? {
@@ -170,7 +170,7 @@ export const PulseScreen = observer(function PulseScreen() {
             machinesSection={machinesSection}
             pool={pool}
             cold={cold}
-            failed={pulse?.error != null}
+            failed={pulse?.usageFailed ?? false}
             quotaCold={feed.quota === null}
             quotaFailed={feed.quotaFailed}
             tasksFailed={costs?.error != null}
@@ -238,6 +238,7 @@ function LiveMachines({
     machines,
     hosts,
     capacityReadings: feed.capacityReadings,
+    targetUnavailableReasons: feed.targetUnavailableReasons,
     loadPerCore: feed.loadPerCore,
     nowMs: feed.nowMs,
   })

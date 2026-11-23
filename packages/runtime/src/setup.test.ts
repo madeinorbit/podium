@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -576,6 +576,36 @@ describe('setup core', () => {
         serverUrl: 'wss://relay',
         persistence: 'systemd',
       })
+    })
+    it('preserves unrecognized settings while durably consuming the acknowledged code', () => {
+      saveConfig({ mode: 'client', serverUrl: 'wss://relay', pairCode: 'P1' })
+      const path = join(dir, 'config.json')
+      const raw = JSON.parse(readFileSync(path, 'utf8'))
+      writeFileSync(path, JSON.stringify({ ...raw, futurePolicy: { keep: true } }))
+      consumePairCode('P1')
+      expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+        configVersion: CURRENT_CONFIG_VERSION,
+        mode: 'client',
+        serverUrl: 'wss://relay',
+        futurePolicy: { keep: true },
+      })
+    })
+    it('sees a native replacement immediately even inside the live config cache window', () => {
+      saveConfig({ mode: 'client', serverUrl: 'wss://relay', pairCode: 'OLD' })
+      expect(loadConfig().pairCode).toBe('OLD')
+      const path = join(dir, 'config.json')
+      const replacement = {
+        configVersion: CURRENT_CONFIG_VERSION,
+        mode: 'client',
+        serverUrl: 'wss://relay',
+        pairCode: 'NEW',
+        futurePolicy: true,
+      }
+      const bytes = JSON.stringify(replacement)
+      writeFileSync(path, bytes)
+      consumePairCode('OLD')
+      expect(readFileSync(path, 'utf8')).toBe(bytes)
+      expect(loadConfig().pairCode).toBe('NEW')
     })
     it('never drops a NEWER code written by a concurrent re-join', () => {
       saveConfig({ mode: 'daemon', serverUrl: 'wss://relay', pairCode: 'P2-newer' })

@@ -14,14 +14,20 @@
  * janitor now lives at `packages/janitor` (L3), which the server may import
  * downward like any other engine, and hosting it is no longer optional.
  *
- * The process-portable seam is untouched: the worker reads `podium.db` through
- * its own read-only connection and writes only through `/maintenance/*` over
- * HTTP, so a future janitor shared across many servers is a new entrypoint on
- * the same package rather than a redesign.
+ * The process-portable seam is untouched: the worker reads the store through a
+ * read session of its own and writes only through `/maintenance/*` over HTTP, so
+ * a future janitor shared across many servers is a new entrypoint on the same
+ * package rather than a redesign.
+ *
+ * THE WORKER'S ENTRY IS THE SERVER'S (POD-6993). The janitor's reads are the
+ * store's query definitions (`store/janitor-reads.ts`), on whichever engine the
+ * store's location names, so the thread starts at `janitor-worker.ts`, which runs
+ * the package's worker loop with the server's database opener.
  */
-import { startJanitorWorker } from '@podium/janitor/worker-client'
-import { localServerUrl } from '@podium/runtime/config'
-import { readOrCreateDaemonSecret } from '@podium/runtime/local-machine'
+import { join } from 'node:path'
+import { type JanitorWorkerHostOptions, startJanitorWorker } from '@podium/janitor/worker-client'
+import { localServerUrl, stateDir } from '@podium/runtime/config'
+import { janitorWorkerTarget } from './janitor-worker-embed'
 
 export type JanitorComponentState = 'running' | 'degraded' | 'stopped'
 
@@ -34,15 +40,18 @@ export interface JanitorHost {
 }
 
 /** The shape of `@podium/janitor`'s worker client, as the server needs it. */
-export type StartJanitorWorkerFn = (opts: {
-  serverUrl: string
-  token: string
-}) => Promise<JanitorHost>
+export type StartJanitorWorkerFn = (opts: JanitorWorkerHostOptions) => Promise<JanitorHost>
 
 export interface JanitorHostDeps {
   port: number
   serverUrl?: string
-  token?: string
+  token: JanitorWorkerHostOptions['token']
+  /**
+   * The store's location, which names its engine. Defaults to the instance's
+   * `podium.db`, as `store.ts`'s `defaultDbPath()` (the location the server's
+   * store and sync worker open).
+   */
+  dbPath?: string
   /**
    * TEST ONLY. Replaces the worker client so server tests never spawn a thread.
    * Production callers leave it absent, which is the real client.
@@ -59,10 +68,12 @@ export interface JanitorHostDeps {
  */
 export async function startJanitorHost(deps: JanitorHostDeps): Promise<JanitorHost> {
   const serverUrl = deps.serverUrl ?? localServerUrl(deps.port)
-  const token = deps.token ?? readOrCreateDaemonSecret()
-  const start = deps.start ?? startJanitorWorker
+  const token = deps.token
+  const dbPath = deps.dbPath ?? join(stateDir(), 'podium.db')
+  const start: StartJanitorWorkerFn =
+    deps.start ?? (async (opts) => await startJanitorWorker(opts, janitorWorkerTarget()))
   try {
-    return await start({ serverUrl, token })
+    return await start({ serverUrl, token, dbPath })
   } catch (error) {
     const reason = (error as Error).message
     return {

@@ -1,9 +1,8 @@
 import type { agentLaunchCommand, HarnessLogin } from '@podium/harness'
 import type { AgentKind, MachineId, SessionId, UsageBucketWire } from '@podium/model'
+import type { DurableBackend, DurableProcess } from '@podium/process/durable'
 import type { ServerTransferServingProof } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import type { DurableBackend, DurableProcess } from '@podium/process/durable'
-import type { SessionRegistry } from '../session/registry'
 import type { ProvisionedAccountHome } from '../account-home'
 import type { ConversationDeltaWire } from '../active-refresh'
 import type { AgentRelayHub } from '../agent-relay'
@@ -13,10 +12,11 @@ import type { ComposerSyncEngine } from '../composer-sync'
 import type { DaemonHarnessRuntime } from '../harness-runtime.js'
 import type { OutputScheduler } from '../output-scheduler'
 import type { PortableStateFence } from '../portable-state-fence'
+import type { DaemonMachineRuntime } from '../runtime/machine-runtime'
 import type { OpencodeClientTerminals } from '../runtime/opencode-attach'
 import type { ScopeMonitor } from '../runtime/scope-monitor'
-import type { DaemonMachineRuntime } from '../runtime/machine-runtime'
 import type { ServerReapIo } from '../runtime/server-reap'
+import type { SessionRegistry } from '../session/registry'
 import type { SessionBinding } from '../session-binding'
 import type { SessionObservers } from '../session-observers'
 import type { ShippingExecutionPlane } from '../shipping/executor'
@@ -131,6 +131,21 @@ export interface DaemonContext {
   hookSocketPath: string | undefined
   /** Durable per-machine SessionBinding and append-only alias history. */
   bindingStore: BindingStore
+  /**
+   * Each session's credential, in memory only (credential management §8), and
+   * the secret-free marker that a restarted daemon must wait for it. Every
+   * process start for a session applies it from here (`control/access.ts`).
+   */
+  access: import('./access').SessionAccessStore
+  /**
+   * Podium's harness homes on this machine (credential management §10): one
+   * directory per credential and harness. A session whose access names one
+   * runs in it. Absent in hand-built contexts: then no home exists, and a
+   * session that names one is refused.
+   */
+  homes?: import('../homes/registry').HomeRegistry
+  /** Codex's trust for Podium's launch-flag hooks in Podium homes (§10). */
+  codexHookTrust?: import('../homes/codex-hook-trust').CodexHookTrust
   /** Canonical lifecycle API; handlers never reconstruct binding mutations. */
   sessionBinding: SessionBinding
   /** Hook-ingest endpoint for a session (instrumentation URLs). */
@@ -144,6 +159,8 @@ export interface DaemonContext {
   workerClient: DiscoveryWorkerClient
   /** Discovery scan + publish; `full` requests the entire conversation list. */
   refreshAndPublishConversations(full?: boolean): Promise<ConversationDeltaWire>
+  /** Each Podium home's quota, tagged with its home id (credential management §10). */
+  homeQuota?: (refresh: boolean) => Promise<import('@podium/model').AgentQuotaWire[]>
   /** Per-agent plan-quota reader (TTL-cached). */
   quotaFetcher: {
     getAgentQuota(refresh?: boolean): Promise<import('@podium/model').AgentQuotaWire[]>
@@ -167,7 +184,11 @@ export interface DaemonContext {
   shipping: ShippingExecutionPlane
 
   /** Starts the promoted server and returns only after the expected state is serving. */
-  promoteMachineAssignment?: (input: { sourceMachineId: string; targetMachineId: string; requestId: string }) => Promise<void>
+  promoteMachineAssignment?: (input: {
+    sourceMachineId: string
+    targetMachineId: string
+    requestId: string
+  }) => Promise<void>
   restartAfterTransfer?: (
     expected: ServerTransferServingProof,
   ) => Promise<ServerTransferServingProof> | ServerTransferServingProof
@@ -187,6 +208,12 @@ export interface DaemonContext {
    * the forwarding module's, so the context carries the handle and no policy.
    */
   logForwarding: import('@podium/runtime/log-forward').DaemonLogForwarding
+
+  /**
+   * TOPIC DEMAND (ADR 7 Amendment 2 D22): the one watch registry, kind → start
+   * and stop. The `topicWatch` handler is the only caller of `apply`.
+   */
+  topicWatches: import('../topics/watch-registry').TopicWatchRegistry
 
   /** Server-move endpoint handoff is owned by the reconnecting transport. */
   probeServerTransferCandidate(input: {

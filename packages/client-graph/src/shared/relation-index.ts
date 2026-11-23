@@ -1,16 +1,13 @@
 import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 /**
- * POD-5407 — THE RELATION INDEX: every declared relation, over every row the
- * feed carries, held once, outside the pool, in plain maps.
+ * POD-5407 — THE RELATION INDEX: every declared relation, over the rows the
+ * pool holds, held once, in plain maps.
  *
- * WHY. The pool used to maintain its relations itself (`relations.ts`), for
- * hot and cold rows alike, so its attach linked every row the replica held
- * (POD-5391: 99% of the phone's 11k rows are cold). The cold index already
- * kept its own copy of the lane seats and collapse groups for the residency
- * rule (finding 14 of the POD-5417 review: the cold rule's facts mirrored
- * three times). This module is the one copy: the cold index reads its lanes
- * and collapse verdicts from it, and the pool's relation reader is a view of
- * it (`relations.ts`), storing nothing per row.
+ * WHY. One copy of every relation (finding 14 of the POD-5417 review): the
+ * device index holds it (`device-index.ts`) and the pool's relation reader
+ * is a view of it (`relations.ts`), storing nothing per row. Since POD-7094
+ * it covers only rows in memory: history is not on the device, so no
+ * relation here is sized by history.
  *
  * NO RELATION IS NAMED HERE. As in the pool's former engine, every
  * single-valued relation (`belongsTo`, `prefix`, outgoing `edge`) is a LINK

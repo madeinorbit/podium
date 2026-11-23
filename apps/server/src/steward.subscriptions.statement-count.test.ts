@@ -17,6 +17,8 @@ import { type StewardDeps, StewardService } from './steward'
 import type { SessionStore, Subscription } from './store'
 import { probeStatements } from './store/executor/statement-probe'
 import { openTestStore } from './test-support/open-test-store'
+import { expectConstantRoundTrips } from './test-support/round-trip-count'
+import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
 
@@ -79,7 +81,7 @@ async function setup(size: number): Promise<Fixture> {
   const sessions: SessionMeta[] = []
   const settings = normalizeSettings({
     steward: { enabled: true },
-    gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+    gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
     sessionDefaults: { agent: 'claude-code' },
   })
   let clockMs = Date.parse('2026-07-02T00:00:00.000Z')
@@ -88,14 +90,18 @@ async function setup(size: number): Promise<Fixture> {
     store,
     ...sessionReadPorts(() => sessions),
     getSettings: async () => settings,
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-    ...issueTestPlumbing(),
+    ...issueTestPlumbing(undefined, { store }),
     now,
   }
   const issues = await IssueService.create(issueDeps)
   const sendNotice = vi.fn()
   const deps: StewardDeps = {
+    writer: issues.reports.store.serverWriter,
     store: store.events,
     facts: store.notificationFacts,
     messages: store.messages,
@@ -108,9 +114,15 @@ async function setup(size: number): Promise<Fixture> {
     getSettings: async () => settings,
     now,
   }
-  const epic = await issues.crud.create({ repoPath: '/r', title: 'Epic', startNow: false })
-  await issues.crud.update(epic.id, { worktreePath: '/r/.worktrees/epic' })
-  const child = await issues.crud.create({
+  const epic = await issues.crud.create(issues.reports.store.serverWriter, {
+    repoPath: '/r',
+    title: 'Epic',
+    startNow: false,
+  })
+  await issues.crud.update(issues.reports.store.serverWriter, epic.id, {
+    worktreePath: '/r/.worktrees/epic',
+  })
+  const child = await issues.crud.create(issues.reports.store.serverWriter, {
     repoPath: '/r',
     title: 'Child',
     parentId: epic.id,
@@ -124,12 +136,16 @@ async function setup(size: number): Promise<Fixture> {
     issueId: epic.id,
   } as never)
   // The one subscription the poll matches: the epic watches its children close.
-  await store.events.addSubscription(subscription({ id: 'sub_match', subscriberId: epic.id }))
-  for (let i = 0; i < size; i++) await store.events.addSubscription(stale(i))
+  await seedRows(store, () =>
+    store.events.addSubscription(subscription({ id: 'sub_match', subscriberId: epic.id })),
+  )
+  await seedRows(store, async () => {
+    for (let i = 0; i < size; i++) await store.events.addSubscription(stale(i))
+  })
   const steward = new StewardService(deps)
   // Consume the set-up events, so the measured poll holds only the close.
   await steward.tick()
-  await issues.crud.close(child.id)
+  await issues.crud.close(issues.reports.store.serverWriter, child.id)
   sendNotice.mockClear()
   return { store, steward, sendNotice }
 }
@@ -165,8 +181,23 @@ async function subscriptionRowsRead(size: number): Promise<number> {
 describe('steward subscription matching (POD-6208)', () => {
   it('runs a fixed number of statements, however many subscriptions cannot match', async () => {
     // POD-6218: each earliest-admin lookup is one statement (the row), not two: 62 -> 59.
-    await expectConstantStatements(pin, 59)
+    // POD-6769: the poll's issue writes build the issue and its personal
+    // records before and after (compare at save): +9 with the body headers
+    // (POD-6767). The base ran 75 against its pin of 59 at ef26e79e4e.
+    // POD-6920: derived change capture. No build before the write; each
+    // commit drains its capture (one statement) and builds the records the
+    // write reached, after it: 83 at 9e858cc535 -> 77.
+    // POD-6934: re-measured on integrate/6253-sync-log 46735ff09a and on the merge: 77 -> 76.
+    await expectConstantStatements(pin, 76)
   })
+
+  // ROUND TRIPS ON HOSTED POSTGRES [POD-6992, POD-6958 design 2.11]: the driver calls that
+  // wait for the server, counted by the Postgres driver's pipelining (BEGIN with the first
+  // statement or with the workspace lock, one per statement, one per COMMIT). About 2.6 ms
+  // each on hosted Postgres; docs/measurements/pod-6958-hosted-round-trips.md.
+  it('makes a fixed number of round trips', async () => {
+    await expectConstantRoundTrips(pin, 80)
+  }, 60_000)
 
   it('reads the same subscription rows, however many cannot match', async () => {
     const [small, large] = [await subscriptionRowsRead(5), await subscriptionRowsRead(200)]

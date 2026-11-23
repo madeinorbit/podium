@@ -33,14 +33,14 @@ describe('a rolled-back span leaves no issue row behind (POD-3366)', () => {
   }
 
   const seed = async (issues: SessionRegistry['issues'], title: string) =>
-    await issues.crud.create({ repoPath: '/repo', title, description: '', startNow: false })
+    await issues.crud.create(issues.reports.store.serverWriter, { repoPath: '/repo', title, description: '', startNow: false })
 
   it('drops a row a rolled-back enclosing span installed (site 3)', async () => {
     const { store, issues } = await build()
     const created = await seed(issues, 'original title')
 
     await expect(store.transact(async () => {
-        await issues.crud.update(created.id, { title: 'renamed inside the span' })
+        await issues.crud.update(issues.reports.store.serverWriter, created.id, { title: 'renamed inside the span' })
         // The savepoint is released and the map is already installed today.
         // The in-window reader must see the write…
         expect((await issues.reports.get(created.id))?.title).toBe('renamed inside the span')
@@ -61,7 +61,7 @@ describe('a rolled-back span leaves no issue row behind (POD-3366)', () => {
     const created = await seed(issues, 'original title')
 
     await store.transact(async () => {
-      await issues.crud.update(created.id, { title: 'renamed and kept' })
+      await issues.crud.update(issues.reports.store.serverWriter, created.id, { title: 'renamed and kept' })
     })
 
     expect((await issues.reports.get(created.id))?.title).toBe('renamed and kept')
@@ -77,8 +77,8 @@ describe('a rolled-back span leaves no issue row behind (POD-3366)', () => {
     const created = await seed(issues, 'original title')
 
     await store.transact(async () => {
-      await issues.crud.update(created.id, { title: 'first write' })
-      await issues.crud.update(created.id, { description: 'second write' })
+      await issues.crud.update(issues.reports.store.serverWriter, created.id, { title: 'first write' })
+      await issues.crud.update(issues.reports.store.serverWriter, created.id, { description: 'second write' })
     })
 
     const after = await issues.reports.get(created.id)
@@ -91,7 +91,7 @@ describe('a rolled-back span leaves no issue row behind (POD-3366)', () => {
     const created = await seed(issues, 'to be deleted')
 
     await expect(store.transact(async () => {
-        await issues.crud.update(created.id, { title: 'touched before the failure' })
+        await issues.crud.update(issues.reports.store.serverWriter, created.id, { title: 'touched before the failure' })
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -115,14 +115,14 @@ describe('a rolled-back span leaves no issue row behind (POD-3366)', () => {
     const survivor = await seed(issues, 'the survivor')
 
     await expect(store.transact(async () => {
-        await issues.crud.create({ repoPath: '/repo', title: 'orphaned by the rollback', startNow: false })
+        await issues.crud.create(issues.reports.store.serverWriter, { repoPath: '/repo', title: 'orphaned by the rollback', startNow: false })
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
 
     // A later, unrelated top-level write. Its own span is open while the issue
     // service reads the row map to build the wire.
-    await issues.crud.update(survivor.id, { title: 'a later unrelated write' })
+    await issues.crud.update(issues.reports.store.serverWriter, survivor.id, { title: 'a later unrelated write' })
 
     const titles = (await issues.reports.list()).map((issue) => issue.title)
     expect(titles).not.toContain('orphaned by the rollback')
@@ -142,7 +142,7 @@ describe('a rolled-back span leaves no issue row behind (POD-3366)', () => {
     await seed(issues, 'committed issue')
 
     await expect(store.transact(async () => {
-        await issues.crud.create({ repoPath: '/repo', title: 'never committed', startNow: false })
+        await issues.crud.create(issues.reports.store.serverWriter, { repoPath: '/repo', title: 'never committed', startNow: false })
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -173,7 +173,7 @@ describe('a rolled-back span leaves no issue row behind (POD-3366)', () => {
 
     await store.transact(async () => {
       await store.transact(async () => {
-        await issues.crud.update(created.id, { title: 'staged by the middle span' })
+        await issues.crud.update(issues.reports.store.serverWriter, created.id, { title: 'staged by the middle span' })
       })
       seenInsideTheWindow = (await issues.reports.get(created.id))?.title
     })
@@ -199,7 +199,7 @@ describe('a rolled-back span leaves no issue row behind (POD-3366)', () => {
 
     await store.transact(async () => {
       await expect(store.transact(async () => {
-          await issues.crud.create({ repoPath: '/repo', title: 'orphaned by the inner rollback', startNow: false })
+          await issues.crud.create(issues.reports.store.serverWriter, { repoPath: '/repo', title: 'orphaned by the inner rollback', startNow: false })
           throw new Error('inner span failed')
         }),
       ).rejects.toThrow('inner span failed')

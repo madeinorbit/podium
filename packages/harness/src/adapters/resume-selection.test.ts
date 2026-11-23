@@ -1,18 +1,33 @@
 import { describe, expect, it } from 'vitest'
+import { testHarnessContext } from '../driver/testing/harness-context.js'
 import { AGENT_MANIFESTS } from '../registry.js'
 import { fixtureManifest } from './fixture/index.js'
 
 const manifests = [...Object.values(AGENT_MANIFESTS), fixtureManifest]
 const resumeFlags: Record<string, string> = {
-  'claude-code': '--resume', codex: 'resume', cursor: '--resume', grok: '--resume',
-  opencode: '--session', pi: '--session', fixture: '--resume',
+  'claude-code': '--resume',
+  codex: 'resume',
+  cursor: '--resume',
+  grok: '--resume',
+  opencode: '--session',
+  pi: '--session',
+  fixture: '--resume',
 }
 
 describe('each harness owns its resume selection (POD-3911)', () => {
   for (const manifest of manifests) {
-    it.each([undefined, 'auto'])(`${manifest.kind} resumes with no model or effort override (%s)`, (auto) => {
+    it.each([
+      undefined,
+      'auto',
+    ])(`${manifest.kind} resumes with no model or effort override (%s)`, (auto) => {
       const command = manifest.launch({
-        cwd: '/work', homeDir: '/home/agent', runtimeDir: '/runtime/session',
+        cwd: '/work',
+        runtimeDir: '/runtime/session',
+        harnessContext: testHarnessContext({
+          kind: manifest.kind,
+          home: '/home/agent',
+          roots: manifest.roots('/home/agent', {}),
+        }),
         resume: { kind: manifest.resumeKind, value: 'native-resume-id' },
         ...(auto ? { model: auto, effort: auto } : {}),
       })

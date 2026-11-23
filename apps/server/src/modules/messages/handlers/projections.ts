@@ -27,17 +27,16 @@ import type {
 import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
 import type { MessageRecordWire } from '@podium/model'
 import type { MessageWire } from '../gate'
-import type { MailHandlerContext } from './context'
+import { MailRefusal } from '../refusal'
+import { type MailHandlerContext, mailWriter, personOf } from './context'
 
-/** The shared read: resolve, gate on `mayView` (or on reading the session that
- *  sent it or that it was delivered to), project. */
+/** The shared read: resolve, gate on `mayViewAs` (the caller's own mail, or
+ *  for an agent its capability's), project. */
 async function viewable(ctx: MailHandlerContext, id: string): Promise<MessageWire> {
   const { caller, deps, access } = ctx
   const m = await deps.messages.message(id)
   if (!m) throw new Error(`unknown message ${id}`)
-  if (!access.mayView(caller.capability, m) && !(await access.mayReadAsSessionReader(caller, m))) {
-    throw new Error(MAIL_VIEW_REFUSED)
-  }
+  if (!(await access.mayViewAs(caller, m))) throw new Error(MAIL_VIEW_REFUSED)
   return await access.wire(m)
 }
 
@@ -67,11 +66,15 @@ export async function dismissHandler(
   const { caller, deps, access } = ctx
   const svc = deps.messages
   const message = await svc.message(input.id)
-  if (!message) throw new Error(`unknown message ${input.id}`)
-  if (caller.capability.scope.kind !== 'all' && !access.isRecipient(caller.capability, message)) {
-    throw new Error('only the recipient of a message may dismiss it')
-  }
-  return await access.wire(await svc.dismiss(message.id, caller.capability.actorSessionId ?? null))
+  if (!message) throw new MailRefusal('target-not-found', `unknown message ${input.id}`)
+  // A person's recipient box is the operator box, and only their own rows in
+  // it are theirs to clear (POD-6284): the admin role clears nobody else's.
+  const recipient =
+    personOf(caller) !== undefined
+      ? message.toKind === 'operator' && (await access.mayViewAs(caller, message))
+      : access.isRecipient(caller.capability, message)
+  if (!recipient) throw new MailRefusal('unauthorized', 'only the recipient of a message may dismiss it')
+  return await access.wire(await svc.dismiss(mailWriter(ctx, 'mail.dismiss'), message.id, caller.capability.actorSessionId ?? null))
 }
 
 export async function cancelHandler(
@@ -80,11 +83,11 @@ export async function cancelHandler(
 ): Promise<MessageWire> {
   const { caller, deps, access } = ctx
   const message = await deps.messages.message(input.id)
-  if (!message) throw new Error(`unknown message ${input.id}`)
+  if (!message) throw new MailRefusal('target-not-found', `unknown message ${input.id}`)
   if (!access.isSender(caller, message)) {
-    throw new Error('only the sender of a message may cancel it')
+    throw new MailRefusal('unauthorized', 'only the sender of a message may cancel it')
   }
-  return await access.wire(await deps.messages.cancel(message.id))
+  return await access.wire(await deps.messages.cancel(mailWriter(ctx, 'mail.cancel'), message.id))
 }
 
 /** The sender dismisses the notice of a message that did not arrive (POD-4764). */
@@ -94,11 +97,14 @@ export async function dismissNoticeHandler(
 ): Promise<{ ok: true; dismissed: boolean }> {
   const { caller, deps, access } = ctx
   const message = await deps.messages.message(input.id)
-  if (!message) throw new Error(`unknown message ${input.id}`)
+  if (!message) throw new MailRefusal('target-not-found', `unknown message ${input.id}`)
   if (!access.isSender(caller, message)) {
-    throw new Error('only the sender of a message may dismiss its notice')
+    throw new MailRefusal('unauthorized', 'only the sender of a message may dismiss its notice')
   }
-  return { ok: true, dismissed: await deps.messages.dismissNotice(message.id) }
+  return {
+    ok: true,
+    dismissed: await deps.messages.dismissNotice(mailWriter(ctx, 'mail.dismissNotice'), message.id),
+  }
 }
 
 /**
@@ -113,7 +119,10 @@ export async function recordsHandler(
 ): Promise<{ records: MessageRecordWire[] }> {
   const { principal } = ctx.caller
   if (principal.kind !== 'user') return { records: [] }
-  return { records: 'ids' in input
-    ? await ctx.deps.messageRecords(principal.user, input.ids)
-    : await ctx.deps.messageRecords(principal.user, input.transcriptItemIds, input.sessionId) }
+  return {
+    records:
+      'ids' in input
+        ? await ctx.deps.messageRecords(principal.user, input.ids)
+        : await ctx.deps.messageRecords(principal.user, input.transcriptItemIds, input.sessionId),
+  }
 }

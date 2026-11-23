@@ -14,6 +14,7 @@ let terminalRuntimePromise: Promise<TerminalRuntime> | undefined
 // Chunk fetches can fail while a deploy replaces assets or a connection drops.
 // Keep the initial shell deferred, but give the live mount two chances to recover.
 const TERMINAL_RUNTIME_RETRY_DELAYS_MS = [250, 1_000] as const
+const INITIAL_GEOMETRY_WAIT_MS = 500
 
 function loadTerminalRuntime(): Promise<TerminalRuntime> {
   // Metro implements split imports with a standards-compatible thenable, but
@@ -83,10 +84,10 @@ export interface UseTerminalSessionOptions {
   /** How this viewer presents a box that is not W; see MountSessionOptions.crop. */
   crop?: 'clip' | 'scroll'
   /**
-   * The session's last-known grid W, from the store row (POD-3239 B1). Read at
-   * MOUNT TIME only: it is the size this buffer is BORN at, and after that the
-   * server's attach snapshot and its reports are what move it — a later row
-   * update must not remount the terminal.
+   * The session's live grid W (POD-3239 B1). Wait up to 500 ms for its first
+   * reading before constructing the buffer; then fall back to 80x24. A late
+   * first reading can resize that fallback until the attach supplies a grid.
+   * Later readings never remount the terminal or replace the attach's grid.
    */
   initialGeometry?: { cols: number; rows: number }
   readyTimeoutMs?: number
@@ -150,6 +151,7 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const toolbarRef = useRef<HTMLDivElement | null>(null)
   const mountedRef = useRef<MountedSession | null>(null)
+  const geometryArrivedRef = useRef<(() => void) | undefined>(undefined)
   const [ready, setReady] = useState(false)
   const [atBottom, setAtBottom] = useState(true)
   const [outputSeen, setOutputSeen] = useState(true)
@@ -182,8 +184,7 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   appearanceRef.current = opts.appearance
   const cropRef = useRef(opts.crop)
   cropRef.current = opts.crop
-  // Mount-time-only, like appearance and crop above: the birth grid is a
-  // property of THIS mount, not a prop the live terminal follows.
+  // The first grid belongs to this mount. The attach owns subsequent geometry.
   const initialGeometryRef = useRef(opts.initialGeometry)
   initialGeometryRef.current = opts.initialGeometry
   const echoLatencyEnabledRef = useRef(opts.echoLatencyEnabled)
@@ -204,12 +205,37 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
     let cleanupMounted: (() => void) | undefined
     let runtimeRetryTimer: ReturnType<typeof setTimeout> | undefined
     let runtimeRetryCount = 0
+    let geometryWaitTimer: ReturnType<typeof setTimeout> | undefined
+    let resolveGeometryWait!: () => void
+    let awaitingFirstGeometry = false
+    const geometryReady = new Promise<void>((resolve) => {
+      resolveGeometryWait = resolve
+      if (initialGeometryRef.current) resolve()
+      else geometryWaitTimer = setTimeout(resolve, INITIAL_GEOMETRY_WAIT_MS)
+    })
+    const geometryArrived = () => {
+      resolveGeometryWait()
+      if (geometryWaitTimer !== undefined) clearTimeout(geometryWaitTimer)
+      const geometry = initialGeometryRef.current
+      if (!geometry || !mounted || !awaitingFirstGeometry) return
+      awaitingFirstGeometry = false
+      // The topic and attach travel independently. An attach that already
+      // supplied a grid wins over a slower topic reply; never rewind it.
+      const state = mounted.connection.state()
+      if (state.cols !== undefined && state.rows !== undefined) return
+      mounted.view.resize(geometry.cols, geometry.rows)
+      mounted.view.forceRepaint()
+    }
+    geometryArrivedRef.current = geometryArrived
 
     const mount = (): void => {
-      void loadTerminalRuntime().then(
-        ({ mountSession }) => {
+      // Fetch the renderer and the first live size concurrently. The panel's
+      // first render acquires the topic, so the reply cannot precede that render.
+      void Promise.all([loadTerminalRuntime(), geometryReady]).then(
+        ([{ mountSession }]) => {
           if (cancelled) return
           try {
+            awaitingFirstGeometry = initialGeometryRef.current === undefined
             const nextMounted = mountSession(el, {
               hub,
               sessionId,
@@ -221,7 +247,9 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
                 : {}),
               ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
               ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
-              ...(testRef.current ? { test: true, testSessions: () => testSessionsRef.current?.() ?? [] } : {}),
+              ...(testRef.current
+                ? { test: true, testSessions: () => testSessionsRef.current?.() ?? [] }
+                : {}),
               ...(echoLatencyEnabledRef.current ? { echoLatencyEnabled: true } : {}),
               ...(focusOnMountRef.current !== undefined
                 ? { focusOnMount: focusOnMountRef.current }
@@ -261,6 +289,9 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
     mount()
     return () => {
       cancelled = true
+      if (geometryWaitTimer !== undefined) clearTimeout(geometryWaitTimer)
+      resolveGeometryWait()
+      if (geometryArrivedRef.current === geometryArrived) geometryArrivedRef.current = undefined
       if (runtimeRetryTimer !== undefined) clearTimeout(runtimeRetryTimer)
       cleanupMounted?.()
       offScroll?.()
@@ -268,6 +299,10 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
       mountedRef.current = null
     }
   }, [hub, sessionId, enabled])
+
+  useEffect(() => {
+    if (opts.initialGeometry) geometryArrivedRef.current?.()
+  }, [opts.initialGeometry])
 
   // Eligibility flips on the live instance — never a remount (warm toggles).
   useEffect(() => {

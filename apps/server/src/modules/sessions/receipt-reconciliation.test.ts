@@ -1,12 +1,21 @@
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../../test-support/capture-logs'
-import { ReceiptSender, type ReceiptSenderPorts, type ReceiptSendInput, type ReceiptSendVia } from './receipt-send'
+import { messageTestWriter } from '../../test-support/message-writer'
+import {
+  ReceiptSender,
+  type ReceiptSenderPorts,
+  type ReceiptSendInput,
+  type ReceiptSendVia,
+} from './receipt-send'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (error: unknown) => void
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes
+    reject = no
+  })
   return { promise, resolve, reject }
 }
 
@@ -21,8 +30,10 @@ function sender(overrides: Partial<ReceiptSenderPorts> = {}) {
     queue: { enqueue: async () => ({ ok: true, position: 1 }) },
     onContract: () => true,
     systemPrincipal: () => ({
-      kind: 'system', attribution: { actor: { kind: 'system', job: 'test' }, onBehalfOf: null },
-      principalRef: 'test', delegation: null,
+      kind: 'system',
+      attribution: { actor: { kind: 'system', job: 'test' }, onBehalfOf: null },
+      principalRef: 'test',
+      delegation: null,
     }),
     now: () => 0,
     ...overrides,
@@ -40,8 +51,26 @@ describe('detached receipt reconciliation', () => {
   }> = [
     { name: 'durable queue acceptance', via: 'queue' },
     { name: 'interrupt row acceptance', via: 'interrupt' },
-    { name: 'durable queue refusal', via: 'queue', ports: { queue: { enqueue: async () => ({ ok: false, reason: 'not_running' }) } } },
-    { name: 'attachment refusal', via: 'now', input: { attachments: [{ id: 'bad', path: '/wrong/file', filename: 'bad.png', mediaType: 'image/png', kind: 'image' }] } },
+    {
+      name: 'durable queue refusal',
+      via: 'queue',
+      ports: { queue: { enqueue: async () => ({ ok: false, reason: 'not_running' }) } },
+    },
+    {
+      name: 'attachment refusal',
+      via: 'now',
+      input: {
+        attachments: [
+          {
+            id: 'bad',
+            path: '/wrong/file',
+            filename: 'bad.png',
+            mediaType: 'image/png',
+            kind: 'image',
+          },
+        ],
+      },
+    },
   ]
   for (const branch of branches) {
     it(`reports asynchronous reconciliation failure for ${branch.name}`, async () => {
@@ -51,7 +80,13 @@ describe('detached receipt reconciliation', () => {
       // records rather than the console (POD-5614).
       const captured = captureLogs()
       try {
-        const input = { sessionId: asSessionId('receipt-target'), sourceMessageId: 'message-branch', text: 'private body', ...branch.input }
+        const input = {
+          writer: messageTestWriter(),
+          sessionId: asSessionId('receipt-target'),
+          sourceMessageId: 'message-branch',
+          text: 'private body',
+          ...branch.input,
+        }
         let called = false
         await sender(branch.ports).send(branch.via, input, () => {
           called = true
@@ -66,7 +101,10 @@ describe('detached receipt reconciliation', () => {
         expect(errors).toHaveLength(1)
         expect(errors[0]?.msg).toBe('reconciliation failed')
         expect(errors[0]).toMatchObject({
-          sessionId: input.sessionId, sourceMessageId: input.sourceMessageId, via: branch.via, error: failure,
+          sessionId: input.sessionId,
+          sourceMessageId: input.sourceMessageId,
+          via: branch.via,
+          error: failure,
         })
         expect(errors[0]).not.toHaveProperty('text')
       } finally {
@@ -82,10 +120,7 @@ describe('detached receipt reconciliation', () => {
       expect(
         await sender().send(
           'queue',
-          {
-            sessionId: asSessionId('receipt-target'),
-            text: 'body',
-          },
+          { writer: messageTestWriter(), sessionId: asSessionId('receipt-target'), text: 'body' },
           () => {
             throw failure
           },
@@ -96,11 +131,11 @@ describe('detached receipt reconciliation', () => {
       expect(errors).toHaveLength(1)
       expect(errors[0]?.msg).toBe('reconciliation failed')
       expect(errors[0]).toMatchObject({
-        operationId: expect.any(String), error: failure,
+        operationId: expect.any(String),
+        error: failure,
       })
     } finally {
       captured.restore()
     }
   })
-
 })

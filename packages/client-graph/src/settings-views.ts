@@ -1,9 +1,10 @@
 import { keyedComputed } from '@podium/mobx-helpers'
-import type { GitRepositoryWire, MachineWire } from '@podium/model'
+import type { MachineFacts } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT, machinePathKey } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
 import { debugName } from './debug-name'
-import { omitGone } from './lookup'
+import { here, omitGone } from './lookup'
+import { machineFacts } from './machine-facts'
 import type { MobxPool } from './pool'
 import { type SettingsRows, type SetupSession, setupSessionSummary } from './settings-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -22,28 +23,6 @@ export function createSettingsViews(pool: MobxPool) {
   )
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   const catalog = () => memo('catalog', () => readSettingsCatalog(pool, memo))
-  function sessions() {
-    return pool.queries.summarize(
-      { kind: 'setupSessions' },
-      'settings.sessions',
-      (id) => omitGone(pool.row('setupSession', id)),
-      {
-        // Resume winners occupy their group's first source position, including
-        // ties across cold/hot partitions. Headless rows remain independent.
-        order: (id) => String(pool.sourcePosition('session', id) ?? 0).padStart(16, '0'),
-        collapse: {
-          key: (row) =>
-            row.resume && !row.headless
-              ? JSON.stringify([row.resume.kind, row.resume.value])
-              : undefined,
-          keepsGroup: (row) => ['live', 'starting', 'reconnecting'].includes(row.status),
-          compare: (a, b) =>
-            resumeRank(b) - resumeRank(a) ||
-            (a.lastActiveAt > b.lastActiveAt ? -1 : a.lastActiveAt < b.lastActiveAt ? 1 : 0),
-        },
-      },
-    )
-  }
   function setup(paths: readonly string[] = []) {
     return memo(`setup:${JSON.stringify(paths.map(machinePathKey))}`, () => {
       const usage = new Map<string, number>()
@@ -84,7 +63,6 @@ export function createSettingsViews(pool: MobxPool) {
     catalog,
     setup,
     setupCatalog,
-    sessions,
     sessionPresent,
     sessionCount: () => pool.queries.setupSessionCount(),
     clear: () => cache.clear(),
@@ -99,7 +77,7 @@ export function settingsView(pool: MobxPool): ReturnType<typeof createSettingsVi
 
 /** Setup decoration and the first-task decision belong to the setup screen. */
 export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSession> {
-  const row = omitGone(pool.row('session', id, 'summary-fields'))
+  const row = omitGone(pool.row('session', id))
   return row && row !== LOADING
     ? setupSessionSummary(
         row as unknown as Readonly<Record<string, unknown>>,
@@ -107,36 +85,38 @@ export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSessio
       )
     : row
 }
-function resumeRank(row: SetupSession): number {
-  return row.status === 'live'
-    ? 3
-    : row.status === 'starting' || row.status === 'reconnecting'
-      ? 2
-      : row.status === 'hibernated'
-        ? 1
-        : 0
-}
+/** Any undeleted issue: one the device holds answers at once, else the stubs (POD-7088). */
 export function settingsHasFirstTask(pool: MobxPool): Loaded<boolean> {
-  return pool.undeletedIssueCount > 0
+  if (pool.heldUndeletedIssueCount > 0) return true
+  const count = pool.undeletedIssueCount
+  return count === LOADING ? LOADING : count > 0
 }
 
-const EMPTY_LAUNCH_CATALOG = { machines: [] as MachineWire[], repos: [] as GitRepositoryWire[] }
+/** What New Task picks from: the machines I may see, as plain facts, and the
+ *  repositories. Facts, not live models, so a picker that renders every
+ *  machine per repository reads each machine once per change (POD-2630). */
+export interface SettingsCatalog {
+  machines: MachineFacts[]
+  repos: SettingsRows['settingsRepository'][]
+}
+const EMPTY_SETTINGS_CATALOG: SettingsCatalog = { machines: [], repos: [] }
 const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
 
 export function readSettingsCatalog(
   pool: MobxPool,
   memo: SettingsMemo = readUncached,
-): {
-  machines: MachineWire[]
-  repos: GitRepositoryWire[]
-} {
+): SettingsCatalog {
   const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
-  if (!loaded(catalog)) return EMPTY_LAUNCH_CATALOG
+  if (!loaded(catalog)) return EMPTY_SETTINGS_CATALOG
   return {
+    // The machines I may see: those with my own access row.
     machines: catalog.machines.flatMap((id) => {
-      const row = memo(`catalog:machine:${id}`, () => omitGone(pool.row('settingsMachine', id)))
-      return loaded(row) ? [row] : []
+      const machine = memo(`catalog:machine:${id}`, () => {
+        const model = here(pool.model('machine', id))
+        return model && model.use !== undefined ? machineFacts(model) : undefined
+      })
+      return machine ? [machine] : []
     }),
     repos: readCatalogRepositories(pool, catalog, memo),
   }
@@ -146,7 +126,7 @@ function readCatalogRepositories(
   pool: MobxPool,
   catalog: SettingsRows['settingsCatalog'],
   memo: SettingsMemo,
-): GitRepositoryWire[] {
+): SettingsRows['settingsRepository'][] {
   return catalog.repositories.flatMap((id) => {
     const row = memo(`catalog:repository:${id}`, () => omitGone(pool.row('settingsRepository', id)))
     return loaded(row) ? [row] : []

@@ -5,6 +5,8 @@
  */
 import { asAccountId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { harnessInstallation } from '../../../harness-context.js'
+import { testTurnPosture } from '../../testing/harness-context.js'
 import {
   assertHeadlessToolPolicy,
   buildHeadlessExec,
@@ -13,7 +15,26 @@ import {
 import { testHarnessSnapshot } from './test-support.js'
 
 const snapshot = testHarnessSnapshot()
+const POSTURE = testTurnPosture()
+
+/**
+ * What Codex's posture section puts right after `exec` on a turn under the
+ * default posture (POD-6858 §4.8). Moved to posture: a turn used to carry
+ * none of these.
+ */
+const CODEX_TURN_POSTURE_ARGS = [
+  '-c',
+  'projects={"/work/podium-test"={trust_level="trusted"}}',
+  '-c',
+  'sandbox_workspace_write.network_access=true',
+  '--approve-for-me',
+]
+/** What Grok's posture section puts before `--single` on a turn under the
+ *  default posture (POD-6858 §4.8). Moved to posture: a turn carried none. */
+const GROK_TURN_POSTURE_ARGS = ['--permission-mode', 'auto', '--allow', 'Bash(podium *)']
+
 const identity = {
+  launchPosture: POSTURE,
   accountId: asAccountId('native:claude-code:test'),
   requestDigest: 'a'.repeat(64),
 }
@@ -31,19 +52,32 @@ describe('buildHeadlessExec argv shapes', () => {
     ).toThrow(/cannot enforce a no-tools headless turn/)
   })
   it('codex first turn: exec --json with positional prompt, no resume subcommand', () => {
-    const { cmd, args } = buildHeadlessExec('codex', { prompt: 'hi there' }, snapshot)
+    const { cmd, args } = buildHeadlessExec(
+      'codex',
+      { prompt: 'hi there' },
+      harnessInstallation(snapshot, 'codex'),
+      POSTURE,
+    )
     expect(cmd).toBe('/opt/codex')
-    expect(args).toEqual(['exec', '--json', '--skip-git-repo-check', 'hi there'])
+    expect(args).toEqual([
+      'exec',
+      ...CODEX_TURN_POSTURE_ARGS,
+      '--json',
+      '--skip-git-repo-check',
+      'hi there',
+    ])
   })
 
   it('codex resume turn: `exec resume <id>` subcommand before flags', () => {
     const { args } = buildHeadlessExec(
       'codex',
       { prompt: 'go on', resumeValue: '019f-abc', model: 'gpt-5.2-codex' },
-      snapshot,
+      harnessInstallation(snapshot, 'codex'),
+      POSTURE,
     )
     expect(args).toEqual([
       'exec',
+      ...CODEX_TURN_POSTURE_ARGS,
       'resume',
       '019f-abc',
       '--json',
@@ -55,21 +89,35 @@ describe('buildHeadlessExec argv shapes', () => {
   })
 
   it('codex effort rides a -c model_reasoning_effort override', () => {
-    const { args } = buildHeadlessExec('codex', { prompt: 'p', effort: 'low' }, snapshot)
-    expect(args).toContain('-c')
-    expect(args[args.indexOf('-c') + 1]).toBe('model_reasoning_effort="low"')
+    const { args } = buildHeadlessExec(
+      'codex',
+      { prompt: 'p', effort: 'low' },
+      harnessInstallation(snapshot, 'codex'),
+      POSTURE,
+    )
+    expect(args[args.indexOf('model_reasoning_effort="low"') - 1]).toBe('-c')
   })
 
   it('codex MCP config becomes -c TOML overrides and a bad config throws', () => {
     const mcpConfig = JSON.stringify({
       mcpServers: { podium: { url: 'http://127.0.0.1:1/mcp', headers: { 'x-a': 'b' } } },
     })
-    const { args } = buildHeadlessExec('codex', { prompt: 'p', mcpConfig }, snapshot)
+    const { args } = buildHeadlessExec(
+      'codex',
+      { prompt: 'p', mcpConfig },
+      harnessInstallation(snapshot, 'codex'),
+      POSTURE,
+    )
     expect(args).toContain('mcp_servers."podium".url="http://127.0.0.1:1/mcp"')
     expect(args).toContain('mcp_servers."podium".http_headers={"x-a"="b"}')
-    expect(() => buildHeadlessExec('codex', { prompt: 'p', mcpConfig: '{oops' }, snapshot)).toThrow(
-      /malformed MCP config/,
-    )
+    expect(() =>
+      buildHeadlessExec(
+        'codex',
+        { prompt: 'p', mcpConfig: '{oops' },
+        harnessInstallation(snapshot, 'codex'),
+        POSTURE,
+      ),
+    ).toThrow(/malformed MCP config/)
   })
 
   it('codex routes the MCP auth token to a bearer env var, not argv (POD-1021)', () => {
@@ -81,7 +129,12 @@ describe('buildHeadlessExec argv shapes', () => {
         },
       },
     })
-    const { args, env } = buildHeadlessExec('codex', { prompt: 'p', mcpConfig }, snapshot)
+    const { args, env } = buildHeadlessExec(
+      'codex',
+      { prompt: 'p', mcpConfig },
+      harnessInstallation(snapshot, 'codex'),
+      POSTURE,
+    )
     expect(args).toContain('mcp_servers."podium".bearer_token_env_var="PODIUM_MCP_BEARER_PODIUM"')
     expect(env).toMatchObject({ PODIUM_MCP_BEARER_PODIUM: 'sekret' })
     expect(args).toContain('mcp_servers."podium".http_headers={"x-podium-mcp-thread"="thr"}')
@@ -93,12 +146,34 @@ describe('buildHeadlessExec argv shapes', () => {
     const { cmd, args } = buildHeadlessExec(
       'grok',
       { prompt: 'hello', sessionId: 'uuid-1', model: 'grok-4' },
-      snapshot,
+      harnessInstallation(snapshot, 'grok'),
+      POSTURE,
     )
     expect(cmd).toBe('/opt/grok')
-    expect(args).toEqual(['--session-id', 'uuid-1', '--model', 'grok-4', '--single', 'hello'])
-    const resumed = buildHeadlessExec('grok', { prompt: 'again', resumeValue: 'uuid-1' }, snapshot)
-    expect(resumed.args).toEqual(['--resume', 'uuid-1', '--single', 'again'])
+    // Moved to posture (POD-6858): the mode and the CLI rule, also before
+    // --single.
+    expect(args).toEqual([
+      '--session-id',
+      'uuid-1',
+      '--model',
+      'grok-4',
+      ...GROK_TURN_POSTURE_ARGS,
+      '--single',
+      'hello',
+    ])
+    const resumed = buildHeadlessExec(
+      'grok',
+      { prompt: 'again', resumeValue: 'uuid-1' },
+      harnessInstallation(snapshot, 'grok'),
+      POSTURE,
+    )
+    expect(resumed.args).toEqual([
+      '--resume',
+      'uuid-1',
+      ...GROK_TURN_POSTURE_ARGS,
+      '--single',
+      'again',
+    ])
   })
 
   it('refuses Grok repair turns because hook/config isolation is not proven', () => {
@@ -115,7 +190,8 @@ describe('buildHeadlessExec argv shapes', () => {
     const first = buildHeadlessExec(
       'pi',
       { prompt: 'hello', sessionId: 'uuid-1', model: 'openai/gpt-5.5', effort: 'high' },
-      snapshot,
+      harnessInstallation(snapshot, 'pi'),
+      POSTURE,
     )
     expect(first.cmd).toBe('/opt/pi')
     expect(first.args).toEqual([
@@ -128,18 +204,24 @@ describe('buildHeadlessExec argv shapes', () => {
       'openai/gpt-5.5',
       '--thinking',
       'high',
-      '--no-approve',
+      '--approve',
     ])
     expect(first.stdin).toBe('hello')
-    const resumed = buildHeadlessExec('pi', { prompt: 'again', resumeValue: 'uuid-1' }, snapshot)
-    expect(resumed.args).toEqual(['-p', '--mode', 'json', '--session-id', 'uuid-1', '--no-approve'])
+    const resumed = buildHeadlessExec(
+      'pi',
+      { prompt: 'again', resumeValue: 'uuid-1' },
+      harnessInstallation(snapshot, 'pi'),
+      POSTURE,
+    )
+    expect(resumed.args).toEqual(['-p', '--mode', 'json', '--session-id', 'uuid-1', '--approve'])
   })
 
   it('pi: a repair turn is accepted and runs tool-less', () => {
     const { args } = buildHeadlessExec(
       'pi',
       { prompt: 'repair', sessionId: 'uuid-1', toolPolicy: 'none' },
-      snapshot,
+      harnessInstallation(snapshot, 'pi'),
+      POSTURE,
     )
     expect(args).toContain('--no-tools')
     expect(args).toContain('--no-extensions')
@@ -149,11 +231,14 @@ describe('buildHeadlessExec argv shapes', () => {
     const first = buildHeadlessExec(
       'opencode',
       { prompt: 'hi', model: 'opencode/deepseek-v4-flash-free', effort: 'high' },
-      snapshot,
+      harnessInstallation(snapshot, 'opencode'),
+      POSTURE,
     )
     expect(first.cmd).toBe('/opt/opencode')
+    // Moved to posture: `--auto` (the default posture, right after `run`).
     expect(first.args).toEqual([
       'run',
+      '--auto',
       '--format',
       'json',
       '-m',
@@ -165,10 +250,12 @@ describe('buildHeadlessExec argv shapes', () => {
     const resumed = buildHeadlessExec(
       'opencode',
       { prompt: 'go on', resumeValue: 'ses_1', effort: 'max' },
-      snapshot,
+      harnessInstallation(snapshot, 'opencode'),
+      POSTURE,
     )
     expect(resumed.args).toEqual([
       'run',
+      '--auto',
       '--format',
       'json',
       '-s',
@@ -183,14 +270,25 @@ describe('buildHeadlessExec argv shapes', () => {
     const { cmd, args } = buildHeadlessExec(
       'cursor',
       { prompt: 'hi', sessionId: 'chat-1' },
-      snapshot,
+      harnessInstallation(snapshot, 'cursor'),
+      POSTURE,
     )
     expect(cmd).toBe('/opt/cursor-agent')
-    expect(args).toEqual(['-p', '--resume', 'chat-1', '--model', 'auto', 'hi'])
+    expect(args).toEqual([
+      '-p',
+      '--resume',
+      'chat-1',
+      '--model',
+      'auto',
+      '--trust',
+      '--auto-review',
+      'hi',
+    ])
     const named = buildHeadlessExec(
       'cursor',
       { prompt: 'hi', sessionId: 'chat-1', model: 'composer-2.5' },
-      snapshot,
+      harnessInstallation(snapshot, 'cursor'),
+      POSTURE,
     )
     expect(named.args).toContain('composer-2.5')
     expect(named.args).not.toContain('auto')
@@ -203,10 +301,10 @@ describe('buildHeadlessExec argv shapes', () => {
         prompt: 'task',
         systemPrompt: 'orchestrate',
         contextPrompt: 'repo context',
-        permissionMode: 'auto',
         sessionId: 'u',
       },
-      snapshot,
+      harnessInstallation(snapshot, 'grok'),
+      POSTURE,
     )
     expect(args).toContain('--rules')
     expect(args[args.indexOf('--rules') + 1]).toBe('orchestrate\n\nrepo context')
@@ -218,7 +316,8 @@ describe('buildHeadlessExec argv shapes', () => {
     const { args } = buildHeadlessExec(
       'codex',
       { prompt: 'task', systemPrompt: 'orchestrate', contextPrompt: 'repo context' },
-      snapshot,
+      harnessInstallation(snapshot, 'codex'),
+      POSTURE,
     )
     expect(args).toContain('developer_instructions="orchestrate\\n\\nrepo context"')
     expect(args.at(-1)).toBe('task')
@@ -228,7 +327,8 @@ describe('buildHeadlessExec argv shapes', () => {
     const { args } = buildHeadlessExec(
       'grok',
       { prompt: 'p', sessionId: 'u', model: 'auto' },
-      snapshot,
+      harnessInstallation(snapshot, 'grok'),
+      POSTURE,
     )
     expect(args).not.toContain('--model')
   })
@@ -243,9 +343,14 @@ describe('composeHeadlessInvocation', () => {
       snapshot,
       { isRoot: false },
     )
-    expect(invocation.cmd).toBe('/opt/claude')
-    expect(invocation.args.slice(0, 4)).toEqual(['-p', '--verbose', '--output-format', 'stream-json'])
-    expect(invocation.args).toContain('--session-id')
+    expect(invocation.command.cmd).toBe('/opt/claude')
+    expect(invocation.command.args.slice(0, 4)).toEqual([
+      '-p',
+      '--verbose',
+      '--output-format',
+      'stream-json',
+    ])
+    expect(invocation.command.args).toContain('--session-id')
     expect(invocation.stdin).toEqual({ kind: 'bytes', data: 'the prompt' })
     expect(invocation.pinnedSessionId).toBe('u-1')
   })
@@ -254,19 +359,23 @@ describe('composeHeadlessInvocation', () => {
     const mcpConfig = JSON.stringify({
       mcpServers: { podium: { url: 'http://127.0.0.1:1/mcp', headers: { 'x-a': 'b' } } },
     })
-    const { args } = composeHeadlessInvocation(
-      { agent: 'claude-code', ...base, mcpConfig },
-      snapshot,
-      { isRoot: false },
-    )
+    const {
+      command: { args },
+    } = composeHeadlessInvocation({ agent: 'claude-code', ...base, mcpConfig }, snapshot, {
+      isRoot: false,
+    })
     const inline = args[args.indexOf('--mcp-config') + 1] as string
     expect(JSON.parse(inline)).toEqual({
-      mcpServers: { podium: { type: 'http', url: 'http://127.0.0.1:1/mcp', headers: { 'x-a': 'b' } } },
+      mcpServers: {
+        podium: { type: 'http', url: 'http://127.0.0.1:1/mcp', headers: { 'x-a': 'b' } },
+      },
     })
   })
 
   it('claude: a tool-less turn mounts no MCP at all', () => {
-    const { args } = composeHeadlessInvocation(
+    const {
+      command: { args },
+    } = composeHeadlessInvocation(
       {
         agent: 'claude-code',
         ...base,
@@ -286,8 +395,8 @@ describe('composeHeadlessInvocation', () => {
       snapshot,
       { isRoot: false },
     )
-    expect(invocation.args).toContain('--input-format')
-    expect(invocation.args).toContain('--permission-prompt-tool')
+    expect(invocation.command.args).toContain('--input-format')
+    expect(invocation.command.args).toContain('--permission-prompt-tool')
     expect(invocation.stdin).toEqual({ kind: 'live' })
     expect(invocation.pinnedSessionId).toBe('r-1')
   })
@@ -316,7 +425,7 @@ describe('composeHeadlessInvocation', () => {
       { isRoot: false },
     )
     expect(invocation.pinnedSessionId).toBe('minted-by-server')
-    expect(invocation.args).toContain('minted-by-server')
+    expect(invocation.command.args).toContain('minted-by-server')
     expect(invocation.stdin).toEqual({ kind: 'bytes', data: 'the prompt' })
   })
 
@@ -329,6 +438,16 @@ describe('composeHeadlessInvocation', () => {
       isRoot: false,
     })
     expect(invocation.pinnedSessionId).toBe('chat-9')
-    expect(invocation.args).toEqual(['-p', '--resume', 'chat-9', '--model', 'auto', 'the prompt'])
+    expect(invocation.command.args).toEqual([
+      '-p',
+      '--resume',
+      'chat-9',
+      '--model',
+      'auto',
+      // Moved to posture (POD-6858).
+      '--trust',
+      '--auto-review',
+      'the prompt',
+    ])
   })
 })

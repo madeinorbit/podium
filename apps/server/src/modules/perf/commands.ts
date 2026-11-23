@@ -33,7 +33,7 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import { createLogger } from '@podium/logger'
-import type { LoopMinuteWire, MachineId } from '@podium/model'
+import type { LoopMinuteWire, MachineId, WorkspaceId } from '@podium/model'
 import type { Principal } from '@podium/protocol'
 import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
 import type { z } from 'zod'
@@ -50,6 +50,8 @@ const log = createLogger('server:perf')
  */
 export interface PerfState {
   readonly perf: PerfRegistry
+  /** The workspace of this /trpc call's store: a report's partition is keyed by it. */
+  readonly workspaceId: WorkspaceId
   readonly feedPrincipal?: Principal
   /**
    * THIS PROCESS's event-loop rings, absent at profile level `off` (loop design
@@ -94,7 +96,7 @@ export const PERF_COMMANDS_TRPC = {
       if (state.feedPrincipal === undefined) {
         throw new Error('authenticated feed principal required to report a client switch trace')
       }
-      state.perf.pushClientTrace(input, perfPrincipal(state.feedPrincipal))
+      state.perf.pushClientTrace(input, perfPrincipal(state.workspaceId, state.feedPrincipal))
       // Live visibility, MOVED VERBATIM from the router procedure it replaces:
       // one compact line per reported switch with the three slowest gaps between
       // consecutive marks (offsets are relative to t0). Kept because operators

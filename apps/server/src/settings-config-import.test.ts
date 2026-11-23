@@ -4,9 +4,10 @@ import { join } from 'node:path'
 import { forgetConfig } from '@podium/runtime/config'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { InstanceService } from './modules/instance/service'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import { importConfigSettings, SETTINGS_CONFIG_IMPORT } from './settings-config-import'
 import { openTestStore } from './test-support/open-test-store'
-import { InstanceService } from './modules/instance/service'
 
 const roots: string[] = []
 const dbs: SqlDatabase[] = []
@@ -16,11 +17,19 @@ function fixture() {
   const db = openDatabase(':memory:')
   dbs.push(db)
   db.exec('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
+  // The settings blob is the workspace's (POD-7013); the receipt stays in meta.
+  db.exec(
+    'CREATE TABLE workspace_meta (workspace_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (workspace_id, key))',
+  )
   return { root, db, path: join(root, 'config.json') }
 }
 function settings(db: SqlDatabase) {
   return JSON.parse(
-    (db.prepare("SELECT value FROM meta WHERE key = 'settings'").get() as { value: string }).value,
+    (
+      db
+        .prepare("SELECT value FROM workspace_meta WHERE workspace_id = ? AND key = 'settings'")
+        .get(SELF_HOSTED_WORKSPACE_ID) as { value: string }
+    ).value,
   )
 }
 afterEach(() => {
@@ -51,7 +60,7 @@ describe('one-time config settings import', () => {
       },
     }
     writeFileSync(path, JSON.stringify(config))
-    importConfigSettings(db, root)
+    importConfigSettings(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(settings(db)).toMatchObject({
       deployment: {
         updateChannel: 'dev',
@@ -76,21 +85,21 @@ describe('one-time config settings import', () => {
       telemetry: { endpoint: 'https://pulse.test' },
     })
     writeFileSync(path, JSON.stringify({ mode: 'server', updateChannel: 'edge' }))
-    importConfigSettings(db, root)
+    importConfigSettings(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(settings(db).deployment.updateChannel).toBe('dev')
     expect(JSON.parse(readFileSync(path, 'utf8')).updateChannel).toBe('edge')
   })
   it('preserves existing table choices and personal preferences', () => {
     const { root, db, path } = fixture()
-    db.prepare('INSERT INTO meta VALUES (?, ?)').run(
-      'settings',
+    db.prepare("INSERT INTO workspace_meta VALUES (?, 'settings', ?)").run(
+      SELF_HOSTED_WORKSPACE_ID,
       JSON.stringify({ deployment: { updateChannel: 'stable' }, transcripts: { mirror: true } }),
     )
     db.exec(
       "CREATE TABLE user_preferences (user_id TEXT, value TEXT); INSERT INTO user_preferences VALUES ('member', 'untouched')",
     )
     writeFileSync(path, JSON.stringify({ updateChannel: 'edge', transcriptLake: 'off' }))
-    importConfigSettings(db, root)
+    importConfigSettings(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(settings(db).deployment.updateChannel).toBe('stable')
     expect(settings(db).transcripts.mirror).toBe(true)
     expect(db.prepare('SELECT value FROM user_preferences').get()).toEqual({ value: 'untouched' })
@@ -99,22 +108,22 @@ describe('one-time config settings import', () => {
     const { root, db, path } = fixture()
     const raw = JSON.stringify({ updateChannel: 'edge', port: 19991 })
     writeFileSync(path, raw)
-    db.prepare('INSERT INTO meta VALUES (?, ?)').run(
-      'settings',
+    db.prepare("INSERT INTO workspace_meta VALUES (?, 'settings', ?)").run(
+      SELF_HOSTED_WORKSPACE_ID,
       JSON.stringify({ deployment: { updateChannel: 'dev' } }),
     )
     db.prepare('INSERT INTO meta VALUES (?, ?)').run(
       SETTINGS_CONFIG_IMPORT,
       JSON.stringify({ raw }),
     )
-    importConfigSettings(db, root)
+    importConfigSettings(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(settings(db).deployment.updateChannel).toBe('dev')
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ port: 19991 })
   })
   it('refuses malformed config without committing an import receipt', () => {
     const { root, db, path } = fixture()
     writeFileSync(path, '{broken')
-    expect(() => importConfigSettings(db, root)).toThrow()
+    expect(() => importConfigSettings(db, SELF_HOSTED_WORKSPACE_ID, root)).toThrow()
     expect(db.prepare('SELECT * FROM meta').all()).toEqual([])
   })
   it('UI writes reach the existing row and synchronous consumers, survive reopen, and leave the file unchanged', async () => {
@@ -186,7 +195,7 @@ describe('telemetry on the one-time import', () => {
         telemetry: { usage: 'off', crash: 'on', installId: ID, since: 123 },
       }),
     )
-    importConfigSettings(db, root)
+    importConfigSettings(db, SELF_HOSTED_WORKSPACE_ID, root)
     const imported = settings(db)
     expect(imported.deployment).not.toHaveProperty('telemetryUsage')
     expect(imported.deployment).toMatchObject({
@@ -199,7 +208,7 @@ describe('telemetry on the one-time import', () => {
 
     // A later operator 'off' in config.json is an override, never re-imported.
     writeFileSync(path, JSON.stringify({ mode: 'server', telemetry: { usage: 'off' } }))
-    importConfigSettings(db, root)
+    importConfigSettings(db, SELF_HOSTED_WORKSPACE_ID, root)
     expect(settings(db)).toEqual(imported)
   })
 

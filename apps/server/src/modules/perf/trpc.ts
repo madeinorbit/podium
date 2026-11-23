@@ -8,25 +8,14 @@
  * by a field of the trace body.
  */
 
-import { derivedFamilyProcedures, type FamilyProcedures } from '../derived-family'
-import { PERF_COMMANDS_TRPC } from './commands'
+import type { FamilyProcedures } from '../derived-family'
+import { plainFamilyProcedures } from '../plain-command/family'
+import type { PERF_COMMANDS_TRPC } from './commands'
+import { PERF_PLAIN_FAMILY } from './plain-family'
 import { PERF_QUERIES } from './queries'
 
 export type PerfProcedures = FamilyProcedures<typeof PERF_COMMANDS_TRPC, typeof PERF_QUERIES>
 
 /** THE DERIVED PROCEDURES, spread into `router.ts`'s `perf` router. */
 export const perfFamilyProcedures = (): PerfProcedures =>
-  derivedFamilyProcedures({
-    family: 'perf',
-    service: (state) => ({
-      perf: state.modules.perf,
-      feedPrincipal: state.feedPrincipal,
-      // This process's rings (absent at level `off`) and the fleet's latest
-      // minutes. `loopMinutes` is passed as a bound reader, not a value: the
-      // hosts service keeps updating the map after this bundle is built.
-      ...(state.loopAccounting ? { loopAccounting: state.loopAccounting } : {}),
-      loopMinutes: () => state.modules.hosts.loopMinutes(),
-    }),
-    commands: PERF_COMMANDS_TRPC,
-    queries: PERF_QUERIES,
-  })
+  plainFamilyProcedures(PERF_PLAIN_FAMILY, PERF_QUERIES)

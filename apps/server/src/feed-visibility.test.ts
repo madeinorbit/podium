@@ -1,25 +1,31 @@
 import {
   asIssueId,
+  asIssuePanelItemId,
+  asMachineId,
   asSessionId,
   asUserId,
+  checkoutRowId,
   interactionRowId,
   issueUserStateRowId,
+  machineAccessRowId,
   messageRecordRowId,
+  subscriptionRowId,
 } from '@podium/model'
 import { asCapabilityRef, asDeviceId, type Principal } from '@podium/protocol'
 import {
-  Authority,
   type EntityRef,
   GrantEdgeVisibilityPolicy,
   NoDelegationsGranted,
   type VisibilityAnchorPort,
 } from '@podium/sync'
+import { ModelAuthority as Authority, ModelRecords } from '@podium/sync/testing'
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest'
 import { makeFeedVisibility } from './feed-visibility'
 import type { FeedVisibilityStore, IssueRow, SessionRow } from './hot-path-ports'
 import type { SessionStore } from './store'
 import type { GrantRow } from './store/grants'
 import { openTestStore } from './test-support/open-test-store'
+import { testStoreRecords } from './test-support/record-writer'
 
 /** One row's edge through the batched anchor port. */
 const edgeOf = async (anchors: VisibilityAnchorPort, ref: EntityRef) =>
@@ -41,17 +47,21 @@ async function fixture() {
   const session = {
     id: asSessionId('shared'),
     ownerUserId: owner,
+    issueId: 'shared',
     resumeValue: 'conversation',
   } as SessionRow
   const rows: FeedVisibilityStore = {
     issues: {
+      panel: store.issues.panel,
       getIssue: async () => issue,
       getIssues: async () => new Map([[issue.id, issue]]),
+      liveWorktreeIssuesOnMachines: async () => new Map(),
+      depsFromIssues: async () => [],
     },
     sessions: {
       getSessions: async () => new Map([[session.id, session]]),
       findSessionsByResumeValues: async () => new Map([['conversation', session]]),
-      findSessionsByIssueIds: async () => [],
+      findSessionsByIssueIds: async (ids) => (ids.includes(issue.id) ? [session] : []),
     },
     shipping: {
       issueIdsForOrders: async () => new Map(),
@@ -60,13 +70,55 @@ async function fixture() {
       orderIdsForIssues: async () => [],
     },
     automations: { ownersOf: async () => new Map(), runOwnersOf: async () => new Map() },
+    // The workflow kinds' owners (POD-6676): one workflow, its revision, a
+    // binding and a run, all the owner's.
+    workflows: {
+      visibilityFacts: async () => ({
+        workflows: new Map([['shared', { ownerUserId: owner, scope: 'repository' as const }]]),
+        revisions: new Map([
+          [
+            'wfr_shared',
+            { workflowId: 'shared', ownerUserId: owner, scope: 'repository' as const },
+          ],
+        ]),
+        bindings: new Map([['issue:shared', owner]]),
+        runs: new Map([['shared', owner]]),
+      }),
+    },
+    effects: {
+      // Three effects: one on the shared issue, one on the shared session, one on
+      // a machine; each created by the stranger's neighbour `creator`.
+      audiencesOf: async (ids) => new Map([...EFFECT_AUDIENCES].filter(([id]) => ids.includes(id))),
+      liveOnTargets: async (targets) =>
+        [...EFFECT_AUDIENCES]
+          .filter(([, audience]) =>
+            targets.some(
+              (target) => target.kind === audience.targetKind && target.id === audience.targetId,
+            ),
+          )
+          .map(([id, audience]) => ({
+            id,
+            targetKind: audience.targetKind,
+            targetId: audience.targetId,
+          })),
+    },
+    users: {
+      activeAdminIds: async () => {
+        adminReads.count += 1
+        return new Set([firstAdmin, secondAdmin])
+      },
+    },
+    events: store.events,
     grants: store.grants,
     sync: store.sync,
+    checkouts: store.checkouts,
   }
+  const records = new ModelRecords()
   const policy = makeFeedVisibility({
     store: rows,
     audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
     authorizationRevision: () => store.grants.visibilityRevision(),
+    currentRecords: records.build.bind(records),
   })
   const grant = async (kind: string, grantee: string, verb: GrantRow['verb']) =>
     store.grants.upsert({
@@ -76,13 +128,40 @@ async function fixture() {
       verb,
       owner,
       visibility: 'personal',
-      createdAt: '2026-09-11T00:00:00Z',
+      createdAt: '2026-09-11T00:00:00.000Z',
       actorKind: 'user',
       actorId: owner,
       onBehalfOf: owner,
     })
-  return { store, policy, grant }
+  return { store, policy, grant, issue, records }
 }
+const creator = asUserId('creator')
+const firstAdmin = asUserId('first-admin')
+const secondAdmin = asUserId('second-admin')
+/** How many times a pass read the admin ids; it reads them only for instance kinds. */
+const adminReads = { count: 0 }
+const EFFECT_AUDIENCES = new Map([
+  [
+    'eff_issue',
+    { kind: 'issue.merge', targetKind: 'issue', targetId: 'shared', createdBy: creator },
+  ],
+  [
+    'eff_session',
+    { kind: 'session.interrupt', targetKind: 'session', targetId: 'shared', createdBy: creator },
+  ],
+  [
+    'eff_machine',
+    { kind: 'machine.scan', targetKind: 'machine', targetId: 'm1', createdBy: creator },
+  ],
+  [
+    'eff_update',
+    { kind: 'server.update', targetKind: 'machine', targetId: 'host', createdBy: firstAdmin },
+  ],
+  [
+    'eff_move',
+    { kind: 'server.move', targetKind: 'machine', targetId: 'm2', createdBy: firstAdmin },
+  ],
+] as const)
 const refs: EntityRef[] = [
   { entity: 'issueProjection', entityId: 'shared' },
   { entity: 'session', entityId: 'shared' },
@@ -91,10 +170,11 @@ const refs: EntityRef[] = [
 
 describe('feed visibility grant semantics', () => {
   it('keeps issue user-state private in bootstrap and delta even when the issue is shared', async () => {
-    const { store, policy, grant } = await fixture()
+    const { store, policy, grant, records } = await fixture()
     await grant('issue', reader, 'read')
     const authority = new Authority({
       store: store.sync,
+      records,
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
       visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
@@ -108,7 +188,7 @@ describe('feed visibility grant semantics', () => {
     })
     const id = asIssueId('shared')
     const cursor = await authority.cursor()
-    await authority.capture(
+    await authority.save(
       [owner, reader].map((userId) => ({
         entity: 'issueUserState',
         entityId: issueUserStateRowId(userId, id),
@@ -116,7 +196,7 @@ describe('feed visibility grant semantics', () => {
         value: {
           userId,
           entityId: id,
-          readAt: userId === owner ? 'owner-read' : null,
+          readAt: userId === owner ? '2026-09-11T00:00:00.000Z' : null,
           tuckedAt: null,
           pinned: userId === owner,
         },
@@ -146,42 +226,250 @@ describe('feed visibility grant semantics', () => {
     expect(state.classOf(git.entity)).toBe('personal')
     expect(state.mayRead(owner, git)).toBe(true)
     expect(state.mayRead(reader, git)).toBe(true)
-    expect(state.mayRead(stranger, git)).toBe(false)
+    // Every member reads every task, and its git state with it (POD-6288).
+    expect(state.mayRead(stranger, git)).toBe(true)
     expect(
-      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))
-        ?.subjects,
+      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))?.subjects,
     ).toContainEqual(git)
   })
+  it('effect records follow current target readership and use model values for re-admission', async () => {
+    const { store, policy, grant, records } = await fixture()
+    const principalOf = (user: typeof owner): Principal => ({
+      kind: 'user',
+      user,
+      device: asDeviceId(`device:${user}`),
+      capability: asCapabilityRef(`cap:${user}`),
+    })
+    const authority = new Authority({
+      store: store.sync,
+      records,
+      now: () => 1_000,
+      transact: async (fn) => await store.transact(fn),
+      visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
+      anchors: policy.anchors,
+    })
+    // The merge's record is written before anyone is let in, and does not change after.
+    await authority.save([
+      {
+        entity: 'issueProjection',
+        entityId: 'shared',
+        op: 'upsert',
+        value: { id: 'shared', revision: 1 },
+      },
+      { entity: 'effect', entityId: 'eff_issue', op: 'upsert', value: { id: 'eff_issue' } },
+    ])
+    const cursor = await authority.cursor()
+    await grant('issue', reader, 'read')
+    await authority.save([
+      {
+        entity: 'issueProjection',
+        entityId: 'shared',
+        op: 'upsert',
+        value: { id: 'shared', revision: 2 },
+      },
+    ])
+    const delta = await authority.changesSince(cursor, principalOf(reader))
+    if (delta?.kind !== 'batch') throw new Error('expected a delta batch')
+    // The grant hands the reader the issue's record at once, not at its next
+    // change; the session's, which the issue grant does not open, is an evict.
+    expect(
+      delta.changes
+        .filter((change) => change.entity === 'effect')
+        .map((change) => [change.entityId, change.op]),
+    ).toEqual([
+      ['eff_issue', 'upsert'],
+      ['eff_session', 'evict'],
+    ])
+    // A device that bootstraps after the grant gets the issue's record too.
+    expect(
+      (await authority.bootstrap(principalOf(reader))).changes
+        .filter((change) => change.entity === 'effect')
+        .map((change) => change.entityId),
+    ).toEqual(['eff_issue'])
+
+    // The issue's records and its session's ride the issue's edge, and no other target's.
+    const effectsOf = async () =>
+      (
+        await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' })
+      )?.subjects.filter((ref) => ref.entity === 'effect')
+    expect(await effectsOf()).toEqual([
+      { entity: 'effect', entityId: 'eff_issue' },
+      { entity: 'effect', entityId: 'eff_session' },
+    ])
+    // Tasks are shared (bf835836e5); sessions are owner-only (e4c5c6f369).
+    // A legacy session grant must not expose its effect to another member.
+    const subjects = (await effectsOf()) ?? []
+    let state = await policy.state.forBatch!(subjects)
+    expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, false])
+    await grant('session', reader, 'read')
+    state = await policy.state.forBatch!(subjects)
+    expect(subjects.map((ref) => state.mayRead(reader, ref))).toEqual([true, false])
+
+    // Historical grants still anchor the same subjects; revoking one cannot
+    // revoke a member's access to a shared task.
+    await store.grants.remove('issue', 'shared', reader, 'read')
+    const revokedEdge = await edgeOf(policy.anchors, {
+      entity: 'issueProjection',
+      entityId: 'shared',
+    })
+    expect(revokedEdge?.audience).toEqual([reader])
+    expect(revokedEdge?.subjects).toContainEqual({ entity: 'effect', entityId: 'eff_issue' })
+    state = await policy.state.forBatch!(subjects)
+    expect(state.mayRead(reader, subjects[0]!)).toBe(true)
+    // The next task write still delivers its effect after the grant is removed.
+    const beforeRevokeWrite = await authority.cursor()
+    await authority.save([
+      {
+        entity: 'issueProjection',
+        entityId: 'shared',
+        op: 'upsert',
+        value: { id: 'shared', revision: 3 },
+      },
+    ])
+    const revokedDelta = await authority.changesSince(beforeRevokeWrite, principalOf(reader))
+    if (revokedDelta?.kind !== 'batch') throw new Error('expected a delta batch')
+    expect(
+      revokedDelta.changes
+        .filter((change) => change.entity === 'effect' && change.entityId === 'eff_issue')
+        .map((change) => change.op),
+    ).toEqual(['upsert'])
+    expect(
+      (await authority.bootstrap(principalOf(reader))).changes.some(
+        (change) => change.entity === 'effect' && change.entityId === 'eff_issue',
+      ),
+    ).toBe(true)
+  })
+  it('an effect is read by its creator and by the readers of its target (POD-6357)', async () => {
+    const { policy, grant } = await fixture()
+    await grant('issue', reader, 'read')
+    const effects: EntityRef[] = ['eff_issue', 'eff_session', 'eff_machine', 'eff_gone'].map(
+      (entityId) => ({ entity: 'effect', entityId }),
+    )
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const state = await prepare(effects)
+      expect(state.classOf('effect')).toBe('personal')
+      const readable = (user: typeof owner) =>
+        effects.filter((ref) => state.mayRead(user, ref)).map((ref) => ref.entityId)
+      expect(readable(creator)).toEqual(['eff_issue', 'eff_session', 'eff_machine'])
+      expect(readable(owner)).toEqual(['eff_issue', 'eff_session'])
+      // Every member reads the issue; sessions still belong to their owner.
+      expect(readable(reader)).toEqual(['eff_issue'])
+      expect(readable(stranger)).toEqual(['eff_issue'])
+    }
+  })
+
+  it('a software update or a server move is read by every admin, never by a member (POD-6358)', async () => {
+    const { policy } = await fixture()
+    const instance: EntityRef[] = ['eff_update', 'eff_move'].map((entityId) => ({
+      entity: 'effect',
+      entityId,
+    }))
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const state = await prepare(instance)
+      const readable = (user: typeof owner) =>
+        instance.filter((ref) => state.mayRead(user, ref)).map((ref) => ref.entityId)
+      // The admin who started them, and an admin who did not.
+      expect(readable(firstAdmin)).toEqual(['eff_update', 'eff_move'])
+      expect(readable(secondAdmin)).toEqual(['eff_update', 'eff_move'])
+      // A member, even one who reads the machine's other records, does not.
+      expect(readable(creator)).toEqual([])
+      expect(readable(stranger)).toEqual([])
+    }
+  })
+
+  it('reads the admins only for a batch that holds an instance-wide effect (POD-6358)', async () => {
+    const { policy } = await fixture()
+    adminReads.count = 0
+    await policy.state.forBatch!([{ entity: 'effect', entityId: 'eff_issue' }])
+    expect(adminReads.count).toBe(0)
+    await policy.state.forBatch!([{ entity: 'effect', entityId: 'eff_update' }])
+    expect(adminReads.count).toBe(1)
+  })
+
+  it('a workflow, its revisions, a binding and a run are read by their owner, a read grantee and the admins (POD-6676)', async () => {
+    const { policy, grant } = await fixture()
+    await grant('workflow-definition', reader, 'read')
+    const rows: EntityRef[] = [
+      { entity: 'workflow', entityId: 'shared' },
+      { entity: 'workflowRevision', entityId: 'wfr_shared' },
+      { entity: 'workflowBinding', entityId: 'issue:shared' },
+      { entity: 'workflowRun', entityId: 'shared' },
+      { entity: 'workflow', entityId: 'wf_gone' },
+    ]
+    const all = [
+      'workflow:shared',
+      'workflowRevision:wfr_shared',
+      'workflowBinding:issue:shared',
+      'workflowRun:shared',
+    ]
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const state = await prepare(rows)
+      for (const kind of [
+        'workflow',
+        'workflowRevision',
+        'workflowBinding',
+        'workflowRun',
+      ] as const) {
+        expect(state.classOf(kind)).toBe('personal')
+      }
+      const readable = (user: typeof owner) =>
+        rows.filter((ref) => state.mayRead(user, ref)).map((ref) => `${ref.entity}:${ref.entityId}`)
+      expect(readable(owner)).toEqual(all)
+      expect(readable(firstAdmin)).toEqual(all)
+      // A read grant on the definition reaches it and its revisions, never the
+      // runs or the bindings, which are owned in their own right.
+      expect(readable(reader)).toEqual(['workflow:shared', 'workflowRevision:wfr_shared'])
+      expect(readable(stranger)).toEqual([])
+    }
+  })
+
+  it('a profile is instance substrate; a subscription follows its subscriber (POD-6676)', async () => {
+    const { policy } = await fixture()
+    const subs: EntityRef[] = [
+      { entity: 'subscription', entityId: subscriptionRowId('session', 'shared', 'sub_s') },
+      { entity: 'subscription', entityId: subscriptionRowId('issue', 'shared', 'sub_i') },
+      { entity: 'subscription', entityId: 'not a row id' },
+    ]
+    for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
+      const state = await prepare(subs)
+      expect(state.classOf('agentProfile')).toBe('deployment-substrate')
+      expect(state.classOf('subscription')).toBe('personal')
+      const readable = (user: typeof owner) =>
+        subs.filter((ref) => state.mayRead(user, ref)).map((ref) => ref.entityId)
+      // A session's subscription is its owner's; a task's every member's, as
+      // the task is (design §1.11).
+      expect(readable(owner)).toEqual([subs[0]!.entityId, subs[1]!.entityId])
+      expect(readable(stranger)).toEqual([subs[1]!.entityId])
+    }
+  })
+
   it('reads grants through its store port but cannot write them', () => {
     expectTypeOf<FeedVisibilityStore['grants']>().toHaveProperty('listForResources')
     expectTypeOf<FeedVisibilityStore['grants']>().not.toHaveProperty('upsert')
     expectTypeOf<FeedVisibilityStore['grants']>().not.toHaveProperty('remove')
   })
 
-  it('observes committed writes and revocations but not rolled-back grants', async () => {
+  // Issue grants are inert history (design §4.1, POD-6288): writing or
+  // revoking one changes nobody's read of the task.
+  it('decides task reads without issue grants, before, during and after a revocation', async () => {
     const { store, policy, grant } = await fixture()
+    expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
     await store.transact(async () => {
       await grant('issue', reader, 'read')
     })
     expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
-    await expect(
-      store.transact(async () => {
-        await store.grants.remove('issue', 'shared', reader, 'read')
-        throw new Error('rollback')
-      }),
-    ).rejects.toThrow('rollback')
-    expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
     await store.transact(async () => {
       await store.grants.remove('issue', 'shared', reader, 'read')
     })
-    expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(false)
+    expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
+    expect(await policy.mayReadIssue(stranger, asIssueId('shared'))).toBe(true)
   })
 
   it.each([
     'read',
     'write',
     'manage',
-  ] as const)('preserves owner, grantee, stranger and revoked %s edges across kinds', async (verb) => {
+  ] as const)('reads %s-granted, stranger and revoked tasks alike, and sessions by owner only', async (verb) => {
     const { store, policy, grant } = await fixture()
     await grant('issue', reader, verb)
     await grant('session', reader, verb)
@@ -195,17 +483,19 @@ describe('feed visibility grant semantics', () => {
       const state = await prepare(refs)
       for (const ref of refs) {
         expect(state.mayRead(owner, ref)).toBe(true)
-        expect(state.mayRead(reader, ref)).toBe(ref.entity === 'issueProjection' || verb === 'read')
-        expect(state.mayRead(stranger, ref)).toBe(false)
-        expect(state.mayRead(revoked, ref)).toBe(false)
+        // A session grant is legacy and admits nobody (POD-6283); a task is
+        // read by every member, grant or none (POD-6288).
+        const shared = ref.entity === 'issueProjection'
+        expect(state.mayRead(reader, ref)).toBe(shared)
+        expect(state.mayRead(stranger, ref)).toBe(shared)
+        expect(state.mayRead(revoked, ref)).toBe(shared)
       }
     }
     expect(await policy.mayReadIssue(reader, asIssueId('shared'))).toBe(true)
-    expect(await policy.mayReadIssue(revoked, asIssueId('shared'))).toBe(false)
+    expect(await policy.mayReadIssue(revoked, asIssueId('shared'))).toBe(true)
     // Revoked readers remain in the historical audience so they receive removals.
     expect(
-      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))
-        ?.audience,
+      (await edgeOf(policy.anchors, { entity: 'issueProjection', entityId: 'shared' }))?.audience,
     ).toEqual([reader, revoked])
   })
 
@@ -230,12 +520,13 @@ describe('rows scoped by the session named in their id', () => {
 
   it('shows a blocking ask to whoever may see its session (POD-4764 found the prefetch missing)', async () => {
     const { policy, grant } = await fixture()
+    // A legacy session grant: the ask stays its session owner's alone (POD-6283).
     await grant('session', reader, 'read')
     for (const prepare of [policy.state.forBootstrap!, policy.state.forBatch!]) {
       const state = await prepare([ask])
       expect([owner, reader, stranger].map((user) => state.mayRead(user, ask))).toEqual([
         true,
-        true,
+        false,
         false,
       ])
     }
@@ -274,15 +565,16 @@ describe('rows scoped by the session named in their id', () => {
  */
 describe('the issue anchor edge reads the normalized record', () => {
   it('a share re-admits the normalized issue and names only current subjects', async () => {
-    const { store, policy, grant } = await fixture()
+    const { store, policy, grant, records } = await fixture()
     const authority = new Authority({
       store: store.sync,
+      records,
       now: () => 1_000,
       transact: async (fn) => await store.transact(fn),
       visibility: new GrantEdgeVisibilityPolicy(policy.state, new NoDelegationsGranted()),
       anchors: policy.anchors,
     })
-    await authority.capture([
+    await authority.save([
       {
         entity: 'issueProjection',
         entityId: 'shared',
@@ -292,7 +584,7 @@ describe('the issue anchor edge reads the normalized record', () => {
     ])
     const cursor = await authority.cursor()
     await grant('issue', reader, 'read')
-    await authority.capture([
+    await authority.save([
       {
         entity: 'issueProjection',
         entityId: 'shared',
@@ -313,10 +605,260 @@ describe('the issue anchor edge reads the normalized record', () => {
       entityId: 'shared',
     })
     expect(edge?.audience).toEqual([reader])
-    expect(edge?.subjects.slice(0, 2)).toEqual([
+    expect(edge?.subjects.slice(0, 4)).toEqual([
       { entity: 'issueProjection', entityId: 'shared' },
+      { entity: 'issueBrief', entityId: 'shared' },
+      { entity: 'issueDescription', entityId: 'shared' },
       { entity: 'issueGitState', entityId: 'shared' },
     ])
     expect(edge?.subjects.some((ref) => String(ref.entity) === 'issue')).toBe(false)
+  })
+})
+
+// A machine's records (POD-6644): each member's access row is theirs alone, and
+// a checkout reaches only the members holding `use` on its machine.
+describe('machine access and checkout rows', () => {
+  const machineGrant = (
+    store: SessionStore,
+    grantee: string,
+    verb: GrantRow['verb'],
+    custody = false,
+  ) =>
+    store.grants.upsert({
+      resourceKind: 'machine',
+      resourceId: 'm1',
+      grantee,
+      verb,
+      owner,
+      visibility: 'owned-compute',
+      createdAt: '2026-11-09T00:00:00.000Z',
+      actorKind: 'user',
+      actorId: owner,
+      onBehalfOf: owner,
+      ...(custody ? { custody: true } : {}),
+    })
+
+  it('an access row is keyed to its member, and a checkout needs use on the machine', async () => {
+    const { store, policy } = await fixture()
+    await machineGrant(store, owner, 'manage', true)
+    await machineGrant(store, owner, 'use')
+    await machineGrant(store, reader, 'use')
+    await machineGrant(store, stranger, 'see')
+
+    const access = {
+      entity: 'machineAccess' as const,
+      entityId: machineAccessRowId(reader, asMachineId('m1')),
+    }
+    expect(policy.state.classOf('machineAccess')).toBe('per-user-state')
+    expect(policy.state.keyedUserOf(access)).toBe(reader)
+    expect(policy.state.keyedUserOf({ entity: 'machineAccess', entityId: 'malformed' })).toBeNull()
+
+    const checkout = {
+      entity: 'checkout' as const,
+      entityId: checkoutRowId(asMachineId('m1'), '/home/u/podium'),
+    }
+    const state = await policy.state.forBatch!([checkout])
+    expect(state.classOf('checkout')).toBe('personal')
+    expect(state.mayRead(owner, checkout)).toBe(true)
+    expect(state.mayRead(reader, checkout)).toBe(true)
+    // `see` alone is not what is checked out there (ADR 9), and no grant is nothing.
+    expect(state.mayRead(stranger, checkout)).toBe(false)
+    expect(state.mayRead(revoked, checkout)).toBe(false)
+  })
+
+  // Coordinator decision (POD-5620, 2026-11-09): a registered root is read
+  // with MANAGE or USE, a worktree only with USE. Admins MANAGE every machine.
+  it('a root reaches its managers and admins, a worktree only its users', async () => {
+    const { store, policy } = await fixture()
+    const m1 = asMachineId('m1')
+    await machineGrant(store, owner, 'manage', true)
+    await machineGrant(store, reader, 'use')
+    await machineGrant(store, stranger, 'manage')
+    const row = (path: string, root: string) => ({
+      machineId: m1,
+      path,
+      root,
+      kind: path === root ? ('repository' as const) : ('worktree' as const),
+      repoId: null,
+      branch: 'main',
+      originUrl: null,
+      locked: false,
+      prunable: false,
+    })
+    await store.checkouts.apply(
+      [
+        row('/home/u/podium', '/home/u/podium'),
+        row('/home/u/.worktrees/feature', '/home/u/podium'),
+      ],
+      [],
+      '2026-11-09T00:00:00.000Z',
+    )
+    const root = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/podium') }
+    const worktree = {
+      entity: 'checkout' as const,
+      entityId: checkoutRowId(m1, '/home/u/.worktrees/feature'),
+    }
+    // A removed checkout (no row) is read as a worktree: no path leaks to a manager.
+    const gone = { entity: 'checkout' as const, entityId: checkoutRowId(m1, '/home/u/gone') }
+    const state = await policy.state.forBatch!([root, worktree, gone])
+    for (const manager of [owner, stranger, firstAdmin]) {
+      expect(state.mayRead(manager, root), manager).toBe(true)
+      expect(state.mayRead(manager, worktree), manager).toBe(false)
+      expect(state.mayRead(manager, gone), manager).toBe(false)
+    }
+    expect(state.mayRead(reader, root)).toBe(true)
+    expect(state.mayRead(reader, worktree)).toBe(true)
+    expect(state.mayRead(revoked, root)).toBe(false)
+  })
+
+  it('a use grant with nobody in custody admits nobody', async () => {
+    const { store, policy } = await fixture()
+    await machineGrant(store, reader, 'use')
+    const checkout = {
+      entity: 'checkout' as const,
+      entityId: checkoutRowId(asMachineId('m1'), '/home/u/podium'),
+    }
+    const state = await policy.state.forBatch!([checkout])
+    expect(state.mayRead(reader, checkout)).toBe(false)
+  })
+
+  it('a member whose access row moved is re-sent the checkouts their reach covers', async () => {
+    const { store, policy } = await fixture()
+    await store.machines.upsertMachine({
+      id: 'm1',
+      name: 'one',
+      hostname: 'one',
+      tokenHash: 'x',
+      ownerUserId: owner,
+    })
+    await store.checkouts.apply(
+      [
+        {
+          machineId: asMachineId('m1'),
+          path: '/home/u/podium',
+          root: '/home/u/podium',
+          kind: 'repository',
+          repoId: null,
+          branch: 'main',
+          originUrl: null,
+          locked: false,
+          prunable: false,
+        },
+      ],
+      [],
+      '2026-11-09T00:00:00.000Z',
+    )
+    // No recorded reach (SEE only, or never written): no checkout id goes out.
+    // The moved row still names its member: their access moved (POD-6947).
+    const seeOnly = await edgeOf(policy.anchors, {
+      entity: 'machineAccess',
+      entityId: machineAccessRowId(reader, asMachineId('m1')),
+    })
+    expect(seeOnly).toEqual({ audience: [reader], subjects: [] })
+    await store.checkouts.applyReach(
+      { reach: [{ userId: reader, machineId: asMachineId('m1'), reach: 'all' }] },
+      '2026-11-09T00:00:00.000Z',
+    )
+    const edge = await edgeOf(policy.anchors, {
+      entity: 'machineAccess',
+      entityId: machineAccessRowId(reader, asMachineId('m1')),
+    })
+    expect(edge?.audience).toEqual([reader])
+    expect(edge?.subjects).toEqual([
+      { entity: 'checkout', entityId: checkoutRowId(asMachineId('m1'), '/home/u/podium') },
+    ])
+  })
+
+  // POD-6834: every machine report rewrote these rows, and each rewrite sent the
+  // member their machine's whole checkout set: past the rescope threshold, every
+  // client went back to a full bootstrap after a report that changed nothing.
+  it('a rewrite that keeps the reach or the custodian anchors nothing; a move still does', async () => {
+    const { store, policy } = await fixture()
+    const m1 = asMachineId('m1')
+    await store.checkouts.apply(
+      [
+        {
+          machineId: m1,
+          path: '/home/u/podium',
+          root: '/home/u/podium',
+          kind: 'repository',
+          repoId: null,
+          branch: 'main',
+          originUrl: null,
+          locked: false,
+          prunable: false,
+        },
+      ],
+      [],
+      '2026-11-09T00:00:00.000Z',
+    )
+    await store.checkouts.applyReach(
+      { reach: [{ userId: reader, machineId: m1, reach: 'all' }] },
+      '2026-11-09T00:00:00.000Z',
+    )
+    const accessId = machineAccessRowId(reader, m1)
+    const log = async (entity: 'machine' | 'machineAccess', entityId: string, value: object) =>
+      (
+        await store.sync.appendChanges(
+          [{ entity, entityId, op: 'upsert', payload: JSON.stringify(value) }],
+          Date.parse('2026-11-11T16:00:00Z'),
+        )
+      )[0] as number
+    const access = (seq?: number) =>
+      edgeOf(policy.anchors, {
+        entity: 'machineAccess',
+        entityId: accessId,
+        ...(seq === undefined ? {} : { seq }),
+      } as EntityRef)
+
+    const first = await log('machineAccess', accessId, { checkoutReach: 'all', state: 'a' })
+    const rewrite = await log('machineAccess', accessId, { checkoutReach: 'all', state: 'b' })
+    const shrink = await log('machineAccess', accessId, { checkoutReach: 'roots', state: 'b' })
+    const subjects = [{ entity: 'checkout', entityId: checkoutRowId(m1, '/home/u/podium') }]
+    // No earlier change to compare with, or no seq at all: anchored as before.
+    expect((await access(first))?.subjects).toEqual(subjects)
+    expect((await access())?.subjects).toEqual(subjects)
+    // Same reach, other fields moved: nothing anchored.
+    expect(await access(rewrite)).toBeNull()
+    // The reach moved: anchored.
+    expect((await access(shrink))?.subjects).toEqual(subjects)
+
+    const machine = (seq: number) =>
+      policy.anchors.visibilityEdges([{ entity: 'machine', entityId: 'm1', seq } as EntityRef])
+    await log('machine', 'm1', { id: 'm1', custodian: owner, loggedOutHarnesses: ['claude-code'] })
+    const quiet = await log('machine', 'm1', { id: 'm1', custodian: owner, loggedOutHarnesses: [] })
+    expect(await machine(quiet)).toEqual([null])
+  })
+})
+
+it('shapes each artifact record for its reader and keeps its stable identity', async () => {
+  const { store, policy, issue } = await fixture()
+  issue.worktreePath = '/repo/task'
+  // The parent is an existing shared task in the visibility snapshot. The
+  // normalized row reader is stubbed only to avoid unrelated issue setup.
+  const id = asIssuePanelItemId('00000000-0000-4000-8000-000000000001')
+  const artifact = {
+    id,
+    issueId: issue.id,
+    position: 0,
+    path: '/repo/task/result.html',
+    addedAt: '2026-09-11T00:00:00.000Z',
+    sourcePaths: ['/repo/task/source.png'],
+    untrackedPaths: ['/private/other.png'],
+    files: [{ path: 'result.html', size: 5 }],
+  }
+  const original = store.issues.panel.getMany.bind(store.issues.panel)
+  store.issues.panel.getMany = async (kind, ids) =>
+    kind === 'issuePanelArtifact' && ids.includes(id) ? [artifact] : await original(kind, ids)
+  const ref: EntityRef = { entity: 'issuePanelArtifact', entityId: id }
+  const state = await policy.state.forBootstrap!([ref])
+  expect(state.classOf(ref.entity)).toBe('personal')
+  expect(state.mayRead(reader, ref)).toBe(true)
+  expect(state.shapeFor!(owner, ref, artifact)).toEqual(artifact)
+  expect(state.shapeFor!(reader, ref, artifact)).toEqual({
+    ...artifact,
+    path: 'result.html',
+    sourcePaths: ['source.png'],
+    untrackedPaths: ['other.png'],
   })
 })

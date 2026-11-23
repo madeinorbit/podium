@@ -1,14 +1,86 @@
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { discoveryRoots } from '@podium/harness'
+import { discoveryRoots, type HarnessContext, harnessContext } from '@podium/harness'
+import type { SessionSpec } from '@podium/harness/driver/host'
+import { testSessionTerms } from '@podium/harness/driver/testing'
 import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context'
+import * as processControl from '../control/session'
+import { DaemonHarnessRuntime } from '../harness-runtime'
+import { testHarnessSnapshot } from '../test-support/harness-snapshot'
 import { daemonRuntimeHost } from './host'
 
 describe('daemonRuntimeHost', () => {
+  it('installs hooks and launches from the session context, whatever the inventory says now', async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), 'podium-selected-hooks-'))
+    const launch = vi
+      .spyOn(processControl, 'launchTerminalProcess')
+      .mockResolvedValue({ announce() {} })
+    try {
+      await mkdir(join(homeDir, '.codex'))
+      const selectedBase = testHarnessSnapshot({ codex: '/opt/homebrew/bin/codex' }, 0)
+      const executable = {
+        kind: 'codex' as const,
+        path: '/opt/homebrew/bin/codex',
+        version: 'codex-cli 0.162.0',
+        generation: 0,
+      }
+      const selected = { ...selectedBase, executables: new Map([['codex' as const, executable]]) }
+      const replacement = testHarnessSnapshot({ codex: '/different/codex' }, 1)
+      const harnessRuntime = new DaemonHarnessRuntime({
+        buildSnapshot: async (generation) => (generation === 0 ? selected : replacement),
+      })
+      const ctx = {
+        harnessRuntime,
+        homeDir,
+        settingsDir: join(homeDir, 'settings'),
+      } as DaemonContext
+      const host = daemonRuntimeHost(ctx, () => {})
+      const specFor = (harnessContext: HarnessContext): SessionSpec => ({
+        harness: 'codex',
+        ...testSessionTerms(),
+        harnessContext,
+        workdir: '/repo',
+        model: {},
+        selection: { auth: 'unknown', platform: 'darwin', available: [] },
+        instructions: { supported: false, reason: 'fixture' },
+        mcpServers: { supported: false, reason: 'fixture' },
+        instrumentation: { endpointUrl: 'http://localhost/hooks/selected' },
+      })
+      const spec = specFor(harnessContext(await harnessRuntime.current(), 'codex', homeDir))
+      const sessionId = asSessionId('selected-install')
+      const instrumentation = await host.installInstrumentation(sessionId, spec)
+      // This selected version supports trust scoped to Podium's handlers.
+      // The resulting launch arguments must carry that trust for this session.
+      expect(instrumentation.args).toEqual(
+        expect.arrayContaining(['-c', expect.stringMatching(/hooks/)]),
+      )
+      expect(instrumentation.degradedReason).toBeUndefined()
+      await harnessRuntime.refresh()
+      // A session spawned after the refresh carries the replacement's context;
+      // it must not disturb the first session's.
+      const second = specFor(harnessContext(await harnessRuntime.current(), 'codex', homeDir))
+      const secondWiring = await host.installInstrumentation(asSessionId('second-install'), second)
+      await host.launch({ sessionId, spec, instrumentation })
+      await host.launch({
+        sessionId: asSessionId('second-install'),
+        spec: second,
+        instrumentation: secondWiring,
+      })
+      expect(launch.mock.calls[0]?.[1].spec).toBe(spec)
+      expect(launch.mock.calls[1]?.[1].spec).toBe(second)
+      expect(spec.harnessContext.installation.executable).toBe('/opt/homebrew/bin/codex')
+      expect(second.harnessContext.installation.executable).toBe('/different/codex')
+    } finally {
+      launch.mockRestore()
+      await rm(homeDir, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     'never-live',
     'teardown',
@@ -17,7 +89,10 @@ describe('daemonRuntimeHost', () => {
     // send (ctx.send), never cast through the driver's narrowed port.
     const daemonSent: DaemonMessage[] = []
     const driverSent: unknown[] = []
-    const ctx = { send: (message: DaemonMessage) => daemonSent.push(message) } as unknown as DaemonContext
+    const ctx = {
+      send: (message: DaemonMessage) => daemonSent.push(message),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
+    } as unknown as DaemonContext
     const host = daemonRuntimeHost(ctx, (message) => driverSent.push(message))
     const sessionId = asSessionId('session-1')
 

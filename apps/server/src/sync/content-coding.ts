@@ -1,3 +1,4 @@
+import type { TransformOptions } from 'node:stream'
 import { constants, createGzip, createZstdCompress } from 'node:zlib'
 
 export type ContentCoding = 'zstd' | 'gzip' | 'identity'
@@ -15,7 +16,8 @@ export function negotiateContentCoding(header: string | null): ContentCoding | '
     if (!token || !/^[!#$%&'*+.^_`|~a-z0-9-]+$/.test(token)) continue
     let q = 1
     if (params.length) {
-      const match = params.length === 1 && /^\s*q\s*=\s*(0(?:\.\d{0,3})?|1(?:\.0{0,3})?)\s*$/.exec(params[0]!)
+      const match =
+        params.length === 1 && /^\s*q\s*=\s*(0(?:\.\d{0,3})?|1(?:\.0{0,3})?)\s*$/.exec(params[0]!)
       q = match ? Number(match[1]) : 0
     }
     weights.set(token, Math.min(weights.get(token) ?? 1, q))
@@ -25,26 +27,56 @@ export function negotiateContentCoding(header: string | null): ContentCoding | '
   let selected: ContentCoding | 'not-acceptable' = 'not-acceptable'
   let best = 0
   for (const coding of ['zstd', 'gzip', 'identity'] as const) {
-    const q = coding === 'identity' ? identity : weights.get(coding) ?? weights.get('*') ?? 0
-    if (q > best) { selected = coding; best = q }
+    const q = coding === 'identity' ? identity : (weights.get(coding) ?? weights.get('*') ?? 0)
+    if (q > best) {
+      selected = coding
+      best = q
+    }
   }
   return selected === 'not-acceptable' && identity === -1 ? 'identity' : selected
 }
 
-/** Every write is one record batch and ends with an incremental codec flush. */
-export function createContentEncoder(coding: ContentCoding): TransformStream<Uint8Array, Uint8Array> | null {
+/**
+ * Uncompressed bytes the codec may hold queued ahead of its output (POD-7153).
+ * The codec works off the JS thread, one queued operation after another; a
+ * producer that waited for each write and each flush to finish paid every
+ * hop's latency in turn, and building stood still while the codec ran.
+ */
+export const ENCODER_QUEUE_BYTES = 1024 * 1024
+
+/**
+ * Every write is one record batch and ends with an incremental codec flush.
+ * Both are queued in order and not awaited, so the next batch is built while
+ * the codec works; a write that leaves more than {@link ENCODER_QUEUE_BYTES}
+ * queued waits for the codec to drain.
+ */
+export function createContentEncoder(
+  coding: ContentCoding,
+): TransformStream<Uint8Array, Uint8Array> | null {
   if (coding === 'identity') return null
-  const compressor = coding === 'zstd'
-    ? createZstdCompress({
-        params: {
-          [constants.ZSTD_c_compressionLevel]: 3,
-          [constants.ZSTD_c_windowLog]: 23,
-        },
-      })
-    : createGzip({ level: 4 })
+  // The codecs are streams and take a stream's options; zlib's types list only
+  // the codec's own.
+  const queue: Pick<TransformOptions, 'writableHighWaterMark'> = {
+    writableHighWaterMark: ENCODER_QUEUE_BYTES,
+  }
+  const compressor =
+    coding === 'zstd'
+      ? createZstdCompress({
+          params: {
+            [constants.ZSTD_c_compressionLevel]: 3,
+            [constants.ZSTD_c_windowLog]: 23,
+          },
+          ...queue,
+        })
+      : createGzip({ level: 4, ...queue })
+  const flushKind = coding === 'zstd' ? constants.ZSTD_e_flush : constants.Z_SYNC_FLUSH
+  let failure: Error | undefined
   const operation = (run: (done: (error?: Error | null) => void) => void) =>
     new Promise<void>((resolve, reject) => {
-      const failed = (error: Error) => { compressor.off('error', failed); reject(error) }
+      const failed = (error: Error) => {
+        compressor.off('error', failed)
+        reject(error)
+      }
       compressor.once('error', failed)
       run((error) => {
         compressor.off('error', failed)
@@ -52,16 +84,32 @@ export function createContentEncoder(coding: ContentCoding): TransformStream<Uin
         else resolve()
       })
     })
+  const drained = () =>
+    new Promise<void>((resolve, reject) => {
+      const done = () => {
+        compressor.off('error', failed)
+        resolve()
+      }
+      const failed = (error: Error) => {
+        compressor.off('drain', done)
+        reject(error)
+      }
+      compressor.once('drain', done)
+      compressor.once('error', failed)
+    })
   const transformer = {
     start(controller: { enqueue(chunk: Uint8Array): void; error(reason: unknown): void }) {
       compressor.on('data', (chunk: Buffer) => controller.enqueue(new Uint8Array(chunk)))
-      compressor.on('error', (error) => controller.error(error))
+      compressor.on('error', (error) => {
+        failure ??= error
+        controller.error(error)
+      })
     },
     async transform(chunk: Uint8Array) {
-      await operation((done) => { compressor.write(chunk, done) })
-      await operation((done) => compressor.flush(
-        coding === 'zstd' ? constants.ZSTD_e_flush : constants.Z_SYNC_FLUSH, done,
-      ))
+      if (failure) throw failure
+      const room = compressor.write(chunk)
+      compressor.flush(flushKind)
+      if (!room) await drained()
     },
     flush() {
       return operation((done) => {
@@ -75,8 +123,11 @@ export function createContentEncoder(coding: ContentCoding): TransformStream<Uin
   }
   // Bun supports cancellation here; DOM typings omit this extension. A named
   // structural value preserves the runtime hook without an excess-property cast.
-  return new TransformStream<Uint8Array, Uint8Array>(transformer,
-    { highWaterMark: 1 }, { highWaterMark: 0 })
+  return new TransformStream<Uint8Array, Uint8Array>(
+    transformer,
+    { highWaterMark: 1 },
+    { highWaterMark: 0 },
+  )
 }
 
 export function syncResponseHeaders(coding: ContentCoding): Headers {

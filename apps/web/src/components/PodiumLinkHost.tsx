@@ -1,6 +1,6 @@
 import type { MainView } from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
-import type { ArtifactId } from '@podium/model/browser'
+import type { ArtifactId, IssueId } from '@podium/model/browser'
 import { type PodiumTarget, podiumTargetPath } from '@podium/protocol'
 import { useEffect, useRef, useState } from 'react'
 import { useShellActions, useShellLinks } from '@/app/shell-data'
@@ -35,7 +35,13 @@ function pendingPodiumHref(
   nativeOwned = false,
 ): PendingPodiumHref {
   const link = classifyPodiumLink(href)
-  return { href, target: link?.kind === 'internal' ? link.target : null, expiresAt: null, acknowledge, nativeOwned }
+  return {
+    href,
+    target: link?.kind === 'internal' ? link.target : null,
+    expiresAt: null,
+    acknowledge,
+    nativeOwned,
+  }
 }
 
 /**
@@ -70,7 +76,9 @@ function PodiumLinkHostView({
     openArtifact,
     openFileInWorktree,
   } = useShellActions()
-  const { readIssue, readSession, artifactIssue } = useShellLinks()
+  const { readIssue, readSession, artifactIssue, issueId } = useShellLinks()
+  // An issue the device holds only as a stub is named at once; its row loads.
+  const linkedIssueId = (identifier: string) => readIssue(identifier)?.id ?? issueId(identifier)
   // Manifests use the existing batched loader. A click accepted while its row
   // is cold is retried locally; native URLs retain their acknowledgement queue.
   const [artifactDemands, setArtifactDemands] = useState<
@@ -91,11 +99,11 @@ function PodiumLinkHostView({
     if (target.kind === 'session') return readSession(target.session)
     if (target.kind === 'issue') return readIssue(target.issue)
     if (target.kind !== 'artifact') return undefined
-    const issue = readIssue(target.issue)
-    return issue ? artifactIssue(issue.id) : undefined
+    const id = linkedIssueId(target.issue)
+    return id ? artifactIssue(id) : undefined
   }
   const headRow = observeTarget(head?.target ?? null)
-  const browserRows = browserArtifacts.current.map(pending => observeTarget(pending.target))
+  const browserRows = browserArtifacts.current.map((pending) => observeTarget(pending.target))
 
   useEffect(() => {
     setKnownPodiumOrigins(httpOrigin ? [httpOrigin] : [])
@@ -105,7 +113,7 @@ function PodiumLinkHostView({
       const link = classifyPodiumLink(pending.href)
       if (link?.kind === 'internal') {
         pending.target = link.target
-        setPendingRevision(value => value + 1)
+        setPendingRevision((value) => value + 1)
       }
     }
   }, [httpOrigin])
@@ -133,17 +141,17 @@ function PodiumLinkHostView({
       if (hasUnsupportedTypedDetail(target)) return false
       let artifactTarget: ReturnType<typeof artifactIssue>
       if (target.kind === 'artifact') {
-        const linked = readIssue(target.issue)
-        const full = linked ? artifactIssue(linked.id) : undefined
+        const linked = linkedIssueId(target.issue)
+        const full = linked ? artifactIssue(linked) : undefined
         if (linked && !full) {
           if (artifactDemands.length >= PODIUM_LINK_QUEUE_CAPACITY * 2) return false
           setArtifactDemands((demands) =>
-            demands.some((demand) => demand.id === linked.id)
+            demands.some((demand) => demand.id === linked)
               ? demands
               : [
                   ...demands,
                   {
-                    id: linked.id,
+                    id: linked,
                     expiresAt: Date.now() + PODIUM_LINK_RESOLUTION_TIMEOUT_MS,
                   },
                 ],
@@ -159,7 +167,16 @@ function PodiumLinkHostView({
         artifactTarget = full
       }
       const open = resolvePodiumTarget(target, {
-        issue: target.kind === 'artifact' ? () => artifactTarget : readIssue,
+        issue:
+          target.kind === 'artifact'
+            ? () => artifactTarget
+            : (identifier) => {
+                const row = readIssue(identifier)
+                if (row) return row
+                // The issue page loads its own record: the stub's id opens it.
+                const id = issueId(identifier)
+                return id ? { id: id as IssueId } : undefined
+              },
         session: readSession,
       })
       // FALSE, NOT SILENCE. Everything below reports whether it opened
@@ -214,11 +231,9 @@ function PodiumLinkHostView({
     let deadline = Infinity
     let removed = false
     for (const pending of [...waiting]) {
-      const issue =
-        pending.target.kind === 'artifact'
-          ? readIssue(pending.target.issue)
-          : undefined
-      const full = issue ? artifactIssue(issue.id) : undefined
+      const id =
+        pending.target.kind === 'artifact' ? linkedIssueId(pending.target.issue) : undefined
+      const full = id ? artifactIssue(id) : undefined
       if (!full && pending.expiresAt > Date.now()) {
         deadline = Math.min(deadline, pending.expiresAt)
         continue
@@ -237,7 +252,7 @@ function PodiumLinkHostView({
       }
       if (!activated) window.location.assign(systemBrowserPodiumHref(href) ?? href)
     }
-    if (removed) setPendingRevision(value => value + 1)
+    if (removed) setPendingRevision((value) => value + 1)
     if (Number.isFinite(deadline)) {
       const retry = window.setTimeout(
         () => setPendingRevision((value) => value + 1),
@@ -282,7 +297,7 @@ function PodiumLinkHostView({
       if (pending.expiresAt === null) return
       // The next cold head needs its own render subscription, even when the
       // effect stops before the queue becomes empty.
-      if (advanced) setPendingRevision(value => value + 1)
+      if (advanced) setPendingRevision((value) => value + 1)
       const retry = window.setTimeout(
         () => setPendingRevision((value) => value + 1),
         pending.expiresAt - now,

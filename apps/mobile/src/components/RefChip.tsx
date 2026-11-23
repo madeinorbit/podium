@@ -1,7 +1,7 @@
 import type { IssueReferenceModel } from '@podium/client-core/values'
 import type { ReactNode } from 'react'
 import { Platform, Pressable, StyleSheet, Text } from 'react-native'
-import { usePoolRefChip } from '../client/use-inbox-data'
+import { usePoolRefChip } from '../client/use-pool-links'
 import { openPodiumTarget } from '../lib/podium-link'
 import { color, font, mono, radius } from '../theme/theme'
 import { Icon } from './Icon'

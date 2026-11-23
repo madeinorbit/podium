@@ -17,7 +17,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { Replica as KernelReplica } from '@podium/sync/replica'
+import type { KindTokens, Replica as KernelReplica } from '@podium/sync/replica'
 import type { FeedHelloFields, FeedServerFrame, FeedSinkPort } from '../../socket-transport'
 import { toDeltaFrame, toRescopeFrame, toResyncFrame } from './frames'
 
@@ -32,12 +32,27 @@ export interface FeedSinkDeps {
 }
 
 export class FeedSink implements FeedSinkPort {
+  private readonly accessListeners = new Set<() => void>()
+
   constructor(private readonly deps: FeedSinkDeps) {}
+
+  onAccessMoved(listener: () => void): void {
+    this.accessListeners.add(listener)
+  }
+
+  /** Told after the frame is applied: the server decided the move first. */
+  private accessMoved(): void {
+    for (const listener of [...this.accessListeners]) listener()
+  }
 
   readonly syncHttp = true
 
   requestRebootstrap(): void {
     this.deps.replica.requestRebootstrap()
+  }
+
+  kindTokens(tokens: KindTokens): void {
+    this.deps.replica.observeKindTokens(tokens)
   }
 
   /**
@@ -76,10 +91,14 @@ export class FeedSink implements FeedSinkPort {
       case 'feedDelta':
         this.deps.onFrame?.(frame.type, frame.seq)
         this.deps.replica.receive(toDeltaFrame(frame))
+        // THE PRINCIPAL'S ACCESS MOVED in this range (POD-6947).
+        if (frame.access === true) this.accessMoved()
         return
       case 'feedRescope':
+        // "Your rights changed": an access move by definition.
         this.deps.onFrame?.(frame.type, frame.seq)
         this.deps.replica.receive(toRescopeFrame(frame))
+        this.accessMoved()
         return
       case 'feedResyncRequired':
         this.deps.onFrame?.(frame.type, null)

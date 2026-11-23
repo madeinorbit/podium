@@ -106,6 +106,48 @@ shell only when that hash differs from the standing channel shell. A headless-on
 forward the standing `latest.json` and `desktop-shell-input.sha256`, so its shell version and URLs
 stay unchanged.
 
+On a cold app start, the signed shell seeds a missing external companion payload as
+before. A release shell can also supply its complete bundled runtime when the installed
+runtime is provably older under Podium's channel-aware version rules. Equal versions,
+newer Dev runtimes, unordered/source/debug builds, incompatible local channels, explicit
+feed choices and delivered downgrade/target constraints are preserved. A historical
+successful forward update is not a permanent pin. Coordinator-only policy that has never
+been delivered locally cannot be enforced offline; this path adds no network boot dependency.
+The source channel is stamped into the shell build, independently of the selected profile;
+an Edge source defers for an existing runtime following Dev or Stable.
+
+This source is lower priority than the existing updater. Unfinished headless or native
+updates, held preparation, activation/restart, staging, transfer recovery and live installation
+owners defer fallback for that launch. A native app update's first relaunch may still have an
+unfinished native journal; only a later eligible cold start can use the bundled fallback.
+Child respawns and WebView mounts never retry it. Startup creates no fleet receipt and does
+not relax exact authorized version, artifact digest and health confirmation.
+
+Installation usage is keyed by the canonical payload directory, independently of selected
+instance roots. New shells, parents, successors and children share usage leases; startup
+replacement requires exclusive ownership and uses the shared full-bundle activation primitive.
+Normal app cold starts are serialized on every platform. Linux also fences legacy executable
+inodes against execution while replacement is prepared. Preexisting legacy owners on other
+platforms are detected and cause deferral, but a simultaneous direct/headless launch of a
+pre-lease 0.2/0.3 binary is not serialized by that older code. Automatic non-Linux replacement
+is restricted to the normal app-owned payload; custom/shared headless-managed destinations
+defer it. Packaged macOS and Windows acceptance must prove their native boundaries separately.
+
+At first adoption, arbitrary dormant legacy/custom state roots that were never selected or
+registered and left no install-global marker are not discoverable from the app payload.
+The selected canonical root, every known registered root and install-global recovery state
+are checked. An unreadable known record defers fallback; it never becomes empty history.
+An entirely absent retired root is absent; permission/IO failures or broken aliases defer.
+Unavailable filesystem content, including an unmounted journal, cannot be inferred.
+An unknown legacy root's journal stays untouched and retains normal exact-target recovery
+when that root is later selected.
+
+Preparation preserves config, machine identity/key, consent and user data. Invalid payloads
+or identity remain explicit repair cases. The predecessor stays available across activation
+until ordinary startup health owns its disposition; fallback never blindly rolls binaries
+back after server migrations might have run. The server still owns migrations and backups,
+and a client-only runtime does not migrate its remote coordinator database.
+
 GitHub Actions must contain `TAURI_SIGNING_PRIVATE_KEY` and
 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The private key must match `plugins.updater.pubkey` in
 `apps/desktop/src-tauri/tauri.conf.json`; changing the key strands existing installations.
@@ -117,9 +159,9 @@ experimental: it can fail or hit its 30-minute cap without holding the release b
 release then ships the other platforms with no Windows entry in `latest.json`. It runs beside the
 macOS legs, so it only lengthens a release when it outlasts the slowest of them.
 
-The headless release does not build a Windows server bundle yet. A Windows desktop install
-therefore runs the server its installer seeded and cannot update that server; shell updates
-still arrive through the updater. The same
+The headless release does not build a Windows server bundle yet, so regular supervisor
+delivery cannot update that runtime independently. A later app can supply its bundled runtime
+on an eligible cold start as described above. Shell updates still arrive through the updater. The same
 installer is the Tauri updater payload, with its detached `.sig` included in `latest.json` under
 `windows-x86_64`. The dispatch-only Windows smoke compiles the Tauri executable, launches it
 against a real local Podium server, checks exported mobile asset references, and packages an
@@ -366,3 +408,26 @@ public key matches the release signing key:
 
 Repository tests validate routing, debug suppression, workflow triggers, and manifest contents,
 but they do not replace this signed end-to-end release check.
+
+## Website refresh after stable publication
+
+The stable release workflow refreshes the website after published-update smoke
+passes and the matching desktop release workflow succeeds. It dispatches the
+existing Site workflow (`site.yml`) on `madeinorbit/podium-cloud` main and waits
+for that exact deployment run to finish. The Site workflow already reads the
+latest release while building and deploys the resulting website.
+
+Configure `PODIUM_WEBSITE_DISPATCH_TOKEN` as an Actions secret in
+`madeinorbit/podium`, restricted to `madeinorbit/podium-cloud` with Actions
+read/write. Public release checks use the automatic repository token; the
+private Site dispatch uses the scoped token. Edge, dev and build-only runs do
+not trigger the website refresh.
+
+To refresh the current published stable release or retry just its website step:
+
+```bash
+gh workflow run release-website.yml --repo madeinorbit/podium --ref main -f release_tag=v0.3.1
+```
+
+No release artifacts are rebuilt by this retry. The website retains its existing
+version lookup, checks, deployment credentials and daily rebuild schedule.

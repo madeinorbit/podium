@@ -17,11 +17,8 @@
  * exposes no client verb (the same argument POD-4510 made for the engines).
  */
 
-import type {
-  DurableAttachment,
-  DurableProcess,
-  DurableSpawnOptions,
-} from '@podium/process/durable'
+import type { DurableAttachment, DurableProcess } from '@podium/process/durable'
+import { durableSpawnOptions, type HarnessSpawnOptions } from './harness-spawn'
 
 /**
  * THE SESSION-OWNED CLIENT PROCESS VERBS (spec §5).
@@ -36,8 +33,9 @@ import type {
  * the wrong place, and the grep in the issue's DONE WHEN says so.
  */
 export interface ClientProcessOwner {
-  /** Create-or-adopt the session's client master (spec §5). */
-  spawnClient(opts: DurableSpawnOptions): Promise<DurableAttachment>
+  /** Create-or-adopt the session's client master (spec §5). Only a bound
+   *  command: argv[0] is the session's pinned installation (POD-6536). */
+  spawnClient(opts: HarnessSpawnOptions): Promise<DurableAttachment>
   /** Reclaim the client master holding this label (spec §5). */
   reclaimClient(label: string): Promise<void>
   /**
@@ -63,8 +61,8 @@ export class SessionClientScope implements ClientProcessOwner {
   ) {}
 
   /** Create-or-adopt the session's client master (spec §5). */
-  async spawnClient(opts: DurableSpawnOptions): Promise<DurableAttachment> {
-    return this.durable.spawn(opts)
+  async spawnClient(opts: HarnessSpawnOptions): Promise<DurableAttachment> {
+    return this.durable.spawn(durableSpawnOptions(opts))
   }
 
   /** Reclaim the client master holding this label (spec §5). */

@@ -10,10 +10,6 @@ function meta(over: Partial<SessionViewInput>): SessionView {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -127,10 +123,9 @@ describe('hibernateAction', () => {
 
   it('does not offer it before the process exists — the divergence this replaced', () => {
     // AgentPanel used to read `!hibernated && !exited && resumable`, so it
-    // offered Hibernate on a `starting`/`reconnecting` session where the shared
+    // offered Hibernate on a `starting` session where the shared
     // rule (`sessionMenuEligibility`, and the server) says no.
     expect(hibernateAction(meta({ status: 'starting' }))).toBeNull()
-    expect(hibernateAction(meta({ status: 'reconnecting' }))).toBeNull()
   })
 
   it('has nothing to say about a session that has not arrived', () => {

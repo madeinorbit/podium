@@ -6,11 +6,12 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: vi.fn(async () => {}),
 }))
-vi.mock('lucide-react-native', () => ({ RefreshCw: () => null }))
+// The server's build comes from the LiveStore's connection (POD-5798).
+vi.mock('../client/hooks', () => ({ useServerBuild: () => 'server-build' }))
 
 const { RefreshOffer } = await import('./RefreshOffer')
 
-/** The reload IS the refresh here — /mobile has no service worker to hand to. */
+/** No service worker serves this page, so the refresh is a plain reload (POD-7179). */
 const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {})
 
 /** What the running document says it is — the meta the build stamp injects. */

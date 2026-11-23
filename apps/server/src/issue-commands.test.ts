@@ -1053,7 +1053,8 @@ describe('panel commands (todo / artifact / deferred)', () => {
     expect(calls).toContainEqual({
       path: 'panelApply',
       kind: 'mutate',
-      input: { id: '1', op: 'todo-add', text: 'ship it' },
+      // The panel item is named by the caller (POD-6764): a fresh id per add.
+      input: { id: '1', op: 'todo-add', text: 'ship it', itemId: expect.any(String) },
     })
     expect(out.text).toBe('1. [ ] ship it')
   })
@@ -1105,7 +1106,7 @@ describe('panel commands (todo / artifact / deferred)', () => {
     expect(def.calls).toContainEqual({
       path: 'panelApply',
       kind: 'mutate',
-      input: { id: '1', op: 'deferred-add', text: 'later' },
+      input: { id: '1', op: 'deferred-add', text: 'later', itemId: expect.any(String) },
     })
   })
 

@@ -55,6 +55,7 @@
 import {
   AgentKind,
   ConversationIdField,
+  CredentialIdField,
   IssueIdField,
   MachineIdField,
   MessageId,
@@ -65,6 +66,7 @@ import { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { z } from 'zod'
 import type { CommandDef } from '../framework'
 import { defineCommands } from '../framework'
+import { sessionSwitchCredentialInput, switchCredential } from './switch-credential'
 
 /**
  * `mutationId` — the client Outbox stamps a stable one per entry and replays it
@@ -238,6 +240,11 @@ const createInput = z.object({
     * directions: what it does not name, it deletes.
     */
   requestedDriverId: z.string().min(1).optional(),
+  /** The credential the session runs on (credential management §9): an id
+   *  the person may use, or `null` for the harness's own login. Absent: the
+   *  person's default for the harness, then none. Refused before anything is
+   *  created when it names nothing the person may use. */
+  credentialId: CredentialIdField.nullable().optional(),
   mutationId,
 })
 
@@ -253,7 +260,7 @@ const create: CommandDef = {
     note: 'Draft artifact bytes are user content and must never reach command logs. The whole array is redacted because this contract redacts top-level fields.',
   },
   conflict: 'cmd',
-  decision: `${PLACEMENT_DECISION} Ownership on create is resolved from the principal, not the transport: an agent-created session is owned by its onBehalfOf HUMAN with the agent as actor (A4), and one spawned under an issue inherits THAT issue's owner and grants — otherwise sharing an issue does not share its work and retiring an agent orphans what it made. The draftIssue vessel resolves the same owner, so the low-friction start path produces an OWNED draft. No relay exposure: agents spawn through messages.spawnAgent, which carries its own budget and parent-scope rules.`,
+  decision: `${PLACEMENT_DECISION} Ownership on create is resolved from the principal, not the transport: an agent-created session is owned by its onBehalfOf HUMAN with the agent as actor (A4), and the task it is started on changes nothing: a session is private to the person who started it, or for whom an agent started it (POD-6283, design §2.3). The draftIssue vessel resolves the same owner, so the low-friction start path produces an OWNED draft. No relay exposure: agents spawn through messages.spawnAgent, which carries its own budget and parent-scope rules.`,
 }
 
 /**
@@ -540,7 +547,7 @@ const stop: CommandDef = {
   redaction: { fields: [], note: 'a session id and a force flag are not secrets' },
   conflict: 'cmd',
   decision:
-    'Adopts the OPERATOR path (router.ts): `force` discards a dirty tree and a refusal comes back as `{ok:false, reason}` rather than as a throw — both POD-379-pinned for tRPC. The agent/relay arm keeps its self-stop target resolution and its throwing refusal and is left in place, counted as a named residue by scripts/audit-session-commands.ts; it is the remainder of POD-381’s cutover. The `use` gate is NEW on this path: stopping a process is execution on the machine it runs on, and the tRPC route had no machine check at all.',
+    'Adopts the OPERATOR path (router.ts): `force` discards a dirty tree and a refusal comes back as `{ok:false, reason}` rather than as a throw — both POD-379-pinned for tRPC. The agent/relay arm keeps its self-stop target resolution and its throwing refusal and is left in place as a named residue; it is the remainder of POD-381’s cutover. The `use` gate is NEW on this path: stopping a process is execution on the machine it runs on, and the tRPC route had no machine check at all.',
 }
 
 /**
@@ -639,6 +646,7 @@ export const sessionCommandPlane = defineCommands('sessions', {
   resurrect,
   sendText,
   stop,
+  switchCredential,
   uploadImage,
 })
 
@@ -678,5 +686,6 @@ export const sessionCommandPlaneInputs = {
   resurrect: targetInput,
   sendText: sendInput,
   stop: stopInput,
+  switchCredential: sessionSwitchCredentialInput,
   uploadImage: uploadImageInput,
 } as const

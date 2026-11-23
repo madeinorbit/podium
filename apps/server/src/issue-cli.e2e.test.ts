@@ -1,13 +1,16 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { makeIssueClient } from '@podium/issue-client'
+import { firstAdminMemberId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { authCliMain } from '../../cli/src/auth-cli'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { makeOperatorIssueClient } from '../../cli/src/operator-client'
+import { memberCredentials } from './identity/member-credentials'
 import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
@@ -25,8 +28,13 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-issue-e2e-'))
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+    )
     process.env.PODIUM_STATE_DIR = stateDir
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    await attachHostDaemon(server.registry, () => {}, { repos: ['/repo', '/repo2', '/repo3'] })
     baseUrl = `http://127.0.0.1:${server.port}`
   })
   afterAll(async () => {
@@ -51,7 +59,13 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
     // no typed-client id fishing (an agent has no access to internal iss_ ids).
     expect(await runIssueCli(['show', seq], client)).toContain('Wire the CLI')
     expect(await runIssueCli(['show', `#${seq}`], client)).toContain('Wire the CLI')
-    expect(await runIssueCli(['claim', seq, '--assignee', 'agent:test'], client)).toMatch(/claimed/)
+    // A process label is not a person. Claim as the authenticated active member.
+    await expect(runIssueCli(['claim', seq, '--assignee', 'agent:test'], client)).rejects.toThrow(
+      /active member/,
+    )
+    expect(await runIssueCli(['claim', seq, '--assignee', 'me'], client)).toMatch(/claimed/)
+    const claimed = JSON.parse(await runIssueCli(['show', seq, '--json'], client))
+    expect(claimed.data.assignee).toBe(await firstAdminMemberId(server.registry.sessionStore))
     expect(await runIssueCli(['comment', seq, '--body', 'progress note'], client)).toMatch(
       /commented/,
     )
@@ -158,18 +172,27 @@ describe('podium issue CLI ↔ password-protected server (e2e)', () => {
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-issue-auth-e2e-'))
+    writeFileSync(
+      join(stateDir, 'config.json'),
+      JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
+    )
     process.env.PODIUM_STATE_DIR = stateDir
     // The instance password is the FIRST ADMIN's credential row since POD-1554, not
     // auth.json, so this is set BEFORE boot: applyEnvFirstAdminPassword writes it as
     // the server assembles, which is the headless deploy seam a VPS uses.
-    process.env.PODIUM_PASSWORD = 'hunter2'
     server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
+    const store = server.registry.sessionStore
+    await memberCredentials(store.users, () => server.identity.core.accounts).setPassword(
+      await firstAdminMemberId(store),
+      'hunter2',
+    )
+    await attachHostDaemon(server.registry, () => {}, { repos: ['/repo', '/repo2', '/repo3'] })
     baseUrl = `http://127.0.0.1:${server.port}`
   })
   afterAll(async () => {
     await server.close()
     rmSync(stateDir, { recursive: true, force: true })
-    delete process.env.PODIUM_STATE_DIR
+    process.env.PODIUM_STATE_DIR = priorStateDir
     delete process.env.PODIUM_PASSWORD
   })
 

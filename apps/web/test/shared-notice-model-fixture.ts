@@ -14,7 +14,7 @@ function sharedPool(fixture: MobxPool): MobxPool {
   pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const owning = pool
   const read = owning.row.bind(owning)
-  owning.row = ((entity: string, id: string, absent?: 'load' | 'mark' | 'summary-fields') => {
+  owning.row = ((entity: string, id: string, absent?: 'load' | 'mark') => {
     if (entity === 'messageRecord' || entity === 'pendingInteraction' || entity === 'session') {
       if (!owning.tables[entity].has(id)) {
         const row = fixture.row(entity as 'messageRecord', id)

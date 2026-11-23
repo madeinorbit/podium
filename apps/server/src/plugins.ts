@@ -1,4 +1,3 @@
-import type { PluginAuth } from './plugin-auth'
 import type { PodiumConfig } from '@podium/runtime/config'
 import type { Hono } from 'hono'
 import type { EventBus } from './modules/bus'
@@ -23,13 +22,15 @@ import type { ServerRoleConfig } from './roles'
  *  - `bus`      — the in-process event bus, for subscribing to module signals.
  *  - `config` / `role` — the deployment identity the process booted with.
  *
+ * Sign-in is NOT part of this surface. A hosted composition root hands the
+ * server its identity through `startServer({ identity })`
+ * (identity/server-identity.ts); a plugin never decides who a request is.
+ *
  * tRPC router extension is intentionally absent: `appRouter` is a static type
  * (clients compile against it), so cloud procs mount their own endpoint via
  * `hono` instead of mutating the core router.
  */
 export interface PodiumPluginHooks {
-  /** Install a principal source and manage its workspace members. */
-  auth: PluginAuth
   /** The server's Hono app — register routes/middleware here. */
   hono: Hono
   /** The composed module set (ctx.modules equivalent). */

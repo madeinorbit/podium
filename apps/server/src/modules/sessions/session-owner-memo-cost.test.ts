@@ -2,69 +2,46 @@
  * The per-pass ownership memo: what it COSTS, and that batching it did not
  * change what it ANSWERS [POD-1653].
  *
- * Two separate failures are pinned here, because they fail independently.
+ * Since POD-6283 a session's owner is its own durable `owner_user_id` and
+ * nothing else, so the only reads a pass makes are the session rows of the
+ * sessions that are not in memory. Two failures are still pinned here, because
+ * they fail independently.
  *
- * 1. THE MEMO WAS NOT REACHING THIS CODE AT ALL. `SessionStateService` was
- *    wired with `sessionOwner: (sessionId) => bag.sessionOwner(sessionId)` —
- *    one argument. The memo was built by `project()`, threaded through
- *    `canReadSession`, and silently dropped at that arity mismatch, so every
- *    session in a full projection re-read its issue row and its grant edges.
- *    Nothing failed; it was only slow, which is why it survived. The cost
- *    assertions below are the only thing that can see it.
+ * 1. THE MEMO MUST REACH THIS CODE. A full projection that drops the memo
+ *    re-reads every parked session's row one statement at a time. Nothing
+ *    fails; it is only slow, and the cost assertions below are the only thing
+ *    that can see it.
  *
- * 2. BATCHING MUST NOT CHANGE THE ANSWER. `primeOwnerMemo` computes the same
- *    values `sessionOwner` would have computed one at a time. The equivalence
- *    test grades the primed path against the unprimed one as an oracle, over a
- *    fixture that deliberately mixes the cases that could diverge: sessions
- *    with an issue and without, an issue that does not exist, a resource with
- *    grants and resources with none, and a verb that must NOT confer read.
+ * 2. BATCHING MUST NOT CHANGE THE ANSWER. The equivalence test grades the
+ *    primed path against the unprimed one as an oracle, over sessions on a task
+ *    (whose owner is NOT the answer), on a missing task, with no task, and an id
+ *    with no row at all. The task double counts its reads, so a resolver that
+ *    still consults the task is caught.
  */
 
 import { asSessionId, asUserId, type SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { GrantRow } from '../../store/grants'
 import { SessionAuthz } from './session-authz'
 import type { SessionOwnerMemo } from './session-state/service'
 
 interface Counts {
-  getIssue: number
-  getIssues: number
-  loadForResource: number
-  listForResources: number
+  loadSession: number
+  getSessions: number
+  issueReads: number
 }
 
 const ISSUE_A = 'iss_a'
 const ISSUE_MISSING = 'iss_gone'
 
-/** Sessions: two on one issue, one on a missing issue, two with no issue. */
+/** Sessions: two on one task, one on a missing task, two with none. */
 const SESSIONS: { sessionId: SessionId; issueId?: string; ownerUserId: string }[] = [
-  { sessionId: asSessionId('s1'), issueId: ISSUE_A, ownerUserId: 'u_fallback' },
-  { sessionId: asSessionId('s2'), issueId: ISSUE_A, ownerUserId: 'u_fallback' },
-  { sessionId: asSessionId('s3'), issueId: ISSUE_MISSING, ownerUserId: 'u_fallback' },
+  { sessionId: asSessionId('s1'), issueId: ISSUE_A, ownerUserId: 'u_one' },
+  { sessionId: asSessionId('s2'), issueId: ISSUE_A, ownerUserId: 'u_two' },
+  { sessionId: asSessionId('s3'), issueId: ISSUE_MISSING, ownerUserId: 'u_three' },
   { sessionId: asSessionId('s4'), ownerUserId: 'u_four' },
   { sessionId: asSessionId('s5'), ownerUserId: 'u_five' },
 ]
-
-const edge = (resourceKind: string, resourceId: string, grantee: string, verb: string): GrantRow =>
-  ({
-    resourceKind,
-    resourceId,
-    grantee,
-    verb,
-    owner: 'u_owner',
-    visibility: 'private',
-    createdAt: '2026-08-04T00:00:00.000Z',
-    actorKind: 'user',
-    actorId: 'u_owner',
-    onBehalfOf: null,
-  }) as GrantRow
-
-/** Only `issue:iss_a` and `session:s4` carry edges; s4's is a NON-read verb. */
-const GRANTS: GrantRow[] = [
-  edge('issue', ISSUE_A, 'u_shared', 'write'),
-  edge('issue', ISSUE_A, 'u_shared', 'read'),
-  edge('session', 's4', 'u_nope', 'admin-only-unknown-verb'),
-]
+const UNKNOWN = asSessionId('s_unknown')
 
 const row = (sessionId: SessionId) => {
   const found = SESSIONS.find((s) => s.sessionId === sessionId)
@@ -72,105 +49,68 @@ const row = (sessionId: SessionId) => {
 }
 
 function harness() {
-  const counts: Counts = { getIssue: 0, getIssues: 0, loadForResource: 0, listForResources: 0 }
-  const matching = (kind: string, id: string): GrantRow[] =>
-    GRANTS.filter((g) => g.resourceKind === kind && g.resourceId === id)
-
+  const counts: Counts = { loadSession: 0, getSessions: 0, issueReads: 0 }
   const authz = new SessionAuthz({
     sessions: { get: () => undefined },
     store: {
       sessions: {
-        loadSession: async (sessionId: SessionId) => row(sessionId),
+        loadSession: async (sessionId: SessionId) => {
+          counts.loadSession += 1
+          return row(sessionId)
+        },
         // The batched read a primed pass makes for the sessions not in memory.
-        getSessions: async (sessionIds: readonly SessionId[]) =>
-          new Map(sessionIds.flatMap((id) => (row(id) ? [[id, row(id)] as const] : []))),
+        getSessions: async (sessionIds: readonly SessionId[]) => {
+          counts.getSessions += 1
+          return new Map(sessionIds.flatMap((id) => (row(id) ? [[id, row(id)] as const] : [])))
+        },
       },
       issues: {
         getIssue: async (id: string) => {
-          counts.getIssue += 1
-          return id === ISSUE_A ? { id, ownerUserId: asUserId('u_issue_owner') } : null
+          counts.issueReads += 1
+          return id === ISSUE_A ? { id, ownerUserId: asUserId('u_task_owner') } : null
         },
         getIssues: async (ids: readonly string[]) => {
-          counts.getIssues += 1
-          const out = new Map<string, unknown>()
-          for (const id of ids) {
-            if (id === ISSUE_A) out.set(id, { id, ownerUserId: asUserId('u_issue_owner') })
-          }
-          return out
-        },
-      },
-      grants: {
-        loadForResource: async (kind: string, id: string) => {
-          counts.loadForResource += 1
-          return matching(kind, id)
-        },
-        // One load, of one kind or of several (POD-6217).
-        loadForResourcesOfKinds: async (resources: Record<string, readonly string[]>) => {
-          counts.loadForResource += 1
-          return new Map(Object.entries(resources).map(([kind, ids]) => [
-            kind,
-            new Map(ids.map((id) => [id, matching(kind, id)])),
-          ]))
-        },
-        listForResources: async (kind: string, ids: readonly string[]) => {
-          counts.listForResources += 1
-          const out = new Map<string, GrantRow[]>()
-          for (const id of ids) {
-            const hit = matching(kind, id)
-            if (hit.length > 0) out.set(id, hit)
-          }
-          return out
+          counts.issueReads += 1
+          return new Map(ids.map((id) => [id, { id, ownerUserId: asUserId('u_task_owner') }]))
         },
       },
     },
   } as never)
-
   return { authz, counts }
 }
 
-const emptyMemo = (): SessionOwnerMemo => ({
-  issues: new Map(),
-  grants: new Map(),
-})
-const ids = SESSIONS.map((s) => s.sessionId)
+const emptyMemo = (): SessionOwnerMemo => ({})
+const ids = [...SESSIONS.map((s) => s.sessionId), UNKNOWN]
 
-describe('per-pass ownership memo [POD-1653]', () => {
+describe('per-pass ownership memo [POD-1653, POD-6283]', () => {
   it('answers identically primed and unprimed — batching changed cost, not meaning', async () => {
     const slow = harness()
-    // The ORACLE: no memo at all, every question asked one at a time. This is
-    // the behaviour every single-session caller still gets.
+    // The ORACLE: no memo at all, every question asked one at a time.
     const unprimed = await Promise.all(ids.map(async (id) => await slow.authz.sessionOwner(id)))
 
     const fast = harness()
     const memo = emptyMemo()
     await fast.authz.primeOwnerMemo(memo, ids)
-    const primed = await Promise.all(
-      ids.map(async (id) => await fast.authz.sessionOwner(id, memo)),
-    )
+    const primed = await Promise.all(ids.map(async (id) => await fast.authz.sessionOwner(id, memo)))
 
     expect(primed).toEqual(unprimed)
-    // The fixture must actually exercise the interesting cases, or the equality
-    // above is vacuous: a real owner-from-issue, a fallback owner, a real
-    // grantee, and a non-read verb that confers nothing.
-    expect(unprimed[0]).toEqual({ owner: 'u_issue_owner', grants: ['u_shared'] })
-    expect(unprimed[2]).toEqual({ owner: 'u_fallback', grants: [] })
-    expect(unprimed[3]).toEqual({ owner: 'u_four', grants: [] })
+    // Not vacuous: a session on a task is its own owner's, and an unknown id has none.
+    expect(unprimed[0]).toEqual({ owner: 'u_one' })
+    expect(unprimed[2]).toEqual({ owner: 'u_three' })
+    expect(unprimed[ids.length - 1]).toBeUndefined()
+    expect(slow.counts.issueReads + fast.counts.issueReads).toBe(0)
   })
 
-  it('costs one batched read per kind for a whole pass, not one per session', async () => {
+  it('costs one batched read for a whole pass, not one per session', async () => {
     const { authz, counts } = harness()
     const memo = emptyMemo()
     await authz.primeOwnerMemo(memo, ids)
     for (const id of ids) await authz.sessionOwner(id, memo)
 
-    // One issue batch, one grants batch per resource kind present (issue +
-    // session). Crucially ZERO per-resource statements: a miss in the memo is
-    // what used to fall through to those, and an unrecorded empty result is a
-    // miss.
-    expect(counts.getIssues).toBe(1)
-    expect(counts.getIssue).toBe(0)
-    expect(counts.listForResources).toBe(2)
-    expect(counts.loadForResource).toBe(0)
+    // Crucially ZERO per-session statements: a miss in the memo is what would
+    // fall through to those, and an unrecorded missing row is a miss.
+    expect(counts.getSessions).toBe(1)
+    expect(counts.loadSession).toBe(0)
   })
 
   it('does not grow its read count when the pass grows', async () => {

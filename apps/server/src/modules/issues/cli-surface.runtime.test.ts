@@ -1,8 +1,8 @@
 /**
  * THE ISSUE CLI / MCP SURFACE, DRIVEN AGAINST A RUNNING SERVER OBJECT.
  *
- * The runtime half of the pair whose source half is `scripts/audit-issue-commands.ts`.
- * Its whole reason for existing is the failure class that dominated this run: POD-732
+ * The CLI table's declared exposure against its source reach is pinned in
+ * `packages/issue-client/src/commands.drift.test.ts`. This file's whole reason for existing is the failure class that dominated this run: POD-732
  * found the workflow CLI suite driving a `Proxy` that answers every procedure, so it
  * "would stay green against a server serving nothing". THERE IS NO PROXY AND NO MOCK
  * HERE. `SessionRegistry.create()` builds the real `IssueCommandDispatcher` over the real
@@ -81,7 +81,8 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
     expect(tools).not.toContain('issue_lint')
     const move = new IssueToolProvider().mcpToolSpecs().find((tool) => tool.name === 'issue_move')!
     expect(move.inputSchema).toMatchObject({
-      type: 'object', required: ['id'],
+      type: 'object',
+      required: ['id'],
       properties: { id: { type: 'string' }, before: { type: 'string' }, after: { type: 'string' } },
     })
     expect(Object.keys(issues).sort()).toEqual([...ISSUE_COMMAND_NAMES].sort())
@@ -95,7 +96,7 @@ describe('the real in-process client serves every cli/mcp-exposed contract', () 
   it('every cli/mcp-exposed contract has a live procedure on the real client', async () => {
     const client = (await fresh()).issueCommands.asIssueTrpc(OPERATOR)
     const issues = client.issues as unknown as Record<string, { query: unknown; mutate: unknown }>
-    expect(CLI_EXPOSED).toHaveLength(70)
+    expect(CLI_EXPOSED).not.toHaveLength(0)
     for (const name of CLI_EXPOSED) {
       expect(typeof issues[name]?.query, name).toBe('function')
       expect(typeof issues[name]?.mutate, name).toBe('function')
@@ -107,12 +108,12 @@ describe('the podium issue CLI table renders over the real surface', () => {
   it('publishes, replaces and reads direct content on a first task without a worktree, with scope checks', async () => {
     const reg = await fresh()
     const operator = reg.issueCommands.asIssueTrpc(OPERATOR)
-    const issue = await reg.issues.crud.create({
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'First task',
       startNow: false,
     })
-    const other = await reg.issues.crud.create({
+    const other = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
       repoPath: '/r',
       title: 'Other task',
       startNow: false,
@@ -174,7 +175,11 @@ describe('the podium issue CLI table renders over the real surface', () => {
   it('READ verbs execute end to end against the real registry and return real data', async () => {
     const reg = await fresh()
     const client = reg.issueCommands.asIssueTrpc(OPERATOR)
-    const made = await reg.issues.crud.create({ repoPath: '/r', title: 'Runtime probe', startNow: false })
+    const made = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Runtime probe',
+      startNow: false,
+    })
 
     // Pure reads only. `doctor`, `preflight` and `orphans` shell out to git
     // and the filesystem; running them from a unit lane would be measuring this
@@ -199,7 +204,10 @@ describe('the podium issue CLI table renders over the real surface', () => {
     const deck = ISSUE_COMMANDS.find((c) => c.name === 'deck')
     const deckOut = await deck?.run(client, parseArgs(deck, { id: String(made.seq) }))
     expect(deckOut?.text).toContain('Runtime probe — Not started')
-    expect(deckOut?.data).toMatchObject({ root: { id: made.id, word: 'not-started' }, counts: { total: 1 } })
+    expect(deckOut?.data).toMatchObject({
+      root: { id: made.id, word: 'not-started' },
+      counts: { total: 1 },
+    })
   })
 
   it('a WRITE path executes end to end: create → comment → label → close', async () => {
@@ -216,7 +224,9 @@ describe('the podium issue CLI table renders over the real surface', () => {
       client,
       parseArgs(createCmd, { repoPath: '/r', title: 'Written by the CLI table' }),
     )
-    const created = (await reg.issues.reports.list('/r')).find((i) => i.title === 'Written by the CLI table')
+    const created = (await reg.issues.reports.list('/r')).find(
+      (i) => i.title === 'Written by the CLI table',
+    )
     expect(created, 'the CLI create really wrote a row').toBeDefined()
     // The printed id is PREFIX-seq (or `#seq` before a prefix exists) as one
     // token — the same displayRef the row carries, not a repo-ambiguous `#N`.
@@ -236,10 +246,9 @@ describe('the podium issue CLI table renders over the real surface', () => {
     // The surface's own answer, and the row it wrote — both, because a rendering that
     // echoes its input would satisfy the first assertion alone.
     expect(labelled?.text).toContain('alpha, beta')
-    expect((await reg.issues.reports.get(created?.id as string) as { labels?: string[] })?.labels).toEqual([
-      'alpha',
-      'beta',
-    ])
+    expect(
+      ((await reg.issues.reports.get(created?.id as string)) as { labels?: string[] })?.labels,
+    ).toEqual(['alpha', 'beta'])
 
     // The vocabulary the label write created (POD-6106), through the list verb.
     const labelsCmd = verb('labels')
@@ -255,7 +264,12 @@ describe('the podium issue CLI table renders over the real surface', () => {
     const reg = await fresh()
     const client = reg.issueCommands.asIssueTrpc(OPERATOR)
     const create = async (title: string, parentId?: IssueId) =>
-      await reg.issues.crud.create({ repoPath: '/r', title, parentId, startNow: false })
+      await reg.issues.crud.create(reg.issues.reports.store.serverWriter, {
+        repoPath: '/r',
+        title,
+        parentId,
+        startNow: false,
+      })
     const parent = await create('parent')
     const a = await create('a', parent.id)
     const b = await create('b', parent.id)

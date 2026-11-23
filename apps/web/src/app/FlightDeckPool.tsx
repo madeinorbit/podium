@@ -1,4 +1,4 @@
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { FlightDeckMode } from '@podium/client-core/values'
@@ -7,11 +7,9 @@ import { missions } from '@podium/client-graph/mission'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
 import { missionView, readMissionActionInputs } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
-import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import {
   type ComponentProps,
   type JSX,
-  lazy,
   type ReactNode,
   Suspense,
   useCallback,
@@ -20,6 +18,7 @@ import {
   useRef,
 } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { useFeature } from '@/lib/use-feature'
 import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
@@ -29,7 +28,6 @@ import {
   SettlingDeck,
 } from './FlightDeck'
 import { measurePoolMission } from './mission-pane-perf'
-import { useRuntimeSelector } from './store'
 import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 import type { Trpc } from './trpc'
 
@@ -43,9 +41,9 @@ const IssueContextMenu = lazy(() =>
  * for the mission pane: it resolves which mission the selection opens, and
  * each opening gets its own view model. */
 export default observer(function PoolFlightDeck(props: FlightDeckProps): JSX.Element {
-  const selectedIssueId = useRuntimeSelector((store) => store.selectedIssueId)
+  const selectedIssueId = useUiValue('selectedIssueId')
   const pool = useWorklistPool()
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const readRoot = useCallback(
     (pool: MobxPool) => measurePoolMission(owner, () => missionRootId(pool, selectedIssueId)),
     [owner, selectedIssueId],
@@ -68,7 +66,7 @@ const MissionOpening = observer(function MissionOpening({
 }): JSX.Element {
   // The opening outlives renders: it reaches the store's writers when it
   // writes, never by being rebuilt when the handle's access object changes.
-  const handle = useStoreHandle<Trpc>()
+  const handle = useClientRuntime<Trpc>()
   const handleRef = useRef(handle)
   handleRef.current = handle
   const screen = useMemo(
@@ -76,31 +74,12 @@ const MissionOpening = observer(function MissionOpening({
       new MissionScreen(pool, rootId, {
         fullOnly: true,
         setPreference: (key, raw) =>
-          (handleRef.current.access.uiState as RoutedUiState | undefined)?.set(key, raw),
+          (handleRef.current.deviceState as RoutedUiState | undefined)?.set(key, raw),
         sessionName: sessionDisplayName,
       }),
     [pool, rootId],
   )
   useEffect(() => () => screen.close(), [screen])
-  useEffect(
-    () =>
-      followVisibleRequest(
-        () => {
-          if (!screen.settingsRequest.loading)
-            void screen.settingsRequest.read(() =>
-              handleRef.current.access.trpc.settings.get.query(),
-            )
-        },
-        {
-          visible: () => document.visibilityState !== 'hidden',
-          subscribe: (changed) => {
-            document.addEventListener('visibilitychange', changed)
-            return () => document.removeEventListener('visibilitychange', changed)
-          },
-        },
-      ),
-    [screen],
-  )
   const source = useMemo<FlightDeckSource>(() => {
     const reader = screen.reader
     return {
@@ -143,7 +122,7 @@ const PoolArchivedSessions = observer(function PoolArchivedSessions(props: {
   mode: FlightDeckMode
   children: (sessions: readonly SessionView[]) => ReactNode
 }) {
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const sessions = measurePoolMission(owner, () =>
     props.screen.reader.archive(props.rootId, props.mode),
   )
@@ -151,7 +130,7 @@ const PoolArchivedSessions = observer(function PoolArchivedSessions(props: {
 })
 
 function PoolIssueContextMenu(props: Omit<ComponentProps<typeof IssueContextMenu>, 'poolInputs'>) {
-  const owner = useStoreHandle()
+  const owner = useClientRuntime()
   const handoffEnabled = useFeature('session-handoff')
   const ids = props.issues.map((issue) => issue.id).join('\n')
   const read = useCallback(

@@ -33,7 +33,11 @@ import { isSpawnedBy } from '@podium/model'
 import { harnessObservationProvider } from '../../harness-manifest'
 import type { SessionId } from '@podium/model'
 import type { ObservationCheckpointsRepository } from '../../store/observation-checkpoints'
-import type { ObservationLeaseRecord, TerminalCandidateFacts } from '../../store/types'
+import type {
+  ObservationLeaseRecord,
+  TerminalCandidateFacts,
+  TerminalCandidateRecord,
+} from '../../store/types'
 import type { Session, SessionDurableFields } from './session'
 
 /**
@@ -48,8 +52,24 @@ import type { Session, SessionDurableFields } from './session'
  */
 export type TerminalProofCheckpoints = Pick<
   ObservationCheckpointsRepository,
-  'get' | 'getTerminalCandidate' | 'advanceGeneration'
+  'get' | 'getTerminalCandidate' | 'advanceGeneration' | 'leasesOf' | 'terminalCandidatesOf'
 >
+
+/** One message still addressed to a session at proof time. */
+export interface ProofMessage {
+  id: string
+  deliveryStatus: string
+  deliveredAt: string | null
+  injectedAt?: string | null
+  ackedBy: string | null
+}
+
+/** What `facts` reads from the database besides the lease: the same two reads,
+ *  for one session or a whole set (POD-7036). */
+interface ProofReads {
+  pending: readonly ProofMessage[]
+  queuedInputCount: number
+}
 
 export interface TerminalProofPorts {
   now(): number
@@ -58,20 +78,16 @@ export interface TerminalProofPorts {
   sessions(): Iterable<Session>
   session(sessionId: SessionId): Session | undefined
   /** Messages still addressed to this session at proof time. */
-  pendingForProof(
-    sessionId: SessionId,
+  pendingForProof(sessionId: SessionId, atIso: string): Promise<ProofMessage[]>
+  /** {@link pendingForProof} for a set of sessions, in one read (POD-7036). */
+  pendingForProofMany(
+    sessionIds: readonly SessionId[],
     atIso: string,
-  ): Promise<
-    {
-      id: string
-      deliveryStatus: string
-      deliveredAt: string | null
-      injectedAt?: string | null
-      ackedBy: string | null
-    }[]
-  >
+  ): Promise<ReadonlyMap<SessionId, readonly ProofMessage[]>>
   /** How many rows the session's durable input queue holds. */
   queuedInputCount(sessionId: SessionId): Promise<number>
+  /** {@link queuedInputCount} for a set of sessions, in one read; absent = 0. */
+  queuedInputCounts(sessionIds: readonly SessionId[]): Promise<ReadonlyMap<SessionId, number>>
   /** Whether the inbox is mid-drain for this session. */
   isDraining(sessionId: SessionId): boolean
   /** Whether the auto-continue controller is holding this session. */
@@ -122,12 +138,28 @@ export class SessionTerminalProof {
     checkpoint = lease.checkpoint,
     d: SessionDurableFields = session,
   ): Promise<TerminalCandidateFacts | null> {
-    const fence = checkpoint?.terminalFence
-    if (!checkpoint || !fence || fence.closing) return null
-    if (!['idle', 'errored', 'ended'].includes(checkpoint.turnState.phase)) return null
-    const addressedMessages = (
-      await this.ports.pendingForProof(session.sessionId, new Date(this.ports.now()).toISOString())
-    )
+    if (!terminalCheckpoint(checkpoint)) return null
+    const reads: ProofReads = {
+      pending: await this.ports.pendingForProof(
+        session.sessionId,
+        new Date(this.ports.now()).toISOString(),
+      ),
+      queuedInputCount: await this.ports.queuedInputCount(session.sessionId),
+    }
+    return this.factsFrom(session, lease, checkpoint, d, reads)
+  }
+
+  /** The facts of {@link facts}, from reads already made. */
+  private factsFrom(
+    session: Session,
+    lease: ObservationLeaseRecord,
+    checkpoint: ObservationLeaseRecord['checkpoint'],
+    d: SessionDurableFields,
+    reads: ProofReads,
+  ): TerminalCandidateFacts | null {
+    if (!terminalCheckpoint(checkpoint)) return null
+    const fence = checkpoint.terminalFence
+    const addressedMessages = reads.pending
       .map((message) => ({
         id: message.id,
         deliveryStatus: message.deliveryStatus,
@@ -141,8 +173,7 @@ export class SessionTerminalProof {
         (child) =>
           isSpawnedBy(child.spawnedBy, { kind: 'session', id: session.sessionId }) &&
           (child.status === 'starting' ||
-            child.status === 'live' ||
-            child.status === 'reconnecting'),
+            child.status === 'live'),
       )
       .map((child) => ({
         sessionId: child.sessionId,
@@ -178,7 +209,7 @@ export class SessionTerminalProof {
       inputCount: session.terminal.inputCount,
       outputCount: session.terminal.outputCount,
       activityCount: session.terminal.activityCount,
-      queuedInputCount: await this.ports.queuedInputCount(session.sessionId),
+      queuedInputCount: reads.queuedInputCount,
       pendingMessages: addressedMessages,
       autoContinueActive: this.ports.autoContinueActive(session.sessionId),
       activeWork,
@@ -225,7 +256,7 @@ export class SessionTerminalProof {
   async proofStatus(sessionId: SessionId): Promise<TerminalProofStatus> {
     const session = this.ports.session(sessionId)
     if (!session) return { reason: 'unknown_session' }
-    if (session.status !== 'live' && session.status !== 'reconnecting')
+    if (session.status !== 'live')
       return { reason: 'not_running' }
     const lease = await this.ports.checkpoints.get(sessionId)
     if (!lease) return { reason: 'no_lease' }
@@ -234,6 +265,77 @@ export class SessionTerminalProof {
     const facts = await this.facts(session, lease)
     if (!facts) return { reason: 'not_terminal' }
     const proof = await this.ports.checkpoints.getTerminalCandidate(sessionId)
+    return this.judge(facts, proof)
+  }
+
+  /**
+   * {@link proofStatus} and {@link proofMissing} for a set of sessions, with one
+   * read per table for the whole set (POD-7036): the leases, the candidates,
+   * the pending messages and the queue counts. The host sample asks this of
+   * every idle candidate on a machine every few seconds, and asked one session
+   * at a time it was the audit's `pendingForSessionProof` burst (finding 6).
+   * Each answer is the one the single-session calls give for the same rows;
+   * only the reads are shared. Like them it is a selection, not an
+   * authorization: the hibernate it leads to re-derives the facts live and
+   * compares them inside its write (`hibernateSession`).
+   */
+  async proofStatuses(
+    sessionIds: readonly SessionId[],
+  ): Promise<Map<SessionId, TerminalProofStatus & { missing: boolean }>> {
+    const out = new Map<SessionId, TerminalProofStatus & { missing: boolean }>()
+    const ids = [...new Set(sessionIds)]
+    if (ids.length === 0) return out
+    const [leases, candidates] = await Promise.all([
+      this.ports.checkpoints.leasesOf(ids),
+      this.ports.checkpoints.terminalCandidatesOf(ids),
+    ])
+    // The two reads `facts` makes, only for the sessions that reach it.
+    const reaching = ids.filter((id) => {
+      const session = this.ports.session(id)
+      return session?.status === 'live' && terminalCheckpoint(leases.get(id)?.checkpoint)
+    })
+    const [pending, queued] =
+      reaching.length === 0
+        ? [new Map<SessionId, readonly ProofMessage[]>(), new Map<SessionId, number>()]
+        : await Promise.all([
+            this.ports.pendingForProofMany(reaching, new Date(this.ports.now()).toISOString()),
+            this.ports.queuedInputCounts(reaching),
+          ])
+    for (const id of ids) {
+      const lease = leases.get(id)
+      const proof = candidates.get(id) ?? null
+      const missing = lease?.checkpoint?.terminalFence == null || proof === null
+      out.set(id, { ...this.statusFrom(id, lease, proof, pending, queued), missing })
+    }
+    return out
+  }
+
+  private statusFrom(
+    sessionId: SessionId,
+    lease: ObservationLeaseRecord | undefined,
+    proof: TerminalCandidateRecord | null,
+    pending: ReadonlyMap<SessionId, readonly ProofMessage[]>,
+    queued: ReadonlyMap<SessionId, number>,
+  ): TerminalProofStatus {
+    const session = this.ports.session(sessionId)
+    if (!session) return { reason: 'unknown_session' }
+    if (session.status !== 'live') return { reason: 'not_running' }
+    if (!lease) return { reason: 'no_lease' }
+    const fence = lease.checkpoint?.terminalFence
+    if (!fence || fence.closing) return { reason: 'no_terminal_fence' }
+    const facts = this.factsFrom(session, lease, lease.checkpoint, session, {
+      pending: pending.get(sessionId) ?? [],
+      queuedInputCount: queued.get(sessionId) ?? 0,
+    })
+    if (!facts) return { reason: 'not_terminal' }
+    return this.judge(facts, proof)
+  }
+
+  /** The verdict on gathered facts against the stored proof. */
+  private judge(
+    facts: TerminalCandidateFacts,
+    proof: TerminalCandidateRecord | null,
+  ): TerminalProofStatus {
     if (!proof) return { reason: 'proof_missing' }
     if (proof.consumedAt) return { reason: 'proof_consumed' }
     if (JSON.stringify(proof.facts) !== JSON.stringify(facts)) {
@@ -259,6 +361,17 @@ export class SessionTerminalProof {
       await this.ports.checkpoints.getTerminalCandidate(sessionId) == null
     )
   }
+}
+
+/** A checkpoint at a terminal edge: a fence that is not closing, in a terminal phase. */
+function terminalCheckpoint(
+  checkpoint: ObservationLeaseRecord['checkpoint'] | undefined,
+): checkpoint is NonNullable<ObservationLeaseRecord['checkpoint']> & {
+  terminalFence: NonNullable<NonNullable<ObservationLeaseRecord['checkpoint']>['terminalFence']>
+} {
+  const fence = checkpoint?.terminalFence
+  if (!checkpoint || !fence || fence.closing) return false
+  return ['idle', 'errored', 'ended'].includes(checkpoint.turnState.phase)
 }
 
 /** Why a terminal proof is not currently usable. `ok` means it is. */

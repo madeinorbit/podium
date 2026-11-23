@@ -6,7 +6,7 @@
  * #352" — and its claim was that the surface was UNTOUCHED, including the claim
  * that no `*_CONTRACTS` table in `@podium/commands` named a `settings.*`
  * command. POD-420 is #352's command-contract child, so that last claim is now
- * false BY DESIGN: `SETTINGS_CONTRACTS` names four.
+ * false BY DESIGN: `SETTINGS_CONTRACTS` names the derived procedures.
  *
  * WHAT DID NOT CHANGE, AND MUST NOT: the guard still fails in BOTH DIRECTIONS
  * with no ratchet relief. POD-386's reasoning generalises past settings and is
@@ -27,13 +27,12 @@
  * procedure the router does not serve — and requires the comparisons to fire.
  *
  * ---------------------------------------------------------------------------
- * WHY THIS EXISTS ALONGSIDE THE SOURCE-TEXT AUDIT
+ * WHY IT READS THE RUNNING OBJECT
  * ---------------------------------------------------------------------------
  *
- * `scripts/audit-settings-commands.ts` makes the same claims by reading
- * `router.ts` as TEXT. It resolves no modules, so it runs in a fresh checkout
- * and before anything is built — and it is blind to everything not spelled in
- * that one file. This one reads the OBJECT that will actually be served:
+ * The source-text settings audit that made the same claims is deleted
+ * (POD-6595): modules cannot build a write route at all now. This one reads the
+ * OBJECT that will actually be served:
  * `_def.procedures` is the dispatch table itself and `_def.type` is the verb
  * tRPC enforces on the wire.
  *
@@ -60,10 +59,6 @@ const typeOf = (name: string): string | undefined => procedures[name]?._def?.typ
  * the reason each is still hand-written. Named individually, because "the rest"
  * is how an unaccounted-for write hides.
  *
- *  - `get` is a READ. A `visibility` class describes what a command WRITES.
- *  - `set` is the legacy blob write, still called by the sidebar, the
- *    auto-continue dialog and the engine — and it now refuses a SECRET change,
- *    which is what makes the contracted pair the only way to write material.
  *  - the two telegram procedures WERE here and are now CONTRACTED (POD-1080,
  *    ADR 3 Amendment 1 D22): the binding ceremony is an authentication surface,
  *    so they moved into `DERIVED` below under unchanged wire keys. They are the
@@ -72,7 +67,6 @@ const typeOf = (name: string): string | undefined => procedures[name]?._def?.typ
  *    from the ROUTER, because `DERIVED` is read off the contract table.
  */
 const HAND_WRITTEN: Record<string, 'query' | 'mutation'> = {
-  'settings.get': 'query',
   // POD-421. `viewer` answers WHICH SETTINGS COMMANDS THIS CALLER MAY ATTEMPT,
   // so a control can be disabled-with-reason instead of editable-then-refused.
   // Hand-written for the same reason `get` is: a `visibility` class names the
@@ -146,12 +140,11 @@ describe('the settings surface is EXACTLY its contracts plus its named exception
     }
   })
 
-  it('only personal preferences are exposed on the outbox', () => {
+  it('no settings command is exposed on the outbox: personal preferences are a synced record', () => {
     const exposed = SETTINGS_COMMAND_NAMES.filter((name) =>
       SETTINGS_CONTRACTS[name].exposure.includes('outbox'),
     )
-    expect(exposed).toEqual(['settings.updatePersonal'])
-    expect(SETTINGS_CONTRACTS['settings.updatePersonal'].delivery.class).toBe('offline-eligible')
+    expect(exposed).toEqual([])
   })
 })
 
@@ -165,7 +158,7 @@ describe('this guard can say NO', () => {
    */
   it('the accessor reads a real dispatch table, not an empty object', () => {
     expect(Object.keys(procedures).length).toBeGreaterThan(50)
-    expect(typeOf('settings.updateInstance')).toBe('mutation')
+    expect(typeOf('settings.setSecret')).toBe('mutation')
     expect(typeOf('settings.nonexistent')).toBeUndefined()
   })
 
@@ -177,11 +170,18 @@ describe('this guard can say NO', () => {
       'settings.clearSecret',
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
+      'settings.telegramDisconnect',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
-      'settings.updateInstance',
-      'settings.updatePersonal',
     ])
+  })
+
+  it('mints, redeems and disconnects Telegram through mutations while presence stays a query', () => {
+    expect(typeOf('settings.telegramSetupStart')).toBe('mutation')
+    expect(typeOf('settings.telegramDisconnect')).toBe('mutation')
+    expect(typeOf('settings.telegramSetupPoll')).toBe('mutation')
+    expect(typeOf('settings.telegramBotPresence')).toBe('query')
   })
 
   it('the verb check notices a READ served as a MUTATION', () => {

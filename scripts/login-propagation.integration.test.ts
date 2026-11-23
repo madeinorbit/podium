@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -17,6 +18,7 @@ const ENVIRONMENT_KEYS = [
   'PODIUM_AGENT_HOME',
   'CODEX_HOME',
   'CLAUDE_CONFIG_DIR',
+  'PATH',
 ] as const
 
 function installClaudeFixture(home: string, loggedIn: boolean): void {
@@ -151,6 +153,10 @@ describe('real daemon-to-daemon login propagation', () => {
       mkdirSync(targetHome)
       installClaudeFixture(donorHome, true)
       installClaudeFixture(targetHome, false)
+      // Both daemons resolve the fixture executable even when the runner also
+      // has a real Claude installation. Its auth command reads each daemon's
+      // own credential HOME, so the donor and target still report independently.
+      process.env.PATH = join(donorHome, '.local', 'bin') + ':' + process.env.PATH
 
       server = await startServer({
         janitorWorkerForTests: noJanitorWorkerForTests,
@@ -158,16 +164,27 @@ describe('real daemon-to-daemon login propagation', () => {
         port: 0,
       })
       const serverUrl = 'ws://127.0.0.1:' + server.port
+      const store = server.registry.sessionStore
+      const ownerUserId = await firstAdminMemberId(store)
       const startFixtureDaemon = async (
         machineId: MachineId,
         homeDir: string,
         label: string,
-      ): Promise<DaemonHandle> =>
-        startDaemon({
+      ): Promise<DaemonHandle> => {
+        // These are already-enrolled legacy peers; pairing is covered by the
+        // supervisor suites. Custody and assignment still come from real rows.
+        const machineToken = randomUUID()
+        await store.machines.upsertMachine({
+          id: machineId,
+          name: label,
+          hostname: label,
+          tokenHash: createHash('sha256').update(machineToken).digest('hex'),
+          ownerUserId,
+          assignment: { server: false, agentExecution: true },
+        })
+        return await startDaemon({
           serverUrl,
-          pairCode: server?.registry.modules.machines.mintPairingCode({
-            ownerUserId: firstAdminMemberId(),
-          }),
+          machineToken,
           machineId,
           identityDir: join(root as string, label + '-identity'),
           backend: 'none',
@@ -177,12 +194,10 @@ describe('real daemon-to-daemon login propagation', () => {
             homeDir,
           },
           metrics: { background: false },
-          hooks: {
-            port: 0,
-            settingsDir: join(root as string, label + '-hooks'),
-          },
+          hooks: { port: 0, settingsDir: join(root as string, label + '-hooks') },
           agentRelay: { port: 0 },
         })
+      }
 
       daemons.push(await startFixtureDaemon(DONOR_ID, donorHome, 'donor'))
       daemons.push(await startFixtureDaemon(TARGET_ID, targetHome, 'target'))
@@ -195,13 +210,47 @@ describe('real daemon-to-daemon login propagation', () => {
           (await claudeLoginState(server, DONOR_ID)) === 'in' &&
           (await claudeLoginState(server, TARGET_ID)) === 'out'
         )
+      }).catch(async (error) => {
+        const facts = await Promise.all(
+          [DONOR_ID, TARGET_ID].map(async (id, i) => ({
+            id,
+            connected: daemons[i]?.connected,
+            attached: server?.registry.modules.machines.hasDaemon(id),
+            agents: (await server?.registry.sessionStore.machines.getMachine(id))?.inventory
+              ?.agents,
+          })),
+        )
+        throw new Error(`${String(error)}: ${JSON.stringify(facts)}`)
       })
+
+      const donor = await store.machines.getMachine(DONOR_ID)
+      const fingerprint = donor?.inventory?.agents.find((agent) => agent.kind === 'claude-code')
+        ?.login.identity?.fingerprint
+      expect(fingerprint, 'the donor reports its native login identity').toBeTruthy()
+      const trigger = {
+        targetMachineId: TARGET_ID,
+        agentKind: 'claude-code' as const,
+        principalUserId: ownerUserId,
+      }
+      await expect(
+        server.registry.modules.loginPropagation.propagate(trigger),
+      ).resolves.toMatchObject({
+        status: 'skipped',
+        reason: 'no login is ticked for use on all your machines',
+      })
+      await store.nativeLogins.setOptIn(
+        ownerUserId,
+        'claude-code',
+        fingerprint!,
+        true,
+        new Date().toISOString(),
+      )
 
       await expect(
         server.registry.modules.loginPropagation.propagate({
           targetMachineId: TARGET_ID,
           agentKind: 'claude-code',
-          principalUserId: firstAdminMemberId(),
+          principalUserId: ownerUserId,
         }),
       ).resolves.toMatchObject({
         status: 'propagated',
@@ -230,10 +279,17 @@ describe('real daemon-to-daemon login propagation', () => {
         server.registry.modules.loginPropagation.propagate({
           targetMachineId: TARGET_ID,
           agentKind: 'claude-code',
-          principalUserId: firstAdminMemberId(),
+          principalUserId: ownerUserId,
           force: true,
+          // Explicitly refresh the reported account: ordinary propagation is
+          // already satisfied by that stale inventory. The daemon must still
+          // refuse to replace the newer native file that appeared meanwhile.
+          refresh: true,
         }),
-      ).resolves.toMatchObject({ status: 'failed' })
+      ).resolves.toMatchObject({
+        status: 'preserved',
+        reason: 'the target holds a different login, which was kept',
+      })
       expect(readFileSync(targetCredentialPath, 'utf8')).toBe(localCredential)
     } finally {
       for (const daemon of daemons.reverse()) await daemon.close()

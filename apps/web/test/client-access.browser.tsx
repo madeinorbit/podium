@@ -1,13 +1,13 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import {
   StoreProvider,
+  useClientRuntime,
   useHarnessDescriptors,
   useModelCatalogState,
   usePresenceRoom,
-  useStoreHandle,
 } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import { asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
@@ -51,7 +51,7 @@ function CurrentReaders() {
   )
 }
 function Surface() {
-  const runtime = useStoreHandle() as ClientRuntime
+  const runtime = useClientRuntime() as ClientRuntime
   const currentPool = useWorklistPool()
   owner = runtime
   pool = currentPool
@@ -73,7 +73,7 @@ function Surface() {
           commitMs += ms
         }}
       >
-        <DensityProvider densityEnabled>
+        <DensityProvider>
           <CurrentReaders />
         </DensityProvider>
       </Profiler>
@@ -101,7 +101,7 @@ root.render(
     networkEnabled={false}
     onFatalError={(error) => failures.push(error)}
     attachRuntime={(runtime) => {
-      fixture.bindHub(runtime.hub)
+      fixture.bindHub(runtime.services.connection.hub, undefined, runtime.live)
       return attachWorklistPool(runtime, (error) => failures.push(error.message))
     }}
   >
@@ -122,9 +122,9 @@ const driver = {
   },
   async preferences() {
     for (let step = 0; step < 20; step++) {
-      owner.ui.set('podium.chat.stickyPrompts', step % 2 ? null : 'false')
-      owner.ui.set('podium.shell.density', step % 2 ? 'balanced' : 'compact')
-      owner.ui.set('podium:sidebar:pinned', step % 2 ? 'false' : 'true')
+      owner.deviceState.set('podium.chat.stickyPrompts', step % 2 ? null : 'false')
+      owner.deviceState.set('podium.shell.density', step % 2 ? 'balanced' : 'compact')
+      owner.deviceState.set('podium:sidebar:pinned', step % 2 ? 'false' : 'true')
       await nextFrame()
     }
   },
@@ -148,7 +148,7 @@ const driver = {
     const { checkPreferences } = await import(
       '../../../tests/worklist/diagnostics/preference-check'
     )
-    return checkPreferences(pool, owner.ui)
+    return checkPreferences(pool, owner.deviceState)
   },
   close: () => root.unmount(),
 }

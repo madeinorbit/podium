@@ -1,13 +1,9 @@
 import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
-import type { OpencodeMessagePartRow } from '../transcript-types.js'
 import { opencodeDbPath } from '../adapters/opencode/paths.js'
+import type { OpencodeMessagePartRow } from '../transcript-types.js'
 
-// The row TYPE is pure data in `transcript-types.js` (importable by adapters,
-// the Store and this reader alike); re-exported here for compatibility (this
-// module is the SQLite producer of it).
-export type { OpencodeMessagePartRow } from '../transcript-types.js'
 // Path helpers live beside the adapter that owns them (POD-4737 D3);
 // re-exported here so existing readers keep working.
 export {
@@ -16,6 +12,10 @@ export {
   opencodeDbPathForSession,
   opencodeSessionDbPath,
 } from '../adapters/opencode/paths.js'
+// The row TYPE is pure data in `transcript-types.js` (importable by adapters,
+// the Store and this reader alike); re-exported here for compatibility (this
+// module is the SQLite producer of it).
+export type { OpencodeMessagePartRow } from '../transcript-types.js'
 
 export type OpencodeSessionRow = {
   id: string
@@ -29,7 +29,16 @@ export type OpencodeSessionRow = {
   messageCount: number
 }
 
-export function openOpencodeDb(homeDir?: string, databasePath?: string): SqlDatabase | undefined {
+/** Open one exact opencode database file read-only (a session's own store). */
+export function openOpencodeDbFile(databasePath: string): SqlDatabase | undefined {
+  try {
+    return openDatabase(databasePath, { readOnly: true })
+  } catch {
+    return undefined
+  }
+}
+
+export function openOpencodeDb(homeDir: string, databasePath?: string): SqlDatabase | undefined {
   try {
     return openDatabase(databasePath ?? opencodeDbPath(homeDir), { readOnly: true })
   } catch {
@@ -60,7 +69,7 @@ export function openOpencodeDbAt(dataRoot: string): SqlDatabase | undefined {
  * Returns `undefined` if even the main DB can't be statted (caller must then treat
  * the change-state as unknown and do a fresh read rather than trust a cache).
  */
-export function opencodeDbMtimeMs(homeDir?: string, databasePath?: string): number | undefined {
+export function opencodeDbMtimeMs(homeDir: string, databasePath?: string): number | undefined {
   const base = databasePath ?? opencodeDbPath(homeDir)
   let main: number
   try {

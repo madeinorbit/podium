@@ -9,7 +9,9 @@
  * issue map, these reads were also compared with it.
  */
 
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { asIssueId, firstAdminMemberId } from '@podium/model'
+import { sql } from 'drizzle-orm'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../../store'
 import { type CorpusIssue, rawSql, rowOf, seededStore } from '../../../test-support/issue-corpus'
@@ -47,13 +49,9 @@ describe('issue point reads over the database', () => {
     stores.push(store)
     await store.issues.setIssueLabels(asIssueId('iss_1'), ['one', 'two'])
     const viewer = await firstAdminMemberId(store)
-    await store.issues.setIssueUserState(viewer, asIssueId('iss_1'), { readAt: '2026-10-01T00:00:00.000Z' })
-    await store.issues.setIssueUserState(viewer, asIssueId('iss_4'), { pinnedAt: '2026-10-01T00:00:00.000Z' })
-    rawSql(store, 'UPDATE issues SET repo_id = NULL WHERE id IN (?, ?)', 'iss_legacy_a', 'iss_legacy_b')
-    // Quarantined: SQLite allows a NULL in a TEXT primary key, and the boot
-    // load skips such a row (issues.boot-quarantine.test.ts); so do the reads.
-    await store.issues.upsertIssue(rowOf(live(8, { id: 'iss_corrupt' }), '/a', store.hostMachineId))
-    rawSql(store, 'UPDATE issues SET id = NULL WHERE id = ?', 'iss_corrupt')
+    await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_1'), { readAt: '2026-10-01T00:00:00.000Z' })
+    await store.issues.setIssueUserState(fixtureWriteScope(), viewer, asIssueId('iss_4'), { tuckedAt: '2026-10-01T00:00:00.000Z' })
+    await rawSql(store, sql`UPDATE issues SET repo_id = NULL WHERE id IN (${'iss_legacy_a'}, ${'iss_legacy_b'})`)
     const issues = new IssueStore({ store } as IssueDeps)
 
     // Rows by id: deleted rows included, unknown ids absent.
@@ -63,9 +61,11 @@ describe('issue point reads over the database', () => {
     expect(await issues.liveRow('iss_missing')).toBeUndefined()
     expect([...(await issues.rowsByIds(['iss_1', 'iss_b4', 'iss_missing'])).keys()].sort()).toEqual(['iss_1', 'iss_b4'])
 
-    // The viewer's markers.
-    expect(await issues.issueUserState(asIssueId('iss_1'))).toEqual({ readAt: '2026-10-01T00:00:00.000Z', tuckedAt: null, pinnedAt: null })
-    expect(await issues.issueUserState(asIssueId('iss_4'))).toEqual({ readAt: null, tuckedAt: null, pinnedAt: '2026-10-01T00:00:00.000Z' })
+    // The viewer's markers, and the personal records the same row carries
+    // (POD-6290, design §4.4), empty here.
+    const noRecords = { joinedAt: null, joinedVia: null, assignedAt: null, assignedBy: null }
+    expect(await issues.issueUserState(asIssueId('iss_1'))).toEqual({ readAt: '2026-10-01T00:00:00.000Z', tuckedAt: null, ...noRecords })
+    expect(await issues.issueUserState(asIssueId('iss_4'))).toEqual({ readAt: null, tuckedAt: '2026-10-01T00:00:00.000Z', ...noRecords })
     expect(await issues.issueUserState(asIssueId('iss_2'))).toBeUndefined()
 
     // References.

@@ -15,6 +15,7 @@
  */
 
 import { asIssueId, firstAdminMemberId, SOLE_USER_ID } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow, SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
@@ -86,8 +87,8 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 describe('issue schema: FK behavior at runtime', () => {
   it('deleting an issue cascades onto labels/deps/comments/messages', async () => {
     const s = await storeWithRepo()
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_a'), seq: 1 }))
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_b'), seq: 2 }))
+    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_a'), seq: 1 }))
+    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_b'), seq: 2 }))
     await s.issues.setIssueLabels(asIssueId('iss_a'), ['ui'])
     await s.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'), 'blocked-by')
     await s.issues.addIssueDep(asIssueId('iss_b'), asIssueId('iss_a'), 'related')
@@ -121,11 +122,16 @@ describe('issue schema: FK behavior at runtime', () => {
 
   it("deleting a parent nulls children's parent_id (and supersede/duplicate back-refs)", async () => {
     const s = await storeWithRepo()
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_parent'), seq: 1 }))
     await s.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow({ id: asIssueId('iss_parent'), seq: 1 }),
+    )
+    await s.issues.upsertIssue(
+      fixtureWriteScope(),
       issueRow({ id: asIssueId('iss_child'), seq: 2, parentId: asIssueId('iss_parent') }),
     )
     await s.issues.upsertIssue(
+      fixtureWriteScope(),
       issueRow({
         id: asIssueId('iss_dup'),
         seq: 3,
@@ -147,7 +153,7 @@ describe('issue schema: FK behavior at runtime', () => {
     expect(() =>
       rawDb(s)
         .prepare(
-          "INSERT INTO issue_comments (id, issue_id, author, body, created_at) VALUES ('c', 'iss_ghost', 'a', 'b', 't')",
+          "INSERT INTO issue_comments (workspace_id, id, issue_id, author, body, created_at) VALUES ('local', 'c', 'iss_ghost', 'a', 'b', 't')",
         )
         .run(),
     ).toThrow(/foreign key/i)
@@ -156,7 +162,7 @@ describe('issue schema: FK behavior at runtime', () => {
 
   it('CHECK rejects a garbage stage/type/priority at the SQL layer', async () => {
     const s = await storeWithRepo()
-    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_ok') }))
+    await s.issues.upsertIssue(fixtureWriteScope(), issueRow({ id: asIssueId('iss_ok') }))
     const upd = (col: string, v: unknown) =>
       rawDb(s).prepare(`UPDATE issues SET ${col} = ? WHERE id = 'iss_ok'`).run(v)
     expect(() => upd('stage', 'bogus')).toThrow(/check/i)

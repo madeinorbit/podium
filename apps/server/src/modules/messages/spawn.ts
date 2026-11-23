@@ -12,8 +12,8 @@
  */
 
 import { describeError } from '@podium/logger'
+import type { AgentKind, IssueId, MachineId, SessionId, UserId } from '@podium/model'
 import { type SpawnedByRef, spawnedByTag } from '@podium/model'
-import type { AgentKind, IssueId, SessionId, UserId, MachineId } from '@podium/model'
 import type { MessageRow } from '../../store'
 import type { IssueService } from '../issues/service'
 import type { SpawnOnWake } from './service'
@@ -61,6 +61,23 @@ function spawnedByRefForMessage(m: MessageRow): SpawnedByRef {
   }
 }
 
+/**
+ * WHO A WOKEN SESSION ACTS FOR (design §2.3, POD-6286): the human behind the
+ * mail that woke it, the way a session someone starts is theirs. Bob's mail to
+ * Alice's task wakes a session of Bob's, never one acting with Alice's rights.
+ * Only mail no human sent (a server job's) falls back to the task's owner, the
+ * task's one accountable human.
+ */
+export function wokenSessionOwner(
+  message: MessageRow,
+  taskOwner: UserId | null | undefined,
+): UserId {
+  const sender = message.attribution?.onBehalfOf
+  if (sender) return sender
+  if (taskOwner) return taskOwner
+  throw new Error('issue has no accountable owner')
+}
+
 export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
   return {
     async spawn({ issueId, message }) {
@@ -79,11 +96,7 @@ export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
           effort: issue.defaultEffort,
           issueId: issue.id,
           spawnedBy: spawnedByForMessage(message),
-          ownerUserId:
-            issue.ownerUserId ??
-            (() => {
-              throw new Error('issue has no accountable owner')
-            })(),
+          ownerUserId: wokenSessionOwner(message, issue.ownerUserId),
           ...(issue.machineId ? { machineId: issue.machineId } : {}),
           ...(issue.agentProfileId ? { agentProfileId: issue.agentProfileId } : {}),
         })

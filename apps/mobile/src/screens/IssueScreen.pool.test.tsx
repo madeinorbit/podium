@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
-import { useStoreHandle } from '@podium/client-core/react'
+import { useClientRuntime } from '@podium/client-core/react'
 import {
   createKernelReplica,
   createSideCache,
@@ -11,6 +10,7 @@ import {
   type ReplicaRows,
   rowKey,
 } from '@podium/client-core/replica'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
@@ -20,6 +20,7 @@ import {
   type IssueGitStateProjection,
   type IssueProjection,
   type IssueUserStateWire,
+  type PinWire,
   type RepoProjection,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
@@ -110,43 +111,6 @@ vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
 // Flow-typed RN icon source never parses in this lane; every glyph is a no-op.
 // Named one by one because vitest validates a mock against the factory's OWN
 // keys — when the task page's component tree grows an icon, this list grows.
-vi.mock('lucide-react-native', () => ({
-  AlertTriangle: () => null,
-  ArrowRight: () => null,
-  ArrowUp: () => null,
-  CheckCircle2: () => null,
-  ChevronDown: () => null,
-  ChevronLeft: () => null,
-  ChevronRight: () => null,
-  ChevronUp: () => null,
-  Circle: () => null,
-  CircleDot: () => null,
-  ClipboardPaste: () => null,
-  ExternalLink: () => null,
-  FileText: () => null,
-  Flag: () => null,
-  FlagOff: () => null,
-  GitBranch: () => null,
-  GitCommit: () => null,
-  GitMerge: () => null,
-  Link2: () => null,
-  Mail: () => null,
-  MessageCircleQuestion: () => null,
-  Mic: () => null,
-  MicOff: () => null,
-  MoreHorizontal: () => null,
-  MoreVertical: () => null,
-  Paperclip: () => null,
-  Play: () => null,
-  Plus: () => null,
-  RefreshCw: () => null,
-  Square: () => null,
-  SquareTerminal: () => null,
-  Trash2: () => null,
-  Unlock: () => null,
-  Users: () => null,
-  X: () => null,
-}))
 // Status/priority glyphs draw with react-native-svg, whose RN source never
 // parses in this lane; the geometry is not what this file is about.
 vi.mock('react-native-svg', async () => {
@@ -255,7 +219,13 @@ const markers: IssueUserStateWire = {
   entityId: projection.id,
   readAt: '2026-09-30T12:00:00Z',
   tuckedAt: null,
-  pinned: true,
+}
+// The task is pinned: my pin record (POD-6692), not a marker.
+const pin: PinWire = {
+  userId: asUserId('user:test'),
+  kind: 'issue',
+  entityId: projection.id,
+  pinnedAt: '2026-09-30T12:00:00Z',
 }
 const git = {
   id: projection.id,
@@ -279,6 +249,7 @@ function pageReplica(issues: IssueProjection[]) {
   }
   install('issueProjections', issues)
   install('issueUserStates', [markers])
+  install('pins', [pin])
   install('issueGitStates', [git])
   install('repos', [repo])
   return createKernelReplica({
@@ -292,7 +263,7 @@ function pageReplica(issues: IssueProjection[]) {
   })
 }
 function OpenPage() {
-  state.runtime = useStoreHandle<MobileTrpc>() as ClientRuntime<MobileTrpc>
+  state.runtime = useClientRuntime<MobileTrpc>() as ClientRuntime<MobileTrpc>
   useMobilePool()
   const [open, setOpen] = useState(false)
   return open ? (
@@ -303,20 +274,17 @@ function OpenPage() {
     </button>
   )
 }
-function fingerprint(container: HTMLElement) {
-  return createHash('sha256')
-    .update(
-      JSON.stringify({
-        text: container.textContent,
-        labels: [...container.querySelectorAll('[aria-label]')].map((node) =>
-          node.getAttribute('aria-label'),
-        ),
-        styles: [...container.querySelectorAll('[style]')].map((node) =>
-          node.getAttribute('style'),
-        ),
-      }),
-    )
-    .digest('hex')
+function taskOutput(container: HTMLElement) {
+  return {
+    text: container.textContent,
+    labels: [...container.querySelectorAll('[aria-label]')].map((node) =>
+      node.getAttribute('aria-label'),
+    ),
+  }
+}
+
+function fingerprint(output: ReturnType<typeof taskOutput>) {
+  return createHash('sha256').update(JSON.stringify(output)).digest('hex')
 }
 
 it('dismisses Inspect Task before its session row opens chat, then pushes Console with the native Back chain intact', async () => {
@@ -525,6 +493,7 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
     }))
     const mounted = await renderWithMobileStore(<OpenPage />, {
       replica: pageReplica([projection, ...history]),
+      api: { issues: { events: { query: async () => [] } } },
       attachRuntime: (runtime) =>
         state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
     })
@@ -571,9 +540,18 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
       // events transport as a retry control; the former hook hid the error.
       // Its text, label and style are the entire accepted-output difference.
       fireEvent.click(screen.getByRole('button', { name: 'Activity' }))
-      await waitFor(() => expect(screen.getByLabelText('Show earlier activity')).toBeTruthy())
-      console.info('[accepted closed task]', scale, fingerprint(mounted.container))
-      expect(fingerprint(mounted.container)).toMatchSnapshot(`accepted closed task at ${scale}x`)
+      // The fixture's history transport now answers an empty page (upstream):
+      // no retry control, and no fixture error rendered as screen content.
+      await waitFor(() => expect(screen.queryByLabelText('Show earlier activity')).toBeNull())
+      expect(mounted.container.textContent).not.toContain('Could not load earlier activity')
+      // The redesigned page's accepted output is pinned by its digest (the
+      // literal fixture described the pre-redesign page).
+      const output = taskOutput(mounted.container)
+      expect(screen.queryByLabelText('Change task colour')).toBeNull()
+      expect(
+        mounted.container.querySelector('[style*="width: 22px; height: 22px;"]'),
+      ).not.toBeNull()
+      expect(mounted.container.querySelector('[style*="padding-top: 26px;"]')).not.toBeNull()
       census.exit()
       const phase = census.snapshot().phases['open task']!
       const stats = readRuntimeStoreStats(state.runtime!)!
@@ -624,12 +602,13 @@ it('keeps parent target order literal and row reads bounded by its visible choic
       asked: undefined,
       stage: 'done' as const,
       closedAt: '2026-01-01T00:00:00Z',
-      archived: true,
+      archived: false,
       createdAt: '2026-01-01T00:00:00Z',
       updatedAt: '2026-01-01T00:00:00Z',
     }))
     const mounted = await renderWithMobileStore(<OpenPage />, {
       replica: pageReplica([projection, ...history]),
+      api: { issues: { events: { query: async () => [] } } },
       attachRuntime: (runtime) =>
         state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
     })
@@ -667,7 +646,7 @@ it('keeps parent target order literal and row reads bounded by its visible choic
         derivations: phase.computedRuns + phase.reactionRuns,
         neighbours: choices.length,
       })
-      // The same archived targets remain searchable by title and display ref;
+      // Closed, unarchived targets remain searchable by title and display ref;
       // the expected values are literal, independent of the source question.
       state.measuring = false
       fireEvent.change(screen.getByLabelText('Search parent'), {

@@ -72,6 +72,39 @@ const delegated = (): ReactionPrincipal => ({
  */
 export const REACTIONS = [
   {
+    id: 'machines.processes-topic',
+    description: 'Publish a demanded process sample to its authenticated topic holders.',
+    trigger: 'machine.processesChanged',
+    durability: 'in-memory',
+    replay: { mode: 'none', reason: 'A subscription starts a new process sample.' },
+    idempotency: { key: 'machine id + live sample', duplicatePolicy: 'safe-repeat' },
+    ordering: 'EventBus order after the process producer records its newest sample.',
+    retry: 'No replay; reconnect or focus requests a fresh sample.',
+    failureOwner: 'machine process topic routing',
+    observability: { registry: true, events: ['machine.processesChanged'], metrics: [] },
+    principal: system(),
+    scopeInvariant:
+      'Publishes only this workspace machine sample through existing subscriber authorization; no durable write.',
+  },
+  {
+    id: 'machines.condition-topic',
+    description: 'Publish a changed live machine condition to its authenticated topic holders.',
+    trigger: 'machine.conditionChanged',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason: 'A subscriber reads the current live snapshot when subscribing.',
+    },
+    idempotency: { key: 'machine id + live condition', duplicatePolicy: 'safe-repeat' },
+    ordering: 'EventBus order after the condition producer records its newest facts.',
+    retry: 'No replay; the next condition change or subscription snapshot refreshes the reader.',
+    failureOwner: 'machine condition topic routing',
+    observability: { registry: true, events: ['machine.conditionChanged'], metrics: [] },
+    principal: system(),
+    scopeInvariant:
+      'Publishes only this workspace machine condition through existing subscriber authorization; no durable write.',
+  },
+  {
     id: 'settings.feature-cache',
     description: 'Refresh the process-local feature snapshot after settings change.',
     trigger: 'settings.changed',
@@ -84,6 +117,24 @@ export const REACTIONS = [
     observability: { registry: true, events: ['settings.changed'], metrics: [] },
     principal: system(),
     scopeInvariant: 'Read-only derived cache; it performs no attributed write.',
+  },
+  {
+    id: 'machines.daemon-link-kind',
+    description:
+      'Republish the condition of each connected machine whose link kind moved after the trusted networks changed.',
+    trigger: 'settings.changed',
+    durability: 'in-memory',
+    replay: {
+      mode: 'none',
+      reason: 'Link kinds are worked out on read from live connections and the current settings.',
+    },
+    idempotency: { key: 'machineId + link kind', duplicatePolicy: 'coalesce' },
+    ordering: 'After the process settings snapshot listener, in EventBus listener order.',
+    retry: 'No retry; a subscriber re-reads the condition snapshot on its next subscribe.',
+    failureOwner: 'gateway daemon links',
+    observability: { registry: true, events: ['settings.changed'], metrics: [] },
+    principal: system(),
+    scopeInvariant: 'Publishes connection state only; it performs no attributed write.',
   },
   {
     id: 'sessions.feed-cursor',

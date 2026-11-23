@@ -108,16 +108,37 @@ const trpc = {
   },
   // The mission header asks what the mission cost; no figure renders no chip.
   cost: {
-    task: { query: async () => {
-      if (!new URLSearchParams(location.search).has('cost')) return null
-      const usage = {
-        models: [{ model: 'claude-opus-5', inputTokens: 2_000_000, outputTokens: 0,
-          cacheReadTokens: 0, cacheCreationTokens: 0, cacheCreation1hTokens: 0, messages: 20 }],
-        messages: 20, sessionCount: 2,
-      }
-      return { issueId: 'root', state: 'costed', own: usage, rollup: usage,
-        descendantCount: 12, provisional: false, floor: 'none', harnesses: ['claude-code'], sessions: [] }
-    } },
+    task: {
+      query: async () => {
+        if (!new URLSearchParams(location.search).has('cost')) return null
+        const usage = {
+          models: [
+            {
+              model: 'claude-opus-5',
+              inputTokens: 2_000_000,
+              outputTokens: 0,
+              cacheReadTokens: 0,
+              cacheCreationTokens: 0,
+              cacheCreation1hTokens: 0,
+              messages: 20,
+            },
+          ],
+          messages: 20,
+          sessionCount: 2,
+        }
+        return {
+          issueId: 'root',
+          state: 'costed',
+          own: usage,
+          rollup: usage,
+          descendantCount: 12,
+          provisional: false,
+          floor: 'none',
+          harnesses: ['claude-code'],
+          sessions: [],
+        }
+      },
+    },
     tasks: { query: async () => [] },
   },
   issues: {
@@ -173,7 +194,7 @@ const store = (): Record<string, unknown> => ({
   trpc,
 })
 
-export function useRuntimeSelector<T>(select: (s: Record<string, unknown>) => T): T {
+export function readFixture<T>(select: (s: Record<string, unknown>) => T): T {
   return select(store())
 }
 

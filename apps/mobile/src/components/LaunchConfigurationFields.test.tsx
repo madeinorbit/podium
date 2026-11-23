@@ -130,7 +130,7 @@ async function publishMachines(
   // pushed roster rather than restoring the fixture's original machine state.
   fixture.machines = machines
   await act(async () => {
-    app.emit('machines', machines)
+    app.setMachines(machines)
   })
 }
 

@@ -37,6 +37,8 @@
 
 import type { ResumeRef } from '@podium/model'
 import { describe, expect, it } from 'vitest'
+import { canonicalDriverId } from '../../../manifest.js'
+import { terminalMayDeclineNativeSteer } from '../../families/terminal/steer-entitlement.js'
 import {
   type AgentSessionHandle,
   type AttachmentKind,
@@ -591,9 +593,14 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         const id = session.binding.sessionId
         await session.send({ text: 'work first' }, { origin: 'human', delivery: 'when-ready' })
         const before = await session.snapshot()
-        const receipt = await session.send({ text: 'read issue mail' }, {
-          origin: 'mail', delivery: 'at-boundary', principal: { kind: 'system', ref: 'issue-mail' },
-        })
+        const receipt = await session.send(
+          { text: 'read issue mail' },
+          {
+            origin: 'mail',
+            delivery: 'at-boundary',
+            principal: { kind: 'system', ref: 'issue-mail' },
+          },
+        )
         if (!driver.capabilities().send.native.includes('at-boundary')) {
           expect(receipt).toMatchObject({ outcome: 'refused', refusal: { reason: 'unsupported' } })
           return
@@ -605,8 +612,10 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         await expect.poll(() => control.textDeliveries(id)).toBe(2)
         await expect.poll(async () => (await session.state()).phase).toBe('working')
         expect((await session.snapshot()).turnEpoch).toBeGreaterThan(before.turnEpoch)
-        const events = await drainUntil(session.events(before.cursor),
-          (e) => e.t === 'turn' && e.ev.ev === 'started' && e.ev.origin === 'mail')
+        const events = await drainUntil(
+          session.events(before.cursor),
+          (e) => e.t === 'turn' && e.ev.ev === 'started' && e.ev.origin === 'mail',
+        )
         expect(events.some((e) => e.t === 'turn' && e.ev.ev === 'completed')).toBe(true)
       })
 
@@ -679,7 +688,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           // permission on the list with nothing to trip over it. An entitlement
           // is a record of an absence; when the absence ends, so does it.
           expect(
-            permitsNoNativeSteer(driver.id, driver.harness),
+            targetMayDeclineNativeSteer(driver.id, driver.harness),
             `driver '${driver.id}' (${driver.harness}) has native steer AND is listed as entitled to decline it — remove it from NO_NATIVE_STEER_DRIVERS (or, for generic-pty, NO_NATIVE_STEER_TERMINAL_HARNESSES)`,
           ).toBe(false)
           return
@@ -2954,6 +2963,18 @@ export function assertNoAttachEntitled(
   ).toBe(true)
 }
 
+/** Terminal measurement belongs to this host-only corpus, never the server contract. */
+function targetMayDeclineNativeSteer(
+  driverId: DriverId | (string & {}),
+  harness?: string,
+): boolean {
+  const id = canonicalDriverId(driverId as DriverId)
+  return (
+    permitsNoNativeSteer(id) &&
+    (id !== 'generic-pty' || harness === undefined || terminalMayDeclineNativeSteer(harness))
+  )
+}
+
 /**
  * A driver may decline native `steer` only if it is on the pinned list.
  *
@@ -2982,7 +3003,7 @@ export function assertNoNativeSteerEntitled(
   expect(
     // The helper deliberately accepts an unlisted string for negative tests;
     // the runtime membership check remains the closed DriverId list.
-    permitsNoNativeSteer(driverId as DriverId, harness),
+    targetMayDeclineNativeSteer(driverId, harness),
     `driver '${driverId}' declined native steer without being on the entitled list (${NO_NATIVE_STEER_DRIVERS.join(', ')}) — steering is a per-harness protocol verb, so add it there WITH the measurement or declare 'steer' native`,
   ).toBe(true)
 }

@@ -89,9 +89,9 @@ describe('componentVersions', () => {
     expect(row(view, 'interface')?.note).toContain('Reloading')
   })
 
-  it('opens the breakdown for the built-in copy even when the versions agree', () => {
+  it('collapses the built-in copy when its build matches', () => {
     const view = componentVersions(input({ page: { version: '0.1.1-edge.1', source: baked } }))
-    expect(view.single).toBeNull()
+    expect(view.single).toBe('0.1.1-edge.1')
     expect(row(view, 'interface')?.prefix).toBe('Built-in copy')
     expect(row(view, 'interface')?.mark).toBe('expected')
   })

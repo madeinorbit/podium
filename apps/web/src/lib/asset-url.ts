@@ -1,7 +1,7 @@
 import type { FileScope } from '@podium/client-core/values'
 import { isValidMachinePath, resolveMachinePath } from '@podium/model'
 import type { SessionId } from '@podium/model/browser'
-import { isArtifactsTabScope } from '@/features/files/artifacts-tab-id'
+import { isArtifactsTabScope } from './artifacts-tab-id'
 import { currentWorkspaceSlug } from './workspace-request'
 
 /**

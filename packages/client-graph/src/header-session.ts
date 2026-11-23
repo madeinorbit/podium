@@ -21,7 +21,7 @@ export function headerWorkingSession(row: SessionView | undefined, passed: (at: 
 }
 
 export function headerHostSession(row: SessionView | undefined) {
-  if (!row || !['live', 'starting', 'reconnecting'].includes(row.status)) return null
+  if (!row || !['live', 'starting'].includes(row.status)) return null
   return { cwd: row.cwd, machineId: row.machineId, archived: !!row.archived,
     status: row.status, phase: row.agentState?.phase, resumable: !!row.resumable }
 }

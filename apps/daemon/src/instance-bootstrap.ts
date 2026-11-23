@@ -4,10 +4,10 @@ import { stateDir } from '@podium/runtime/config'
 import {
   applyInstanceRuntimeEnv,
   assertLinuxUnixSocketPath,
-  ensureInstanceStateIdentity,
   instanceSocketRuntimeDir,
   instanceStateDir,
   linuxUnixSocketPathFits,
+  prepareInstanceStateIdentity,
   resolveInstanceId,
 } from '@podium/runtime/instance'
 import {
@@ -20,6 +20,8 @@ import {
 export interface DaemonInstanceBootstrap {
   readonly instanceId: string
   readonly instanceUuid: string
+  /** Called after admission, before any application work can use this UUID. */
+  readonly commitIdentity: () => void
   readonly runtimeDir: string
   readonly settingsDir: string
   readonly hookSocketPath?: string
@@ -44,7 +46,8 @@ export function bootstrapDaemonInstance(opts?: {
   platform?: NodeJS.Platform
 }): DaemonInstanceBootstrap {
   const instanceId = resolveInstanceId()
-  const identity = ensureInstanceStateIdentity({ instanceId })
+  const prepared = prepareInstanceStateIdentity({ instanceId })
+  const identity = prepared.identity
   const instanceDir = instanceStateDir(instanceId)
   applyInstanceRuntimeEnv(instanceId, process.env, instanceDir)
   const previousUuid = process.env.PODIUM_INSTANCE_UUID
@@ -107,6 +110,7 @@ export function bootstrapDaemonInstance(opts?: {
   return {
     instanceId,
     instanceUuid: identity.instanceUuid,
+    commitIdentity: prepared.commit,
     runtimeDir,
     settingsDir,
     ...(hookSocketPath ? { hookSocketPath } : {}),

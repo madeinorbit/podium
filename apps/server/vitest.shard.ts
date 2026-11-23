@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { defineConfig, type ViteUserConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../../vitest.config'
-import { shardReportPath } from './test-shard-report'
 import { shardMayReuse, splitForReuse } from './src/test-support/reuse-plan'
+import { shardReportPath } from './test-shard-report'
 
 const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url))
 
@@ -71,9 +71,9 @@ export const isolatedProjectName = (shardId: string) => `server:${shardId}:isola
  */
 type Reporters = NonNullable<NonNullable<ViteUserConfig['test']>['reporters']>
 
-const shardReporters = (shardId: string): Reporters => [
+const shardReporters: Reporters = [
   ['default', {}],
-  ['json', { outputFile: shardReportPath(repositoryRoot, shardId) }],
+  ['json', {}],
 ]
 
 export const createServerShardConfig = (shardId: string) => {
@@ -96,6 +96,12 @@ export const createServerShardConfig = (shardId: string) => {
     retry: 0,
     ...(serialized ? { fileParallelism: false, maxWorkers: 1 } : {}),
   }
+  const shardReportOptions = {
+    reporters: shardReporters,
+    // Reporter-local outputFile wins over the CLI, so keep the aggregate default here
+    // where the focused wrapper can override it with --outputFile.json.
+    outputFile: { json: shardReportPath(repositoryRoot, shardId) },
+  }
 
   const split = shardMayReuse(shardId)
     ? splitForReuse(shard.testFiles, repositoryRoot)
@@ -112,7 +118,7 @@ export const createServerShardConfig = (shardId: string) => {
         ...shardTestOptions,
         name: `server:${shardId}`,
         include: shard.testFiles,
-        reporters: shardReporters(shardId),
+        ...shardReportOptions,
       },
     })
   }
@@ -123,7 +129,7 @@ export const createServerShardConfig = (shardId: string) => {
     test: {
       ...shardTestOptions,
       name: `server:${shardId}`,
-      reporters: shardReporters(shardId),
+      ...shardReportOptions,
       // NO root-level `include` here, and it is not an omission. Vitest resolves a
       // root-level `include` ahead of each project's own, so leaving the shard roster here
       // made BOTH projects collect all 70 files — every test ran twice and isolation was

@@ -17,15 +17,15 @@ async function regWithDaemon() {
 describe('issue archive cascades to member sessions (real relay #133)', () => {
   it('archiving an issue archives every attached session', async () => {
     const reg = await regWithDaemon()
-    const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
-    await reg.issues.crud.update(issue.id, { worktreePath: '/repo/wt' })
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/repo/wt' })
     const a = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id }))
       .sessionId
     const b = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo/wt', issueId: issue.id }))
       .sessionId
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).filter((s) => s.archived)).toHaveLength(0)
 
-    await reg.issues.attention.archive(issue.id)
+    await reg.issues.attention.archive(reg.issues.reports.store.serverWriter, issue.id)
 
     const archived = new Set(
       (await reg
@@ -68,15 +68,15 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
           : ''
       return { ok: true, output }
     }
-    const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
-    await reg.issues.crud.update(issue.id, { worktreePath: '/repo/wt', branch: 'issue/real-work' })
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, { worktreePath: '/repo/wt', branch: 'issue/real-work' })
     const s = (await reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/repo/wt',
       issueId: issue.id,
     })).sessionId
 
-    await reg.issues.attention.archive(issue.id)
+    await reg.issues.attention.archive(reg.issues.reports.store.serverWriter, issue.id)
     await new Promise((resolve) => setTimeout(resolve, 0)) // the free is fire-and-forget
 
     const parked = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === s)
@@ -90,11 +90,11 @@ describe('issue archive cascades to member sessions (real relay #133)', () => {
 
   it('un-archiving the issue leaves the sessions archived (no cascade back)', async () => {
     const reg = await regWithDaemon()
-    const issue = await reg.issues.crud.create({ repoPath: '/repo', title: 'Real work', startNow: false })
+    const issue = await reg.issues.crud.create(reg.issues.reports.store.serverWriter, { repoPath: '/repo', title: 'Real work', startNow: false })
     const s = (await reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/repo', issueId: issue.id }))
       .sessionId
-    await reg.issues.attention.archive(issue.id)
-    await reg.issues.crud.update(issue.id, { archived: false })
+    await reg.issues.attention.archive(reg.issues.reports.store.serverWriter, issue.id)
+    await reg.issues.crud.update(reg.issues.reports.store.serverWriter, issue.id, { archived: false })
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find((x) => x.sessionId === s)?.archived).toBe(true)
   })
 })

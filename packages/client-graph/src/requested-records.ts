@@ -1,7 +1,3 @@
-import type { PodiumClientApi } from '@podium/client-core/api'
-
-type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
-
 import { lazy } from '@podium/mobx-helpers'
 import { action, compareShallow } from 'mobx'
 import { LOADING } from './loading'
@@ -9,20 +5,9 @@ import { here } from './lookup'
 import type { ModelOf } from './models'
 import type { MobxPool, PoolRows } from './pool'
 import { RequestAnswer } from './request-answer'
-import {
-  ingestRequested,
-  ingestSettings,
-  type RequestedEntity,
-  requestedRecords,
-  SETTINGS_RECORD_ID,
-} from './requested-record-source'
+import { ingestRequested, type RequestedEntity, requestedRecords } from './requested-record-source'
 
-export {
-  ingestRequested,
-  ingestSettings,
-  type RequestedEntity,
-  SETTINGS_RECORD_ID,
-} from './requested-record-source'
+export { ingestRequested, type RequestedEntity } from './requested-record-source'
 
 /** Request answers contain membership only; record facts are always pool models.
  * RequestAnswer fences superseded responses before ingestion, as well as on close. */
@@ -50,14 +35,5 @@ export class RecordRequest<E extends RequestedEntity> extends RequestAnswer<read
       return answer === LOADING ? [] : here(answer) ?? []
     })
   }
-  dispose() { this.close() }
-}
-
-export class SettingsRecordRequest extends RequestAnswer<string> {
-  constructor(readonly pool: MobxPool) { super(); requestedRecords(pool) }
-  @action read(read: () => Promise<PodiumSettings>): Promise<void> {
-    return this.load(read, false, settings => { ingestSettings(this.pool, settings); return SETTINGS_RECORD_ID })
-  }
-  @lazy get model() { return here(this.pool.model('podiumSettings', SETTINGS_RECORD_ID)) }
   dispose() { this.close() }
 }

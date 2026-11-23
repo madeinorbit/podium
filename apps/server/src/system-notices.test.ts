@@ -4,6 +4,7 @@ import { autoContinueMessageId } from './message-ids'
 import { messageRecordOf } from './modules/message-feed/feed'
 import { mailHarness } from './modules/messages/characterization-support'
 import { autoContinueSender, systemIssueNotice } from './system-notices'
+import { messageTestWriter, messageTestWriters } from './test-support/message-writer'
 
 /**
  * THE SERVER'S NOTICES TO AN ISSUE ARE MESSAGES (POD-4846).
@@ -15,14 +16,15 @@ import { autoContinueSender, systemIssueNotice } from './system-notices'
  * every issue message takes.
  */
 describe('a system notice to an issue', () => {
-  const body = "Lock 'build' granted to you (TTL 2m). Release with `podium lock release build` when done."
+  const body =
+    "Lock 'build' granted to you (TTL 2m). Release with `podium lock release build` when done."
 
   it('is a message from the named system sender, typed in full inside the envelope', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'holder' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
 
-    const id = await systemIssueNotice(h.svc, 'lock-manager')(iss.id, body)
+    const id = await systemIssueNotice(h.svc, messageTestWriter(), 'lock-manager')(iss.id, body)
 
     expect(await h.svc.message(id)).toMatchObject({
       fromKind: 'system',
@@ -51,14 +53,18 @@ describe('a system notice to an issue', () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'holder' })
 
-    const id = await systemIssueNotice(h.svc, 'machine-diagnostic')(iss.id, 'integration disabled')
+    const id = await systemIssueNotice(
+      h.svc,
+      messageTestWriter(),
+      'machine-diagnostic',
+    )(iss.id, 'integration disabled')
 
     // No session: held for the issue's next one, and readable from its inbox.
     expect((await h.svc.message(id))?.deliveryStatus).toBe('stored')
     expect(h.pushes).toHaveLength(0)
-    expect(await h.issues.commentsMail.mailInbox(iss.id)).toMatchObject([
-      { id, fromAuthor: 'machine-diagnostic', body: 'integration disabled' },
-    ])
+    expect(
+      await h.issues.commentsMail.mailInbox(h.issues.reports.store.serverWriter, iss.id),
+    ).toMatchObject([{ id, fromAuthor: 'machine-diagnostic', body: 'integration disabled' }])
   })
 })
 
@@ -76,12 +82,15 @@ const shortFrame = (id: string, from: string, body: string): string =>
   `[podium message ${id} · from ${from} · to your session]\n${body}\n[end podium message ${id}]`
 
 describe('an auto-continue', () => {
-  it("is a row from system:auto-continue, typed inside the short frame with the auto-continue origin", async () => {
+  it('is a row from system:auto-continue, typed inside the short frame with the auto-continue origin', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'work' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'errored' })
 
-    const r = await autoContinueSender(h.svc)({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
+    const r = await autoContinueSender(h.svc)(messageTestWriter(), {
+      sessionId: asSessionId('s1'),
+      erroredTurn: 'epoch:3',
+    })
 
     expect(r).toEqual({ ok: true })
     const id = autoContinueMessageId(asSessionId('s1'), 'epoch:3')
@@ -111,10 +120,15 @@ describe('an auto-continue', () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'work' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'errored' })
-    await autoContinueSender(h.svc)({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
+    await autoContinueSender(h.svc)(messageTestWriter(), {
+      sessionId: asSessionId('s1'),
+      erroredTurn: 'epoch:3',
+    })
     const id = autoContinueMessageId(asSessionId('s1'), 'epoch:3')
 
-    await h.svc.onTranscriptDelta(asSessionId('s1'), [{ role: 'user', text: h.pushes[0]?.text ?? '' }])
+    await h.svc.onTranscriptDelta(asSessionId('s1'), [
+      { role: 'user', text: h.pushes[0]?.text ?? '' },
+    ])
 
     expect((await h.svc.message(id))?.deliveryStatus).toBe('confirmed')
   })
@@ -125,14 +139,18 @@ describe('an auto-continue', () => {
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'errored' })
     const send = autoContinueSender(h.svc)
 
-    await send({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
-    await send({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
-    await send({ sessionId: asSessionId('s1'), erroredTurn: 'epoch:4' })
+    await send(messageTestWriter(), { sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
+    await send(messageTestWriter(), { sessionId: asSessionId('s1'), erroredTurn: 'epoch:3' })
+    await send(messageTestWriter(), { sessionId: asSessionId('s1'), erroredTurn: 'epoch:4' })
 
     expect(await h.store.messages.listLedger({ sessionId: asSessionId('s1') })).toHaveLength(2)
     expect(h.pushes.map((p) => p.text)).toEqual(
       ['epoch:3', 'epoch:4'].map((turn) =>
-        shortFrame(autoContinueMessageId(asSessionId('s1'), turn), 'system:auto-continue', 'continue'),
+        shortFrame(
+          autoContinueMessageId(asSessionId('s1'), turn),
+          'system:auto-continue',
+          'continue',
+        ),
       ),
     )
   })

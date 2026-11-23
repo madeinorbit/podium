@@ -1,14 +1,14 @@
 /**
  * POD-4945 — the MobX pool's harness-owned oracle: the from-scratch relation
- * resolution and the slice rebuild the gates and the relation/residency tests
- * hold the live pool to. Moved from `arms/mobx/pool/enumerate.ts`
- * (`knownTables`, `scanRelations`, `diffRelations`, `diffResidency`) and
+ * resolution and the slice rebuild the gates and the relation tests hold the
+ * live pool to. Moved from `arms/mobx/pool/enumerate.ts`
+ * (`scanRelations`, `diffRelations`) and
  * `arms/mobx/pool/rebuild.ts` (all of it): none of it runs in production, so
  * it lives with the harness, which alone imports it. It reads the product
  * pool's tables, engine and views but never the reverse.
  */
 
-import { runInAction, untracked } from 'mobx'
+import { untracked } from 'mobx'
 import type { LocalsSource, RowSource } from '../../../shared/src/arm'
 import type { RelationReader } from '../../../shared/src/instrument/reads'
 import { relationLinks } from '@podium/client-graph/shared/links'
@@ -26,26 +26,19 @@ import type {
 } from '@podium/client-graph/shared/slice-types'
 import {
   type CollapseMember,
-  coldByRule,
   collapseLosers,
   type EntityName,
   extraRootsOf,
   longestPrefixPath,
   type ModelSchema,
   SCHEMA,
-  tableColdContext,
 } from '@podium/client-graph/shared/schema'
 import { isLinkSpec, relationRef } from '@podium/client-graph/relations'
 import { relationTargets } from '@podium/client-graph/shared/links'
-import type { Residency } from '@podium/client-graph/residency'
-import type { ColdQueries } from '@podium/client-graph/shared/cold-index'
 import {
   createPlainTables,
   ingestOut,
   ingestRecord,
-  type PoolTables,
-  type StoredRow,
-  type TableSet,
 } from '@podium/client-graph/tables'
 import {
   activityMsOf,
@@ -65,27 +58,6 @@ import {
   sortByRank,
   type VisibleInputs,
 } from '@podium/client-graph/worklist/visible'
-
-/**
- * Every row a lazy pool KNOWS, in plain tables (POD-4567), read from the FEED
- * alone: its issues and sessions (cold ones included, which the engine links
- * by id though the pool's tables never hold them) and its worktree records,
- * which give the lanes and the repos exactly as the pool's own ingest does
- * (the shared `repo-from-lane.ts` composition). `pool` is kept for the
- * callers' signature. What a relation check holds a lazy pool's engine to.
- */
-export function knownTables(
-  _pool: { readonly tables: PoolTables; readonly residency: Residency | null },
-  source: RowSource,
-): TableSet<Map<string, StoredRow>> {
-  const tables = createPlainTables()
-  const target = { read: tables, write: tables }
-  const out = ingestOut()
-  for (const kind of ['session', 'issue', 'worktree'] as const) {
-    for (const record of source.snapshot(kind)) ingestRecord(target, record, out)
-  }
-  return tables
-}
 
 /** Whole tables, walkable (plain maps in the rebuild; the pool's maps in tests). */
 export type ScannableTables = {
@@ -314,123 +286,6 @@ export function diffRelations(
 }
 
 /**
- * The pool's residency against the feed's CURRENT rows, as problems (bounded
- * to 12 lines). POD-5407 restates it for a pool that holds no cold registry:
- * - every feed row of an entity that can be cold is resident XOR cold (known
- *   to the cold index and not in the tables), never both, never neither;
- * - a cold row is cold by the rule computed from scratch over the feed;
- * - the index's verdict equals that rule for EVERY feed row (the census of
- *   cold-by-rule rows is equal, row for row);
- * - `ids()` (the cold rows the pool has seen) are cold rows of the feed;
- * - nothing resident is gone from the feed.
- * A resident row that the rule calls cold is fine: it was looked at
- * (`residency.ts`). The gate's partition check.
- */
-export function diffResidency(
-  pool: { readonly tables: PoolTables; readonly residency: Residency | null; coldIndex(): ColdQueries },
-  source: RowSource,
-  schema: ModelSchema = SCHEMA,
-): string[] {
-  // In an action: a check, not a derivation; it subscribes to nothing.
-  return runInAction(() => residencyProblems(pool, source, schema))
-}
-
-function feedRows(source: RowSource, entity: 'issue' | 'session'): Map<string, object> {
-  return new Map(
-    source
-      .snapshot(entity)
-      .filter((record) => record.value !== undefined)
-      .map((record) => [record.id, record.value as object]),
-  )
-}
-
-function residencyProblems(
-  pool: { readonly tables: PoolTables; readonly residency: Residency | null; coldIndex(): ColdQueries },
-  source: RowSource,
-  schema: ModelSchema,
-): string[] {
-  const residency = pool.residency
-  if (residency === null) return ['the pool has no residency']
-  const out: string[] = []
-  const say = (line: string): void => {
-    if (out.length < 12) out.push(line)
-  }
-  // The rule over the feed at the clock the pool reads it against: every
-  // table, since the rule's lane source resolves lanes over the lanes too.
-  const known = knownTables(pool, source)
-  const now = residency.now()
-  const ctx = tableColdContext(schema, (entity) => known[entity], now)
-  const index = pool.coldIndex()
-  for (const entity of Object.keys(schema) as EntityName[]) {
-    if (!residency.capable(entity)) continue
-    if (entity !== 'issue' && entity !== 'session') {
-      say(`${entity}: can be cold, but the feed has no per-row kind for it`)
-      continue
-    }
-    const rows = feedRows(source, entity)
-    for (const [id, row] of rows) {
-      const hot = pool.tables[entity].has(id)
-      const cold = residency.isCold(entity, id)
-      const rule = coldByRule(schema, entity, row, ctx)
-      if (hot && cold) say(`${entity}:${id} is both resident and cold`)
-      else if (!hot && !cold) say(`${entity}:${id} is in the feed but neither resident nor cold`)
-      else if (cold && !rule) say(`${entity}:${id} is cold but the rule keeps it resident`)
-      if (index.coldByRule(entity, id, now) !== rule) {
-        say(`${entity}:${id}: the index says ${rule ? 'not ' : ''}cold, the rule from scratch says ${rule ? '' : 'not '}cold`)
-      }
-    }
-    for (const id of pool.tables[entity].keys()) {
-      if (!rows.has(id)) say(`${entity}:${id} is resident but gone from the feed`)
-    }
-    for (const id of residency.ids(entity)) {
-      if (!rows.has(id)) say(`${entity}:${id} is cold but gone from the feed`)
-      else if (pool.tables[entity].has(id)) say(`${entity}:${id} is listed cold but resident`)
-    }
-  }
-  return out
-}
-
-/** Every feed row of `entity` the pool does not hold (the cold rows), from the feed. */
-export function coldIds(
-  pool: { readonly tables: PoolTables },
-  source: RowSource,
-  entity: 'issue' | 'session',
-): string[] {
-  return [...feedRows(source, entity).keys()].filter((id) => !pool.tables[entity].has(id))
-}
-
-/**
- * POD-5407 — the attach's bound, against the rule computed from scratch: a
- * pool holds no more rows of a cold-capable entity than the feed has rows the
- * rule does not call cold, plus the rows it was asked for since (none, right
- * after an attach), and the attach placed no more than that. An attach that
- * places every row fails it whenever any row is cold.
- */
-export function attachProblems(
-  pool: { readonly tables: PoolTables; readonly residency: Residency | null },
-  source: RowSource,
-  schema: ModelSchema = SCHEMA,
-): string[] {
-  const residency = pool.residency
-  if (residency === null) return []
-  return runInAction(() => {
-    const known = knownTables(pool, source)
-    const ctx = tableColdContext(schema, (entity) => known[entity], residency.now())
-    const out: string[] = []
-    let allowed = 0
-    let held = 0
-    for (const entity of ['issue', 'session'] as const) {
-      for (const row of feedRows(source, entity).values()) if (!coldByRule(schema, entity, row, ctx)) allowed += 1
-      held += pool.tables[entity].size
-    }
-    if (held > allowed) out.push(`the pool holds ${held} rows, the rule keeps ${allowed} resident`)
-    const placed = residency.attachStats.rowsPlaced
-    if (placed > allowed) out.push(`the attach placed ${placed} rows, the rule keeps ${allowed} resident`)
-    return out
-  })
-}
-
-/**
  * POD-4565 (Ma1) — `rebuildFromScratch` (L4b): the slice output recomputed
  * from the feed's CURRENT `snapshot(kind)` tables and `locals.get()`, with no
  * incremental state read or written.
@@ -525,6 +380,13 @@ function rebuild(
   // position reader: a check, not a derivation.
   const repoRecords = untracked(() => source.snapshot('repo'))
   for (const record of repoRecords) ingestRecord(target, record, out)
+  // My issue pins (POD-6692): `pin` records of kind 'issue', never an issue field.
+  const pinnedIssues = new Set(
+    source
+      .snapshot('pin')
+      .map((record) => record.value as { kind?: string; entityId?: string } | undefined)
+      .flatMap((pin) => (pin?.kind === 'issue' && pin.entityId ? [pin.entityId] : [])),
+  )
 
   const { selectedIssueId } = locals.get()
   const coarseNow = locals.get().coarseNow ?? Date.now()
@@ -563,6 +425,7 @@ function rebuild(
     // its maintained SORTED mirror without iterating it).
     seatList: (id) => [...inputs.links.issue.sessions.ids(id)].sort(),
     selected: (id) => id === selectedIssueId,
+    issuePinned: (id) => pinnedIssues.has(id),
     reached: (t) => coarseNow >= t,
     passed: (t) => coarseNow > t,
   }
@@ -584,6 +447,7 @@ function rebuild(
     },
     passed: inputs.passed,
     reached: inputs.reached,
+    issuePinned: inputs.issuePinned,
     loadedIssue: inputs.issue,
     issueRead: (id) => {
       const row = tables.issue.get(id) as SliceIssue | undefined

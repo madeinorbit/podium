@@ -8,10 +8,13 @@ import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import { PostCommitError } from './store/executor'
 import { attachHostDaemon } from './test-support/host-daemon'
 import { openTestStore } from './test-support/open-test-store'
+import { OPERATOR_PLANNER_STATISTICS } from './test-support/operator-planner-statistics'
+import { seedRows } from './test-support/seed-rows'
 import { sessionReadPorts } from './test-support/session-facts'
 
 async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
@@ -27,18 +30,40 @@ async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> =
       normalizeSettings({
         gitWorkflow: {
           defaultParentBranch: '',
-          mergeStyle: 'ff-only',
           autoRebaseBeforeMerge: true,
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+    spawnSession: vi.fn(async () => ({
+      sessionId: asSessionId('s1'),
+      machine: 'machine-under-test',
+    })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
-    ...issueTestPlumbing((msg) => broadcast(msg)),
+    ...issueTestPlumbing((msg) => broadcast(msg), { store }),
     now: () => '2026-07-02T00:00:00.000Z',
   }
   return { store, deps, svc: await IssueService.create({ ...deps, ...extra }) }
+}
+
+/**
+ * The operator's planner statistics for the event log (captured before the workspace
+ * key), each index led by its one workspace, and the (workspace_id, id) key one row
+ * per id: what the plan audit models a large log as.
+ */
+function withOperatorEventStatistics(db: ReturnType<typeof openDatabase>): void {
+  db.exec('ANALYZE')
+  db.exec('DELETE FROM sqlite_stat1')
+  const insert = db.prepare('INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES (?, ?, ?)')
+  let rows = '1'
+  for (const [table, index, stat] of OPERATOR_PLANNER_STATISTICS) {
+    if (table !== 'podium_events' || index === null) continue
+    const [total = '1', ...perPrefix] = stat.split(' ')
+    rows = total
+    insert.run(table, index, [total, total, ...perPrefix].join(' '))
+  }
+  insert.run('podium_events', 'sqlite_autoindex_podium_events_1', `${rows} ${rows} 1`)
+  db.exec('ANALYZE sqlite_schema')
 }
 
 describe('SessionStore event log', () => {
@@ -46,21 +71,33 @@ describe('SessionStore event log', () => {
     const store = await openTestStore(':memory:')
     const announced = vi.fn()
     await store.events.onAppend(announced)
-    const diagnostic = { ts: 't1', kind: 'message.delivery_contradiction', subject: 'msg_one', payload: { messageId: 'msg_one' } }
-    const recorded = await Promise.all([store.events.appendEventOnce(diagnostic), store.events.appendEventOnce(diagnostic)])
+    const diagnostic = {
+      ts: 't1',
+      kind: 'message.delivery_contradiction',
+      subject: 'msg_one',
+      payload: { messageId: 'msg_one' },
+    }
+    const recorded = await Promise.all([
+      store.events.appendEventOnce(diagnostic),
+      store.events.appendEventOnce(diagnostic),
+    ])
     expect(recorded.filter((id) => id !== undefined)).toHaveLength(1)
     expect(await store.events.listEventsSince(0)).toHaveLength(1)
     expect(announced).toHaveBeenCalledTimes(1)
     const other = { ...diagnostic, subject: 'msg_other' }
-    await expect(store.transact(async () => {
-      await store.events.appendEventOnce(other)
-      expect(announced).toHaveBeenCalledTimes(1)
-      throw new Error('rollback')
-    })).rejects.toThrow('rollback')
+    await expect(
+      store.transact(async () => {
+        await store.events.appendEventOnce(other)
+        expect(announced).toHaveBeenCalledTimes(1)
+        throw new Error('rollback')
+      }),
+    ).rejects.toThrow('rollback')
     expect(await store.events.listEventsSince(0)).toHaveLength(1)
     expect(announced).toHaveBeenCalledTimes(1)
     expect(await store.events.appendEventOnce(other)).toBeTypeOf('number')
-    expect(await store.events.appendEventOnce({ ...diagnostic, kind: 'another.diagnostic' })).toBeTypeOf('number')
+    expect(
+      await store.events.appendEventOnce({ ...diagnostic, kind: 'another.diagnostic' }),
+    ).toBeTypeOf('number')
     expect(await store.events.listEventsSince(0)).toHaveLength(3)
     // Retention may remove the diagnostic, but it must not reset the limiter.
     const plan = await store.events.planEventPrune({ maxAgeDays: 1, maxRows: 0 })
@@ -72,8 +109,18 @@ describe('SessionStore event log', () => {
 
   it('appendEvent/listEventsSince round-trips payloads and returns ascending ids', async () => {
     const store = await openTestStore(':memory:')
-    const id1 = await store.events.appendEvent({ ts: 't1', kind: 'a', subject: 's1', payload: { x: 1 } })
-    const id2 = await store.events.appendEvent({ ts: 't2', kind: 'b', subject: 's2', repoPath: '/r' })
+    const id1 = await store.events.appendEvent({
+      ts: 't1',
+      kind: 'a',
+      subject: 's1',
+      payload: { x: 1 },
+    })
+    const id2 = await store.events.appendEvent({
+      ts: 't2',
+      kind: 'b',
+      subject: 's2',
+      repoPath: '/r',
+    })
     expect(id2).toBeGreaterThan(id1)
     const all = await store.events.listEventsSince(0)
     expect(all.map((e) => e.id)).toEqual([id1, id2])
@@ -100,11 +147,12 @@ describe('SessionStore event log', () => {
     await store.events.appendEvent({ ts: 't', kind: 'a', subject: 's', repoPath: '/r1' })
     await store.events.appendEvent({ ts: 't', kind: 'b', subject: 's', repoPath: '/r2' })
     await store.events.appendEvent({ ts: 't', kind: 'c', subject: 's', repoPath: '/r1' })
-    expect((await store.events.listEventsSince(0, { kinds: ['a', 'c'] })).map((e) => e.kind)).toEqual([
-      'a',
-      'c',
-    ])
-    expect((await store.events.listEventsSince(0, { repoPath: '/r2' })).map((e) => e.kind)).toEqual(['b'])
+    expect(
+      (await store.events.listEventsSince(0, { kinds: ['a', 'c'] })).map((e) => e.kind),
+    ).toEqual(['a', 'c'])
+    expect((await store.events.listEventsSince(0, { repoPath: '/r2' })).map((e) => e.kind)).toEqual(
+      ['b'],
+    )
     expect((await store.events.listEventsSince(0, { limit: 2 })).length).toBe(2)
   })
 
@@ -112,8 +160,18 @@ describe('SessionStore event log', () => {
   // filter on `subject` in the browser. The filter belongs here.
   it('narrows to one subject, and returns every subject when omitted', async () => {
     const store = await openTestStore(':memory:')
-    await store.events.appendEvent({ ts: 't1', kind: 'issue.created', subject: 'POD-1', repoPath: '/r' })
-    await store.events.appendEvent({ ts: 't2', kind: 'issue.created', subject: 'POD-2', repoPath: '/r' })
+    await store.events.appendEvent({
+      ts: 't1',
+      kind: 'issue.created',
+      subject: 'POD-1',
+      repoPath: '/r',
+    })
+    await store.events.appendEvent({
+      ts: 't2',
+      kind: 'issue.created',
+      subject: 'POD-2',
+      repoPath: '/r',
+    })
     const mine = await store.events.appendEvent({
       ts: 't3',
       kind: 'issue.closed',
@@ -121,10 +179,9 @@ describe('SessionStore event log', () => {
       repoPath: '/r',
     })
 
-    expect((await store.events.listEventsSince(0, { subject: 'POD-1' })).map((e) => e.kind)).toEqual([
-      'issue.created',
-      'issue.closed',
-    ])
+    expect(
+      (await store.events.listEventsSince(0, { subject: 'POD-1' })).map((e) => e.kind),
+    ).toEqual(['issue.created', 'issue.closed'])
     expect(await store.events.listEventsSince(0, { subject: 'POD-9' })).toEqual([])
     // The omitted case is the whole point of keeping the parameter optional:
     // every existing caller reads repo-wide exactly as before.
@@ -135,11 +192,13 @@ describe('SessionStore event log', () => {
     ])
     // Composes with the cursor and the other filters rather than replacing them.
     expect(
-      (await store.events
-        .listEventsSince(0, { subject: 'POD-1', kinds: ['issue.closed'] }))
-        .map((e) => e.id),
+      (await store.events.listEventsSince(0, { subject: 'POD-1', kinds: ['issue.closed'] })).map(
+        (e) => e.id,
+      ),
     ).toEqual([mine])
-    expect(await store.events.listEventsSince(0, { subject: 'POD-1', repoPath: '/other' })).toEqual([])
+    expect(await store.events.listEventsSince(0, { subject: 'POD-1', repoPath: '/other' })).toEqual(
+      [],
+    )
     expect(await store.events.listEventsSince(mine, { subject: 'POD-1' })).toEqual([])
   })
 
@@ -153,9 +212,10 @@ describe('SessionStore event log', () => {
     const plan = (
       db
         .prepare(
-          'EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE id > ? AND subject = ? ORDER BY id ASC LIMIT ?',
+          // As the store reads it: inside the workspace (POD-6951).
+          'EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE workspace_id = ? AND id > ? AND subject = ? ORDER BY id ASC LIMIT ?',
         )
-        .all(0, 'POD-1', 200) as { detail: string }[]
+        .all(SELF_HOSTED_WORKSPACE_ID, 0, 'POD-1', 200) as { detail: string }[]
     )
       .map((r) => r.detail)
       .join(' | ')
@@ -202,12 +262,16 @@ describe('SessionStore event log', () => {
 
     const db = openDatabase(':memory:')
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    // With no statistics SQLite prefers the (workspace_id, id) key's range, which on a
+    // real log is the whole workspace below the cursor; on the operator's it reads
+    // the subject's index, as the store's own read does (POD-7118).
+    withOperatorEventStatistics(db)
     const plan = (
       db
         .prepare(
-          "EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE id > ? AND id < ? AND kind NOT IN ('issue.read') AND subject = ? ORDER BY id DESC LIMIT ?",
+          "EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE workspace_id = ? AND id > ? AND id < ? AND kind NOT IN ('issue.read') AND subject = ? ORDER BY id DESC LIMIT ?",
         )
-        .all(0, 100, 'POD-1', 50) as { detail: string }[]
+        .all(SELF_HOSTED_WORKSPACE_ID, 0, 100, 'POD-1', 50) as { detail: string }[]
     )
       .map((r) => r.detail)
       .join(' | ')
@@ -223,7 +287,11 @@ describe('SessionStore event log', () => {
       subject: 'all',
       payload: { count: 2 },
     })
-    await store.events.appendEvent({ ts: '2026-08-06T10:00:00.000Z', kind: 'other', subject: 'all' })
+    await store.events.appendEvent({
+      ts: '2026-08-06T10:00:00.000Z',
+      kind: 'other',
+      subject: 'all',
+    })
     await store.events.appendEvent({
       ts: '2026-08-06T11:00:00.000Z',
       kind: 'fleet',
@@ -238,9 +306,9 @@ describe('SessionStore event log', () => {
     })
 
     expect(
-      (await store.events
-        .listKindSubjectSinceWithPrior('fleet', 'all', '2026-08-06T10:30:00.000Z'))
-        .map((row) => row.payload),
+      (
+        await store.events.listKindSubjectSinceWithPrior('fleet', 'all', '2026-08-06T10:30:00.000Z')
+      ).map((row) => row.payload),
     ).toEqual([{ count: 2 }, { count: 5 }, { count: 3 }])
   })
 
@@ -287,7 +355,12 @@ describe('SessionStore event log', () => {
 })
 
 describe('SessionStore grouped event appends (POD-6233)', () => {
-  const row = (subject: string, payload: unknown = {}) => ({ ts: 't1', kind: 'session.phase', subject, payload })
+  const row = (subject: string, payload: unknown = {}) => ({
+    ts: 't1',
+    kind: 'session.phase',
+    subject,
+    payload,
+  })
 
   it('writes the appends of one moment in one commit, in call order, announced after it', async () => {
     const store = await openTestStore(':memory:')
@@ -305,18 +378,24 @@ describe('SessionStore grouped event appends (POD-6233)', () => {
     ])
     // Ids follow the order the appends were made: s1, s3, then s2.
     expect(ids[0]! < ids[2]! && ids[2]! < ids[1]!).toBe(true)
-    expect((await store.events.listEventsSince(0)).map((e) => e.subject)).toEqual(['s1', 's3', 's2'])
+    expect((await store.events.listEventsSince(0)).map((e) => e.subject)).toEqual([
+      's1',
+      's3',
+      's2',
+    ])
     expect(visibleAtAnnouncement).toEqual([3, 3, 3])
     await store.close()
   })
 
   it('joins an open span instead of grouping, so a rollback discards the row', async () => {
     const store = await openTestStore(':memory:')
-    await expect(store.transact(async () => {
-      await store.events.appendEventGrouped(row('s1'))
-      expect(await store.events.listEventsSince(0)).toHaveLength(1)
-      throw new Error('rollback')
-    })).rejects.toThrow('rollback')
+    await expect(
+      store.transact(async () => {
+        await store.events.appendEventGrouped(row('s1'))
+        expect(await store.events.listEventsSince(0)).toHaveLength(1)
+        throw new Error('rollback')
+      }),
+    ).rejects.toThrow('rollback')
     expect(await store.events.listEventsSince(0)).toEqual([])
     await store.close()
   })
@@ -366,7 +445,10 @@ describe('SessionStore event log retention', () => {
     opts: { maxAgeDays: number; maxRows: number; batchSize?: number },
   ) => {
     const { batchSize = 500, ...planOptions } = opts
-    return await store.events.pruneEventBatch(await store.events.planEventPrune(planOptions), batchSize)
+    return await store.events.pruneEventBatch(
+      await store.events.planEventPrune(planOptions),
+      batchSize,
+    )
   }
 
   it('deletes rows older than maxAgeDays and returns the deleted count', async () => {
@@ -438,7 +520,11 @@ describe('SessionStore event log retention', () => {
 describe('IssueService event emission', () => {
   it('create emits issue.created with seq/title and the repo path', async () => {
     const { svc, store } = await harness()
-    const w = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const w = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.created'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: w.id, repoPath: '/r', payload: { seq: 1, title: 'A' } })
@@ -450,13 +536,17 @@ describe('IssueService event emission', () => {
     // when an issue comes into existence.
     const seen: unknown[] = []
     const { svc } = await harness([], { onIssueCreated: (event) => seen.push(event) })
-    const w = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const w = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
     // The first admin is what create() defaults the owner to (crud.ts), and the
     // callback reports the ROW's owner rather than the wire's, because the wire
     // does not carry one.
     expect(seen).toEqual([{ issueId: w.id, title: 'A', ownerUserId: firstAdminMemberId() }])
 
-    await svc.crud.update(w.id, { title: 'renamed' })
+    await svc.crud.update(svc.reports.store.serverWriter, w.id, { title: 'renamed' })
     expect(seen).toHaveLength(1)
   })
 
@@ -466,15 +556,29 @@ describe('IssueService event emission', () => {
         throw new Error('observer exploded')
       },
     })
-    expect(() => svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })).not.toThrow()
+    expect(() =>
+      svc.crud.create(svc.reports.store.serverWriter, {
+        repoPath: '/r',
+        title: 'A',
+        startNow: false,
+      }),
+    ).not.toThrow()
   })
 
   it('close emits issue.closed AND issue.ready for a dependent whose only blocker closed', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
-    await svc.crud.close(a.id)
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, b.id, a.id, 'blocked-by')
+    await svc.crud.close(svc.reports.store.serverWriter, a.id)
     const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.length).toBe(1)
     expect(closed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, reason: 'done' } })
@@ -485,21 +589,37 @@ describe('IssueService event emission', () => {
 
   it('close does NOT emit issue.ready for a dependent that is still blocked by another open issue', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    const c = await svc.crud.create({ repoPath: '/r', title: 'C', startNow: false })
-    await svc.hierarchy.addDep(c.id, a.id, 'blocked-by')
-    await svc.hierarchy.addDep(c.id, b.id, 'blocked-by')
-    await svc.crud.close(a.id)
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
+    const c = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'C',
+      startNow: false,
+    })
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, c.id, a.id, 'blocked-by')
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, c.id, b.id, 'blocked-by')
+    await svc.crud.close(svc.reports.store.serverWriter, a.id)
     expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
   })
 
   it('stage change emits issue.stage_changed; close does not double-emit it', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.update(a.id, { stage: 'in_progress' })
-    await svc.crud.update(a.id, { stage: 'in_progress' }) // same value — no event
-    await svc.crud.close(a.id)
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await svc.crud.update(svc.reports.store.serverWriter, a.id, { stage: 'in_progress' })
+    await svc.crud.update(svc.reports.store.serverWriter, a.id, { stage: 'in_progress' }) // same value — no event
+    await svc.crud.close(svc.reports.store.serverWriter, a.id)
     const staged = await store.events.listEventsSince(0, { kinds: ['issue.stage_changed'] })
     expect(staged.length).toBe(1)
     expect(staged[0]).toMatchObject({
@@ -511,22 +631,32 @@ describe('IssueService event emission', () => {
 
   it('needs-human set/clear emit their events', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.setNeedsHuman(a.id, 'which key?')
-    await svc.crud.clearNeedsHuman(a.id)
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await svc.crud.setNeedsHuman(svc.reports.store.serverWriter, a.id, 'which key?')
+    await svc.crud.clearNeedsHuman(svc.reports.store.serverWriter, a.id)
     const flagged = await store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
     expect(flagged.length).toBe(1)
     expect(flagged[0]).toMatchObject({
       subject: a.id,
       payload: { seq: a.seq, question: 'which key?' },
     })
-    expect((await store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] })).length).toBe(1)
+    expect(
+      (await store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] })).length,
+    ).toBe(1)
   })
 
   it('issue.needs_human carries options + askedBy when given (issue #53)', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.setNeedsHuman(a.id, 'merge?', {
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await svc.crud.setNeedsHuman(svc.reports.store.serverWriter, a.id, 'merge?', {
       options: ['Yes', 'No'],
       askedBy: asSessionId('sess_asker'),
     })
@@ -541,30 +671,28 @@ describe('IssueService event emission', () => {
   // Attention-state transitions S3 renders (issue #124).
   it('markIssueRead emits issue.read', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.markIssueRead(a.id)
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await svc.crud.markIssueRead(svc.reports.store.serverWriter, a.id)
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.read'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
   })
 
-  it('pin change emits issue.pinned with the new value (both directions)', async () => {
-    const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.update(a.id, { pinned: true })
-    await svc.crud.update(a.id, { pinned: true }) // no change — no duplicate event
-    await svc.crud.update(a.id, { pinned: false })
-    const evs = await store.events.listEventsSince(0, { kinds: ['issue.pinned'] })
-    expect(evs.length).toBe(2)
-    expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: true } })
-    expect(evs[1]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: false } })
-  })
+  // issue.pinned is the pin record's event since POD-6692: user-records.test.ts.
 
   it('defer/undefer emit issue.snoozed / issue.unsnoozed', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.defer(a.id, '2999-01-01')
-    await svc.crud.defer(a.id, null)
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await svc.crud.defer(svc.reports.store.serverWriter, a.id, '2999-01-01')
+    await svc.crud.defer(svc.reports.store.serverWriter, a.id, null)
     const snoozed = await store.events.listEventsSince(0, { kinds: ['issue.snoozed'] })
     expect(snoozed.length).toBe(1)
     expect(snoozed[0]).toMatchObject({
@@ -578,9 +706,13 @@ describe('IssueService event emission', () => {
 
   it('archive emits issue.archived once (on the false->true flip)', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.attention.archive(a.id)
-    await svc.attention.archive(a.id) // already archived — no duplicate event
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await svc.attention.archive(svc.reports.store.serverWriter, a.id)
+    await svc.attention.archive(svc.reports.store.serverWriter, a.id) // already archived — no duplicate event
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.archived'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
@@ -588,7 +720,11 @@ describe('IssueService event emission', () => {
 
   it('start emits issue.started with branch + worktreePath', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'Fix login', startNow: false })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Fix login',
+      startNow: false,
+    })
     await svc.gitWorkflow.start(a.id)
     const evs = await store.events.listEventsSince(0, { kinds: ['issue.started'] })
     expect(evs.length).toBe(1)
@@ -607,16 +743,28 @@ describe('IssueService event emission', () => {
     vi.spyOn(store.events, 'appendEvent').mockImplementation(() => {
       throw new Error('disk full')
     })
-    const w = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    expect((await svc.crud.close(w.id)).stage).toBe('done')
+    const w = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    expect((await svc.crud.close(svc.reports.store.serverWriter, w.id)).stage).toBe('done')
   })
 
   it('update --stage done (board drag / CLI path) emits issue.closed + the ready fanout', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
-    await svc.crud.update(a.id, { stage: 'done' })
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, b.id, a.id, 'blocked-by')
+    await svc.crud.update(svc.reports.store.serverWriter, a.id, { stage: 'done' })
     const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.length).toBe(1)
     expect(closed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, reason: 'done' } })
@@ -628,11 +776,23 @@ describe('IssueService event emission', () => {
 
   it('supersede and duplicate emit issue.closed with their reasons', async () => {
     const { svc, store } = await harness()
-    const old = await svc.crud.create({ repoPath: '/r', title: 'Old', startNow: false })
-    const canon = await svc.crud.create({ repoPath: '/r', title: 'New', startNow: false })
-    const dup = await svc.crud.create({ repoPath: '/r', title: 'Dup', startNow: false })
-    await svc.hierarchy.supersede(old.id, canon.id)
-    await svc.hierarchy.duplicate(dup.id, canon.id)
+    const old = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Old',
+      startNow: false,
+    })
+    const canon = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'New',
+      startNow: false,
+    })
+    const dup = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'Dup',
+      startNow: false,
+    })
+    await svc.hierarchy.supersede(svc.reports.store.serverWriter, old.id, canon.id)
+    await svc.hierarchy.duplicate(svc.reports.store.serverWriter, dup.id, canon.id)
     const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.map((e) => [e.subject, (e.payload as { reason: string }).reason])).toEqual([
       [old.id, 'superseded'],
@@ -642,18 +802,30 @@ describe('IssueService event emission', () => {
 
   it('double-close emits exactly one issue.closed', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.close(a.id)
-    await svc.crud.close(a.id, 'wontfix')
-    await svc.crud.update(a.id, { closedReason: 'obsolete' }) // still closed — no re-emit
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await svc.crud.close(svc.reports.store.serverWriter, a.id)
+    await svc.crud.close(svc.reports.store.serverWriter, a.id, 'wontfix')
+    await svc.crud.update(svc.reports.store.serverWriter, a.id, { closedReason: 'obsolete' }) // still closed — no re-emit
     expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
   })
 
   it('a ready-fanout read failure leaves the close durably persisted', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, b.id, a.id, 'blocked-by')
 
     // Arm the fault only after issue.closed lands, so this test distinguishes
     // a committed close from the post-commit ready fanout that follows it.
@@ -675,7 +847,7 @@ describe('IssueService event emission', () => {
     })
 
     try {
-      await svc.crud.close(a.id)
+      await svc.crud.close(svc.reports.store.serverWriter, a.id)
     } catch {
       // Error surfacing is pinned independently below; this oracle owns the
       // durable state that remains after that post-commit failure.
@@ -690,13 +862,31 @@ describe('IssueService event emission', () => {
   it('a mid-fanout read failure reports the committed close and emits no ready events', async () => {
     const { svc, store } = await harness()
     const origin = 'https://example.test/shared.git'
-    await store.repos.addRepo('/clone/one', asMachineId('machine-one'), origin)
-    await store.repos.addRepo('/clone/two', asMachineId('machine-two'), origin)
-    const a = await svc.crud.create({ repoPath: '/clone/one', title: 'A', startNow: false })
-    const b = await svc.crud.create({ repoPath: '/clone/one', title: 'B', startNow: false })
-    const c = await svc.crud.create({ repoPath: '/clone/two', title: 'C', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
-    await svc.hierarchy.addDep(c.id, a.id, 'blocked-by')
+    await seedRows(
+      store,
+      async () => await store.repos.addRepo('/clone/one', asMachineId('machine-one'), origin),
+    )
+    await seedRows(
+      store,
+      async () => await store.repos.addRepo('/clone/two', asMachineId('machine-two'), origin),
+    )
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/clone/one',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/clone/one',
+      title: 'B',
+      startNow: false,
+    })
+    const c = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/clone/two',
+      title: 'C',
+      startNow: false,
+    })
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, b.id, a.id, 'blocked-by')
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, c.id, a.id, 'blocked-by')
 
     // Both clones share a repo identity, so the fanout checks both dependents'
     // outgoing blockers. Since POD-6192 that is one read for the set: fail it
@@ -721,7 +911,7 @@ describe('IssueService event emission', () => {
 
     let caught: unknown
     try {
-      await svc.crud.close(a.id)
+      await svc.crud.close(svc.reports.store.serverWriter, a.id)
     } catch (error) {
       caught = error
     }
@@ -729,7 +919,9 @@ describe('IssueService event emission', () => {
     expect(caught).toBeInstanceOf(PostCommitError)
     expect((caught as PostCommitError).committed).toBe(true)
     expect((caught as PostCommitError).mechanism).toBe('follow-up')
-    expect((caught as PostCommitError).cause).toMatchObject({ message: 'second dependency read failed' })
+    expect((caught as PostCommitError).cause).toMatchObject({
+      message: 'second dependency read failed',
+    })
     expect(fanoutDepReads).toBe(1)
     expect((await store.issues.getIssue(a.id))?.stage).toBe('done')
     expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
@@ -738,11 +930,23 @@ describe('IssueService event emission', () => {
 
   it('a second ready append failure rolls the whole durable fanout back', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    const c = await svc.crud.create({ repoPath: '/r', title: 'C', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
-    await svc.hierarchy.addDep(c.id, a.id, 'blocked-by')
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    const b = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'B',
+      startNow: false,
+    })
+    const c = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'C',
+      startNow: false,
+    })
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, b.id, a.id, 'blocked-by')
+    await svc.hierarchy.addDep(svc.reports.store.serverWriter, c.id, a.id, 'blocked-by')
 
     const origAppend = store.events.appendEvent.bind(store.events)
     let readyAppends = 0
@@ -755,14 +959,16 @@ describe('IssueService event emission', () => {
 
     let caught: unknown
     try {
-      await svc.crud.close(a.id)
+      await svc.crud.close(svc.reports.store.serverWriter, a.id)
     } catch (error) {
       caught = error
     }
 
     expect(caught).toBeInstanceOf(PostCommitError)
     expect((caught as PostCommitError).committed).toBe(true)
-    expect((caught as PostCommitError).cause).toMatchObject({ message: 'second ready append failed' })
+    expect((caught as PostCommitError).cause).toMatchObject({
+      message: 'second ready append failed',
+    })
     expect(readyAppends).toBe(2)
     expect((await store.issues.getIssue(a.id))?.stage).toBe('done')
     expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
@@ -770,14 +976,20 @@ describe('IssueService event emission', () => {
 
   it('re-flagging needs-human emits once; re-clearing likewise', async () => {
     const { svc, store } = await harness()
-    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
-    await svc.crud.clearNeedsHuman(a.id) // never flagged — nothing to log
-    await svc.crud.setNeedsHuman(a.id, 'q1')
-    await svc.crud.setNeedsHuman(a.id, 'q2')
+    const a = await svc.crud.create(svc.reports.store.serverWriter, {
+      repoPath: '/r',
+      title: 'A',
+      startNow: false,
+    })
+    await svc.crud.clearNeedsHuman(svc.reports.store.serverWriter, a.id) // never flagged — nothing to log
+    await svc.crud.setNeedsHuman(svc.reports.store.serverWriter, a.id, 'q1')
+    await svc.crud.setNeedsHuman(svc.reports.store.serverWriter, a.id, 'q2')
     expect((await store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })).length).toBe(1)
-    await svc.crud.clearNeedsHuman(a.id)
-    await svc.crud.clearNeedsHuman(a.id)
-    expect((await store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] })).length).toBe(1)
+    await svc.crud.clearNeedsHuman(svc.reports.store.serverWriter, a.id)
+    await svc.crud.clearNeedsHuman(svc.reports.store.serverWriter, a.id)
+    expect(
+      (await store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] })).length,
+    ).toBe(1)
   })
 })
 

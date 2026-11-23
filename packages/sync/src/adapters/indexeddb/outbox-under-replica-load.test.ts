@@ -29,7 +29,7 @@ import { Outbox } from '../../outbox/outbox'
 import type { OutboxRecord } from '../../outbox/records'
 import { ScriptedAuthority, sequentialMutationIds } from '../../outbox/test-doubles'
 import type { EntityRecord } from '../../replica/types'
-import { ENTITY_STORE, META_STORE, OUTBOX_STORE } from './schema'
+import { ENTITY_STORE, INDEX_STORE, META_STORE, OUTBOX_STORE } from './schema'
 import { IndexedDbSyncStore } from './store'
 import { FaultyIdbFactory, freshFactory } from './test-support'
 
@@ -240,7 +240,7 @@ describe('POD-4810: outbox writes during a large replica apply (IndexedDB)', () 
     const erase = factory.transactions
       .slice(transactionsBefore)
       .find((tx) => tx.mode === 'readwrite' && tx.names.includes(OUTBOX_STORE))
-    expect(erase?.names).toEqual([ENTITY_STORE, META_STORE, OUTBOX_STORE])
+    expect(erase?.names).toEqual([ENTITY_STORE, META_STORE, OUTBOX_STORE, INDEX_STORE])
     await store.settled()
     store.close()
     const reopened = await openStore(factory)

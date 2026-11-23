@@ -15,6 +15,12 @@ import {
 } from 'node:fs'
 import { basename, join } from 'node:path'
 import { releaseNotesFor } from '../packages/protocol/src/update/changelog'
+import {
+  PRIMARY_RELEASE_ORIGIN,
+  releaseTagPath,
+  releaseUrl,
+  resolveReleaseArtifact,
+} from '../packages/runtime/src/release-origins'
 import { optionalDesktopTargets } from './desktop-build-legs'
 
 export const NATIVE_DESKTOP_BRIDGE_VERSION = 1
@@ -135,11 +141,9 @@ export function validateReferencedDesktopManifest(text: string): DesktopManifest
     } catch {
       throw new Error('referenced desktop manifest has an invalid asset URL')
     }
-    if (
-      parsed.protocol !== 'https:' ||
-      parsed.hostname !== 'github.com' ||
-      !parsed.pathname.startsWith('/madeinorbit/podium/releases/download/')
-    ) {
+    try {
+      resolveReleaseArtifact(parsed.href, PRIMARY_RELEASE_ORIGIN)
+    } catch {
       throw new Error('referenced desktop manifest points outside Podium releases')
     }
   }
@@ -216,7 +220,7 @@ export function buildDesktopManifest(input: {
     input.artifacts.map((artifact) => [
       artifact.target,
       {
-        url: `https://github.com/madeinorbit/podium/releases/download/${releaseTag}/${artifact.artifactName}`,
+        url: releaseUrl(releaseTagPath(releaseTag) + artifact.artifactName),
         signature: artifact.signature,
       },
     ]),
@@ -229,13 +233,7 @@ export function buildDesktopManifest(input: {
       platforms,
       ...(input.downloads?.length
         ? {
-            downloads: input.downloads.map(
-              (name) =>
-                'https://github.com/madeinorbit/podium/releases/download/' +
-                releaseTag +
-                '/' +
-                name,
-            ),
+            downloads: input.downloads.map((name) => releaseUrl(releaseTagPath(releaseTag) + name)),
           }
         : {}),
     } satisfies DesktopManifest,
@@ -272,7 +270,7 @@ export function validateDesktopManifest(
     )
   }
   for (const artifact of expected.artifacts) {
-    const expectedUrl = `https://github.com/madeinorbit/podium/releases/download/${releaseTag}/${artifact.artifactName}`
+    const expectedUrl = releaseUrl(releaseTagPath(releaseTag) + artifact.artifactName)
     const platform = parsed.platforms?.[artifact.target]
     if (!platform) throw new Error(`manifest is missing platform ${artifact.target}`)
     if (platform.url !== expectedUrl) {
@@ -287,8 +285,8 @@ export function validateDesktopManifest(
   if (parsed.notes !== (expected.notes || undefined)) {
     throw new Error('manifest notes do not match the requested release notes')
   }
-  const expectedDownloads = (expected.downloads ?? []).map(
-    (name) => 'https://github.com/madeinorbit/podium/releases/download/' + releaseTag + '/' + name,
+  const expectedDownloads = (expected.downloads ?? []).map((name) =>
+    releaseUrl(releaseTagPath(releaseTag) + name),
   )
   if (JSON.stringify(parsed.downloads ?? []) !== JSON.stringify(expectedDownloads)) {
     throw new Error('manifest downloads do not match the promoted installers')

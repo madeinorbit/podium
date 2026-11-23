@@ -1,36 +1,24 @@
 import { createLogger, getProcessContext } from '@podium/logger'
 import type {
   Geometry,
-  HostMetricsWire,
   IssueDepProjection,
   IssueEventWire,
-  IssueProjection,
   LayoutWire,
   MachineId,
-  MachineWire,
   MessageRecordWire,
-  ReadPositionWire,
   RepoProjection,
   SessionId,
   ShipLaneProjection,
   ShipOrderProjection,
+  SlimIssueProjection,
   TranscriptItem,
 } from '@podium/model'
+import { asMachineId, interactionRowId, layoutRowId, messageRecordRowId } from '@podium/model'
 import {
-  asMachineId,
-  interactionRowId,
-  layoutRowId,
-  messageRecordRowId,
-  readPositionRowId,
-} from '@podium/model'
-import {
-  type ApprovalWire,
-  CAP_ISSUES_NORMALIZED,
-  CAP_METADATA_DELTA,
-  CAP_SYNC_FEED_IDENTITY,
   CAP_SYNC_HTTP_V1,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
+  CAP_TOPICS_V1,
   CLIENT_WIRE_VERSION,
   ClientOutputBinaryMetadata,
   type ClientPtyInputMetadata,
@@ -39,9 +27,7 @@ import {
   encode,
   encodeBinaryEnvelope,
   type HeadlessActivityEvent,
-  isKnownMetadataChange,
-  type MetadataChange,
-  type MetadataChangeLenient,
+  isTopicKind,
   MIN_CLIENT_WIRE_VERSION,
   type PendingInteractionWire,
   type PresenceIdentity,
@@ -50,20 +36,33 @@ import {
   type PresenceRoomServerMessage as PresenceRoomServerFrame,
   type PtyOutputBinaryMetadata,
   parseServerMessageLenient,
+  parseTopicKey,
+  parseTopicPayload,
   presencePayloadWithinBudget,
   type RoomRef,
+  type ServerFeatureFacts,
   type ServerMessage,
   type ServerMessageLenient,
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
+  type SyncKindTokens,
+  type TopicClientMessage,
+  type TopicKind,
+  type TopicPayload,
+  type TopicServerMessage,
   type TurnPreviewMessage,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
 import type { FeedHelloFields } from './feed-hello'
 import { createFeedTaskScheduler, type FeedTaskScheduler } from './feed-scheduler'
-import type { LegacyFeedSinkPort, LegacyMetadataProjection } from './legacy-feed-port'
-import { type ClientSubscription, ClientSubscriptionRegistry } from './subscriptions'
+import {
+  type ClientSubscription,
+  ClientSubscriptionRegistry,
+  type TopicEntry,
+  type TopicListener,
+  type TopicState,
+} from './subscriptions'
 
 const log = createLogger('client-core:socket-hub')
 
@@ -223,10 +222,6 @@ export interface SocketHubOptions {
   url: string
   makeSocket?: (url: string) => WebSocketLike
   onError?: (message: string, event?: unknown) => void
-  /** Opaque wire-v1 Replica adapter. Transport only drives lifecycle and forwards envelopes. */
-  legacyFeed?: LegacyFeedSinkPort
-  /** Advertise the normalized issue projection capability on the legacy wire. */
-  issuesNormalized?: boolean
   /**
    * WIRE v2 (POD-376): opt this hub into the FEED, and hand every frame to the
    * kernel Replica.
@@ -340,6 +335,7 @@ export interface FeedSinkPort {
    * that read `.seq` here would be the second place the D7 ladder lives.
    */
   readonly syncHttp?: boolean
+  kindTokens(tokens: SyncKindTokens): void
   requestRebootstrap?(): void
   helloFields(): FeedHelloFields | null
   /**
@@ -356,6 +352,13 @@ export interface FeedSinkPort {
   disconnected(): void
   /** One frame, in arrival order. Order IS the correctness property (ADR 2 D9). */
   frame(frame: FeedServerFrame): void
+  /**
+   * The sink calls `listener` each time a frame it applied says this
+   * principal's access moved (POD-6947). The transport learns that it moved,
+   * never how: its live topics ask the server again for every key it was
+   * refused. A sink without it leaves those keys to the next socket.
+   */
+  onAccessMoved?(listener: () => void): void
 }
 
 type InputIntent = {
@@ -401,6 +404,15 @@ const RECONNECT_MAX_MS = 10_000
 const DEGRADED_RTT_MS = 400
 const PING_DEGRADED_AFTER_MS = 1_500
 const PING_DOWN_AFTER_MS = 5_000
+// A SLOW LINK IS NOT A DEAD ONE (POD-6947). An unanswered ping is declared lost
+// after three of the link's own recent round trips (their median), never
+// sooner than 5 s and never later than 30 s: a link that keeps answering is
+// never declared down, and a fast link keeps today's 5 s. The opening
+// handshake costs at least one round trip and seeds the measurement, so a link
+// that is slow from its first ping is not declared down by it either.
+const PING_DOWN_RTT_FACTOR = 3
+const PING_DOWN_MAX_MS = 30_000
+const RTT_SAMPLES = 5
 // Unanswered pings older than the force-close window can't accumulate meaningfully;
 // the cap just bounds the queue if pongs stop while other traffic keeps us alive.
 const PING_QUEUE_CAP = 8
@@ -408,26 +420,6 @@ const PING_QUEUE_CAP = 8
 // reconnect, so a blip doesn't silently swallow input. Capped so a long outage
 // can't replay an unbounded burst of stale typing into the agent on return.
 const INPUT_QUEUE_CAP = 1_000
-
-/** Fold one oplog change into an entity list (upsert replaces by id or appends;
- *  an upsert with no value is a producer bug the protocol says to drop). */
-function applyChange<T>(
-  list: T[],
-  op: 'upsert' | 'remove',
-  value: T | undefined,
-  match: (el: T) => boolean,
-): T[] {
-  if (op === 'remove') return list.filter((el) => !match(el))
-  if (value === undefined) return list
-  let replaced = false
-  const next = list.map((el) => {
-    if (!match(el)) return el
-    replaced = true
-    return value
-  })
-  if (!replaced) next.push(value)
-  return next
-}
 
 export interface AttentionEvent {
   sessionId: SessionId
@@ -480,21 +472,13 @@ export interface WireSkew {
  * `on*`/`subscribe*` methods below are thin wrappers over it.
  */
 export interface HubEvents {
-  hostMetrics: [hosts: HostMetricsWire[]]
-  machines: [machines: MachineWire[]]
-  /** A repo's worktrees changed on the daemon side (POD-665). No cached list —
-   *  this is a one-shot invalidation; the subscriber re-fetches through the same
-   *  path it already uses at boot. */
-  worktreesChanged: [repoPath: string, machineId: MachineId | undefined]
-  /** Approval broker [spec:SP-edbb]: undecided management-op requests. */
-  approvals: [pending: ApprovalWire[]]
   /** Full issue list after any change. */
   /** Full NORMALIZED issue list after any change [POD-796]. Fires for a hub
    *  that offered CAP_ISSUES_NORMALIZED (the authority emits unconditionally
    *  since POD-797). Carries no session data of any kind —
    *  a consumer resolves members by indexing sessions on `issueId`. Emitted
    *  ALONGSIDE `issues` during the transition, never instead of it. */
-  issueProjections: [issues: IssueProjection[]]
+  issueProjections: [issues: SlimIssueProjection[]]
   /** Full dep-EDGE list after any change [POD-822]. Same gating as
    *  `issueProjections`; the replica joins these to derive blocked/ready/dependents. */
   issueDeps: [deps: IssueDepProjection[]]
@@ -521,13 +505,6 @@ export interface HubEvents {
    * event lets a second device see live layout deltas without a second store.
    */
   userLayouts: [rows: LayoutWire[]]
-  /**
-   * Per-user read-cursor rows after any change (POD-1380, entity kind
-   * `userReadPosition`). Feed demux only, same split as `userLayouts`: the feed is
-   * how a person's OTHER device learns the position moved, and the hydrate/write
-   * owner is the ui-state module.
-   */
-  userReadPositions: [rows: ReadPositionWire[]]
   /** Single-issue broadcast (fires alongside the full-list `issues` event). */
   connectionHealth: [health: ConnectionHealth]
   /** The server said something this build could not read. Fires on every drop,
@@ -567,11 +544,28 @@ export interface HubEvents {
    * including a FIRST dial, which the health indicator deliberately stays
    * quiet about; `welcomed` when the server accepted this client (its
    * `welcome`, sent only to an authenticated connection). A wake or suspend
-   * is not a loss.
+   * is not a loss. A loss carries the socket's close cause when there was a
+   * socket to close: the server's close code says why it ended the link
+   * (POD-6910).
    */
-  link: [state: 'lost' | 'welcomed']
+  link: [state: 'lost' | 'welcomed', cause?: SocketCloseCause]
   /** The server announced a planned move over this live socket (a transfer). */
   serverRelocation: [move: { publicUrl: string; transferId: string; claimToken?: string }]
+  /**
+   * What the server said about itself in this connection's `welcome`: its build
+   * and the features it offers (POD-5798). Fires on EVERY welcome, so a
+   * redeploy is seen on the reconnect that follows it.
+   */
+  serverIdentity: [identity: ServerIdentity]
+  /** The clock-skew reading moved (server clock minus this one, ms; POD-5798). */
+  clockSkew: [skewMs: number]
+}
+
+/** The server's own facts, from `welcome`. Both are absent from an older server. */
+export interface ServerIdentity {
+  readonly build?: string
+  /** What its build and config say about its feature flags (POD-6677). */
+  readonly features?: ServerFeatureFacts
 }
 
 export type HubEventKind = keyof HubEvents
@@ -587,7 +581,6 @@ export class SocketHub {
   /** Mutable because a server move deliberately changes the authority this client dials. */
   private serverUrl: string
   private readonly makeSocket: (url: string) => WebSocketLike
-  private readonly legacyFeed: LegacyFeedSinkPort | undefined
   private readonly scheduleFeedTask: (task: () => void) => void
   /** Only set when this hub built its own scheduler — an injected one belongs to
    *  the caller and is not this class's to tear down. */
@@ -620,15 +613,12 @@ export class SocketHub {
   private readonly invalidSockets = new WeakSet<WebSocketLike>()
   private connectedFlag = false
   private clientIdValue = ''
-  private hostMetricsList: HostMetricsWire[] = []
-  private machinesList: MachineWire[] = []
-  private approvalsList: ApprovalWire[] = []
   /** The normalized issue list [POD-796]. Separate from `issueList` rather than
    *  replacing it: the two shapes coexist for the whole transition, and the feed
    *  carries them as two entity KINDS ('issue' / 'issueProjection') because the
    *  ledger stores one value per (kind, id). Empty unless the authority's flag
    *  is on. */
-  private issueProjectionList: IssueProjection[] = []
+  private issueProjectionList: SlimIssueProjection[] = []
   /** The dep EDGES and the repos [POD-822] — the two kinds the replica joins the
    *  projections against to get back `blocked`/`ready`/`dependents` (edges) and
    *  `displayRef` (repo prefix). Separate lists for the same reason
@@ -645,8 +635,6 @@ export class SocketHub {
   private shipLaneList: ShipLaneProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
-  /** Per-user read-cursor rows (POD-1380). Empty until the feed carries them. */
-  private userReadPositionList: ReadPositionWire[] = []
   private intentionalClose = false
   /**
    * THE CLOSE THAT IS NOT MEANT TO COME BACK.
@@ -686,11 +674,20 @@ export class SocketHub {
   private inputBinaryAcknowledged = false
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private lastRttMs: number | null = null
+  /** This socket's recent round trips, newest last; the down threshold reads them. */
+  private rttSamples: number[] = []
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
   /** Null until the server says something this build cannot read; never cleared —
    *  the disagreement is a property of the pair, and it does not heal by a later
    *  frame happening to parse. */
   private skew: WireSkew | null = null
+  /**
+   * CLOCK SKEW (POD-5798): server clock minus ours, from the pong that carried
+   * `serverTime`. The estimate with the SHORTEST round-trip seen on this socket
+   * wins, because its midpoint error (half the round-trip) is the smallest.
+   */
+  private clockSkew: { skewMs: number; rttMs: number } | null = null
+  private serverIdentityValue: ServerIdentity | null = null
   private readonly connections = new Map<SessionId, SessionConnection>()
   private readonly terminalAttachDenials = new Set<SessionId>()
   // Per-session structured transcript subscriptions. The hub is a thin
@@ -742,16 +739,16 @@ export class SocketHub {
   }
 
   constructor(opts: SocketHubOptions) {
-    if (opts.feed !== undefined && opts.legacyFeed !== undefined) {
-      throw new Error('SocketHub accepts one feed sink per connection')
-    }
     this.opts = opts
     this.serverUrl = opts.url
-    this.subscriptionRegistry = new ClientSubscriptionRegistry(
-      opts.feed !== undefined || opts.legacyFeed !== undefined,
-    )
+    this.subscriptionRegistry = new ClientSubscriptionRegistry(opts.feed !== undefined)
+    // A grant given or taken (POD-6947): what the server refused or revoked is
+    // asked again, and it decides as it always does. It keeps no refusals.
+    opts.feed?.onAccessMoved?.(() => {
+      this.subscriptionRegistry.forgetClosedTopicAsks()
+      this.askTopics()
+    })
     this.makeSocket = opts.makeSocket ?? ((url) => new WebSocket(url) as unknown as WebSocketLike)
-    this.legacyFeed = opts.legacyFeed
     if (opts.scheduleFeedTask !== undefined) {
       this.ownFeedScheduler = undefined
       this.scheduleFeedTask = opts.scheduleFeedTask
@@ -766,11 +763,6 @@ export class SocketHub {
         this.ownFeedScheduler.schedule(task)
       }
     }
-    this.legacyFeed?.bind({
-      apply: (changes) => this.applyChanges(changes),
-      replace: (projection) => this.replaceMetadataSnapshot(projection),
-      snapshot: () => this.metadataProjection(),
-    })
   }
 
   get connected(): boolean {
@@ -842,6 +834,7 @@ export class SocketHub {
 
     let opened = false
     let reportedError = false
+    const dialledAt = Date.now()
     this.intentionalClose = false
     this.sawTraffic = false
     this.disposed = false
@@ -857,7 +850,7 @@ export class SocketHub {
       this.everConnected = true
       // The backoff is NOT reset here — see `markAlive`. A TCP accept is not
       // evidence that the server works.
-      this.startHeartbeat()
+      this.startHeartbeat(Date.now() - dialledAt)
       // WHAT THIS CONNECTION ASKS FOR, decided before `hello` is built and used
       // twice below: once as the fields it carries, once as what the sink is told
       // it bought. Read the opaque fields once for a consistent hello.
@@ -866,27 +859,13 @@ export class SocketHub {
         type: 'hello',
         clientId: this.clientIdValue,
         viewport: { ...HELLO_VIEWPORT, dpr: globalThis.devicePixelRatio ?? 1 },
-        // Legacy feed capability negotiation is keyed only by the presence of the
-        // opaque Replica sink. Transport never reads its position or stamp.
-        // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
-        // what licenses the server to skip the O(issues x sessions) rebuild on
-        // session churn [POD-796].
-        ...(this.opts.feed?.syncHttp || this.legacyFeed || acceptsBinaryOutput || acceptsBinaryInput
-          ? {
-              caps: [
-                ...(this.opts.feed?.syncHttp ? [CAP_SYNC_HTTP_V1] : []),
-                ...(this.legacyFeed
-                  ? [
-                      CAP_METADATA_DELTA,
-                      CAP_SYNC_FEED_IDENTITY,
-                      ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
-                    ]
-                  : []),
-                ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
-                ...(acceptsBinaryInput ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
-              ],
-            }
-          : {}),
+        // TOPICS (ADR 7 Amendment 2): every hub speaks them, so `caps` is always sent.
+        caps: [
+          CAP_TOPICS_V1,
+          ...(this.opts.feed?.syncHttp ? [CAP_SYNC_HTTP_V1] : []),
+          ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
+          ...(acceptsBinaryInput ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
+        ],
         // WIRE v2 (POD-376). Sent only in feed mode: an absent `wireVersion` IS
         // the v1 advertisement (`wire-feed-edge.ts` — "a pre-cutover client
         // cannot be made to send a field it was never built with"), so a hub
@@ -915,7 +894,6 @@ export class SocketHub {
       // promise is what a cold walk waits on instead of cycling the socket.
       this.opts.feed?.connected(!this.opts.feed.syncHttp && helloFields === null)
       // The legacy adapter independently decides whether and how to catch up.
-      this.legacyFeed?.connected()
       for (const sessionId of this.connections.keys()) {
         if (this.terminalAttachDenials.has(sessionId)) continue
         this.sendRaw({ type: 'attach', sessionId })
@@ -936,6 +914,8 @@ export class SocketHub {
       for (const frame of this.subscriptionRegistry.reconnectFrames()) {
         this.sendPresenceFrame(frame)
       }
+      // Topics are asked below, by the health evaluation that ends this
+      // handler: a new socket owes every held key its ask (`askTopics`).
       // Re-assert per-session view state the same way: the server starts each new
       // client with empty view state, so a reconnecting client must re-declare which
       // sessions it renders / has focused for output-relay prioritization to resume.
@@ -950,7 +930,8 @@ export class SocketHub {
       this.notifyConnections()
       // Publish even when the coarse health label stays `ok`: mobile reads the
       // hub's exact connected flag on this event, and an offline cold start
-      // must not call a never-opened socket live.
+      // must not call a never-opened socket live. It also asks every held
+      // topic key, after the feed and rooms (the reconnect order D20 defines).
       this.evaluateHealth(true)
     }
     socket.onmessage = (ev) => {
@@ -986,6 +967,10 @@ export class SocketHub {
       if (!this.everConnected) this.opts.onError?.('WebSocket connection failed', ev)
     }
     socket.onclose = (ev) => {
+      // A socket this hub already let go of (`dispose`) reports its close later,
+      // as a real WebSocket does: by then a successor may be the hub's socket,
+      // and this teardown would be its.
+      if (this.socket !== socket) return
       if (!this.intentionalClose && !opened && !reportedError && !this.everConnected) {
         this.opts.onError?.('WebSocket connection closed before connecting')
       }
@@ -1009,13 +994,12 @@ export class SocketHub {
     // stale. Told here rather than by an embedder watching `connected`, so the
     // posture changes at the same instant the frames stop.
     this.opts.feed?.disconnected()
-    this.legacyFeed?.disconnected()
     this.notifyConnections()
     if (!this.intentionalClose) this.evaluateHealth(true)
     // A wake tears a possibly-dead socket down only to dial again at once: that
     // is not evidence the server is gone, and must not send a client to Connect.
     if (!this.intentionalClose && cause?.cause !== 'wake' && cause?.cause !== 'server-relocation') {
-      this.emit('link', 'lost')
+      this.emit('link', 'lost', cause)
     }
     if (!this.intentionalClose) {
       const retryInMs = this.scheduleReconnect()
@@ -1078,16 +1062,21 @@ export class SocketHub {
     this.connect()
   }
 
-  private startHeartbeat(): void {
+  /** `handshakeMs`: how long the socket took to open, the link's first round trip. */
+  private startHeartbeat(handshakeMs: number): void {
     this.stopHeartbeat()
+    this.rttSamples = [handshakeMs]
     // First ping right away: it seeds the latency measurement on connect and, after
     // a reconnect, confirms the server is actually answering — an open socket alone
     // already cleared the indicator, and this verifies that optimism within ~1.5s.
     this.sendPing()
-    this.heartbeatTimer = setInterval(
-      () => this.sendPing(),
-      this.opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS,
-    )
+    this.heartbeatTimer = setInterval(() => {
+      this.sendPing()
+      // The retry cadence of a `transient` topic close: a key the server shed
+      // or could not decide is asked again here, never at once, so a failure
+      // that persists costs one ask per heartbeat and cannot spin.
+      this.askTopics()
+    }, this.opts.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS)
   }
 
   private sendPing(): void {
@@ -1103,16 +1092,27 @@ export class SocketHub {
 
   /** Two-stage alarm on the oldest unanswered ping: degraded, then down. Without
    *  this the health would only be re-checked when a message arrives — exactly what
-   *  isn't happening on a stalling connection. */
+   *  isn't happening on a stalling connection. Armed for whichever ping is oldest
+   *  now, so on a link with several pings in flight it follows each one. */
   private armStaleTimer(): void {
     this.clearStaleTimer()
+    const oldest = this.pingQueue[0]
+    if (oldest === undefined) return
+    const waitedMs = Date.now() - oldest
+    const next = [PING_DEGRADED_AFTER_MS, this.pingDownAfterMs()].find((at) => at > waitedMs)
+    if (next === undefined) return
     this.staleTimer = setTimeout(() => {
-      this.staleTimer = setTimeout(() => {
-        this.staleTimer = undefined
-        this.evaluateHealth()
-      }, PING_DOWN_AFTER_MS - PING_DEGRADED_AFTER_MS)
+      this.staleTimer = undefined
       this.evaluateHealth()
-    }, PING_DEGRADED_AFTER_MS)
+      this.armStaleTimer()
+    }, next - waitedMs)
+  }
+
+  /** How long a ping may go unanswered before the link is declared down. */
+  private pingDownAfterMs(): number {
+    const sorted = [...this.rttSamples].sort((a, b) => a - b)
+    const median = sorted[Math.floor((sorted.length - 1) / 2)] ?? 0
+    return Math.min(PING_DOWN_MAX_MS, Math.max(PING_DOWN_AFTER_MS, PING_DOWN_RTT_FACTOR * median))
   }
 
   private clearStaleTimer(): void {
@@ -1128,6 +1128,7 @@ export class SocketHub {
     this.clearStaleTimer()
     this.pingQueue = []
     this.lastRttMs = null
+    this.rttSamples = []
   }
 
   /** Any inbound traffic proves the connection is alive; clear the ping deadline. */
@@ -1267,26 +1268,98 @@ export class SocketHub {
     }
   }
 
-  hostMetrics(): HostMetricsWire[] {
-    return this.hostMetricsList
+  /**
+   * HOLD ONE TOPIC KEY (ADR 7 Amendment 2 D20). Reference-counted per key per
+   * hub: the first holder asks for it, the last release sends
+   * `topicUnsubscribe`, and every key still held is asked again on each new
+   * socket and after each declared loss (`askTopics`).
+   * The listener hears the CURRENT state at once (`pending` until the first
+   * snapshot), then every change. Consumers are services and stores; a React
+   * component reads them, never this.
+   */
+  subscribeTopic<K extends TopicKind>(
+    kind: K,
+    id: string,
+    listener: TopicListener<TopicPayload<K>>,
+  ): () => void {
+    const held = listener as TopicListener
+    const { fresh, entry } = this.subscriptionRegistry.acquireTopic(kind, id, held)
+    if (fresh) this.askTopics()
+    held.onState?.(entry.state)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (this.subscriptionRegistry.releaseTopic(kind, id, held)) {
+        this.sendTopicFrame({ type: 'topicUnsubscribe', key: entry.key })
+      }
+    }
   }
 
-  /** @deprecated Use `on('hostMetrics', cb)` (no replay — read `hostMetrics()`). */
-  onHostMetrics(cb: (h: HostMetricsWire[]) => void): () => void {
-    const off = this.on('hostMetrics', cb)
-    cb(this.hostMetricsList)
-    return off
+  /**
+   * Make `listener` hold EXACTLY these ids of one kind: new ids are acquired,
+   * ids no longer listed are released. For a consumer whose key set follows a
+   * list (host metrics follow the machine list); what it holds is read back
+   * from the registry, so the consumer keeps no subscription table of its own.
+   */
+  holdTopics<K extends TopicKind>(
+    kind: K,
+    ids: readonly string[],
+    listener: TopicListener<TopicPayload<K>>,
+  ): void {
+    const held = listener as TopicListener
+    const wanted = new Set(ids)
+    for (const id of this.subscriptionRegistry.topicIdsHeldBy(kind, held)) {
+      if (wanted.has(id)) {
+        wanted.delete(id)
+        continue
+      }
+      const entry = this.subscriptionRegistry.topic(kind, id)
+      if (entry && this.subscriptionRegistry.releaseTopic(kind, id, held)) {
+        this.sendTopicFrame({ type: 'topicUnsubscribe', key: entry.key })
+      }
+    }
+    for (const id of wanted) {
+      const { entry } = this.subscriptionRegistry.acquireTopic(kind, id, held)
+      held.onState?.(entry.state)
+    }
+    if (wanted.size > 0) this.askTopics()
   }
 
-  machines(): MachineWire[] {
-    return this.machinesList
+  /** Ask a held producer for a fresh snapshot (focus fallback, never a timer). */
+  refreshTopic(kind: TopicKind, id: string): void {
+    const entry = this.subscriptionRegistry.topic(kind, id)
+    if (!entry) return
+    this.subscriptionRegistry.forgetTopicAsk(entry)
+    this.askTopics()
   }
 
-  /** @deprecated Use `on('machines', cb)` (no replay — read `machines()`). */
-  onMachines(cb: (m: MachineWire[]) => void): () => void {
-    const off = this.on('machines', cb)
-    cb(this.machinesList)
-    return off
+  /** The current state of a held key, or undefined when nobody holds it. */
+  topicState<K extends TopicKind>(kind: K, id: string): TopicState<TopicPayload<K>> | undefined {
+    return this.subscriptionRegistry.topic(kind, id)?.state as
+      | TopicState<TopicPayload<K>>
+      | undefined
+  }
+
+  /** The newest `welcome`'s server facts; null before the first one. */
+  serverIdentity(): ServerIdentity | null {
+    return this.serverIdentityValue
+  }
+
+  /** Server clock minus ours (ms), or null before a pong carried the server's clock. */
+  clockSkewMs(): number | null {
+    return this.clockSkew?.skewMs ?? null
+  }
+
+  private noteClockSkew(sentAt: number, receivedAt: number, serverTime: number): void {
+    const rttMs = receivedAt - sentAt
+    if (this.clockSkew && rttMs >= this.clockSkew.rttMs) return
+    // The server read its clock about halfway through the round-trip. Rounded
+    // to 10 ms: finer than that is noise inside the round-trip's own error.
+    const skewMs = Math.round((serverTime - (sentAt + rttMs / 2)) / 10) * 10
+    const moved = this.clockSkew?.skewMs !== skewMs
+    this.clockSkew = { skewMs, rttMs }
+    if (moved) this.emit('clockSkew', skewMs)
   }
 
   /**
@@ -1297,22 +1370,12 @@ export class SocketHub {
    * replica is a cache and never argues with the server (spec invariant 1).
    */
   seedMetadata(seed: {
-    issueProjections?: IssueProjection[]
+    issueProjections?: SlimIssueProjection[]
     issueDeps?: IssueDepProjection[]
     repos?: RepoProjection[]
     shipOrders?: ShipOrderProjection[]
     shipLanes?: ShipLaneProjection[]
   }): void {
-    if (this.legacyFeed !== undefined) {
-      this.legacyFeed.seed({
-        issueProjections: seed.issueProjections ?? [],
-        issueDeps: seed.issueDeps ?? [],
-        repos: seed.repos ?? [],
-        shipOrders: seed.shipOrders ?? [],
-        shipLanes: seed.shipLanes ?? [],
-      })
-      return
-    }
     // The three POD-796/POD-822 kinds [POD-822]: seed the hub's in-memory lists
     // from the persisted replica so a warm-reload DELTA applies onto them rather
     // than onto empty lists. Optional + `?? []` so an embedder that predates them
@@ -1636,7 +1699,19 @@ export class SocketHub {
       return
     // A status that merely re-confirms keeps its start time — `since` marks the
     // transition, not the latest re-evaluation.
+    const wentDown = next.status === 'down' && this.health.status !== 'down'
     this.health = next.status === this.health.status ? { ...next, since: this.health.since } : next
+    // THE CONNECTION WAS DECLARED LOST (D20): by the health rule, on a closed
+    // socket or an open one whose pongs ran late. Every held value goes
+    // unknown, keeping its last value for "last seen", and every key is owed a
+    // new ask: the hub is the one place that marks them, and so the one place
+    // that asks again.
+    if (wentDown) {
+      for (const entry of this.subscriptionRegistry.markTopicsUnknown(this.health.since)) {
+        this.notifyTopic(entry)
+      }
+    }
+    this.askTopics()
     this.emit('connectionHealth', this.health)
   }
 
@@ -1650,7 +1725,8 @@ export class SocketHub {
     const oldest = this.pingQueue[0]
     if (oldest !== undefined) {
       const waitedMs = Date.now() - oldest
-      if (waitedMs >= PING_DOWN_AFTER_MS) return { status: 'down', rttMs: this.lastRttMs, since }
+      if (waitedMs >= this.pingDownAfterMs())
+        return { status: 'down', rttMs: this.lastRttMs, since }
       if (waitedMs >= PING_DEGRADED_AFTER_MS)
         return { status: 'degraded', rttMs: this.lastRttMs, since }
     }
@@ -1718,8 +1794,8 @@ export class SocketHub {
     this.socket?.close()
     this.socket = undefined
     this.clearFeedIngress()
-    // The MessageChannel this hub owns (POD-2058) closes with the hub, beside
-    // `legacyFeed` below. Not inside `clearFeedIngress`: that helper also runs
+    // The MessageChannel this hub owns (POD-2058) closes with the hub.
+    // Not inside `clearFeedIngress`: that helper also runs
     // on the backlog resync, which clears the queue and keeps draining, and a
     // scheduler disposed there would leave the next frame with nothing to wake
     // it.
@@ -1730,7 +1806,6 @@ export class SocketHub {
     this.inputBinaryAcknowledged = false
     this.inputQueue.length = 0
     this.preOpenQueue.length = 0
-    this.legacyFeed?.dispose()
     this.notifyConnections()
   }
 
@@ -1912,20 +1987,35 @@ export class SocketHub {
     ServerMessageLenient,
     { dropped: number }
   >({
-    pong: () => {
+    pong: (msg) => {
       // Liveness was already recorded in onmessage; here the pong closes out the
       // oldest in-flight ping to yield a round-trip sample.
       const sentAt = this.pingQueue.shift()
       if (sentAt !== undefined) {
-        this.lastRttMs = Date.now() - sentAt
-        if (this.pingQueue.length === 0) this.clearStaleTimer()
+        const receivedAt = Date.now()
+        this.lastRttMs = receivedAt - sentAt
+        this.rttSamples = [...this.rttSamples, this.lastRttMs].slice(-RTT_SAMPLES)
+        if (typeof msg.serverTime === 'number')
+          this.noteClockSkew(sentAt, receivedAt, msg.serverTime)
+        this.armStaleTimer()
         this.evaluateHealth()
       }
     },
     welcome: (msg) => {
       this.clientIdValue = msg.clientId
+      this.opts.feed?.kindTokens(msg.kindTokens)
       this.inputBinaryAcknowledged =
         this.inputBinaryTransport && msg.caps?.includes(CAP_TERMINAL_INPUT_BINARY_V1) === true
+      if (msg.caps?.includes(CAP_TOPICS_V1) === true && msg.accountUser !== undefined) {
+        this.holdAccountEvents(msg.accountUser)
+      }
+      if (msg.serverBuild !== undefined || msg.serverFeatures !== undefined) {
+        this.serverIdentityValue = {
+          ...(msg.serverBuild !== undefined ? { build: msg.serverBuild } : {}),
+          ...(msg.serverFeatures !== undefined ? { features: msg.serverFeatures } : {}),
+        }
+        this.emit('serverIdentity', this.serverIdentityValue)
+      }
       this.notifyConnections()
       this.emit('link', 'welcomed')
     },
@@ -1937,9 +2027,7 @@ export class SocketHub {
       }
       this.connections.get(msg.sessionId)?._outcome(msg.outcome)
     },
-    metadataDelta: (msg, context) => {
-      this.legacyFeed?.frame(msg, context.dropped)
-    },
+    metadataDelta: () => {},
     // ---- wire v2 (POD-308 built it, POD-376 consumes it) ----
     // WHICH WIRE THIS HUB SPEAKS IS PER CONNECTION, not per build. Without a
     // `feed` sink the hub sends no `wireVersion`, the server serves it through
@@ -1982,10 +2070,14 @@ export class SocketHub {
     presenceRoomClosed: (msg) => {
       this.emit('presenceRoomClosed', msg)
     },
-    hostMetricsChanged: (msg) => {
-      this.hostMetricsList = msg.hosts
-      this.emit('hostMetrics', this.hostMetricsList)
-    },
+    // PRE-TOPICS FRAME (POD-6680 removes it). The server sends it to a client
+    // with topics.v1 only as the pre-hello bootstrap; host metrics arrive on
+    // `machine.metrics:<id>` topics, so there is nothing to keep from it.
+    hostMetricsChanged: () => {},
+    topicSnapshot: (msg) => this.applyTopicFrame(msg),
+    topicUpdate: (msg) => this.applyTopicFrame(msg),
+    topicEvent: (msg) => this.applyTopicFrame(msg),
+    topicClosed: (msg) => this.applyTopicFrame(msg),
     attentionEvent: (msg) => {
       this.emit('attention', { sessionId: msg.sessionId, title: msg.title, body: msg.body })
     },
@@ -2049,17 +2141,6 @@ export class SocketHub {
         ...(msg.editedAt !== undefined ? { editedAt: msg.editedAt } : {}),
       })
     },
-    machinesChanged: (msg) => {
-      this.machinesList = msg.machines
-      this.emit('machines', this.machinesList)
-    },
-    worktreesChanged: (msg) => {
-      this.emit('worktreesChanged', msg.repoPath, msg.machineId)
-    },
-    approvalsChanged: (msg) => {
-      this.approvalsList = msg.pending
-      this.emit('approvals', this.approvalsList)
-    },
     // Session-scoped terminal stream: forwarded to the matching SessionConnection
     // (or dropped when no view is attached — same as the old fall-through arm).
     attached: (msg) => this.forwardToSession(msg),
@@ -2078,157 +2159,106 @@ export class SocketHub {
     this.connections.get(metadata.sessionId)?._ingestBinaryOutput(metadata, payload)
   }
 
-  private metadataProjection(): LegacyMetadataProjection {
-    return {
-      issueProjections: this.issueProjectionList,
-      issueDeps: this.issueDepList,
-      repos: this.repoList,
-      shipOrders: this.shipOrderList,
-      shipLanes: this.shipLaneList,
+  /**
+   * THE ONE TOPIC ASK (POD-6945). Every held key remembers the socket it was
+   * last asked on; this sends `topicSubscribe` for each one not asked on the
+   * current socket, whenever that socket is open and the connection is not
+   * declared lost. Nothing else asks. Every event that can make a key miss or
+   * distrust its value only makes it unasked: a new socket (the server forgot
+   * the old one's keys), a declared loss (`markTopicsUnknown`), a `transient`
+   * close (asked on the next heartbeat), an access move for every closed key
+   * (`onAccessMoved`), a fresh holder, a `refreshTopic`. Each is answered.
+   */
+  private askTopics(): void {
+    const socket = this.socket
+    if (!this.connectedFlag || socket === undefined || this.invalidSockets.has(socket)) return
+    if (this.health.status === 'down') return
+    for (const frame of this.subscriptionRegistry.topicsToAsk(socket)) {
+      socket.send(JSON.stringify(frame))
     }
   }
 
-  private replaceMetadataSnapshot(result: LegacyMetadataProjection): void {
-    this.issueProjectionList = result.issueProjections
-    this.issueDepList = result.issueDeps
-    this.repoList = result.repos
-    this.shipOrderList = result.shipOrders ?? []
-    this.shipLaneList = result.shipLanes ?? []
-    this.emit('issueProjections', this.issueProjectionList)
-    this.emit('issueDeps', this.issueDepList)
-    this.emit('repos', this.repoList)
-    this.emit('shipOrders', this.shipOrderList)
-    this.emit('shipLanes', this.shipLaneList)
+  /**
+   * A topic release goes out only on an open socket and is never queued: a
+   * socket that never carried the key holds nothing to release.
+   */
+  private sendTopicFrame(frame: TopicClientMessage): void {
+    const socket = this.socket
+    if (!this.connectedFlag || socket === undefined || this.invalidSockets.has(socket)) return
+    socket.send(JSON.stringify(frame))
   }
 
-  /** Fold wire changes into the entity lists and notify only touched observers.
-   *  Exhaustive over the KNOWN entity kinds; an unknown kind (a NEWER server,
-   *  [spec:SP-3fe2] #258) is ignored with a debug log — the old else-branch
-   *  folded anything unrecognised into the conversation list, silently
-   *  corrupting it. Position advancement remains solely the Replica adapter's decision. */
-  private applyChanges(changes: MetadataChangeLenient[]): void {
-    const touched = new Set<MetadataChange['entity']>()
-    for (const c of changes) {
-      if (!isKnownMetadataChange(c)) {
-        log.debug('ignoring metadata change with unknown entity kind', { entity: c.entity })
-        continue
+  /**
+   * Topic frames are applied HERE, synchronously, on the control path: they
+   * never wait behind the feed's yielding task queue (D20).
+   */
+  private applyTopicFrame(msg: TopicServerMessage): void {
+    const ref = parseTopicKey(msg.key)
+    if (!ref || !isTopicKind(ref.kind)) return
+    const entry = this.subscriptionRegistry.topic(ref.kind, ref.id)
+    // A frame for a key nobody holds any more: the release is already on its way.
+    if (!entry) return
+    switch (msg.type) {
+      case 'topicSnapshot': {
+        const payload = this.topicPayload(entry, msg.payload)
+        this.subscriptionRegistry.applyTopicSnapshot(entry, msg.position, payload)
+        this.notifyTopic(entry)
+        return
       }
-      touched.add(c.entity)
-      switch (c.entity) {
-        case 'issueProjection':
-          this.issueProjectionList = applyChange(
-            this.issueProjectionList,
-            c.op,
-            c.value,
-            (i) => i.id === c.id,
-          )
-          break
-        case 'issueDep':
-          this.issueDepList = applyChange(this.issueDepList, c.op, c.value, (d) => d.id === c.id)
-          break
-        case 'repo':
-          this.repoList = applyChange(this.repoList, c.op, c.value, (r) => r.id === c.id)
-          break
-        case 'shipOrder':
-          this.shipOrderList = applyChange(
-            this.shipOrderList,
-            c.op,
-            c.value,
-            (order) => order.id === c.id,
-          )
-          break
-        case 'issueEvent':
-          // POD-1772. Matched on the composite id the Authority logs
-          // (`issueEventRowId`), which is also the row's own `id` field — an
-          // eviction arrives as a `delete` carrying only that id.
-          this.issueEventList = applyChange(
-            this.issueEventList,
-            c.op,
-            c.value,
-            (x) => x.id === c.id,
-          )
-          break
-        case 'pendingInteraction':
-          // POD-2020. Matched on the composite id the Authority logs
-          // (`interactionRowId`), not the row's own `id`: a resolved ask arrives
-          // as a `remove` carrying only that composite, and the row's bare id
-          // would not match it.
-          this.pendingInteractionList = applyChange(
-            this.pendingInteractionList,
-            c.op,
-            c.value,
-            (x) => interactionRowId(x.sessionId, x.id) === c.id,
-          )
-          break
-        case 'message':
-          // POD-4764. Matched on the composite id the Authority logs
-          // (`messageRecordRowId`): a message leaving the feed arrives as a
-          // `remove` carrying only that composite.
-          this.messageRecordList = applyChange(
-            this.messageRecordList,
-            c.op,
-            c.value,
-            (x) =>
-              messageRecordRowId({
-                sessionId: x.sessionId,
-                senderUserId: x.senderUserId,
-                messageId: x.id,
-              }) === c.id,
-          )
-          break
-        case 'userLayout':
-          // Feed demux for POD-1350's per-user layout rows. Match on the same
-          // composite id the Authority logs (layoutRowId), not payload equality.
-          this.userLayoutList = applyChange(
-            this.userLayoutList,
-            c.op,
-            c.value,
-            (x) => layoutRowId(x.userId, x.key) === c.id,
-          )
-          break
-        case 'userReadPosition':
-          // Same demux for POD-1380's read positions, matched on readPositionRowId.
-          this.userReadPositionList = applyChange(
-            this.userReadPositionList,
-            c.op,
-            c.value,
-            (x) => readPositionRowId(x.userId, x.streamId) === c.id,
-          )
-          break
-        case 'issueUserState':
-        case 'session':
-        case 'conversation':
-        case 'automation':
-        case 'automationRun':
-        case 'issueGitState':
-        case 'sessionUserState':
-        case 'machine':
-          // These rows belong to the Replica. Session, conversation and
-          // automation consumers read synced data without a hub projection.
-          break
-        case 'shipLane':
-          this.shipLaneList = applyChange(
-            this.shipLaneList,
-            c.op,
-            c.value,
-            (lane) => lane.id === c.id,
-          )
-          break
-        default:
-          c satisfies never
+      case 'topicUpdate': {
+        const payload = this.topicPayload(entry, msg.payload)
+        if (this.subscriptionRegistry.applyTopicUpdate(entry, msg.position, payload)) {
+          this.notifyTopic(entry)
+        }
+        return
       }
+      case 'topicEvent': {
+        const payload = this.topicPayload(entry, msg.payload)
+        if (payload === undefined) return
+        for (const listener of [...entry.listeners]) listener.onEvent?.(payload)
+        return
+      }
+      case 'topicClosed':
+        if (msg.reason === 'transient') {
+          // The server shed this key under pressure, or could not decide it: it
+          // is owed a new ask, sent by the next heartbeat (`startHeartbeat`).
+          this.subscriptionRegistry.forgetTopicAsk(entry)
+          return
+        }
+        this.subscriptionRegistry.closeTopic(entry, msg.reason)
+        this.notifyTopic(entry)
+        return
+      default:
+        msg satisfies never
     }
-    if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)
-    if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
-    if (touched.has('repo')) this.emit('repos', this.repoList)
-    if (touched.has('issueEvent')) this.emit('issueEvents', this.issueEventList)
-    if (touched.has('pendingInteraction'))
-      this.emit('pendingInteractions', this.pendingInteractionList)
-    if (touched.has('message')) this.emit('messageRecords', this.messageRecordList)
-    if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
-    if (touched.has('shipLane')) this.emit('shipLanes', this.shipLaneList)
-    if (touched.has('userLayout')) this.emit('userLayouts', this.userLayoutList)
-    if (touched.has('userReadPosition')) this.emit('userReadPositions', this.userReadPositionList)
+  }
+
+  /** A payload that does not match its kind is treated as unknown, never applied. */
+  private topicPayload(entry: TopicEntry, payload: unknown): unknown {
+    if (payload === undefined) return undefined
+    const parsed = parseTopicPayload(entry.kind, payload)
+    if (parsed === undefined)
+      log.warn('dropped a topic payload that does not match its kind', { key: entry.key })
+    return parsed
+  }
+
+  private notifyTopic(entry: TopicEntry): void {
+    for (const listener of [...entry.listeners]) listener.onState?.(entry.state)
+  }
+
+  /**
+   * `account.events:<self>` for this hub's lifetime (D26). Each notice is the
+   * pre-topics frame it replaces, so it goes through the same handler.
+   */
+  private accountEventsHeld = false
+  private holdAccountEvents(user: string): void {
+    if (this.accountEventsHeld) return
+    this.accountEventsHeld = true
+    this.subscribeTopic('account.events', user, {
+      onEvent: (event) => {
+        this.dispatchServerMessage(event, { dropped: 0 })
+      },
+    })
   }
 
   private sendPresenceFrame(frame: PresenceRoomClientMessage): boolean {

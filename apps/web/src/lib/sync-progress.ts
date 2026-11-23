@@ -13,9 +13,11 @@ export { SyncProgressStore } from '@podium/client-core/replica-assembly'
  */
 export class WebSyncProgressStore extends SyncProgressStore {
   override noteEvent(event: ReplicaEvent): void {
-    if (event.type === 'bootstrap-installed') this.noteInstalled(event.entityCount)
+    // POD-7122: the device opens when the load is in memory, not when it is durable.
+    if (event.type === 'load-installed') this.noteInstalled()
+    else if (event.type === 'bootstrap-installed') this.noteInstalled(event.entityCount)
     else if (event.type === 'heal-progress')
-      this.noteCommitted(event.framesCommitted, event.seq, event.targetSeq)
+      this.noteCommitted(event.framesCommitted, event.seq, event.targetSeq, event.fromSeq)
     else if (event.type === 'posture' && event.posture === 'live') this.noteReady()
     else if (event.type === 'bootstrap-failed') this.noteError('network', event.error)
   }

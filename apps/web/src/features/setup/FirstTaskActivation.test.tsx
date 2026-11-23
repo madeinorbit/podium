@@ -1,11 +1,16 @@
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { asMachineId } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FirstTaskActivation } from './FirstTaskActivation'
 
 const login = vi.fn()
+const useOnMyMachines = vi.fn()
+const finishRequest = vi.fn()
+/** What `credentials.list` reports: no detected account unless a test says so. */
+let accounts: unknown[] = []
 const telemetryState = vi.fn()
 const telemetrySet = vi.fn()
 const uiValues = new Map<string, string>()
@@ -63,7 +68,10 @@ function store() {
           })),
         },
       },
-      accounts: { login: { mutate: login } },
+      credentials: {
+        login: { mutate: login },
+        useOnMyMachines: { mutate: useOnMyMachines },
+      },
       telemetry: {
         state: { query: telemetryState },
         set: { mutate: telemetrySet },
@@ -73,7 +81,14 @@ function store() {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
+  readFixture: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
+}))
+
+// The detected-accounts card reads `credentials.list` into the shared record pool,
+// which this screen-pool fixture does not host: serve its rows directly.
+vi.mock('@/features/settings/record-readers', async (original) => ({
+  ...(await original<typeof import('@/features/settings/record-readers')>()),
+  useSettingsRecords: () => ({ request: { models: accounts, loading: false }, reload: vi.fn() }),
 }))
 
 vi.mock('@/app/SetupLoginTerminalDialog', () => ({
@@ -87,6 +102,13 @@ vi.mock('@/app/SetupLoginTerminalDialog', () => ({
 }))
 
 beforeEach(() => {
+  finishRequest.mockReset()
+  finishRequest.mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ setupFinished: true }),
+  })
+  vi.stubGlobal('fetch', finishRequest)
   telemetryState.mockReset()
   telemetryState.mockResolvedValue({
     usage: 'absent',
@@ -99,8 +121,11 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
   uiValues.clear()
   login.mockReset()
+  useOnMyMachines.mockReset()
+  accounts = []
   codexLogin = 'in'
 })
 
@@ -160,7 +185,77 @@ describe('FirstTaskActivation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
 
     await waitFor(() => expect(onComplete).toHaveBeenCalledOnce())
+    expect(finishRequest).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/admin/setup/finish'),
+      expect.objectContaining({ method: 'POST' }),
+    )
     expect(telemetryState).not.toHaveBeenCalled()
     expect(telemetrySet).not.toHaveBeenCalled()
+  })
+
+  it('keeps setup open until completion is saved and lets a failed save retry', async () => {
+    const onComplete = vi.fn()
+    let release!: (value: unknown) => void
+    finishRequest.mockReturnValueOnce(
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    render(
+      <FirstTaskActivation route="first-task" onRouteChange={vi.fn()} onComplete={onComplete} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
+    expect(onComplete).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Finishing setup…' }).hasAttribute('disabled')).toBe(
+      true,
+    )
+    release({ ok: false, status: 503, json: async () => ({ error: 'Could not save setup' }) })
+    expect((await screen.findByRole('alert')).textContent).toContain('Could not save setup')
+    expect(onComplete).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce())
+    expect(finishRequest).toHaveBeenCalledTimes(2)
+  })
+
+  // POD-6301 (D11): onboarding shows the box, unticked, for each detected account.
+  it('shows an unticked "use on my machines" box for each detected account', async () => {
+    accounts = [
+      ...['codex', 'claude-code'].map((harness, index) => ({
+        id: `cred_found-${harness}`,
+        label: harness,
+        access: 'owner',
+        identity: {
+          email: index ? 'alice@work.example' : 'alice@example.com',
+          fingerprint: index ? 'fp-alice-work' : 'fp-alice',
+        },
+        nativeLogin: { harness, useOnMyMachines: false, keptOn: [] },
+      })),
+      { id: 'cred_key', label: 'API key', access: 'owner' },
+    ]
+    useOnMyMachines.mockResolvedValue({ ok: true, enabled: true })
+    render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
+
+    const section = await screen.findByRole('region', { name: 'Detected accounts' })
+    const boxes = await within(section).findAllByRole('switch', {
+      name: /Use on all my machines/,
+    })
+    expect(boxes).toHaveLength(2)
+    expect(boxes.map((box) => box.getAttribute('aria-checked'))).toEqual(['false', 'false'])
+    expect(within(section).getByText('alice@example.com')).toBeTruthy()
+
+    await userEvent.click(within(section).getAllByText('Use on all my machines')[0]!)
+    await waitFor(() =>
+      expect(useOnMyMachines).toHaveBeenCalledWith({
+        harness: 'codex',
+        fingerprint: 'fp-alice',
+        enabled: true,
+      }),
+    )
+  })
+
+  it('shows no account section when nothing was detected', async () => {
+    render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
+    await screen.findByText('Ready')
+    expect(screen.queryByRole('region', { name: 'Detected accounts' })).toBeNull()
   })
 })

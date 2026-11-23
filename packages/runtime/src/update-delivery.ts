@@ -17,6 +17,7 @@ import {
   type UpdateArtifact,
   type UpdateTrustRoot,
 } from '@podium/protocol'
+import { fetchFromReleaseOrigin, releaseOriginForArtifact } from './release-origins'
 import { updateKeyFingerprint } from './update-key-trust'
 
 /** The baked Podium release key: the `release` trust root. */
@@ -339,7 +340,10 @@ export async function fetchArtifact(
   armStall()
   let bytes: Uint8Array
   try {
-    const res = await deps.fetch(asset.url, { signal: abort.signal })
+    const origin = releaseOriginForArtifact(asset.url)
+    const res = origin
+      ? await fetchFromReleaseOrigin(asset.url, origin, { signal: abort.signal }, deps.fetch)
+      : await deps.fetch(asset.url, { signal: abort.signal })
     if (!res.ok) {
       const refusal = res.headers?.get(UPDATE_ARTIFACT_REFUSAL_HEADER)
       if (res.status === 404 && refusal === UPDATE_ARTIFACT_INTEGRITY_REFUSAL) {
@@ -347,6 +351,9 @@ export async function fetchArtifact(
           'published artifact digest verification FAILED — refusing to install because the ' +
             'stored bytes changed after publication',
         )
+      }
+      if (res.status === 404) {
+        throw new Error('artifact download returned 404 — not published yet; retry later')
       }
       throw new Error(`artifact download returned ${res.status}`)
     }

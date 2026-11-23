@@ -1,27 +1,49 @@
 /** Store-neutral contract implemented by the kernel client facade. */
 
 import type {
+  AgentProfileWire,
   AutomationRunWire,
   AutomationWire,
-  ConversationSummaryWire,
+  CheckoutWire,
+  ConversationRecordWire,
+  EffectRecordWire,
+  InstancePreferencesWire,
+  IssueBriefWire,
   IssueDepProjection,
+  IssueDescriptionWire,
   IssueEventWire,
   IssueGitStateProjection,
-  IssueProjection,
+  IssuePanelArtifactWire,
+  IssuePanelDeferredWire,
+  IssuePanelStateWire,
+  IssuePanelTodoWire,
   IssueUserStateWire,
   LayoutWire,
+  MachineAccessWire,
   MachineProjection,
   MessageRecordWire,
+  NoticeWire,
+  PinWire,
+  ReadPositionWire,
   RepoProjection,
   SessionMeta,
   SessionUserStateWire,
   ShipLaneProjection,
   ShipOrderProjection,
-  TranscriptItem,
+  SlimIssueProjection,
+  SubscriptionWire,
+  SuperagentThreadWire,
+  TabOrderWire,
+  UserPreferencesWire,
+  WorkflowBindingWire,
+  WorkflowRevisionWire,
+  WorkflowRunRecord,
+  WorkflowWire,
 } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
-import type { ExitKind } from '@podium/sync/replica'
+import type { CollectionLoader, ExitKind } from '@podium/sync/replica'
 import type { OutboxStorage } from '../outbox'
+import type { TranscriptCache } from '../transcript/contracts'
 import type { FeedCursor } from './feed'
 
 export type { ExitKind }
@@ -46,11 +68,19 @@ export interface ReplicaRows {
    *  nothing derived. The replica-side issue VIEWS read this, joined against the
    *  two kinds below (see `readViewInputs`). Empty unless the authority's flag is
    *  on and this client offered the cap. */
-  issueProjections: IssueProjection
+  issueProjections: SlimIssueProjection
   /** Personal markers, keyed by the user and issue; never shared with a grantee. */
   issueUserStates: IssueUserStateWire
   /** Server git observations, keyed by issue. Missing means not probed yet. */
   issueGitStates: IssueGitStateProjection
+  /** POD-6921: an issue's brief and description, each keyed by the issue id
+   *  and holding the whole text; absent when the field has none. */
+  issueBriefs: IssueBriefWire
+  issueDescriptions: IssueDescriptionWire
+  issuePanelTodos: IssuePanelTodoWire
+  issuePanelArtifacts: IssuePanelArtifactWire
+  issuePanelDeferreds: IssuePanelDeferredWire
+  issuePanelStates: IssuePanelStateWire
   /** Issue dependency EDGES [POD-822] — `issue_deps` as first-class rows. The
    *  views join these by `fromId` to derive `blocked`/`ready`/`dependents`; the
    *  projection cannot carry them (an edge belongs to two issues). */
@@ -81,9 +111,13 @@ export interface ReplicaRows {
   shipOrders: ShipOrderProjection
   /** Canonical shipping lanes, carrying server-owned train positions. */
   shipLanes: ShipLaneProjection
-  conversations: ConversationSummaryWire
+  conversations: ConversationRecordWire
   automations: AutomationWire
   automationRuns: AutomationRunWire
+  /** One-shot effects (merge, file write, scans, clone, interrupt) and their
+   *  standard status [POD-6357]. Bounded by the server: ended records leave after
+   *  the retention window, failed and unknown ones when dismissed. */
+  effects: EffectRecordWire
   /**
    * This principal's replicated shell layout [POD-1350] — sidebar section folds,
    * Flight Deck folded, right-panel tab, per-session presentation.
@@ -101,6 +135,34 @@ export interface ReplicaRows {
    * it, so the rows arrived and were dropped.
    */
   userLayouts: LayoutWire
+  /** POD-6673's per-user records: the owner's pins, tab orders and personal
+   *  preferences, and the read positions (POD-1380), which the server always
+   *  sent and this table dropped until then. */
+  pins: PinWire
+  tabOrders: TabOrderWire
+  userPreferences: UserPreferencesWire
+  userReadPositions: ReadPositionWire
+  /** My superagent threads (POD-6675), keyed `superagentThreadRowId`. */
+  superagentThreads: SuperagentThreadWire
+  /** POD-6676: agent profiles, workflows (definitions, revisions, bindings,
+   *  runs) and automation trigger subscriptions, the records each screen
+   *  fetched until then. */
+  agentProfiles: AgentProfileWire
+  workflows: WorkflowWire
+  workflowRevisions: WorkflowRevisionWire
+  workflowBindings: WorkflowBindingWire
+  workflowRuns: WorkflowRunRecord
+  subscriptions: SubscriptionWire
+  /** The instance settings (POD-6677): one record, every member's, keyed
+   *  `INSTANCE_PREFERENCES_ROW_ID`. Kept offline like every other kind, so an
+   *  app started without a connection knows them. */
+  instancePreferences: InstancePreferencesWire
+  /** POD-6644: my access to each machine I may see, and the checkouts on the
+   *  machines I may use. Kept, so an app started offline shows them. */
+  machineAccess: MachineAccessWire
+  checkouts: CheckoutWire
+  /** My open notices (POD-6881), keyed `noticeRowId`. */
+  inboxNotices: NoticeWire
 }
 export type ReplicaKind = keyof ReplicaRows
 
@@ -111,9 +173,15 @@ export interface ReplicaHydrateResult {
   /** The three POD-796/POD-822 kinds, persisted like every other collection so a
    *  warm reload paints the views from local data and re-seeds the hub's
    *  in-memory lists (see `seedMetadata`). Empty until the cap flips. */
-  issueProjections: IssueProjection[]
+  issueProjections: SlimIssueProjection[]
   issueUserStates: IssueUserStateWire[]
   issueGitStates: IssueGitStateProjection[]
+  issueBriefs: IssueBriefWire[]
+  issueDescriptions: IssueDescriptionWire[]
+  issuePanelTodos: IssuePanelTodoWire[]
+  issuePanelArtifacts: IssuePanelArtifactWire[]
+  issuePanelDeferreds: IssuePanelDeferredWire[]
+  issuePanelStates: IssuePanelStateWire[]
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]
@@ -121,13 +189,29 @@ export interface ReplicaHydrateResult {
   messageRecords: MessageRecordWire[]
   shipOrders: ShipOrderProjection[]
   shipLanes: ShipLaneProjection[]
-  conversations: ConversationSummaryWire[]
+  conversations: ConversationRecordWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
+  effects: EffectRecordWire[]
   /** Persisted layout rows (POD-571). The engine seeds the replicated-layout
    *  controller's base from these BEFORE any subscriber reads, so the shell's
    *  first frame paints the stored layout rather than the defaults. */
   userLayouts: LayoutWire[]
+  pins: PinWire[]
+  tabOrders: TabOrderWire[]
+  userPreferences: UserPreferencesWire[]
+  userReadPositions: ReadPositionWire[]
+  superagentThreads: SuperagentThreadWire[]
+  agentProfiles: AgentProfileWire[]
+  workflows: WorkflowWire[]
+  workflowRevisions: WorkflowRevisionWire[]
+  workflowBindings: WorkflowBindingWire[]
+  workflowRuns: WorkflowRunRecord[]
+  subscriptions: SubscriptionWire[]
+  instancePreferences: InstancePreferencesWire[]
+  machineAccess: MachineAccessWire[]
+  checkouts: CheckoutWire[]
+  inboxNotices: NoticeWire[]
   /** Last persisted oplog cursor, or null when never synced (cold client). */
   cursor: number | null
   /** The same cursor as the ADR 2 D1 TRIPLE — `COLD_CURSOR` when never synced.
@@ -139,13 +223,6 @@ export interface ReplicaHydrateResult {
    *  cursor is cold; the outbox survived. Surfaced rather than logged because a
    *  silent version reset is indistinguishable from a cold start. */
   schemaReset: boolean
-}
-
-/** A cached transcript window: the newest items read for one conversation. */
-export interface TranscriptWindow {
-  items: TranscriptItem[]
-  /** Epoch ms when the window was written — drives the "as of <time>" notice. */
-  savedAt: number
 }
 
 /** Synchronous UI-state kv over the ui-state collection. Ordinary writes are
@@ -213,10 +290,9 @@ export interface Replica {
    * by re-pull; a crash mid-reset must therefore land on the recoverable side.
    */
   resetCache(): void
-  /** The cached newest window for a conversation key, if any. */
-  transcriptWindow(conversationKey: string): TranscriptWindow | undefined
-  /** Write-through cache of a fresh read. Bounded per spec §2.3. */
-  putTranscriptWindow(conversationKey: string, items: TranscriptItem[]): void
+  /** This user's chat history on the device (POD-5801), in its own database.
+   *  Absent where nothing is stored (tests, demo): chats then read the server. */
+  readonly transcripts?: TranscriptCache
   /** The underlying entity collection for `kind` — the live-query seam (typed
    *  `unknown` so no implementation type leaks through the interface). */
   collection(kind: ReplicaKind): unknown
@@ -237,6 +313,8 @@ export interface Replica {
   issueIdByRef?(ref: string): string | undefined
   /** Existing reference claimants in the same ID order as rows(), including cold rows. */
   issueIdsByRef?(ref: string): readonly string[]
+  /** POD-7087 — the one loader over the device's collections; absent without a kernel store. */
+  loader?(): CollectionLoader | undefined
   /** Optional committed address batch, including explicit whole-scope replacement. */
   subscribeAddressedBatch?(cb: (batch: ReplicaAddressedBatch) => void): () => void
   /** Non-React change seam (#262). Notifications are COALESCED per application:
@@ -294,7 +372,7 @@ export interface Replica {
   outboxDeadLetterStorage(): OutboxStorage
   /** ONE UI persistence mechanism (issue #15 Phase 4): a versioned key→value
    *  store replacing the ad-hoc localStorage keys. */
-  uiState(): UiState
+  deviceStorage(): import('../ui/device-storage').DeviceStorage
   /** Resolves when every write issued so far has persisted (including a
    *  fenced cursor write). */
   flush(): Promise<void>
@@ -303,11 +381,9 @@ export interface Replica {
 /**
  * Exact legacy localStorage keys folded into the ui-state collection.
  *
- * panelMode / panelModeDefault are composed so the sole storage-key spelling of
- * those names lives in `ui-state.ts` (panel-mode-duality / POD-329).
+ * panelMode is composed so its sole storage-key spelling lives in `ui-state.ts` (panel-mode-duality / POD-329).
  */
 const PANEL_MODE_LEGACY = 'podium.' + 'panelMode'
-const PANEL_MODE_DEFAULT_LEGACY = 'podium.' + 'panelModeDefault'
 
 export const LEGACY_UI_KEYS = [
   'podium.view',
@@ -323,7 +399,6 @@ export const LEGACY_UI_KEYS = [
   PANEL_MODE_LEGACY,
   'podium.homeMode',
   'podium.issues.display',
-  PANEL_MODE_DEFAULT_LEGACY,
   'podium.echoHud',
   'podium.switchTrace',
   'podium.shell.density',
@@ -340,15 +415,6 @@ export const LEGACY_UI_MAP_PREFIXES: Record<string, string> = {
   'podium.htmlmode:': 'podium.htmlmode',
   'podium.mdmode:': 'podium.mdmode',
 }
-
-/** Keys MIRRORED into ui-state but NOT removed from localStorage: theme mode is
- *  read before React (index.html's anti-flash script) and before the store
- *  exists, so the raw localStorage fast path must keep working. */
-export const MIRRORED_UI_KEYS = ['podium.theme.mode'] as const
-
-/** Spec §2.3: "last ~200 items per conversation, LRU cap ~50 conversations". */
-export const REPLICA_TRANSCRIPT_ITEM_CAP = 200
-export const REPLICA_TRANSCRIPT_CONVERSATION_CAP = 50
 
 export const REPLICA_KEY_PREFIX = 'podium.replica'
 

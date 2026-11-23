@@ -621,15 +621,18 @@ same commit.**
 | `packages/commands` | L1 wire | browser-safe | command-contracts | **landed POD-728** (3.9b) — created ahead of POD-311, which migrated the issue registry onto the L1/L3 split, folded in the live `protocol/commands.ts` framework, and derived transports from `exposure`. The speculative generic mutation envelope was deleted; durable production writes use `OutboxCommand` from `packages/sync`. |
 | `packages/api-types` | L1 wire | browser-safe | api-router-types | shared tRPC router type surface (server serves it; web, mobile and daemon call it as types). Types-only barrel plus its node build script; tagged POD-5615 |
 | `packages/mobx-helpers` | L1 wire | browser-safe | mobx-helpers | Shared keyed computeds and deadline clock (POD-5541); demand helpers follow in POD-5424. |
+| `packages/blob-store` | L1 wire | node-only | blob-store | One byte interface for user files (POD-6963 design 2.1): local-disk, S3-compatible and in-memory adapters behind subpaths, one workspace each; depends on `packages/model` only. |
 | `packages/runtime` | L2 kernel | **neutral** | config, sqlite, git-port, connectivity, auth-store, settings | browser-safe barrel + node-only subpaths (legacy rule 8) |
 | `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
 | `packages/sync` | L2 kernel | neutral | oplog, upstream-sync | → one sync kernel (Phase 2 POD-305/306); retagged `neutral` at POD-307 — Authority/Ledger/mirror are node-only, the Replica/Outbox roles and the ADR 6 client storage adapters are browser-safe, and one bit cannot say both. Browser-safe consumers are held to the declared entrypoints by check-boundaries rule 12 |
 | `packages/telemetry` | L2 kernel | **neutral** | telemetry-schema, telemetry-consent, telemetry-queue | added mid-Phase-0 [spec:SP-f933]; subpath gap POD-745 |
+| `packages/identity` | L2 kernel | node-only | identity | added by POD-6744 (docs/design/people-and-sign-in.md): accounts, password sign-in, device sign-ins, one-time codes and the capability list, one implementation for the server's SQLite store and the cloud's Postgres. Imports `packages/model` only, never an app, so podium-cloud can depend on it |
 | `packages/pty` | L2 kernel | node-only | pty-port, durable-host | **landed POD-396** (5.3a) from agent-bridge (ADR 8 D4). Harness-AGNOSTIC: `HARNESS_ADAPTER_HOME` is now `packages/harness`, so the axiom APPLIES here and a harness comparison inside pty is a violation |
 | `packages/harness` | L2 kernel | neutral | harness-adapters, agent-runtime-contract, transcript-parsing, composer-driver, prompt-draft | **landed POD-397** (5.3b): one `AgentManifest` per CLI (launch/exec/headless/state/discovery/transcript) over `Record<BuiltinHarnessKind, AgentManifest>`; the home for harness variance and `HARNESS_ADAPTER_HOME` for the axiom. Principal-free (`harness-principal-free` lint). **POD-4469** dissolved `packages/agent-runtime`, `packages/transcript` and `packages/composer` into it: the driver contract + host live under `src/driver/` (entries `@podium/harness/driver` for the server-reachable contract, `@podium/harness/driver/host` daemon-only), the transcript store under `src/store/` (entry `@podium/harness/store`, both sides), per-harness manifests renamed to `src/adapters/<h>/`, and the pure composer interface under `src/driver/families/terminal/`. Retagged `neutral` at POD-2206: the manifests drive processes and reach sqlite while `./browser` is a literal table with no runtime import, so browser-safe consumers are held to the declared entrypoints |
 | `packages/terminal-client` | L2 kernel | browser-safe | terminal-port | — |
 | `packages/client-core` | L3 feature | browser-safe | values | → client engine split (Phase 6 POD-331) |
 | `packages/client-graph` | L3 feature | browser-safe | client-graph | worklist feeds over the client runtime (pool, worklist, sidebar); tagged POD-5615 |
+| `packages/working-mark` | L3 feature | browser-safe | working-mark | Animated working mark, its frames and APNG, and an optional React component (POD-5558); no workspace dependencies. |
 | `packages/terminal-client-react` | L3 feature | browser-safe | terminal-react | — |
 | `packages/janitor` | L3 feature | node-only | maintenance-jobs | maintenance/steward jobs lifted out of `apps/server` (was `apps/janitor` on main after POD-296; moved to `packages/` as an engine, PDM-27 [spec:SP-c29e]) — feeds Phase 4 server decomposition (POD-292) |
 | `apps/cli` | L4 app | node-only | cli-surface | — |
@@ -725,6 +728,8 @@ would leave the target path with zero production callers — with
 `PODIUM_SESSION_RENAME_PATH=legacy` as the rollback, matched exactly so a typo cannot
 silently disable a shipped command. `MIGRATED_COMMANDS` is asserted to be exactly
 `['sessions.rename']`, so a list that grew would fail a test rather than pass a review.
+(POD-6601 removed the adapter, the rollback flag and the shadow comparison: rename has
+one path, its sync registration, and the session-state envelope no longer serves it.)
 
 **The pairing, since the obvious one no longer exists.** POD-380 deleted the
 hand-written rename procedure. LEGACY is therefore `SessionStateRegistry` (POD-380's
@@ -1637,7 +1642,7 @@ here rather than restated (drift-gated by `scripts/release-thresholds.test.ts`, 
 |---|---|---|---|---|
 | 1 | Cold startup — client | first meaningful paint p95 ≤ **1 s**; interactive p95 ≤ **3 s**; hard fail **10 s** | perception classes: 1 s = flow of thought, 10 s = limit of attention | **MISSING** (§T4.1) |
 | 1b | Cold startup — server | boot → `/health` 200 ≤ **10 s**; hard fail **120 s** | 120 s is `PODIUM_HEALTH_GRACE` in `scripts/podium-health-probe.sh` — past it the fleet's own probe restarts the process. Mechanical, not taste | coarse only (§T4.1) |
-| 2 | DB growth — bounded shape | `changes` row count at soak end ≤ **CHANGE_KEEP_ROWS (20 000)** + one retention interval's arrivals, and not monotonically rising | retention bounds the log *by construction* (`CHANGE_KEEP_ROWS`, `CHANGE_MAX_AGE_MS = 3 d`) — a rising count IS retention not running | partial (§T4.2) |
+| 2 | DB growth — bounded shape | `changes` row count at soak end ≤ **CHANGE_KEEP_ROWS (500 000)** + one retention interval's arrivals, and not monotonically rising | retention bounds the log *by construction* (`packages/protocol/src/maintenance.ts`: `CHANGE_KEEP_ROWS`, `CHANGE_MAX_AGE_MS = 30 d`) — a rising count IS retention not running | partial (§T4.2) |
 | 2b | DB growth — upgrade headroom | at soak end `freeDiskBytes(stateDir)` ≥ **3 ×** (`podium.db` + sidecars) | the pre-migration backup preflight refuses below 1.1×, and the server keeps the last 3 backups; 3× is what keeps an upgrade possible after the soak | `backup.ts` (`freeDiskBytes`, `statSync`) + one hourly `stat` |
 | 2c | DB growth — absolute rate | **UNDETERMINED** | no representative-load figure exists; a rate without its load is not a number | experiment in §T3.2 |
 | 3 | Sync lag — server share | `feedPublish.total` p99 ≤ **50 ms** | INHERITED `LOOP_P99_TARGET_MS`, already asserted against `sessionsBroadcast.total`, whose successor under `PHASE_MIGRATION` is `feedPublish.total` | **EXISTS** — `perf.snapshot`, per principal with slice size |
@@ -1649,20 +1654,20 @@ here rather than restated (drift-gated by `scripts/release-thresholds.test.ts`, 
 | 7 | Reconnect storm | with every client the topology has reconnecting at once (≥ 3): event-loop p99 ≤ **50 ms**, interaction p95 ≤ **25 ms** / p99 ≤ **50 ms**, **all** replicas converge, dead letters 0 | all three latency numbers INHERITED from `scripts/loop-split-load.integration.test.ts`; convergence is binary, not a budget | behaviour EXISTS (`adr/reconnect-storm`); load shape EXISTS; **never pointed at each other** (§T4.4) |
 | 8 | UI render counts | renders per applied change must be **O(1) in session and issue count** (double the fleet, same render count), and one applied change ≤ **16.7 ms** of main-thread work on a hot screen | a render count that scales with the collection is the defect the client split exists to remove — and a *ratio* is testable without knowing the absolute. 16.7 ms is one frame at 60 Hz: hardware | **MISSING**; POD-427 (Phase 6) owes the probe (§T4.5) |
 | 8b | Absolute render counts per screen | **UNDETERMINED** | fixing a number for an instrument nobody has built fixes nothing | POD-427's probe, then a number |
-| 9 | Memory per pane — desktop | steady-state renderer heap with all **8** panes warm ≤ **1.0 GB** ⇒ marginal ≤ **~125 MB/pane** | the warm cap (8 desktop / 3 mobile, `use-warm-set.ts`) is a committed decision, so total = cap × marginal. 2.2 GB was declared a *leak* (POD-771): the band must sit far below a value already ruled pathological. **Weakest row in this table** — bounded above by an incident, below by nothing | **MISSING** client-side (§T4.6) |
+| 9 | Memory per pane — desktop | steady-state renderer heap with all **3** panes warm ≤ **1.0 GB**; marginal ≤ **~125 MB/pane** as an independent budget | the warm cap (3 desktop / 2 mobile, `HEAVY_PANEL_RESIDENCY_BUDGET`) is a committed decision. The 125 MB/pane criterion originally came from 1 GB / the old eight-pane cap; it remains independent, and the smaller cap leaves headroom under the unchanged 1 GB ceiling. 2.2 GB was declared a *leak* (POD-771): the band must sit far below a value already ruled pathological. **Weakest row in this table** — bounded above by an incident, below by nothing | **MISSING** client-side (§T4.6) |
 | 9b | Memory per pane — mobile | **NEEDS A HUMAN DECISION** (§T2) | derives from the floor phone Podium supports, and no floor device is recorded anywhere in this plan | — |
 | 10 | Zero-data-loss crash | **0** lost or torn acknowledged writes | ADR 2 D10's one-transaction rule makes "PRE or POST, never torn" a correctness property. One loss is a bug, not an overrun | **EXISTS, strongest of the ten** — `base/crash-between-writes`, `scoped/crash-with-watermark-in-flight`, `cross/attribution-survives-every-hop`, × 3 instantiations, `assertGatesCovered` throws |
 
 ##### §T2 — What a human must decide, recorded rather than defaulted
 
-1. **The floor phone (row 9b).** The mobile per-pane budget is `budget ÷ 3` and the budget
+1. **The floor phone (row 9b).** The mobile per-pane budget is `budget ÷ 2` and the budget
    follows from the least-capable device Podium claims to support on the PWA. That device
    is named nowhere in this plan or in `apps/mobile`. A number picked here would be a
    support commitment made by an agent; it is recorded as an open decision instead.
 2. **Row 9's desktop ceiling is provisional and labelled so.** 1.0 GB is derived from an
-   incident (2.2 GB = leak) and from the committed warm cap, which bounds it from above but
-   not from below. If POD-337 measures 900 MB the correct response is not relief — it is to
-   ask whether 8 warm panes should cost that, which is a product question.
+   incident (2.2 GB = leak). Its independent 125 MB/pane budget remains in force after
+   the warm cap fell from eight to three; that change does not authorize spending the
+   saved headroom on each remaining pane.
 3. **Reconnect-storm N (row 7).** Fixed as "every client the topology has, ≥ 3" because the
    rehearsal topology is what the criterion is about. If POD-337 wants a synthetic N far
    above the real fleet, that is a different (and defensible) criterion, and someone should
@@ -1677,7 +1682,7 @@ fabricated number is what it cannot.
 downward; they run on a fixture clock and against in-memory/IndexedDB/SQLite adapters, so
 they cannot produce a wall-clock number even in principle. *Experiment:* during the
 rehearsal (runbook step 7b), take a client offline, append a fixed gap on the Authority —
-**10 000 changes**, half of `CHANGE_KEEP_ROWS` and therefore the worst gap that retention
+**250 000 changes**, half of `CHANGE_KEEP_ROWS` and therefore the worst gap that retention
 still permits to be healed rather than snapshotted — reconnect, and time detect →
 converged. **Record the gap size with the time.** A heal time without its gap size is the
 same error as a p50 without its slice size, and POD-1077's rule applies verbatim.

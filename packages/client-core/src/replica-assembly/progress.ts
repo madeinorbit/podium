@@ -23,6 +23,8 @@ export interface SyncProgressSnapshot {
   readonly framesCommitted: number
   readonly committedSeq: number | null
   readonly targetSeq: number | null
+  /** Where the running catch-up started; with `targetSeq` it makes progress a measured fraction. */
+  readonly healFromSeq: number | null
   readonly totalRows: number | null
   readonly seenByEntity: Readonly<Record<string, number>>
   readonly totalsByEntity: Readonly<Record<string, number>> | null
@@ -50,6 +52,7 @@ export class SyncProgressStore {
       framesCommitted: 0,
       committedSeq: null,
       targetSeq: null,
+      healFromSeq: null,
       totalRows: null,
       seenByEntity: {},
       totalsByEntity: null,
@@ -98,6 +101,7 @@ export class SyncProgressStore {
       framesCommitted: 0,
       committedSeq: null,
       targetSeq: null,
+      healFromSeq: null,
       totalRows: null,
       seenByEntity: {},
       totalsByEntity: null,
@@ -106,10 +110,19 @@ export class SyncProgressStore {
       failure: null,
     })
   }
+  /**
+   * POD-7169: a transfer's meta and rows add to a sync under way (the first
+   * download, a reload, a heal, a resumed load) and never start one. A record
+   * a screen fetched once the workspace was ready is that screen's loading;
+   * read as the workspace's, it showed "Refreshing workspace" with nothing
+   * left to end it.
+   */
   noteMeta(totalRows: number | undefined): void {
+    if (this.snapshot.phase === 'ready') return
     this.publish({ phase: 'downloading', totalRows: totalRows ?? null })
   }
   noteReceived(rows: number, bytes = 0): void {
+    if (this.snapshot.phase === 'ready') return
     this.publish({
       phase: 'downloading',
       rowsSeen: this.snapshot.rowsSeen + rows,
@@ -119,12 +132,13 @@ export class SyncProgressStore {
   noteSaving(): void {
     this.publish({ phase: 'saving' })
   }
-  noteCommitted(frames: number, seq: number, target: number | undefined): void {
+  noteCommitted(frames: number, seq: number, target: number | undefined, fromSeq?: number): void {
     this.publish({
       phase: 'saving',
       framesCommitted: frames,
       committedSeq: seq,
       targetSeq: target ?? null,
+      healFromSeq: fromSeq ?? this.snapshot.healFromSeq,
     })
   }
   noteInstalled(rows = this.snapshot.rowsSeen): void {
@@ -169,9 +183,12 @@ export class SyncProgressStore {
     })
   }
   noteEvent(event: ReplicaEvent): void {
-    if (event.type === 'bootstrap-installed') this.noteInstalled(event.entityCount)
+    // POD-7122: the device opens when the load is in memory; its durable commit
+    // (`bootstrap-installed`) follows without a splash.
+    if (event.type === 'load-installed') this.noteInstalled()
+    else if (event.type === 'bootstrap-installed') this.noteInstalled(event.entityCount)
     else if (event.type === 'heal-progress')
-      this.noteCommitted(event.framesCommitted, event.seq, event.targetSeq)
+      this.noteCommitted(event.framesCommitted, event.seq, event.targetSeq, event.fromSeq)
     else if (event.type === 'bootstrap-failed') {
       // The terminal event must not overwrite an earlier auth/format cause.
       this.noteError(this.snapshot.error ?? 'network', this.snapshot.failure ?? event.error)

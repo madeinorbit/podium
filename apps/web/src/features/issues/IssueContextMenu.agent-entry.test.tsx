@@ -10,32 +10,40 @@ vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
 const startMutate = vi.fn(async () => ({}))
 const addSessionMutate = vi.fn(async () => ({}))
+// Starting is the issue's effect record (POD-6526), never the routes above.
+const startIssueSession = vi.fn(() => ({ settled: Promise.resolve(true) }))
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  // POD-3911: the menu reads owner.access, not getSnapshot directly.
-  useStoreHandle: () => withKeyedInputs({
-    subscribe: () => () => {},
-    getSnapshot: () => ({
-      trpc: {
-        issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },
-      },
-      markIssueRead: vi.fn(),
-      markIssueUnread: vi.fn(),
-      get sessions() {
-        throw new Error('Task menu read legacy sessions')
-      },
-      get repos() {
-        throw new Error('Task menu read legacy repos')
-      },
-      get machines() {
-        throw new Error('Task menu read legacy machines')
-      },
-    }),
-  }),
-}))
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    // POD-3911: the menu reads owner.access, not getSnapshot directly.
+    ...fixtureRuntimeHooks(() =>
+      withKeyedInputs({
+        subscribe: () => () => {},
+        getSnapshot: () => ({
+          trpc: {
+            issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },
+          },
+          markIssueRead: vi.fn(),
+          markIssueUnread: vi.fn(),
+          startIssueSession,
+          get sessions() {
+            throw new Error('Task menu read legacy sessions')
+          },
+          get repos() {
+            throw new Error('Task menu read legacy repos')
+          },
+          get machines() {
+            throw new Error('Task menu read legacy machines')
+          },
+        }),
+      }),
+    ),
+  }
+})
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: () => {
+  readFixture: () => {
     throw new Error('Task menu used a legacy selector')
   },
 }))
@@ -65,6 +73,7 @@ afterEach(() => {
   cleanup()
   startMutate.mockClear()
   addSessionMutate.mockClear()
+  startIssueSession.mockClear()
 })
 
 /**
@@ -95,7 +104,8 @@ describe('IssueContextMenu — the agent entry is off the menu (POD-110 → POD-
     open(makeIssue({ worktreePath: null, stage: 'backlog' }), true)
     expect(screen.queryByRole('menuitem', { name: /Run now/ })).toBeNull()
     fireEvent.click(screen.getByRole('menuitem', { name: 'Start issue' }))
-    expect(startMutate).toHaveBeenCalledWith({ id: 'i' })
+    expect(startIssueSession).toHaveBeenCalledWith({ issueId: 'i', mode: 'begin' })
+    expect(startMutate).not.toHaveBeenCalled()
     expect(addSessionMutate).not.toHaveBeenCalled()
   })
 })

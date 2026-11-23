@@ -96,6 +96,7 @@ function AskAnythingExamples({ onPick }: { onPick: (text: string) => void }): JS
     <div className="flex flex-col items-start gap-1.5">
       {ASK_ANYTHING_EXAMPLES.map((text) => (
         <button
+          data-pressable
           key={text}
           type="button"
           title="Put in the message box"

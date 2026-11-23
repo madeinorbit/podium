@@ -1,4 +1,4 @@
-import type { MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView } from '@podium/protocol'
 import { useFocusEffect } from 'expo-router'
 import { useCallback } from 'react'
 import { useSettingsOpening } from '../screens/settings-opening'
@@ -9,7 +9,7 @@ import { useServerProfile } from './ServerProfileGate'
 import { followPhoneRequest } from './visible-request'
 
 export interface ConnectedDevicesFeed {
-  sessions: MobileClientSession[] | null
+  sessions: DeviceSignInView[] | null
   loading: boolean
   failed: boolean
   reload: () => void

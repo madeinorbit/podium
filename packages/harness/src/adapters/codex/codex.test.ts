@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import type { AgentObservationRebindAckMessage } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { declaredValue } from '../../manifest.js'
 import type { HarnessObservationLease, HarnessObserverHost } from '../../manifest.js'
+import { declaredValue } from '../../manifest.js'
 
 const mockedObserver = vi.hoisted(() => ({
   starts: [] as Array<{
@@ -33,6 +33,7 @@ vi.mock('./state-provider.js', async (importOriginal) => {
   }
 })
 
+import { testAccount } from '../../driver/testing/harness-context.js'
 import { codexManifest } from './index.js'
 
 function lease(providerSessionId: string | null): HarnessObservationLease {
@@ -89,6 +90,7 @@ function start(initialLease: HarnessObservationLease) {
       podiumSessionId: asSessionId('podium-1'),
       resumeValue: initialLease.providerSessionId ?? undefined,
       observationLease: initialLease,
+      account: testAccount('codex', '/home/podium-test'),
     },
     observerHost,
   )

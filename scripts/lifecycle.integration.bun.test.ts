@@ -20,6 +20,8 @@ import { join } from 'node:path'
 const PORT = 59833
 const TRANSFER_ID = '11111111-1111-4111-8111-111111111111'
 const dir = mkdtempSync(join(tmpdir(), 'podium-lifecycle-'))
+const overriddenKeys = ['PODIUM_STATE_DIR', 'PODIUM_PORT', 'PODIUM_WEB_DIR'] as const
+const priorEnv = Object.fromEntries(overriddenKeys.map((key) => [key, process.env[key]]))
 
 beforeAll(() => {
   process.env.PODIUM_STATE_DIR = dir
@@ -40,7 +42,13 @@ afterAll(async () => {
     } catch {}
   }
   rmSync(dir, { recursive: true, force: true })
-  for (const k of ['PODIUM_STATE_DIR', 'PODIUM_PORT', 'PODIUM_WEB_DIR']) delete process.env[k]
+  // Bun runs the later files in this process too. Restore the preload's state
+  // root before their imports can read config, rather than exposing live state.
+  for (const key of overriddenKeys) {
+    const previous = priorEnv[key]
+    if (previous === undefined) delete process.env[key]
+    else process.env[key] = previous
+  }
 })
 
 describe('detached split lifecycle', () => {

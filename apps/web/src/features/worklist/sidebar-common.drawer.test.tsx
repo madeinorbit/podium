@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ResizableAside, ResizableColumn } from './sidebar-common'
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (select: (store: unknown) => unknown) =>
+  readFixture: (select: (store: unknown) => unknown) =>
     select({ uiState: { get: () => null, set: vi.fn() } }),
 }))
 

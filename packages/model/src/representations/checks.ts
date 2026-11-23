@@ -4,6 +4,7 @@ import { findCapabilitySnapshotKeys } from '../annotations/capability-snapshot'
 import { OWNERSHIP_MATRIX_INDEX } from '../annotations/matrix'
 import type { MatrixRow, MatrixRowId, VisibilityClass } from '../annotations/ownership'
 import { visibilityClassOf } from '../annotations/resolution'
+import { SessionDelegation } from '../identity/delegation'
 
 /**
  * ADR 4 D2's six roles. A representation declares EXACTLY ONE — that is the
@@ -256,7 +257,16 @@ export function representationViolations(
       }
     }
 
-    const authority = findCapabilitySnapshotKeys(rep.schema)
+    // The canonical delegation records the declared left operand of live
+    // authorization, never the effective intersection. Recognize the schema
+    // by identity: an arbitrary object with the same field name stays suspect.
+    const delegation = (rep.schema as z.AnyZodObject).shape?.delegation
+    const canonicalDelegation =
+      delegation?.isOptional() &&
+      (delegation as z.ZodOptional<typeof SessionDelegation>).unwrap() === SessionDelegation
+    const authority = findCapabilitySnapshotKeys(rep.schema).filter(
+      (path) => !(canonicalDelegation && path === 'delegation.grantedScope'),
+    )
     if (authority.length > 0) {
       out.push({
         representation: at,

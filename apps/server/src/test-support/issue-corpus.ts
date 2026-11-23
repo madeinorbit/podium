@@ -8,10 +8,20 @@
  */
 
 import { fileURLToPath } from 'node:url'
-import { asIssueId, asMachineId, asUserId, firstAdminMemberId, ISSUE_TYPES, type UserId } from '@podium/model'
+import {
+  asIssueId,
+  asMachineId,
+  asUserId,
+  firstAdminMemberId,
+  ISSUE_TYPES,
+  type UserId,
+} from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { type SQL, sql } from 'drizzle-orm'
 import type { IssueRow, SessionStore } from '../store'
 import { issueRowFixture } from './issue-row'
 import { openTestStore } from './open-test-store'
+import { storeSql } from './store-sql'
 
 export interface CorpusIssue {
   id: string
@@ -43,10 +53,19 @@ export interface CorpusDep {
 export const BOB = asUserId('user:bob')
 export const CAROL = asUserId('user:carol')
 
-export async function exportedCorpus(): Promise<{ issues: CorpusIssue[]; deps: CorpusDep[]; repos: string[] }> {
-  const module = fileURLToPath(new URL('../../../../scripts/server-data-bench/corpus-export.ts', import.meta.url))
+export async function exportedCorpus(): Promise<{
+  issues: CorpusIssue[]
+  deps: CorpusDep[]
+  repos: string[]
+}> {
+  const module = fileURLToPath(
+    new URL('../../../../scripts/server-data-bench/corpus-export.ts', import.meta.url),
+  )
   const { exportCorpus } = (await import(module)) as {
-    exportCorpus(cell: string, seed: number): Promise<{ issues: CorpusIssue[]; deps: CorpusDep[]; repos: string[] }>
+    exportCorpus(
+      cell: string,
+      seed: number,
+    ): Promise<{ issues: CorpusIssue[]; deps: CorpusDep[]; repos: string[] }>
   }
   return await exportCorpus('h1a1', 4443)
 }
@@ -89,8 +108,12 @@ export function rowOf(issue: CorpusIssue, repoPath: string, machineId: string): 
 /** The corpus's dependency types, folded onto the fixed list; others dropped. */
 export function foldedDeps(deps: readonly CorpusDep[], ids: ReadonlySet<string>): CorpusDep[] {
   const folded: Readonly<Record<string, string>> = {
-    blocks: 'blocked-by', 'waits-on': 'blocked-by', duplicate: 'duplicates',
-    tracks: 'related', 'caused-by': 'related', validates: 'related',
+    blocks: 'blocked-by',
+    'waits-on': 'blocked-by',
+    duplicate: 'duplicates',
+    tracks: 'related',
+    'caused-by': 'related',
+    validates: 'related',
   }
   const types = new Set(['blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates'])
   return deps
@@ -117,6 +140,7 @@ export async function seededStore(
     await store.transact(async () => {
       for (const issue of issues.slice(start, start + 500)) {
         await store.issues.upsertIssue(
+          fixtureWriteScope(),
           rowOf({ ...issue, parentId: null }, issue.repoPath ?? repos[0]!, store.hostMachineId),
         )
       }
@@ -128,17 +152,23 @@ export async function seededStore(
       if (!issue.parentId || !ids.has(issue.parentId)) continue
       const row = (await store.issues.getIssue(issue.id))!
       row.parentId = asIssueId(issue.parentId)
-      await store.issues.upsertIssue(row)
+      await store.issues.upsertIssue(fixtureWriteScope(), row)
     }
   })
   await store.transact(async () => {
-    for (const dep of deps) await store.issues.addIssueDep(asIssueId(dep.fromId), asIssueId(dep.toId), dep.type)
+    for (const dep of deps)
+      await store.issues.addIssueDep(asIssueId(dep.fromId), asIssueId(dep.toId), dep.type)
   })
   return store
 }
 
 /** Grant `grantee` a verb on an issue owned by the first admin. */
-export async function grantIssue(store: SessionStore, issueId: string, grantee: UserId, verb: 'read' | 'write' | 'see' | 'use' | 'manage') {
+export async function grantIssue(
+  store: SessionStore,
+  issueId: string,
+  grantee: UserId,
+  verb: 'read' | 'write' | 'see' | 'use' | 'manage',
+) {
   const owner = await firstAdminMemberId(store)
   await store.grants.upsert({
     resourceKind: 'issue',
@@ -147,16 +177,18 @@ export async function grantIssue(store: SessionStore, issueId: string, grantee: 
     verb,
     owner,
     visibility: 'personal',
-    createdAt: '2026-10-01T00:00:00Z',
+    createdAt: '2026-10-01T00:00:00.000Z',
     actorKind: 'user',
     actorId: owner,
     onBehalfOf: owner,
   })
 }
 
-/** SQL straight to the store's connection, for rows no repository writes. */
-export function rawSql(store: SessionStore, statement: string, ...args: unknown[]): void {
-  ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
-    .prepare(statement)
-    .run(...args)
+/**
+ * One raw write on the store's database, on the run's engine (`storeSql`), for rows no
+ * repository writes. Written with drizzle's `sql` template, so values render as each
+ * engine's placeholders.
+ */
+export async function rawSql(store: SessionStore, statement: SQL): Promise<void> {
+  await storeSql(store).run(statement)
 }

@@ -1,0 +1,140 @@
+diff --git a/build/fork/keepMountedState.d.ts b/build/fork/keepMountedState.d.ts
+new file mode 100644
+index 0000000000000000000000000000000000000000..59fbf4c1d8ac87eb18dd3e8830bf7d4100574b84
+--- /dev/null
++++ b/build/fork/keepMountedState.d.ts
+@@ -0,0 +1,5 @@
++import type { NavigationState, PartialState } from '../react-navigation/native';
++type AnyState = NavigationState | PartialState<NavigationState>;
++/** PODIUM FORK (POD-7177): the state a browser back or forward reaches, within the current one. */
++export declare function keepMountedState(current: AnyState | undefined, next: AnyState | undefined): AnyState | undefined;
++export {};
+diff --git a/build/fork/keepMountedState.js b/build/fork/keepMountedState.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..edc21e78a4fba9aea3b65d3287ba0d753780e943
+--- /dev/null
++++ b/build/fork/keepMountedState.js
+@@ -0,0 +1,93 @@
++"use strict";
++// PODIUM FORK (POD-7177), not in upstream Expo Router: patches/expo-router@57.0.26.patch.
++var __importDefault = (this && this.__importDefault) || function (mod) {
++    return (mod && mod.__esModule) ? mod : { "default": mod };
++};
++Object.defineProperty(exports, "__esModule", { value: true });
++exports.keepMountedState = keepMountedState;
++const fast_deep_equal_1 = __importDefault(require("fast-deep-equal"));
++/**
++ * The state a browser back or forward reaches, reached WITHIN the current one.
++ *
++ * A popstate to a history entry the memory history does not hold (an entry
++ * written by someone else, one from before a reload, the iOS swipe back onto
++ * one) resets the root with `getStateFromPath`'s state. That state carries no
++ * route keys, so every route got a new one: the root layout and everything
++ * under it remounted. Here, per navigator, the path's focused route is found
++ * in the current state: a stack pops back to it when it holds it and pushes it
++ * when it does not; a tab or drawer navigator focuses it. Every route that
++ * stays keeps its key, so nothing still on screen remounts. A navigator that
++ * holds no such route takes the path's state for that level, as before.
++ *
++ * The result is a partial state (no `stale: false` on a level it changed):
++ * each navigator rehydrates its level and keeps every key it is given.
++ */
++function keepMountedState(current, next) {
++    if (!current ||
++        !next ||
++        !Array.isArray(current.routes) ||
++        !Array.isArray(next.routes) ||
++        next.routes.length === 0) {
++        return next;
++    }
++    const target = next.routes[next.index ?? next.routes.length - 1];
++    if (!target) {
++        return next;
++    }
++    const { stale: _stale, ...base } = current;
++    if (current.type === 'stack') {
++        let at = -1;
++        for (let i = current.routes.length - 1; i >= 0; i--) {
++            if (sameRoute(current.routes[i], target)) {
++                at = i;
++                break;
++            }
++        }
++        const routes = at === -1
++            ? [...current.routes, target]
++            : [...current.routes.slice(0, at), merge(current.routes[at], target)];
++        return { ...base, index: routes.length - 1, routes };
++    }
++    const at = current.routes.findIndex((route) => sameRoute(route, target));
++    if (at === -1) {
++        return next;
++    }
++    return {
++        ...base,
++        index: at,
++        routes: current.routes.map((route, i) => (i === at ? merge(route, target) : route)),
++    };
++}
++/** Params a parent route carries to steer its child navigator, not its own. */
++const NAVIGATION_PARAMS = new Set(['screen', 'params', 'initial', 'state', 'path', 'merge', 'pop']);
++function ownParams(params) {
++    const own = {};
++    for (const [name, value] of Object.entries(params ?? {})) {
++        if (!NAVIGATION_PARAMS.has(name) && value !== undefined) {
++            own[name] = value;
++        }
++    }
++    return own;
++}
++/**
++ * A route that holds a navigator is the same navigator whatever its params say;
++ * a screen is the same screen only with the same params (mission A is not B).
++ */
++function sameRoute(existing, target) {
++    if (existing.name !== target.name) {
++        return false;
++    }
++    if (existing.state || target.state) {
++        return true;
++    }
++    return (0, fast_deep_equal_1.default)(ownParams(existing.params), ownParams(target.params));
++}
++function merge(existing, target) {
++    if (!target.state) {
++        return { ...existing, params: target.params ?? existing.params };
++    }
++    return {
++        ...existing,
++        state: existing.state ? keepMountedState(existing.state, target.state) : target.state,
++    };
++}
+diff --git a/build/fork/useLinking.js b/build/fork/useLinking.js
+index 6911c31922fd72621bfaa46c47b83274216a4744..656fb586aa76e2981bf33fe7b1ee89cf955a0f42 100644
+--- a/build/fork/useLinking.js
++++ b/build/fork/useLinking.js
+@@ -14,6 +14,8 @@ const serverLocationContext_1 = require("../global-state/serverLocationContext")
+ const storeContext_1 = require("../global-state/storeContext");
+ const utils_1 = require("../global-state/utils");
+ const native_1 = require("../react-navigation/native");
++// PODIUM FORK (POD-7177): a popstate to an entry the memory history does not hold keeps the mounted routes.
++const keepMountedState_1 = require("./keepMountedState");
+ /**
+  * Find the matching navigation state that changed between 2 navigation states
+  * e.g.: a -> b -> c -> d and a -> b -> c -> e -> f, if history in b changed, b is the matching state
+@@ -210,11 +212,14 @@ function useLinking(ref, { enabled = true, config, getStateFromPath = native_1.g
+                         }
+                     }
+                     else {
+-                        navigation.resetRoot(state);
++                        // PODIUM FORK (POD-7177)
++                        navigation.resetRoot((0, keepMountedState_1.keepMountedState)(navigation.getRootState(), state));
+                     }
+                 }
+                 else {
+-                    navigation.resetRoot(state);
++                    // PODIUM FORK (POD-7177): `state` has no route keys; reset to it as is and the
++                    // root layout and everything under it remount. Reach it within the current state.
++                    navigation.resetRoot((0, keepMountedState_1.keepMountedState)(navigation.getRootState(), state));
+                 }
+             }
+             else {

@@ -4,10 +4,7 @@ import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { MobxPool } from './pool'
-import { SHELL_SUMMARIES } from './shell-schema'
 import { shellViews } from './shell-views'
-import { createColdIndex } from './shared/cold-index'
-import { SCHEMA } from './shared/schema'
 import type { RowRecord, RowSourceEvent } from './shared/source'
 
 const old = '2020-01-01T00:00:00Z'
@@ -32,18 +29,15 @@ const lane = (path: string, id = 'repo', prefix: string | undefined = 'POD'): Ro
   ({ kind: 'worktree', id: path, value: { path, repoId: id, prefix, repoPath: '/fixture', repoName: 'Fixture' } } as RowRecord)
 function fixture(rows: RowRecord[]) {
   if (rows.some(row => row.kind === 'session') && !rows.some(row => row.kind === 'worktree')) rows = [repo(), ...rows]
-  let source = createColdIndex(SCHEMA, SHELL_SUMMARIES)
-  source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse('2026-10-05') }, undefined, {
-    cold: () => source, summaries: SHELL_SUMMARIES, worklist: 'demand', schedule: () => () => {},
+    worklist: 'demand', schedule: () => () => {},
     load: () => undefined,
   })
   pool.apply({ type: 'replace', rows })
-  return { pool, source: () => source,
-    publish(event: RowSourceEvent) { source.apply(event); pool.apply(event) },
+  return { pool, source: () => pool.deviceIndex(),
+    publish(event: RowSourceEvent) { pool.apply(event) },
     fresh(rows: RowRecord[]) {
-      source = createColdIndex(SCHEMA, SHELL_SUMMARIES)
-      source.apply({ type: 'replace', rows }); pool.apply({ type: 'replace', rows })
+      pool.apply({ type: 'replace', rows })
     },
   }
 }

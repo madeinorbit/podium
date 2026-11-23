@@ -57,7 +57,7 @@ const STATE = {
   openFileInWorktree: () => {},
 }
 
-export function useRuntimeSelector<T>(selector: (s: typeof STATE) => T): T {
+export function readFixture<T>(selector: (s: typeof STATE) => T): T {
   return selector(STATE)
 }
 

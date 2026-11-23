@@ -15,6 +15,7 @@ import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 const ctx = (registry: SessionRegistry, rawCapability: Capability) => {
   const capability: Capability =
@@ -289,7 +290,7 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
   })
 
   it('B3: create validates parentId BEFORE persist — bogus/closed/archived parents reject with nothing created', async () => {
-    const { reg, op, worker, root } = await setup()
+    const { reg, op, worker } = await setup()
     try {
       const before = (await op.issues.list({ repoPath: '/r' })).length
       await expect(
@@ -333,8 +334,22 @@ describe('proposed lane bypass paths are closed (B1-B4)', () => {
   })
 
   it('M5: the proposal subtree is inert — sub-creates are neutered, start and attach reject', async () => {
-    const { reg, proposal, proposalWorker } = await setup()
+    const { reg, proposal } = await setup()
     try {
+      // Effects reauthorize their writer from the persisted session, so use a
+      // real actor as well as an assigned execution target to reach this guard.
+      await reg.sessionStore.machines.addMachineComponent(reg.sessionStore.hostMachineId, 'daemon')
+      await attachHostDaemon(reg)
+      const actor = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/r',
+        issueId: proposal.id,
+      })
+      const proposalWorker = ctx(reg, {
+        role: 'worker',
+        scope: { kind: 'subtree', rootId: proposal.id },
+        actorSessionId: actor.sessionId,
+      })
       const sub = await proposalWorker.issues.create({
         repoPath: '/r',
         title: 'decomposition under proposal',

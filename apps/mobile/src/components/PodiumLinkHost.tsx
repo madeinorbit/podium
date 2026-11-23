@@ -11,7 +11,7 @@ import {
   subscribePendingMobileHandoff,
 } from '../client/mobile-handoff'
 import { useServerProfile } from '../client/server-profile-context'
-import { usePoolLinkData } from '../client/use-inbox-data'
+import { usePoolLinkData } from '../client/use-pool-links'
 import { MOBILE_HOME } from '../lib/navigation'
 import { setActivePodiumOrigin, setPodiumTargetActivator } from '../lib/podium-link'
 import { consoleRoute, consoleSessionTarget } from '../navigation/console-route'

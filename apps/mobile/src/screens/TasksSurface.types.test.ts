@@ -85,7 +85,7 @@ it('matches desktop and deck leaf progress for a TFT-88-shaped task across live 
   const stop = autorun(() => {
     const desktop = pool.worklistRow('audit')?.progress
     if (!desktop || desktop === LOADING) throw new Error('Desktop progress must be loaded')
-    const full = opening.full.buckets
+    const full = opening.full.phoneBuckets
     expect(full).toBe(desktop)
     const deck = opening.progress
     figures = [

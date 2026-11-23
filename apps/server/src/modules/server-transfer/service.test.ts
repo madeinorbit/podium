@@ -1,10 +1,16 @@
-import { asIssueId, asMachineId } from '@podium/model'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asIssueId, asMachineId } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
+import { vaultCheckValue } from '@podium/runtime/vault-key'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
+import { DaemonRpcService } from '../machines/rpc'
+import { type MachinesDeps, MachinesService } from '../machines/service'
 import { assertWritableServerBoot } from './journal'
+import { serverTransferRpcAdapter } from './rpc-adapter'
 import { ServerTransferService } from './service'
 import {
   SERVER_TRANSFER_CONFIRMATION,
@@ -498,7 +504,6 @@ describe('ServerTransferService final-fence flow', () => {
     expect(fake.rpc.serverTransferAbort).toHaveBeenCalledOnce()
     expect(fence).not.toHaveBeenCalled()
   })
-
 })
 
 /**
@@ -557,5 +562,297 @@ describe('ServerTransferService under the async store (POD-3820)', () => {
     } finally {
       await store.close()
     }
+  })
+})
+
+describe('ServerTransferService vault key hand-over', () => {
+  // Obviously fake: a fixed pattern, never a real key.
+  const dataKey = Buffer.alloc(32, 0x5a)
+  let keyDir: string
+  let keyPath: string
+
+  beforeEach(async () => {
+    keyDir = await mkdtemp(join(tmpdir(), 'podium-source-vault-key-'))
+    keyPath = join(keyDir, 'vault-source.key')
+    await writeFile(keyPath, `${Buffer.alloc(32, 0x11).toString('base64')}\n`, { mode: 0o600 })
+  })
+
+  afterEach(async () => {
+    await rm(keyDir, { recursive: true, force: true })
+  })
+
+  const vault = (state: 'ready' | 'empty' | 'locked' = 'ready') => ({
+    state: () => state,
+    status: () => ({ keyPath }),
+    exportDataKey: () => (state === 'ready' ? Buffer.from(dataKey) : null),
+  })
+  const capableTarget = () => ({
+    exists: true,
+    online: true,
+    capable: true,
+    hasDaemon: true,
+    vaultKeyHandover: true,
+  })
+
+  /** The target opens what it was given and answers with that key's check value. */
+  function handingOver(fake: ReturnType<typeof fakeRpc>, given?: (key: Buffer) => Buffer) {
+    const promote = fake.rpc.serverTransferPromote
+    const inputs: Parameters<ServerTransferRpc['serverTransferPromote']>[0][] = []
+    fake.rpc.serverTransferPromote = vi.fn(async (request, target) => {
+      inputs.push(request)
+      const reply = await promote(request, target)
+      if (!reply.ok || typeof request.vaultDataKey !== 'string') return reply
+      const received = Buffer.from(request.vaultDataKey, 'base64')
+      return {
+        ...reply,
+        vaultCheck: vaultCheckValue(given ? given(received) : received, request.transferId),
+      }
+    })
+    return inputs
+  }
+
+  /** Files under `dir` holding `key` raw, in hex or in base64. */
+  async function filesHolding(dir: string, key: Buffer): Promise<string[]> {
+    const needles = [
+      key,
+      Buffer.from(key.toString('hex')),
+      Buffer.from(key.toString('base64')),
+      Buffer.from(key.toString('base64url')),
+    ]
+    const found: string[] = []
+    for (const entry of await readdir(dir, { recursive: true, withFileTypes: true })) {
+      if (!entry.isFile()) continue
+      const path = join(entry.parentPath, entry.name)
+      if (needles.some((needle) => readFileSync(path).includes(needle))) found.push(path)
+    }
+    return found
+  }
+
+  it('hands the data key over in promotion and deletes its own key file at finalize', async () => {
+    const fake = fakeRpc()
+    const inputs = handingOver(fake)
+    const result = await makeService(fake.rpc, {
+      vault: vault(),
+      targetState: capableTarget,
+      targetLinkKind: () => 'encrypted',
+    }).transfer(input, allow)
+
+    expect(result).toMatchObject({ ok: true, state: 'committed' })
+    expect(inputs.at(-1)).toMatchObject({
+      vaultDataKey: dataKey.toString('base64'),
+      vaultCheck: vaultCheckValue(dataKey, result.transferId),
+    })
+    expect(existsSync(keyPath)).toBe(false)
+
+    // The journal and the snapshots never held the key; the search does find a canary.
+    const canary = Buffer.alloc(32, 0x3c)
+    await writeFile(join(root, '.server-transfer', 'canary.txt'), canary.toString('base64'))
+    expect(await filesHolding(join(root, '.server-transfer'), canary)).toHaveLength(1)
+    expect(await filesHolding(join(root, '.server-transfer'), dataKey)).toEqual([])
+  })
+
+  it('refuses a target on a plain connection before anything is copied or staged', async () => {
+    const fake = fakeRpc()
+    const fence = vi.fn()
+    const service = makeService(fake.rpc, {
+      fence,
+      vault: vault(),
+      targetState: capableTarget,
+      targetLinkKind: () => 'plain',
+    })
+
+    await expect(service.transfer(input, allow)).rejects.toMatchObject({
+      code: 'target-link-not-encrypted',
+    })
+    expect(fake.rpc.serverTransferPrepare).not.toHaveBeenCalled()
+    expect(fake.rpc.serverTransferChunk).not.toHaveBeenCalled()
+    expect(fence).not.toHaveBeenCalled()
+    expect(service.status()).toBeUndefined()
+    expect(existsSync(join(root, '.server-transfer', 'snapshots'))).toBe(false)
+    expect(existsSync(keyPath)).toBe(true)
+  })
+
+  it('refuses a target that cannot take the key before the snapshot, when the vault holds one', async () => {
+    const fake = fakeRpc()
+    const service = makeService(fake.rpc, {
+      vault: vault('ready'),
+      targetState: () => ({ ...capableTarget(), vaultKeyHandover: false }),
+      targetLinkKind: () => 'encrypted',
+    })
+
+    await expect(service.transfer(input, allow)).rejects.toMatchObject({
+      code: 'target-unsupported',
+    })
+    expect(fake.rpc.serverTransferPrepare).not.toHaveBeenCalled()
+    expect(service.status()).toBeUndefined()
+    expect(existsSync(join(root, '.server-transfer', 'snapshots'))).toBe(false)
+  })
+
+  it('moves an empty vault to a target without the capability, sending no key', async () => {
+    const fake = fakeRpc()
+    const inputs = handingOver(fake)
+    const result = await makeService(fake.rpc, {
+      vault: vault('empty'),
+      targetState: () => ({ ...capableTarget(), vaultKeyHandover: false }),
+      targetLinkKind: () => 'local',
+    }).transfer(input, allow)
+
+    expect(result).toMatchObject({ ok: true, state: 'committed' })
+    expect(inputs.at(-1)?.vaultDataKey).toBeNull()
+    expect(inputs.at(-1)).not.toHaveProperty('vaultCheck')
+  })
+
+  it('aborts on a wrong check value from a target that refused: source writable with its key, target cleaned', async () => {
+    const fake = fakeRpc()
+    const wrong = vaultCheckValue(Buffer.alloc(32, 0x01), 'transfer-x')
+    fake.rpc.serverTransferPromote = vi.fn(async () => ({
+      ok: false as const,
+      state: 'validated',
+      error: { code: 'refused', detail: 'the vault data key does not open to the check value' },
+      vaultCheck: wrong,
+    }))
+    const releaseFence = vi.fn()
+    const demoteSource = vi.fn()
+    const service = makeService(fake.rpc, {
+      releaseFence,
+      demoteSource,
+      vault: vault(),
+      targetState: capableTarget,
+      targetLinkKind: () => 'trusted',
+    })
+
+    const result = await service.transfer(input, allow)
+
+    expect(result).toMatchObject({
+      ok: false,
+      state: 'aborted',
+      error: { code: 'vault-check-failed' },
+      cleanup: { result: 'cleaned' },
+    })
+    expect(releaseFence).toHaveBeenCalledOnce()
+    expect(demoteSource).not.toHaveBeenCalled()
+    expect(fake.rpc.serverTransferAbort).toHaveBeenCalledWith(
+      expect.objectContaining({ transferId: result.transferId }),
+      input.targetMachineId,
+    )
+    expect(service.status()?.state).toBe('aborted')
+    expect(() => assertWritableServerBoot(root)).not.toThrow()
+    expect(existsSync(keyPath)).toBe(true)
+  })
+
+  it('aborts when the promote holding the key is refused at the send; a later attach gets no key', async () => {
+    // The real chain from the adapter down: DaemonRpcService, its broker, and
+    // MachinesService.toMachine, with the target's daemon gone since the preflight.
+    const machines = new MachinesService({
+      instanceId: 'default',
+      daemonLinkKind: () => 'encrypted',
+      store: {
+        machines: {
+          getMachine: async () => ({ revokedAt: null }),
+          addMachineComponent: () => false,
+          setAvailability: async () => {},
+          setPresenceSource: () => {},
+          committed: { subscribe: () => () => {} },
+        },
+      } as unknown as MachinesDeps['store'],
+      hostMachineId: asMachineId('source-1'),
+    } satisfies MachinesDeps)
+    const wire = new DaemonRpcService({
+      toMachine: machines.toMachine,
+      defaultMachine: () => input.targetMachineId,
+    } as never)
+    const fake = fakeRpc()
+    fake.rpc.serverTransferPromote = vi.fn(serverTransferRpcAdapter(wire).serverTransferPromote)
+    const releaseFence = vi.fn()
+    const demoteSource = vi.fn()
+    const service = makeService(fake.rpc, {
+      releaseFence,
+      demoteSource,
+      vault: vault(),
+      targetState: capableTarget,
+      targetLinkKind: () => 'encrypted',
+    })
+
+    const result = await service.transfer(input, allow)
+
+    // The key was really in the request: the refusal, not an empty vault, kept it home.
+    expect(fake.rpc.serverTransferPromote).toHaveBeenCalledWith(
+      expect.objectContaining({ vaultDataKey: dataKey.toString('base64') }),
+      input.targetMachineId,
+    )
+    expect(result).toMatchObject({
+      ok: false,
+      state: 'aborted',
+      error: { code: 'target-unreachable' },
+    })
+    expect(JSON.stringify(result)).not.toContain(dataKey.toString('base64'))
+    expect(releaseFence).toHaveBeenCalledOnce()
+    expect(demoteSource).not.toHaveBeenCalled()
+    expect(fake.rpc.serverTransferAbort).toHaveBeenCalledWith(
+      expect.objectContaining({ transferId: result.transferId }),
+      input.targetMachineId,
+    )
+    expect(service.status()?.state).toBe('aborted')
+    expect(() => assertWritableServerBoot(root)).not.toThrow()
+    expect(existsSync(keyPath)).toBe(true)
+
+    // The target's daemon comes back: nothing was parked for it.
+    const got: ControlMessage[] = []
+    await machines.attach(input.targetMachineId, (m) => got.push(m), [])
+    await machines.flushQueued(input.targetMachineId)
+    expect(got.map((m) => m.type)).not.toContain('serverTransferPromoteRequest')
+    expect(JSON.stringify(got)).not.toContain(dataKey.toString('base64'))
+  })
+
+  it('treats a promoted target with a wrong check value as uncertain and keeps the key file', async () => {
+    const fake = fakeRpc()
+    handingOver(fake, (key) => Buffer.alloc(key.length, 0x02))
+    const demoteSource = vi.fn()
+    const service = makeService(fake.rpc, {
+      demoteSource,
+      vault: vault(),
+      targetState: capableTarget,
+      targetLinkKind: () => 'encrypted',
+    })
+
+    const result = await service.transfer(input, allow)
+
+    expect(result).toMatchObject({ ok: false, state: 'commit-uncertain' })
+    expect(demoteSource).not.toHaveBeenCalled()
+    expect(existsSync(keyPath)).toBe(true)
+  })
+
+  it('reports a key file it cannot delete and still commits', async () => {
+    const fake = fakeRpc()
+    handingOver(fake)
+    const result = await makeService(fake.rpc, {
+      vault: vault(),
+      targetState: capableTarget,
+      targetLinkKind: () => 'encrypted',
+      removeVaultKeyFile: async () => {
+        throw Object.assign(new Error('read-only file system'), { code: 'EROFS' })
+      },
+    }).transfer(input, allow)
+
+    expect(result).toMatchObject({
+      ok: true,
+      state: 'committed',
+      cleanup: { result: 'pending', detail: expect.stringContaining(keyPath) },
+    })
+    expect(existsSync(keyPath)).toBe(true)
+  })
+
+  it('keeps the key file of a locked vault and sends no key', async () => {
+    const fake = fakeRpc()
+    const inputs = handingOver(fake)
+    const result = await makeService(fake.rpc, {
+      vault: vault('locked'),
+      targetState: capableTarget,
+      targetLinkKind: () => 'encrypted',
+    }).transfer(input, allow)
+
+    expect(result).toMatchObject({ ok: true, state: 'committed' })
+    expect(inputs.at(-1)?.vaultDataKey).toBeNull()
+    expect(existsSync(keyPath)).toBe(true)
   })
 })

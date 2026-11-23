@@ -1,4 +1,3 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { asSessionId, type MessageRecordWire } from '@podium/model'
 import { autorun } from 'mobx'
@@ -37,7 +36,7 @@ it('scopes delivery attention to the task and follows confirmation, expiry and d
       },
     },
     outbox: { deadLetters: () => [], subscribe: () => () => {} },
-  } as unknown as Pick<ClientRuntime, 'replica' | 'outbox'>)
+  } as unknown as ConstructorParameters<typeof NoticeSource>[0])
   pool.apply({
     type: 'replace',
     rows: [
@@ -128,7 +127,7 @@ it('keeps delivery attention reads scoped to one session at 1x/4x account size',
         },
       },
       outbox: { deadLetters: () => [], subscribe: () => () => {} },
-    } as unknown as Pick<ClientRuntime, 'replica' | 'outbox'>)
+    } as unknown as ConstructorParameters<typeof NoticeSource>[0])
     pool.sources.register(NOTICE_ENTITIES, source)
     const read = vi.spyOn(pool, 'model')
     const stop = autorun(() => noticeSessionDeliveryAttention(pool, 'selected'))

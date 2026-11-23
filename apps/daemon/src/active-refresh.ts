@@ -1,8 +1,8 @@
-import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
+import type { ConversationDiagnosticWire, ConversationDiscoveryWire } from '@podium/model'
 
 /** The shape `runIndexRefreshJob` returns (mapped to wire types by the worker). */
 export type ConversationDeltaWire = {
-  changed: ConversationSummaryWire[]
+  changed: ConversationDiscoveryWire[]
   removed: string[]
   diagnostics: ConversationDiagnosticWire[]
 }

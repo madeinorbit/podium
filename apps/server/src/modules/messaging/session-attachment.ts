@@ -29,6 +29,9 @@ export interface AttachableSession {
   /** Birth ref (`POD-12-A`) when it has one. */
   ref?: string
   status: SessionStatus
+  /** Running, and the server has no daemon link to its machine right now
+   *  (`isSessionReconnecting`, ADR 12 D1). */
+  reconnecting: boolean
   archived: boolean
   /** The superagent's own sessions — never attachable. */
   headless: boolean
@@ -109,7 +112,7 @@ const RELAY_RETRY_MS = 2000
 /** Phases a turn ends INTO; `compacting` is still inside the turn. */
 const TURN_END_PHASES: ReadonlySet<AgentPhase> = new Set(['idle', 'needs_user', 'errored', 'ended'])
 const TURN_PHASES: ReadonlySet<AgentPhase> = new Set(['working', 'compacting'])
-const RUNNING: ReadonlySet<SessionStatus> = new Set(['live', 'starting', 'reconnecting'])
+const RUNNING: ReadonlySet<SessionStatus> = new Set(['live', 'starting'])
 const NOT_AVAILABLE = '⚠️ The attached session is no longer available, so this was not sent.'
 
 function threadRefOf(source: ConversationRef): string {
@@ -140,8 +143,8 @@ function parked(session: AttachableSession): boolean {
 export function sessionStateWords(session: AttachableSession): string {
   if (session.archived) return 'archived'
   if (parked(session)) return session.resumable ? 'parked' : 'ended'
+  if (session.reconnecting) return 'reconnecting'
   if (session.status === 'starting') return 'starting'
-  if (session.status === 'reconnecting') return 'reconnecting'
   switch (session.phase) {
     case 'working':
     case 'compacting':
@@ -289,8 +292,8 @@ export class SessionAttachments {
     if (outcome.queued) {
       const position = outcome.position ? ` (#${outcome.position})` : ''
       const why =
-        session.status === 'reconnecting' || session.status === 'starting'
-          ? `${nameOf(session)} is ${session.status}; it gets this once it is running.`
+        session.reconnecting || session.status === 'starting'
+          ? `${nameOf(session)} is ${sessionStateWords(session)}; it gets this once it is running.`
           : `${nameOf(session)} is busy; it gets this when the current turn ends.`
       await this.deps.reply(msg.source, `⏳ Queued${position}. ${why}`)
     }

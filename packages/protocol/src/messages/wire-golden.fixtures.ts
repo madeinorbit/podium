@@ -127,10 +127,6 @@ const SESSION_META_FULL = {
   status: 'live',
   exitCode: 0,
   spawnFailure: 'none',
-  controllerId: 'client-1',
-  geometry: { cols: 120, rows: 40 },
-  epoch: 3,
-  clientCount: 2,
   createdAt: '2026-07-30T09:00:00.000Z',
   lastActiveAt: '2026-07-30T10:00:00.000Z',
   lastInputAt: '2026-07-30T09:59:00.000Z',
@@ -189,10 +185,6 @@ const SESSION_META_MINIMAL = {
   title: '',
   cwd: '/home/u',
   status: 'starting',
-  controllerId: null,
-  geometry: { cols: 80, rows: 24 },
-  epoch: 0,
-  clientCount: 0,
   createdAt: '2026-07-30T09:00:00.000Z',
   lastActiveAt: '2026-07-30T09:00:00.000Z',
   origin: { kind: 'spawn' },
@@ -231,7 +223,6 @@ const ISSUE_GIT_STATE_FULL = {
 
 const CONVERSATION_SUMMARY_FULL = {
   id: 'native-1',
-  path: '/home/u/.claude/projects/x/native-1.jsonl',
   podiumId: 'pconv-1',
   agentKind: 'claude-code',
   title: 'harness title',
@@ -239,12 +230,9 @@ const CONVERSATION_SUMMARY_FULL = {
   summary: 'work summary',
   projectPath: '/home/u/repo',
   parentConversationId: 'native-0',
-  statusHint: 'idle',
   createdAt: '2026-07-30T09:00:00.000Z',
   updatedAt: '2026-07-30T10:00:00.000Z',
   messageCount: 42,
-  sizeBytes: 999,
-  git: { branch: 'main', sha: 'b'.repeat(40), originUrl: 'git@github.com:x/y.git' },
   resume: { kind: 'claude-session', value: 'uuid-1' },
   providerId: 'claude-code',
 }
@@ -474,6 +462,15 @@ const HANDOFF_MANIFEST_MINIMAL = {
 
 export const WIRE_FIXTURES: WireFixture[] = [
   ...SYNC_WIRE_FIXTURES,
+  {
+    name: 'welcome.kindTokens',
+    schema: ServerMessage,
+    value: {
+      type: 'welcome',
+      clientId: 'client-1',
+      kindTokens: { session: '0123456789abcdef:0' },
+    },
+  },
   {
     name: 'SessionUserStateWire.never-read',
     schema: SessionUserStateWire,
@@ -878,24 +875,6 @@ export const WIRE_FIXTURES: WireFixture[] = [
 
   // ---- frames that CARRY the relocated entities (must stay in protocol) ----
   {
-    name: 'frame.machinesChanged',
-    schema: ServerMessage,
-    value: {
-      type: 'machinesChanged',
-      machines: [
-        {
-          id: 'machine-1',
-          name: 'ludovico',
-          hostname: 'ludovico.local',
-          online: true,
-          lastSeenAt: '2026-07-30T10:00:00.000Z',
-          use: 'granted',
-          inventory: INVENTORY_FULL,
-        },
-      ],
-    },
-  },
-  {
     name: 'frame.hostMetricsChanged',
     schema: ServerMessage,
     value: {
@@ -911,11 +890,6 @@ export const WIRE_FIXTURES: WireFixture[] = [
         },
       ],
     },
-  },
-  {
-    name: 'frame.worktreesChanged',
-    schema: ServerMessage,
-    value: { type: 'worktreesChanged', repoPath: '/home/u/repo', machineId: 'machine-1' },
   },
   {
     name: 'frame.transcriptDelta',
@@ -1034,7 +1008,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
     value: {
       type: 'scanResult',
       requestId: 'req-5',
-      conversations: [CONVERSATION_SUMMARY_FULL],
+      conversations: [{ ...CONVERSATION_SUMMARY_FULL, path: '/home/u/.claude/projects/x/native-1.jsonl', sizeBytes: 999 }],
       diagnostics: [],
       removed: [],
     },
@@ -1497,6 +1471,158 @@ export const WIRE_FIXTURES: WireFixture[] = [
       requestId: 'cc-2',
       ok: false,
       error: 'Codex is not logged in on this machine — run `codex login`.',
+    },
+  },
+  {
+    // Wire v2 rows carry the command that caused them (POD-6274). Provenance
+    // follows `value`, so the pinned `seq, entity, entityId, op, value` prefix
+    // is unchanged; the second row pins that absent provenance writes no key.
+    name: 'frame.feedDelta.provenance',
+    schema: ServerMessage,
+    value: {
+      type: 'feedDelta',
+      feedId: 'feed-1',
+      epoch: 'epoch-1',
+      fromSeq: 5,
+      seq: 7,
+      minAvailableSeq: 0,
+      changes: [
+        {
+          seq: 6,
+          entity: 'repo',
+          entityId: 'repo-1',
+          op: 'upsert',
+          value: { id: 'repo-1', prefix: 'POD' },
+          originId: 'peer-1',
+          causationId: 'mut-1',
+          mutationId: 'mut-1',
+        },
+        { seq: 7, entity: 'repo', entityId: 'repo-2', op: 'remove' },
+      ],
+    },
+  },
+  // TOPICS ON THE STREAM PLANE (ADR 7 Amendment 2 D23, POD-5800): every topic
+  // frame, in both directions and on the daemon link.
+  {
+    name: 'frame.topicSubscribe',
+    schema: ClientMessage,
+    value: {
+      type: 'topicSubscribe',
+      key: 'machine.metrics:machine-1',
+    },
+  },
+  {
+    name: 'frame.topicSubscribe.from',
+    schema: ClientMessage,
+    value: {
+      type: 'topicSubscribe',
+      key: 'machine.metrics:machine-1',
+      from: {
+        epoch: 'boot-1.3',
+        seq: 12,
+      },
+    },
+  },
+  {
+    name: 'frame.topicUnsubscribe',
+    schema: ClientMessage,
+    value: {
+      type: 'topicUnsubscribe',
+      key: 'machine.metrics:machine-1',
+    },
+  },
+  {
+    name: 'frame.topicSnapshot',
+    schema: ServerMessage,
+    value: {
+      type: 'topicSnapshot',
+      key: 'machine.condition:machine-1',
+      position: {
+        epoch: 'boot-1.1',
+        seq: 0,
+      },
+      payload: {
+        online: true,
+        since: '2026-11-08T10:00:00.000Z',
+      },
+    },
+  },
+  {
+    name: 'frame.topicSnapshot.unknown',
+    schema: ServerMessage,
+    value: {
+      type: 'topicSnapshot',
+      key: 'machine.metrics:machine-1',
+      position: {
+        epoch: 'boot-1.2',
+        seq: 0,
+      },
+    },
+  },
+  {
+    name: 'frame.topicUpdate',
+    schema: ServerMessage,
+    value: {
+      type: 'topicUpdate',
+      key: 'machine.condition:machine-1',
+      position: {
+        epoch: 'boot-1.1',
+        seq: 1,
+      },
+      payload: {
+        online: false,
+        since: '2026-11-08T10:05:00.000Z',
+      },
+    },
+  },
+  {
+    name: 'frame.topicEvent',
+    schema: ServerMessage,
+    value: {
+      type: 'topicEvent',
+      key: 'account.events:user-1',
+      payload: {
+        type: 'attentionEvent',
+        sessionId: 'session-1',
+        title: 'Needs you',
+        body: 'Waiting for approval',
+      },
+    },
+  },
+  {
+    name: 'frame.topicClosed',
+    schema: ServerMessage,
+    value: {
+      type: 'topicClosed',
+      key: 'machine.metrics:machine-2',
+      reason: 'refused',
+    },
+  },
+  {
+    name: 'frame.topicWatch',
+    schema: ControlMessage,
+    value: {
+      type: 'topicWatch',
+      key: 'machine.metrics:machine-1',
+      on: true,
+    },
+  },
+  {
+    name: 'frame.topicPublish',
+    schema: DaemonMessage,
+    value: {
+      type: 'topicPublish',
+      key: 'machine.metrics:machine-1',
+      payload: {
+        hostname: 'host-1',
+        sampledAt: '2026-11-08T10:00:05.000Z',
+        memory: {
+          totalBytes: 32,
+          availableBytes: 16,
+          swapTotalBytes: 0,
+          swapFreeBytes: 0,
+        },
+      },
     },
   },
 ]

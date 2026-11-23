@@ -1,5 +1,5 @@
 import type { ConversationSendInput } from '@podium/client-core/conversation'
-import { chatActivity, composerState } from '@podium/client-core/values'
+import { composerState, phoneChatActivity } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { here } from '@podium/client-graph/lookup'
 import { MailReply, type MailReplyApi } from '@podium/client-graph/mail-reply'
@@ -28,17 +28,22 @@ export class MobileChatViewModel {
   }
   @actionBound setBackendModel(model: string, agentKind?: string): void {
     this.backendPick = applySuperagentModelPick(this.backendPick, model, agentKind)
+    this.saveBackend?.({ model, effort: 'auto' })
   }
   @actionBound setBackendEffort(effort: string): void {
     this.backendPick = { ...this.backendPick, effort }
+    this.saveBackend?.({ effort })
   }
   /** A reply to the agent that asked the operator a question (POD-2380): the
    *  web's shared flow, so a written reply goes to the asker over the existing
    *  `messages.reply`, never into the session prompt. */
   readonly reply: MailReply
+  /** `saveBackend`: the pick as the thread's own choice, a queued edit of its
+   *  record (POD-6675). The send still carries the pick for its own turn. */
   constructor(
     private readonly service: MobileConversation,
     private readonly pool: MobxPool,
+    private readonly saveBackend?: (choice: { model?: string; effort?: string }) => void,
     replyApi: MailReplyApi = UNWIRED_REPLY,
     current?: CurrentMessageRecord,
   ) {
@@ -87,6 +92,9 @@ export class MobileChatViewModel {
   @lazy get initialLoaded() {
     return this.service.transcript.initialLoaded
   }
+  @lazy get storedSettled() {
+    return this.service.transcript.storedSettled
+  }
   @lazy get hasMoreOlder() {
     return this.service.transcript.hasMoreOlder
   }
@@ -129,7 +137,12 @@ export class MobileChatViewModel {
     return this.service.sends.interruptError
   }
   @lazy({ equals: compareStructural }) get activity() {
-    return chatActivity(this.session, this.justSent, this.offer, this.service.sends.wakeRequestedAt)
+    return phoneChatActivity(
+      this.session,
+      this.justSent,
+      this.offer,
+      this.service.sends.wakeRequestedAt,
+    )
   }
   @lazy({ equals: compareStructural }) get composer() {
     return composerState({
@@ -137,7 +150,7 @@ export class MobileChatViewModel {
       headless: false,
       turnRunning: false,
       compact: false,
-      wakeRequestedAt: this.service.sends.wakeRequestedAt,
+      phoneWakeRequestedAt: this.service.sends.wakeRequestedAt,
     })
   }
   @lazy get turnActive(): boolean {

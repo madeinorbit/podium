@@ -20,7 +20,7 @@ import {
 import type { SendSocket } from './ws-send'
 
 const limits = { sendBufferLimitBytes: 1024 * 1024, lossySendBufferLimitBytes: 256 * 1024 }
-const welcome = (clientId: string) => ({ type: 'welcome' as const, clientId })
+const welcome = (clientId: string) => ({ type: 'welcome' as const, kindTokens: {}, clientId })
 const tick = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve()
 }
@@ -308,7 +308,7 @@ describe('send pump: lazy sequences', () => {
   })
 
   it('waits for shared-budget capacity instead of failing a lazy sequence', async () => {
-    const budget = new OrderedSendBudget(150)
+    const budget = new OrderedSendBudget(200)
     const { ws, sent } = scriptedSocket()
     const other = new OrderedClientSend(scriptedSocket([-1]).ws, limits, budget)
     other.send(welcome('a'))

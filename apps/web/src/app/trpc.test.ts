@@ -47,20 +47,21 @@ describe('trpcProcedurePath', () => {
 })
 
 describe('reportingFetch', () => {
-  it('omits an undefined harness clear from the real settings HTTP request', async () => {
-    const base = vi.fn().mockResolvedValue(
-      new Response('[{"result":{"data":{}}}]', { status: 200 }),
-    )
+  it('omits an undefined field from the real HTTP request', async () => {
+    const base = vi
+      .fn()
+      .mockResolvedValue(new Response('[{"result":{"data":{}}}]', { status: 200 }))
     const trpc = makeTrpc('https://relay.test', { fetch: base as typeof fetch })
-    await trpc.settings.updatePersonal.mutate({
-      values: { 'roles.superagent.harness': undefined, 'roles.superagent.model': 'saved-model' },
+    await trpc.issues.update.mutate({
+      id: 'iss_1',
+      patch: { description: undefined, title: 'saved title' },
     })
 
     expect(base).toHaveBeenCalledTimes(1)
-    expect(base.mock.calls[0]?.[0]).toContain('/trpc/settings.updatePersonal')
+    expect(base.mock.calls[0]?.[0]).toContain('/trpc/issues.update')
     const received = JSON.parse(base.mock.calls[0]?.[1]?.body as string)
-    expect(received['0'].values).toEqual({ 'roles.superagent.model': 'saved-model' })
-    expect(received['0'].values).not.toHaveProperty('roles.superagent.harness')
+    expect(received['0'].patch).toEqual({ title: 'saved title' })
+    expect(received['0'].patch).not.toHaveProperty('description')
   })
 
   it('logs a warn naming the procedure and status when the server refuses', async () => {
@@ -234,5 +235,60 @@ describe('reportingFetch', () => {
     expect(base).toHaveBeenCalledTimes(1)
     expect((error as Error).message).toBe(SERVER_UNAVAILABLE_MESSAGE)
     expect((error as Error).message).not.toMatch(/JSON|TRPCClientError/i)
+  })
+})
+
+describe('the member fence (POD-6292, MU-12)', () => {
+  it('stamps every call of a member’s client with that member', async () => {
+    const base = vi
+      .fn()
+      .mockResolvedValue(new Response('[{"result":{"data":{}}}]', { status: 200 }))
+    const trpc = makeTrpc('https://relay.test', {
+      fetch: base as typeof fetch,
+      member: 'mem_alice',
+    })
+    await trpc.settings.clearSecret.mutate({ key: 'integrations.linearApiKey' })
+    const init = base.mock.calls[0]?.[1] as RequestInit
+    expect(new Headers(init.headers).get('x-podium-member')).toBe('mem_alice')
+  })
+
+  it('leaves a pre-authentication client unfenced', async () => {
+    const base = vi
+      .fn()
+      .mockResolvedValue(new Response('[{"result":{"data":{}}}]', { status: 200 }))
+    const trpc = makeTrpc('https://relay.test', { fetch: base as typeof fetch })
+    await trpc.settings.clearSecret.mutate({ key: 'integrations.linearApiKey' })
+    const init = base.mock.calls[0]?.[1] as RequestInit
+    expect(new Headers(init.headers).has('x-podium-member')).toBe(false)
+  })
+})
+
+describe('the fence’s refusal ends the member’s runtime (POD-6292, MU-12)', () => {
+  const refusal = (body: unknown) =>
+    vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 401 }))
+
+  it('tells the runtime when the server refuses a call as someone else’s', async () => {
+    const onMemberRefused = vi.fn()
+    const trpc = makeTrpc('https://relay.test', {
+      fetch: refusal({ error: 'signed in as a different member', code: 'member-mismatch' }),
+      member: 'mem_alice',
+      onMemberRefused,
+      recoveryDelaysMs: [],
+    })
+    await trpc.settings.clearSecret.mutate({ key: 'integrations.linearApiKey' }).catch(() => {})
+    await vi.waitFor(() => expect(onMemberRefused).toHaveBeenCalledTimes(1))
+  })
+
+  it('leaves an ordinary expired session to the existing path', async () => {
+    const onMemberRefused = vi.fn()
+    const trpc = makeTrpc('https://relay.test', {
+      fetch: refusal({ error: 'unauthorized' }),
+      member: 'mem_alice',
+      onMemberRefused,
+      recoveryDelaysMs: [],
+    })
+    await trpc.settings.clearSecret.mutate({ key: 'integrations.linearApiKey' }).catch(() => {})
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(onMemberRefused).not.toHaveBeenCalled()
   })
 })

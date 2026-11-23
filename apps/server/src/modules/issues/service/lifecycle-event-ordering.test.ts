@@ -64,14 +64,17 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
   it('makes issue.deleted readable inside the span that deletes', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'Doomed vessel',
       startNow: false,
     })
 
     await store.transact(async () => {
-      await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+      await registry.modules.issueSessionLifecycle.deleteIssue(
+        registry.issues.reports.store.serverWriter,
+        issue.id,
+      )
       // IN-WINDOW, and this is the whole assertion: the enclosing span has not
       // committed yet, and the event the delete reports is already durable
       // inside it. An append deferred to a later tick has written nothing here.
@@ -85,7 +88,7 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
   it('leaves no issue.deleted row when the enclosing span rolls back', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'Doomed vessel',
       startNow: false,
@@ -93,7 +96,10 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
     await expect(
       store.transact(async () => {
-        await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+        await registry.modules.issueSessionLifecycle.deleteIssue(
+          registry.issues.reports.store.serverWriter,
+          issue.id,
+        )
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')
@@ -108,15 +114,21 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
   it('makes issue.restored readable inside the span that restores', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'Recoverable',
       startNow: false,
     })
-    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await registry.modules.issueSessionLifecycle.deleteIssue(
+      registry.issues.reports.store.serverWriter,
+      issue.id,
+    )
 
     await store.transact(async () => {
-      await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
+      await registry.modules.issueSessionLifecycle.restoreIssue(
+        registry.issues.reports.store.serverWriter,
+        issue.id,
+      )
       const seen = await eventsFor(store, 'issue.restored', issue.id)
       expect(seen).toHaveLength(1)
     })
@@ -126,16 +138,22 @@ describe('issue delete/restore events commit with the row (POD-3505)', () => {
 
   it('leaves no issue.restored row when the enclosing span rolls back', async () => {
     const { store, registry } = await build()
-    const issue = await registry.issues.crud.create({
+    const issue = await registry.issues.crud.create(registry.issues.reports.store.serverWriter, {
       repoPath: '/repo',
       title: 'Recoverable',
       startNow: false,
     })
-    await registry.modules.issueSessionLifecycle.deleteIssue(issue.id)
+    await registry.modules.issueSessionLifecycle.deleteIssue(
+      registry.issues.reports.store.serverWriter,
+      issue.id,
+    )
 
     await expect(
       store.transact(async () => {
-        await registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
+        await registry.modules.issueSessionLifecycle.restoreIssue(
+          registry.issues.reports.store.serverWriter,
+          issue.id,
+        )
         throw new Error('enclosing span failed')
       }),
     ).rejects.toThrow('enclosing span failed')

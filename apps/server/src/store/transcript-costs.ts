@@ -1,3 +1,4 @@
+// workspace-scoped (POD-6959)
 /**
  * WHAT EACH TRANSCRIPT COST, AND WHOSE IT WAS (POD-1858).
  *
@@ -16,12 +17,23 @@
  * zero writes exactly the row it wrote before.
  */
 
-import { foldModelTotals } from '@podium/model'
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
+import { foldModelTotals } from '@podium/model'
 import { and, count, eq, gt, isNotNull, isNull, max, sql, sum } from 'drizzle-orm'
-import { issues, transcriptCosts } from '../migrations/schema'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
-import { inListOf, inListSize, inListValues, prepared, preparedFamily } from './executor/sync-drizzle'
+import type { transcriptCosts } from '../migrations/schema'
+import { dialectOf } from './executor/dialect-prepared'
+import type { TransactionRunner, WorkspaceDb, WorkspaceQueries } from './executor/sync-drizzle'
+import {
+  inListOf,
+  inListSize,
+  inListValues,
+  inWorkspace,
+  prepared,
+  preparedFamily,
+  sameWorkspace,
+  WORKSPACE,
+} from './executor/sync-drizzle'
+import { bareColumns, throughIndex } from './index-hints'
 
 /** One transcript's fold, as the ingest hands it over. */
 export interface TranscriptCostRecord {
@@ -96,10 +108,11 @@ const toCost = (row: Row): TranscriptCost => ({
 
 // Every query this repository runs, prepared once per store [POD-6147].
 
-const recordCost = prepared((db: StoreDrizzle) =>
+const recordCost = prepared((db, t) =>
   db
-    .insert(transcriptCosts)
+    .insert(t.transcriptCosts)
     .values({
+      workspaceId: WORKSPACE,
       machineId: sql.placeholder('machineId'),
       nativeId: sql.placeholder('nativeId'),
       path: sql.placeholder('path'),
@@ -116,7 +129,11 @@ const recordCost = prepared((db: StoreDrizzle) =>
       updatedAt: sql.placeholder('updatedAt'),
     })
     .onConflictDoUpdate({
-      target: [transcriptCosts.machineId, transcriptCosts.nativeId],
+      target: [
+        t.transcriptCosts.workspaceId,
+        t.transcriptCosts.machineId,
+        t.transcriptCosts.nativeId,
+      ],
       set: {
         path: sql`excluded.path`,
         harness: sql`excluded.harness`,
@@ -133,9 +150,14 @@ const recordCost = prepared((db: StoreDrizzle) =>
         // later harvest can put the id back. A task missing spend it once had
         // is the shape to look for; the row is still there, with session_id and
         // issue_id NULL and its token totals intact.
-        sessionId: sql`COALESCE(excluded.session_id, ${transcriptCosts.sessionId})`,
-        issueId: sql`COALESCE(excluded.issue_id, ${transcriptCosts.issueId})`,
-        scannedBytes: sql`MAX(${transcriptCosts.scannedBytes}, excluded.scanned_bytes)`,
+        sessionId: sql`COALESCE(excluded.session_id, ${t.transcriptCosts.sessionId})`,
+        issueId: sql`COALESCE(excluded.issue_id, ${t.transcriptCosts.issueId})`,
+        // The larger of the two: SQLite's scalar MAX(a, b) is GREATEST(a, b) on
+        // Postgres. The column is not null, so the two agree on every value.
+        scannedBytes:
+          dialectOf(db) === 'pg'
+            ? sql`GREATEST(${t.transcriptCosts.scannedBytes}, excluded.scanned_bytes)`
+            : sql`MAX(${t.transcriptCosts.scannedBytes}, excluded.scanned_bytes)`,
         firstTsMs: sql`excluded.first_ts_ms`,
         lastTsMs: sql`excluded.last_ts_ms`,
         messages: sql`excluded.messages`,
@@ -148,47 +170,80 @@ const recordCost = prepared((db: StoreDrizzle) =>
     .prepare(),
 )
 
-const costsOfIssues = preparedFamily((db: StoreDrizzle, size: number) =>
-  db.select().from(transcriptCosts).where(inListOf(transcriptCosts.issueId, size)).prepare(),
-)
-
-const attributedCosts = prepared((db: StoreDrizzle) =>
-  db.select().from(transcriptCosts).where(isNotNull(transcriptCosts.issueId)).prepare(),
-)
-
-const ownCohortFolds = prepared((db: StoreDrizzle) =>
+// Through `idx_transcript_costs_issue` by name on SQLite (POD-7034): an issue has
+// one or two cost rows, but at a few hundred issues the planner prices the seeks
+// above a scan of every cost row, a table that grows with every costed session.
+// The caller passes an issue with all its descendants, unchunked.
+const costsOfIssues = preparedFamily((db, t, size: number) =>
   db
-    .select({ folds: sql<string>`json_group_array(${transcriptCosts.modelsJson})` })
-    .from(transcriptCosts)
-    .innerJoin(issues, eq(issues.id, transcriptCosts.issueId))
-    .where(isNull(issues.deletedAt))
-    .groupBy(transcriptCosts.issueId)
-    .having(gt(sum(transcriptCosts.messages), sql.placeholder('minReplies')))
+    .select(bareColumns(t.transcriptCosts))
+    .from(throughIndex(db, t.transcriptCosts, 'idx_transcript_costs_issue'))
+    .where(inWorkspace(t.transcriptCosts, inListOf(t.transcriptCosts.issueId, size)))
     .prepare(),
 )
 
-const costedSessions = prepared((db: StoreDrizzle) =>
+const attributedCosts = prepared((db, t) =>
   db
-    .selectDistinct({ sessionId: transcriptCosts.sessionId })
-    .from(transcriptCosts)
-    .where(and(isNotNull(transcriptCosts.sessionId), gt(transcriptCosts.messages, 0)))
+    .select()
+    .from(t.transcriptCosts)
+    .where(inWorkspace(t.transcriptCosts, isNotNull(t.transcriptCosts.issueId)))
     .prepare(),
 )
 
-const latestWindow = prepared((db: StoreDrizzle) =>
-  db.select({ m: max(transcriptCosts.windowSinceMs) }).from(transcriptCosts).prepare(),
+const ownCohortFolds = prepared((db, t) =>
+  db
+    // One JSON array of each row's models text. Postgres stores the column as `json`,
+    // so it aggregates the text (`::text`) to give the same array of strings; its
+    // spacing differs from SQLite's, and the reader parses it before use.
+    .select({
+      folds:
+        dialectOf(db) === 'pg'
+          ? sql<string>`json_agg(${t.transcriptCosts.modelsJson}::text)::text`
+          : sql<string>`json_group_array(${t.transcriptCosts.modelsJson})`,
+    })
+    .from(t.transcriptCosts)
+    .innerJoin(
+      t.issues,
+      and(sameWorkspace(t.issues, t.transcriptCosts), eq(t.issues.id, t.transcriptCosts.issueId)),
+    )
+    .where(inWorkspace(t.transcriptCosts, isNull(t.issues.deletedAt)))
+    .groupBy(t.transcriptCosts.issueId)
+    .having(gt(sum(t.transcriptCosts.messages), sql.placeholder('minReplies')))
+    .prepare(),
 )
 
-const costCount = prepared((db: StoreDrizzle) =>
-  db.select({ n: count() }).from(transcriptCosts).prepare(),
+const costedSessions = prepared((db, t) =>
+  db
+    .selectDistinct({ sessionId: t.transcriptCosts.sessionId })
+    .from(t.transcriptCosts)
+    .where(
+      inWorkspace(
+        t.transcriptCosts,
+        isNotNull(t.transcriptCosts.sessionId),
+        gt(t.transcriptCosts.messages, 0),
+      ),
+    )
+    .prepare(),
+)
+
+const latestWindow = prepared((db, t) =>
+  db
+    .select({ m: max(t.transcriptCosts.windowSinceMs) })
+    .from(t.transcriptCosts)
+    .where(inWorkspace(t.transcriptCosts))
+    .prepare(),
+)
+
+const costCount = prepared((db, t) =>
+  db.select({ n: count() }).from(t.transcriptCosts).where(inWorkspace(t.transcriptCosts)).prepare(),
 )
 
 export class TranscriptCostsRepository {
-  private readonly rootDb: StoreDrizzle
+  private readonly scope: WorkspaceDb
   protected readonly createOrJoinTransaction: TransactionRunner
 
-  constructor(queries: StoreQueries) {
-    this.rootDb = queries.rootDb
+  constructor(queries: WorkspaceQueries) {
+    this.scope = queries.db
     this.createOrJoinTransaction = queries.createOrJoinTransaction
   }
 
@@ -199,8 +254,8 @@ export class TranscriptCostsRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): StoreDrizzle {
-    return this.rootDb
+  private get db(): WorkspaceDb {
+    return this.scope
   }
 
   /**
@@ -248,9 +303,7 @@ export class TranscriptCostsRepository {
    * grouped SQL read; no issue bodies, window folds, sessions or rollups. */
   async ownCohortTotals(minReplies: number): Promise<CostModelTotalWire[][]> {
     const rows = await ownCohortFolds(this.db).all({ minReplies })
-    return rows.map((row) =>
-      foldModelTotals((JSON.parse(row.folds) as string[]).map(parseModels)),
-    )
+    return rows.map((row) => foldModelTotals((JSON.parse(row.folds) as string[]).map(parseModels)))
   }
 
   /** Which sessions already have a fold — the `pending` state's other half. */

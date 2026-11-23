@@ -77,8 +77,9 @@ it('keeps the usage hero, quota and machines when the first task-cost read fails
   expect(screen.queryByText('Couldn’t read quota.')).toBeNull()
   expect(screen.getByText('Couldn’t read task costs.')).toBeTruthy()
   expect(screen.queryByText('Reading task costs…')).toBeNull()
+  // Task costs stay a request, so their failure keeps Try Again.
   fireEvent.click(screen.getByRole('button', { name: 'Try Again' }))
-  expect(p.onRetry).toHaveBeenCalledExactlyOnceWith('usage')
+  expect(p.onRetry).toHaveBeenCalledOnce()
 })
 
 it('distinguishes a failed quota read from a successful empty quota answer', () => {
@@ -88,8 +89,8 @@ it('distinguishes a failed quota read from a successful empty quota answer', () 
   expect(screen.queryByText(/No machine is signed in/)).toBeNull()
   expect(screen.getByText(/API-equivalent cost/)).toBeTruthy()
   expect(screen.getByText('Machines')).toBeTruthy()
-  fireEvent.click(screen.getByRole('button', { name: 'Try Again' }))
-  expect(p.onRetry).toHaveBeenCalledExactlyOnceWith('quota')
+  // Quota is a pushed value: its note has nothing to retry.
+  expect(screen.queryByRole('button', { name: 'Try Again' })).toBeNull()
   view.rerender(<PulseBody {...p} quotaCold={false} quotaFailed={false} />)
   expect(screen.getByText(/No machine is signed in/)).toBeTruthy()
   expect(screen.queryByText('Couldn’t read quota.')).toBeNull()
@@ -102,8 +103,8 @@ it('keeps healthy quota and machines during a usage failure and labels stale rea
   expect(screen.getByText('Machines')).toBeTruthy()
   expect(screen.queryByText('Reading quota…')).toBeNull()
   expect(screen.queryByText(/No machine is signed in/)).toBeNull()
-  fireEvent.click(screen.getByRole('button', { name: 'Try Again' }))
-  expect(p.onRetry).toHaveBeenCalledExactlyOnceWith('usage')
+  // Usage is a pushed value: its note has nothing to retry.
+  expect(screen.queryByRole('button', { name: 'Try Again' })).toBeNull()
   view.rerender(<PulseBody {...p} cold={false} />)
   expect(screen.getByText('Couldn’t refresh usage. Showing the last reading.')).toBeTruthy()
 })

@@ -5,10 +5,12 @@ import {
   hubConnection,
   nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
-import { useConversation as useOwnedConversation, useStoreHandle } from '@podium/client-core/react'
-import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
+import {
+  useClientRuntime,
+  useConversation as useOwnedConversation,
+} from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import {
   chatSendRoute,
   composerState,
@@ -22,12 +24,14 @@ import { chatItemMessage } from '@podium/client-graph/chat-context'
 import { here, omitGone } from '@podium/client-graph/lookup'
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
+import { superagentThread } from '@podium/client-graph/superagent'
 import { lazy } from '@podium/mobx-helpers'
 import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
 import { actionBound, compareShallow, observable, reaction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
+import { superagentWrites } from '@/features/superagent/superagent-writes'
 import {
   type ConversationPresentation,
   INITIAL_LIMIT,
@@ -90,9 +94,10 @@ export class WebConversation extends ConversationService {
   @lazy get session(): SessionModel | undefined {
     return here(this.pool.model('session', this.sessionId))
   }
+  /** The mounted superagent thread's synced record (POD-6675). */
   @lazy get thread() {
     return this.mount.superThread
-      ? loaded(omitGone(this.pool.row('superThread', this.mount.superThread.threadId)))
+      ? superagentThread(this.pool, this.mount.superThread.threadId).thread
       : undefined
   }
   @lazy({ equals: compareShallow }) get records() {
@@ -138,8 +143,8 @@ export function createWebConversation(
   mount: ConversationMountOptions,
 ): WebConversation {
   pool.bindSessionDrafts(runtime.drafts)
-  const store = runtime.access
-  const { hub, trpc, replica } = store
+  const { api: trpc, replica, commands, chatSends } = runtime
+  const hub = runtime.services.connection.hub
   const readSession = () => here(pool.model('session', sessionId))
   const readRecords = () =>
     loaded(omitGone(pool.row('chatContextReader', 'reader')))?.records(sessionId).records ?? []
@@ -240,22 +245,12 @@ export function createWebConversation(
           },
           subscribe: (id, since, listener) => hub.subscribeTranscript(id, since, listener),
         },
-        ...(replica
-          ? {
-              cache: {
-                maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
-                read: (id) => replica.transcriptWindow(id),
-                write: (id, items) => replica.putTranscriptWindow(id, [...items]),
-              },
-            }
-          : {}),
+        ...(replica?.transcripts ? { cache: replica.transcripts } : {}),
       },
       onTranscriptChange: (change) => conversation?.changed(change),
+      // The last failure is status on the thread's record (POD-6675): read, not asked for.
       ...(mount.superThread
-        ? {
-            latestTurnFailure: () =>
-              trpc.superagent.latestTurnFailure.query({ threadId: mount.superThread!.threadId }),
-          }
+        ? { readTurnFailure: () => conversation.thread?.lastTurnFailure ?? null }
         : {}),
       sends: {
         ...(headless
@@ -283,7 +278,7 @@ export function createWebConversation(
                 trpc.messages.records.query({ ids: [...ids] }).then((answer) => answer.records),
               retract: (id) =>
                 trpc.messages.cancel.mutate({ id }).then((message) => message.deliveryStatus),
-              discard: (id) => store.discardChat(asMutationId(id)),
+              discard: (id) => chatSends.discardChat(asMutationId(id)),
               dismissNotice: (id) =>
                 trpc.messages.dismissNotice.mutate({ id }).then(() => undefined),
             }),
@@ -292,22 +287,22 @@ export function createWebConversation(
         createDeliveryId: () => `msg_${randomUUID()}`,
         optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
         optimisticDismissOffer: false,
-        dismissOffer: (at) => store.dismissOffer(sessionId, at),
+        dismissOffer: (at) => commands.issues.dismissOffer(sessionId, at),
         interrupt: async (messageId) => {
           if (headless && mount.superThread) {
-            await trpc.superagent.interruptTurn.mutate({ threadId: mount.superThread.threadId })
+            await superagentWrites(trpc).interruptTurn.mutate({
+              threadId: mount.superThread.threadId,
+            })
             return
           }
-          const result = await trpc.sessions.interrupt.mutate({
-            sessionId,
+          // A `session.interrupt` record naming the turn on screen (POD-6397):
+          // a late Stop never reaches the next turn, and every device shows
+          // Interrupting… (then Kill, if the turn runs on) from the record.
+          const turn = conversation.session?.turnStartedAt
+          await commands.sessions.interrupt(sessionId, {
+            ...(turn !== undefined ? { turn } : {}),
             ...(messageId ? { messageId } : {}),
           })
-          if (result && typeof result === 'object' && 'ok' in result && result.ok === false)
-            throw new Error(
-              'reason' in result && typeof result.reason === 'string'
-                ? result.reason
-                : 'the agent refused the interrupt',
-            )
         },
         deliver: async (turn) => {
           conversation.rememberPrompt(turn.text)
@@ -328,13 +323,13 @@ export function createWebConversation(
               : {}),
           })
           if (conversation.heldSends.some((send) => send.mutationId === turn.deliveryId))
-            return store.sendChat(
+            return chatSends.sendChat(
               { sessionId, text: turn.wire, wake: route.kind === 'resume' },
               asMutationId(turn.deliveryId),
             )
           if (route.kind === 'session' || route.kind === 'resume') {
-            store.setPanelMode(sessionId, 'chat')
-            return store.sendChat(
+            runtime.ui.setPanelMode(sessionId, 'chat')
+            return chatSends.sendChat(
               {
                 sessionId,
                 text: turn.wire,
@@ -356,7 +351,7 @@ export function createWebConversation(
                 .filter(Boolean)
                 .join('\n')
             : turn.wire
-          const focus = store.getUserFocus()
+          const focus = runtime.ui.getUserFocus()
           const backend = turn.backend ?? {
             model: conversation.thread?.model ?? 'auto',
             effort: conversation.thread?.effort ?? 'auto',
@@ -370,7 +365,7 @@ export function createWebConversation(
           }
           try {
             if (route.kind === 'concierge') {
-              await trpc.superagent.concierge.mutate({
+              await superagentWrites(trpc).concierge.mutate({
                 repoPath: route.repoPath,
                 text: wire,
                 focus,
@@ -378,15 +373,15 @@ export function createWebConversation(
               })
               return { state: 'sent' }
             }
-            const attached = store.attachedSessionId
-            const answer = await trpc.superagent.sendTurn.mutate({
+            const attached = runtime.ui.attachedSessionId
+            const answer = await superagentWrites(trpc).sendTurn.mutate({
               threadId: route.threadId,
               text: wire,
               focus,
               ...(attached ? { attachSessionId: attached } : {}),
               ...choice,
             })
-            if (attached) store.clearAttachedSession()
+            if (attached) runtime.ui.clearAttachedSession()
             return { state: answer?.queued ? 'queued' : 'sent' }
           } catch (error) {
             conversation.setTurnError(error instanceof Error ? error.message : String(error))
@@ -407,7 +402,7 @@ export function useConversation(
   sessionId: SessionId,
   options: ConversationMountOptions = {},
 ): WebConversation | null {
-  const runtime = useStoreHandle<Trpc>()
+  const runtime = useClientRuntime<Trpc>()
   const pool = useWorklistPool()
   const readReady = useCallback(
     (pool: MobxPool) => {

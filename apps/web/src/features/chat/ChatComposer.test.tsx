@@ -1,3 +1,4 @@
+import '@/test-support/mock-store-action-ports'
 import { createDraftLedger } from '@podium/client-core'
 import { MobxPool } from '@podium/client-graph'
 import { asSessionId } from '@podium/model/browser'
@@ -31,8 +32,9 @@ import type { UseAttachmentsResult } from './use-attachments'
 vi.mock('./use-chat-context', () => ({ useChatMentions: () => [] }))
 const draftFixture = vi.hoisted(() => ({ drafts: undefined as DraftStore | undefined }))
 
+const composerPorts = vi.hoisted(() => ({ trpc: {} }))
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: () => undefined,
+  readFixture: (read: (state: typeof composerPorts) => unknown) => read(composerPorts),
 }))
 
 let container: HTMLDivElement

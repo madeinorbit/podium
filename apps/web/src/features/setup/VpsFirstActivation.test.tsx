@@ -36,8 +36,7 @@ const uiState = {
 }
 
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: (selector: (store: { uiState: typeof uiState }) => unknown) =>
-    selector({ uiState }),
+  readFixture: (selector: (store: { uiState: typeof uiState }) => unknown) => selector({ uiState }),
 }))
 
 afterEach(() => {
@@ -289,7 +288,16 @@ describe('the VPS command waits for the channel', () => {
     )
 
     const command = await screen.findByText(VPS_COMMAND)
-    expect(command.textContent).toContain('https://podium.do/install.sh')
+    const text = command.textContent ?? ''
+    expect(text).toContain('$(mktemp)')
+    expect(text).toContain('trap')
+    const sources = [...text.matchAll(/curl [^"\n]*"(https:\/\/[^"\n]+)"/g)].map(
+      (match) => new URL(match[1]!),
+    )
+    expect(sources.map((source) => source.hostname)).toEqual(['github.com', 'releases.podium.do'])
+    expect(sources.every((source) => source.pathname.endsWith('/install.sh'))).toBe(true)
+    expect(text).toContain(' -o "$tmp" || curl')
+    expect(text).toContain(') && sh "$tmp" --channel stable')
     expect(command.textContent).toContain('--channel stable')
     expect(command.textContent).not.toContain('/releases/download/edge/install.sh')
     expect(command.textContent).not.toContain('--channel edge')

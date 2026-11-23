@@ -5,6 +5,7 @@ import { type AssetReader, registerAssetRoute } from './file-asset-route'
 import { isAllowedRoot } from './root-allowlist'
 
 const stub = (r: Awaited<ReturnType<AssetReader['readAsset']>>): AssetReader => ({
+  mayRead: async () => true,
   allowsRoot: () => true,
   readAsset: async () => r,
 })
@@ -34,7 +35,7 @@ describe('GET /files/asset', () => {
       size: 10,
     }))
     const app = new Hono()
-    registerAssetRoute(app, { allowsRoot: () => true, readAsset })
+    registerAssetRoute(app, { mayRead: async () => true, allowsRoot: () => true, readAsset })
     const res = await app.request('/files/asset?sessionId=s&path=/w/demo.mp4', {
       headers: { range: 'bytes=4-6' },
     })
@@ -65,7 +66,11 @@ describe('GET /files/asset', () => {
       size: source.length,
     }))
     const app = new Hono()
-    registerAssetRoute(app, { allowsRoot: () => true, readAsset } as AssetReader)
+    registerAssetRoute(app, {
+      mayRead: async () => true,
+      allowsRoot: () => true,
+      readAsset,
+    } as AssetReader)
     const res = await app.request('/files/asset?sessionId=s&path=/w/demo.mp4', {
       headers: { range: header },
     })
@@ -132,11 +137,36 @@ describe('GET /files/asset', () => {
     })
     expect(res.headers.get('content-security-policy')).toBeNull()
   })
+  it('refuses a session the caller does not own exactly like a missing one, before the daemon', async () => {
+    // POD-6284: `mayRead` is the private-class gate. A refusal must not reach
+    // the daemon and must read the same as the daemon RPC's own "no session".
+    const readAsset = vi.fn(async () => ({ ok: true, dataBase64: 'UFJJVkFURQ==' }))
+    const mayRead = vi.fn(async () => false)
+    const app = new Hono()
+    registerAssetRoute(app, { mayRead, allowsRoot: () => true, readAsset })
+    const res = await app.request('/files/asset?sessionId=s&path=/w/a.png')
+    expect(res.status).toBe(404)
+    expect(await res.text()).toBe('no session')
+    expect(mayRead).toHaveBeenCalledWith(expect.any(Request), { sessionId: 's' })
+    expect(readAsset).not.toHaveBeenCalled()
+  })
+  it('refuses a checkout on a machine the caller may not use, before the root check', async () => {
+    const readAsset = vi.fn(async () => ({ ok: true }))
+    const allowsRoot = vi.fn(() => true)
+    const mayRead = vi.fn(async () => false)
+    const app = new Hono()
+    registerAssetRoute(app, { mayRead, allowsRoot, readAsset })
+    const res = await app.request('/files/asset?root=%2Frepo&machineId=machine-2&path=a.md')
+    expect(res.status).toBe(404)
+    expect(mayRead).toHaveBeenCalledWith(expect.any(Request), { machineId: 'machine-2' })
+    expect(allowsRoot).not.toHaveBeenCalled()
+    expect(readAsset).not.toHaveBeenCalled()
+  })
   it('rejects an unregistered worktree root before reading from the daemon', async () => {
     const readAsset = vi.fn(async () => ({ ok: true }))
     const allowsRoot = vi.fn(() => false)
     const app = new Hono()
-    registerAssetRoute(app, { allowsRoot, readAsset })
+    registerAssetRoute(app, { mayRead: async () => true, allowsRoot, readAsset })
 
     const res = await app.request(
       '/files/asset?root=%2F&machineId=machine-2&path=%2Fetc%2Fpasswd',
@@ -157,11 +187,9 @@ describe('GET /files/asset', () => {
     // be treated as a truthy permission grant when the route forgets to await it.
     const allowsRoot = vi.fn(async () => false)
     const app = new Hono()
-    registerAssetRoute(app, { allowsRoot, readAsset })
+    registerAssetRoute(app, { mayRead: async () => true, allowsRoot, readAsset })
 
-    const res = await app.request(
-      '/files/asset?root=%2F&machineId=machine-2&path=%2Fetc%2Fpasswd',
-    )
+    const res = await app.request('/files/asset?root=%2F&machineId=machine-2&path=%2Fetc%2Fpasswd')
 
     expect(res.status).toBe(403)
     expect(await res.text()).toBe('forbidden')
@@ -175,7 +203,7 @@ describe('GET /files/asset', () => {
     const readAsset = vi.fn(async () => ({ ok: true }))
     const allowsRoot = vi.fn((root: string) => root === '/repo' || root.startsWith('/repo/'))
     const app = new Hono()
-    registerAssetRoute(app, { allowsRoot, readAsset })
+    registerAssetRoute(app, { mayRead: async () => true, allowsRoot, readAsset })
 
     const res = await app.request(
       `/files/asset?root=${encodeURIComponent('/repo/../../etc')}&path=${encodeURIComponent('/etc/passwd')}`,
@@ -194,7 +222,7 @@ describe('GET /files/asset', () => {
     }))
     const allowsRoot = vi.fn(() => true)
     const app = new Hono()
-    registerAssetRoute(app, { allowsRoot, readAsset })
+    registerAssetRoute(app, { mayRead: async () => true, allowsRoot, readAsset })
 
     const res = await app.request(
       `/files/asset?root=${encodeURIComponent('/repo/sub/..')}&path=${encodeURIComponent('/repo/a.txt')}`,
@@ -208,7 +236,7 @@ describe('GET /files/asset', () => {
     const readAsset = vi.fn(async () => ({ ok: true }))
     const allowsRoot = vi.fn(() => true)
     const app = new Hono()
-    registerAssetRoute(app, { allowsRoot, readAsset })
+    registerAssetRoute(app, { mayRead: async () => true, allowsRoot, readAsset })
 
     const res = await app.request('/files/asset?root=repo&path=%2Frepo%2Fa.txt')
 
@@ -252,17 +280,30 @@ describe('GET /files/asset', () => {
   })
 })
 
-
 it.each([
   ['/repo/sub/..', '/repo', '/repo/../../etc', '/etc'],
-  [String.raw`C:\repo\sub\..`, String.raw`C:\repo`, String.raw`C:\repo\..\..\etc`, String.raw`C:\etc`],
-  [String.raw`\\host\share\repo\sub\..`, String.raw`\\host\share\repo`, String.raw`\\host\share\repo\..\etc`, String.raw`\\host\share\etc`],
+  [
+    String.raw`C:\repo\sub\..`,
+    String.raw`C:\repo`,
+    String.raw`C:\repo\..\..\etc`,
+    String.raw`C:\etc`,
+  ],
+  [
+    String.raw`\\host\share\repo\sub\..`,
+    String.raw`\\host\share\repo`,
+    String.raw`\\host\share\repo\..\etc`,
+    String.raw`\\host\share\etc`,
+  ],
 ])('machine paths: authorizes the normalized asset root %s', async (input, root, escaped, outside) => {
-  const readAsset = vi.fn(async () => ({ ok: true, dataBase64: Buffer.from('A').toString('base64') }))
+  const readAsset = vi.fn(async () => ({
+    ok: true,
+    dataBase64: Buffer.from('A').toString('base64'),
+  }))
   const allowsRoot = vi.fn((candidate: string) => candidate === root)
   const app = new Hono()
-  registerAssetRoute(app, { allowsRoot, readAsset })
-  const request = (value: string) => `/files/asset?root=${encodeURIComponent(value)}&machineId=windows-host&path=a.txt`
+  registerAssetRoute(app, { mayRead: async () => true, allowsRoot, readAsset })
+  const request = (value: string) =>
+    `/files/asset?root=${encodeURIComponent(value)}&machineId=windows-host&path=a.txt`
   expect((await app.request(request(input))).status).toBe(200)
   expect(allowsRoot).toHaveBeenCalledWith(root, 'windows-host')
   expect(readAsset).toHaveBeenCalledWith({ root, machineId: 'windows-host', path: 'a.txt' })
@@ -272,12 +313,17 @@ it.each([
   expect(readAsset).not.toHaveBeenCalled()
 })
 
-
-it.each(['.. ', '...', '.. .', 'file.', 'file '])('machine paths: rejects ambiguous Windows asset root segment %s', async segment => {
+it.each([
+  '.. ',
+  '...',
+  '.. .',
+  'file.',
+  'file ',
+])('machine paths: rejects ambiguous Windows asset root segment %s', async (segment) => {
   const readAsset = vi.fn(async () => ({ ok: true }))
   const allowsRoot = vi.fn(() => true)
   const app = new Hono()
-  registerAssetRoute(app, { allowsRoot, readAsset })
+  registerAssetRoute(app, { mayRead: async () => true, allowsRoot, readAsset })
   const root = String.raw`C:\repo` + '\\' + segment
   const res = await app.request(`/files/asset?root=${encodeURIComponent(root)}&path=shot.png`)
   expect(res.status).toBe(403)
@@ -285,11 +331,14 @@ it.each(['.. ', '...', '.. .', 'file.', 'file '])('machine paths: rejects ambigu
   expect(readAsset).not.toHaveBeenCalled()
 })
 
-
 it('refuses a Unicode lookalike worktree root before reading an asset', async () => {
   const readAsset = vi.fn(async () => ({ ok: true }))
   const app = new Hono()
-  registerAssetRoute(app, { allowsRoot: root => isAllowedRoot([String.raw`C:\work`], root), readAsset })
+  registerAssetRoute(app, {
+    mayRead: async () => true,
+    allowsRoot: (root) => isAllowedRoot([String.raw`C:\work`], root),
+    readAsset,
+  })
   const root = String.raw`C:\worK\secret`
   const res = await app.request(`/files/asset?root=${encodeURIComponent(root)}&path=shot.png`)
   expect(res.status).toBe(403)

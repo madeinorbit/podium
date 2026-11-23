@@ -14,8 +14,8 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from 'mobx-react-lite'
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { AppState, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
-import { useTrpc } from '../client/hooks'
 import { useIssueRowActions } from '../lib/issue-row-actions'
+import { useProposalPorts } from '../lib/proposal-ports'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { deckColor } from './deck-colors'
 import { Icon } from './Icon'
@@ -88,7 +88,7 @@ export const MissionDeck = observer(function MissionDeck({
   showTitle?: boolean
 }) {
   const full = screen.full
-  const trpc = useTrpc()
+  const proposalPorts = useProposalPorts()
   const submissions = useMemo(() => new ProposalSubmissions(full, 'brief'), [full])
   const receiptDeadline = submissions.receiptDeadline
   useEffect(() => {
@@ -296,7 +296,7 @@ export const MissionDeck = observer(function MissionDeck({
                   id={id}
                   first={index === 0}
                   submissions={submissions}
-                  onSubmit={(action) => void submissions.submit(id, action, trpc)}
+                  onSubmit={(action) => void submissions.submit(id, action, proposalPorts)}
                   onPress={() => {
                     const issue = issueOf(id)
                     if (issue) onOpenTask(issue)
@@ -328,7 +328,7 @@ const ProposalContent = observer(function ProposalContent({
  * at the person's own size (Settings' single-choice lists), never shrunk.
  */
 const Filters = observer(function Filters({ full }: { full: FullDeck }) {
-  const counts = full.counts
+  const counts = full.phoneCounts
   // The shared tone: red when anything Needs you lists has errored, else amber.
   const needsTone = full.needsYouTone === 'error' ? styles.errorText : styles.needsText
   const { fontScale } = useWindowDimensions()

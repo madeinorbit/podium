@@ -64,9 +64,8 @@ import type { AnyCommandContract, RedactionPolicy } from './contract'
  * record whose sensitive field is simply absent is indistinguishable from one
  * written by a build that never carried the field, and "we removed it" and "it
  * was never there" are different facts in a trail whose whole job is
- * accountability. The marker also makes the redaction GREPPABLE, which is how
- * `scripts/audit-settings-commands.ts` can assert a log line was redacted rather
- * than merely lacking a key.
+ * accountability. The marker also makes the redaction GREPPABLE, which is how a
+ * test can assert a log line was redacted rather than merely lacking a key.
  */
 export const REDACTED = '[redacted]'
 

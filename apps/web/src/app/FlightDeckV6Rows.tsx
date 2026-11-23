@@ -1,3 +1,4 @@
+import { useCommands } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { nativeSubagentRows, treeGuides } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph/loading'
@@ -12,11 +13,13 @@ import {
   type MouseEvent,
   type ReactNode,
   type RefObject,
+  useEffect,
   useId,
   useLayoutEffect,
   useRef,
   useState,
 } from 'react'
+import type { Trpc } from '@/app/trpc'
 import { GhostBar } from '@/components/GhostPreview'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { PhaseTimer } from '@/lib/motion'
@@ -34,7 +37,6 @@ import {
   useFlightDeckWindow,
 } from './flight-deck-window'
 import { useSessionHovered } from './session-hover'
-import { useRuntimeSelector } from './store'
 import { TEAM_FORMS_SESSION_ANCHOR } from './TeamFormsTip'
 
 const STRIP_HEIGHT = 32
@@ -43,7 +45,7 @@ export const V6_DEPTH_STEP = 22
 
 export type FlightDeckV6Actions = {
   activeSessionId: string | null
-  /** Open details for a task with no subtasks or crew. */
+  /** Open task details when its row is activated. */
   onOpenTask: (task: FullDeckTask) => void
   onSelectSession: (task: FullDeckTask, session: SessionView, permanent: boolean) => void
   onMenu: (task: FullDeckTask, event: MouseEvent) => void
@@ -51,6 +53,36 @@ export type FlightDeckV6Actions = {
   renameTarget: { id: string; seed: string } | null
   onRename: (task: FullDeckTask, title: string) => void
   onRenameDone: () => void
+}
+
+/** Rows the first render of a deck draws; the rest follow, a step per task. */
+const FIRST_ROWS = 60
+const ROWS_PER_STEP = 150
+
+/**
+ * POD-7168: how many of a deck's rows are drawn now. A large deck draws its
+ * first rows (more than a screen) in the render that opens it and the rest a
+ * step per task, so no task renders all of them: the operator's 970-issue
+ * deck rendered every row and its placeholder in one task. Once every row of
+ * an opening has been drawn, later rows are drawn at once. A short deck is
+ * drawn whole, as before.
+ */
+function useRowsDrawn(total: number, scope: string): number {
+  const [drawn, setDrawn] = useState({ scope, count: FIRST_ROWS, whole: false })
+  const current = drawn.scope === scope ? drawn : { scope, count: FIRST_ROWS, whole: false }
+  const whole = current.whole || current.count >= total
+  useEffect(() => {
+    if (whole) {
+      if (!current.whole || current.scope !== drawn.scope) setDrawn({ ...current, whole: true })
+      return
+    }
+    const timer = setTimeout(
+      () => setDrawn({ scope, count: current.count + ROWS_PER_STEP, whole: false }),
+      0,
+    )
+    return () => clearTimeout(timer)
+  }, [whole, current, drawn.scope, scope])
+  return whole ? total : current.count
 }
 
 /** Full-only geometry and rendering. The companions own membership, words,
@@ -86,6 +118,7 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
   const ids = pending === LOADING ? [] : pending
   const tasks = ids.map((id) => full.task(id))
   const guides = treeGuides(tasks)
+  const drawn = useRowsDrawn(tasks.length, full.rootId)
   const leaves: DeckWindowRow[] = []
   for (const task of tasks) {
     leaves.push({
@@ -126,17 +159,19 @@ export const FlightDeckV6Rows = observer(function FlightDeckV6Rows({
           <GhostBar />
         </div>
       ) : renderRows ? (
-        renderRows(tasks, guides, window)
+        renderRows(tasks.slice(0, drawn), guides.slice(0, drawn), window)
       ) : (
-        tasks.map((task, index) => (
-          <FlightDeckV6Task
-            key={task.id}
-            task={task}
-            carries={guides[index] ?? []}
-            window={window}
-            {...actions}
-          />
-        ))
+        tasks
+          .slice(0, drawn)
+          .map((task, index) => (
+            <FlightDeckV6Task
+              key={task.id}
+              task={task}
+              carries={guides[index] ?? []}
+              window={window}
+              {...actions}
+            />
+          ))
       )}
     </div>
   )
@@ -230,8 +265,8 @@ export const FlightDeckV6Task = observer(function FlightDeckV6Task({
             data-edge-gutter="6"
             onClick={(event) => {
               if (event.target !== event.currentTarget) return
+              actions.onOpenTask(task)
               if (task.foldable) task.deck.toggleFold(task.id)
-              else actions.onOpenTask(task)
             }}
             onContextMenu={(event) => actions.onMenu(task, event)}
             ref={window?.enabled ? window.measure(stripKey) : undefined}
@@ -349,8 +384,8 @@ const TaskBody = observer(function TaskBody({
       aria-expanded={task.foldable ? task.open : undefined}
       aria-controls={task.foldable ? contentId : undefined}
       onClick={() => {
+        onOpenTask(task)
         if (task.foldable) task.deck.toggleFold(task.id)
-        else onOpenTask(task)
       }}
     >
       {children}
@@ -459,7 +494,7 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
   measure?: (node: HTMLElement | null) => void
   onOpen: (permanent: boolean) => void
 }) {
-  const renameSession = useRuntimeSelector((store) => store.renameSession)
+  const renameSession = useCommands<Trpc>().sessions.rename
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   const [nativeOpen, setNativeOpen] = useState(false)
@@ -545,6 +580,7 @@ export const FlightDeckV6Session = observer(function FlightDeckV6Session({
         )}
         {natives.length > 0 && !nativesInline && (
           <button
+            data-pressable
             type="button"
             className="flight-v6-native-chip"
             aria-label={`${nativeOpen ? 'Collapse' : 'Expand'} ${natives.length} native subagents of ${name}`}

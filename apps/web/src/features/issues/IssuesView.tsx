@@ -1,3 +1,10 @@
+import { useCommands, useRequestClient, useUiValue } from '@podium/client-core/react'
+import {
+  activeFilterCount,
+  assigneeFacet,
+  DEFAULT_ISSUES_FILTERS,
+} from '@podium/client-core/values'
+import { issueWrites } from '@podium/commands/issues-synced'
 import {
   asUserId,
   type IssueId,
@@ -7,7 +14,6 @@ import {
 import { Plus } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent } from 'react'
 import {
-  lazy,
   memo,
   Suspense,
   useCallback,
@@ -17,15 +23,26 @@ import {
   useRef,
   useState,
 } from 'react'
-import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
+import type { IssueViewModel } from '@/app/store'
 import { ToolbarSlot } from '@/app/ToolbarSlot'
+import type { Trpc } from '@/app/trpc'
+import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { lazy } from '@/lib/lazy-surface'
+import { useMemberRoster } from '@/lib/member-roster'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { BoardShortcutSheet } from './BoardShortcutSheet'
-import { useBoardBase, useBoardCatalog, useBoardData, useBoardMenu, useBoardOpenIds } from './board-pool-data'
+import {
+  useBoardBase,
+  useBoardCatalog,
+  useBoardData,
+  useBoardMenu,
+  useBoardOpenIds,
+  useBoardRefreshing,
+} from './board-pool-data'
 import { useBoardAddressed, useBoardCloseGuard, useBoardIssueReader } from './board-pool-row'
 import { boardKeyAction } from './board-shortcuts'
 import { IssueListView } from './IssueListView'
@@ -47,10 +64,12 @@ import {
   readIssuesDisplay,
   writeIssuesDisplay,
 } from './issues-display'
+import { useIssuesFilters, useMemberScope } from './issues-filters-state'
 import { type IssuesKeyAction, type IssuesKeyState, issuesKeyReduce } from './issues-keys'
 import type { IssuesDisplayPatch } from './issues-view-model'
 import { NewIssueDialog } from './NewIssueDialog'
 import { PoolIssuePage } from './pool-issue-page'
+import { useLabelPool } from './use-label-pool'
 
 const IssueContextMenu = lazy(() =>
   throughRestarts(() => import('./IssueContextMenu')).then((module) => ({
@@ -69,15 +88,15 @@ const ResponsiveIssuesKanban = memo(IssuesKanban)
 export function IssuesView(): JSX.Element {
   const base = useBoardBase()
   const { openIssueId } = base
-  const setOpenIssueId = useRuntimeSelector((store) => store.setOpenIssueId)
-  const trpc = useRuntimeSelector((store) => store.trpc)
+  const setOpenIssueId = useUiValue('setOpenIssueId')
+  const trpc = useRequestClient<Trpc>()
   // The board's own writes ride the outbox-as-overlay too (POD-781) — the same
   // store actions the right-click menu uses, so a stage move made from a card
   // and one made from the menu paint identically.
-  const updateIssue = useRuntimeSelector((store) => store.updateIssue)
-  const setIssueLabels = useRuntimeSelector((store) => store.setIssueLabels)
-  const deleteIssue = useRuntimeSelector((store) => store.deleteIssue)
-  const closeIssue = useRuntimeSelector((store) => store.closeIssue)
+  const updateIssue = useCommands<Trpc>().issues.update
+  const setIssueLabels = useCommands<Trpc>().issues.setLabels
+  const deleteIssue = useCommands<Trpc>().issues.delete
+  const closeIssue = useCommands<Trpc>().issues.close
   const isMobile = useIsMobile()
   // Display options are per-user REPLICATED, so they are subscribed rather than
   // seeded — a `useState` initializer reads the key before the replica has the
@@ -89,6 +108,16 @@ export function IssuesView(): JSX.Element {
   )
   const [creating, setCreating] = useState<null | { stage?: IssueStage }>(null)
   const [filter, setFilter] = useState<BoardFilter>({})
+  // Assigned to and Show agent tasks are the member's own saved filters
+  // (POD-6294); the other facets belong to this screen. The Tasks view owns the
+  // roster's demand while shown; on a one-member instance it stays unshared and
+  // Assigned to narrows nothing.
+  const roster = useMemberRoster(true)
+  const scope = useMemberScope()
+  const [savedFilters, setSavedFilters] = useIssuesFilters()
+  const showAgentTasks = savedFilters.showAgentTasks
+  const assignee = assigneeFacet(savedFilters.assignedTo, scope)
+  const filterCount = activeFilterCount(filter, savedFilters, scope.shared)
   const [error, setError] = useState('')
   const [keyState, setKeyState] = useState<IssuesKeyState>({ focusId: null, selected: [] })
   const [propMenu, setPropMenu] = useState<{ kind: PropMenuKind; id: string } | null>(null)
@@ -144,23 +173,36 @@ export function IssuesView(): JSX.Element {
       ...(stage !== undefined ? { stage } : {}),
       ...(archived !== undefined ? { archived } : {}),
       ...(deleted !== undefined ? { deleted } : {}),
+      ...(assignee !== undefined ? { assignee } : {}),
     }),
-    [deferredText, priority, projectPaths, status, stage, archived, deleted],
+    [deferredText, priority, projectPaths, status, stage, archived, deleted, assignee],
   )
 
-  const options = useMemo(() => ({
-    display: { layout: display.layout, ordering: display.ordering, showAgentTasks: display.showAgentTasks },
-    filter: deferredFilter, expanded: [...expanded], isMobile,
-  }), [display.layout, display.ordering, display.showAgentTasks, deferredFilter, expanded, isMobile])
-  const { view } = useBoardData(options)
-  const catalog = useBoardCatalog(
-    projectMenuOpen || propMenu?.kind === 'a' || propMenu?.kind === 'l',
-    display.showAgentTasks,
+  const options = useMemo(
+    () => ({
+      display: { layout: display.layout, ordering: display.ordering, showAgentTasks },
+      filter: deferredFilter,
+      expanded: [...expanded],
+      isMobile,
+    }),
+    [display.layout, display.ordering, showAgentTasks, deferredFilter, expanded, isMobile],
   )
-  const menuInputs = useBoardMenu(ctxMenu?.ids, display.showAgentTasks)
-  const addressedIds = useMemo(() => [...new Set([
-    ...keyState.selected, ...(ctxMenu?.ids ?? []), ...(bulkClose?.ids ?? []), ...(propMenu ? [propMenu.id] : []),
-  ])], [keyState.selected, ctxMenu, bulkClose, propMenu])
+  const { view } = useBoardData(options)
+  const refreshing = useBoardRefreshing(options)
+  const catalog = useBoardCatalog(projectMenuOpen, showAgentTasks)
+  const labelPool = useLabelPool(propMenu?.kind === 'l', () => trpc.issues.labelList.query({}))
+  const menuInputs = useBoardMenu(ctxMenu?.ids, showAgentTasks)
+  const addressedIds = useMemo(
+    () => [
+      ...new Set([
+        ...keyState.selected,
+        ...(ctxMenu?.ids ?? []),
+        ...(bulkClose?.ids ?? []),
+        ...(propMenu ? [propMenu.id] : []),
+      ]),
+    ],
+    [keyState.selected, ctxMenu, bulkClose, propMenu],
+  )
   const issues = useBoardAddressed(addressedIds)
   const readIssue = useBoardIssueReader()
   const orderedIdsForOpen = useBoardOpenIds(options, openIssueId)
@@ -175,8 +217,8 @@ export function IssuesView(): JSX.Element {
     [runMut, updateIssue],
   )
   const approveIssue = useCallback(
-    (id: IssueId): void => runMut(trpc.issues.promote.mutate({ id })),
-    [runMut, trpc.issues.promote],
+    (id: IssueId): void => runMut(issueWrites(trpc).promote.mutate({ id })),
+    [runMut, trpc],
   )
   const createInStage = useCallback((stage: IssueStage): void => setCreating({ stage }), [])
   // `approve & start` and `archive` left this file with the card's three-button
@@ -184,10 +226,9 @@ export function IssuesView(): JSX.Element {
   // acts on a selection rather than on one card, and that is where a decision
   // taken over 140 proposals belongs. The card keeps Approve alone.
 
-  // The picker hands back a bare string (and `''` to unassign) while the
-  // contract's patch is branded — the brand is a compile-time claim about which
-  // string this is, and the dropdown's options come from the issues' own
-  // assignees, so it is the same string either way.
+  // The picker hands back an active member's id (POD-6294); the contract's
+  // patch is branded, and the brand is a compile-time claim about which string
+  // this is.
   const setAssignee = (id: IssueId, assignee: string): void =>
     runMut(updateIssue(id, { assignee: asUserId(assignee) }))
   const setPriority = (id: IssueId, priority: number): void => runMut(updateIssue(id, { priority }))
@@ -308,8 +349,7 @@ export function IssuesView(): JSX.Element {
       // the guard is raised only when it has something to name. A real batch
       // still gets its dialog — its headline carries a count of what is about to
       // close, which is a fact the bar has not otherwise shown.
-      const only =
-        selectedIds.length === 1 ? readIssue(selectedIds[0]!) : undefined
+      const only = selectedIds.length === 1 ? readIssue(selectedIds[0]!) : undefined
       if (only && !needsCloseGuard(only)) {
         runMut(closeIssue(only.id, intent.reason))
         return
@@ -399,6 +439,7 @@ export function IssuesView(): JSX.Element {
           and an H1 restating the mode tab. The board keeps the vertical budget. */}
       <ToolbarSlot>
         <div className="topbar-tools" data-testid="tasks-toolbar">
+          <ScreenRefreshMark refreshing={refreshing} />
           <Input
             value={filter.text ?? ''}
             onChange={(event) => setFilter({ ...filter, text: event.target.value || undefined })}
@@ -406,7 +447,22 @@ export function IssuesView(): JSX.Element {
             aria-label="Search tasks"
             className="topbar-tools-search"
           />
-          <FilterMenu filter={filter} onChange={setFilter} />
+          <FilterMenu
+            filter={filter}
+            onChange={setFilter}
+            assignedTo={savedFilters.assignedTo}
+            onAssignedTo={(assignedTo) => setSavedFilters({ assignedTo, showAgentTasks })}
+            showAgentTasks={showAgentTasks}
+            onShowAgentTasks={(show) =>
+              setSavedFilters({ assignedTo: savedFilters.assignedTo, showAgentTasks: show })
+            }
+            roster={roster}
+            count={filterCount}
+            onReset={() => {
+              setFilter(filter.text !== undefined ? { text: filter.text } : {})
+              setSavedFilters({ ...DEFAULT_ISSUES_FILTERS })
+            }}
+          />
           <ProjectMenu
             paths={catalog.projectPaths}
             onOpenChange={setProjectMenuOpen}
@@ -472,7 +528,7 @@ export function IssuesView(): JSX.Element {
           filter={deferredFilter}
           badges={display.badges}
           ordering={display.ordering}
-          showAgentTasks={display.showAgentTasks}
+          showAgentTasks={showAgentTasks}
           onOpen={setOpenIssueId}
           onMoveIssue={moveIssue}
           onApprove={approveIssue}
@@ -526,8 +582,8 @@ export function IssuesView(): JSX.Element {
             <AnchoredIssueMenu
               issue={target}
               kind={propMenu.kind}
-              assignees={catalog.assignees}
-              labelPool={catalog.labels}
+              roster={roster}
+              labelPool={labelPool as string[]}
               onMoveIssue={moveIssue}
               onSetPriority={setPriority}
               onSetAssignee={setAssignee}

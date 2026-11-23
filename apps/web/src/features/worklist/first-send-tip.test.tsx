@@ -23,6 +23,24 @@ const selection = vi.hoisted(() => {
     },
   }
 })
+vi.mock('@podium/client-core/react', async (original) => {
+  const { useSyncExternalStore } = await import('react')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    useUiValue: (key: string) => {
+      if (key !== 'selectedIssueId') throw new Error(`Unexpected tip UI read: ${key}`)
+      return useSyncExternalStore(
+        (notify) => {
+          selection.listeners.add(notify)
+          return () => {
+            selection.listeners.delete(notify)
+          }
+        },
+        () => selection.id,
+      )
+    },
+  }
+})
 vi.mock('@/app/store', async () => {
   const { useSyncExternalStore } = await import('react')
   const subscribe = (listener: () => void) => {
@@ -30,7 +48,7 @@ vi.mock('@/app/store', async () => {
     return () => selection.listeners.delete(listener)
   }
   return {
-    useRuntimeSelector: (pick: (s: { selectedIssueId: string | null }) => unknown) =>
+    readFixture: (pick: (s: { selectedIssueId: string | null }) => unknown) =>
       useSyncExternalStore(subscribe, () => pick({ selectedIssueId: selection.id })),
   }
 })

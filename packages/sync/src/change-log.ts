@@ -1,6 +1,10 @@
-import { type MetadataChange, MetadataEntityKind } from '@podium/protocol'
+import { MetadataEntityKind } from '@podium/protocol'
 import { runTimeBudgetedJob, type TimeBudgetedJobMetrics } from '@podium/runtime/time-budget'
-import type { ChangeLogReadRow, ChangeLogWriteRow } from './authority/change-lifecycle'
+import type {
+  ChangeLogReadRow,
+  ChangeLogWriteRow,
+  SequencedChange,
+} from './authority/change-lifecycle'
 
 /**
  * Internals of the durable metadata change log [spec:SP-3fe2] (#253): change
@@ -42,28 +46,11 @@ export interface ChangeLogStore {
   }): Promise<ChangePrunePlan>
   /** Delete one bounded, indexed head batch from a fixed plan. */
   pruneChangeBatch(plan: ChangePrunePlan, batchSize: number): Promise<number>
-  /** THE INSTALLED WORLD — the latest live state per (entity, id): the bootstrap
-   *  read (see
-   *  `ChangeStorePort.latestChangeStates`). Independent of retention (POD-678):
-   *  the row budget bounds what `changesSince` can serve, never what exists. Only
-   *  `upsert` rows come back — a removed entity is not in the world. */
-  latestChangeStates(): Promise<readonly ChangeLogReadRow[]>
-  /** The installed rows of these keys, in no particular order; a key with no
-   *  installed row is absent. One grouped read: what a commit's dedup reads
-   *  inside its own span [POD-6156]. */
-  installedStates(
-    keys: readonly { readonly entity: string; readonly entityId: string }[],
-  ): Promise<readonly ChangeLogReadRow[]>
-  /** Every installed row of one entity kind, in seq order [POD-6156]. */
-  installedStatesOf(entity: string): Promise<readonly ChangeLogReadRow[]>
 }
 
-/** Retention: keep the newest 20k rows, and nothing older than 3 days —
- *  whichever budget deletes more (fixed-plan, head-only batches). */
-export const CHANGE_KEEP_ROWS = 20_000
-export const CHANGE_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000
-/** Prune cadence, counted in APPEND BATCHES that actually wrote rows. */
-export const CHANGE_PRUNE_EVERY = 64
+/** Per-feed retention: at most 500,000 rows and 30 days, whichever removes more.
+ *  This database currently has one feed; hosting partitions both budgets by tenant. */
+export { CHANGE_KEEP_ROWS, CHANGE_MAX_AGE_MS } from '@podium/protocol'
 /** Delete-unit bound, measured below the 12ms slice target on representative rows. */
 export const CHANGE_PRUNE_BATCH_ROWS = 100
 
@@ -114,66 +101,6 @@ export async function pruneChangeLog(
   return { deleted, metrics }
 }
 
-/** Conversation fields that churn on every discovery scan (activity bumps) —
- *  EXCLUDED from change detection so a scan storm doesn't re-record the full
- *  payload per conversation per scan (the 81MB/day churn fix). The durable
- *  payload stays the full wire value — only change DETECTION is projected.
- *  Staleness tradeoff: delta clients see these fields refresh only when a
- *  stable field also changes, or on their next reconnect snapshot —
- *  acceptable for advisory recency/count hints. */
-export function conversationProjection(value: unknown): string {
-  const {
-    updatedAt: _updatedAt,
-    messageCount: _messageCount,
-    statusHint: _statusHint,
-    ...stable
-  } = value as Record<string, unknown>
-  return JSON.stringify(stable)
-}
-
-/** The change-DETECTION key for one entity value: the stable-field projection
- *  for entities with churn-prone derived fields, else the full serialized wire
- *  JSON (`json` must be `JSON.stringify(value)`). */
-export function detectionKey(entity: MetadataEntityKind, value: unknown, json: string): string {
-  if (entity === 'conversation') return conversationProjection(value)
-  return json
-}
-
-/**
- * The detection key of a stored payload, or `undefined` for a corrupt one: a
- * payload that does not parse, or one the entity's projection cannot read. A
- * corrupt row counts as "not there" [POD-6156]: its next upsert re-records it
- * and a remove of it is dropped.
- */
-export function storedKeyOf(entity: MetadataEntityKind, payload: string | undefined): string | undefined {
-  if (payload === undefined) return undefined
-  try {
-    return detectionKey(entity, JSON.parse(payload), payload)
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * Would upserting `value` (serialized as `json`) change the stored row? Byte
- * equality on the detection key, read from the stored payload [POD-6156]. A
- * full-JSON key needs no parse: an equal payload is unchanged and any other
- * payload is changed. Only a projected key (a conversation's stable fields)
- * parses the stored payload.
- */
-export function differsFromStored(
-  entity: MetadataEntityKind,
-  payload: string | undefined,
-  value: unknown,
-  json: string,
-): boolean {
-  if (payload === undefined) return true
-  if (payload === json) return false
-  const key = detectionKey(entity, value, json)
-  if (key === json) return true
-  return storedKeyOf(entity, payload) !== key
-}
-
 /**
  * The lowest seq the authority can still DELIVER (ADR 2 D5) — the published
  * retention horizon, so a replica can tell it must re-bootstrap BEFORE asking
@@ -208,13 +135,20 @@ export class ChangeRangeBootstrapRequired extends Error {
   }
 }
 
-/** Read a fixed target in bounded pages, checking retention once before reading. */
+/**
+ * Read a fixed target in bounded pages, checking retention once before reading.
+ *
+ * Yields KERNEL rows ({@link SequencedChange}): `entityId`, the parsed value, and
+ * the provenance exactly as stored (POD-6272). It used to yield the pre-cutover
+ * wire `MetadataChange`, which has no provenance and spells the id `id`, and its
+ * one caller renamed the id back.
+ */
 export async function* readChangesRange(
   store: Pick<ChangeLogStore, 'minChangeSeq' | 'changesInRange'>,
   from: number,
   through: number,
   pageRows: number,
-): AsyncIterable<MetadataChange[]> {
+): AsyncIterable<SequencedChange[]> {
   if (!Number.isSafeInteger(pageRows) || pageRows <= 0)
     throw new RangeError('pageRows must be positive')
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(through) || from < 0 || from > through) {
@@ -226,10 +160,19 @@ export async function* readChangesRange(
   while (from < through) {
     const rows = await store.changesInRange(from, through, pageRows)
     if (rows.length === 0) return
-    const changes: MetadataChange[] = []
+    const changes: SequencedChange[] = []
     for (const r of rows) {
       if (!MetadataEntityKind.safeParse(r.entity).success) continue
-      const base = { seq: r.seq, id: r.entityId, op: r.op, entity: r.entity as MetadataEntityKind }
+      const base: SequencedChange = {
+        seq: r.seq,
+        entity: r.entity as MetadataEntityKind,
+        entityId: r.entityId,
+        op: r.op,
+      }
+      // Absent stays absent: the store maps a NULL column to no key.
+      if (r.originId !== undefined) base.originId = r.originId
+      if (r.causationId !== undefined) base.causationId = r.causationId
+      if (r.mutationId !== undefined) base.mutationId = r.mutationId
       if (r.op === 'upsert') {
         if (r.payload == null) throw new ChangeRangeBootstrapRequired('corrupt-payload')
         let value: unknown
@@ -238,9 +181,9 @@ export async function* readChangesRange(
         } catch {
           throw new ChangeRangeBootstrapRequired('corrupt-payload')
         }
-        changes.push({ ...base, value } as MetadataChange)
+        changes.push({ ...base, value })
       } else {
-        changes.push(base as MetadataChange)
+        changes.push(base)
       }
     }
     from = rows[rows.length - 1]!.seq

@@ -1,16 +1,21 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
+import { MobxPool } from '@podium/client-graph'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import {
-  asIssueId,
   asMachineId,
   asRepoId,
   asSessionId,
+  asUserId,
   type GitRepositoryWire,
   type MachineId,
   type MachineWire,
+  resolveUserPreferences,
 } from '@podium/model'
+import { nativeAccountId } from '@podium/runtime'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { observable, runInAction } from 'mobx'
+import { runInAction } from 'mobx'
+import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
@@ -19,8 +24,33 @@ import type { IssueMenuPoolInputs } from './issue-menu-pool-inputs'
 import { IssuePageWorldContext } from './issue-page/issue-page-data'
 
 const featureEnabled = vi.hoisted(() => ({ value: true }))
-const settings = vi.hoisted(() => ({ model: undefined as { codingHarness: string } | undefined }))
-vi.mock('@/features/settings/record-readers', () => ({ useSettingsRecord: () => settings }))
+const preferences = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+function publishHarness(harness: Parameters<typeof nativeAccountId>[0]) {
+  const userId = asUserId('menu-operator')
+  preferences.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'userPreferences',
+        id: userId,
+        value: {
+          ...resolveUserPreferences(
+            { userId, 'roles.coding.accountId': nativeAccountId(harness) },
+            userId,
+          ),
+          id: userId,
+        } as never,
+      },
+    ],
+  })
+}
+vi.mock('@/app/store-worklist-pool', async (original) => ({
+  ...(await original<typeof import('@/app/store-worklist-pool')>()),
+  useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
+    const projection = useMemo(() => createPoolProjection(preferences, read), [read])
+    return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
+  },
+}))
 vi.mock('@/lib/use-feature', () => ({
   useFeature: () => featureEnabled.value,
 }))
@@ -31,31 +61,35 @@ const state: IssueMenuPoolInputs = {
   machines: [],
   sessions: [],
 }
-const handoffMutate = vi.fn(async () => ({ ok: true }))
+// A move is a `session.handoff` effect record (POD-6422): the action answers its id.
+const handoffSession = vi.fn(async () => 'eff_handoff')
 const markIssueRead = vi.fn(async () => {})
 const markIssueUnread = vi.fn(async () => {})
 
-vi.mock('@podium/client-core/react', async (original) => ({
-  ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({
-    access: {
-      trpc: { sessions: { handoff: { mutate: handoffMutate } } },
-      markIssueRead,
-      markIssueUnread,
-      get sessions() {
-        throw new Error('Task menu read legacy sessions')
+vi.mock('@podium/client-core/react', async (original) => {
+  const { fixtureRuntimeHooks } = await import('@podium/client-core/test-support/command-hooks')
+  return {
+    ...(await original<typeof import('@podium/client-core/react')>()),
+    ...fixtureRuntimeHooks(() => ({
+      access: {
+        handoffSession,
+        markIssueRead,
+        markIssueUnread,
+        get sessions() {
+          throw new Error('Task menu read legacy sessions')
+        },
+        get repos() {
+          throw new Error('Task menu read legacy repos')
+        },
+        get machines() {
+          throw new Error('Task menu read legacy machines')
+        },
       },
-      get repos() {
-        throw new Error('Task menu read legacy repos')
-      },
-      get machines() {
-        throw new Error('Task menu read legacy machines')
-      },
-    },
-  }),
-}))
+    })),
+  }
+})
 vi.mock('@/app/store', () => ({
-  useRuntimeSelector: () => {
+  readFixture: () => {
     throw new Error('Task menu used a legacy selector')
   },
 }))
@@ -140,14 +174,14 @@ const handoffItem = (): HTMLElement => screen.getByRole('menuitem', { name: /Han
 
 afterEach(() => {
   cleanup()
-  handoffMutate.mockClear()
+  handoffSession.mockClear()
   markIssueRead.mockClear()
   markIssueUnread.mockClear()
   featureEnabled.value = true
   state.repos = []
   state.machines = []
   state.sessions = []
-  settings.model = undefined
+  runInAction(() => preferences.tables.userPreferences.clear())
 })
 
 it.each([
@@ -266,15 +300,11 @@ it('takes a new read action when another context-menu gesture replaces the openi
 })
 
 it('updates an open auto agent submenu when the Settings harness changes', () => {
-  settings.model = observable({ codingHarness: 'codex' })
+  publishHarness('codex')
   open(makeIssue({ defaultAgent: 'auto' }), 'palette')
   fireEvent.click(screen.getByRole('menuitem', { name: /Assign agent|Run now/ }))
   expect(screen.getByRole('menuitem', { name: 'Codex (default)' })).toBeTruthy()
-  act(() =>
-    runInAction(() => {
-      settings.model!.codingHarness = 'claude-code'
-    }),
-  )
+  act(() => publishHarness('claude-code'))
   expect(screen.getByRole('menuitem', { name: 'Claude Code (default)' })).toBeTruthy()
 })
 
@@ -303,7 +333,7 @@ describe('IssueContextMenu handoff (POD-850)', () => {
     )
     fireEvent.click(handoffItem())
     fireEvent.click(screen.getByRole('menuitem', { name: LUD }))
-    expect(handoffMutate).toHaveBeenCalledWith({ sessionId: asSessionId('agent'), machineId: LUD })
+    expect(handoffSession).toHaveBeenCalledWith(asSessionId('agent'), LUD)
   })
 
   it('POD-779 shape: still shows Handoff with the reason when the agent drifted off its worktree', () => {

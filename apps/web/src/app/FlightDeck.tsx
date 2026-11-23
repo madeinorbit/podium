@@ -1,5 +1,5 @@
+import { useCommands, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   type DeckIssueState,
   type FlightDeckMode,
@@ -9,7 +9,6 @@ import {
   type MissionDeparture,
   type machineViewsFromWire,
   continuationPresenceLine as sharedContinuationPresenceLine,
-  spawnIssueAgent,
 } from '@podium/client-core/values'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import { defaultSeat } from '@podium/client-graph/mission-seat'
@@ -17,7 +16,6 @@ import { settled } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { observer } from '@podium/client-graph/react'
-import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -37,7 +35,9 @@ import {
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react'
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import type { Trpc } from '@/app/trpc'
 import { GhostBar, GhostDot, GhostPreview, GhostSquare } from '@/components/GhostPreview'
+import { ScreenRefreshMark } from '@/components/ScreenRefreshMark'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -48,7 +48,6 @@ import { useDockIssue } from '@/features/issues/dock-issue'
 import type { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
-import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
 import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
 import { FLIGHT_DECK_ANCHOR } from '@/features/worklist/first-send-tip'
 import {
@@ -57,10 +56,10 @@ import {
   CapabilityAgentItem,
   candidateFromAvailability,
 } from '@/lib/agent-capability'
+import { forceReload } from '@/lib/force-reload'
 import { type IssueAgentKind, issueAgentOptions, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
-import { usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { useClickIntent } from './click-intent'
 import { FlightDeckFullControls } from './FlightDeckFullControls'
@@ -73,14 +72,7 @@ import { MissionCostChip } from './MissionCostChip'
 import { MissionGauge } from './MissionGauge'
 import { useMissionEndings } from './mission-endings'
 import { useOperatorFocus } from './operator-focus'
-import {
-  CLOSE_RIGHT_PANEL,
-  OPEN_RIGHT_PANEL_EVENT,
-  REVEAL_IN_DECK_EVENT,
-  RIGHT_PANEL_KEY,
-  readRightPanel,
-} from './shell-state'
-import { useRuntimeSelector } from './store'
+import { OPEN_RIGHT_PANEL_EVENT, REVEAL_IN_DECK_EVENT } from './shell-state'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
 /**
@@ -711,7 +703,7 @@ export function ReviewSignpost({
  *
  * A LOAD, NOT A STATE — and therefore WORDLESS. The session already carries an
  * `issueId`: the composer's spawn paints the draft vessel and the session
- * together (`optimisticDraftIssue` / `optimisticStartingSession`), so a root
+ * together (`draftIssueRow` / `startingSessionRow`), so a root
  * exists and this column is only waiting for the selection to catch up. What
  * follows is a real tree a beat later, so anything written here is a sentence
  * the operator watches get taken away.
@@ -720,7 +712,32 @@ export function ReviewSignpost({
  * strip deep, and a ghost that COLLAPSES on resolve reads worse than no ghost
  * at all.
  */
+export const DECK_LOAD_LIMIT_MS = 60_000
+
 export function SettlingDeck(): JSX.Element {
+  const [expired, setExpired] = useState(false)
+  const [failure, setFailure] = useState<string>()
+  useEffect(() => {
+    const timer = setTimeout(() => setExpired(true), DECK_LOAD_LIMIT_MS)
+    return () => clearTimeout(timer)
+  }, [])
+  if (expired)
+    return (
+      <div className="m-6 flex flex-col items-start gap-3 text-sm" role="alert">
+        <p>The deck could not finish loading.</p>
+        {failure && <p>{failure}</p>}
+        <Button
+          variant="outline"
+          onClick={() => {
+            void forceReload('deck-load-timeout').catch((error: unknown) =>
+              setFailure(error instanceof Error ? error.message : String(error)),
+            )
+          }}
+        >
+          Retry
+        </Button>
+      </div>
+    )
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="flight-settling">
       <GhostPreview
@@ -927,6 +944,7 @@ const FullDeckBrief = observer(function FullDeckBrief({
         {hasDetails && (
           <div className="flight-full-description-actions">
             <button
+              data-pressable
               type="button"
               aria-expanded={open}
               aria-controls={contentId}
@@ -937,7 +955,7 @@ const FullDeckBrief = observer(function FullDeckBrief({
               {!open ? <ChevronDown size={11} aria-hidden="true" /> : null}
             </button>
             {open && (
-              <button type="button" onClick={onOpenDetails}>
+              <button data-pressable type="button" onClick={onOpenDetails}>
                 <ArrowUpRight size={12} aria-hidden="true" />
                 Open task details
               </button>
@@ -1098,6 +1116,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     setSelectedIssueId,
     openSessionTab,
     focusIssueSession,
+    startIssueSession,
     preferPanelMode,
     setView,
     markIssueRead,
@@ -1105,53 +1124,26 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     setIssueTucked,
     closeIssue,
     updateIssue,
-    trpc,
-  } = useRuntimeSelector(
-    (store) => ({
-      paneA: store.paneA,
-      paneB: store.paneB,
-      split: store.split,
-      focusedPane: store.focusedPane,
-      setSelectedWorktree: store.setSelectedWorktree,
-      // POD-679's departure ticks RE-ROOT the deck: a departed spin-off is not a
-      // member of this mission any more, so focusing it would resolve to nothing.
-      setSelectedIssueId: store.setSelectedIssueId,
-      // The deck OPENS TABS now (POD-710 §2) rather than assigning pane A: a
-      // preview open and a permanent open are different things, and only the
-      // workspace layout can tell them apart. `paneA`/`paneB` below stay as the
-      // derived mirrors they now are — this column still reads them to know
-      // which session the operator is actually in.
-      openSessionTab: store.openSessionTab,
-      focusIssueSession: store.focusIssueSession,
-      preferPanelMode: store.preferPanelMode,
-      setView: store.setView,
-      markIssueRead: store.markIssueRead,
-      markSessionRead: store.markSessionRead,
-      setIssueTucked: store.setIssueTucked,
-      // The signpost card's own filing action closes an unfinished task before
-      // it can be tucked (POD-1212) — the fold is for finished work.
-      closeIssue: store.closeIssue,
-      updateIssue: store.updateIssue,
-      trpc: store.trpc,
-    }),
-    shallowEqual,
-  )
+  } = {
+    paneA: useUiValue('paneA'),
+    paneB: useUiValue('paneB'),
+    split: useUiValue('split'),
+    focusedPane: useUiValue('focusedPane'),
+    setSelectedWorktree: useUiValue('setSelectedWorktree'),
+    setSelectedIssueId: useUiValue('setSelectedIssueId'),
+    openSessionTab: useUiValue('openSessionTab'),
+    focusIssueSession: useUiValue('focusIssueSession'),
+    startIssueSession: useCommands<Trpc>().sessions.startIssueSession,
+    preferPanelMode: useUiValue('preferPanelMode'),
+    setView: useUiValue('setView'),
+    markIssueRead: useCommands<Trpc>().issues.markRead,
+    markSessionRead: useCommands<Trpc>().sessions.markRead,
+    setIssueTucked: useCommands<Trpc>().issues.setTucked,
+    closeIssue: useCommands<Trpc>().issues.close,
+    updateIssue: useCommands<Trpc>().issues.update,
+  }
   const { setFocusedIssueId } = useOperatorFocus()
-  // WHAT THE TASK DOCK IS ACTUALLY SHOWING, so a row can answer for it. The
-  // panel's own pointer — not this column's focus — because a chip or a linked
-  // row may have pointed it somewhere else since, and a row that claims to
-  // already be open there has to mean the task on screen.
-  //
-  // THROUGH REFS, read when the click resolves rather than when the row rendered.
-  // A strip's memo deliberately ignores its handler props, so a strip goes on
-  // holding the closure from the render BEFORE the panel followed the focus —
-  // which is exactly the render whose answer is stale.
-  const { issueId: dockIssueId, show: showInDock } = useDockIssue()
-  const rightPanel = usePersistedUiValue(RIGHT_PANEL_KEY, readRightPanel)
-  const dockIssueRef = useRef(dockIssueId)
-  dockIssueRef.current = dockIssueId
-  const dockPanelRef = useRef(rightPanel)
-  dockPanelRef.current = rightPanel
+  const { show: showInDock } = useDockIssue()
   const headerIntent = useClickIntent()
   const deckScrollerRef = useRef<HTMLElement | null>(null)
   const [revealSessionId, setRevealSessionId] = useState<string | null>(null)
@@ -1172,7 +1164,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * wrong thing) whenever a file was open. In split view the session being
    * worked may be the one in pane B.
    */
-  const activeSessionId = useFocusedSessionId(split && focusedPane === 'B' ? paneB : paneA)
+  const activeSessionId = useFocusedSessionId(useUiValue('focusedSessionId'))
   /** The mission's own row: the header is the root of the tree (round 3 §4). */
   const rootRow = screen.rootRow
   /**
@@ -1282,16 +1274,6 @@ export const FlightDeckContent = observer(function FlightDeckContent({
   }, [revealSessionId])
 
   const selectIssue = (row: FlightDeckRow, permanent: boolean): void => {
-    // THE SAME ROW CLOSES WHAT IT OPENED (POD-1639). A single click whose task
-    // is the one the dock is already showing is the operator asking for the
-    // stage back — the first click was the request to see this task, so the
-    // second can only be about the panel.
-    //
-    // The PREVIEW click only. A promotion (double click, or the strip menu's
-    // Open) is an unambiguous "show me this task" and must never end with the
-    // inspector shut.
-    const dockShowsThisIssue =
-      dockPanelRef.current === 'issue' && dockIssueRef.current === row.issue.id
     setFocusedIssueId(row.issue.id)
     // Pointed explicitly too: when the focus does not move — the row is already
     // focused but a chip took the panel elsewhere — this is what brings it back.
@@ -1301,7 +1283,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     // operator previously dismissed it.
     window.dispatchEvent(
       new CustomEvent(OPEN_RIGHT_PANEL_EVENT, {
-        detail: !permanent && dockShowsThisIssue ? CLOSE_RIGHT_PANEL : 'issue',
+        detail: 'issue',
       }),
     )
     void markIssueRead(row.issue.id)
@@ -1374,12 +1356,17 @@ export const FlightDeckContent = observer(function FlightDeckContent({
 
   const rootFinished = screen.rootFinished
   const addMissionAgent = async (agentKind?: IssueAgentKind): Promise<void> => {
-    const input = agentKind ? { id: rootId, agentKind } : { id: rootId }
     const existingSessionIds = source
       .attached(rootId)
       .filter((session) => !(session as SessionModel).archived)
       .map((session) => session.sessionId)
-    await spawnIssueAgent(trpc.issues, input)
+    // One more agent, or the first when the mission was never started: an
+    // effect record, painted on the issue on the press (POD-6526).
+    const started = startIssueSession({
+      issueId: asIssueId(rootId),
+      ...(agentKind ? { agentKind } : {}),
+    })
+    if (!(await started.settled)) return
     await focusIssueSession(asIssueId(rootId), { excludeSessionIds: existingSessionIds })
   }
   const selectSession = (
@@ -1413,16 +1400,19 @@ export const FlightDeckContent = observer(function FlightDeckContent({
    * width modes (POD-6245): its edge resizes it.
    */
   const columnControls = (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      className="deck-eyebrow-chevron size-6 flex-none text-text-faint"
-      aria-label="Collapse Flight Deck"
-      title="Collapse Flight Deck"
-      onClick={onCollapse}
-    >
-      <ChevronLeft size={14} aria-hidden="true" />
-    </Button>
+    <>
+      <ScreenRefreshMark refreshing={screen.refreshing} />
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="deck-eyebrow-chevron size-6 flex-none text-text-faint"
+        aria-label="Collapse Flight Deck"
+        title="Collapse Flight Deck"
+        onClick={onCollapse}
+      >
+        <ChevronLeft size={14} aria-hidden="true" />
+      </Button>
+    </>
   )
   const fullActions: FlightDeckV6Actions = {
     activeSessionId,

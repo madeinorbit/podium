@@ -26,20 +26,10 @@
  */
 
 import type { MaintenanceCommandReply } from '@podium/protocol'
+import { sql } from 'drizzle-orm'
 import { expect, it } from 'vitest'
-import type { SessionStore } from '../store'
-import { openTestStore } from '../test-support/open-test-store'
+import { openEventStoreSlice } from '../test-support/event-store-slice'
 import type { MaintenanceLeaseRow } from './maintenance'
-
-/**
- * The raw connection, for planting a value no typed writer can produce.
- * Same shape and same justification as `store/json-column-corruption-oracle.test.ts`.
- */
-interface RawStatement {
-  run(...params: (string | number | null)[]): unknown
-}
-const rawDb = (store: SessionStore): { prepare(sql: string): RawStatement } =>
-  (store as unknown as { db: { prepare(sql: string): RawStatement } }).db
 
 function lease(overrides: Partial<MaintenanceLeaseRow> = {}): MaintenanceLeaseRow {
   return {
@@ -62,7 +52,7 @@ const applied = (runKey: string, deleted = 0): MaintenanceCommandReply => ({
 })
 
 it('reads a lease back exactly as written and reports a missing one as undefined, not null', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     expect(await store.maintenance.getLease('maintenance')).toBeUndefined()
 
@@ -79,7 +69,7 @@ it('reads a lease back exactly as written and reports a missing one as undefined
 })
 
 it('replaces every column of an existing lease and keeps other leases separate', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.maintenance.putLease(lease())
     await store.maintenance.putLease(lease({ name: 'other', generationId: 'gen-other' }))
@@ -102,7 +92,7 @@ it('replaces every column of an existing lease and keeps other leases separate',
 })
 
 it('recalls a recorded command by its job and run key, and nothing for either half alone', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     expect(await store.maintenance.getCommand('message-expiry', 'run-1')).toBeUndefined()
 
@@ -119,7 +109,7 @@ it('recalls a recorded command by its job and run key, and nothing for either ha
 })
 
 it('prunes strictly before the cutoff, at most a batch at a time, oldest first', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     const at = (minute: number) => `2026-09-01T00:${String(minute).padStart(2, '0')}:00.000Z`
     for (let i = 0; i < 6; i++) {
@@ -149,13 +139,13 @@ it('prunes strictly before the cutoff, at most a batch at a time, oldest first',
 })
 
 it('refuses a batch size that is not a positive integer, before touching the database', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.maintenance.recordCommand(applied('run-1'), 7, '2026-09-01T00:00:00.000Z')
     for (const bad of [0, -1, 1.5, Number.NaN]) {
-      await expect(store.maintenance.pruneCommandsBatch('2026-09-02T00:00:00.000Z', bad)).rejects.toThrow(
-        RangeError,
-      )
+      await expect(
+        store.maintenance.pruneCommandsBatch('2026-09-02T00:00:00.000Z', bad),
+      ).rejects.toThrow(RangeError)
     }
     // The guard is a refusal, not a no-op that deleted first.
     expect(await store.maintenance.getCommand('message-expiry', 'run-1')).toBeDefined()
@@ -165,16 +155,16 @@ it('refuses a batch size that is not a positive integer, before touching the dat
 })
 
 it('throws rather than quarantining when a stored command reply is not a valid reply', async () => {
-  const store = await openTestStore(':memory:')
+  const store = await openEventStoreSlice()
   try {
     await store.maintenance.recordCommand(applied('run-1'), 7, '2026-09-01T00:00:00.000Z')
-    // The same raw seam `store/json-column-corruption-oracle.test.ts` uses to
-    // plant a corrupt value: there is no typed way to write an invalid reply,
+    // A raw write plants the corrupt value, as `store/json-column-corruption-oracle.test.ts`
+    // does: there is no typed way to write an invalid reply,
     // which is the point — only a hand-edited database or an older writer can
     // produce one, and this pins what happens when one does.
-    rawDb(store)
-      .prepare('UPDATE maintenance_commands SET result_json = ? WHERE job_kind = ? AND run_key = ?')
-      .run('{"status":"nonsense"}', 'message-expiry', 'run-1')
+    await store.run(
+      sql`UPDATE maintenance_commands SET result_json = ${'{"status":"nonsense"}'} WHERE job_kind = ${'message-expiry'} AND run_key = ${'run-1'}`,
+    )
     await expect(store.maintenance.getCommand('message-expiry', 'run-1')).rejects.toThrow()
   } finally {
     await store.close()

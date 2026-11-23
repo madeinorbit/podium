@@ -27,7 +27,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { MessageRow, MessagePageCursor, DeliveryMessages } from '../../hot-path-ports'
+import type { DeliveryMessages, MessagePageCursor, MessageRow } from '../../hot-path-ports'
 import {
   compareCursor,
   cursorOf,
@@ -99,6 +99,7 @@ export class DeliveryScheduler {
   /** Bounded delivery jobs coalesce by durable recipient principal. */
   private readonly pendingDeliveryTargets = new Map<string, DeliveryTargetWork>()
   private deliveryTriggerTimer: ReturnType<typeof setTimeout> | null = null
+  private deliveryFlushTail: Promise<void> = Promise.resolve()
   private reconcileTimer: ReturnType<typeof setTimeout> | null = null
   private retryBackstopTimer: ReturnType<typeof setTimeout> | null = null
   private retryBackstopCursor: MessagePageCursor | null = null
@@ -127,12 +128,18 @@ export class DeliveryScheduler {
   }
 
   /** Add or coalesce one target's job and arm the flush. */
-  private enqueue(target: DeliveryTarget, how: { after?: MessagePageCursor; known: boolean }): void {
+  private enqueue(
+    target: DeliveryTarget,
+    how: { after?: MessagePageCursor; known: boolean },
+  ): void {
     this.add(target, how)
     this.scheduleDeliveryFlush()
   }
 
-  private add(target: DeliveryTarget, { after, known }: { after?: MessagePageCursor; known: boolean }): void {
+  private add(
+    target: DeliveryTarget,
+    { after, known }: { after?: MessagePageCursor; known: boolean },
+  ): void {
     const key = deliveryTargetKey(target)
     const existing = this.pendingDeliveryTargets.get(key)
     if (existing) {
@@ -170,8 +177,18 @@ export class DeliveryScheduler {
       clearTimeout(this.deliveryTriggerTimer)
       this.deliveryTriggerTimer = null
     }
+    // A timer may already have taken a snapshot off the queue and be awaiting
+    // the database. An explicit flush must include that work before its own
+    // snapshot, and concurrent flushes must not attempt the same target at once.
+    const flush = this.deliveryFlushTail.then(() => this.flushQueuedTargets())
+    this.deliveryFlushTail = flush.catch(() => undefined)
+    await flush
+  }
+
+  private async flushQueuedTargets(): Promise<void> {
     try {
-      for (const target of (await this.runner.deferredTargets?.()) ?? []) this.add(target, { known: false })
+      for (const target of (await this.runner.deferredTargets?.()) ?? [])
+        this.add(target, { known: false })
     } catch (error) {
       this.recordTriggerFailure('deferred targets', error)
     }
@@ -186,7 +203,8 @@ export class DeliveryScheduler {
     const unknown = queued.filter((work) => !work.known)
     let pendingAmong: boolean[] = []
     try {
-      if (unknown.length > 0) pendingAmong = await this.deps.messages.pendingTargets(unknown.map((work) => work.target))
+      if (unknown.length > 0)
+        pendingAmong = await this.deps.messages.pendingTargets(unknown.map((work) => work.target))
     } catch (error) {
       this.recordTriggerFailure(`target check (${unknown.length} targets)`, error)
       return
@@ -237,7 +255,7 @@ export class DeliveryScheduler {
   /** True when there is nothing durable to walk — the service skips the whole
    *  boot enumeration on the overwhelmingly common empty-queue path. */
   async queueIsEmpty(): Promise<boolean> {
-    return await this.deps.messages.countQueued() === 0
+    return (await this.deps.messages.countQueued()) === 0
   }
 
   /** Begin a bounded startup walk. Each page schedules the next macrotask so

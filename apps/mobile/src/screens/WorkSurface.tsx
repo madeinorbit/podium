@@ -9,6 +9,7 @@ import { ChevronDown, ChevronRight, Search, X } from '../components/icons'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { listWindow } from '../components/list-window'
 import { NewWorkButton } from '../components/NewWorkButton'
+import { NoticeBell } from '../components/NoticeBell'
 import { PressableScale } from '../components/PressableScale'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
@@ -87,7 +88,18 @@ export const WorkSurface = observer(function WorkSurface(props: WorkSurfaceProps
     ],
   )
   return (
-    <Screen large title="Work" right={<NewWorkButton size={34} />}>
+    <Screen
+      large
+      title="Work"
+      refreshing={phone.refreshing}
+      right={
+        <>
+          {/* My notices (POD-6881): the count, and the way to the inbox. */}
+          <NoticeBell />
+          <NewWorkButton size={34} />
+        </>
+      }
+    >
       <View style={styles.controls}>
         <View style={styles.search}>
           <Icon as={Search} size={16} color={color.textFaint} />
@@ -230,6 +242,7 @@ const WebGroupHeader = observer(function WebGroupHeader({
       accessibilityRole="button"
       accessibilityLabel={`${section.label} · ${section.ids.length}`}
       accessibilityState={{ expanded: !collapsed }}
+      aria-expanded={!collapsed}
       onPress={() => onToggle(section.key)}
       scaleTo={1}
       style={styles.group}

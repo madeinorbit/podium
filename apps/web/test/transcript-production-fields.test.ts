@@ -1,9 +1,9 @@
 // @vitest-environment node
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import type { TranscriptGraph } from '@podium/client-core/conversation'
 import { build, type Rolldown } from 'vite'
 import { expect, it } from 'vitest'
-import type { TranscriptGraph } from '@podium/client-core/conversation'
 import { standardDecorators } from '../../../scripts/vite-standard-decorators'
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
@@ -26,38 +26,51 @@ function phoneSource(source: string): string {
     configFile: `${root}apps/mobile/babel.config.js`,
     babelrc: false,
     envName: 'production',
-    caller: { name: 'metro', bundler: 'metro', platform: 'web', isDev: false,
-      isServer: false, supportsStaticESM: true },
+    caller: {
+      name: 'metro',
+      bundler: 'metro',
+      platform: 'web',
+      isDev: false,
+      isServer: false,
+      supportsStaticESM: true,
+    },
   }).code
 }
 
 async function productionModule(compiler: Compiler, witness = false) {
-  const result = await build({
+  const result = (await build({
     root: `${root}apps/web`,
     configFile: false,
     logLevel: 'silent',
     define: { 'process.env.NODE_ENV': '"production"' },
     resolve: { conditions: ['@podium/source'], dedupe: ['mobx'] },
-    plugins: [standardDecorators(), {
-      name: 'production-field-proof',
-      enforce: 'pre',
-      transform(source, id) {
-        if (id !== graphFile) return
-        const input = witness ? `export class Fields {
+    plugins: [
+      standardDecorators(),
+      {
+        name: 'production-field-proof',
+        enforce: 'pre',
+        transform(source, id) {
+          if (id !== graphFile) return
+          const input = witness
+            ? `export class Fields {
           missing: string | undefined
           present: string | undefined = undefined
-        }` : source
-        return (compiler === 'phone' ? phoneSource(input) : input) +
-          "\nexport { autorun, isObservableProp } from 'mobx'"
+        }`
+            : source
+          return (
+            (compiler === 'phone' ? phoneSource(input) : input) +
+            "\nexport { autorun, isObservableProp } from 'mobx'"
+          )
+        },
       },
-    }],
+    ],
     build: {
       lib: { entry: graphFile, formats: ['iife'], name: 'productionGraph' },
       write: false,
       minify: true,
     },
-  }) as Rolldown.RolldownOutput[]
-  const chunk = result[0]!.output.find(output => output.type === 'chunk')!
+  })) as Rolldown.RolldownOutput[]
+  const chunk = result[0]!.output.find((output) => output.type === 'chunk')!
   return new Function(`${chunk.code}; return productionGraph`)() as {
     Fields: new () => object
     TranscriptGraph: new () => TranscriptGraph
@@ -66,14 +79,17 @@ async function productionModule(compiler: Compiler, witness = false) {
   }
 }
 
-it.each(['desktop', 'phone'] as const)('%s production class-field semantics', async compiler => {
+it.each(['desktop', 'phone'] as const)('%s production class-field semantics', async (compiler) => {
   const { Fields } = await productionModule(compiler, true)
   const instance = new Fields()
   expect(Object.hasOwn(instance, 'missing')).toBe(compiler === 'desktop')
   expect(Object.hasOwn(instance, 'present')).toBe(true)
 })
 
-it.each(['desktop', 'phone'] as const)('%s constructs and observes all transcript facts in production', async compiler => {
+it.each([
+  'desktop',
+  'phone',
+] as const)('%s constructs and observes all transcript facts in production', async (compiler) => {
   // Execute emitted, minified JavaScript, with the phone's actual Babel
   // configuration applied before bundling, rather than importing TS in Vitest.
   const compiled = await productionModule(compiler)
@@ -81,21 +97,36 @@ it.each(['desktop', 'phone'] as const)('%s constructs and observes all transcrip
   // observable, ObservableObject.latestAnswerId (field not found).
   const graph = new compiled.TranscriptGraph()
   for (const field of fields) {
-    expect(Object.hasOwn(graph, field), field).toBe(true)
-    expect(compiled.isObservableProp(graph, field), field).toBe(true)
+    // Standard decorated accessors are installed on the prototype. Exercise
+    // their observable reads below, rather than requiring own data properties.
+    expect(field in graph, field).toBe(true)
   }
   const seen: (string | undefined)[][] = []
-  const stop = compiled.autorun(() => { seen.push(fields.map(field => graph[field])) })
+  const stop = compiled.autorun(() => {
+    seen.push(fields.map((field) => graph[field]))
+  })
   try {
-    graph.apply({ changed: [
-      { id: 'answer', role: 'assistant', text: 'Ready', answer: true },
-      { id: 'question', role: 'tool', text: '', toolName: 'AskUserQuestion', toolUseId: 'ask', toolInputJson: '{}' },
-    ], insertions: [{ id: 'answer' }, { id: 'question' }] })
+    graph.apply({
+      changed: [
+        { id: 'answer', role: 'assistant', text: 'Ready', answer: true },
+        {
+          id: 'question',
+          role: 'tool',
+          text: '',
+          toolName: 'AskUserQuestion',
+          toolUseId: 'ask',
+          toolInputJson: '{}',
+        },
+      ],
+      insertions: [{ id: 'answer' }, { id: 'question' }],
+    })
     graph.reset([])
     expect(seen).toEqual([
-      [undefined, undefined, undefined, undefined],
-      ['answer', 'answer', 'answer', 'question'],
-      [undefined, undefined, undefined, undefined],
+      [undefined, undefined, undefined],
+      ['answer', 'answer', 'question'],
+      [undefined, undefined, undefined],
     ])
-  } finally { stop() }
+  } finally {
+    stop()
+  }
 })

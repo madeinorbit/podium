@@ -1,11 +1,10 @@
-import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { act, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from '../client/mobile-pool'
 import { renderWithMobileStore } from '../client/test-support'
-import { useLaunchInputs } from '../client/use-launch-inputs'
 import type { LaunchConfiguration, LaunchPlan } from '../lib/launch-configuration'
 
 const state = vi.hoisted(() => ({ host: undefined as MobilePool | undefined }))
@@ -46,7 +45,7 @@ async function mount(element: import('react').ReactNode) {
     attachRuntime(owner) {
       runtime = owner
 
-      fixture.bindHub(owner.hub)
+      fixture.bindHub(owner.services.connection.hub, undefined, owner.live)
       return state.host!.host.attach(owner, (error) => {
         throw error
       })

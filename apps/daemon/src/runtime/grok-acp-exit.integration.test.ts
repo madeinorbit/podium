@@ -24,12 +24,13 @@ vi.mock('@podium/process/durable', async () => {
 import { createGrokEngineHost, grokEngineFacts } from '@podium/harness/driver/host'
 import { manifestFor } from '@podium/harness'
 import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './version-probe'
+import { rigCommandEnv, stubHarnessContext } from '../test-support/stub-harness-context'
 import { engineEnvBuilder } from './host'
 import { createSessionEngineScope } from '../session/engines.js'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createDurableProcess } from '@podium/process/durable'
 import { createGrokSessionRuntime } from '@podium/harness/driver/host'
-import { createMemoryAttachmentStager, serverFamilyLaunch } from '@podium/harness/driver/testing'
+import { createMemoryAttachmentStager, serverFamilyLaunch, testEngineTerms } from '@podium/harness/driver/testing'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
 import { SessionRegistry } from '../session/registry.js'
@@ -135,7 +136,12 @@ describe('Grok ACP real scoped child boundary', () => {
       process.env.PODIUM_TEST_SCOPE_ARGS = rig.scopeArgs
       process.env.XDG_RUNTIME_DIR = join(root, 'runtime')
 
-      expect(await grokAcpVersionProbe()).toEqual({ drivable: true })
+      // The session's pinned installation is the rig's grok, over this env
+      // (POD-6546); admission probes that executable.
+      const context = stubHarnessContext('grok', join(rig.bin, 'grok'))
+      expect(await grokAcpVersionProbe(context.installation, { env: rigCommandEnv() })).toEqual({
+        drivable: true,
+      })
       const sent: DaemonMessage[] = []
       const facts = grokEngineFacts(manifestFor('grok')!)
       const durable = createDurableProcess()
@@ -147,7 +153,9 @@ describe('Grok ACP real scoped child boundary', () => {
         resources: () => undefined,
         buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
-        checkVersion: () => grokAcpVersionProbe(),
+        checkVersion: (installation) => grokAcpVersionProbe(installation, { env: rigCommandEnv() }),
+        ...testEngineTerms(),
+        harnessContextFor: async () => context,
       })
       runtime = createGrokSessionRuntime({ stageAttachment: createMemoryAttachmentStager(), driverSlots: driverSlotsOver(testSessions()),
         facts,
@@ -162,7 +170,13 @@ describe('Grok ACP real scoped child boundary', () => {
       })
       const sessionId = asSessionId('grok-real-scoped-exit')
 
-      await runtime.launch(serverFamilyLaunch({ sessionId, cwd: root }))
+      await runtime.launch(
+        serverFamilyLaunch({
+          harnessContext: context,
+          sessionId,
+          cwd: root,
+        }),
+      )
       expect(readFileSync(rig.scopeArgs, 'utf8')).toContain('--scope')
       const childPid = Number(readFileSync(rig.childPid, 'utf8'))
       expect(childPid).toBeGreaterThan(0)

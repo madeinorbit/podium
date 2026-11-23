@@ -1,10 +1,24 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { LoginProbeExec, ProbeExec, ResolvedHarnessInventory } from '@podium/harness'
+import {
+  type HarnessContext,
+  harnessChildEnv,
+  harnessContext,
+  type LoginProbeExec,
+  type ProbeExec,
+  type ResolvedHarnessInventory,
+} from '@podium/harness'
+import { testLaunchPosture } from '@podium/harness/driver/testing'
 import { describe, expect, it } from 'vitest'
 import { DaemonHarnessRuntime } from './harness-runtime'
 import { testHarnessSnapshot } from './test-support/harness-snapshot'
+
+/** A launch's posture without its context (POD-6858). */
+function postureOf(context: HarnessContext) {
+  const { context: _context, ...posture } = testLaunchPosture(context)
+  return posture
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -56,12 +70,44 @@ describe('DaemonHarnessRuntime', () => {
     await expect(runtime.current()).resolves.toBe(next)
   })
 
-  it('launches the exact executable and PATH captured by its snapshot', async () => {
+  it('launches the exact executable and PATH captured by its context', async () => {
     const snapshot = testHarnessSnapshot({ codex: '/home/user/.brew/bin/codex' }, 4)
     const runtime = new DaemonHarnessRuntime({ buildSnapshot: async () => snapshot })
-    const launch = await runtime.launch('codex', { cwd: '/repo' })
+    const context = harnessContext(await runtime.current(), 'codex', '/home/user')
+    const launch = await runtime.launch(context, { cwd: '/repo', posture: postureOf(context) })
     expect(launch.cmd).toBe('/home/user/.brew/bin/codex')
-    expect(launch.env?.PATH).toBe(snapshot.commandEnvironment.env.PATH)
+    // The launch spec carries only the adapter's own env (POD-6535: the binder
+    // no longer folds the command env in); the child's PATH is the recipe's,
+    // built from the same context, as control/session.ts composes it.
+    expect(launch.env?.PATH).toBeUndefined()
+    const child = harnessChildEnv(context, { wiringEnv: launch.env })
+    expect(child.env.PATH?.endsWith(String(snapshot.commandEnvironment.env.PATH))).toBe(true)
+  })
+
+  it('launches the session context it is handed even after the inventory refreshes', async () => {
+    const selected = testHarnessSnapshot({ codex: '/opt/homebrew/bin/codex' }, 0)
+    const refreshed = testHarnessSnapshot({ codex: '/other/codex' }, 1)
+    const replacement: ResolvedHarnessInventory = {
+      ...refreshed,
+      commandEnvironment: {
+        ...refreshed.commandEnvironment,
+        env: Object.freeze({ ...refreshed.commandEnvironment.env, PATH: '/other:/usr/bin:/bin' }),
+      },
+    }
+    const runtime = new DaemonHarnessRuntime({
+      buildSnapshot: async (generation) => (generation === 0 ? selected : replacement),
+    })
+    const context = harnessContext(await runtime.current(), 'codex', '/home/user')
+    await runtime.refresh()
+    const launch = await runtime.launch(context, { cwd: '/repo', posture: postureOf(context) })
+    expect(launch.cmd).toBe('/opt/homebrew/bin/codex')
+    // The env comes from the context too, not the refreshed inventory: the
+    // recipe's base layer is the context's env (POD-6535), and the launch spec
+    // adds only the adapter's own env on top.
+    const child = harnessChildEnv(context, { wiringEnv: launch.env })
+    expect(child.env).toMatchObject({ HOME: context.home })
+    expect(child.env.PATH?.endsWith(String(selected.commandEnvironment.env.PATH))).toBe(true)
+    expect(child.env.PATH).not.toContain('/other')
   })
 
   it('reprobe reuses the command environment and injectable login runner', async () => {

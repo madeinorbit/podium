@@ -5,21 +5,27 @@
  * read behind them asks the database.
  */
 import type { SessionStore } from './store'
+
 export type { GrantRow } from './store/grants'
+export type { MessagePageCursor } from './store/messages'
 export type {
+  IssueAccessRow,
   IssueRow,
-  SessionRow,
   MessageRow,
   ObservationLeaseRecord,
+  SessionRow,
   TerminalCandidateFacts,
 } from './store/types'
-export type { MessagePageCursor } from './store/messages'
 
 export interface DaemonObservationStore {
   readonly observationCheckpoints: SessionStore['observationCheckpoints']
 }
 export interface FeedVisibilityStore {
-  readonly issues: Pick<SessionStore['issues'], 'getIssue' | 'getIssues'>
+  readonly issues: Pick<
+    SessionStore['issues'],
+    'getIssue' | 'getIssues' | 'liveWorktreeIssuesOnMachines' | 'panel' | 'depsFromIssues'
+  > &
+    Partial<Pick<SessionStore['issues'], 'loadIssueAccess'>>
   readonly sessions: Pick<
     SessionStore['sessions'],
     'getSessions' | 'findSessionsByResumeValues' | 'findSessionsByIssueIds'
@@ -29,10 +35,31 @@ export interface FeedVisibilityStore {
     'issueIdsForOrders' | 'laneMemberIssueIdsMany' | 'ordersByIds' | 'orderIdsForIssues'
   >
   readonly automations: Pick<SessionStore['automations'], 'ownersOf' | 'runOwnersOf'>
-  readonly grants: Pick<SessionStore['grants'], 'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'>
-  readonly sync: Pick<SessionStore['sync'], 'installedStates' | 'installedIdsWithPrefixes'>
+  readonly effects: Pick<SessionStore['effects'], 'audiencesOf' | 'liveOnTargets'>
+  /** The issue-event feed's window of an issue's events (POD-6766). */
+  readonly events: Pick<SessionStore['events'], 'feedWindowOfSubjects'>
+  /** The owners workflow-family rows are decided by (POD-6676). */
+  readonly workflows: Pick<SessionStore['workflows'], 'visibilityFacts'>
+  /** Admins read every instance-wide effect record (POD-6358). */
+  readonly users: Pick<SessionStore['users'], 'activeAdminIds'>
+  readonly grants: Pick<
+    SessionStore['grants'],
+    'loadForResource' | 'loadForResources' | 'loadForResourcesOfKinds' | 'listForResources'
+  >
+  readonly sync: Pick<SessionStore['sync'], 'changesWithPrior'>
+  /** A machine's checkouts, re-sent when a member's access on it moves, its
+   *  registered roots, which managers may read too, and each member's recorded
+   *  reach on it (POD-6644). */
+  readonly checkouts: Pick<
+    SessionStore['checkouts'],
+    'pathsOfMachines' | 'rootPathsOfMachines' | 'reachOfMachines' | 'lostOfMachines'
+  >
 }
 export type DeliveryMessages = Pick<
   SessionStore['messages'],
   'countQueued' | 'listQueuedPage' | 'pendingForPages' | 'pendingTargets'
 >
+
+export type { EffectAudience } from './store/effects'
+export type { MemberAccessChange } from './store/users'
+export type { WorkflowVisibilityFacts } from './store/workflows'

@@ -1,15 +1,19 @@
-import { makeFeedVisibility } from '../../feed-visibility'
-import { afterEach, describe, expect, it, vi } from 'vitest'
 import { asIssueId, asUserId, firstAdminMemberId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { makeFeedVisibility } from '../../feed-visibility'
 import type { IssueRow, SessionStore } from '../../store'
+import { withOperation } from '../../store/executor/operation-scope'
 import { openTestStore } from '../../test-support/open-test-store'
+import { testStoreRecords } from '../../test-support/record-writer'
 import { DurableIssueAccessIndex } from '../issues/access-index'
 import { MemoryVisibilityPolicy } from '../memory/visibility'
 import { readIssue, readIssues } from './issue-reader'
-import { withOperation } from '../../store/executor/operation-scope'
 
 const stores: SessionStore[] = []
-afterEach(async () => { for (const store of stores.splice(0)) await store.close() })
+afterEach(async () => {
+  for (const store of stores.splice(0)) await store.close()
+})
 const alice = asUserId('alice')
 const bob = asUserId('bob')
 function issueRow(over: Partial<IssueRow> = {}): IssueRow {
@@ -40,8 +44,8 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
     blockedBy: [],
     dependencyNote: null,
     prUrl: null,
-    createdAt: 't',
-    updatedAt: 't',
+    createdAt: '2026-09-11T00:00:00.000Z',
+    updatedAt: '2026-09-11T00:00:00.000Z',
     archived: false,
     priority: 2,
     type: 'task',
@@ -65,7 +69,7 @@ async function setup() {
   stores.push(store)
   // An issue row resolves its repo only through a machine that REPORTED it (2b803efb5).
   await store.repos.addRepo('/r', store.hostMachineId)
-  await store.issues.upsertIssue(issueRow({ ownerUserId: alice }))
+  await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ ownerUserId: alice }))
   return { store }
 }
 
@@ -74,61 +78,74 @@ async function setup() {
 async function replaceIssue(store: SessionStore, row: IssueRow) {
   await store.transact(async () => {
     await store.issues.deleteIssue(row.id)
-    await store.issues.upsertIssue(row)
+    await store.issues.upsertIssue(fixtureWriteScope(), row)
   })
 }
 
 // Expected authorization decisions are explicit.
 describe('issue authority', () => {
-  it('preserves owner, stranger, missing, deleted and transferred ownership', async () => {
+  // Every member reads every task (design §2.2, POD-6288): the memory search
+  // policy and the feed agree, and only the row's existence decides.
+  it('admits every member to every existing task, before and after an owner change', async () => {
     const { store } = await setup()
     const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
     const policy = new MemoryVisibilityPolicy(store)
-    const feed = makeFeedVisibility({ store,
+    const feed = makeFeedVisibility({
+      store,
       audiencesFor: (kind, ids) => store.grants.visibilityAudiencesFor(kind, ids),
-      authorizationRevision: () => store.grants.visibilityRevision() })
+      authorizationRevision: () => store.grants.visibilityRevision(),
+      currentRecords: testStoreRecords(store).build,
+    })
     const allowed = async (id: typeof alice, issue = 'iss_x') => {
       const memory = await policy.mayRead({ kind: 'user', id }, { class: 'issue', id: issue })
       expect(await feed.mayReadIssue(id, asIssueId(issue))).toBe(memory)
       return memory
     }
     expect(await allowed(alice)).toBe(true)
-    expect(await allowed(bob)).toBe(false)
+    expect(await allowed(bob)).toBe(true)
     expect(await allowed(alice, 'absent')).toBe(false)
     expect(await access.has(asIssueId('absent'))).toBe(false)
-    expect((await access.ownedTarget(asIssueId('iss_x'), 'read'))?.owner).toBe(alice)
-    await store.transact(async () => {
-      await replaceIssue(store, issueRow({ ownerUserId: bob }))
-      expect(await allowed(alice)).toBe(false)
-      expect(await allowed(bob)).toBe(true)
-    })
-    expect(await allowed(alice)).toBe(false)
-    expect(await allowed(bob)).toBe(true)
-    await expect(store.transact(async () => {
-      await replaceIssue(store, issueRow({ ownerUserId: alice }))
-      expect(await allowed(alice)).toBe(true)
-      expect(await allowed(bob)).toBe(false)
-      throw new Error('rollback')
-    })).rejects.toThrow('rollback')
-    expect(await allowed(alice)).toBe(false)
+    await replaceIssue(store, issueRow({ ownerUserId: bob }))
+    expect(await allowed(alice)).toBe(true)
     expect(await allowed(bob)).toBe(true)
     // Existing policy does not filter soft deletion at this low-level seam.
-    await store.issues.upsertIssue(issueRow({ ownerUserId: bob, deletedAt: '2026-09-11' }))
-    expect(await allowed(bob)).toBe(true)
+    await store.issues.upsertIssue(
+      fixtureWriteScope(),
+      issueRow({ ownerUserId: bob, deletedAt: '2026-09-11T00:00:00.000Z' }),
+    )
+    expect(await allowed(alice)).toBe(true)
     await store.issues.deleteIssue('iss_x')
+    expect(await allowed(alice)).toBe(false)
     expect(await allowed(bob)).toBe(false)
   })
 
-  it('preserves grant verbs and missing-row denial', async () => {
+  it('decides nothing by issue grants: a member reads without one, and no verb changes it', async () => {
     const { store } = await setup()
     const policy = new MemoryVisibilityPolicy(store)
     for (const verb of ['read', 'write', 'manage', 'use'] as const) {
-      await store.grants.upsert({ resourceKind: 'issue', resourceId: 'iss_x', grantee: bob,
-        verb, owner: alice, visibility: 'personal', createdAt: '2026-09-11',
-        actorKind: 'user', actorId: alice, onBehalfOf: alice })
-      expect(await policy.mayRead({ kind: 'user', id: bob }, { class: 'issue', id: 'iss_x' })).toBe(verb !== 'use')
+      await store.grants.upsert({
+        resourceKind: 'issue',
+        resourceId: 'iss_x',
+        grantee: bob,
+        verb,
+        owner: alice,
+        visibility: 'personal',
+        createdAt: '2026-09-11T00:00:00.000Z',
+        actorKind: 'user',
+        actorId: alice,
+        onBehalfOf: alice,
+      })
+      expect(await policy.mayRead({ kind: 'user', id: bob }, { class: 'issue', id: 'iss_x' })).toBe(
+        true,
+      )
       await store.grants.remove('issue', 'iss_x', bob, verb)
     }
+    expect(await policy.mayRead({ kind: 'user', id: bob }, { class: 'issue', id: 'iss_x' })).toBe(
+      true,
+    )
+    expect(await policy.mayRead({ kind: 'user', id: bob }, { class: 'issue', id: 'absent' })).toBe(
+      false,
+    )
   })
 })
 
@@ -142,10 +159,15 @@ it('reads the database and returns private copies (POD-6195)', async () => {
   expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
   expect((await readIssue(store.issues, 'iss_x'))?.blockedBy).toEqual([])
   expect(await readIssue(store.issues, 'absent')).toBeNull()
-  expect([...(await readIssues(store.issues, ['iss_x', 'absent', 'iss_x'])).keys()]).toEqual(['iss_x'])
+  expect([...(await readIssues(store.issues, ['iss_x', 'absent', 'iss_x'])).keys()]).toEqual([
+    'iss_x',
+  ])
   expect(point).toHaveBeenCalled()
   expect(batch).toHaveBeenCalledOnce()
-  await store.issues.upsertIssue(issueRow({ ownerUserId: bob, title: 'direct write' }))
+  await store.issues.upsertIssue(
+    fixtureWriteScope(),
+    issueRow({ ownerUserId: bob, title: 'direct write' }),
+  )
   expect((await readIssue(store.issues, 'iss_x'))?.title).toBe('direct write')
   // The returned durable row preserves the original owner on ordinary upsert.
   expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
@@ -156,10 +178,12 @@ it("reads a save's own writes inside it, and the commit after it", async () => {
   await store.transact(async () => {
     await replaceIssue(store, issueRow({ ownerUserId: bob }))
     expect((await readIssues(store.issues, ['iss_x'])).get('iss_x')?.ownerUserId).toBe(bob)
-    await expect(store.transact(async () => {
-      await replaceIssue(store, issueRow({ ownerUserId: alice }))
-      throw new Error('savepoint')
-    })).rejects.toThrow('savepoint')
+    await expect(
+      store.transact(async () => {
+        await replaceIssue(store, issueRow({ ownerUserId: alice }))
+        throw new Error('savepoint')
+      }),
+    ).rejects.toThrow('savepoint')
     expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(bob)
   })
   expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(bob)
@@ -167,12 +191,26 @@ it("reads a save's own writes inside it, and the commit after it", async () => {
 
 it('preserves cwd ordering, archive ambiguity, and lightweight projections', async () => {
   const { store } = await setup()
-  await store.issues.upsertIssue(issueRow({ worktreePath: '/r/work', archived: true }))
-  await store.issues.upsertIssue(issueRow({ id: asIssueId('iss_y'), seq: 2, worktreePath: '/r/work', parentId: asIssueId('iss_x'), stage: 'done' }))
+  await store.issues.upsertIssue(
+    fixtureWriteScope(),
+    issueRow({ worktreePath: '/r/work', archived: true }),
+  )
+  await store.issues.upsertIssue(
+    fixtureWriteScope(),
+    issueRow({
+      id: asIssueId('iss_y'),
+      seq: 2,
+      worktreePath: '/r/work',
+      parentId: asIssueId('iss_x'),
+      stage: 'done',
+    }),
+  )
   const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
   const before = {
-    parents: await store.issues.listIssueParentEdges(), closed: await store.issues.closedIssueIdsAmong(['iss_x', 'iss_y']),
-    match: await access.issueForCwd('/r/work/sub'), sole: await access.soleOwnerForCwd('/r/work/sub'),
+    parents: await store.issues.listIssueParentEdges(),
+    closed: await store.issues.closedIssueIdsAmong(['iss_x', 'iss_y']),
+    match: await access.issueForCwd('/r/work/sub'),
+    sole: await access.soleOwnerForCwd('/r/work/sub'),
   }
   expect(before.closed).toEqual(new Set(['iss_y']))
   // The archived issue is first in repository order, so it owns the folder; it
@@ -188,14 +226,17 @@ it('preserves cwd ordering, archive ambiguity, and lightweight projections', asy
 
 it('reads each issue once per operation, and again after a write (POD-6158)', async () => {
   const { store } = await setup()
-  const reads = vi.spyOn(store.issues as unknown as { readIssuesByIds(ids: readonly string[]): Promise<unknown> }, 'readIssuesByIds')
+  const reads = vi.spyOn(
+    store.issues as unknown as { readIssuesByIds(ids: readonly string[]): Promise<unknown> },
+    'readIssuesByIds',
+  )
   await withOperation(async () => {
     // Session authorization and the session projection both ask, in one frame.
     expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
     expect((await readIssues(store.issues, ['iss_x'])).get('iss_x')?.ownerUserId).toBe(alice)
     expect((await readIssue(store.issues, 'iss_x'))?.ownerUserId).toBe(alice)
     expect(reads).toHaveBeenCalledOnce()
-    await store.issues.upsertIssue(issueRow({ title: 'renamed' }))
+    await store.issues.upsertIssue(fixtureWriteScope(), issueRow({ title: 'renamed' }))
     expect((await readIssue(store.issues, 'iss_x'))?.title).toBe('renamed')
     expect(reads).toHaveBeenCalledTimes(2)
   })
@@ -216,19 +257,26 @@ it('orders by repo-path bytes like SQL, and batches folder owners identically (P
   for (const repoPath of [...repos].reverse()) {
     for (const seq of [13, 11, 12]) {
       n += 1
-      await store.issues.upsertIssue(issueRow({
-        id: asIssueId(`iss_${n}`), repoPath, seq,
-        // Every row shares one worktree so the owner is decided by order alone.
-        worktreePath: seq === 12 ? '/w/deep' : '/w',
-      }))
+      await store.issues.upsertIssue(
+        fixtureWriteScope(),
+        issueRow({
+          id: asIssueId(`iss_${n}`),
+          repoPath,
+          seq,
+          // Every row shares one worktree so the owner is decided by order alone.
+          worktreePath: seq === 12 ? '/w/deep' : '/w',
+        }),
+      )
     }
   }
   const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
   const cwds = ['/w', '/w/deep/x', '/w/other', '/elsewhere']
-  const before = { owners: await Promise.all(cwds.map(cwd => access.issueForCwd(cwd))) }
+  const before = { owners: await Promise.all(cwds.map((cwd) => access.issueForCwd(cwd))) }
   // Ties go to the first row in BINARY repo-path order: '/a', seq 11 / 12.
   expect(before.owners).toEqual(['iss_2', 'iss_3', 'iss_2', null])
-  expect(await Promise.all(cwds.map(cwd => access.issueForCwd(cwd)))).toEqual(before.owners)
-  expect([...(await access.issuesForCwds([...cwds, '/w'])).entries()]).toEqual(cwds.map((cwd, i) => [cwd, before.owners[i]]))
+  expect(await Promise.all(cwds.map((cwd) => access.issueForCwd(cwd)))).toEqual(before.owners)
+  expect([...(await access.issuesForCwds([...cwds, '/w'])).entries()]).toEqual(
+    cwds.map((cwd, i) => [cwd, before.owners[i]]),
+  )
   expect(await access.issuesForCwds([])).toEqual(new Map())
 })

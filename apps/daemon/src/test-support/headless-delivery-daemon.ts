@@ -9,6 +9,7 @@
 // apps/server may only reach it through the daemon, never directly. The
 // server test drives this helper through the daemon's control handlers, the
 // same seam the wire would take.
+
 import {
   createHeadlessRuntime,
   type EngineProcessOwner,
@@ -19,14 +20,16 @@ import {
 import {
   createMemoryAttachmentStager,
   createMemoryDriverSlots,
+  testTurnPosturePort,
 } from '@podium/harness/driver/testing'
 import { asMachineId, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { BindingStore } from '../binding-store.js'
+import { memoryMarkers, SessionAccessStore } from '../control/access'
 import type { DaemonContext } from '../control/context.js'
 import { createDaemonMachineRuntime } from '../runtime/machine-runtime.js'
-import { SessionBinding } from '../session-binding.js'
 import { testSessions } from '../session/testing.js'
+import { SessionBinding } from '../session-binding.js'
 import { testHarnessSnapshot } from './harness-snapshot.js'
 
 /** The session layer's process owner, as the driver hands it on: never called
@@ -82,6 +85,7 @@ export function composeHeadlessDeliveryDaemon(input: {
   }
   const durableLabel = (sessionId: SessionId): string => `podium-4827-${sessionId}`
   const host: HeadlessDriverHost = {
+    ...testTurnPosturePort(),
     stageAttachment: createMemoryAttachmentStager(),
     send: (msg) => sent.push(msg),
     snapshot: async () => testHarnessSnapshot(),
@@ -123,6 +127,7 @@ export function composeHeadlessDeliveryDaemon(input: {
     harnessLoginState: () => 'in',
     sessions: testSessions(),
     agentRuntime,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
   return { ctx, sent, turns }
 }

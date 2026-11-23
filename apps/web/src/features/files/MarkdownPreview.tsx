@@ -1,7 +1,7 @@
+import { useHttpOrigin, useUi } from '@podium/client-core/react'
 import { machinePathDirname, resolveMachinePath } from '@podium/model'
 // apps/web/src/MarkdownPreview.tsx
 
-import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId, SessionId } from '@podium/model/browser'
 import { type JSX, type Ref, useMemo } from 'react'
 import { assetUrl } from '@/lib/asset-url'
@@ -30,7 +30,8 @@ export function MarkdownPreview({
   scrollRef?: Ref<HTMLDivElement>
   className?: string
 }): JSX.Element {
-  const { httpOrigin, openFile, openFileInWorktree } = useStoreHandle().access
+  const httpOrigin = useHttpOrigin(),
+    { openFile, openFileInWorktree } = useUi()
   const fileDir = machinePathDirname(path)
   const html = useMemo(
     () =>

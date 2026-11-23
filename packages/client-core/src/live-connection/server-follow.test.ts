@@ -65,7 +65,7 @@ describe('the hub says when its link is lost or welcomed (POD-5921)', () => {
     h.hub.connect()
     h.sockets[0]!.open()
     expect(h.links).toEqual([])
-    h.sockets[0]!.recv({ type: 'welcome', clientId: 'c0' })
+    h.sockets[0]!.recv({ type: 'welcome', kindTokens: {}, clientId: 'c0' })
     expect(h.links).toEqual(['welcomed'])
     h.sockets[0]!.close()
     expect(h.links).toEqual(['welcomed', 'lost'])

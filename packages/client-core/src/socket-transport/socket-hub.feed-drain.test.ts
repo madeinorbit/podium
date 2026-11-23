@@ -93,6 +93,7 @@ describe('SocketHub feed ingress drain', () => {
       url: 'ws://x',
       makeSocket: () => sock,
       feed: {
+        kindTokens: () => {},
         helloFields: () => null,
         connected: () => {},
         disconnected: () => {},
@@ -128,6 +129,7 @@ describe('SocketHub feed ingress drain', () => {
         return socket
       },
       feed: {
+        kindTokens: () => {},
         helloFields: () => null,
         connected: () => {},
         disconnected: () => {},
@@ -143,7 +145,7 @@ describe('SocketHub feed ingress drain', () => {
 
     hub.connect()
     sockets[1]?.open()
-    sockets[1]?.deliver(JSON.stringify({ type: 'welcome', clientId: 'replacement' }))
+    sockets[1]?.deliver(JSON.stringify({ type: 'welcome', kindTokens: {}, clientId: 'replacement' }))
     sockets[1]?.deliver(rawBootstrap(true))
     await macrotaskTurns(2)
 
@@ -161,6 +163,7 @@ describe('SocketHub feed ingress drain', () => {
     const hub = new SocketHub({
       url: 'ws://x', makeSocket: () => sock, scheduleFeedTask: () => {},
       feed: { syncHttp: true, requestRebootstrap: recovery,
+        kindTokens: () => {},
         helloFields: () => ({ feedCursor: { feedId: 'feed-1', epoch: 'e1', seq: 7 } }),
         connected() {}, disconnected() {}, frame() {} },
     })

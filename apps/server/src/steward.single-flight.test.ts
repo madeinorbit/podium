@@ -25,7 +25,7 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
     const sessions: SessionMeta[] = []
     const settings = normalizeSettings({
       steward: { enabled: true },
-      gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true },
+      gitWorkflow: { defaultParentBranch: '', autoRebaseBeforeMerge: true },
       sessionDefaults: { agent: 'claude-code' },
     })
     let clockMs = Date.parse('2026-07-02T00:00:00.000Z')
@@ -34,9 +34,12 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
       store,
       ...sessionReadPorts(() => sessions),
       getSettings: async () => settings,
-      spawnSession: vi.fn(async () => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
+      spawnSession: vi.fn(async () => ({
+        sessionId: asSessionId('s1'),
+        machine: 'machine-under-test',
+      })),
       repoOp: vi.fn(async () => ({ ok: true, output: '' })),
-      ...issueTestPlumbing(),
+      ...issueTestPlumbing(undefined, { store }),
       now,
     }
     const issues = await IssueService.create(issueDeps)
@@ -57,12 +60,14 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
     })
 
     const deps: StewardDeps = {
+      writer: issues.reports.store.serverWriter,
       store: events,
       facts: store.notificationFacts,
       messages: store.messages,
       issues,
       runningSessionFacts: () => sessionReadPorts(() => sessions).runningSessionFacts(),
-      readSessionFactsByIds: async (ids) => await sessionReadPorts(() => sessions).readSessionFactsByIds(ids),
+      readSessionFactsByIds: async (ids) =>
+        await sessionReadPorts(() => sessions).readSessionFactsByIds(ids),
       sessionById: async (sessionId) => sessions.find((x) => x.sessionId === sessionId),
       sendNotice: vi.fn(),
       notify: vi.fn(),

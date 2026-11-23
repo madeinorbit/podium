@@ -116,9 +116,8 @@ export interface WriteApi {
   ): () => void
 }
 
-/** Same value, same reason as the kernel's `AWAITING_TRUTH_TTL_MS` (overlay.ts):
- *  bounding a lost echo beats masking another writer forever. Pinned equal in
- *  the test. */
+/** This reference model's lost-echo bound. The production pool has none since
+ *  POD-6279: an overlay lives exactly as long as its outbox entry. */
 export const ECHO_TTL_MS = 60_000
 
 type Value = string | null

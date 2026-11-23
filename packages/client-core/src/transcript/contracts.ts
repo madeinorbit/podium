@@ -28,7 +28,8 @@ export interface TranscriptPage {
 export interface TranscriptReadRequest {
   sessionId: SessionId
   anchor?: string
-  direction: 'before'
+  /** 'after' reads the messages following `anchor` — a reopened chat's delta. */
+  direction: 'before' | 'after'
   limit: number
 }
 
@@ -42,15 +43,43 @@ export interface TranscriptSource {
 }
 
 export interface TranscriptCacheEntry {
+  /** Oldest first. */
   items: TranscriptItem[]
+  /** When these were written — the "as of <time>" an offline chat is shown with. */
   savedAt: number
+  /** The device holds messages older than these. */
+  hasOlder?: boolean
 }
 
+export interface TranscriptCacheWriteOptions {
+  /** The window no longer continues what was stored (an authoritative reset). */
+  replace?: boolean
+}
+
+/**
+ * The chat history kept on the device (POD-5801), as a transcript sees it.
+ *
+ * Reads are async: a transcript paints what memory already holds while one is
+ * pending, and never blocks the live stream on it. Writes are coalesced by the
+ * implementation, so `write` takes the window LAZILY — the newest window is read
+ * when the write actually lands, not on every streamed frame.
+ */
 export interface TranscriptCache {
-  read(sessionId: SessionId): TranscriptCacheEntry | undefined
-  write(sessionId: SessionId, items: readonly TranscriptItem[]): void
-  /** A bounded cache needs only this trailing window, even while history is retained. */
-  maxItems?: number
+  /** The newest stored page of a chat. */
+  load(sessionId: SessionId, limit: number): Promise<TranscriptCacheEntry | undefined>
+  /** Stored messages older than the held item `beforeId`. Empty when the device has none. */
+  loadBefore(
+    sessionId: SessionId,
+    beforeId: string,
+    limit: number,
+  ): Promise<TranscriptCacheEntry | undefined>
+  write(
+    sessionId: SessionId,
+    window: () => readonly TranscriptItem[],
+    options?: TranscriptCacheWriteOptions,
+  ): void
+  /** The chat is open or warm until the returned release: no clean-up may remove it. */
+  hold?(sessionId: SessionId): () => void
 }
 
 export interface TranscriptConnection {
@@ -90,12 +119,13 @@ export interface TranscriptActivity {
   live: boolean
 }
 
-/** Trailing settle before a moved row re-reads: a working agent moves the row
- *  several times a second, and the point is to be current, not to re-read on
- *  every tick. */
+/** Trailing settle coalesces activity and phase changes before a re-read.
+ *  While the phase is unchanged, the activity rule advances lastActiveAt at
+ *  most once a minute. */
 export const TRANSCRIPT_ACTIVITY_SETTLE_MS = 400
 /** The floor under a live transcript: one newest-item probe, escalating to a
- *  full reconcile only when the tail differs [POD-701]. */
+ *  full reconcile only when the tail differs [POD-701]. This six-second probe
+ *  heals a dropped stream frame between the minute-spaced activity signals. */
 export const TRANSCRIPT_LIVE_HEARTBEAT_MS = 6_000
 
 /** The row fields that advance on exactly the activity a transcript records. */

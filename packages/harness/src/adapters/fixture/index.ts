@@ -11,15 +11,13 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { createFixtureConversationProvider } from './discovery.js'
 import { fixtureCatalog } from './catalog.js'
 import { fixtureDescriptor } from './descriptor.js'
+import { createFixtureConversationProvider } from './discovery.js'
+import { fixturePosture } from './posture.js'
 import { fixtureStateProvider } from './state.js'
-import {
-  fixtureChainPaths,
-  fixtureHandoffTranscript,
-  fixtureTranscript,
-} from './transcript.js'
+import { fixtureChainPaths, fixtureHandoffTranscript, fixtureTranscript } from './transcript.js'
+
 /**
  * Fixture harness (POD-4474, spec §7) — a seventh manifest with meaningful
  * SUPPORTED behaviour, proving a harness lands as `adapters/<name>/` plus one
@@ -81,6 +79,11 @@ export const fixtureManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'fixture-session',
+  // No selector: the fixture keeps everything under `<home>/.fixture`.
+  roots: (home) => {
+    const state = join(home, '.fixture')
+    return { state, credentials: state, transcripts: join(state, 'sessions') }
+  },
   environment: { removeInherited: [] },
 
   inventory: {
@@ -88,7 +91,7 @@ export const fixtureManifest: AgentManifest = {
     loginCommandProbe: unsupported(
       'Fixture login detection reads its local auth.json — there is no status command to probe',
     ),
-    loginCommand: supported({ cmd: 'fixture-agent', args: ['login'] }),
+    loginCommand: supported({ args: ['login'] }),
     loginIdentity: supported((homeDir) => {
       const account = fixtureAuthAccount(homeDir)
       return account ? { fingerprint: `fixture:${account}` } : undefined
@@ -99,6 +102,7 @@ export const fixtureManifest: AgentManifest = {
     // An inherited key must not silently reselect the double's account — the
     // same hazard the shipped harnesses declare, at fixture scale.
     foreignCredentialEnv: ['FIXTURE_API_KEY'],
+    accepts: [],
     detectLogin(homeDir) {
       let contents: string
       try {
@@ -121,10 +125,10 @@ export const fixtureManifest: AgentManifest = {
     'The fixture CLI is not distributed — tests point PATH at a double, there is no installer to run',
   ),
 
+  posture: fixturePosture,
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {
-      cmd: 'fixture-agent',
       args: [
         ...(opts.resume ? ['--resume', opts.resume.value] : []),
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
@@ -144,7 +148,6 @@ export const fixtureManifest: AgentManifest = {
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
     return {
-      cmd: 'fixture-agent',
       args: ['exec', ...(model ? ['--model', model] : []), prompt],
     }
   }),
@@ -169,7 +172,6 @@ export const fixtureManifest: AgentManifest = {
     resumeIdAllocation: 'daemon-minted-uuid',
     noTools: 'unsupported',
     buildExec: supported((opts) => ({
-      cmd: 'fixture-agent',
       args: [
         'exec',
         '--session-id',
@@ -202,7 +204,7 @@ export const fixtureManifest: AgentManifest = {
       const paths = await fixtureChainPaths({
         cwd: input.cwd,
         resumeValue: input.resumeValue,
-        ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+        account: input.account,
       })
       const newest = paths.at(-1)
       if (newest) host.tailFile(newest)

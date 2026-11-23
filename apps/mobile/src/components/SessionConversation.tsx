@@ -4,8 +4,16 @@ import {
   PHONE_WARM_CONVERSATIONS,
 } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
-import { useConversation, useStoreHandle } from '@podium/client-core/react'
-import { type IssueViewModel, REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
+import {
+  useChatSends,
+  useClientRuntime,
+  useCommands,
+  useConversation,
+  useHttpOrigin,
+  useReplica,
+  useRequestClient,
+} from '@podium/client-core/react'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   composerState,
@@ -14,19 +22,22 @@ import {
   OPTIMISTIC_SEND_CEILING_MS,
   pendingAskFromState,
   principalShortName,
+  sessionTransition,
+  sessionTransitionLabel,
 } from '@podium/client-core/values'
 import { here } from '@podium/client-graph/lookup'
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
 import type { SessionModel } from '@podium/client-graph/models'
 import {
   asMutationId,
+  asSessionId,
   isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
 } from '@podium/model'
 import * as Haptics from 'expo-haptics'
 import { observer } from 'mobx-react-lite'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AppState, Platform, StyleSheet, Text, View } from 'react-native'
+import { AppState, Platform, Pressable, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import { useMobilePool } from '../client/mobile-pool'
 import type { MobileTrpc } from '../client/trpc'
@@ -41,6 +52,7 @@ import {
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
+import { menuAnswer, useAnswerSession } from '../lib/answer-session'
 import { chatSendTransport } from '../lib/chat-send-transport'
 import { MobileChatViewModel } from '../lib/chat-view-model'
 import { interruptSession } from '../lib/interrupt-session'
@@ -52,6 +64,7 @@ import { ComposerModelLabel } from './ComposerModelLabel'
 import { ComposerReplyHeader } from './ComposerReplyHeader'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PendingInteractionBand } from './PendingInteractionBand'
+import { PressableScale } from './PressableScale'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
 import { type LocalPendingTurn, pendingTurnOf } from './pending-delivery'
 import { SessionActionCard } from './SessionActionCard'
@@ -149,6 +162,8 @@ const SessionComposer = observer(function SessionComposer({
     void conversation.interrupt(conversation.draft, { restore: false })
   }, [conversation])
   const onStop = turnActive && canInterrupt ? handleStop : undefined
+  // A Stop on its way, read from its record (POD-6397), on every device.
+  const interrupting = conversation.session?.interrupting === true
   // REPLY TO THE ASKER (C3, board ChatReply): while a reply is open the words
   // go to the agent that asked over messages.reply, never into the prompt, and
   // the attach control steps aside because a note carries text only.
@@ -167,8 +182,8 @@ const SessionComposer = observer(function SessionComposer({
       onSend={replying ? sendReply : onSend}
       value={draft}
       onChangeText={setDraft}
-      caption={replying ? reply.error : caption}
-      captionTone={replying ? 'attention' : captionTone}
+      caption={replying ? reply.error : interrupting ? 'Interrupting…' : caption}
+      captionTone={replying ? 'attention' : interrupting ? 'working' : captionTone}
       sendDisabled={replying ? reply.sending : sendDisabled}
       draftInsertion={draftInsertion}
       attachments={replying ? undefined : attachments}
@@ -226,7 +241,11 @@ export function useSessionConversation(props: {
   activateTranscript?: boolean
   enabled?: boolean
 }) {
-  const owner = useStoreHandle<MobileTrpc>()
+  const owner = useClientRuntime<MobileTrpc>()
+  const requestClient = useRequestClient<MobileTrpc>()
+  const conversationSends = useChatSends()
+  const commandModules = useCommands<MobileTrpc>()
+
   const pool = useMobilePool()
   const sessionId = props.session.sessionId
   const readiness = useSessionConversationPorts(sessionId)
@@ -246,8 +265,8 @@ export function useSessionConversation(props: {
             set: (id, text) => pool!.sessionObject(id).setMessageDraft(text),
           },
           readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
-          hub: owner.hub,
-          connection: hubConnection(owner.hub),
+          hub: owner.services.connection.hub,
+          connection: hubConnection(owner.services.connection.hub),
           scheduler: {
             visible: () =>
               AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
@@ -260,15 +279,11 @@ export function useSessionConversation(props: {
             initialLimit: 80,
             pageLimit: 80,
             source: {
-              read: (request) => owner.access.trpc.sessions.transcriptRead.query(request),
+              read: (request) => requestClient.sessions.transcriptRead.query(request),
               subscribe: (id, since, listener) =>
-                owner.hub.subscribeTranscript(id, since, listener),
+                owner.services.connection.hub.subscribeTranscript(id, since, listener),
             },
-            cache: {
-              maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
-              read: (id) => owner.replica.transcriptWindow(id),
-              write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
-            },
+            ...(owner.replica.transcripts ? { cache: owner.replica.transcripts } : {}),
           },
           sends: {
             records: ports.records,
@@ -320,7 +335,7 @@ export function useSessionConversation(props: {
             initialJustSent: props.initialPendingText !== undefined,
             createDeliveryId: () => `msg_${randomUUID()}`,
             lookupRecords: (ids) =>
-              owner.access.trpc.messages.records
+              requestClient.messages.records
                 .query({ ids: [...ids] })
                 .then((answer) => answer.records),
             deliver: async (turn) => {
@@ -337,7 +352,7 @@ export function useSessionConversation(props: {
                   ? { kind: 'send' as const, wake: false }
                   : chatSendTransport(composer)
                 if (transport.kind === 'refused') throw new Error(transport.reason)
-                return await owner.access.sendChat(
+                return await conversationSends.sendChat(
                   {
                     sessionId,
                     text: turn.wire,
@@ -354,18 +369,24 @@ export function useSessionConversation(props: {
               }
             },
             retract: (id) =>
-              owner.access.trpc.messages.cancel
+              requestClient.messages.cancel
                 .mutate({ id })
                 .then(
                   (message) =>
                     (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
                 ),
-            discard: (id) => owner.access.discardChat(asMutationId(id)),
+            discard: (id) => conversationSends.discardChat(asMutationId(id)),
             dismissNotice: (id) =>
-              owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
-            dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
+              requestClient.messages.dismissNotice.mutate({ id }).then(() => {}),
+            dismissOffer: (at) => commandModules.issues.dismissOffer(sessionId, at),
             optimisticDismissOffer: false,
-            interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
+            interrupt: (id) =>
+              interruptSession(
+                { interruptTurn: commandModules.sessions.interrupt },
+                pool ? here(pool.model('session', sessionId)) : undefined,
+                sessionId,
+                id,
+              ),
             optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
           },
         },
@@ -388,9 +409,10 @@ export function useSessionConversation(props: {
         ? new MobileChatViewModel(
             model,
             pool,
+            undefined,
             {
-              show: (id) => owner.access.trpc.messages.show.query({ id }),
-              reply: (id, body) => owner.access.trpc.messages.reply.mutate({ id, body }),
+              show: (id) => requestClient.messages.show.query({ id }),
+              reply: (id, body) => requestClient.messages.reply.mutate({ id, body }),
             },
             (id) => currentMessageRecord(pool, owner.replica, id),
           )
@@ -431,20 +453,27 @@ const SessionConversationBody = observer(function SessionConversationBody({
   /** Height of the native header over the feed: content rests below it. */
   topInset?: number
 }) {
-  const storeHandle = useStoreHandle<MobileTrpc>()
+  const requestClient = useRequestClient<MobileTrpc>()
+  const replica = useReplica()
+  const conversationSends = useChatSends()
+  const commandModules = useCommands<MobileTrpc>()
+  const serverOrigin = useHttpOrigin()
+
   const store = useMemo(() => {
-    const s = storeHandle.access
     return {
-      trpc: s.trpc,
-      replica: s.replica,
-      sendChat: s.sendChat,
-      discardChat: s.discardChat,
-      dismissOffer: s.dismissOffer,
-      resurrectSession: s.resurrectSession,
-      killSession: s.killSession,
-      httpOrigin: s.httpOrigin,
+      trpc: requestClient,
+      replica: replica,
+      sendChat: conversationSends.sendChat,
+      discardChat: conversationSends.discardChat,
+      dismissOffer: commandModules.issues.dismissOffer,
+      resurrectSession: commandModules.sessions.resume,
+      killSession: commandModules.sessions.killSession,
+      endSession: commandModules.sessions.stop,
+      hibernateSession: commandModules.sessions.hibernate,
+      dismissEffect: commandModules.sessions.dismissEffect,
+      httpOrigin: serverOrigin,
     }
-  }, [storeHandle])
+  }, [requestClient, replica, conversationSends, commandModules, serverOrigin])
   const [peekIssue, setPeekIssue] = useState<IssueViewModel | null>(null)
   const [requestedRef, setRequestedRef] = useState<string | undefined>(undefined)
   // Catalogs belong to the open inspector, not conversation startup.
@@ -471,7 +500,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
     return homeName || 'This machine'
   }, [machine, homeName])
   const currentQuestion = useSessionContextQuestion(sessionId)
-  const trpc = store.trpc
+  const answerSession = useAnswerSession()
   /**
    * THE SEND ROUTE, READ PER SEND (POD-4688). The Conversation is
    * created once per session and owns the pending turns, so it must not be
@@ -680,8 +709,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
     [need, session.status, phase, transcriptQuestion, currentQuestion],
   )
   const pendingQuestion = transcriptQuestion ?? pendingAsk
-  const askAnswerable =
-    session.status === 'live' || session.status === 'starting' || session.status === 'reconnecting'
+  const askAnswerable = session.status === 'live' || session.status === 'starting'
   const pendingAskedAt = pendingQuestion?.ts ?? conversation.session?.agentSince
   useEffect(() => {
     if (!pendingQuestion) setAskHeight(0)
@@ -703,17 +731,14 @@ const SessionConversationBody = observer(function SessionConversationBody({
       ) {
         throw new Error('The question changed; wait for the current menu.')
       }
-      const sent = await trpc.sessions.answerAskUserQuestion.mutate({
-        sessionId,
-        interactionId: answer.interactionId,
-        ...answer,
-      })
-      if (sent?.ok === false) throw new Error(sent.reason ?? 'answer not delivered')
+      // A `session.answer` record (POD-6415); its result is the delivery's reply.
+      const sent = await answerSession(sessionId, menuAnswer(answer))
+      if (!sent.ok) throw new Error(sent.reason ?? 'answer not delivered')
     },
     [
       sessionId,
       currentQuestion,
-      trpc.sessions.answerAskUserQuestion,
+      answerSession,
       conversation,
       composer.sendable,
       composer.deliverable,
@@ -817,16 +842,35 @@ const SessionConversationBody = observer(function SessionConversationBody({
           onRemove={store.killSession}
         />
       ) : null}
+      {conversation.session ? (
+        <MobileInterruptStuck
+          session={conversation.session}
+          onKill={(id) => void store.endSession(id, { force: true })}
+          onDismiss={(id) => void store.dismissEffect(id)}
+        />
+      ) : null}
+      <MobileLifecycleTransition
+        session={session}
+        onEndAnyway={(id) => void store.endSession(id, { force: true })}
+        onResume={(id) => void store.resurrectSession(id)}
+        onHibernate={(id) => void store.hibernateSession(id)}
+      />
       {readOnly && !hasTranscript ? null : (
         <BootstrapCrossfade
           // Cached history is ready before the composer reports its height.
           // Keep that layout gate on the list alone, never on the skeleton.
           resolved={loaded || itemCount > 0 || pendingTurns.length > 0}
           placeholder={
-            <TranscriptSkeleton
-              topInset={transcriptTopInset}
-              bottomInset={composerHidden ? 0 : (composerHeight ?? 0) + askHeight + keyboardLift}
-            />
+            // While stored history is still being read, hold a blank frame:
+            // a cached chat never shows the opening skeleton.
+            transcript.storedSettled ? (
+              <TranscriptSkeleton
+                topInset={transcriptTopInset}
+                bottomInset={composerHidden ? 0 : (composerHeight ?? 0) + askHeight + keyboardLift}
+              />
+            ) : (
+              <View style={styles.storedPending} />
+            )
           }
         >
           {transcriptLayoutReady ? (
@@ -980,6 +1024,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
 })
 
 const styles = StyleSheet.create({
+  storedPending: { flex: 1 },
   flex: {
     flex: 1,
     minHeight: 0,
@@ -998,6 +1043,30 @@ const styles = StyleSheet.create({
    * the same live-terminal predicate and the same live presence, cleared on
    * reattach. Danger tone, bar chrome like the lifecycle banner above it.
    */
+  /** The session on its way somewhere (POD-6399): the bar chrome, neutral. */
+  transitionBanner: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    backgroundColor: color.bar,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.hairlineBar,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs + 1,
+  },
+  transitionText: {
+    ...sans(500),
+    flex: 1,
+    color: color.textDim,
+    fontSize: font.tiny,
+    lineHeight: leading(font.tiny, 'prose'),
+  },
+  transitionAction: {
+    ...sans(600),
+    color: color.dangerText,
+    fontSize: font.tiny,
+  },
   offlineBanner: {
     flexShrink: 0,
     flexDirection: 'row',
@@ -1058,3 +1127,106 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 })
+
+/**
+ * WHAT THE SESSION IS ON ITS WAY TO, OR WHY THE SERVER REFUSED IT
+ * (ADR 12 D5 E1, POD-6399): the phone's copy of the desktop's
+ * `LifecycleTransitionBar`, from the same `sessionTransition`. A refused stop
+ * offers to end anyway; a refused resume or hibernate, to try again.
+ */
+/**
+ * A STOP THAT DID NOT TAKE (POD-6397): the session's latest `session.interrupt`
+ * record failed, expired or lost track while the turn it named still runs.
+ * Offers Kill (end now, discarding unsaved work) and Dismiss, as the web does.
+ * While a Stop is on its way the composer caption says "Interrupting…".
+ */
+const MobileInterruptStuck = observer(function MobileInterruptStuck({
+  session,
+  onKill,
+  onDismiss,
+}: {
+  session: SessionModel
+  onKill(sessionId: SessionView['sessionId']): void
+  onDismiss(effectId: string): void
+}) {
+  if (!session.interruptStuck) return null
+  const stop = session.interrupt
+  return (
+    <View
+      style={styles.offlineBanner}
+      testID="interrupt-stuck"
+      accessibilityRole="alert"
+      accessibilityLiveRegion="polite"
+    >
+      <Text style={styles.offlineText}>
+        Not stopped: {stop?.error?.message ?? 'the agent is still working.'}
+      </Text>
+      <Pressable
+        onPress={() => onKill(asSessionId(session.id))}
+        accessibilityRole="button"
+        testID="interrupt-kill"
+        hitSlop={8}
+      >
+        <Text style={styles.transitionAction}>Kill</Text>
+      </Pressable>
+      {stop ? (
+        <Pressable
+          onPress={() => onDismiss(stop.id)}
+          accessibilityRole="button"
+          testID="interrupt-dismiss"
+          hitSlop={8}
+        >
+          <Text style={styles.transitionAction}>Dismiss</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  )
+})
+
+function MobileLifecycleTransition({
+  session,
+  onEndAnyway,
+  onResume,
+  onHibernate,
+}: {
+  session: Pick<
+    SessionView,
+    'sessionId' | 'desired' | 'revision' | 'observedRevision' | 'lifecycleFailure'
+  >
+  onEndAnyway(sessionId: SessionView['sessionId']): void
+  onResume(sessionId: SessionView['sessionId']): void
+  onHibernate(sessionId: SessionView['sessionId']): void
+}) {
+  const transition = sessionTransition(session)
+  if (transition === undefined) return null
+  const refused = transition.kind === 'refused'
+  const retry = !refused
+    ? undefined
+    : transition.desired === 'stopped'
+      ? { label: 'End anyway', run: () => onEndAnyway(session.sessionId) }
+      : transition.desired === 'running'
+        ? { label: 'Try again', run: () => onResume(session.sessionId) }
+        : { label: 'Try again', run: () => onHibernate(session.sessionId) }
+  return (
+    <View
+      style={refused ? styles.offlineBanner : styles.transitionBanner}
+      testID={refused ? 'lifecycle-refused' : 'lifecycle-transition'}
+      accessibilityRole={refused ? 'alert' : 'text'}
+      accessibilityLiveRegion="polite"
+    >
+      <Text style={refused ? styles.offlineText : styles.transitionText}>
+        {sessionTransitionLabel(transition)}
+      </Text>
+      {retry ? (
+        <Pressable
+          onPress={retry.run}
+          accessibilityRole="button"
+          testID="lifecycle-retry"
+          hitSlop={8}
+        >
+          <Text style={styles.transitionAction}>{retry.label}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  )
+}

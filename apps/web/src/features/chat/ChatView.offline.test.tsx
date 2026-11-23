@@ -50,7 +50,7 @@ const fakeTrpc = {
   },
 }
 
-/** Recording replica fake: cached windows served by key + a log of write-throughs. */
+/** Recording replica fake: stored pages served by key + a log of write-throughs. */
 const fakeReplica = {
   available: true,
   windows: new Map<string, { items: TranscriptItem[]; savedAt: number }>(),
@@ -60,12 +60,15 @@ const fakeReplica = {
   applyChanges: () => {},
   getCursor: () => null,
   setCursor: () => {},
-  transcriptWindow(key: string) {
-    return this.windows.get(key)
-  },
-  putTranscriptWindow(key: string, items: TranscriptItem[]) {
-    this.puts.push({ key, items })
-    this.windows.set(key, { items, savedAt: Date.now() })
+  transcripts: {
+    load: async (key: string): Promise<{ items: TranscriptItem[]; savedAt: number } | undefined> =>
+      fakeReplica.windows.get(key),
+    loadBefore: async () => undefined,
+    write(key: string, window: () => readonly TranscriptItem[]): void {
+      const items = [...window()]
+      fakeReplica.puts.push({ key, items })
+      fakeReplica.windows.set(key, { items, savedAt: Date.now() })
+    },
   },
 }
 
@@ -96,7 +99,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
     useSessionExitKind: () => undefined,
-    useRuntimeSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
+    readFixture: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
 
@@ -114,10 +117,6 @@ function meta(over: Partial<SessionMetaInput>): SessionMeta {
     title: 't',
     cwd: '/w',
     status: 'live',
-    controllerId: 'c0',
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 1,
     createdAt: '2026-06-03T00:00:00.000Z',
     lastActiveAt: '2026-06-03T00:00:00.000Z',
     origin: { kind: 'spawn' },
@@ -153,11 +152,16 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
+/** The network read starts once the stored page is in hand (POD-5801). */
+async function readIssued(): Promise<void> {
+  await waitFor(() => expect(reads.length).toBeGreaterThan(0))
+}
+
 async function flush(): Promise<void> {
   await act(async () => {
     await Promise.resolve()
     await Promise.resolve()
-    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
   })
 }
 
@@ -170,6 +174,7 @@ describe('ChatView offline transcript copy', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
+    await readIssued()
     expect(reads).toHaveLength(1)
     await act(async () => {
       reads[0]?.reject(new Error('fetch failed'))
@@ -187,6 +192,7 @@ describe('ChatView offline transcript copy', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
+    await readIssued()
     await act(async () => {
       reads[0]?.reject(new Error('fetch failed'))
     })
@@ -199,6 +205,7 @@ describe('ChatView offline transcript copy', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
+    await readIssued()
     await act(async () => {
       reads[0]?.resolve({
         items: [item('a', 'c1', 'live one'), item('b', 'c2', 'live two')],
@@ -223,6 +230,7 @@ describe('ChatView offline transcript copy', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} active={false} />)
     })
+    await readIssued()
     await act(async () => {
       reads[0]?.reject(new Error('offline'))
     })
@@ -264,6 +272,7 @@ describe('ChatView cache-first transcript', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
+    await readIssued()
     // The read is in flight and has answered nothing yet.
     expect(reads).toHaveLength(1)
     expect(container.textContent).toContain('cached hello')
@@ -284,6 +293,7 @@ describe('ChatView cache-first transcript', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
+    await readIssued()
     await act(async () => {
       reads[0]?.resolve({
         items: [item('a', 'c1', 'cached hello'), item('b', 'c2', 'newer turn')],
@@ -307,6 +317,7 @@ describe('ChatView cache-first transcript', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
+    await readIssued()
     await act(async () => {
       reads[0]?.resolve({ items: [], hasMore: false })
     })
@@ -322,6 +333,7 @@ describe('ChatView cache-first transcript', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
+    await readIssued()
     expect(container.querySelector('[data-testid="transcript-cold"]')).not.toBeNull()
     expect(container.querySelector('[data-testid="transcript-empty-state"]')).toBeNull()
   })
@@ -333,6 +345,7 @@ describe('ChatView cache-first transcript', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
+    await readIssued()
     await act(async () => {
       reads[0]?.resolve({ items: [], hasMore: false })
     })
@@ -351,6 +364,7 @@ describe('ChatView cache-first transcript', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
     })
+    await readIssued()
     expect(container.textContent).toContain('cached hello')
     expect(container.querySelector('.transcript-pager')).toBeNull()
     await act(async () => {
@@ -376,6 +390,7 @@ describe('ChatView cache-first transcript', () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} active={false} />)
     })
+    await readIssued()
     await act(async () => {
       reads[0]?.reject(new Error('still starting up'))
     })

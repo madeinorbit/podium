@@ -22,6 +22,8 @@ import {
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type AnyCommandContract, registryClassificationErrors } from '../contract'
+import { recordContracts } from '../records/contracts'
+import { INSTANCE_PREFERENCES_RECORD, USER_PREFERENCES_RECORD } from '../records/kinds'
 import {
   CONTRACT_TIER,
   contractMatrixRow,
@@ -33,8 +35,6 @@ import {
   settingsSetSecretInput,
   settingsTelegramSetupPollInput,
   settingsTelegramSetupStartInput,
-  settingsUpdateInstanceInput,
-  settingsUpdatePersonalInput,
   TIER_COMMAND,
   WRITABLE_PREFERENCE_PATHS,
 } from './contracts'
@@ -43,7 +43,7 @@ const NAMES = SETTINGS_COMMAND_NAMES
 const ALL = NAMES.map((name) => SETTINGS_CONTRACTS[name])
 
 describe('the family is complete and classified', () => {
-  it('declares seven contracts: one per tier, the secret CLEAR and READ arms, and the ceremony pair', () => {
+  it('declares the secret arms, bot availability and Telegram connection commands', () => {
     // SEVEN as of POD-421, which added `settings.secretPresence` — the presence
     // READ POD-420 recorded as this issue's ("`settings.get` is deliberately
     // absent … what it returns is POD-419's question and POD-421's"). The number
@@ -55,10 +55,10 @@ describe('the family is complete and classified', () => {
       'settings.clearSecret',
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
+      'settings.telegramDisconnect',
       'settings.telegramSetupPoll',
       'settings.telegramSetupStart',
-      'settings.updateInstance',
-      'settings.updatePersonal',
     ])
   })
 
@@ -71,7 +71,13 @@ describe('the family is complete and classified', () => {
     // a failure here rather than a silently unwritable set of leaves.
     for (const tier of SETTINGS_TIERS) {
       expect(TIER_COMMAND[tier], `no command writes the ${tier} tier`).toBeDefined()
-      expect(NAMES).toContain(TIER_COMMAND[tier])
+      // The personal tier is the `userPreferences` record's generic edit (POD-6673).
+      if (tier === 'personal-preference') {
+        expect(TIER_COMMAND[tier]).toBe('records.userPreferences.edit')
+      } else if (tier === 'instance-preference') {
+        // The instance tier is the `instancePreferences` record's generic edit (POD-6677).
+        expect(TIER_COMMAND[tier]).toBe('records.instancePreferences.edit')
+      } else expect(NAMES).toContain(TIER_COMMAND[tier] as SettingsContractName)
     }
   })
 })
@@ -98,9 +104,7 @@ describe('each contract reads its classification off the SHIPPED matrix row', ()
     })
 
     it(`${name}: names only transports something actually dispatches`, () => {
-      expect(contract.exposure).toEqual(
-        name === 'settings.updatePersonal' ? ['trpc', 'outbox'] : ['trpc'],
-      )
+      expect(contract.exposure).toEqual(['trpc'])
     })
   }
 })
@@ -117,6 +121,7 @@ describe('the secret arms are never queueable, and the matrix says so too', () =
       // answer "is a key configured" from before it was cleared.
       'settings.secretPresence',
       'settings.setSecret',
+      'settings.telegramBotPresence',
     ])
   })
 
@@ -159,37 +164,21 @@ describe('the secret arms are never queueable, and the matrix says so too', () =
 })
 
 describe('the preference arms are offline-eligible and differ only where the rows differ', () => {
+  // Both tiers are synced records: personal is `userPreferences` (POD-6673),
+  // instance is `instancePreferences` (POD-6677), each a queued generic edit.
   it('both are offline-eligible', () => {
-    expect(SETTINGS_CONTRACTS['settings.updatePersonal'].delivery.class).toBe('offline-eligible')
-    expect(SETTINGS_CONTRACTS['settings.updateInstance'].delivery.class).toBe('offline-eligible')
-  })
-
-  it('each tier ARGUES its own offline-eligibility rather than sharing one cell', () => {
-    // POD-735's precedent: a delivery class copied from a row's column is a
-    // class nobody argued. The two reconciliations must be DIFFERENT texts, and
-    // each must carry the reasoning specific to its tier — single-writer for the
-    // personal row, the surviving field-LWW group for the instance one.
-    const personal = SETTINGS_CONTRACTS['settings.updatePersonal'].delivery
-    const instance = SETTINGS_CONTRACTS['settings.updateInstance'].delivery
-    expect(personal.outboxReconciliation).not.toBe(instance.outboxReconciliation)
-    expect(personal.outboxReconciliation).toContain('SINGLE-WRITER')
-    expect(instance.outboxReconciliation).toContain('field-LWW')
-    // Both name the inertness test D18.3 turns on, which is what makes the
-    // class an argument rather than an inheritance.
-    expect(personal.outboxReconciliation).toContain('INERT')
-    expect(instance.outboxReconciliation).toContain('inert')
+    expect(USER_PREFERENCES_RECORD.delivery.class).toBe('offline-eligible')
+    expect(INSTANCE_PREFERENCES_RECORD.delivery.class).toBe('offline-eligible')
   })
 
   it('personal is per-user-state at a member floor; instance is substrate at an admin floor', () => {
-    const personal = SETTINGS_CONTRACTS['settings.updatePersonal']
-    const instance = SETTINGS_CONTRACTS['settings.updateInstance']
-    expect(personal.visibility).toBe('per-user-state')
-    expect(personal.policy.roleFloor).toBe('member')
+    const instance = INSTANCE_PREFERENCES_RECORD
+    expect(USER_PREFERENCES_RECORD.visibility).toBe('per-user-state')
+    expect(USER_PREFERENCES_RECORD.ops.edit?.policy.roleFloor).toBe('member')
     expect(instance.visibility).toBe('deployment-substrate')
-    expect(instance.policy.roleFloor).toBe('admin')
-    // The two visibility classes DIFFER — which is the argument for two
-    // contracts. If this ever passes with them equal, the split has no content.
-    expect(personal.visibility).not.toBe(instance.visibility)
+    expect(instance.ops.edit?.policy.roleFloor).toBe('admin')
+    expect(instance.conflict).toBe('field-LWW')
+    expect(USER_PREFERENCES_RECORD.visibility).not.toBe(instance.visibility)
   })
 })
 
@@ -197,20 +186,47 @@ describe('the preference arms are offline-eligible and differ only where the row
 // The schema IS the authorization gate for a preference path
 // ---------------------------------------------------------------------------
 
+/** The personal tier's write, as `{ values }` (a leaf set to undefined or null is
+ *  a reset, which is the record edit's `unset`). */
+const personalEdit = recordContracts(USER_PREFERENCES_RECORD).edit!.input
+const asRecordEdit = (edit: typeof personalEdit, id: string) => ({
+  safeParse(input: { values: Record<string, unknown> }) {
+    const patch: Record<string, unknown> = {}
+    const unset: string[] = []
+    for (const [path, value] of Object.entries(input.values)) {
+      if (value === null || value === undefined) unset.push(path)
+      else patch[path] = value
+    }
+    return edit.safeParse({ id, patch, ...(unset.length > 0 ? { unset } : {}) })
+  },
+})
+const settingsUpdatePersonalInput = asRecordEdit(personalEdit, 'user:p')
+/** The instance tier's write: the `instancePreferences` record's edit (POD-6677). */
+const settingsUpdateInstanceInput = asRecordEdit(
+  recordContracts(INSTANCE_PREFERENCES_RECORD).edit!.input,
+  'instance',
+)
+
 describe('a preference patch is gated on the classified path — and can say YES', () => {
-  it('preserves a JSON null harness clear on the personal command', () => {
+  it('a harness clear on the personal record is an unset; the instance command refuses it', () => {
     const input = { values: { 'roles.coding.harness': null } }
-    expect(settingsUpdatePersonalInput.parse(JSON.parse(JSON.stringify(input)))).toEqual(input)
+    expect(settingsUpdatePersonalInput.safeParse(input).success).toBe(true)
     expect(settingsUpdateInstanceInput.safeParse(input).success).toBe(false)
   })
 
   it.each([
-    'transcripts.mirror', 'deployment.authOpenMode', 'deployment.updateChannel',
-    'deployment.connectEnabled', 'deployment.telemetryUsage', 'deployment.telemetryCrash',
-    'deployment.telemetryInstallId', 'deployment.telemetrySince',
-  ])('preserves the JSON null clear for %s only on the instance command', (path) => {
+    'transcripts.mirror',
+    'deployment.authOpenMode',
+    'deployment.updateChannel',
+    'deployment.connectEnabled',
+    'deployment.telemetryUsage',
+    'deployment.telemetryCrash',
+    'deployment.telemetryInstallId',
+    'deployment.telemetrySince',
+  ])('a clear of %s is a reset of the instance record only', (path) => {
     const input = JSON.parse(JSON.stringify({ values: { [path]: null } }))
-    expect(settingsUpdateInstanceInput.parse(input)).toEqual(input)
+    const parsed = settingsUpdateInstanceInput.safeParse(input)
+    expect(parsed.success && parsed.data.unset).toEqual([path])
     expect(settingsUpdatePersonalInput.safeParse(input).success).toBe(false)
   })
 
@@ -222,14 +238,16 @@ describe('a preference patch is gated on the classified path — and can say YES
     // Keyed on the OUTPUT, not on `.success` alone: zod strips unknown keys and
     // succeeds, so a schema that dropped `values` entirely would still report
     // success (POD-640).
-    expect(parsed.success && parsed.data.values).toEqual({ 'roles.coding.model': 'opus' })
+    expect(parsed.success && parsed.data.patch).toEqual({ 'roles.coding.model': 'opus' })
   })
 
   it('accepts a real instance path on the instance command', () => {
     const parsed = settingsUpdateInstanceInput.safeParse({
-      values: { 'gitWorkflow.mergeStyle': 'pr' },
+      values: { 'gitWorkflow.defaultParentBranch': 'release' },
     })
-    expect(parsed.success && parsed.data.values).toEqual({ 'gitWorkflow.mergeStyle': 'pr' })
+    expect(parsed.success && parsed.data.patch).toEqual({
+      'gitWorkflow.defaultParentBranch': 'release',
+    })
   })
 
   it('REFUSES a path nothing classifies — the fail-closed branch', () => {
@@ -237,7 +255,6 @@ describe('a preference patch is gated on the classified path — and can say YES
       values: { 'telemetry.uploadToken': 'x' },
     })
     expect(parsed.success).toBe(false)
-    expect(JSON.stringify(parsed.error?.issues)).toContain('not a classified settings path')
   })
 
   it('REFUSES a secret path on the offline-eligible command', () => {
@@ -245,18 +262,16 @@ describe('a preference patch is gated on the classified path — and can say YES
     // credential. Refused by the SCHEMA, before any handler exists.
     for (const key of SERVER_SECRET_KEYS) {
       const parsed = settingsUpdatePersonalInput.safeParse({ values: { [key]: 'sk-live' } })
-      expect(parsed.success, `${key} was accepted by settings.updatePersonal`).toBe(false)
-      const issues = JSON.stringify(parsed.error?.issues)
-      // BOTH gates fire, and they are independent mechanisms (ADR 9 D4 point 2):
-      // the tier check and the may-enqueue backstop.
-      expect(issues).toContain('server-secret')
-      expect(issues).toContain('may not be enqueued')
+      // A secret is no field of the record, so the strict patch refuses it.
+      expect(parsed.success, `${key} was accepted by the userPreferences record`).toBe(false)
     }
   })
 
   it('REFUSES an instance path on the personal command, and vice versa', () => {
     expect(
-      settingsUpdatePersonalInput.safeParse({ values: { 'gitWorkflow.mergeStyle': 'pr' } }).success,
+      settingsUpdatePersonalInput.safeParse({
+        values: { 'gitWorkflow.defaultParentBranch': 'release' },
+      }).success,
     ).toBe(false)
     expect(
       settingsUpdateInstanceInput.safeParse({ values: { 'roles.coding.model': 'opus' } }).success,
@@ -271,8 +286,9 @@ describe('a preference patch is gated on the classified path — and can say YES
     // Totality, derived. A leaf added to a preference shape becomes writable on
     // the same commit; a leaf added to no tier is writable through neither.
     for (const c of SETTINGS_CLASSIFICATION) {
-      const personal = settingsUpdatePersonalInput.safeParse({ values: { [c.path]: 1 } }).success
-      const instance = settingsUpdateInstanceInput.safeParse({ values: { [c.path]: 1 } }).success
+      // A reset names the field without a value to parse: it tests the field set.
+      const personal = settingsUpdatePersonalInput.safeParse({ values: { [c.path]: null } }).success
+      const instance = settingsUpdateInstanceInput.safeParse({ values: { [c.path]: null } }).success
       if (c.tier === 'server-secret') {
         expect([personal, instance], `${c.path} reached a preference command`).toEqual([
           false,
@@ -291,17 +307,23 @@ describe('a preference patch is gated on the classified path — and can say YES
 })
 
 describe('the derived path sets find something', () => {
-  it('the personal tier has its 27 leaves, including a deep one', () => {
+  it('the personal tier contains current nested preferences and excludes removed choices', () => {
     const personal = preferencePathsInTier('personal-preference')
-    expect(personal.length).toBe(27)
+    expect(personal.length).toBeGreaterThan(0)
+    expect(personal).not.toContain('sidebar.groupByRepo')
     expect(personal).toContain('roles.coding.model')
     expect(personal).toContain('roles.shipwright.model')
     expect(personal).toContain('autoContinue.promptDismissed')
   })
 
   it('the writable set is both preference tiers and NOTHING from the secret tier', () => {
-    // 50 = 27 personal + 23 instance. Secrets stay out.
-    expect(WRITABLE_PREFERENCE_PATHS.length).toBe(50)
+    const personal = preferencePathsInTier('personal-preference')
+    const instance = preferencePathsInTier('instance-preference')
+    expect(personal.length).toBeGreaterThan(0)
+    expect(instance.length).toBeGreaterThan(0)
+    expect(new Set(WRITABLE_PREFERENCE_PATHS)).toEqual(new Set([...personal, ...instance]))
+    expect(new Set(WRITABLE_PREFERENCE_PATHS).size).toBe(WRITABLE_PREFERENCE_PATHS.length)
+    expect(WRITABLE_PREFERENCE_PATHS).not.toContain('gitWorkflow.mergeStyle')
     for (const key of SERVER_SECRET_KEYS) expect(WRITABLE_PREFERENCE_PATHS).not.toContain(key)
     // …and the exclusion is not an empty-set artefact.
     expect(WRITABLE_PREFERENCE_PATHS).toContain('experimental')
@@ -319,7 +341,7 @@ describe('the derived path sets find something', () => {
 // ---------------------------------------------------------------------------
 
 describe('the secret write vocabulary is closed', () => {
-  it('accepts each of the five keys with material', () => {
+  it('accepts each integration secret with material', () => {
     for (const key of SERVER_SECRET_KEYS) {
       const parsed = settingsSetSecretInput.safeParse({ key, value: 'sk-live-1' })
       expect(parsed.success && parsed.data.key).toBe(key)
@@ -331,17 +353,21 @@ describe('the secret write vocabulary is closed', () => {
       false,
     )
     expect(settingsClearSecretInput.safeParse({ key: 'apiKeys.smuggled' }).success).toBe(false)
+    for (const key of ['apiKeys.anthropic', 'apiKeys.openai', 'apiKeys.openrouter']) {
+      expect(settingsSetSecretInput.safeParse({ key, value: 'material' }).success).toBe(false)
+      expect(settingsClearSecretInput.safeParse({ key }).success).toBe(false)
+    }
   })
 
   it('REFUSES an empty value — absence is `clearSecret`, not a blank replace', () => {
-    expect(settingsSetSecretInput.safeParse({ key: 'apiKeys.openai', value: '' }).success).toBe(
-      false,
-    )
+    expect(
+      settingsSetSecretInput.safeParse({ key: 'integrations.linearApiKey', value: '' }).success,
+    ).toBe(false)
   })
 
   it('clearSecret carries no material key at all', () => {
     const parsed = settingsClearSecretInput.safeParse({
-      key: 'apiKeys.openai',
+      key: 'integrations.linearApiKey',
       value: 'sk-should-not-survive',
     })
     // zod strips the unknown key, so the assertion is on the OUTPUT: there is
@@ -357,17 +383,11 @@ describe('redaction was reviewed, and the answers differ where the tiers differ'
   })
 
   it('no BLOB arm redacts an OUTPUT, because no output has a value key by construction', () => {
-    // Scoped to the four blob writes by their TIER membership rather than by a
-    // hand list, so a seventh blob contract inherits the claim and a seventh
-    // ceremony contract does not. The ceremony arms genuinely do carry material
-    // outwards and are asserted separately below — widening this loop over them
-    // would have meant either a false claim or a weakened one.
+    // Tier membership includes writes and presence projections. Ceremony outputs
+    // carry material and are asserted separately below.
     const blobArms = (NAMES as SettingsContractName[]).filter((n) => CONTRACT_TIER[n] !== undefined)
-    // FIVE since POD-421: the presence read is a `server-secrets`-tier arm whose
-    // output is `SecretPresenceWire[]`, built independently of `ServerSecret` so
-    // that it has no value key to strip. It inherits the claim by tier
-    // membership exactly as the comment above intends.
-    expect(blobArms).toHaveLength(5)
+    // Set, clear, full secret presence and member bot availability expose no value key.
+    expect(blobArms).toHaveLength(4)
     for (const name of blobArms) {
       expect(SETTINGS_CONTRACTS[name].redaction.outputPaths).toEqual([])
       expect(SETTINGS_CONTRACTS[name].redaction.reviewed).toBe(true)
@@ -471,7 +491,7 @@ describe('the ceremony pair classifies a MINT and a REDEMPTION differently', () 
   it('both halves of one ceremony carry the SAME floor', () => {
     // The lower floor is the ceremony's real floor; two different ones would
     // make the higher a decoration.
-    expect(start.policy.roleFloor).toBe('admin')
+    expect(start.policy.roleFloor).toBe('member')
     expect(poll.policy.roleFloor).toBe(start.policy.roleFloor)
   })
 

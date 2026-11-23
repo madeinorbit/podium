@@ -1,8 +1,9 @@
+import { useCommands } from '@podium/client-core/react'
 import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/values'
 import { parseIssueStatusValue } from '@podium/model'
 import { useCallback } from 'react'
-import { useStoreActions } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
+import type { MobileTrpc } from '../client/trpc'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import type { WorkMenuSheet } from '../components/WorkIssueMenu'
 import type { WorkMenuActionId } from './work-menu'
@@ -21,7 +22,7 @@ export function useIssueRowActions({
   openMenu: (id: string, sheet: WorkMenuSheet) => void
   onError: (message: string) => void
 }) {
-  const store = useStoreActions()
+  const store = useCommands<MobileTrpc>()
   const pool = useMobilePool()
   const hasCloseBlockers = useIssueCloseGuard()
   const run = useCallback(
@@ -33,17 +34,18 @@ export function useIssueRowActions({
     (id: string, action: WorkMenuActionId) => {
       if (!pool) return
       const issue = pool.issueObject(id) as unknown as IssueNavigationModel
-      if (action === 'read') run(issue.unread ? store.markIssueRead(id) : store.markIssueUnread(id))
-      else if (action === 'undefer') run(store.undeferIssue(id))
+      if (action === 'read')
+        run(issue.unread ? store.issues.markRead(id) : store.issues.markUnread(id))
+      else if (action === 'undefer') run(store.issues.undefer(id))
       else if (action === 'tuck') {
-        if (pool.worklistRow(id)?.canTuck) run(store.setIssueTucked(id, true))
+        if (pool.worklistRow(id)?.canTuck) run(store.issues.setTucked(id, true))
       } else if (action === 'bringBack') {
-        if (pool.worklistRow(id)?.canBringBack) run(store.setIssueTucked(id, false))
+        if (pool.worklistRow(id)?.canBringBack) run(store.issues.setTucked(id, false))
       } else if (action === 'placement') {
         const placement = discoveredPlacement(issue)
         if (placement?.originId)
           run(
-            store.setIssuePlacement(
+            store.issues.setPlacement(
               id,
               placement.placement === 'mission' ? 'own' : 'mission',
               placement.originId,
@@ -58,9 +60,9 @@ export function useIssueRowActions({
     (id: string, value: string) => {
       const intent = parseIssueStatusValue(value)
       if (!intent) return
-      if (intent.kind === 'stage') run(store.updateIssue(id, { stage: intent.stage }))
+      if (intent.kind === 'stage') run(store.issues.update(id, { stage: intent.stage }))
       else if (hasCloseBlockers(id)) openMenu(id, { kind: 'confirm-close', reason: intent.reason })
-      else run(store.closeIssue(id, intent.reason))
+      else run(store.issues.close(id, intent.reason))
     },
     [hasCloseBlockers, openMenu, run, store],
   )

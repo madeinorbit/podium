@@ -1,4 +1,4 @@
-import type { SessionResurrectionResult } from '@podium/client-core/engine'
+import type { SessionResurrectionResult } from '@podium/client-core/commands'
 import { type ExitedAction, exitedRecovery } from '@podium/client-core/values'
 import type { SessionMeta } from '@podium/model'
 import { type JSX, useState } from 'react'

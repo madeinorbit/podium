@@ -26,20 +26,6 @@
  *    operator is an invariant).
  */
 
-import { createLogger } from '@podium/logger'
-import {
-  asThreadId,
-  isMessageHandedOn,
-  isMessagePending,
-  isSpawnedBy,
-  type IssueId,
-  type MachineId,
-  MessageDelivery,
-  type MessageDeliveryStatus,
-  type MessageHeld,
-  type HarnessRef,
-  type TranscriptItemRef,
-} from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import {
   AUTO_CONTINUE_SENDER,
@@ -48,6 +34,7 @@ import {
   type PlacementDecision,
   senderBrakeKey,
 } from '@podium/commands'
+import { createLogger } from '@podium/logger'
 import {
   type Attribution,
   actorAgent,
@@ -56,12 +43,24 @@ import {
   asAgentIdentityId,
   asIssueId,
   asSessionId,
-  isIssueClosed,
-  isNotInConversationCause,
+  asThreadId,
+  type HarnessRef,
+  type IssueId,
   type IssueScope,
+  isIssueClosed,
+  isMessageHandedOn,
+  isMessagePending,
+  isNotInConversationCause,
+  isPersonCapability,
+  isSpawnedBy,
+  type MachineId,
+  MessageDelivery,
+  type MessageDeliveryStatus,
+  type MessageHeld,
   type NotInConversationCause,
   type SessionId,
   type SessionMeta,
+  type TranscriptItemRef,
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
 import type {
@@ -70,6 +69,7 @@ import type {
   RuntimeAttachmentRef,
   TurnReceipt,
 } from '@podium/protocol/daemon'
+import type { WriteScope } from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import { failureNoticeId, spawnPromptMessageId } from '../../message-ids'
@@ -81,26 +81,23 @@ import type {
   MessageUrgency,
 } from '../../store'
 import type { EventsRepository } from '../../store/events'
-import { type MessagePageCursor, type MessagesRepository, moved } from '../../store/messages'
-import { afterCommit } from '../../store/executor/executor'
-import { withReadScope } from '../../store/executor/read-scope'
+import { afterCommit, spanOpen } from '../../store/executor/executor'
 import { withOwnOperation } from '../../store/executor/operation-scope'
+import { withReadScope } from '../../store/executor/read-scope'
+import { type MessagePageCursor, type MessagesRepository, moved } from '../../store/messages'
 import type { NotificationFactsRepository } from '../../store/notification-facts'
 import { NotificationArbiter } from '../../store/notification-facts'
+import { outsideWriteProvenance } from '../../write-provenance'
 import type { IssueService } from '../issues/service'
-import type { InboxPrincipalReference, QueuedRetract } from '../sessions/inbox'
 import type { SessionFacts } from '../sessions/facts'
+import type { InboxPrincipalReference, QueuedRetract } from '../sessions/inbox'
 import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
 import { deliveredByAJob, INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
-import type {
-  MessageSender,
-  MessageSendInput,
-  MessageSendResult,
-  SendDisposition,
-} from './types'
+import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
 import { SUPERAGENT_AGENT_IDENTITY } from './types'
+import { commitMessages, type MessageWriter } from './writer'
 
 const log = createLogger('server:messages')
 
@@ -111,6 +108,7 @@ export type {
   MessageSendResult,
   SendDisposition,
 } from './types'
+export type { MessageWriter } from './writer'
 
 import { cursorOf, DELIVERY_TARGET_PAGE_LIMIT, type DeliveryTarget } from './targets'
 
@@ -224,6 +222,9 @@ export interface SpawnOnWake {
 }
 
 interface InboxDeliveryInput {
+  /** The delivering write's writer (POD-6602): the session inbox writes the
+   *  session's row with it, and hands the message on under it. */
+  writer: MessageWriter
   sessionId: SessionId
   text: string
   /** The three origins message delivery can produce — NOT the full
@@ -255,8 +256,33 @@ export interface DeliveryContradiction {
   evidence: DeliveryContradictionEvidence
 }
 
+/** The subscription a session takes to receive another person's mail to a
+ *  task it works on (POD-6296). The steward has no such event, so it nudges nothing. */
+export const TASK_MAIL_SUBSCRIPTION = 'issue.mail'
+
+/** The writers the delivery service writes its own work on (POD-6602). */
+export interface MessageServiceWriters {
+  /** What a machine reports about the messages it was handed (`messages.daemon`). */
+  readonly daemon: MessageWriter
+  /** The server's own delivery work after a commit: hand-ons, retries, the
+   *  boot walk, the sweep, a retract's request to the machine (`messages.delivery`). */
+  readonly delivery: MessageWriter
+}
+
 export interface MessageDeliveryDeps {
-  firstAdminMemberId(): Promise<import('@podium/model').UserId>
+  /**
+   * Who a LIVE sender with no attribution acts for: the instance's only active
+   * member, or `undefined` when there are none or several (POD-6285). Every
+   * production sender attributes itself; this keeps a one-member instance's
+   * older call shapes working and refuses them once a second person exists.
+   */
+  soleActiveMember(): Promise<import('@podium/model').UserId | undefined>
+  /**
+   * RECOVERY: the human a STORED row with no attribution is read as. Such rows
+   * predate per-message attribution, when the instance had one person, its
+   * first admin. Used only to read those rows, never to stamp a new one.
+   */
+  legacyRowOwner(): Promise<import('@podium/model').UserId>
   messages: MessagesRepository
   notificationFacts: NotificationFactsRepository
   events: EventsRepository
@@ -271,10 +297,7 @@ export interface MessageDeliveryDeps {
      *  REQUIRED since POD-3857 — the full-list port they used to fall back to is
      *  gone, so a fixture cannot silently reintroduce the pass. */
     sessionById(sessionId: SessionId): Promise<SessionMeta | undefined>
-    listSessionsForIssue(
-      worktreePath: string | null,
-      issueId: IssueId,
-    ): Promise<SessionMeta[]>
+    listSessionsForIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionMeta[]>
     /** The member sessions of one issue, as cheap facts [POD-3857], read from
      *  the database where they are not resident (POD-6160). */
     readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId): Promise<SessionFacts[]>
@@ -351,12 +374,22 @@ export interface MessageDeliveryDeps {
    *  substrate inbox read must consume the mirror row's unread status too, or
    *  mailPending's legacy fallback keeps nagging. Drop with the table.
    *  `Promise<void>` for the reason {@link MessageDeliveryDeps.mirrorIssueMail} gives. */
-  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): Promise<void>
+  mirrorMarkIssueMailRead?(
+    issueId: IssueId,
+    ids: string[],
+    /** The session that read it, whose owner's read marker this is; `null`
+     *  when nobody did (POD-6291). */
+    reader: SessionId | null,
+  ): Promise<void>
   /** Spawn-on-wake seam; absent = unresumable wakes surface needs-attention. */
   spawnOnWake?: SpawnOnWake
-  /** Transaction seam (store.transact): an ack's row insert + acked_by stamp on
-   *  the original commit atomically. Absent (tests) = plain sequential writes. */
-  transact?<T>(fn: () => T | Promise<T>): Promise<T>
+  /**
+   * THE SERVICE'S OWN ACCOUNTS (ADR 12 D9, POD-6602), declared origins in
+   * `write-contexts.ts`. Every other messages write takes the writer of whoever
+   * asked, per call: a mail command's own, a session or issue command's, a
+   * server job's.
+   */
+  writers: MessageServiceWriters
   /** Existing notify path for needs-attention surfacing (best-effort). A
    *  notification is an external effect and its implementations reach the store,
    *  so it returns `Promise<void>` (POD-3820) and is deferred past the commit
@@ -397,7 +430,10 @@ export interface MessageDeliveryDeps {
    */
   authorizeAtApply?(
     message: MessageRow,
-  ): { ok: true } | { ok: false; reason: string } | Promise<{ ok: true } | { ok: false; reason: string }>
+  ):
+    | { ok: true }
+    | { ok: false; reason: string }
+    | Promise<{ ok: true } | { ok: false; reason: string }>
   /**
    * WAKE-PATH MACHINE USE (POD-1193 / readiness §3.1.4 M2).
    *
@@ -435,7 +471,7 @@ export interface MessageDeliveryDeps {
 export const WAKE_PLACEMENT_DENIED_REASON = 'target is not available'
 
 /** Derive the sender principal from an authz capability (the relay/registry
- *  caller identity). ONLY the unconstrained scope ('all') is the operator —
+ *  caller identity). ONLY a person (any member, POD-6288) is the operator —
  *  "unwrapped = the human" is an invariant the receiver's prime rules trust,
  *  so an issueless agent session (scope 'none' + actorSessionId) must stamp
  *  as an agent (enveloped, peer-clamped, cooldown-subject), never operator.
@@ -445,8 +481,10 @@ export function senderFromCapability(capability: {
   // local shape re-erased the brands `IssueScope` carries.
   scope: IssueScope
   actorSessionId?: SessionId
+  actorUser?: string
+  onBehalfOf?: import('@podium/model').UserId
 }): MessageSender {
-  if (capability.scope.kind === 'all') return { kind: 'operator' }
+  if (isPersonCapability(capability)) return { kind: 'operator' }
   if (capability.scope.kind === 'subtree' && capability.scope.rootId) {
     return {
       kind: 'agent',
@@ -555,6 +593,9 @@ export type SendFailure =
   | { kind: 'not-in-conversation'; cause: NotInConversationCause }
 
 const SESSION_GONE: SendFailure = { kind: 'session-gone' }
+
+/** How many after-commit follow-ups are kept for an adapter to wait on. */
+const RECENT_FOLLOW_UPS = 256
 /** Typed, about to be, taken by the program, or lost track of: past the point
  *  where "not delivered" can be claimed. */
 const MAY_HAVE_ARRIVED: ReadonlySet<MessageDeliveryStatus> = new Set([
@@ -642,6 +683,15 @@ export class MessageDeliveryService {
    *  that gave up waiting repeats its attempt while the first may still be
    *  running; the repeat waits for it and then answers from the stored row. */
   private readonly sending = new Map<string, Promise<unknown>>()
+  /**
+   * The work a write left for after its commit, per message (POD-6525): a
+   * send's hand-on, a retract's request to the machine. A write on the sync
+   * write entry point answers at its commit, before that work; the old routes
+   * and the agent relay answered with its outcome, so their adapters wait for
+   * it here ({@link handOnOf}, {@link retractOf}). Bounded: an entry nobody
+   * waits for is dropped once newer ones push it out.
+   */
+  private readonly followUps = new Map<string, Promise<unknown>>()
 
   private readonly notificationArbiter: NotificationArbiter
   /** Envelope/pointer rendering and the confirmation mode that follows from it
@@ -686,18 +736,22 @@ export class MessageDeliveryService {
       now: deps.now,
       ...(deps.mirrorMarkIssueMailRead
         ? {
-            mirrorMarkIssueMailRead: async (issueId: IssueId, ids: string[]) =>
-              await deps.mirrorMarkIssueMailRead?.(issueId, ids),
+            mirrorMarkIssueMailRead: async (
+              issueId: IssueId,
+              ids: string[],
+              reader: SessionId | null,
+            ) => await deps.mirrorMarkIssueMailRead?.(issueId, ids, reader),
           }
         : {}),
-      send: async (from, input) => await this.send(from, input),
+      send: async (writer, from, input) => await this.send(writer, from, input),
       retractQueuedInput: async (message) => {
         const sessionId =
           message.deliveredTo ?? (message.toKind === 'session' ? message.toId : null)
         if (!sessionId || !deps.sessions.retractQueuedMessage) return 'not-queued'
         return await deps.sessions.retractQueuedMessage(asSessionId(sessionId), message.id)
       },
-      emitTransition: async (message, kind, extra) => await this.emitTransition(message, kind, extra),
+      emitTransition: async (message, kind, extra) =>
+        await this.emitTransition(message, kind, extra),
       fromLabel: async (message) => await this.render.fromLabel(message),
     })
     this.render = new MessageRenderer({
@@ -771,7 +825,10 @@ export class MessageDeliveryService {
       this.queueDeliveryTarget({ kind: 'issue', id: issueId })
       const issue = await this.deps.issues.reports.getMeta(issueId)
       const worktreePath = issue?.worktreePath ?? null
-      for (const session of await this.deps.sessions.readSessionFactsByIssue(worktreePath, asIssueId(issueId))) {
+      for (const session of await this.deps.sessions.readSessionFactsByIssue(
+        worktreePath,
+        asIssueId(issueId),
+      )) {
         candidates.set(session.sessionId, session)
       }
       const previous = previousWorktrees.get(issueId)
@@ -819,30 +876,35 @@ export class MessageDeliveryService {
       // One operation of its own (a drained queue serves many senders): the
       // target issues are read once, together, and each attempt's own read of
       // its issue is answered from the operation's memo (POD-6158).
-      attemptPass: async (messages, failed) => await withOwnOperation(async () => {
-        await this.deps.issues.reports.preloadIssues(
-          messages.flatMap((message) =>
-            message.toKind === 'issue' && message.toId ? [message.toId] : [],
-          ),
-        )
-        // The cooldown key of every wake row, with the brake's cold reads
-        // answered in one read [POD-6174].
-        const wakeKeys = await this.wakeKeysOf(messages)
-        const members = new PassIssueMembers()
-        // A row the cooldown held back had its retry armed by the check itself;
-        // only the attempted ones are read back afterwards.
-        const attempted: MessageRow[] = []
-        for (const message of messages) {
-          try {
-            if (!await this.prepareQueuedAttemptSafely(message, wakeKeys.get(message.id))) continue
-            attempted.push(message)
-            await this.attemptDelivery(message, { viaSweep: true, members })
-          } catch (error) {
-            failed(message, error)
+      attemptPass: async (messages, failed) =>
+        await withOwnOperation(async () => {
+          await this.deps.issues.reports.preloadIssues(
+            messages.flatMap((message) =>
+              message.toKind === 'issue' && message.toId ? [message.toId] : [],
+            ),
+          )
+          // The cooldown key of every wake row, with the brake's cold reads
+          // answered in one read [POD-6174].
+          const wakeKeys = await this.wakeKeysOf(messages)
+          const members = new PassIssueMembers()
+          // A row the cooldown held back had its retry armed by the check itself;
+          // only the attempted ones are read back afterwards.
+          const attempted: MessageRow[] = []
+          for (const message of messages) {
+            try {
+              if (!(await this.prepareQueuedAttemptSafely(message, wakeKeys.get(message.id))))
+                continue
+              attempted.push(message)
+              await this.attemptDelivery(this.deps.writers.delivery, message, {
+                viaSweep: true,
+                members,
+              })
+            } catch (error) {
+              failed(message, error)
+            }
           }
-        }
-        await this.scheduleQueuedWakeRetries(attempted)
-      }),
+          await this.scheduleQueuedWakeRetries(attempted)
+        }),
     }
   }
 
@@ -905,7 +967,10 @@ export class MessageDeliveryService {
     return [...issueIds].map((id) => ({ kind: 'issue' as const, id }))
   }
 
-  private async prepareQueuedAttemptSafely(message: MessageRow, wakeKey?: string): Promise<boolean> {
+  private async prepareQueuedAttemptSafely(
+    message: MessageRow,
+    wakeKey?: string,
+  ): Promise<boolean> {
     try {
       return await this.prepareQueuedAttempt(message, wakeKey)
     } catch (error) {
@@ -926,16 +991,20 @@ export class MessageDeliveryService {
    * Clamps/brakes downgrade the axes BEFORE the row is written, so the row
    * always holds the effective values and `clamped_from` the requested ones.
    */
-  async send(from: MessageSender, input: MessageSendInput): Promise<MessageSendResult> {
+  async send(
+    writer: MessageWriter,
+    from: MessageSender,
+    input: MessageSendInput,
+  ): Promise<MessageSendResult> {
     const id = input.messageId
-    if (id === undefined) return await this.sendUnder(`msg_${randomUUID()}`, from, input)
+    if (id === undefined) return await this.sendUnder(writer, `msg_${randomUUID()}`, from, input)
     // ONE ATTEMPT AT A TIME PER ID. The repeat of a send still running would
     // otherwise find the row stored but not yet handed on, and hand it on a
     // second time beside the first.
     const before = this.sending.get(id)
     const attempt = (async () => {
       await before?.catch(() => undefined)
-      return await this.sendUnder(id, from, input)
+      return await this.sendUnder(writer, id, from, input)
     })()
     this.sending.set(id, attempt)
     try {
@@ -957,12 +1026,13 @@ export class MessageDeliveryService {
    * finishes the send the first attempt started.
    */
   private async sendUnder(
+    writer: MessageWriter,
     id: string,
     from: MessageSender,
     input: MessageSendInput,
   ): Promise<MessageSendResult> {
     const already = await this.deps.messages.getMessage(id)
-    if (already) return await this.answerRepeat(already, from, input)
+    if (already) return await this.answerRepeat(writer, already, from, input)
     const issues = this.deps.issues
     // Resolve an issue recipient ref (#N / seq / id) to the canonical id up
     // front so the stored to_id is stable.
@@ -1020,7 +1090,7 @@ export class MessageDeliveryService {
     if (lifecycle === 'wake' && !exemptFromWakeCooldown(principalOf(from))) {
       const issueKey =
         input.to.kind === 'issue' ? (toId ?? '') : await this.issueForSession(targetSession)
-      const key = `${(await this.senderKey(from))}|${issueKey ?? toId ?? ''}`
+      const key = `${await this.senderKey(from)}|${issueKey ?? toId ?? ''}`
       if (await this.brakes.isWakeHot(key)) {
         clamps.push({ lifecycle, reason: 'wake cooldown (1 per 10min per sender+issue)' })
         lifecycle = 'wait'
@@ -1108,20 +1178,19 @@ export class MessageDeliveryService {
     }
     // The reply row and the acked_by stamp on the original commit atomically —
     // the steward's suppression check can never observe one without the other.
-    const write = async (): Promise<boolean> => {
-      if (!(await this.deps.messages.addMessage(message))) return false
+    const stored = await commitMessages(writer, async (scope): Promise<boolean> => {
+      if (!(await this.deps.messages.addMessage(scope, message))) return false
       if (stampsAck && message.inReplyTo) {
-        await this.deps.messages.markAcked(message.inReplyTo, id)
+        await this.deps.messages.markAcked(scope, message.inReplyTo, id)
       }
       return true
-    }
-    const stored = this.deps.transact ? await this.deps.transact(write) : await write()
+    })
     if (!stored) {
       // Another server process stored this id between the read above and the
       // insert. It is the same case as a repeat, answered the same way.
       const existing = await this.deps.messages.getMessage(id)
       if (!existing) throw new Error(`message ${id} was neither stored nor found`)
-      return await this.answerRepeat(existing, from, input)
+      return await this.answerRepeat(writer, existing, from, input)
     }
     if (stampsAck && original) {
       await this.emitTransition({ ...original, ackedBy: id }, 'message.acked')
@@ -1131,7 +1200,7 @@ export class MessageDeliveryService {
       // already-confirmed original is "already there" in the store; deliveredTo
       // is always set once a row was handed on.
       if (isMessagePending(original.deliveryStatus) && original.deliveredTo) {
-        await this.markDelivered(original, original.deliveredTo, 'ack')
+        await this.markDelivered(writer, original, original.deliveredTo, 'ack')
       }
     }
     await this.emitTransition(message, 'message.queued')
@@ -1147,7 +1216,21 @@ export class MessageDeliveryService {
 
     const legacy = await this.mirrorToIssueMailbox(message, from)
 
-    const outcome = await this.attemptDelivery(message)
+    // Inside a unit of work the hand-on waits for the commit [POD-6349].
+    if (spanOpen()) {
+      // An address that can never be delivered to is answered now, in the
+      // write, as a send outside one answered it (POD-6525): the reply is the
+      // dead letter, and there is no attempt and no notice.
+      const terminal = input.terminalInUnit
+        ? await this.terminalOutcome(writer, message)
+        : undefined
+      return {
+        message: (await this.deps.messages.getMessage(id)) ?? message,
+        ...(terminal ?? this.deliverAfterCommit(message)),
+        legacy,
+      }
+    }
+    const outcome = await this.attemptDelivery(writer, message)
     // A pushed row may already be in the SessionInbox FIFO with an exact
     // driver-facing position. Fill the common result boundary from a live read;
     // never freeze the enqueue ordinal into the message row.
@@ -1155,7 +1238,7 @@ export class MessageDeliveryService {
       outcome.position ?? (outcome.queued ? await this.queuePositionForMessage(message) : undefined)
     await this.scheduleQueuedWakeRetry(message)
     return {
-      message: await this.deps.messages.getMessage(id) ?? message,
+      message: (await this.deps.messages.getMessage(id)) ?? message,
       ...outcome,
       ...(position !== undefined ? { position } : {}),
       legacy,
@@ -1226,6 +1309,7 @@ export class MessageDeliveryService {
    * it is; nothing is handed on a second time.
    */
   private async answerRepeat(
+    writer: MessageWriter,
     stored: MessageRow,
     from: MessageSender,
     input: MessageSendInput,
@@ -1241,9 +1325,11 @@ export class MessageDeliveryService {
       throw new Error(`message id ${stored.id} is already used by a different message`)
     }
     if (stored.deliveryStatus === 'stored' && stored.deliveredTo === null) {
-      const outcome = await this.attemptDelivery(stored)
+      if (spanOpen()) return { message: stored, ...this.deliverAfterCommit(stored) }
+      const outcome = await this.attemptDelivery(writer, stored)
       const position =
-        outcome.position ?? (outcome.queued ? await this.queuePositionForMessage(stored) : undefined)
+        outcome.position ??
+        (outcome.queued ? await this.queuePositionForMessage(stored) : undefined)
       await this.scheduleQueuedWakeRetry(stored)
       return {
         message: (await this.deps.messages.getMessage(stored.id)) ?? stored,
@@ -1252,6 +1338,151 @@ export class MessageDeliveryService {
       }
     }
     return { message: stored, ...(await this.standingOf(stored)) }
+  }
+
+  /**
+   * HAND A STORED ROW ON AFTER THE COMMIT [POD-6349], and answer "queued".
+   *
+   * A delivery attempt is a round trip to the agent's machine: it types into
+   * the agent, queues a wake, resurrects a parked session or spawns one. From
+   * inside a unit of work it would deliver a message the unit of work can still
+   * roll back, and hold the write connection for the daemon's answer. So when a
+   * span is open the row commits first and the attempt is an external effect.
+   *
+   * The reply cannot carry the attempt's outcome, so it says what is true at
+   * the commit: the row is stored and waiting. The row is the record of what
+   * happens next (ADR 12 D5 E2): a dead letter found by this attempt notifies
+   * the sender, exactly as one found by a sweep does, because no sender was
+   * waiting on the reply to hear it. A lost attempt (the server died after the
+   * commit) leaves the row `stored`, and the boot reconcile and the delivery
+   * sweep hand it on.
+   *
+   * With no span open the send keeps attempting inline and answering with the
+   * outcome, which is every caller today.
+   */
+  private deliverAfterCommit(message: MessageRow): DeliveryOutcome {
+    // Outside the write's provenance: the attempt is not part of the write the
+    // receipt covers, and what it changes later is the delivery's own record.
+    afterCommit(
+      () =>
+        outsideWriteProvenance(async () => {
+          const attempt = this.handOn(message)
+          this.rememberFollowUp(`send:${message.id}`, attempt)
+          await attempt
+        }),
+      'message-delivery',
+    )
+    return { ok: true, queued: true, disposition: 'queued' }
+  }
+
+  /** One hand-on after a commit, answered as an inline send answers (with its
+   *  queue position); `undefined` when the attempt failed and the row waits. */
+  private async handOn(message: MessageRow): Promise<DeliveryOutcome | undefined> {
+    try {
+      const outcome = await this.attemptDelivery(this.deps.writers.delivery, message, {
+        viaSweep: true,
+      })
+      const position =
+        outcome.position ??
+        (outcome.queued ? await this.queuePositionForMessage(message) : undefined)
+      await this.scheduleQueuedWakeRetry(message)
+      return { ...outcome, ...(position !== undefined ? { position } : {}) }
+    } catch (error) {
+      log.warn('message delivery after commit failed; the stored row waits for the next pass', {
+        err: error,
+        messageId: message.id,
+      })
+      return undefined
+    }
+  }
+
+  private rememberFollowUp(key: string, work: Promise<unknown>): void {
+    this.followUps.delete(key)
+    this.followUps.set(key, work)
+    if (this.followUps.size > RECENT_FOLLOW_UPS) {
+      const oldest = this.followUps.keys().next().value
+      if (oldest !== undefined) this.followUps.delete(oldest)
+    }
+  }
+
+  private async followUpOf(key: string): Promise<unknown> {
+    const work = this.followUps.get(key)
+    if (work === undefined) return undefined
+    this.followUps.delete(key)
+    return await work
+  }
+
+  /**
+   * THE OUTCOME OF THE HAND-ON a send started after its commit (POD-6525), for
+   * an adapter that answers as the send did before it was a write: what the
+   * attempt found, or `undefined` when no attempt of this process is known
+   * (a replay, a dead letter answered in the write, an attempt that failed).
+   */
+  async handOnOf(messageId: string): Promise<DeliveryOutcome | undefined> {
+    return (await this.followUpOf(`send:${messageId}`)) as DeliveryOutcome | undefined
+  }
+
+  /**
+   * THE DEAD LETTERS A SEND CAN TELL IN ITS OWN WRITE (POD-6525): the checks
+   * at the head of a delivery attempt that read only the database — the
+   * apply-time authorization, a session that is gone or archived, an issue
+   * that is gone, archived, closed or deleted — and the self-send that has no
+   * recipient. One of them stores the row's end in the unit of work and
+   * answers as the inline attempt did (no notice: the sender reads the
+   * answer). `undefined` leaves the attempt to after the commit.
+   */
+  private async terminalOutcome(
+    writer: MessageWriter,
+    message: MessageRow,
+  ): Promise<DeliveryOutcome | undefined> {
+    const auth = await this.applyAuth(message)
+    if (!auth.ok) {
+      return await this.deadLetter(writer, message, auth.reason, {
+        failure: notAllowed(auth.reason),
+      })
+    }
+    if (message.toKind === 'operator') return undefined
+    if (message.toKind === 'session') {
+      if (message.fromSession && message.toId === message.fromSession) {
+        return await this.suppressSelf(writer, message)
+      }
+      const target = message.toId
+        ? await this.deps.sessions.sessionById(asSessionId(message.toId))
+        : undefined
+      if (!target) {
+        return await this.deadLetter(writer, message, 'session no longer exists', {
+          failure: SESSION_GONE,
+        })
+      }
+      if (target.archived) {
+        return await this.deadLetter(writer, message, 'session is archived', {
+          failure: SESSION_GONE,
+        })
+      }
+      return undefined
+    }
+    const issue = await this.deps.issues.reports.getMeta(message.toId ?? '')
+    if (!issue) {
+      return await this.deadLetter(writer, message, 'issue no longer exists', {
+        failure: ISSUE_ENDED,
+      })
+    }
+    if (issue.archived) {
+      return await this.deadLetter(writer, message, `issue #${issue.seq} is archived`, {
+        failure: ISSUE_ENDED,
+      })
+    }
+    if (isIssueClosed(issue)) {
+      return await this.deadLetter(writer, message, `issue #${issue.seq} is closed`, {
+        failure: ISSUE_ENDED,
+      })
+    }
+    if (issue.deletedAt) {
+      return await this.deadLetter(writer, message, `issue #${issue.seq} is deleted`, {
+        failure: ISSUE_DELETED,
+      })
+    }
+    return undefined
   }
 
   /** Where a stored message stands, in the words a send answers with. */
@@ -1305,13 +1536,55 @@ export class MessageDeliveryService {
    * pass one.
    */
   private async attemptDelivery(
+    writer: MessageWriter,
     message: MessageRow,
     opts?: DeliveryAttemptOptions,
   ): Promise<DeliveryOutcome> {
-    return await withReadScope(async () => await this.attemptDeliveryInScope(message, opts))
+    return await withReadScope(async () => await this.attemptDeliveryInScope(writer, message, opts))
+  }
+
+  /**
+   * TASK MAIL IS PUBLISHED COLLABORATION, NEVER INPUT INTO ANOTHER PERSON'S
+   * PRIVATE SESSION (POD-6296, design §2.3). Of a task's member sessions, mail
+   * is typed only into those of the sender's own human, or into a session that
+   * subscribed to the task's mail (its own `issue.mail` subscription sourced
+   * on the task: `podium issue subscription add issue.mail --source-kind issue
+   * --source-ref <task>`). Everyone reads the mail in the task's mailbox. System mail (no
+   * human behind it) and a one-member instance keep every member.
+   */
+  private async ownMailMembers(
+    message: MessageRow,
+    issue: { id: IssueId },
+    members: SessionMeta[],
+  ): Promise<SessionMeta[]> {
+    const sender = message.attribution?.onBehalfOf
+    if (!sender || members.length === 0) return members
+    // The human a session acts for, as the server wrote it at start: no read.
+    const foreign = members.filter((s) => {
+      const owner = s.delegation?.onBehalfOf ?? s.createdBy?.onBehalfOf
+      return owner != null && owner !== sender
+    })
+    if (foreign.length === 0) return members
+    const subscribed = new Set<string>()
+    for (const s of foreign) {
+      for (const sub of await this.deps.issues.attention.subscriptionList({
+        subscriberId: s.sessionId,
+      })) {
+        if (
+          sub.enabled &&
+          sub.subscriberKind === 'session' &&
+          sub.event === TASK_MAIL_SUBSCRIPTION &&
+          sub.sourceKind === 'issue' &&
+          sub.sourceRef === issue.id
+        )
+          subscribed.add(s.sessionId)
+      }
+    }
+    return members.filter((s) => !foreign.includes(s) || subscribed.has(s.sessionId))
   }
 
   private async attemptDeliveryInScope(
+    writer: MessageWriter,
     message: MessageRow,
     opts?: DeliveryAttemptOptions,
   ): Promise<DeliveryOutcome> {
@@ -1323,7 +1596,7 @@ export class MessageDeliveryService {
     // not silently dropped, not applied.
     const auth = await this.applyAuth(message)
     if (!auth.ok) {
-      return await this.deadLetter(message, auth.reason, {
+      return await this.deadLetter(writer, message, auth.reason, {
         notifySender,
         failure: notAllowed(auth.reason),
       })
@@ -1341,7 +1614,7 @@ export class MessageDeliveryService {
       // surfaced back to the session that sent it (the POD-279 15× self-echo
       // loop). A session-addressed self-send has no other recipient — ledger-only.
       if (message.fromSession && message.toId === message.fromSession) {
-        return await this.suppressSelf(message)
+        return await this.suppressSelf(writer, message)
       }
       target = message.toId ? await sessions.sessionById(asSessionId(message.toId)) : undefined
       if (!target) {
@@ -1349,7 +1622,7 @@ export class MessageDeliveryService {
         // list). A session-addressed row records no issue to re-route to, so
         // dead-letter it: never silently queue to a session that will never exist
         // again — the 70 POD-279 losses included exactly this [POD-834 §05].
-        return await this.deadLetter(message, 'session no longer exists', {
+        return await this.deadLetter(writer, message, 'session no longer exists', {
           notifySender,
           failure: SESSION_GONE,
         })
@@ -1358,7 +1631,7 @@ export class MessageDeliveryService {
       // delivery. Treat it as a terminal target before the wake path can queue
       // input and revive a hidden process.
       if (target.archived) {
-        return await this.deadLetter(message, 'session is archived', {
+        return await this.deadLetter(writer, message, 'session is archived', {
           notifySender,
           failure: SESSION_GONE,
         })
@@ -1369,7 +1642,7 @@ export class MessageDeliveryService {
       // count for each attempt [POD-6174].
       const issue = await this.deps.issues.reports.getMeta(message.toId ?? '')
       if (!issue) {
-        return await this.deadLetter(message, 'issue no longer exists', {
+        return await this.deadLetter(writer, message, 'issue no longer exists', {
           notifySender,
           failure: ISSUE_ENDED,
         })
@@ -1378,7 +1651,7 @@ export class MessageDeliveryService {
       // so holding is a black hole. Dead-letter it [POD-834 §05]. A merely open
       // (or done-but-live) issue with no session is HELD, below.
       if (issue.archived)
-        return await this.deadLetter(message, `issue #${issue.seq} is archived`, {
+        return await this.deadLetter(writer, message, `issue #${issue.seq} is archived`, {
           notifySender,
           failure: ISSUE_ENDED,
         })
@@ -1386,7 +1659,7 @@ export class MessageDeliveryService {
       // lifecycle yet. In particular, a queued wake must not resurrect a
       // session after the close reaper has stopped it.
       if (isIssueClosed(issue))
-        return await this.deadLetter(message, `issue #${issue.seq} is closed`, {
+        return await this.deadLetter(writer, message, `issue #${issue.seq} is closed`, {
           notifySender,
           failure: ISSUE_ENDED,
         })
@@ -1396,7 +1669,7 @@ export class MessageDeliveryService {
       // was stored before deletion did that (POD-4817). A restore does not
       // reopen them; their senders were told not to wait.
       if (issue.deletedAt)
-        return await this.deadLetter(message, `issue #${issue.seq} is deleted`, {
+        return await this.deadLetter(writer, message, `issue #${issue.seq} is deleted`, {
           notifySender,
           failure: ISSUE_DELETED,
         })
@@ -1415,7 +1688,8 @@ export class MessageDeliveryService {
       // session from issue-recipient resolution, so an agent mailing its own
       // issue never picks itself. selectMailNudgeSession picks the most recently
       // active live member, which would otherwise BE the sender.
-      const members = allMembers.filter((s) => s.sessionId !== message.fromSession)
+      const others = allMembers.filter((s) => s.sessionId !== message.fromSession)
+      const members = await this.ownMailMembers(message, issue, others)
       // Prefer the issue's designated coordinator by ROLE (docs/agent-comms-target.html
       // §05 q1), for EVERY urgency [POD-1365] and every non-exited session status
       // [POD-1371]. Routing is by ROLE; urgency and lifecycle govern only HOW the
@@ -1457,17 +1731,26 @@ export class MessageDeliveryService {
               .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
               .at(0)
       }
+      if (!target && members.length < others.length) {
+        // Only other people's sessions work this task (POD-6296): the mail is
+        // published on the task, for them to read, and typed into nobody's
+        // session. HELD for a session of the sender's own human (or one that
+        // subscribed); a wake spawns nothing, since nothing of the sender's
+        // human is there to wake.
+        return { ok: true, queued: true, disposition: 'held' }
+      }
       if (!target) {
         // The sender was the only member: ledger-only, not queued — otherwise
         // it lingers and the stop-hook nags the sender about its own note. It
         // must also never spawn a fresh agent to receive the sender's own mail.
         if (message.fromSession && allMembers.some((s) => s.sessionId === message.fromSession)) {
-          return await this.suppressSelf(message)
+          return await this.suppressSelf(writer, message)
         }
         if (message.lifecycle === 'wake') {
           // Bare spawn-on-wake places work on the ISSUE's machine (makeSpawnOnWake
           // copies issue.machineId). Gate it before trySpawn, same M2 boundary.
           const denied = await this.refuseWakeUnlessUsable(
+            writer,
             message,
             issue.machineId ?? undefined,
             opts?.viaSweep === true,
@@ -1475,7 +1758,7 @@ export class MessageDeliveryService {
           if (denied) return denied
           // A spawn adds a member: the pass reads the members again.
           opts?.members?.forget()
-          return await this.trySpawn(message, message.toId ? asIssueId(message.toId) : null)
+          return await this.trySpawn(writer, message, message.toId ? asIssueId(message.toId) : null)
         }
         // Issue is live but has NO session — HOLD for its next session. Delivered
         // when a session binds to it (eligibility change) / the sweep. The
@@ -1495,10 +1778,10 @@ export class MessageDeliveryService {
     // there is one to cut.
     if (target.status !== 'hibernated' && target.status !== 'exited') {
       if (message.urgency === 'interrupt') {
-        return await this.injectAndMark('interrupt', message, target.sessionId, 'delivered')
+        return await this.injectAndMark(writer, 'interrupt', message, target.sessionId, 'delivered')
       }
       // Files ride the durable row with the text (POD-4795).
-      return await this.injectAndMark('queue', message, target.sessionId, 'queued')
+      return await this.injectAndMark(writer, 'queue', message, target.sessionId, 'queued')
     }
     // parked (hibernated/exited): there is no process to hand it to.
     // lifecycle=wait HOLDS the row for this target's next run (bind / sweep) —
@@ -1513,7 +1796,12 @@ export class MessageDeliveryService {
     // §3.1.4 M2 / POD-1193. Refuse before recordWake so a denied caller neither
     // starts a process nor burns the wake cooldown.
     {
-      const denied = await this.refuseWakeUnlessUsable(message, target.machineId, opts?.viaSweep === true)
+      const denied = await this.refuseWakeUnlessUsable(
+        writer,
+        message,
+        target.machineId,
+        opts?.viaSweep === true,
+      )
       if (denied) return denied
     }
     // A wake resumes the target, or spawns in its place: the pass reads the
@@ -1521,7 +1809,7 @@ export class MessageDeliveryService {
     opts?.members?.forget()
     // record the wake against the cooldown window.
     await this.recordWake(message, target)
-    const injected = await this.injectAndMark('queue', message, target.sessionId, 'queued')
+    const injected = await this.injectAndMark(writer, 'queue', message, target.sessionId, 'queued')
     if (injected.ok) return injected
     if (injected.reason === 'no resume ref') {
       // Unresumable → spawn-on-wake. The resume attempt was already gated on
@@ -1529,12 +1817,19 @@ export class MessageDeliveryService {
       // instead (issue.machineId), so re-check against that placement target.
       const issueId =
         (await this.issueForSession(target)) ?? (message.toId ? asIssueId(message.toId) : null)
-      const issueMachine = issueId ? (await this.deps.issues.reports.getMeta(issueId))?.machineId ?? undefined : undefined
+      const issueMachine = issueId
+        ? ((await this.deps.issues.reports.getMeta(issueId))?.machineId ?? undefined)
+        : undefined
       if (issueMachine && issueMachine !== target.machineId) {
-        const denied = await this.refuseWakeUnlessUsable(message, issueMachine, opts?.viaSweep === true)
+        const denied = await this.refuseWakeUnlessUsable(
+          writer,
+          message,
+          issueMachine,
+          opts?.viaSweep === true,
+        )
         if (denied) return denied
       }
-      return await this.trySpawn(message, issueId)
+      return await this.trySpawn(writer, message, issueId)
     }
     return injected
   }
@@ -1556,6 +1851,7 @@ export class MessageDeliveryService {
    * is only handed on until it lands.
    */
   private async injectAndMark(
+    writer: MessageWriter,
     via: 'now' | 'queue' | 'interrupt',
     message: MessageRow,
     sessionId: SessionId,
@@ -1573,6 +1869,7 @@ export class MessageDeliveryService {
     // delivers (an automation's prompt, POD-4846) are `system`: nobody is at the
     // keyboard acting on the offer, and the words are not agent mail either.
     const input = {
+      writer,
       sessionId,
       text,
       ...(message.attachments?.length ? { attachments: message.attachments } : {}),
@@ -1588,7 +1885,7 @@ export class MessageDeliveryService {
     const receiptSend = sessions.receiptSend
     const r = await (receiptSend
       ? receiptSend(via, input, async (receipt) => {
-          await this.reconcileReceipt(message.id, sessionId, receipt)
+          await this.reconcileReceipt(writer, message.id, sessionId, receipt)
         })
       : via === 'now'
         ? sessions.sendText(input)
@@ -1609,7 +1906,7 @@ export class MessageDeliveryService {
     // target here keeps the row off the retry sweep while it waits. A direct push
     // that the legacy inbox redirected into the same queue is the same case.
     if (via === 'queue' || r.queued === true) {
-      await this.markDispatched(message, sessionId)
+      await this.markDispatched(writer, message, sessionId)
       return { ...r, disposition: via === 'queue' ? okDisposition : 'queued' }
     }
     // Only a shell's raw push reaches here: every agent push was queued above.
@@ -1621,11 +1918,11 @@ export class MessageDeliveryService {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification), and no driver will
       // answer — the injection IS the delivery [POD-834, POD-853].
-      await this.markDelivered(message, sessionId, 'injection')
+      await this.markDelivered(writer, message, sessionId, 'injection')
     } else {
       // Enveloped (echo) or a pointer (read): handed on, and the
       // agent's own signal moves it on.
-      await this.markDispatched(message, sessionId)
+      await this.markDispatched(writer, message, sessionId)
     }
     // Honest sync disposition [spec:SP-cb9f] [POD-854]: `delivered` only when the
     // push was confirmed above; an enveloped push is merely handed on.
@@ -1646,19 +1943,34 @@ export class MessageDeliveryService {
    * queue is the one delivery it has, and a held row would be pushed a second
    * time by the delivery sweep. A repeat (a retried start) stores nothing new.
    */
-  async recordSpawnPrompt(input: {
-    parentSessionId: SessionId
-    sessionId: SessionId
-    text: string
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string> {
+  async recordSpawnPrompt(
+    writer: MessageWriter,
+    input: {
+      parentSessionId: SessionId
+      sessionId: SessionId
+      text: string
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string> {
     const parent = await this.deps.sessions.sessionById(input.parentSessionId)
     const parentIssue = await this.issueForSession(parent)
+    const parentHuman = parent?.delegation?.onBehalfOf ?? parent?.createdBy?.onBehalfOf ?? null
     return await this.recordPrompt(
+      writer,
       {
         kind: 'agent',
         sessionId: input.parentSessionId,
         ...(parentIssue ? { issueId: parentIssue } : {}),
+        // The parent agent speaks for ITS human (POD-6285), never the first admin.
+        ...(parentHuman
+          ? {
+              attribution: {
+                actor: actorAgent(asAgentIdentityId(input.parentSessionId)),
+                onBehalfOf: parentHuman,
+              },
+              delegationRef: input.parentSessionId,
+            }
+          : {}),
       },
       input.sessionId,
       input.text,
@@ -1674,13 +1986,17 @@ export class MessageDeliveryService {
    * own words. Its failure is reported by the inbox's prompt-failed attention,
    * as it always was, so it mails no failure notice ({@link failureNotice}).
    */
-  async recordOwnerPrompt(input: {
-    sessionId: SessionId
-    text: string
-    attribution: Attribution
-    attachments?: readonly RuntimeAttachmentRef[]
-  }): Promise<string> {
+  async recordOwnerPrompt(
+    writer: MessageWriter,
+    input: {
+      sessionId: SessionId
+      text: string
+      attribution: Attribution
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+  ): Promise<string> {
     return await this.recordPrompt(
+      writer,
       { kind: 'operator', attribution: input.attribution, delegationRef: null },
       input.sessionId,
       input.text,
@@ -1691,6 +2007,7 @@ export class MessageDeliveryService {
   /** Store a session's task prompt from `from`, ALREADY handed to the session:
    *  the start path queues it itself, so the sweep must never push it again. */
   private async recordPrompt(
+    writer: MessageWriter,
     from: MessageSender,
     sessionId: SessionId,
     text: string,
@@ -1729,12 +2046,12 @@ export class MessageDeliveryService {
       factTarget: null,
       expectsResponse: false,
     }
-    const write = async (): Promise<boolean> => {
-      if (!(await this.deps.messages.addMessage(prompt))) return false
-      await this.deps.messages.markDispatched(id, sessionId, at)
+    const stored = await commitMessages(writer, async (scope): Promise<boolean> => {
+      if (!(await this.deps.messages.addMessage(scope, prompt))) return false
+      await this.deps.messages.markDispatched(scope, id, sessionId, at)
       return true
-    }
-    if (!(this.deps.transact ? await this.deps.transact(write) : await write())) return id
+    })
+    if (!stored) return id
     await this.emitTransition(prompt, 'message.queued')
     await this.emitTransition(
       { ...prompt, deliveryStatus: 'dispatched', deliveredTo: sessionId, injectedAt: at },
@@ -1751,12 +2068,31 @@ export class MessageDeliveryService {
    * being written. A message already handed to this session (a repeat push of
    * the same row) may go on; one that ended, or was handed elsewhere, may not.
    */
-  async onQueuedInputHandingOn(messageId: string, sessionId: SessionId): Promise<boolean> {
+  async onQueuedInputHandingOn(
+    /** The send's writer: the hand-off is part of the write that delivers it. */
+    writer: MessageWriter,
+    messageId: string,
+    sessionId: SessionId,
+  ): Promise<boolean> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return false
-    if (message.deliveryStatus === 'stored') await this.markDispatched(message, sessionId)
+    if (await this.cancelStoredRetraction(writer, message)) return false
+    if (message.deliveryStatus === 'stored') await this.markDispatched(writer, message, sessionId)
     const now = await this.deps.messages.getMessage(messageId)
+    if (now && (await this.cancelStoredRetraction(writer, now))) return false
     return now !== null && isMessageHandedOn(now.deliveryStatus) && now.deliveredTo === sessionId
+  }
+
+  /** A still-stored row has never left the server. Its committed retract wins
+   * before a queue row or buffered control can exist. Daemon-owned rows retain
+   * the ordinary cancellation round trip and are never settled from this stamp. */
+  private async cancelStoredRetraction(
+    writer: MessageWriter,
+    message: MessageRow,
+  ): Promise<boolean> {
+    if (message.deliveryStatus !== 'stored' || !message.retractRequestedAt) return false
+    await this.mailbox.finishRetract(writer, message)
+    return true
   }
 
   /** SessionInbox calls this when the daemon settles a durable row as delivered:
@@ -1765,11 +2101,12 @@ export class MessageDeliveryService {
    *  [POD-4661, POD-4845]. A pointer row (an oversized issue body) still waits
    *  for its inbox read. */
   async onQueuedInputApplied(messageId: string, sessionId: SessionId): Promise<void> {
+    const writer = this.deps.writers.daemon
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || !isMessagePending(message.deliveryStatus)) return
     // The pointer turn was taken; the body it points at still waits for a read.
-    if (this.render.isPointer(message)) await this.markTyped(message, sessionId)
-    else await this.markDelivered(message, sessionId, 'injection')
+    if (this.render.isPointer(message)) await this.markTyped(writer, message, sessionId)
+    else await this.markDelivered(writer, message, sessionId, 'injection')
   }
 
   /** SessionInbox calls this when the agent's machine proves, after it had
@@ -1779,10 +2116,11 @@ export class MessageDeliveryService {
    *  so a replayed or stray outcome changes nothing. A pointer turn names
    *  mail its body still waits for a read, so it is not confirmed here. */
   async onQueuedInputProvenLate(messageId: string, sessionId: SessionId): Promise<void> {
+    const writer = this.deps.writers.daemon
     const message = await this.deps.messages.getMessage(messageId)
     if (message?.deliveryStatus !== 'unknown' || message.deliveredTo !== sessionId) return
     if (this.render.isPointer(message)) return
-    await this.markDelivered(message, sessionId, 'injection')
+    await this.markDelivered(writer, message, sessionId, 'injection')
   }
 
   /** SessionInbox calls this when the agent's machine reports the program took
@@ -1798,7 +2136,12 @@ export class MessageDeliveryService {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return
     const at = this.deps.now()
-    if (!moved(await this.deps.messages.markAccepted(message.id, sessionId, held, at))) return
+    const outcome = await commitMessages(
+      this.deps.writers.daemon,
+      async (scope) =>
+        await this.deps.messages.markAccepted(scope, message.id, sessionId, held, at),
+    )
+    if (!moved(outcome)) return
     await this.emitTransition(
       {
         ...message,
@@ -1819,9 +2162,10 @@ export class MessageDeliveryService {
    *  message is the harness's now (`typed`) — no further copy will be typed, and
    *  the operator's own bubble can stop calling it pending. */
   async onQueuedInputInjected(messageId: string, sessionId: SessionId): Promise<void> {
+    const writer = this.deps.writers.daemon
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || !isMessagePending(message.deliveryStatus)) return
-    await this.markTyped(message, sessionId)
+    await this.markTyped(writer, message, sessionId)
   }
 
   /** SessionInbox calls this when a queued row was withdrawn before it was
@@ -1829,7 +2173,11 @@ export class MessageDeliveryService {
    *  (POD-4776). The only move to `cancelled` a queued message makes. A row
    *  that had already moved on (a late `dropped` replay) changes nothing. */
   async onQueuedInputWithdrawn(messageId: string): Promise<void> {
-    if (!moved(await this.deps.messages.markCancelled(messageId))) return
+    const outcome = await commitMessages(
+      this.deps.writers.daemon,
+      async (scope) => await this.deps.messages.markCancelled(scope, messageId),
+    )
+    if (!moved(outcome)) return
     const cancelled = await this.deps.messages.getMessage(messageId)
     if (cancelled) await this.emitTransition(cancelled, 'message.cancelled')
   }
@@ -1837,7 +2185,11 @@ export class MessageDeliveryService {
   /** SessionInbox calls this when the daemon answered a retract "typing had
    *  already started" (POD-4776): the message is on its way into the agent. */
   async onQueuedInputTyping(messageId: string, sessionId: SessionId): Promise<void> {
-    if (!moved(await this.deps.messages.markTyping(messageId))) return
+    const outcome = await commitMessages(
+      this.deps.writers.daemon,
+      async (scope) => await this.deps.messages.markTyping(scope, messageId),
+    )
+    if (!moved(outcome)) return
     const typing = await this.deps.messages.getMessage(messageId)
     if (typing)
       await this.emitTransition(
@@ -1858,7 +2210,7 @@ export class MessageDeliveryService {
   ): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return
-    await this.markUnknown(message, sessionId, reason)
+    await this.markUnknown(this.deps.writers.daemon, message, sessionId, reason)
   }
 
   /**
@@ -1898,18 +2250,24 @@ export class MessageDeliveryService {
     turnIds: readonly string[],
     reason: QueueDrainAbandonedReason,
   ): Promise<void> {
+    const writer = this.deps.writers.daemon
     const at = this.deps.now()
     for (const messageId of turnIds) {
       const message = await this.deps.messages.getMessage(messageId)
       if (!message || !isMessagePending(message.deliveryStatus)) continue
       if (await this.deps.sessions.hasQueuedMessage?.(sessionId, messageId)) continue
       const notice = await this.failureNotice(message, { kind: 'never-typed', cause: reason })
-      const outcome = await this.deps.messages.markDeliveryAbandoned(
-        messageId,
-        sessionId,
-        at,
-        reason,
-        notice,
+      const outcome = await commitMessages(
+        writer,
+        async (scope) =>
+          await this.deps.messages.markDeliveryAbandoned(
+            scope,
+            messageId,
+            sessionId,
+            at,
+            reason,
+            notice,
+          ),
       )
       if (!moved(outcome)) continue
       const abandoned: MessageRow = {
@@ -1925,7 +2283,7 @@ export class MessageDeliveryService {
         retryable: false,
         deliveryConfirmed: false,
       })
-      await this.noticeStored(notice)
+      await this.noticeStored(writer, notice)
     }
   }
 
@@ -1948,10 +2306,13 @@ export class MessageDeliveryService {
    * stamped: none is the column's word for "the target was gone", which here
    * it is.
    *
-   * Only reads and guarded moves run inside the caller's transaction; the
-   * ledger event and the notice's delivery wait for its commit.
+   * Only reads and guarded moves run inside the caller's transaction, under
+   * the caller's commit scope (POD-6602): the removal's own write. The ledger
+   * event and the notice's delivery wait for its commit, and that delivery is
+   * the server's own (`messages.delivery`).
    */
   async failMessagesToRemovedSessions(
+    scope: WriteScope,
     sessionIds: readonly SessionId[],
     opts: { endedIssueId?: IssueId } = {},
   ): Promise<void> {
@@ -1966,13 +2327,14 @@ export class MessageDeliveryService {
               ...(opts.endedIssueId !== undefined ? { issueEnded: true } : {}),
             }
       const notice = await this.failureNotice(message, failure)
-      if (!moved(await this.deps.messages.markDeadLetter(message.id, at, undefined, notice))) continue
+      if (!moved(await this.deps.messages.markDeadLetter(scope, message.id, at, undefined, notice)))
+        continue
       const failed: MessageRow = { ...message, deliveryStatus: 'failed', deadLetteredAt: at }
       afterCommit(async () => {
         await this.emitTransition(failed, 'message.dead_letter', {
           reason: opts.endedIssueId !== undefined ? 'issue deleted' : 'session removed',
         })
-        await this.noticeStored(notice)
+        await this.noticeStored(this.deps.writers.delivery, notice)
       }, 'message-session-removed')
     }
   }
@@ -2014,7 +2376,11 @@ export class MessageDeliveryService {
   /** Brake 2 + the spawn seam: unresumable wake → spawn a fresh agent on the
    *  target issue (deferred wiring) within the per-issue daily budget; no seam
    *  or budget exhausted → ledger + needs-attention, row stays queued. */
-  private async trySpawn(message: MessageRow, issueId: IssueId | null): Promise<DeliveryOutcome> {
+  private async trySpawn(
+    writer: MessageWriter,
+    message: MessageRow,
+    issueId: IssueId | null,
+  ): Promise<DeliveryOutcome> {
     const key = issueId ?? 'no-issue'
     const day = this.deps.now().slice(0, 10)
     const count = await this.brakes.spawnCountFor(key, day)
@@ -2029,7 +2395,10 @@ export class MessageDeliveryService {
     if (!this.deps.spawnOnWake) {
       // TODO(#237 stage 4/5): wire spawnOnWake to SessionLifecycle.spawn — the
       // message becomes the first prompt after prime.
-      await this.needsAttention(message, 'wake target is unresumable and spawn-on-wake is not wired')
+      await this.needsAttention(
+        message,
+        'wake target is unresumable and spawn-on-wake is not wired',
+      )
       return { ok: true, queued: true, reason: 'unresumable', disposition: 'held' }
     }
     this.brakes.chargeSpawn(key, day, count + 1)
@@ -2043,7 +2412,7 @@ export class MessageDeliveryService {
       // spawnIssue rides the event so the budget survives restarts (see
       // spawnCountFor) — it can differ from toId for session-addressed wakes.
       await this.emitTransition(message, 'message.spawned', { spawnIssue: key })
-      const injected = await this.injectAndMark('queue', message, r.sessionId, 'spawning')
+      const injected = await this.injectAndMark(writer, 'queue', message, r.sessionId, 'spawning')
       if (injected.ok) return injected
       return injected
     }
@@ -2083,8 +2452,9 @@ export class MessageDeliveryService {
     // it to the session's queue, and the echo, a turn boundary or an inbox read
     // confirm it. Only a row the server still holds is ever pushed.
     if (message.deliveryStatus !== 'stored') return false
+    if (await this.cancelStoredRetraction(this.deps.writers.delivery, message)) return false
     if (checksWakeCooldown(message)) {
-      const key = wakeKey ?? await this.wakeKeyOfRow(message)
+      const key = wakeKey ?? (await this.wakeKeyOfRow(message))
       if (await this.brakes.isWakeHot(key)) {
         this.scheduleWakeRetry(key, message)
         return false
@@ -2118,13 +2488,16 @@ export class MessageDeliveryService {
   // service fronts its POD-320 capability modules.
 
   /** Where a reply to `original` goes: back to the sender principal. */
-  async replyTarget(original: MessageRow): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
+  async replyTarget(
+    original: MessageRow,
+  ): Promise<{ kind: 'issue' | 'session' | 'operator'; id?: string }> {
     return await this.mailbox.replyTarget(original)
   }
 
   /** Reply to a message: the recipient is computed server-side from the
    *  original's sender (never caller-supplied). */
   async sendReply(
+    writer: MessageWriter,
     from: MessageSender,
     input: {
       inReplyTo: string
@@ -2132,9 +2505,10 @@ export class MessageDeliveryService {
       kind?: MessageKind
       urgency?: MessageUrgency
       lifecycle?: MessageLifecycle
+      terminalInUnit?: boolean
     },
   ): Promise<MessageSendResult> {
-    return await this.mailbox.sendReply(from, input)
+    return await this.mailbox.sendReply(writer, from, input)
   }
 
   /** Delivered-but-unacked (unexpired) messages awaiting `sessionId`'s reply. */
@@ -2148,12 +2522,16 @@ export class MessageDeliveryService {
   }
 
   /** The stop-hook's single-reminder set [POD-835 §04b]. */
-  async pendingReminders(sessionId: SessionId): Promise<{ id: string; from: string; body: string }[]> {
-    return await this.mailbox.pendingReminders(sessionId)
+  async pendingReminders(
+    writer: MessageWriter,
+    sessionId: SessionId,
+  ): Promise<{ id: string; from: string; body: string }[]> {
+    return await this.mailbox.pendingReminders(writer, sessionId)
   }
 
   /** Deterministic settle fallback [spec:SP-bf44] [spec:SP-34d7 acks]. */
   async systemAckFallback(
+    writer: MessageWriter,
     sessionId: SessionId,
     context: {
       outcome: string
@@ -2164,7 +2542,7 @@ export class MessageDeliveryService {
       notificationFact?: { factKey: string; target: string }
     },
   ): Promise<void> {
-    await this.mailbox.systemAckFallback(sessionId, context)
+    await this.mailbox.systemAckFallback(writer, sessionId, context)
   }
 
   /** Message lookup for the read surfaces (gate/CLI). */
@@ -2174,7 +2552,11 @@ export class MessageDeliveryService {
   }
 
   /** The per-issue / per-session delivery ledger (#237) — a pure read. */
-  async ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
+  async ledger(q: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    limit?: number
+  }): Promise<MessageRow[]> {
     return await Promise.all(
       (await this.mailbox.ledger(q)).map(async (message) => await this.withQueuePosition(message)),
     )
@@ -2220,30 +2602,88 @@ export class MessageDeliveryService {
 
   /** Inbox read for `podium mail inbox` — the PULL-path confirmation [POD-834 §04d]. */
   async readInbox(
+    writer: MessageWriter,
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { consume?: SessionId | null; limit?: number },
   ): Promise<MessageRow[]> {
-    return await this.mailbox.readInbox(principals, opts)
+    return await this.mailbox.readInbox(writer, principals, opts)
   }
 
   /** Explicitly clear one recipient-owned message without opening the inbox. */
-  async dismiss(messageId: string, consume: string | null): Promise<MessageRow> {
-    return await this.mailbox.dismiss(messageId, consume)
+  async dismiss(
+    writer: MessageWriter,
+    messageId: string,
+    consume: string | null,
+  ): Promise<MessageRow> {
+    return await this.mailbox.dismiss(writer, messageId, consume)
   }
 
-  async cancel(messageId: string): Promise<MessageRow> {
-    return await this.mailbox.cancel(messageId)
+  /**
+   * The sender retracts a pending message ({@link MessageMailbox.cancel}).
+   * Inside a unit of work (POD-6525) the write is the request: the stamp on
+   * the row, in the unit. Asking the machine that holds it to withdraw it is a
+   * round trip, so it follows the commit; {@link retractOf} waits for it.
+   */
+  async cancel(writer: MessageWriter, messageId: string): Promise<MessageRow> {
+    if (!spanOpen()) return await this.mailbox.cancel(writer, messageId)
+    const stamped = await this.mailbox.requestRetract(writer, messageId)
+    afterCommit(
+      () =>
+        outsideWriteProvenance(async () => {
+          const retract = this.mailbox
+            .finishRetract(this.deps.writers.delivery, stamped)
+            .catch((error: unknown) => {
+              log.warn('message retract after commit failed; the stamp stays on the row', {
+                err: error,
+                messageId,
+              })
+              return undefined
+            })
+          this.rememberFollowUp(`retract:${messageId}`, retract)
+          await retract
+        }),
+      'message-retract',
+    )
+    return stamped
+  }
+
+  /** The row a retract left after its commit (POD-6525); `undefined` when no
+   *  retract of this process is known. */
+  async retractOf(messageId: string): Promise<MessageRow | undefined> {
+    return (await this.followUpOf(`retract:${messageId}`)) as MessageRow | undefined
+  }
+
+  /**
+   * THE JANITOR'S OBSERVED EXPIRY (POD-4765): the row moves to `expired` only
+   * if every fact the janitor observed is still current. The server's own
+   * delivery work (`messages.delivery`, POD-6602).
+   */
+  async expireObserved(
+    input: Parameters<MessagesRepository['expireObserved']>[1],
+  ): ReturnType<MessagesRepository['expireObserved']> {
+    return await commitMessages(
+      this.deps.writers.delivery,
+      async (scope) => await this.deps.messages.expireObserved(scope, input),
+    )
   }
 
   /** The sender dismissed the notice of a message that did not arrive
    *  (POD-4764): a stamp that takes it off the chat feed. */
-  async dismissNotice(messageId: string): Promise<boolean> {
-    return await this.deps.messages.dismissNotice(messageId, this.deps.now())
+  async dismissNotice(writer: MessageWriter, messageId: string): Promise<boolean> {
+    const at = this.deps.now()
+    return await commitMessages(
+      writer,
+      async (scope) => await this.deps.messages.dismissNotice(scope, messageId, at),
+    )
   }
 
   /** Retract the named chat send, or the newest held send for a native terminal
    * interrupt that cannot carry the chat mutation id. */
-  async cancelPendingOperatorMessage(sessionId: SessionId, messageId?: string): Promise<MessageRow | null> {
+  async cancelPendingOperatorMessage(
+    writer: MessageWriter,
+    sessionId: SessionId,
+    messageId?: string,
+  ): Promise<MessageRow | null> {
     const message = messageId
       ? await this.deps.messages.getMessage(messageId)
       : await this.deps.messages.latestPendingOperatorForSession(sessionId)
@@ -2256,7 +2696,7 @@ export class MessageDeliveryService {
     ) {
       return null
     }
-    return await this.cancel(message.id)
+    return await this.cancel(writer, message.id)
   }
 
   // ---- clamp matrix / relationships ----
@@ -2300,7 +2740,9 @@ export class MessageDeliveryService {
 
   // ---- state helpers ----
 
-  private async issueForSession(s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined): Promise<IssueId | null> {
+  private async issueForSession(
+    s: Pick<SessionMeta, 'issueId' | 'cwd'> | undefined,
+  ): Promise<IssueId | null> {
     if (!s) return null
     if (s.issueId) return s.issueId
     try {
@@ -2320,7 +2762,8 @@ export class MessageDeliveryService {
     const unbound = sessions.filter((session) => !session.issueId)
     let owners = new Map<string, IssueId | null>()
     try {
-      if (unbound.length > 0) owners = await this.deps.issues.reports.issuesForCwds(unbound.map((s) => s.cwd))
+      if (unbound.length > 0)
+        owners = await this.deps.issues.reports.issuesForCwds(unbound.map((s) => s.cwd))
     } catch {
       owners = new Map()
     }
@@ -2418,16 +2861,26 @@ export class MessageDeliveryService {
   private async recordWake(message: MessageRow, target: SessionMeta | undefined): Promise<void> {
     if (exemptFromWakeCooldown(principalOfRow(message))) return
     const issueKey = message.toKind === 'issue' ? message.toId : await this.issueForSession(target)
-    await this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`)
+    await this.brakes.recordWake(
+      `${this.senderKeyOfRow(message)}|${issueKey ?? message.toId ?? ''}`,
+    )
   }
 
   /** stored → dispatched: record the hand-off toward `sessionId` without
    *  claiming the agent saw it [POD-834]. The receipt, the daemon's settlement,
    *  the transcript echo or an inbox read makes the honest claim later; nothing
    *  pushes a dispatched row again. */
-  private async markDispatched(message: MessageRow, sessionId: SessionId): Promise<void> {
+  private async markDispatched(
+    writer: MessageWriter,
+    message: MessageRow,
+    sessionId: SessionId,
+  ): Promise<void> {
     const at = this.deps.now()
-    if (moved(await this.deps.messages.markDispatched(message.id, sessionId, at))) {
+    const outcome = await commitMessages(
+      writer,
+      async (scope) => await this.deps.messages.markDispatched(scope, message.id, sessionId, at),
+    )
+    if (moved(outcome)) {
       // The injected message triggers the receiver's next turn — anything it
       // sends within that turn chains at hop + 1 (cleared when it goes idle).
       this.turnHop.set(sessionId, message.hop)
@@ -2439,9 +2892,17 @@ export class MessageDeliveryService {
   }
 
   /** → typed: the bytes crossed into `sessionId`'s CLI (POD-1242). */
-  private async markTyped(message: MessageRow, sessionId: SessionId): Promise<void> {
+  private async markTyped(
+    writer: MessageWriter,
+    message: MessageRow,
+    sessionId: SessionId,
+  ): Promise<void> {
     const at = this.deps.now()
-    if (moved(await this.deps.messages.markTyped(message.id, sessionId, at))) {
+    const outcome = await commitMessages(
+      writer,
+      async (scope) => await this.deps.messages.markTyped(scope, message.id, sessionId, at),
+    )
+    if (moved(outcome)) {
       this.turnHop.set(sessionId, message.hop)
       await this.emitTransition(
         {
@@ -2459,11 +2920,16 @@ export class MessageDeliveryService {
    *  arrived (POD-4775). The honest end of a timeout or an unproven write — the
    *  sender is told nothing has failed, because nothing has. */
   private async markUnknown(
+    writer: MessageWriter,
     message: MessageRow,
     sessionId: SessionId,
     reason: string,
   ): Promise<void> {
-    if (moved(await this.deps.messages.markUnknown(message.id, sessionId))) {
+    const outcome = await commitMessages(
+      writer,
+      async (scope) => await this.deps.messages.markUnknown(scope, message.id, sessionId),
+    )
+    if (moved(outcome)) {
       await this.emitTransition(
         { ...message, deliveryStatus: 'unknown', deliveredTo: sessionId },
         'message.unknown',
@@ -2494,6 +2960,7 @@ export class MessageDeliveryService {
    * stamped so the row does not read as a vanished target.
    */
   private async reconcileReceipt(
+    writer: MessageWriter,
     messageId: string,
     sessionId: SessionId,
     receipt: TurnReceipt,
@@ -2517,7 +2984,7 @@ export class MessageDeliveryService {
       message.attachments?.length
     ) {
       const detail = receipt.refusal.detail ?? 'file attachments are unsupported'
-      await this.deadLetter(message, detail, {
+      await this.deadLetter(writer, message, detail, {
         cause: 'delivery-failed',
         notifySender: message.fromKind !== 'operator',
         failure: { kind: 'never-typed', cause: 'delivery-failed', detail },
@@ -2532,12 +2999,17 @@ export class MessageDeliveryService {
    *  or best-effort — the push IS the confirmation), 'ack' (an ack proves the
    *  original was received). */
   private async markDelivered(
+    writer: MessageWriter,
     message: MessageRow,
     sessionId: SessionId,
     via: 'echo' | 'boundary' | 'injection' | 'ack',
   ): Promise<void> {
     const at = this.deps.now()
-    if (moved(await this.deps.messages.markDelivered(message.id, sessionId, at))) {
+    const outcome = await commitMessages(
+      writer,
+      async (scope) => await this.deps.messages.markDelivered(scope, message.id, sessionId, at),
+    )
+    if (moved(outcome)) {
       // THE MIRRORS MOVE WITH THE COMMIT [POD-3259, spec §6 rule 12]: process-owned
       // state describing a durable transition sits AFTER the write that makes the
       // transition true, in the same turn it resolves in.
@@ -2553,7 +3025,7 @@ export class MessageDeliveryService {
             // AWAITED [POD-3820]: the mirror is a store write and the dep now
             // says so. A synchronous try/catch around a dropped promise caught
             // nothing that mattered.
-            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
+            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id], sessionId)
           } catch {}
         }, 'legacy-mail-mirror-read')
       }
@@ -2572,16 +3044,20 @@ export class MessageDeliveryService {
    *  via the sweep or the stop-hook, while the row stays visible in inbox
    *  history. "The sender already knows it sent it." Reports `delivered` to the
    *  sender [POD-834]: it is recorded, not dropped — there is no one else to reach. */
-  private async suppressSelf(message: MessageRow): Promise<DeliveryOutcome> {
+  private async suppressSelf(writer: MessageWriter, message: MessageRow): Promise<DeliveryOutcome> {
     const at = this.deps.now()
-    if (moved(await this.deps.messages.markDelivered(message.id, null, at))) {
+    const outcome = await commitMessages(
+      writer,
+      async (scope) => await this.deps.messages.markDelivered(scope, message.id, null, at),
+    )
+    if (moved(outcome)) {
       if (message.toKind === 'issue' && message.toId) {
         // After the commit, for the reason the mirror insert above states.
         const readIssueId = asIssueId(message.toId)
         afterCommit(async () => {
           try {
             // AWAITED, for the reason the delivery path above states.
-            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id])
+            await this.deps.mirrorMarkIssueMailRead?.(readIssueId, [message.id], null)
           } catch {}
         }, 'legacy-mail-mirror-read')
       }
@@ -2601,7 +3077,10 @@ export class MessageDeliveryService {
    * proof the agent has it in context, so the row moves to confirmed.
    * Best-effort and idempotent: a late/duplicate echo finds it already there.
    */
-  async onTranscriptDelta(sessionId: SessionId, items: { id?: string; role?: string; text?: string }[]): Promise<void> {
+  async onTranscriptDelta(
+    sessionId: SessionId,
+    items: { id?: string; role?: string; text?: string }[],
+  ): Promise<void> {
     // Only a user turn echoes a pasted prompt; assistant/tool text quoting the
     // id must never self-confirm a message the agent merely referenced.
     const echoes = items.flatMap((item) => {
@@ -2610,6 +3089,7 @@ export class MessageDeliveryService {
       return id ? [{ item, id }] : []
     })
     if (echoes.length === 0) return
+    const writer = this.deps.writers.daemon
     // Every echoed row in one read, not one read per item [POD-6149]. A row this
     // loop confirms is dropped from the map, so a later echo of the same id reads
     // it again and sees the confirmation, exactly as the per-item read did.
@@ -2630,14 +3110,15 @@ export class MessageDeliveryService {
       if (row.deliveredTo !== sessionId) continue
       if (row.deliveryStatus === 'failed') {
         await this.reportFailedHistoryMatch(row, sessionId, {
-          kind: 'wrapped-frame', frameId: id,
+          kind: 'wrapped-frame',
+          frameId: id,
           ...(item.id ? { transcriptItem: { id: item.id } } : {}),
         })
         continue
       }
       if (!isMessageHandedOn(row.deliveryStatus)) continue
       rows.delete(id)
-      await this.markDelivered(row, sessionId, 'echo')
+      await this.markDelivered(writer, row, sessionId, 'echo')
     }
   }
 
@@ -2661,8 +3142,10 @@ export class MessageDeliveryService {
     const session = await this.deps.sessions.sessionById(sessionId)
     const program = session?.agentKind ?? 'unknown'
     await this.reportDeliveryContradiction({
-      messageId: row.id, sessionId, program,
-      programVersion: await this.deps.programVersion?.(sessionId, program) ?? null,
+      messageId: row.id,
+      sessionId,
+      program,
+      programVersion: (await this.deps.programVersion?.(sessionId, program)) ?? null,
       failedCause: row.deliveryDeferredReason ?? null,
       evidence,
     })
@@ -2673,16 +3156,26 @@ export class MessageDeliveryService {
   async reportDeliveryContradiction(diagnostic: DeliveryContradiction): Promise<void> {
     try {
       const recorded = await this.deps.events.appendEventOnce({
-        ts: this.deps.now(), kind: 'message.delivery_contradiction',
-        subject: diagnostic.messageId, payload: diagnostic,
+        ts: this.deps.now(),
+        kind: 'message.delivery_contradiction',
+        subject: diagnostic.messageId,
+        payload: diagnostic,
       })
       if (recorded !== undefined) {
-        afterCommit(() => log.warn('message delivery contradiction', { diagnostic }), 'delivery-contradiction-warning')
+        afterCommit(
+          () => log.warn('message delivery contradiction', { diagnostic }),
+          'delivery-contradiction-warning',
+        )
       }
     } catch (error) {
-      afterCommit(() => log.warn('message delivery contradiction recording failed', {
-        diagnostic, err: error,
-      }), 'delivery-contradiction-recording-failed')
+      afterCommit(
+        () =>
+          log.warn('message delivery contradiction recording failed', {
+            diagnostic,
+            err: error,
+          }),
+        'delivery-contradiction-recording-failed',
+      )
     }
   }
 
@@ -2707,6 +3200,7 @@ export class MessageDeliveryService {
    *  Rows never pushed keep the old behaviour: no cause, and downstream readers
    *  correctly read a vanished target. */
   private async deadLetter(
+    writer: MessageWriter,
     message: MessageRow,
     reason: string,
     opts: { notifySender?: boolean; cause?: MessageFailedCause; failure: SendFailure },
@@ -2715,7 +3209,12 @@ export class MessageDeliveryService {
     const cause =
       opts.cause ?? (message.deliveryStatus !== 'stored' ? 'delivery-failed' : undefined)
     const notice = opts.notifySender ? await this.failureNotice(message, opts.failure) : null
-    if (moved(await this.deps.messages.markDeadLetter(message.id, at, cause, notice))) {
+    const outcome = await commitMessages(
+      writer,
+      async (scope) =>
+        await this.deps.messages.markDeadLetter(scope, message.id, at, cause, notice),
+    )
+    if (moved(outcome)) {
       await this.emitTransition(
         {
           ...message,
@@ -2729,7 +3228,7 @@ export class MessageDeliveryService {
         // the cause.
         { reason },
       )
-      await this.noticeStored(notice)
+      await this.noticeStored(writer, notice)
     }
     return { ok: false, reason: `dead-lettered: ${reason}`, disposition: 'dead_letter' }
   }
@@ -2794,15 +3293,15 @@ export class MessageDeliveryService {
    * it was never typed), or stop waiting for a reply. `outcome` replaces "was
    * not delivered" where that would claim more than is known.
    */
-  private async failureWords(
-    message: MessageRow,
-    failure: SendFailure,
-  ): Promise<FailureWords> {
+  private async failureWords(message: MessageRow, failure: SendFailure): Promise<FailureWords> {
     const words = await (async (): Promise<FailureWords> => {
       switch (failure.kind) {
         case 'session-gone': {
-          const action = failure.issueEnded ? NOBODY_HOLDS_IT : await this.reachIssueInstead(message)
-          const session = message.toKind === 'issue' ? 'the session it was handed to' : 'that session'
+          const action = failure.issueEnded
+            ? NOBODY_HOLDS_IT
+            : await this.reachIssueInstead(message)
+          const session =
+            message.toKind === 'issue' ? 'the session it was handed to' : 'that session'
           if (failure.mayHaveArrived)
             return {
               outcome: 'may not have been delivered',
@@ -2812,7 +3311,9 @@ export class MessageDeliveryService {
           return { reason: `${session} has ended`, action }
         }
         case 'issue-ended': {
-          const issue = message.toId ? await this.deps.issues.reports.getMeta(message.toId) : undefined
+          const issue = message.toId
+            ? await this.deps.issues.reports.getMeta(message.toId)
+            : undefined
           const ref = issue ? await this.deps.issues.reports.niceRef(issue) : 'that issue'
           return {
             reason: failure.deleted ? `${ref} was deleted` : `${ref} is finished`,
@@ -2904,12 +3405,12 @@ export class MessageDeliveryService {
    *  would be. The failure is already committed, so a delivery attempt that
    *  throws only leaves the notice to the delivery path — a restart, too, loses
    *  nothing: the startup walk finds the stored row. */
-  private async noticeStored(notice: MessageRow | null): Promise<void> {
+  private async noticeStored(writer: MessageWriter, notice: MessageRow | null): Promise<void> {
     if (!notice) return
     await this.emitTransition(notice, 'message.queued')
     await this.mirrorToIssueMailbox(notice, { kind: 'system', name: 'steward' })
     try {
-      await this.attemptDelivery(notice)
+      await this.attemptDelivery(writer, notice)
     } catch (error) {
       log.warn('failure notice left for the delivery path', { err: error, messageId: notice.id })
       const target = this.deliveryTargetOf(notice)
@@ -2980,6 +3481,7 @@ export class MessageDeliveryService {
    * {@link placementAtWakeWired} rather than relying on a denial to fire.
    */
   private async refuseWakeUnlessUsable(
+    writer: MessageWriter,
     message: MessageRow,
     machineId: MachineId | undefined,
     notifySender: boolean,
@@ -2989,7 +3491,7 @@ export class MessageDeliveryService {
     if (!port) return null
     const decision = await port(message, machineId)
     if (decision === 'allowed') return null
-    return await this.deadLetter(message, WAKE_PLACEMENT_DENIED_REASON, {
+    return await this.deadLetter(writer, message, WAKE_PLACEMENT_DENIED_REASON, {
       notifySender,
       failure: notAllowed(WAKE_PLACEMENT_DENIED_REASON),
     })
@@ -2999,7 +3501,9 @@ export class MessageDeliveryService {
    * Re-authorize a durable inbox row immediately before its daemon apply.
    * Neither this method nor the inbox/gateway caches a capability or decision.
    */
-  async authorizeQueuedInput(messageId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  async authorizeQueuedInput(
+    messageId: string,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
     return await this.applyAuth(message)
@@ -3018,7 +3522,7 @@ export class MessageDeliveryService {
   ): Promise<void> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message || !isMessagePending(message.deliveryStatus)) return
-    await this.deadLetter(message, reason, {
+    await this.deadLetter(this.deps.writers.daemon, message, reason, {
       notifySender: true,
       ...(cause ? { cause } : {}),
       failure: !cause
@@ -3047,23 +3551,38 @@ export class MessageDeliveryService {
     if (!message || !isMessageHandedOn(message.deliveryStatus) || message.deliveredTo !== sessionId)
       return
     if (this.render.isPointer(message)) return
-    await this.deadLetter(message, reason, {
+    await this.deadLetter(this.deps.writers.daemon, message, reason, {
       notifySender: true,
       cause,
       failure: { kind: 'not-in-conversation', cause },
     })
   }
 
-  private async authorityOf(from: MessageSender): Promise<{
+  private async authorityOf(
+    from: MessageSender,
+    stored: 'live' | 'legacy-row' = 'live',
+  ): Promise<{
     attribution: Attribution
     delegationRef: string | null
   }> {
     if (from.attribution) {
       return { attribution: from.attribution, delegationRef: from.delegationRef ?? null }
     }
+    // No attribution: never "the first admin" for a live send (POD-6285). Only a
+    // stored legacy row is read as the person who was then the only one.
+    const human = async () => {
+      if (stored === 'legacy-row') return await this.deps.legacyRowOwner()
+      const sole = await this.deps.soleActiveMember()
+      if (!sole) {
+        throw new Error(
+          `a ${from.kind} message sender carries no attribution, and this instance has more than one member`,
+        )
+      }
+      return sole
+    }
     switch (from.kind) {
       case 'operator': {
-        const owner = await this.deps.firstAdminMemberId()
+        const owner = await human()
         return {
           attribution: {
             actor: actorUser(owner),
@@ -3076,7 +3595,7 @@ export class MessageDeliveryService {
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
-            onBehalfOf: (await this.deps.firstAdminMemberId()),
+            onBehalfOf: await human(),
           },
           delegationRef: SUPERAGENT_AGENT_IDENTITY,
         }
@@ -3085,7 +3604,7 @@ export class MessageDeliveryService {
         return {
           attribution: {
             actor: actorAgent(asAgentIdentityId(actorId)),
-            onBehalfOf: (await this.deps.firstAdminMemberId()),
+            onBehalfOf: await human(),
           },
           delegationRef: from.sessionId ?? null,
         }
@@ -3113,7 +3632,8 @@ export class MessageDeliveryService {
                 ...(message.fromIssue ? { issueId: message.fromIssue } : {}),
                 ...(message.fromSession ? { sessionId: message.fromSession } : {}),
               }
-    const attribution = message.attribution ?? (await this.authorityOf(legacySender)).attribution
+    const attribution =
+      message.attribution ?? (await this.authorityOf(legacySender, 'legacy-row')).attribution
     const actor = attribution.actor
     return {
       kind: actor.kind === 'user' ? 'user' : actor.kind === 'agent' ? 'agent' : 'system',
@@ -3167,7 +3687,11 @@ export class MessageDeliveryService {
   }
 
   /** One podium_events row per ledger transition (steward visibility, audit). */
-  private async emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): Promise<void> {
+  private async emitTransition(
+    message: MessageRow,
+    kind: string,
+    extra?: Record<string, unknown>,
+  ): Promise<void> {
     try {
       await this.deps.events.appendEvent({
         ts: this.deps.now(),

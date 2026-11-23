@@ -29,34 +29,29 @@ import {
   asSessionId,
   asUserId,
 } from '@podium/model'
-import type { openDatabase } from '@podium/runtime/sqlite'
-import { beforeEach, describe, expect, it } from 'vitest'
-import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
+import { fixtureWriteScope } from '@podium/sync/testing'
+import { eq } from 'drizzle-orm'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { drainedRepository, seedSliceRow } from '../test-support/drained-repository'
+import { openSliceStore, type SliceStore } from '../test-support/pg-slice-tables'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
-
-/**
- * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
- * [POD-3221 spec rule 27b]. A converted repository takes this in the slot its
- * executor occupied. Local to this file on purpose: hoisting it into
- * `test-support` would put six parallel conversion waves in one shared file.
- */
-const stageQueries = (database: ReturnType<typeof openDatabase>) => {
-  const stage = createBunStoreExecutor({ database }).queries
-  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
-  return stage
-}
 
 const ALICE = asUserId('user:alice')
 const AGENT = asAgentIdentityId('sess-agent-7')
 
-let db: ReturnType<typeof openDatabase>
+let slice: SliceStore
 let sessions: SessionsRepository
 
-beforeEach(() => {
-  db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(stageQueries(db))
+// The self-hosted workspace's queries, as `SessionStore` builds them (POD-7015), on the
+// run's engine: SQLite on the store shard, Postgres on `server-store-pg` (POD-6983).
+beforeEach(async () => {
+  slice = await openSliceStore()
+  sessions = drainedRepository(slice, new SessionsRepository(slice.queries))
+})
+
+afterEach(async () => {
+  await slice.close()
 })
 
 const row = (id: string, createdBy: Attribution | undefined): SessionRow => ({
@@ -94,7 +89,7 @@ const reread = async (id: string) => await sessions.getSession(asSessionId(id))
 
 describe('session attribution pair — durable round trip', () => {
   it('round-trips a DELEGATED pair with both halves distinguishable', async () => {
-    await sessions.upsertSession(row('sess-1', DELEGATED))
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-1', DELEGATED))
     const back = (await reread('sess-1'))?.createdBy
 
     // WHO ACTED: an agent, and the agent's own id — not the human's.
@@ -113,14 +108,20 @@ describe('session attribution pair — durable round trip', () => {
     // The admission that pairs with the denial above: a direct human act really
     // does put the same person in both halves, so the previous test is asserting
     // a property of DELEGATION and not an artefact of how rows are written.
-    await sessions.upsertSession(row('sess-2', { actor: actorUser(ALICE), onBehalfOf: ALICE }))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-2', { actor: actorUser(ALICE), onBehalfOf: ALICE }),
+    )
     const back = (await reread('sess-2'))?.createdBy
     expect(back?.actor).toEqual({ kind: 'user', id: ALICE })
     expect(back?.onBehalfOf).toBe(ALICE)
   })
 
   it('stores a SYSTEM actor with an explicit null human, never the owner', async () => {
-    await sessions.upsertSession(row('sess-3', { actor: actorSystem('steward'), onBehalfOf: null }))
+    await sessions.upsertSession(
+      fixtureWriteScope(),
+      row('sess-3', { actor: actorSystem('steward'), onBehalfOf: null }),
+    )
     const back = (await reread('sess-3'))?.createdBy
 
     // ADR 9 D8 S5: the job is named, and it has NO human by construction.
@@ -134,33 +135,41 @@ describe('session attribution pair — durable round trip', () => {
     // The CHECK is the enforcement, so it is asserted against the real schema:
     // a system principal that acquired a delegating human is a corrupt row, not
     // a merely unusual one.
-    await sessions.upsertSession(row('sess-1', DELEGATED))
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-1', DELEGATED))
     const setActor = (kind: string, human: UserId | null, id: SessionId) =>
-      db
-        .prepare(
-          `UPDATE sessions SET created_by_actor_kind = ?, created_by_actor_id = 'steward',
-             created_by_on_behalf_of = ? WHERE id = ?`,
-        )
-        .run(kind, human, id)
+      seedSliceRow(slice, (db, t) =>
+        db
+          .update(t.sessions)
+          .set({
+            createdByActorKind: kind,
+            createdByActorId: 'steward',
+            createdByOnBehalfOf: human,
+          })
+          .where(eq(t.sessions.id, id))
+          .prepare(),
+      )
 
     // FIRST, PROVE THE STATEMENT REACHES A ROW AT ALL. Without this the denial
     // below passes just as well against an UPDATE that matched nothing — which
     // is exactly how this test failed on its first run.
-    setActor('system', null, asSessionId('sess-1'))
+    await setActor('system', null, asSessionId('sess-1'))
     expect((await reread('sess-1'))?.createdBy?.actor).toEqual({ kind: 'system', job: 'steward' })
 
     // Same statement, same row, one value changed: now it must be refused.
-    expect(() => setActor('system', ALICE, asSessionId('sess-1'))).toThrow()
+    await expect(setActor('system', ALICE, asSessionId('sess-1'))).rejects.toThrow()
     // And the closed kind set is enforced too — a fifth principal kind is an
     // ADR 9 D1 amendment, not something a writer can introduce.
-    expect(() => setActor('superagent', null, asSessionId('sess-1'))).toThrow()
+    await expect(setActor('superagent', null, asSessionId('sess-1'))).rejects.toThrow()
   })
 
   it('reads a pre-attribution row as NO PAIR, and invents nothing', async () => {
     // A row from before the columns existed. `owner_user_id` and `spawned_by`
     // are both populated and both LOOK like an answer — the point is that
     // neither is used to manufacture one.
-    await sessions.upsertSession({ ...row('sess-4', undefined), spawnedBy: 'user' })
+    await sessions.upsertSession(fixtureWriteScope(), {
+      ...row('sess-4', undefined),
+      spawnedBy: 'user',
+    })
     const back = await reread('sess-4')
 
     expect(back?.createdBy).toBeUndefined()
@@ -174,8 +183,8 @@ describe('session attribution pair — durable round trip', () => {
     // `createdBy` is in SESSION_IMMUTABLE_AFTER_CREATE. A status change or a
     // rename must not restamp the pair with whoever triggered it — the COALESCE
     // in the upsert is what makes that structural rather than a convention.
-    await sessions.upsertSession(row('sess-5', DELEGATED))
-    await sessions.upsertSession({
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-5', DELEGATED))
+    await sessions.upsertSession(fixtureWriteScope(), {
       ...row('sess-5', {
         actor: actorUser(asUserId('user:mallory')),
         onBehalfOf: asUserId('user:mallory'),
@@ -194,9 +203,9 @@ describe('session attribution pair — durable round trip', () => {
   it('fills a pair that was never recorded, without overwriting one that was', async () => {
     // The other half of COALESCE: a legacy row CAN acquire a pair later. Without
     // this, "immutable" would be indistinguishable from "unwritable".
-    await sessions.upsertSession(row('sess-6', undefined))
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-6', undefined))
     expect((await reread('sess-6'))?.createdBy).toBeUndefined()
-    await sessions.upsertSession(row('sess-6', DELEGATED))
+    await sessions.upsertSession(fixtureWriteScope(), row('sess-6', DELEGATED))
     expect((await reread('sess-6'))?.createdBy?.actor).toEqual({ kind: 'agent', id: AGENT })
   })
 })

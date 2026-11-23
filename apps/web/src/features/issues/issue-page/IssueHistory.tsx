@@ -1,25 +1,27 @@
-import { issueObserver as observer } from './issue-observer'
+import type { Trpc } from '@/app/trpc'
+import { useRequestClient } from '@podium/client-core/react'
 import {
   ISSUE_HISTORY_PAGE,
   IssueHistoryView,
   issueActivity,
 } from '@podium/client-graph/issue-activity'
 import { useEffect, useMemo, useState } from 'react'
+import { type IssueViewModel, type IssueWithBodies } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
-import { useRuntimeSelector, type IssueViewModel } from '@/app/store'
 import {
+  type IssuePageCommands,
   loadIssueComments,
   loadIssueEventsPage,
   loadIssueMail,
-  type IssuePageCommands,
 } from '../issue-page-commands'
 import { CommentComposer, IssueActivitySection, MailSection } from './IssueActivity'
+import { issueObserver as observer } from './issue-observer'
 
 /** One opening of a history view over the issue's shared history, asking for
  *  the `window` event lines it shows (0 for mail alone). */
 export function useIssueHistory(issue: IssueViewModel, window: number) {
   const pool = useWorklistPool()
-  const trpc = useRuntimeSelector((store) => store.trpc)
+  const trpc = useRequestClient<Trpc>()
   const view = useMemo(
     () =>
       pool
@@ -49,7 +51,7 @@ export const PageTimeline = observer(function PageTimeline({
   busy,
   commands,
 }: {
-  issue: IssueViewModel
+  issue: IssueWithBodies
   busy: boolean
   commands: IssuePageCommands
 }) {
@@ -62,6 +64,9 @@ export const PageTimeline = observer(function PageTimeline({
       feed={history?.activity.history.items ?? emptyFeed}
       revision={history?.activity.revision ?? 0}
       history={history}
+      onEditComment={(commentId, body) =>
+        commands.editComment(commentId, body, () => history?.activity.reload())
+      }
     />
   )
 })

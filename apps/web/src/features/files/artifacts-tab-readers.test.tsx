@@ -34,9 +34,22 @@ it('reads the same artifact record as the detail page without opening a detail v
   fixture.pool = pool
   const views = createIssuePageViews(pool)
   fixture.views = views
-  const panel = { artifacts: [{ path: 'report.html', addedAt: '2026-10-29T00:00:00Z' }] }
-  const row = { id: 'root', seq: 1, title: 'Artifacts', stage: 'review', panel }
-  pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: row as never }] })
+  // The panel's artifacts are records of their own (POD-6764).
+  const row = { id: 'root', seq: 1, title: 'Artifacts', stage: 'review' }
+  const artifact = {
+    id: 'root-artifact-0',
+    issueId: 'root',
+    position: 0,
+    path: 'report.html',
+    addedAt: '2026-10-29T00:00:00Z',
+  }
+  pool.apply({
+    type: 'update',
+    rows: [
+      { kind: 'issue', id: 'root', value: row as never },
+      { kind: 'issuePanelArtifact', id: artifact.id, value: artifact as never },
+    ] as never,
+  })
 
   const result = renderHook(() => ({
     issue: usePageIssue('root'),
@@ -48,7 +61,7 @@ it('reads the same artifact record as the detail page without opening a detail v
 
   pool.apply({
     type: 'update',
-    rows: [{ kind: 'issue', id: 'root', value: { ...row, panel: { artifacts: [] } } as never }],
+    rows: [{ kind: 'issuePanelArtifact', id: artifact.id, value: undefined }] as never,
   })
   result.rerender()
   expect(result.result.current.issue).toBe(views.issue('root'))

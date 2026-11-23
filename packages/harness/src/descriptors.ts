@@ -94,12 +94,18 @@ function assembleDescriptor(manifest: AgentManifest): HarnessDescriptorWire {
       argvPrompt: manifest.capabilities.argvPrompt,
       effort: manifest.capabilities.effortFlag !== 'none',
       systemPrompt: manifest.capabilities.systemPromptFlag,
+      subagentModel: manifest.capabilities.subagentModelEnv,
     },
     catalog: {
       models: catalog.models.map((model) => ({ ...model })),
       efforts: [...catalog.efforts],
       liveMerge: catalog.liveMerge,
     },
+    accepts: manifest.inventory.accepts.map((line) => ({
+      type: line.type,
+      deliver: { ...line.deliver },
+      ...(line.drivers ? { drivers: [...line.drivers] } : {}),
+    })),
     ...(data.login.command !== null ||
     data.login.installHint !== null ||
     data.login.signedOutHint !== null

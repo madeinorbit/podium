@@ -1,4 +1,5 @@
 import type { MachineId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
 import type { SQLiteSession } from 'drizzle-orm/sqlite-core'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
@@ -15,8 +16,9 @@ interface Counts {
 interface MeasuredLoop {
   name: string
   targetSql: string
-  repository(store: SessionStore): object
+  executionRatio: number
   run(store: SessionStore, n: number): void | Promise<void>
+  check?(store: SessionStore, n: number): void | Promise<void>
 }
 
 /**
@@ -24,14 +26,15 @@ interface MeasuredLoop {
  * builder call constructs SQL. The returned prepared query is wrapped only to
  * establish the independent execution count; counting at the client would miss
  * the exact rebuild this gate exists to catch.
+ *
+ * The session is the store's root drizzle instance: since POD-7010 a repository
+ * holds its workspace's query handle, which wraps that instance, instead of the
+ * instance itself.
  */
-const countPreparedQueryWork = (repository: object, targetSql: string): Counts => {
+const countPreparedQueryWork = (store: SessionStore, targetSql: string): Counts => {
   const counts: Counts = { constructions: 0, executions: 0 }
-  const session = (
-    repository as {
-      rootDb: { _: { session: SQLiteSession } }
-    }
-  ).rootDb._.session
+  const session = (store.database.queries.rootDb as unknown as { _: { session: SQLiteSession } })._
+    .session
   const realPrepareQuery = session.prepareQuery.bind(session)
   session.prepareQuery = (...args: Parameters<SQLiteSession['prepareQuery']>) => {
     const prepared = realPrepareQuery(...args)
@@ -50,7 +53,7 @@ const countPreparedQueryWork = (repository: object, targetSql: string): Counts =
 const conversationRows = (
   n: number,
   machineId: MachineId,
-): Parameters<SessionStore['conversations']['index']['upsert']>[0] =>
+): Parameters<SessionStore['conversations']['index']['upsert']>[1] =>
   Array.from({ length: n }, (_, i) => ({
     id: `conversation-${i}`,
     agentKind: 'claude-code',
@@ -69,55 +72,58 @@ const loops: MeasuredLoop[] = [
   {
     name: 'ConversationIndexRepository.upsert',
     targetSql: 'insert into "conversations"',
-    repository: (store) => store.conversations.index,
+    executionRatio: 1,
     run: async (store, n) =>
-      await store.conversations.index.upsert(conversationRows(n, store.hostMachineId)),
-  },
-  {
-    name: 'SyncRepository.applyLatestChangeStates',
-    targetSql: 'insert into "change_latest"',
-    repository: (store) => store.sync,
-    run: async (store, n) => {
-      await store.sync.appendChanges(
-        Array.from({ length: n }, (_, i) => ({
-          entity: 'issueProjection',
-          entityId: `issue-${i}`,
-          op: 'upsert' as const,
-          payload: '{}',
-        })),
-        1,
-      )
+      await store.conversations.index.upsert(
+        fixtureWriteScope(),
+        conversationRows(n, store.hostMachineId),
+      ),
+    check: async (store, n) => {
+      expect(await store.conversations.index.recentPage({ limit: n + 1 })).toHaveLength(n)
     },
   },
 ]
 
 const measure = async (loop: MeasuredLoop, n: number): Promise<Counts> => {
   const store = await openTestStore(':memory:')
-  const counts = countPreparedQueryWork(loop.repository(store), loop.targetSql)
-  await loop.run(store, n)
-  return counts
+  try {
+    const counts = countPreparedQueryWork(store, loop.targetSql)
+    await loop.run(store, n)
+    await loop.check?.(store, n)
+    return counts
+  } finally {
+    await store.close()
+  }
 }
 
-describe('large row-loop SQL construction', () => {
-  it.each(loops)('$name keeps constructions constant while executions scale 10x', async (loop) => {
-    const n = 4
-    const small = await measure(loop, n)
-    const large = await measure(loop, n * 10)
-    const executionRatio = large.executions / small.executions
-    const constructionRatio = large.constructions / small.constructions
+describe('prepared batch SQL construction', () => {
+  it('builds a conversation upsert once and runs one statement per report', async () => {
+    const loop = loops[0]!
+    const small = await measure(loop, 4)
+    const large = await measure(loop, 40)
+    expect(small).toEqual({ constructions: 1, executions: 1 })
+    expect(large).toEqual(small)
+  })
 
-    expect(
-      small.constructions,
-      `${loop.name}: the SQLiteSession.prepareQuery probe saw no construction`,
-    ).toBeGreaterThan(0)
-    expect(executionRatio, `${loop.name}: executions must track the 10x larger input`).toBeCloseTo(
-      10,
-      5,
-    )
-    expect(
-      constructionRatio,
-      `${loop.name}: SQLiteSession.prepareQuery constructions scaled with row count`,
-    ).toBeLessThanOrEqual(1)
+  it('constructs each log chunk once and appends 100 rows per statement', async () => {
+    const loop: MeasuredLoop = {
+      name: 'SyncRepository.appendChanges',
+      targetSql: 'insert into "changes"',
+      executionRatio: 10,
+      run: async (store, size) => {
+        await store.sync.appendChanges(
+          Array.from({ length: size }, (_, i) => ({
+            entity: 'conversation',
+            entityId: `c${i}`,
+            op: 'upsert' as const,
+            payload: '{}',
+          })),
+          1,
+        )
+      },
+    }
+    expect(await measure(loop, 100)).toEqual({ constructions: 1, executions: 1 })
+    expect(await measure(loop, 1000)).toEqual({ constructions: 1, executions: 10 })
   })
 })
 

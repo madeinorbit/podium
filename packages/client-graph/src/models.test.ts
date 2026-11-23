@@ -10,6 +10,7 @@ import { MODEL_CLASSES, type ModelHost } from './models'
 import { worklistView } from './worklist/view-model'
 import { headerModel } from './header-companion'
 import { displayRefOf } from './views'
+import { sessionModeReadout } from '@podium/client-core/values'
 import { aggregatePartOf, LOADING, ownAttentionPartOf, unitOwnPartOf, unitsBelowPartOf } from './worklist/rollup'
 
 /**
@@ -97,27 +98,6 @@ it('keeps Acceptance readers isolated from title and description edits while fol
   } finally { stop(); pool.dispose() }
 })
 
-it.each([true, false])('a cold reference uses only declared identity (%s) without requesting its payload', declared => {
-  const schedule = vi.fn(() => () => {})
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
-    load: () => undefined, schedule, summaries: { issue: declared ? ['seq', 'repoPath'] : [] },
-  })
-  pool.apply({ type: 'replace', rows: [
-    { kind: 'repo', id: '/synthetic', value: { id: '/synthetic', path: '/synthetic', prefix: 'POD' } as never },
-    { kind: 'issue', id: 'cold-ref', value: issueRow('cold-ref', {
-      seq: 0, repoId: '/synthetic', stage: 'done', closedAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
-    }) as never },
-  ] })
-  try {
-    const stored = omitGone(pool.row('issue', 'cold-ref', 'summary-fields'))
-    expect(stored && stored !== LOADING ? Reflect.get(stored, 'seq') : undefined).toBe(declared ? 0 : undefined)
-    expect(pool.issueObject('cold-ref').displayRef).toBe(declared ? displayRefOf(0, 'POD') : '')
-    expect(pool.tables.issue.has('cold-ref')).toBe(false)
-    expect(schedule).not.toHaveBeenCalled()
-    expect(pool.issueObject('missing-ref').displayRef).toBe('')
-  } finally { pool.dispose() }
-})
-
 // A present parent is always placed (POD-2167: any audience at the top
 // level, POD-2157: only a real parentId nests), so the parent's own nesting
 // is what can still move under an unchanged parent.
@@ -174,18 +154,23 @@ it('resident, ordering and finished readers ignore a title change', () => {
 // A scalar must not allocate the rest of standing/own through eager rule
 // construction. Count the existing lazy slots and guard the shared facts:
 // answer equality alone would miss both unnecessary allocations and reads.
+// `shared` names the issue's lazy facts a scalar's own rule reads: rescuable
+// asks whether the issue is finished, and band asks for my pin (a pin record
+// since POD-6692, so a lazy of the issue model).
 it.each([
-  ['activeHuman', true, 0], ['sessionless', 'keep', 0],
-  ['rescuable', true, 1], ['band', 1, 0],
-  ['repoKey', machinePathKey('/synthetic'), 0], ['foldAt', stamp, 0],
-] as const)('allocates only the demanded %s field and releases it after the last observer', async (field, expected, sharedCount) => {
+  ['activeHuman', true, []], ['sessionless', 'keep', []],
+  ['rescuable', true, ['finished']], ['band', 1, ['pinned']],
+  ['repoKey', machinePathKey('/synthetic'), []], ['foldAt', stamp, []],
+] as const)('allocates only the demanded %s field and releases it after the last observer', async (field, expected, shared) => {
   const pool = fixture('demand'), root = pool.worklistRow('root')!
-  const issue = root.issue
+  const issue = root.issue, sharedNames: readonly string[] = shared
   const guards = ['excluded', 'awaitingMerge', 'parentRef', 'finishedMs', 'updatedMs',
-    'lastActivityAt', 'headlessStaffed', ...(field === 'rescuable' ? [] : ['finished'])]
+    'lastActivityAt', 'headlessStaffed', 'finished', 'pinned']
+    .filter(name => !sharedNames.includes(name))
     .map(name => vi.spyOn(issue, name as 'finished', 'get').mockImplementation(() => {
       throw new Error(`${field} demanded unrelated ${name}`)
     }))
+  const reads = sharedNames.map(name => vi.spyOn(issue, name as 'finished', 'get'))
   let value: unknown, runs = 0, failure: unknown
   expect([lazyKeptCount(root), lazyKeptCount(issue)]).toEqual([0, 0])
   const stop = autorun(() => {
@@ -194,7 +179,8 @@ it.each([
   try {
     if (failure) throw failure
     expect(value).toEqual(expected)
-    expect([lazyKeptCount(root), lazyKeptCount(issue)]).toEqual([1, sharedCount])
+    expect([lazyKeptCount(root), lazyKeptCount(issue)]).toEqual([1, sharedNames.length])
+    for (const read of reads) expect(read).toHaveBeenCalled()
     runInAction(() => pool.apply({ type: 'update', rows: [
       { kind: 'issue', id: 'root', value: issueRow('root', { title: 'Renamed' }) as never },
     ] }))
@@ -204,7 +190,7 @@ it.each([
     for (const guard of guards) expect(guard).not.toHaveBeenCalled()
   } finally {
     stop()
-    for (const guard of guards) guard.mockRestore()
+    for (const spy of [...guards, ...reads]) spy.mockRestore()
     pool.dispose()
   }
   await Promise.resolve()
@@ -335,4 +321,43 @@ it('all demanded attention and progress fields equal the eager parts, including 
     expect(pool.worklistRow('root')!.unitsBelow.members).toBe(2)
   }
   finally { stop(); pool.dispose() }
+})
+
+it('a session model answers what the model and mode chips read, and follows a change (POD-7002)', () => {
+  // The chat view hands its chips the shared session model, not the row. A
+  // field the model has no getter for reads as undefined, so the live web drew
+  // neither chip for a session whose row held all of these.
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  const launchPosture = {
+    requestedMode: 'auto',
+    unmet: [{ requirement: 'workspace-trust', reason: 'no flag on this version' }],
+  }
+  pool.apply({ type: 'replace', rows: [
+    { kind: 'session', id: 'seat', value: sessionRow({
+      agentKind: 'claude-code',
+      observedModel: 'claude-opus-5-5', observedEffort: 'high',
+      requestedModel: 'claude-sonnet-5-5', requestedEffort: 'low',
+      configureFields: ['model', 'effort'],
+      observedMode: 'auto', launchPosture,
+    }) as never },
+  ] })
+  const seat = requireHere(pool.model('session', 'seat'))!
+  expect({
+    observedModel: seat.observedModel, observedEffort: seat.observedEffort,
+    requestedModel: seat.requestedModel, requestedEffort: seat.requestedEffort,
+    configureFields: seat.configureFields, observedMode: seat.observedMode,
+    launchPosture: seat.launchPosture,
+  }).toEqual({
+    observedModel: 'claude-opus-5-5', observedEffort: 'high',
+    requestedModel: 'claude-sonnet-5-5', requestedEffort: 'low',
+    configureFields: ['model', 'effort'], observedMode: 'auto', launchPosture,
+  })
+  const seen: Array<string | undefined> = []
+  const stop = autorun(() => { seen.push(sessionModeReadout(seat)?.mode) })
+  try {
+    runInAction(() => pool.apply({ type: 'update', rows: [
+      { kind: 'session', id: 'seat', value: sessionRow({ agentKind: 'claude-code', observedMode: 'default', launchPosture }) as never },
+    ] }))
+    expect(seen).toEqual(['auto', 'default'])
+  } finally { stop(); pool.dispose() }
 })

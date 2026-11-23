@@ -58,6 +58,8 @@ export const HarnessDescriptorCapabilitiesWire = z.object({
   argvPrompt: z.boolean(),
   effort: z.boolean(),
   systemPrompt: z.boolean(),
+  /** Whether the harness accepts an override for its own helpers' model. */
+  subagentModel: z.boolean().optional(),
 })
 export type HarnessDescriptorCapabilitiesWire = z.infer<typeof HarnessDescriptorCapabilitiesWire>
 
@@ -104,6 +106,25 @@ export const HarnessDescriptorSectionWire = z.object({
 })
 export type HarnessDescriptorSectionWire = z.infer<typeof HarnessDescriptorSectionWire>
 
+/**
+ * One credential type a harness accepts and how it is delivered (credential
+ * management spec §5; `AcceptedCredential` in `@podium/model`). OPEN on the
+ * wire: `type` and `deliver.kind` are plain strings, so a newer daemon's type
+ * id or delivery kind still parses on an older client, which matches only the
+ * ids its own registry knows.
+ */
+export const HarnessDescriptorAcceptWire = z.object({
+  type: z.string().min(1),
+  deliver: z.object({
+    kind: z.string().min(1),
+    /** The environment variable, for `env` delivery. */
+    variable: z.string().min(1).optional(),
+  }),
+  /** The drivers this line holds for. Absent: every driver of the harness. */
+  drivers: z.array(z.string().min(1)).optional(),
+})
+export type HarnessDescriptorAcceptWire = z.infer<typeof HarnessDescriptorAcceptWire>
+
 export const HarnessDescriptorWire = z.object({
   /** Wire schema version. A plain number (not a literal) so a newer version
    *  still parses — the client renders the fields it knows. */
@@ -140,6 +161,12 @@ export const HarnessDescriptorWire = z.object({
   available: HarnessDescriptorAvailableWire.nullish(),
   /** Served-only matrix derivation; absent offline (still renders). */
   sections: z.array(HarnessDescriptorSectionWire).nullish(),
+  /**
+   * The credential types this harness accepts (plan Task 1). A daemon from
+   * before the field sends none, which parses as an empty list: that harness
+   * is offered no credential, only "no credential".
+   */
+  accepts: z.array(HarnessDescriptorAcceptWire).default([]),
 })
 export type HarnessDescriptorWire = z.infer<typeof HarnessDescriptorWire>
 
@@ -191,5 +218,11 @@ export const ModelProbeResultMessage = z.object({
   type: z.literal('modelProbeResult'),
   requestId: z.string(),
   byAgent: z.record(z.string(), z.array(ModelChoiceWire)),
+  /**
+   * The same per Podium home (credential management §10): home id → agent
+   * kind → models, for the homes this daemon holds. `byAgent` stays the
+   * harness's own directory, so an older server reads what it read before.
+   */
+  byHome: z.record(z.string(), z.record(z.string(), z.array(ModelChoiceWire))).optional(),
 })
 export type ModelProbeResultMessage = z.infer<typeof ModelProbeResultMessage>

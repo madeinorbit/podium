@@ -283,6 +283,7 @@ describe('scanHostUsageSources', () => {
     expect(source.path).toBe(path)
     expect(source.harness).toBe('claude-code')
     expect(source.scannedBytes).toBe(statSync(path).size)
+    expect(source.windowBuckets).toEqual(buckets)
     expect(source.models).toEqual([
       expect.objectContaining({ model: 'claude-opus-5', inputTokens: 40, messages: 2 }),
     ])
@@ -307,6 +308,9 @@ describe('scanHostUsageSources', () => {
     const source = sources[0]!
     expect(source.models[0]).toMatchObject({ inputTokens: 1_009, messages: 2 })
     expect(source.windowModels[0]).toMatchObject({ inputTokens: 10, messages: 1 })
+    expect(source.windowBuckets).toEqual([
+      expect.objectContaining({ hour: '2026-06-12T10:00:00.000Z', inputTokens: 10, messages: 1 }),
+    ])
   })
 
   // The subagent transcripts the one-level read used to miss. On the real box

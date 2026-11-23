@@ -107,7 +107,7 @@ describe('production adoption restores supervised execution proof', () => {
       // Planning must observe completed enrollment and supervisor attachment.
       for (const id of ids) await h.add(id)
       await h.add('already-healthy', target.version)
-      h.registry.modules.updates.setTarget('dev', target)
+      await h.registry.modules.updates.setTarget('dev', target)
       const started = await h.registry.modules.operations.engine.start(
         UPDATE_OPERATION_KIND,
         h.context(ids),
@@ -181,69 +181,88 @@ describe('production adoption restores supervised execution proof', () => {
     }
   })
 
-  it.each([false, true])(
-    'keeps a canceled rollout canceled when its canary finishes late (reboot=%s)',
-    async (reboot) => {
-      const h = await fixture()
-      try {
-        for (const machine of ['a', 'b']) await h.add(machine)
-        const updates = h.registry.modules.updates
-        updates.setTarget('dev', target)
-        const started = await h.registry.modules.operations.engine.start(
-          UPDATE_OPERATION_KIND, h.context(['a', 'b']), { createdBy: 'user' },
-        )
-        if (!started.started) throw new Error('operation did not start')
-        const id = started.operation.id
-        await h.registry.modules.operations.engine.whenSettled(id)
-        expect(h.sent.map((s) => s.id)).toEqual(['a'])
-        const grant = h.sent[0]!.grant
-        await updates.onStatus(asMachineId('a'), {
-          type: 'updateStatus', state: 'restarting', version: '0.4.1',
-          targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'restarting',
-        })
-        expect(await h.registry.modules.operations.engine.cancel(id)).toMatchObject({ canceled: true })
-        expect(await updates.operationActive('dev')).toBe(false)
-        expect(h.store.updateRecovery.read()?.retiredGrants?.[0]?.[1].grantId).toBe(grant.grantId)
-        if (reboot) {
-          const boot = await h.reboot()
-          await boot.modules.operations.engine.adoptOnBoot(
-            async () => ({ appVersion: target.version, servedWebDigest: undefined,
-              machineDirectory: await boot.modules.updates.fleet(), now: Date.now() } satisfies UpdateReality),
-            () => h.context(['a', 'b']),
-          )
-        }
-        await h.hello('a')
-        await h.hello('b', '0.4.1')
-        const current = h.registry.modules.updates
-        expect((await current.fleet()).find((m) => m.id === 'a')?.state).toBe('stuck')
-        const report = {
-          type: 'updateStatus' as const, state: 'current' as const, version: target.version,
-          targetVersion: target.version, grantId: grant.grantId, phaseDetail: 'current',
-        }
-        await current.onStatus(asMachineId('a'), { ...report, grantId: 'unrelated' })
-        expect(await current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(false)
-        for (let replay = 0; replay < 3; replay++) {
-          await current.onStatus(asMachineId('a'), report)
-          await h.registry.modules.updateFleetBridge?.onFleetChanged()
-          await h.registry.modules.operations.engine.whenSettled(id)
-          expect((await current.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
-          expect(await current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
-          expect(await current.operationActive('dev')).toBe(false)
-          expect((await h.store.operations.get(id))?.state).toBe('canceled')
-          expect(h.sent.map((s) => s.id)).toEqual(['a'])
-        }
+  it.each([
+    false,
+    true,
+  ])('keeps a canceled rollout canceled when its canary finishes late (reboot=%s)', async (reboot) => {
+    const h = await fixture()
+    try {
+      for (const machine of ['a', 'b']) await h.add(machine)
+      const updates = h.registry.modules.updates
+      await updates.setTarget('dev', target)
+      const started = await h.registry.modules.operations.engine.start(
+        UPDATE_OPERATION_KIND,
+        h.context(['a', 'b']),
+        { createdBy: 'user' },
+      )
+      if (!started.started) throw new Error('operation did not start')
+      const id = started.operation.id
+      await h.registry.modules.operations.engine.whenSettled(id)
+      expect(h.sent.map((s) => s.id)).toEqual(['a'])
+      const grant = h.sent[0]!.grant
+      await updates.onStatus(asMachineId('a'), {
+        type: 'updateStatus',
+        state: 'restarting',
+        version: '0.4.1',
+        targetVersion: target.version,
+        grantId: grant.grantId,
+        phaseDetail: 'restarting',
+      })
+      expect(await h.registry.modules.operations.engine.cancel(id)).toMatchObject({
+        canceled: true,
+      })
+      expect(await updates.operationActive('dev')).toBe(false)
+      expect((await h.store.updateRecovery.read())?.retiredGrants?.[0]?.[1].grantId).toBe(grant.grantId)
+      if (reboot) {
         const boot = await h.reboot()
-        await h.hello('a')
-        await h.hello('b', '0.4.1')
-        expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
-        expect(await boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
+        await boot.modules.operations.engine.adoptOnBoot(
+          async () =>
+            ({
+              appVersion: target.version,
+              servedWebDigest: undefined,
+              machineDirectory: await boot.modules.updates.fleet(),
+              now: Date.now(),
+            }) satisfies UpdateReality,
+          () => h.context(['a', 'b']),
+        )
+      }
+      await h.hello('a')
+      await h.hello('b', '0.4.1')
+      const current = h.registry.modules.updates
+      expect((await current.fleet()).find((m) => m.id === 'a')?.state).toBe('stuck')
+      const report = {
+        type: 'updateStatus' as const,
+        state: 'current' as const,
+        version: target.version,
+        targetVersion: target.version,
+        grantId: grant.grantId,
+        phaseDetail: 'current',
+      }
+      await current.onStatus(asMachineId('a'), { ...report, grantId: 'unrelated' })
+      expect(await current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(false)
+      for (let replay = 0; replay < 3; replay++) {
+        await current.onStatus(asMachineId('a'), report)
+        await h.registry.modules.updateFleetBridge?.onFleetChanged()
+        await h.registry.modules.operations.engine.whenSettled(id)
+        expect((await current.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
+        expect(await current.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(true)
+        expect(await current.operationActive('dev')).toBe(false)
         expect((await h.store.operations.get(id))?.state).toBe('canceled')
         expect(h.sent.map((s) => s.id)).toEqual(['a'])
-      } finally {
-        await h.close()
       }
-    },
-  )
+      const boot = await h.reboot()
+      await h.hello('a')
+      await h.hello('b', '0.4.1')
+      expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
+      expect(
+        await boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version),
+      ).toBe(true)
+      expect((await h.store.operations.get(id))?.state).toBe('canceled')
+      expect(h.sent.map((s) => s.id)).toEqual(['a'])
+    } finally {
+      await h.close()
+    }
+  })
 
   it('accepts retired proof in recovery-only memory without writing the reopened query-only database', async () => {
     const h = await fixture()
@@ -251,13 +270,13 @@ describe('production adoption restores supervised execution proof', () => {
       await h.add('a')
       await h.add('b')
       const updates = h.registry.modules.updates
-      updates.setTarget('dev', target)
+      await updates.setTarget('dev', target)
       await updates.authorize()
       const grant = h.sent[0]!.grant
       updates.withdrawAuthorization()
       await updates.releaseInFlightGrants('Canceled')
       await h.hello('a')
-      const saved = h.store.updateRecovery.read()
+      const saved = await h.store.updateRecovery.read()
       const boot = await h.reboot(true)
       const write = vi.spyOn(h.store.updateRecovery, 'write')
       await boot.modules.updates.onStatus(asMachineId('a'), {
@@ -269,7 +288,7 @@ describe('production adoption restores supervised execution proof', () => {
         expect(await boot.modules.updates.operationActive('dev')).toBe(false)
       }
       expect(write).not.toHaveBeenCalled()
-      expect(h.store.updateRecovery.read()).toEqual(saved)
+      expect(await h.store.updateRecovery.read()).toEqual(saved)
       expect(h.sent.map((s) => s.id)).toEqual(['a'])
     } finally {
       await h.close()
@@ -284,7 +303,7 @@ describe('production adoption restores supervised execution proof', () => {
     try {
       await h.add('a')
       const updates = h.registry.modules.updates
-      updates.setTarget('dev', target)
+      await updates.setTarget('dev', target)
       await updates.authorize()
       const grant = h.sent[0]!.grant
       await h.hello('a')
@@ -297,23 +316,25 @@ describe('production adoption restores supervised execution proof', () => {
         phaseDetail: 'current',
       })
       if (legacy) {
-        const saved = h.store.updateRecovery.read()!
+        const saved = (await h.store.updateRecovery.read())!
         saved.machines[0]![1].requiresExecutionConfirmation = false
-        h.store.updateRecovery.write(saved)
+        await h.store.updateRecovery.write(() => saved)
       }
-      const before = h.store.updateRecovery.read()
+      const before = await h.store.updateRecovery.read()
       const boot = await h.reboot(true)
       const write = vi.spyOn(h.store.updateRecovery, 'write')
       // Projection would set canaryHealthy and (for a legacy grant) retire rows.
       // Those are precisely the writes that a constructor-only fix missed.
       for (let read = 0; read < 3; read++) {
-        expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe('current')
-        expect(await boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version)).toBe(
-          false,
+        expect((await boot.modules.updates.fleet()).find((m) => m.id === 'a')?.state).toBe(
+          'current',
         )
+        expect(
+          await boot.modules.updates.machineBootedAtTarget(asMachineId('a'), target.version),
+        ).toBe(false)
       }
       expect(write).not.toHaveBeenCalled()
-      expect(h.store.updateRecovery.read()).toEqual(before)
+      expect(await h.store.updateRecovery.read()).toEqual(before)
       expect(h.sent).toHaveLength(1)
     } finally {
       await h.close()

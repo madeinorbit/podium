@@ -4,12 +4,11 @@ import { parseWirePublicKey } from '@podium/runtime/signing'
 import type { DaemonHandshake, UpdateKeyRotation } from '@podium/protocol'
 import type { MachinesDeps, PairingGrant } from './service'
 import type { SettingsAuditRow } from '../../store/settings-audit'
+import { afterCommit, spanOpen } from '../../store/executor/executor'
 
 /** Database-owned machine credentials and custody transitions. */
 export interface EnrollmentHost {
   readonly deps: MachinesDeps
-  /** Fan out `machinesChanged` after a write clients can see (owner transfer). */
-  broadcastMachines(): Promise<void>
   hasSupervisor(machineId: MachineId): boolean
   retireIncarnation(machineId: MachineId): void
 }
@@ -46,7 +45,10 @@ const transitions = new WeakMap<EnrollmentHost, Map<MachineId, Promise<void>>>()
 /** Serialize credential transitions before inspecting or consuming a one-use code. */
 export async function withMachineTransition<T>(host: EnrollmentHost, id: MachineId, run: () => Promise<T>): Promise<T> {
   let pending = transitions.get(host)
-  if (!pending) { pending = new Map(); transitions.set(host, pending) }
+  if (!pending) {
+    pending = new Map()
+    transitions.set(host, pending)
+  }
   const previous = pending.get(id) ?? Promise.resolve()
   let release!: () => void
   const held = new Promise<void>((resolve) => { release = resolve })
@@ -59,8 +61,56 @@ export async function withMachineTransition<T>(host: EnrollmentHost, id: Machine
   }
 }
 
-export async function authenticateDaemon(host: EnrollmentHost, frame: MachineAuthenticationFrame, options: DaemonAuthenticationOptions = {}) {
-  return withMachineTransition(host, frame.machineId, () => authenticateDaemonUnlocked(host, frame, options))
+/**
+ * A custody transition: its database write, then the steps outside the database
+ * (retiring a daemon's transports, the clients' `machinesChanged`).
+ *
+ * Outside a unit of work, both run under the machine's transition lock, as they
+ * always did. INSIDE one (the sync write entry point, POD-6417) the lock cannot
+ * be held: a daemon hello holds it while it waits for the write lane, which the
+ * open unit holds, and each would wait on the other. The write is serialized by
+ * the unit itself (one writer at a time), and the outside steps run after the
+ * commit, under the lock, and never on a rollback (ADR 2 D10). A hello that read
+ * the row before the commit has attached by the time the lock is free, so the
+ * retirement after it still reaches its transports.
+ */
+export async function machineTransition(
+  host: EnrollmentHost,
+  ids: readonly MachineId[],
+  write: () => Promise<void>,
+  outside: () => Promise<void>,
+  label: string,
+): Promise<void> {
+  // Stable ordering prevents opposing A→B/B→A requests from deadlocking.
+  const sorted = [...new Set(ids)].sort()
+  const locked = (run: () => Promise<void>): Promise<void> =>
+    sorted.reduceRight<() => Promise<void>>(
+      (inner, id) => () => withMachineTransition(host, id, inner),
+      run,
+    )()
+  const save = () =>
+    host.deps.compareMachineRecords
+      ? host.deps.compareMachineRecords(write)
+      : write()
+  if (spanOpen()) {
+    await save()
+    afterCommit(async () => await locked(outside), label)
+    return
+  }
+  await locked(async () => {
+    await save()
+    await outside()
+  })
+}
+
+export async function authenticateDaemon(
+  host: EnrollmentHost,
+  frame: MachineAuthenticationFrame,
+  options: DaemonAuthenticationOptions = {},
+) {
+  return withMachineTransition(host, frame.machineId, () =>
+    authenticateDaemonUnlocked(host, frame, options),
+  )
 }
 
 async function authenticateDaemonUnlocked(
@@ -96,6 +146,10 @@ async function authenticateDaemonUnlocked(
     // hard no — otherwise a valid pair code rebinds someone else's tokenHash.
     const existing = await deps.store.machines.getMachine(frame.machineId)
     const proposedGrant = deps.pairing.peek?.(frame.code)
+    if (proposedGrant?.clientRegistration && (proposedGrant.clientRegistration.machineId !== frame.machineId ||
+      (proposedGrant.clientRegistration.publicKey !== undefined && proposedGrant.clientRegistration.publicKey !== frame.publicKey))) {
+      return { ok: false, reason: HELLO_DENIED_REASON }
+    }
     if (existing && (!existing.revokedAt || proposedGrant?.replaceMachineId !== frame.machineId)) {
       return { ok: false, reason: 'machine id already registered' }
     }
@@ -109,6 +163,10 @@ async function authenticateDaemonUnlocked(
     if (!pairingGrant) {
       return { ok: false, reason: 'invalid or expired code' }
     }
+    if (pairingGrant.clientRegistration && (pairingGrant.clientRegistration.machineId !== frame.machineId ||
+      (pairingGrant.clientRegistration.publicKey !== undefined && pairingGrant.clientRegistration.publicKey !== frame.publicKey))) {
+      return { ok: false, reason: HELLO_DENIED_REASON }
+    }
     const updatePubkey = deps.updatePubkey?.()
     const updateKeyRotations = deps.updateKeyRotations?.()
     const name = frame.name ?? frame.hostname
@@ -118,15 +176,22 @@ async function authenticateDaemonUnlocked(
     }
     const now = new Date().toISOString()
     const publicKey = frame.publicKey
-    const enrolled = await deps.store.transact(async () => {
+    const enrolled = await deps.store.transact(async (): Promise<boolean | 'minter'> => {
       // Re-read in the enrollment transaction: minting a code does not freeze eligibility.
+      // `get` answers nothing for a disabled or removed member, and a code minted
+      // before any change to the minter's authority is no longer theirs (POD-6883).
       const member = await deps.store.users.get(ownerUserId)
-      if (!member || (existing && await deps.store.machines.custodian(existing.id) !== ownerUserId && member.role !== 'admin')) return false
+      if (!member) return 'minter'
+      if (pairingGrant.ownerAuthzGeneration !== undefined &&
+        await deps.store.users.authzGenerationOf(ownerUserId) !== pairingGrant.ownerAuthzGeneration) return 'minter'
+      if (existing && await deps.store.machines.custodian(existing.id) !== ownerUserId &&
+        (pairingGrant.clientRegistration !== undefined || member.role !== 'admin')) return false
       const changed = await deps.store.machines.enrollMachine({
-        id: frame.machineId, name, hostname: frame.hostname, tokenHash: '',
+        id: frame.machineId, name: pairingGrant.clientRegistration && existing ? existing.name : name, hostname: frame.hostname, tokenHash: '',
         credentialKind: 'ed25519', publicKey,
-        ownerUserId, podiumManaged: pairingGrant.podiumManaged ?? true,
-        assignment: frame.assignment ?? { server: false, agentExecution: options.source !== 'supervisor' },
+        ownerUserId, podiumManaged: pairingGrant.clientRegistration && existing ? existing.podiumManaged : pairingGrant.podiumManaged ?? true,
+        assignment: pairingGrant.clientRegistration ? { server: false, agentExecution: false }
+          : frame.assignment ?? { server: false, agentExecution: options.source !== 'supervisor' },
         assignmentEvidence: { version: 1, source: options.source === 'supervisor' ? 'supervisor-enrollment' : 'daemon-enrollment', requestId: frame.machineId },
       }, existing?.revokedAt ?? undefined, pairingGrant.replaceIncarnation)
       if (changed && existing) await deps.store.settingsAudit.append({
@@ -137,6 +202,7 @@ async function authenticateDaemonUnlocked(
       })
       return changed
     })
+    if (enrolled === 'minter') return { ok: false, reason: 'invalid or expired code' }
     if (!enrolled) return { ok: false, reason: 'machine id already registered' }
     if (existing) host.retireIncarnation(frame.machineId)
 
@@ -155,7 +221,7 @@ async function authenticateDaemonUnlocked(
     : await deps.store.machines.getMachineByToken(frame.machineId, frame.token)
   if (verified) {
     const row = await deps.store.machines.getMachine(frame.machineId)
-    if (!row || row.revokedAt) return { ok: false, reason: HELLO_DENIED_REASON }
+    if (!row || row.revokedAt || row.supersededBy) return { ok: false, reason: HELLO_DENIED_REASON }
     if (
       !options.verifyOnly &&
       (options.source === 'supervisor' || !host.hasSupervisor(frame.machineId))
@@ -190,7 +256,6 @@ export async function transferOwnership(
   if (!row || row.revokedAt) throw new Error(`unknown machine '${machineId}'`)
   if (opts.skipRowUpdate) return
   await host.deps.store.machines.setMachineOwner(machineId, newOwnerUserId)
-  await host.broadcastMachines()
 }
 
 /** Authenticated transport attribution and agent-scope narrowing, never payload input. */
@@ -209,29 +274,38 @@ export async function transferMachineOwnership(
 ): Promise<void> {
   if (!await host.deps.userExists?.(newOwnerUserId)) throw new Error(`unknown user: ${newOwnerUserId}`)
   const scopeAllowed = context.manage?.(id) !== false
-  await withMachineTransition(host, id, async () => {
-    await host.deps.store.transact(async () => {
-      const machine = await host.deps.store.machines.getMachine(id)
-      if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
-      const custodian = await host.deps.store.machines.custodian(id)
-      const admin = await host.deps.store.users.roleOf(actor) === 'admin'
-      if (!scopeAllowed || (custodian !== actor && !admin)) {
-        throw new Error('only the machine owner or an admin may transfer ownership')
-      }
-      if (newOwnerUserId === custodian) throw new Error('machine is already owned by that user')
-      await host.deps.store.grants.removeAllForResource('machine', id)
-      await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
-      await host.deps.store.settingsAudit.append({
-        command: admin && newOwnerUserId === actor ? 'takeover' : 'machines.transferOwnership',
-        outcome: 'applied',
-        ...(context.attribution ?? { actorKind: 'user' as const, actorId: actor, onBehalfOf: actor }),
-        detail: { machineId: id, previousOwnerUserId: custodian, newOwnerUserId },
-        redactedPaths: [],
-        createdAt: new Date().toISOString(),
+  await machineTransition(
+    host,
+    [id],
+    async () => {
+      await host.deps.store.transact(async () => {
+        const machine = await host.deps.store.machines.getMachine(id)
+        if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+        const custodian = await host.deps.store.machines.custodian(id)
+        const admin = (await host.deps.store.users.roleOf(actor)) === 'admin'
+        if (!scopeAllowed || (custodian !== actor && !admin)) {
+          throw new Error('only the machine owner or an admin may transfer ownership')
+        }
+        if (newOwnerUserId === custodian) throw new Error('machine is already owned by that user')
+        await host.deps.store.grants.removeAllForResource('machine', id)
+        await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
+        await host.deps.store.settingsAudit.append({
+          command: admin && newOwnerUserId === actor ? 'takeover' : 'machines.transferOwnership',
+          outcome: 'applied',
+          ...(context.attribution ?? {
+            actorKind: 'user' as const,
+            actorId: actor,
+            onBehalfOf: actor,
+          }),
+          detail: { machineId: id, previousOwnerUserId: custodian, newOwnerUserId },
+          redactedPaths: [],
+          createdAt: new Date().toISOString(),
+        })
       })
-    })
-  })
-  await host.broadcastMachines()
+    },
+    async () => {},
+    'machines:transfer',
+  )
 }
 
 export async function effectiveOwner(host: EnrollmentHost, machineId: MachineId): Promise<UserId | null | undefined> {
@@ -244,20 +318,61 @@ export async function adoptMachine(host: EnrollmentHost, id: MachineId, newOwner
   if (context.manage?.(id) === false || await host.deps.store.users.roleOf(actor) !== 'admin') {
     throw new Error('only an admin may adopt a machine')
   }
-  if (!await host.deps.userExists?.(newOwnerUserId)) throw new Error(`unknown user: ${newOwnerUserId}`)
-  await withMachineTransition(host, id, async () => {
-    await host.deps.store.transact(async () => {
-      const machine = await host.deps.store.machines.getMachine(id)
-      if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
-      if (await host.deps.store.machines.custodian(id) !== null) throw new Error('machine already has an owner — use transfer ownership')
-      await host.deps.store.grants.removeAllForResource('machine', id)
-      await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
-      await host.deps.store.settingsAudit.append({
-        command: newOwnerUserId === actor ? 'takeover' : 'machines.adopt', outcome: 'applied',
-        ...(context.attribution ?? { actorKind: 'user' as const, actorId: actor, onBehalfOf: actor }),
-        detail: { machineId: id, previousOwnerUserId: null, newOwnerUserId }, redactedPaths: [], createdAt: new Date().toISOString(),
+  if (!(await host.deps.userExists?.(newOwnerUserId)))
+    throw new Error(`unknown user: ${newOwnerUserId}`)
+  await machineTransition(
+    host,
+    [id],
+    async () => {
+      await host.deps.store.transact(async () => {
+        const machine = await host.deps.store.machines.getMachine(id)
+        if (!machine || machine.revokedAt) throw new Error(`unknown machine '${id}'`)
+        if ((await host.deps.store.machines.custodian(id)) !== null)
+          throw new Error('machine already has an owner — use transfer ownership')
+        await host.deps.store.grants.removeAllForResource('machine', id)
+        await host.deps.store.machines.setMachineOwner(id, newOwnerUserId)
+        await host.deps.store.settingsAudit.append({
+          command: newOwnerUserId === actor ? 'takeover' : 'machines.adopt',
+          outcome: 'applied',
+          ...(context.attribution ?? {
+            actorKind: 'user' as const,
+            actorId: actor,
+            onBehalfOf: actor,
+          }),
+          detail: { machineId: id, previousOwnerUserId: null, newOwnerUserId },
+          redactedPaths: [],
+          createdAt: new Date().toISOString(),
+        })
       })
+    },
+    async () => {},
+    'machines:adopt',
+  )
+}
+
+/** One admin-authorized decision for client enrollment and retained revoked identity.
+ * The same transition lock and replacement incarnation fence own later redemption. */
+export async function mintClientRegistrationCode(host: EnrollmentHost,
+  request: { machineId: MachineId; publicKey?: string }, actor: UserId): Promise<string> {
+  return withMachineTransition(host, request.machineId, async () => {
+    const grant = await host.deps.store.transact(async () => {
+      if (await host.deps.store.users.roleOf(actor) !== 'admin')
+        throw new Error('client registration requires a current administrator')
+      if (request.publicKey !== undefined && !parseWirePublicKey(request.publicKey))
+        throw new Error('invalid retained machine key')
+      const row = await host.deps.store.machines.getMachine(request.machineId)
+      if (row?.supersededBy) throw new Error('superseded machine identities cannot be re-enrolled')
+      if (row && !row.revokedAt) throw new Error('machine already registered; reconnect with its retained credential')
+      const incarnation = row ? await host.deps.store.machines.credentialIncarnation(request.machineId) : undefined
+      if (row && (!request.publicKey || incarnation !== request.publicKey))
+        throw new Error('retained machine key does not match the revoked identity')
+      if (row && await host.deps.store.machines.custodian(request.machineId) !== actor)
+        throw new Error('automatic client registration requires the current custodian; use explicit replacement')
+      return { ownerUserId: actor, podiumManaged: row?.podiumManaged ?? true,
+        copyAgentCredentials: false, clientRegistration: request,
+        ...(row ? { replaceMachineId: request.machineId, replaceIncarnation: incarnation } : {}) }
     })
+    if (!host.deps.pairing) throw new Error('inbound pairing is disabled on this server')
+    return host.deps.pairing.mint(grant)
   })
-  await host.broadcastMachines()
 }

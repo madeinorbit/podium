@@ -105,19 +105,21 @@ describe('the dead sync_feed migration', () => {
 
     const reopened = openDatabase(dbPath)
     expect(reopened.prepare('SELECT feed_id, epoch FROM sync_feed').get()).toEqual({
-      feed_id: 'dead-feed',
-      epoch: 'dead-epoch',
+      feed_id: 'live-feed',
+      epoch: restored.epoch,
     })
     expect(issueRevision(reopened)).toEqual(expectedIssueRevision)
     expect(restored.feedId).toBe('live-feed')
-    expect(restored.previousEpoch).toBe('live-epoch')
+    // The restore migrated the file to this build before re-minting (later migrations
+    // bump the epoch, and the keys migration dropped feed_identity, POD-7024): it reports
+    // the epoch it replaced, and the one it minted is new.
+    expect(restored.previousEpoch).toEqual(expect.any(String))
+    expect(restored.previousEpoch).not.toBe(restored.epoch)
     expect(restored.epoch).not.toBe('live-epoch')
 
-    expect(runDrizzleMigrations(reopened, DRIZZLE_MIGRATIONS.slice(0, cut + 1))).toEqual([
-      migration.name,
-    ])
-    expect(hasTable(reopened, 'sync_feed')).toBe(false)
-    expect(hasTable(reopened, 'feed_identity')).toBe(true)
+    expect(runDrizzleMigrations(reopened, DRIZZLE_MIGRATIONS)).toEqual([])
+    expect(hasTable(reopened, 'sync_feed')).toBe(true)
+    expect(hasTable(reopened, 'feed_identity')).toBe(false)
     expect(issueRevision(reopened)).toEqual(expectedIssueRevision)
     reopened.close()
   })

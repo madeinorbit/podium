@@ -1,5 +1,5 @@
-import type { SessionView } from '@podium/client-core/session-values'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
+import { useCommands, useRequestClient } from '@podium/client-core/react'
+import type { SessionView, SessionViewWithLink } from '@podium/client-core/session-values'
 import {
   discoveredPlacement,
   issueNeedsHuman,
@@ -9,7 +9,7 @@ import {
 } from '@podium/client-core/values'
 import type { SessionModel } from '@podium/client-graph/models'
 import {
-  type IssueId,
+  asIssueId,
   type IssueStage,
   isFinished,
   issueStatusControlLabel,
@@ -27,11 +27,11 @@ import {
   MoreHorizontal,
   RotateCcw,
 } from 'lucide-react'
-import { type JSX, lazy, type ReactNode, Suspense, useMemo, useState } from 'react'
+import { type JSX, type ReactNode, Suspense, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { usePoolMachines } from '@/app/header-data'
 import type { IssueViewModel } from '@/app/store'
-import { useRuntimeSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -40,6 +40,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { lazy } from '@/lib/lazy-surface'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_RULE } from '@/lib/menu-surface'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
@@ -115,7 +116,7 @@ export function issueSessions(
 /** Newest-active first, so "the session on this task" is a stable pick. */
 /** The agent-state word a dock session row wears — the vocabulary the rest of
  *  the shell already uses, not a second one. */
-export function sessionStateLabel(session: SessionView): string {
+export function sessionStateLabel(session: SessionViewWithLink): string {
   if (session.archived) return 'Retired'
   if (session.status === 'exited') return 'Exited'
   if (session.status === 'hibernated') return 'Paused'
@@ -124,7 +125,7 @@ export function sessionStateLabel(session: SessionView): string {
   if (phase === 'working') return 'Working'
   if (phase === 'waiting') return 'Waiting on you'
   if (phase === 'done') return 'Done'
-  if (session.status === 'starting' || session.status === 'reconnecting') return 'Starting'
+  if (session.status === 'starting' || session.reconnecting === true) return 'Starting'
   return 'Idle'
 }
 
@@ -270,7 +271,7 @@ export const IssueSessionRow = observer(function IssueSessionRow({
   session: SessionView
   onOpen: () => void
 }): JSX.Element {
-  const renameSession = useRuntimeSelector((s) => s.renameSession)
+  const renameSession = useCommands<Trpc>().sessions.rename
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   const retired =
@@ -376,7 +377,7 @@ export const IssueDecisionBand = observer(function IssueDecisionBand({
 }: {
   issue: IssueViewModel
 }): JSX.Element | null {
-  const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
+  const { trpc } = { trpc: useRequestClient<Trpc>() }
   const sessions = useIssuePageSessions()
   const page = useIssuePageContext()
   const active = page ? sessions : issueSessions(issue, sessions).filter(isOpenSession)
@@ -544,13 +545,11 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   // NAVIGATION, so it left the action row entirely: it is now a named link in
   // the panel's head (`InspectHead`), above the title, where the trail and the
   // other "where am I" chrome lives.
-  const { trpc, updateIssue } = useRuntimeSelector(
-    (s) => ({
-      trpc: s.trpc,
-      updateIssue: s.updateIssue,
-    }),
-    shallowEqual,
-  )
+  const { trpc, updateIssue, startIssueSession } = {
+    trpc: useRequestClient<Trpc>(),
+    updateIssue: useCommands<Trpc>().issues.update,
+    startIssueSession: useCommands<Trpc>().sessions.startIssueSession,
+  }
   const machines = usePoolMachines()
   const resolve = useIssueEdgeResolver()
   const sessions = useIssuePageSessions()
@@ -628,7 +627,10 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   const startWork = (moveTo?: ProposalPlacement): void => {
     setStarting(true)
     const origin = placement?.originId
-    const start = (): Promise<unknown> => trpc.issues.start.mutate({ id: issue.id })
+    // An `issue.begin` record (POD-6526): the starting session paints on the
+    // press; a failure is told once, from the record.
+    const start = (): Promise<unknown> =>
+      startIssueSession({ issueId: asIssueId(issue.id), mode: 'begin' }).settled
     // Nothing to move is the ordinary case, and it stays a DIRECT call: routing
     // it through a resolved promise would delay every plain start by a tick for
     // the sake of one branch's symmetry.

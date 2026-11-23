@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { recordQuery, setThreadReadMeter } from '../query-attribution'
 import {
   attributeQueries,
   queryAttributionSnapshot,
@@ -59,9 +60,17 @@ describe('attributeQueries', () => {
     let released = false
     const db = fakeDatabase()
     const original = db.prepare.bind(db)
-    db.prepare = (sql) => ({ ...original(sql), iterate: function* () {
-      try { yield { id: 1 }; yield { id: 2 } } finally { released = true }
-    } })
+    db.prepare = (sql) => ({
+      ...original(sql),
+      iterate: function* () {
+        try {
+          yield { id: 1 }
+          yield { id: 2 }
+        } finally {
+          released = true
+        }
+      },
+    })
     const iterator = attributeQueries(db, true).prepare('SELECT streamed').iterate!()
     expect(iterator.next().value).toEqual({ id: 1 })
     iterator.return?.()
@@ -117,6 +126,50 @@ describe('attributeQueries', () => {
     const st = attributeQueries(exploding, true).prepare('INSERT INTO t VALUES (?)')
     expect(() => st.run(1)).toThrow('constraint failed')
     expect(queryAttributionSnapshot().get('INSERT INTO t VALUES (?)')?.count).toBe(1)
+  })
+})
+
+/**
+ * POD-7037: the wrapper is the seam that runs a statement synchronously, so the
+ * thread's read counter taken around the call is that statement's reads.
+ */
+describe('bytes read through the wrapper', () => {
+  afterEach(() => {
+    setThreadReadMeter(undefined)
+    resetQueryAttribution()
+  })
+
+  it('measures an armed statement and leaves an unarmed one untouched', () => {
+    let counter = 0
+    setThreadReadMeter(() => counter)
+    const reading: SqlDatabase = {
+      prepare: () => ({
+        run: () => ({ changes: 0, lastInsertRowid: 0 }),
+        get: () => undefined,
+        values: () => [],
+        all: () => {
+          counter += 3 * 1024 * 1024
+          return []
+        },
+      }),
+      exec: () => {},
+      close: () => {},
+    }
+    const db = attributeQueries(reading, true)
+    db.prepare('SELECT * FROM walked').all()
+    db.prepare('SELECT * FROM quick').all()
+    expect(queryAttributionSnapshot().get('SELECT * FROM walked')?.readBytes).toBeUndefined()
+    // One slow execution arms the statement; the next one is measured.
+    recordQuery('SELECT * FROM walked', 40, 0)
+    resetQueryAttribution()
+    db.prepare('SELECT * FROM walked').all()
+    db.prepare('SELECT * FROM quick').all()
+    expect(queryAttributionSnapshot().get('SELECT * FROM walked')).toMatchObject({
+      count: 1,
+      readBytes: 3 * 1024 * 1024,
+      readSamples: 1,
+    })
+    expect(queryAttributionSnapshot().get('SELECT * FROM quick')?.readSamples).toBeUndefined()
   })
 })
 

@@ -74,6 +74,8 @@ export type IssueReport = Omit<
     childCount: number
     childDoneCount: number
     gitState?: IssueGitState
+    /** The assignee's member name, on a shared instance only (POD-6296). */
+    assigneeName?: string
   }
 
 /**
@@ -92,6 +94,8 @@ export interface IssueTreeNode<S = IssueTreeSession> {
   priority: number
   type: string
   assignee?: string
+  /** The assignee's member name, on a shared instance only (POD-6296). */
+  assigneeName?: string
   branch?: string
   needsHuman: boolean
   humanQuestion?: string
@@ -119,6 +123,9 @@ export interface IssueTree<S = IssueTreeSession> {
    *  notice can name them without duplicating the server's defaults (POD-1342). */
   maxDepth: number
   maxNodes: number
+  /** Nodes left out by an `--assignee` filter: a node stays when it or a
+   *  descendant has that assignee, and the root always stays (POD-6296). */
+  assigneeHidden?: number
 }
 
 export interface IssueShowWire<S = IssueTreeSession> {

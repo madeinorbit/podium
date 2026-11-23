@@ -1,5 +1,6 @@
 import { type StreamingFetchPort, SyncFormatError } from '@podium/client-core/sync-stream'
 import type { WorkspaceSelector } from '@podium/client-core/transport'
+import { MEMBER_FENCE_HEADER } from '@podium/protocol'
 import { fetch as expoFetch } from 'expo/fetch'
 import { Platform } from 'react-native'
 import { startupTiming } from '../lib/startup-timing'
@@ -50,15 +51,19 @@ export function createMobileSyncFetch(
   bearer: string | null,
   onAuthExpired?: (error: MobileAuthExpiredError) => void,
   selector?: WorkspaceSelector,
+  /** The member fence (POD-6292): the feed is read only as this member. */
+  member?: string,
 ): StreamingFetchPort {
   return {
     async fetch(input, init) {
       const fetchImpl = Platform.OS === 'web' ? globalThis.fetch : expoFetch
       startupTiming.mark('sync.http.start')
+      const headers = bearerHeaders(bearer, init.headers, selector)
+      if (member !== undefined) headers.set(MEMBER_FENCE_HEADER, member)
       const response = await fetchImpl(input, {
         ...init,
         credentials: Platform.OS === 'web' ? 'include' : 'omit',
-        headers: bearerHeaders(bearer, init.headers, selector),
+        headers,
       })
       startupTiming.mark('sync.http.headers')
       // Preserve status so the shared source maps the refusal to SyncAuthExpiredError.

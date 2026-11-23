@@ -15,6 +15,7 @@
  * The wire protocol is unchanged; apps/server re-exports this module.
  */
 import { createHash } from 'node:crypto'
+import { type CheckResult, normalizeCheckResult } from './connect-check'
 import {
   CONNECT_REQUEST_PREFIX,
   connectRequestMessage,
@@ -22,18 +23,12 @@ import {
   installationPublicKeyWire,
   signWithInstallation,
 } from './installation-identity'
-import type { CheckResult } from './connect-check'
-import {
-  type LocatorEndpoint,
-  type LocatorRecord,
-  resolveLocatorRecord,
-} from './server-follow'
+import { type LocatorEndpoint, type LocatorRecord, resolveLocatorRecord } from './server-follow'
 
+export type { CheckError, CheckResult } from './connect-check'
 // ONE definition, in server-follow (POD-4533, POD-5921): the caps it enforces when parsing a
 // record and the shape callers see must not be able to drift apart.
 export type { LocatorEndpoint, LocatorRecord }
-
-export type { CheckError, CheckResult } from './connect-check'
 
 export type ConnectFailure =
   | { kind: 'http'; status: number; code: string; message: string }
@@ -191,7 +186,7 @@ export function connectClient(deps: ConnectClientDeps): ConnectClient {
         return { ok: false, error: 'CONNECT_UNAVAILABLE', detail }
       }
       try {
-        return (await res.json()) as CheckResult
+        return normalizeCheckResult(url, (await res.json()) as CheckResult)
       } catch {
         return { ok: false, error: 'CONNECT_UNAVAILABLE', detail: 'answer is not JSON' }
       }

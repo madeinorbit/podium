@@ -2,14 +2,17 @@
  * connection, operator cache, export, or second runtime is used by this fixture. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { machineAndRepoRecords } from '@podium/client-core/test-support/machine-records'
 import {
   asIssueId,
   asSessionId,
   asUserId,
   issueUserStateRowId,
+  pinRowId,
   sessionUserStateRowId,
 } from '@podium/model'
 import type { EntityRecord } from '@podium/sync/replica'
+import { compareStructural } from 'mobx'
 
 export function createSidebarFixture(
   count = 18,
@@ -44,6 +47,9 @@ export function createSidebarFixture(
         ]
       : []),
   ]
+  // The registered repositories and their worktrees are checkout records (POD-6644).
+  for (const record of machineAndRepoRecords({ userId, repos: repos as never }))
+    put(record.entity, record.entityId, record.value)
   for (const repo of repos)
     put('repo', repo.repoId, {
       id: repo.repoId,
@@ -90,8 +96,16 @@ export function createSidebarFixture(
       entityId: id,
       readAt,
       tuckedAt: tuckedAt ?? null,
-      pinned,
     })
+    // A pinned task is my pin record (POD-6692), never a marker.
+    if (pinned) {
+      put('pin', pinRowId(asUserId(userId), 'issue', id), {
+        userId,
+        kind: 'issue',
+        entityId: id,
+        pinnedAt: iso(-86400000),
+      })
+    }
     put('issueProjection', id, {
       ...normalized,
       description: { value: '' },
@@ -105,10 +119,6 @@ export function createSidebarFixture(
       cwd: '/synthetic/project',
       title: `Synthetic agent ${i}`,
       status: 'live',
-      controllerId: null,
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 0,
       createdAt: iso(-86400000),
       lastActiveAt: iso(-3600000),
       origin: { kind: 'spawn' },
@@ -149,19 +159,18 @@ export function createSidebarFixture(
       side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
     })
     const deliver = result.onKernelEvent.bind(result)
-    return Object.assign(result, { onKernelEvent(event: Parameters<typeof deliver>[0]) {
-      if (event.type === 'removed' || event.type === 'evicted') exits.set(`${event.entity}:${event.entityId}`, event.type)
-      if (event.type === 'upserted') exits.delete(`${event.record.entity}:${event.record.entityId}`)
-      if (event.type === 'bootstrap-installed') exits.clear()
-      deliver(event)
-    } })
+    return Object.assign(result, {
+      onKernelEvent(event: Parameters<typeof deliver>[0]) {
+        if (event.type === 'removed' || event.type === 'evicted')
+          exits.set(`${event.entity}:${event.entityId}`, event.type)
+        if (event.type === 'upserted')
+          exits.delete(`${event.record.entity}:${event.record.entityId}`)
+        if (event.type === 'bootstrap-installed') exits.clear()
+        deliver(event)
+      },
+    })
   }
   const api = {
-    discovery: {
-      refreshRepos: {
-        mutate: async () => ({ repositories: repos, machines: [], diagnostics: [] }),
-      },
-    },
     settings: { get: { query: async () => ({ sessionDefaults: { agent: 'codex' } }) } },
     features: { state: { query: async () => ({ devMode: true, channel: 'edge', flags: [] }) } },
   } as unknown as PodiumClientApi
@@ -180,6 +189,65 @@ export function createSidebarFixture(
       if (!current) throw new Error(`Unknown synthetic ${entity}:${id}`)
       const record = put(entity, id, { ...(current.value as object), ...patch })
       replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+    },
+    /**
+     * Machines and repositories as their synced records (POD-6644): each
+     * machine's record and my access row, each repository's checkouts. A
+     * repository the input no longer lists loses its checkout records.
+     */
+    putMachinesAndRepos(input: {
+      machines?: readonly ({ id: string } & Record<string, unknown>)[]
+      repos?: readonly ({ path: string; kind: string } & Record<string, unknown>)[]
+    }) {
+      const nextRecords = machineAndRepoRecords({ userId, ...input } as never)
+      const kept = new Set(nextRecords.map((next) => `${next.entity}:${next.entityId}`))
+      if (input.machines)
+        for (const [key, record] of records)
+          if (
+            (record.entity === 'machine' || record.entity === 'machineAccess') &&
+            !kept.has(key)
+          ) {
+            records.delete(key)
+            replica.onKernelEvent({
+              type: 'removed',
+              entity: record.entity,
+              entityId: record.entityId,
+            })
+          }
+      if (input.repos)
+        for (const [key, record] of records)
+          if (record.entity === 'checkout' && !kept.has(key)) {
+            records.delete(key)
+            replica.onKernelEvent({
+              type: 'removed',
+              entity: 'checkout',
+              entityId: record.entityId,
+            })
+          }
+      for (const next of nextRecords) {
+        // The feed publishes changed records. Re-supplying a discovery list
+        // does not create a delta for every unchanged checkout and access row.
+        if (compareStructural(records.get(`${next.entity}:${next.entityId}`)?.value, next.value))
+          continue
+        const record = put(next.entity, next.entityId, next.value)
+        replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+      }
+    },
+    /** Pin or unpin a task for the fixture's user: its `pin` record (POD-6692). */
+    pinIssue(id: string, pinned: boolean) {
+      const pinId = pinRowId(asUserId(userId), 'issue', id)
+      if (pinned) {
+        const record = put('pin', pinId, {
+          userId,
+          kind: 'issue',
+          entityId: id,
+          pinnedAt: iso(-86400000),
+        })
+        replica.onKernelEvent({ type: 'upserted', record, readmitted: false })
+        return
+      }
+      if (!records.delete(`pin:${pinId}`)) return
+      replica.onKernelEvent({ type: 'removed', entity: 'pin', entityId: pinId })
     },
   }
 }

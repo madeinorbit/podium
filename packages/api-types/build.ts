@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { rollup } from 'rollup'
 import { dts } from 'rollup-plugin-dts'
 import ts from 'typescript'
+import { emitCodeDeclarations } from './emit-declarations'
 
 const packageRoot = fileURLToPath(new URL('.', import.meta.url))
 const repositoryRoot = resolve(packageRoot, '../..')
@@ -217,8 +218,7 @@ export type RouterOutputs = TRPC.inferRouterOutputs<AppRouter>
     rootDir: repositoryRoot,
     outDir: declarationRoot,
   }, undefined, program)
-  const emitted = declarations.emit()
-  if (emitted.emitSkipped) throw new Error('API declaration emission failed')
+  emitCodeDeclarations(declarations)
   const declarationPaths = Object.fromEntries(Object.entries(paths).map(([name, targets]) => [
     name, targets.map(target => join(declarationRoot, target.slice(repositoryRoot.length)).replace(/\.tsx?$/, '.d.ts')),
   ]))

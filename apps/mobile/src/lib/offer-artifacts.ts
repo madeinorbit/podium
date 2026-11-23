@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueWithBodies } from '@podium/client-core/replica'
 import { resolveOfferArtifacts } from '@podium/client-core/values'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
@@ -40,7 +40,7 @@ export type OfferArtifactRow = {
  */
 export function offerArtifactRows(args: {
   offer: SessionOffer
-  issue: IssueViewModel | undefined
+  issue: IssueWithBodies | undefined
   /** ISO time of the session's last human input (SessionMeta.lastInputAt). */
   lastInputAt?: string
   httpOrigin: string

@@ -1,4 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueViewModel, IssueWithBodies } from '@podium/client-core/replica'
 /**
  * Pure resolution + state for the floating ref miniview (#474, area 7).
  *
@@ -42,7 +42,6 @@ export type RefIssueLike = Pick<IssueViewModel, 'id' | 'seq' | 'title'> &
       | 'childCount'
       | 'childDoneCount'
       | 'parentId'
-      | 'description'
       | 'updatedAt'
       // Membership, for the card's "Go to session" action: the designated
       // coordinator wins over the merely-most-recent member.
@@ -59,7 +58,9 @@ export type RefIssueLike = Pick<IssueViewModel, 'id' | 'seq' | 'title'> &
       | 'archived'
       | 'deletedAt'
     >
-  >
+  > &
+  // The human summary, its own record (POD-6921): the pool's issue answers it.
+  Partial<Pick<IssueWithBodies, 'description'>>
 
 /** The minimal session shape the resolver needs (a structural subset of SessionMeta). */
 export interface RefSessionLike {

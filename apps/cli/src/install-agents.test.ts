@@ -17,6 +17,7 @@ describe('installAgents', () => {
   const deps = (over: Record<string, unknown> = {}) => ({
     fetch: vi.fn((_url: string, out: string) => writeFileSync(out, '#!/bin/sh\n')),
     run: vi.fn(() => ''),
+    runTool: vi.fn(() => ''),
     env: {} as NodeJS.ProcessEnv,
     ...over,
   })
@@ -36,7 +37,7 @@ describe('installAgents', () => {
     const d = deps()
     const { io } = scriptedIO([])
     await installAgents(io, ['codex', 'grok'], bin, d)
-    const calls = d.run.mock.calls as unknown as [string, string[], NodeJS.ProcessEnv][]
+    const calls = d.runTool.mock.calls as unknown as [string, string[], NodeJS.ProcessEnv][]
     const codex = calls.find((c) => c[2].CODEX_INSTALL_DIR !== undefined)
     expect(codex?.[2]).toMatchObject({ CODEX_NON_INTERACTIVE: '1', CODEX_INSTALL_DIR: bin })
     expect(calls.find((c) => c[2].GROK_BIN_DIR !== undefined)?.[2].GROK_BIN_DIR).toBe(bin)
@@ -58,7 +59,7 @@ describe('installAgents', () => {
     const loud = scriptedIO([])
     const res = await installAgents(loud.io, ['codex'], bin, {
       ...deps(),
-      run: vi.fn(() => {
+      runTool: vi.fn(() => {
         throw new Error('npm WARN deprecated\nvendor exploded')
       }),
     })
@@ -71,7 +72,7 @@ describe('installAgents', () => {
     const { io } = scriptedIO([])
     const res = await installAgents(io, ['codex', 'grok'], bin, {
       ...deps(),
-      run: vi.fn(() => {
+      runTool: vi.fn(() => {
         n++
         if (n === 1) throw new Error('codex exploded')
         return ''

@@ -4,6 +4,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asSessionId, asUserId, firstAdminMemberId } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 // Fixture-only: hand-build a pre-multi-machine ("v3-shape") db. The store under
 // test always goes through the @podium/runtime/sqlite shim; this direct driver use
 // mirrors store.test.ts's own v1-migration fixture and never touches the shim.
@@ -116,7 +117,7 @@ describe('machines store', () => {
       ownerUserId: firstAdminMemberId(),
     })
     await s1.repos.addRepo('/a', s1.hostMachineId)
-    await s1.sessions.upsertSession({
+    await s1.sessions.upsertSession(fixtureWriteScope(), {
       id: asSessionId('s1'),
       ownerUserId: firstAdminMemberId(),
       agentKind: 'shell',
@@ -130,8 +131,8 @@ describe('machines store', () => {
       status: 'live',
       exitCode: null,
       durableLabel: 'podium-s1',
-      createdAt: 'z',
-      lastActiveAt: 'z',
+      createdAt: '2026-07-01T00:00:00.000Z',
+      lastActiveAt: '2026-07-01T00:00:00.000Z',
       lastOutputAt: null,
       lastInputAt: null,
       lastResumedAt: null,

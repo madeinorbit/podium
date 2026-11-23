@@ -17,6 +17,7 @@ afterEach(async () => {
 })
 const meta = {
   type: 'syncMeta',
+  kindTokens: {},
   formatVersion: 1,
   mode: 'snapshot',
   transferId: 't',

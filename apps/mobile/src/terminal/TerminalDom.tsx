@@ -43,8 +43,8 @@ interface TerminalDomProps extends TerminalDomActions {
   /**
    * The session's last-known grid (POD-3239 B1), marshalled across the DOM
    * bridge from the native side's store. Primitives rather than an object
-   * because everything crossing this boundary is serialized, and the pair is
-   * read once at mount.
+   * because everything crossing this boundary is serialized. The shared hook
+   * waits up to 500 ms for this pair before mounting, just as on the web.
    */
   cols?: number
   rows?: number

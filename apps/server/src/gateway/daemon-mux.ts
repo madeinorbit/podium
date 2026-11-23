@@ -128,6 +128,8 @@ const DISPATCH: Dispatcher = {
   agentState: toSessions,
   agentColor: toSessions,
   agentModel: toSessions,
+  agentMode: toSessions,
+  sessionAuth: toSessions,
   agentContext: toSessions,
   agentObservation: toSessions,
   agentObservationRebind: toSessions,
@@ -182,13 +184,14 @@ const DISPATCH: Dispatcher = {
   // conversation discovery and the reply to an RPC. Order matters and is the
   // table's, not a send site's.
   scanResult: (ports, principal, msg) => {
-    ports.conversations.onDiscovery(
+    const discovered = ports.conversations.onDiscovery(
       principal.machine,
       msg.conversations,
       msg.diagnostics,
       msg.removed,
     )
     ports.rpc.settleDaemonReply(principal.machine, msg)
+    return discovered
   },
 
   // ---- RPC replies: ONE correlator, and it is told WHO answered ----
@@ -230,6 +233,12 @@ const DISPATCH: Dispatcher = {
   workspaceCleanResult: toRpc,
   credentialExportResult: toRpc,
   credentialInstallResult: toRpc,
+  oauthLoopbackResult: toRpc,
+  oauthLoopbackCallback: toRpc,
+  homeEnsureResult: toRpc,
+  conversationPrepareResult: toRpc,
+  homeRemoveResult: toRpc,
+  credentialRemoveResult: toRpc,
 
   serverTransferResult: toRpc,
   serverEndpointResult: toRpc,
@@ -259,6 +268,9 @@ const DISPATCH: Dispatcher = {
 
   // ---- THE AGENT COMMAND RELAY. Its own port; nothing else reaches it. ----
   agentRelayRequest: (ports, principal, msg) => ports.agentRelay.run(principal.machine, msg),
+
+  // ---- topics: a daemon-produced value, checked against THIS machine ----
+  topicPublish: (ports, principal, msg) => ports.topics.onTopicPublish(principal.machine, msg),
 }
 
 /** Bus emits the mux owns (machine reachability is a gateway fact, not a session one). */
@@ -317,14 +329,13 @@ export class DaemonMux {
     log.info('daemon attached — the machine is now online', { machineId })
     await machines.flushQueued(machineId)
     await sessions.onMachineAttached(principal)
-    machines.scheduleBroadcastMachines()
     this.deps.bus.emit('machine.connected', { machineId })
   }
 
   /**
    * That daemon's socket closed. `send` identifies WHICH socket: a superseded
-   * socket's late close must not evict the live registration, nor knock this
-   * machine's sessions back to 'reconnecting' behind the daemon's back.
+   * socket's late close must not evict the live registration, nor mark this
+   * machine's sessions as awaiting a rebind behind the daemon's back.
    *
    * `machine.disconnected` is emitted BEFORE the session sweep, preserving the
    * pre-module ordering (the hosts module drops this machine's health sample and
@@ -341,7 +352,6 @@ export class DaemonMux {
     log.info('daemon detached — the machine is now offline', { machineId })
     this.deps.bus.emit('machine.disconnected', { machineId })
     sessions.onMachineDetached(principal)
-    machines.scheduleBroadcastMachines()
   }
 
   routeDaemonOutput(peer: DaemonPeer, batch: DaemonPtyOutputBatch): void {

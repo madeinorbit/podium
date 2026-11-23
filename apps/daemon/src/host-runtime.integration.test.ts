@@ -1,8 +1,15 @@
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { shellCommand } from '@podium/harness'
 import type { AgentSessionHandle } from '@podium/harness/driver/host'
-import { asMachineId, asSessionId, type SessionId } from '@podium/model'
+import {
+  asAgentIdentityId,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  type SessionId,
+} from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { BindingStore } from './binding-store'
@@ -10,8 +17,8 @@ import { buildReport } from './build-report'
 import { createDaemonHostRuntime } from './host-runtime'
 import type { DaemonMachineRuntime } from './runtime/machine-runtime'
 import { isServerDriver } from './runtime/registry'
-import { SERVER_HANDLE_VERB_TIMEOUT_MS } from './runtime/server-teardown-budget'
 import type { ServerReapIo } from './runtime/server-reap'
+import { SERVER_HANDLE_VERB_TIMEOUT_MS } from './runtime/server-teardown-budget'
 import { driverSlotsOver } from './session/driver-slots.js'
 import type { SessionRegistry } from './session/registry.js'
 
@@ -59,6 +66,7 @@ async function createCloseHost(
   const instance = {
     instanceId: 'default',
     instanceUuid: '11111111-1111-4111-8111-111111111111',
+    commitIdentity: () => {},
     runtimeDir: join(root, 'runtime'),
     settingsDir: join(root, 'settings'),
     hookSocketPath: join(root, 'runtime', 'codex-hooks.sock'),
@@ -93,7 +101,7 @@ async function createCloseHost(
         identityDir: join(root, 'identity'),
         machineId: asMachineId('11111111-1111-4111-8111-111111111111'),
         backend: 'none',
-        launch: () => ({ cmd: process.execPath, args: [], cwd: root }),
+        launch: () => shellCommand({ cmd: process.execPath, args: [], cwd: root }),
         hooks: { port: 0, settingsDir: instance.settingsDir },
         agentRelay: { port: 0 },
         discovery: { background: false, cachePath: ':memory:', homeDir: root },
@@ -134,7 +142,10 @@ describe('full-reap daemon close, with the handle only on its session entry (POD
    * every daemon shutdown. The fakes above hold their bindings in a list and
    * cannot see that order; this runtime reads the daemon's own registry.
    */
-  it.each(SERVER_FAMILIES)('$driver: the engine is reaped, not orphaned', async ({ driver, harness }) => {
+  it.each(SERVER_FAMILIES)('$driver: the engine is reaped, not orphaned', async ({
+    driver,
+    harness,
+  }) => {
     const state = { alive: true }
     const calls: string[] = []
     const handle = {
@@ -349,13 +360,31 @@ describe('legacy member recovery at host boot', () => {
         dir: join(fixture.root, 'runtime', 'session-bindings'),
       })
       expect(await store.read(asSessionId('legacy-pane'))).toBeNull()
-      fixture.host.connected({ 'legacy-pane': 'mem_migrated-owner' })
+      // The owner arrives as the server's binding confirmation for the pane: its
+      // delegation (POD-3961), not the retired session-to-owner map.
+      const confirmations = {
+        'legacy-pane': {
+          delegation: {
+            actor: asAgentIdentityId('legacy-pane'),
+            onBehalfOf: asUserId('mem_migrated-owner'),
+            grantedScope: { kind: 'none' as const },
+            parentBindingId: null,
+            revision: 1,
+          },
+          owner: 'mem_migrated-owner',
+          machineId: '11111111-1111-4111-8111-111111111111',
+          closed: false,
+        },
+      }
+      fixture.host.connected(undefined, confirmations)
       await vi.waitFor(async () => {
         const binding = await store.read(asSessionId('legacy-pane'))
-        expect(binding?.delegationHistory.at(-1)?.onBehalfOf).toBe('mem_migrated-owner')
+        // The current delegation is the server's record (POD-3961);
+        // delegationHistory is host evidence only and starts empty.
+        expect(binding?.delegation?.onBehalfOf).toBe('mem_migrated-owner')
         expect(binding?.observations.some((row) => row.value === 'thread-live')).toBe(true)
       })
-      fixture.host.connected({ 'legacy-pane': 'mem_migrated-owner' })
+      fixture.host.connected(undefined, confirmations)
       await fixture.host.close()
       expect(JSON.stringify(await store.read(asSessionId('legacy-pane')))).not.toContain(
         'user:sole',
@@ -367,24 +396,37 @@ describe('legacy member recovery at host boot', () => {
   })
 })
 
-
 describe('detach-only daemon close', () => {
   it('does not retire a surviving server process without reapSessions', async () => {
     const state = { alive: true }
-    const kill = vi.fn(async () => { state.alive = false })
+    const kill = vi.fn(async () => {
+      state.alive = false
+    })
     const disposed = vi.fn()
-    const binding = { sessionId: SESSION, family: 'server', process: { key: 'survivor', pid: 4321 } }
+    const binding = {
+      sessionId: SESSION,
+      family: 'server',
+      process: { key: 'survivor', pid: 4321 },
+    }
     const handle = { binding, kill } as unknown as AgentSessionHandle
-    const { host, sent, cleanup } = await createCloseHost({
-      registeredBindings: () => [handle.binding], serverHandleFor: () => handle,
-      journalledServerProcess: () => undefined, dispose: disposed,
-    }, reapIo(state))
+    const { host, sent, cleanup } = await createCloseHost(
+      {
+        registeredBindings: () => [handle.binding],
+        serverHandleFor: () => handle,
+        journalledServerProcess: () => undefined,
+        dispose: disposed,
+      },
+      reapIo(state),
+    )
     try {
       await host.close()
       expect(state.alive).toBe(true)
       expect(kill).not.toHaveBeenCalled()
       expect(disposed).toHaveBeenCalledOnce()
-      expect(sent.some(message => message.type === 'sessionKillResult')).toBe(false)
-    } finally { await host.close(); cleanup() }
+      expect(sent.some((message) => message.type === 'sessionKillResult')).toBe(false)
+    } finally {
+      await host.close()
+      cleanup()
+    }
   })
 })

@@ -11,24 +11,26 @@
     "test": "bun ../../scripts/validation-admission.ts focused --label @podium/worklist-tests:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
   },
   "devDependencies": {
-    "esbuild": "^0.28.0",
     "@babel/core": "7.29.0",
     "@babel/eslint-parser": "7.29.9",
     "@babel/plugin-syntax-typescript": "7.27.1",
+    "@playwright/test": "^1.60.0",
     "@podium/client-core": "workspace:*",
     "@podium/model": "workspace:*",
+    "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
+    "@types/babel__core": "^7.20.5",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "esbuild": "^0.28.0",
     "eslint": "9.39.2",
     "happy-dom": "^20.10.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "typescript": "^7.0.2",
     "vite": "^8.0.16",
-    "vitest": "5.0.0-beta.6",
-    "@podium/runtime": "workspace:*"
+    "vitest": "5.0.0-beta.6"
   },
   "peerDependencies": {
     "react": ">=19"

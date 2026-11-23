@@ -1,18 +1,15 @@
 import { readFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
-  claudeCodeStateProvider,
-} from './state-provider.js'
-import { configureClaudeTranscriptClassifier } from './instrumentation.js'
-import { claudeProjectSlug, locateClaudeSessionFile } from './state-locate.js'
-import { createTranscriptClassifier } from '../../observer.js'
-import { createClaudeCodeConversationProvider } from './discovery.js'
+  claudeHookAcceptCorrelation,
+  claudePromptTextMatches,
+  promptEchoCorrelation,
+} from '../../accept-correlation.js'
 import { composeAgentInstructions } from '../../instructions.js'
 import {
   type AgentManifest,
-  type DriverId,
   credentialFileReader,
+  type DriverId,
   type HarnessEnvironment,
   isSet,
   promptArgv,
@@ -21,21 +18,27 @@ import {
   supported,
   unsupported,
 } from '../../manifest.js'
-import { claudeChainPaths, claudeCodeTranscript } from './transcript.js'
-import { claudeComposer } from './composer.js'
-import { claudeCodeInstrumentation } from './instrumentation.js'
-import { claudeCredentials } from './credentials.js'
-import { claudeCodeInstall } from './install.js'
-import { claudeCodeCatalog } from './catalog.js'
-import { claudeCodeDescriptor } from './descriptor.js'
-import { claudeUsage } from './usage.js'
-import {
-  claudeHookAcceptCorrelation,
-  claudePromptTextMatches,
-  promptEchoCorrelation,
-} from '../../accept-correlation.js'
+import { classifyClaudeAuthStatus } from '../../manifests/claude-auth-status.js'
 import { claudeTranscriptClassifierRules } from '../../manifests/claude-code-classifier.js'
 import { classifyClaudeLoginStatus } from '../../manifests/claude-login-status.js'
+import { createTranscriptClassifier } from '../../observer.js'
+import { claudeCodeCatalog } from './catalog.js'
+import { claudeComposer } from './composer.js'
+import { claudeConversationFile } from './conversation-file.js'
+import { claudeCredentials } from './credentials.js'
+import { claudeCodeDescriptor } from './descriptor.js'
+import { createClaudeCodeConversationProvider } from './discovery.js'
+import { claudeCodeInstall } from './install.js'
+import {
+  claudeCodeInstrumentation,
+  configureClaudeTranscriptClassifier,
+} from './instrumentation.js'
+import { claudeCodePosture } from './posture.js'
+import { claudeRoots } from './roots.js'
+import { claudeProjectSlug, locateClaudeSessionFile } from './state-locate.js'
+import { claudeCodeStateProvider } from './state-provider.js'
+import { claudeChainPaths, claudeCodeTranscript } from './transcript.js'
+import { claudeUsage } from './usage.js'
 
 configureClaudeTranscriptClassifier(createTranscriptClassifier(claudeTranscriptClassifierRules))
 
@@ -85,6 +88,10 @@ export const claudeCodeManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'claude-session',
+  // CLAUDE_CONFIG_DIR relocates settings, credentials and the projects store
+  // (the credential layout's homeEnvVar). No global hook folder: Claude's
+  // hooks ride per-session settings args.
+  roots: claudeRoots,
   environment: {
     // A daemon started inside Claude carries another conversation's identity.
     // Passing it on makes the child subordinate itself to that session and
@@ -94,6 +101,25 @@ export const claudeCodeManifest: AgentManifest = {
       'CLAUDE_CODE_SESSION_ID',
       'CLAUDE_CODE_ENTRYPOINT',
       'CLAUDE_CODE_EXECPATH',
+    ],
+    // Not an `instanceHome`: SETTING `CLAUDE_CONFIG_DIR` moves `.claude.json`
+    // (identity, onboarding) out of the home root, where Podium's credential
+    // layout keeps it, and re-keys the macOS keychain item to a hash of the
+    // folder. So a named account drops the operator's values instead (POD-6604)
+    // and runs on the defaults under its HOME: `<home>/.claude` and the
+    // unscoped `Claude Code-credentials` item, as it does with no selector set.
+    // The XDG base dirs move Claude too (measured on 2.1.319, POD-6613): an
+    // interactive start installs its own version under
+    // `$XDG_DATA_HOME/claude/versions` and its URL handler under
+    // `$XDG_DATA_HOME/applications`, stages updates in `$XDG_CACHE_HOME/claude`,
+    // locks in `$XDG_STATE_HOME/claude` and reads `$XDG_CONFIG_HOME/anthropic`.
+    operatorSelectors: [
+      'CLAUDE_CONFIG_DIR',
+      'CLAUDE_SECURESTORAGE_CONFIG_DIR',
+      'XDG_DATA_HOME',
+      'XDG_CONFIG_HOME',
+      'XDG_STATE_HOME',
+      'XDG_CACHE_HOME',
     ],
   },
 
@@ -108,7 +134,8 @@ export const claudeCodeManifest: AgentManifest = {
     // bare `login` argument is parsed as the PROMPT — the login terminal came up with
     // Claude answering the word "login" and no auth flow ever ran. `claude auth login`
     // is the real sign-in entry point [POD-1307].
-    loginCommand: supported({ cmd: 'claude', args: ['auth', 'login'] }),
+    loginCommand: supported({ args: ['auth', 'login'] }),
+    signOutCommand: { args: ['auth', 'logout'] },
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       claudeCredentials.identity(credentialFileReader(claudeCredentials, homeDir, env)),
     ),
@@ -117,16 +144,34 @@ export const claudeCodeManifest: AgentManifest = {
       // drift the way the daemon's two Codex credential lists did.
       files: claudeCredentials.files.map((file) => join(file.dirName, file.fileName)),
       compareFreshness: (a, b) =>
-        claudeCredentials.files.find((file) => file.propagatable)?.compareFreshness(a, b) ??
-        null,
+        claudeCredentials.files.find((file) => file.propagatable)?.compareFreshness(a, b) ?? null,
     }),
     // Either one flips Claude Code off the home's OAuth login and onto API-usage
     // billing; an interactive session first stops at a "Detected a custom API key
     // in your environment" modal, whose one-time approval is then remembered per
     // key in `.claude.json` — after which the switch is permanently silent.
     foreignCredentialEnv: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
-    detectLogin(homeDir, env?: HarnessEnvironment) {
-      const configDir = (env ?? process.env).CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')
+    accepts: [
+      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      {
+        type: 'anthropic.claude-token',
+        deliver: { kind: 'env', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+      },
+      { type: 'anthropic.claude-login', deliver: { kind: 'home' } },
+    ],
+    // Claude Code's documented switch: scrub Anthropic and cloud-provider
+    // credentials from the environment of the commands it runs.
+    hideFromCommands: { env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' } },
+    // What a started session is on, in Claude Code's own words (credential
+    // management §9 "Launching"): the same command as the login probe.
+    authStatusProbe: {
+      args: ['auth', 'status'],
+      timeoutMs: 12_000,
+      classify: classifyClaudeAuthStatus,
+    },
+    detectLogin(homeDir, env: HarnessEnvironment) {
+      // The account env (POD-6536): its selector, never the daemon's own.
+      const configDir = claudeRoots(homeDir, env).state
       let contents: string
       try {
         contents = readFileSync(join(configDir, '.credentials.json'), 'utf8')
@@ -161,10 +206,10 @@ export const claudeCodeManifest: AgentManifest = {
   usage: supported(claudeUsage),
   install: supported(claudeCodeInstall),
 
+  posture: claudeCodePosture,
   launch(opts) {
     const instructions = composeAgentInstructions(opts.instructions)
     return {
-      cmd: 'claude',
       args: [
         ...(opts.resume ? ['--resume', opts.resume.value] : []),
         ...(isSet(opts.model) ? ['--model', opts.model] : []),
@@ -183,23 +228,20 @@ export const claudeCodeManifest: AgentManifest = {
     const model = opts.model && opts.model !== 'auto' ? opts.model : undefined
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     return {
-      cmd: 'claude',
       args: [
         '-p',
         ...(sys ? ['--append-system-prompt', sys] : []),
         ...(model ? ['--model', model] : []),
-        // MCP gives the orchestrator Podium's own tools (list/start/steer agents);
-        // --allowedTools pre-approves them (and read-only built-ins) so they run
-        // without a permission prompt in headless print mode.
+        // MCP gives the orchestrator Podium's own tools (list/start/steer
+        // agents). The posture section pre-approves them, by server, so they
+        // run without a permission prompt in headless print mode.
         ...(opts.mcpConfigPath ? ['--mcp-config', opts.mcpConfigPath] : []),
-        ...(opts.allowedTools && opts.allowedTools.length > 0
-          ? ['--allowedTools', opts.allowedTools.join(',')]
-          : []),
       ],
-      // NO trailing prompt positional: --allowedTools is variadic and would
-      // swallow it as junk tool rules, leaving claude promptless ("Input must
-      // be provided either through stdin or as a prompt argument"). `-p` with
-      // stdin is the documented headless mode and dodges ARG_MAX too.
+      // NO trailing prompt positional: the posture section's --allowedTools is
+      // variadic and would swallow it as a tool rule, leaving claude
+      // promptless ("Input must be provided either through stdin or as a
+      // prompt argument"). `-p` with stdin is the documented headless mode and
+      // dodges ARG_MAX too.
       stdin: opts.prompt,
     }
   }),
@@ -285,11 +327,9 @@ export const claudeCodeManifest: AgentManifest = {
   // a fast-path: when one lands, its transcript_path re-points the tail at the
   // live file.
   observer: supported((input, host) => {
-    // Honor a discovery homeDir override (tests / isolated HOME) so the live
-    // tail reads the SAME location the on-demand read source does — otherwise
-    // a daemon run against an isolated home would tail the real ~/.claude and
-    // find nothing.
-    const home = input.homeDir ?? homedir()
+    // The session's account (POD-6536): the live tail reads the SAME folders
+    // the on-demand read source does, and the ones the session child writes.
+    const { account } = input
     const resumeValue = input.resumeValue
     if (resumeValue) {
       void (async () => {
@@ -303,11 +343,16 @@ export const claudeCodeManifest: AgentManifest = {
           cwd: input.cwd,
           resumeValue,
           ...(input.pathHint ? { pathHint: input.pathHint } : {}),
-          homeDir: home,
+          homeDir: account.home,
+          env: account.env,
         })
         host.tailFile(
           located ??
-            join(home, '.claude', 'projects', claudeProjectSlug(input.cwd), `${resumeValue}.jsonl`),
+            join(
+              account.roots.transcripts ?? account.roots.state,
+              claudeProjectSlug(input.cwd),
+              `${resumeValue}.jsonl`,
+            ),
         )
       })()
     } else {
@@ -317,7 +362,7 @@ export const claudeCodeManifest: AgentManifest = {
       // conversation by resume value, so without one this resolves nothing
       // today — the first hook's transcript_path binds the tail instead.
       void (async () => {
-        const paths = await claudeChainPaths({ cwd: input.cwd, homeDir: home })
+        const paths = await claudeChainPaths({ cwd: input.cwd, account })
         const newest = paths.at(-1)
         if (newest) host.tailFile(newest)
       })()
@@ -345,6 +390,7 @@ export const claudeCodeManifest: AgentManifest = {
       if (!path) throw new Error('Claude transcript not found')
       return { path }
     },
+    ...claudeConversationFile,
   }),
 
   // Claude Code's own domains: only the OAuth authorize path is a login; every

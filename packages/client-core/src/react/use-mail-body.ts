@@ -4,8 +4,8 @@
  * An oversized mail reaches the agent as a one-line inbox pointer, so its body
  * never enters the transcript. The chat fetches it through `messages.show` (the
  * ledger's own read gate) only when the reader opens the note, and keeps the
- * last few: a delivered body does not change. The cache belongs to the store
- * handle, so signing out (a new handle) drops it with everything else the
+ * last few: a delivered body does not change. The cache belongs to the client
+ * runtime, so signing out (a new runtime) drops it with everything else the
  * account read. Any mail card that
  * shows a body it was not typed (an outgoing "Note to X", POD-2146) uses the
  * same hook.
@@ -14,7 +14,8 @@
 import { MAIL_VIEW_REFUSED } from '@podium/commands/mail-pointer-nudge'
 import { useEffect, useState } from 'react'
 import type { PodiumClientApi } from '../api'
-import { useStoreHandle } from './provider'
+import { useRequestClient } from './commands'
+import { useClientRuntime } from './runtime-root'
 export interface MailBodyApi {
   messages: { show: { query(input: { id: string }): Promise<unknown> } }
 }
@@ -26,7 +27,7 @@ export type MailBody =
   | { status: 'denied' }
   | { status: 'error'; retry: () => void }
 
-/** Bodies kept per store handle, most recently opened last. */
+/** Bodies kept per client runtime, most recently opened last. */
 const BODIES_KEPT = 50
 const cachesByHandle = new WeakMap<object, Map<string, Promise<string>>>()
 
@@ -51,8 +52,9 @@ export function fetchMailBody(handle: object, trpc: MailBodyApi, id: string): Pr
 
 /** The body of message `id`, fetched on first mount and cached. */
 export function useMailBody(id: string): MailBody {
-  const handle = useStoreHandle<PodiumClientApi & MailBodyApi>()
-  const { trpc } = handle.access
+  // The cache belongs to the runtime, so signing out (a new runtime) drops it.
+  const handle = useClientRuntime<PodiumClientApi & MailBodyApi>()
+  const trpc = useRequestClient<PodiumClientApi & MailBodyApi>()
   const [state, setState] = useState<MailBody>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is the retry trigger.

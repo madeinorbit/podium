@@ -100,16 +100,18 @@ describe('settingsLeafPaths — the instrument, probed first', () => {
 
 describe('the classification is TOTAL over the split shapes', () => {
   it('classifies every leaf of every tier, and the count is non-trivial', () => {
-    // A cardinality a broken walk cannot reach. 55 = 27 personal + 23 instance
-    // + 5 secret; the three parts are pinned separately below so a failure names
-    // which half moved rather than only that the total did. Instance went 13 →
-    // 14 with `hibernation.idleShellMinutes` (POD-565), and 15 → 16 with
-    // `transcripts.mirror` (PDM-26). Personal went 28 → 27 when the unwired
-    // `roles.coding.subagentStrategy` was removed (POD-5917).
-    expect(SETTINGS_CLASSIFICATION.length).toBe(55)
-    expect(settingsPathsInTier('personal-preference').length).toBe(27)
+    // A cardinality a broken walk cannot reach: 34 personal + 23 instance + 2 secret.
+    // The redesign removed sidebar.groupByRepo and gitWorkflow.mergeStyle;
+    // daemonLink.trustedNetworks (credential management §8) added one instance leaf,
+    // credentialDefaults (§9) one personal leaf, and RoleBackend.credentialId one per
+    // role (coding, superagent, background, shipwright). Notice preferences added
+    // three personal leaves; provider API keys now belong to managed credentials.
+    expect(SETTINGS_CLASSIFICATION.length).toBe(59)
+    expect(settingsPathsInTier('personal-preference').length).toBe(34)
     expect(settingsPathsInTier('instance-preference').length).toBe(23)
-    expect(settingsPathsInTier('server-secret').length).toBe(5)
+    expect(settingsPathsInTier('server-secret').length).toBe(2)
+    expect(classifySettingsPath('sidebar.groupByRepo')).toBeUndefined()
+    expect(classifySettingsPath('gitWorkflow.mergeStyle')).toBeUndefined()
   })
 
   it('has no duplicate path — the index cannot silently collapse two leaves', () => {
@@ -123,18 +125,25 @@ describe('the classification is TOTAL over the split shapes', () => {
     expect(classifySettingsPath('notifications.telegramChatId')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('roles.superagent.accountId')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('roles.shipwright.accountId')?.tier).toBe('personal-preference')
-    expect(classifySettingsPath('gitWorkflow.mergeStyle')?.tier).toBe('instance-preference')
+    expect(classifySettingsPath('gitWorkflow.defaultParentBranch')?.tier).toBe(
+      'instance-preference',
+    )
     expect(classifySettingsPath('experimental')?.tier).toBe('instance-preference')
     expect(classifySettingsPath('hibernation.memoryPct')?.tier).toBe('instance-preference')
-    expect(classifySettingsPath('apiKeys.anthropic')?.tier).toBe('server-secret')
+    expect(classifySettingsPath('integrations.linearApiKey')?.tier).toBe('server-secret')
+    expect(classifySettingsPath('apiKeys.anthropic')).toBeUndefined()
+    expect(classifySettingsPath('notifications.notices.mention')?.tier).toBe('personal-preference')
     expect(classifySettingsPath('notifications.telegramBotToken')?.tier).toBe('server-secret')
   })
 
   it('splits the ONE nested `notifications` object across two tiers', () => {
-    // The seam that makes the whole issue necessary: three routing members and
-    // one secret, in one legacy object, on two matrix rows.
+    // Routing and per-kind notice choices are personal preferences; the bot
+    // token is a server secret even though they share a legacy object.
     const notif = SETTINGS_CLASSIFICATION.filter((c) => c.path.startsWith('notifications.'))
     expect(notif.map((c) => `${c.path}=${c.tier}`).sort()).toEqual([
+      'notifications.notices.credentialAttention=personal-preference',
+      'notifications.notices.credentialShared=personal-preference',
+      'notifications.notices.mention=personal-preference',
       'notifications.ntfyTopic=personal-preference',
       'notifications.telegramBotToken=server-secret',
       'notifications.telegramChatId=personal-preference',
@@ -235,7 +244,7 @@ describe('unknown paths: honest lookup, closed answer', () => {
     // unconditionally would pass every refusal assertion above and be useless.
     expect(settingsPathMayReplicate('sidebar.repoSort')).toBe(true)
     expect(settingsPathMayEnqueue('sidebar.repoSort')).toBe(true)
-    expect(settingsPathMayReplicate('gitWorkflow.mergeStyle')).toBe(true)
+    expect(settingsPathMayReplicate('gitWorkflow.defaultParentBranch')).toBe(true)
   })
 
   it('refuses replication and enqueue for EVERY server secret, and for no preference', () => {

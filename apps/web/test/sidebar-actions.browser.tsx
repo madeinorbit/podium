@@ -1,18 +1,19 @@
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real pointer routing on private synthetic rows and the app's single outbox. */
+
+import { asClientPrincipal } from '@podium/client-core/principal'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
 import {
   type ClientRuntime,
   createEngineOutbox,
   type OutboxOutcome,
-} from '@podium/client-core/engine'
-import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+} from '@podium/client-core/runtime-root'
 import { LOADING, type MobxPool } from '@podium/client-graph'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { spreadSortKeys } from '@podium/model'
 import { asUserId } from '@podium/model/browser'
 import { useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { attachWorklistPool, useWorklistPool } from '../src/app/store-worklist-pool'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
@@ -56,17 +57,14 @@ let runtime: ClientRuntime | undefined
 let pool: MobxPool | null = null
 let ready = false
 function Fixture() {
-  const owner = useStoreHandle() as ClientRuntime
+  const owner = useClientRuntime() as ClientRuntime
   const graph = useWorklistPool()
   useEffect(() => {
     runtime = owner
     pool = graph
     const stop = owner.subscribeOutboxOutcomes((outcome) => outcomes.push(outcome))
-    void referenceState(owner)
-      .refreshRepos()
-      .then(() => {
-        ready = graph !== null
-      })
+    // Repositories are in the fixture's checkout records (POD-6644).
+    ready = graph !== null
     return stop
   }, [owner, graph])
   return (

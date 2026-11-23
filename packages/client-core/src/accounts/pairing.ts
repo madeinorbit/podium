@@ -1,11 +1,14 @@
 import {
   CLIENT_WIRE_VERSION,
   decodePairingEnvelope,
+  type HttpsRequiredRefusal,
+  httpsRequiredRefusal,
   MobilePairClaimResponse,
   MobilePairCompleteResponse,
   type MobilePairingEnvelope,
   mobilePairingUrl,
   parseMobilePairingUrl,
+  readHttpsRequiredRefusal,
 } from '@podium/protocol'
 import { parseServerOrigin, workspaceRequestInit } from '../transport'
 import { classifyServerTransport, type ServerTransport } from './server-profiles'
@@ -157,28 +160,27 @@ function timeoutSignal(): AbortSignal | undefined {
     : undefined
 }
 
+function httpsFailure(
+  transport: ServerTransport,
+  guidance: HttpsRequiredRefusal = httpsRequiredRefusal(),
+): ServerPreflight {
+  return {
+    ok: false,
+    kind: 'cleartext-blocked',
+    title: 'Connect with HTTPS',
+    detail: `${guidance.message}\nHTTPS setup: ${guidance.docsUrl}`,
+    transport,
+  }
+}
+
 function transportFailure(origin: string, cause: unknown): ServerPreflight {
   const transport = classifyServerTransport(origin)
-  if (transport === 'tailscale-http') {
-    return {
-      ok: false,
-      kind: 'cleartext-blocked',
-      title: 'Tailscale HTTPS is required',
-      detail:
-        'A 100.x Tailscale address is not an iOS local-network exception. Configure Tailscale Serve and use its https://…ts.net address.',
-      transport,
-    }
-  }
-  if (transport === 'insecure-http') {
-    return {
-      ok: false,
-      kind: 'cleartext-blocked',
-      title: 'Cleartext connection blocked',
-      detail:
-        'Podium will not send credentials to an HTTP hostname. Use Tailscale Serve or a reverse proxy with a trusted certificate.',
-      transport,
-    }
-  }
+  if (
+    transport === 'tailscale-http' ||
+    transport === 'insecure-http' ||
+    transport === 'insecure-lan'
+  )
+    return httpsFailure(transport)
   const message = cause instanceof Error ? cause.message.toLowerCase() : String(cause).toLowerCase()
   if (/certificate|cert |ssl|tls|trust|hostname/.test(message)) {
     return {
@@ -217,30 +219,31 @@ export async function preflightServer(
   const origin = normalizeManualServer(httpOrigin)
   const transport = classifyServerTransport(origin)
   const workspaceSelector = workspaceId ? { workspaceId } : undefined
-  // A DEV build defers LAN HTTP to the real preflight below, which still fails
-  // closed unless the server is in open mode (no credentials to leak). That is
-  // the simulator/Metro rig path; release builds keep failing closed here.
-  // EXPO_PUBLIC_ALLOW_CLEARTEXT is inlined at BUNDLE time: it exists so a
-  // Release build made for the local simulator rig can reach the isolated
-  // test server — it is unset in every real build, and even when set the
-  // preflight below still requires the server to be in open mode.
+  // Release-native HTTP reads only public guidance, never sends a credential
+  // or opens a workspace. Development builds may still probe open LAN fixtures.
   const devBuild = policy.allowDevelopmentLan === true
   if (
     transport === 'tailscale-http' ||
     transport === 'insecure-http' ||
     (policy.native && !devBuild && transport === 'insecure-lan')
   ) {
-    if (transport === 'insecure-lan') {
-      return {
-        ok: false,
-        kind: 'cleartext-blocked',
-        title: 'LAN HTTP is unavailable',
-        detail:
-          'Podium release builds do not permit cleartext native traffic. Use trusted HTTPS or Tailscale Serve.',
+    try {
+      const response = await fetch(
+        `${origin}/auth/status`,
+        workspaceRequestInit(
+          `${origin}/auth/status`,
+          { credentials: 'omit', signal: timeoutSignal() },
+          workspaceSelector,
+        ),
+      )
+      return httpsFailure(
         transport,
-      }
+        readHttpsRequiredRefusal(await response.json().catch(() => null)),
+      )
+    } catch {
+      // Native OS transport policy may block even public discovery over HTTP.
+      return httpsFailure(transport)
     }
-    return transportFailure(origin, new Error('cleartext'))
   }
   try {
     const versionRequest = fetch(
@@ -336,7 +339,11 @@ export async function preflightServer(
     const authResult = await authRequest
     if ('error' in authResult) throw authResult.error
     const authResponse = authResult.response
-    if (!authResponse.ok) throw new Error(`auth status failed: ${authResponse.status}`)
+    if (!authResponse.ok) {
+      const guidance = readHttpsRequiredRefusal(await authResponse.json().catch(() => null))
+      if (guidance) return httpsFailure(transport, guidance)
+      throw new Error(`auth status failed: ${authResponse.status}`)
+    }
     const auth = (await authResponse.json().catch(() => null)) as Record<string, unknown> | null
     if (
       auth === null ||
@@ -359,14 +366,7 @@ export async function preflightServer(
     }
     const mode = auth.needsAuth ? 'protected' : 'open'
     if (transport === 'insecure-lan' && mode === 'protected') {
-      return {
-        ok: false,
-        kind: 'cleartext-blocked',
-        title: 'Secure sign-in required',
-        detail:
-          'This LAN server requires credentials, which Podium will not send over HTTP. Use Tailscale Serve or trusted HTTPS.',
-        transport,
-      }
+      return httpsFailure(transport)
     }
     return {
       ok: true,

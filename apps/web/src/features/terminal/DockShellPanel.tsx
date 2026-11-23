@@ -1,13 +1,14 @@
+import { useRequestClient, useSocketHub, useUiValue } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import { observer } from '@podium/client-graph/react'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
-import type { MachineId, MachineWire, SessionId } from '@podium/model/browser'
+import type { MachineFacts, MachineId, SessionId } from '@podium/model/browser'
 import { machinePathKey } from '@podium/model/browser'
+import { submitNow } from '@podium/protocol'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useRef } from 'react'
-import { useRuntimeSelector } from '@/app/store'
+import type { Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
@@ -48,23 +49,23 @@ export const DockShellPanel = observer(function DockShellPanel({
   cwd: string
   machineId?: MachineId
 }): JSX.Element {
-  const { hub, trpc, setDockShell, setDockVisibleSession } = useRuntimeSelector(
-    (s) => ({
-      hub: s.hub,
-      trpc: s.trpc,
-      setDockShell: s.setDockShell,
-      setDockVisibleSession: s.setDockVisibleSession,
-    }),
-    shallowEqual,
-  )
+  const { hub, trpc, setDockShell, setDockVisibleSession } = {
+    hub: useSocketHub(),
+    trpc: useRequestClient<Trpc>(),
+    setDockShell: useUiValue('setDockShell'),
+    setDockVisibleSession: useUiValue('setDockVisibleSession'),
+  }
   const pendingId = useRef<string | null>(null)
-  const { mapped, session, pendingPresent, hasSessions, reposLoaded, loading } = useDockPaneInputs(
+  // The shell renders under the first-sync gate, so repositories (records,
+  // POD-6644) are already here: nothing more to wait for before resolving.
+  const { mapped, session, pendingPresent, hasSessions, loading } = useDockPaneInputs(
     cwd,
     pendingId.current,
   )
   const machines = usePaneMachines()
   const machineLabel = resolveShellMachineLabel(session, machines, machineId)
-  // Dead = unrevivable in place. 'starting' and 'reconnecting' are HEALTHY
+  // Dead = unrevivable in place. 'starting' (and a live shell whose machine is
+  // reconnecting) are HEALTHY
   // transients — treating them as dead made this effect archive a spawning
   // shell and replace it, looping until the panel closed.
   // Parked (hibernated) is NOT dead (POD-4429): the same session id resumes
@@ -101,7 +102,6 @@ export const DockShellPanel = observer(function DockShellPanel({
   const needsResolve =
     !parked &&
     !loading &&
-    reposLoaded &&
     pendingId.current === null &&
     reconciledFor.current !== resolveKey &&
     (!mapped || !!session || hasSessions)
@@ -120,10 +120,16 @@ export const DockShellPanel = observer(function DockShellPanel({
         // the instant paint until this answer lands, then the server wins
         // (POD-4527). Creation stays a normal shell spawn; a mapped-but-dead
         // shell is archived and replaced server-side.
-        const { sessionId } = await trpc.shells.forWorktree.mutate({
-          worktreePath: cwd,
-          ...(machineId ? { machineId } : {}),
-        })
+        // On the sync write entry point (POD-6419): the shell's start is an
+        // effect record, so the id comes back before the shell runs.
+        // LEGACY(remove-after: 2027-03): an older server takes the old route.
+        const input = { worktreePath: cwd, ...(machineId ? { machineId } : {}) }
+        const { sessionId } = await submitNow<{ sessionId: SessionId; created: boolean }>(
+          trpc,
+          'shells.forWorktree',
+          input,
+          { legacy: async () => await trpc.shells.forWorktree.mutate(input) },
+        )
         pendingId.current = sessionId
         // The server wins: rewrite the cache when it disagrees. The orphaned
         // local shell is NOT archived — it may hold a live process and its
@@ -195,7 +201,7 @@ export const DockShellPanel = observer(function DockShellPanel({
  * useful target indicator while a newly-created session is still arriving. */
 export function resolveShellMachineLabel(
   session: Pick<SessionView, 'machineId' | 'machineName'> | undefined,
-  machines: Pick<MachineWire, 'id' | 'name'>[],
+  machines: Pick<MachineFacts, 'id' | 'name'>[],
   requestedMachineId?: MachineId,
 ): string | undefined {
   if (session?.machineName) return session.machineName
@@ -225,9 +231,8 @@ const DockShellTerminal = observer(function DockShellTerminal({
     sessionId,
     appearance,
     focusWhenReady: true,
-    // Born at W, exactly as the agent panel is (POD-3239 B1). A dock shell is a
-    // terminal like any other; constructing it at 80x24 and moving it is the
-    // same wrong first frame.
+    // Born at W, exactly as the agent panel is (POD-3239 B1). The shared hook
+    // waits briefly for the first size reading requested by this pane.
     ...(geometry ? { initialGeometry: geometry } : {}),
     // Human-facing ref links (#474 / POD-529): clickable PREFIX-N tokens with
     // live stage-coloured underlines when the issue is known.

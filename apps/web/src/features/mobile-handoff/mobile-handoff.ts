@@ -1,3 +1,4 @@
+import { useUiValue } from '@podium/client-core/react'
 import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
 import { workspaceFetch } from '@/lib/workspace-request'
 
@@ -6,7 +7,7 @@ import { workspaceFetch } from '@/lib/workspace-request'
  *
  * Both surfaces emit the shared `podium:` session address understood by the
  * installed phone app. The scope is public server identity, not a credential;
- * pairing and its expiring secret remain owned by Connected devices.
+ * pairing and its expiring secret remain owned by Account → Pair a phone.
  *
  * The QR carries the PUBLIC origin when the instance has one configured, never
  * `location.origin`: the packaged desktop page origin is not the server, and
@@ -21,7 +22,6 @@ import { workspaceFetch } from '@/lib/workspace-request'
  */
 
 import { MOBILE_PROMO_DISMISSED_KEY } from '@podium/client-core/ui-state'
-import { allTabIds, leafPaneIds } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import {
   canonicalPodiumOrigin,
@@ -31,9 +31,7 @@ import {
   parseServerVersion,
   podiumTargetPath,
 } from '@podium/protocol'
-import { useCallback, useEffect, useState } from 'react'
-import { useRuntimeActions, useRuntimeLocal } from '@/app/keyed-runtime'
-import type { Store } from '@/app/store'
+import { useEffect, useState } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 
@@ -97,12 +95,12 @@ export function mobileHandoffUrl(
  * fallback. A session change invalidates the old code before the next query.
  */
 export function useMobileHandoffUrl(
-  trpc: Store['trpc'] | undefined,
+  trpc: import('@/app/trpc').Trpc | undefined,
   httpOrigin: string | undefined,
   sessionId: string | null,
 ): string | null {
   const [published, setPublished] = useState<{
-    trpc: Store['trpc']
+    trpc: import('@/app/trpc').Trpc
     httpOrigin: string
     sessionId: string
     url: string
@@ -163,25 +161,7 @@ export function useMobileHandoffUrl(
 /** The session in the pane the operator is actively using. */
 const FOCUS_ACTIONS = ['workspaceKey'] as const
 export function useFocusedHandoffSessionId(): string | null {
-  const { workspaceKey } = useRuntimeActions(FOCUS_ACTIONS)
-  const workspaces = useRuntimeLocal('workspaces')
-  const paneA = useRuntimeLocal('paneA'),
-    paneB = useRuntimeLocal('paneB')
-  const split = useRuntimeLocal('split'),
-    focus = useRuntimeLocal('focusedPane')
-  // Selection changes can resolve to a different existing layout.
-  const selectedIssueId = useRuntimeLocal('selectedIssueId')
-  const selectedWorktree = useRuntimeLocal('selectedWorktree')
-  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed selection changes invalidate the stable engine resolver.
-  const read = useCallback(() => {
-    const layout = workspaces?.[workspaceKey()]
-    if (!layout || allTabIds(layout).length === 0)
-      return (split && focus === 'B' ? paneB : paneA) ?? null
-    const visible = leafPaneIds(layout.root)
-    const paneId = visible.includes(layout.focusedPaneId) ? layout.focusedPaneId : visible[0]
-    return paneId === undefined ? null : (layout.panes[paneId]?.activeTabId ?? null)
-  }, [workspaceKey, workspaces, paneA, paneB, split, focus, selectedIssueId, selectedWorktree])
-  return useWorklistPoolProjection(read, null)
+  return useUiValue('focusedSessionId')
 }
 
 const readHasFirstTask = (pool: MobxPool): boolean => settingsHasFirstTask(pool) === true

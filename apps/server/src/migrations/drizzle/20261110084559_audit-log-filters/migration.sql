@@ -1,0 +1,2 @@
+CREATE INDEX `settings_audit_events_person` ON `settings_audit_events` (`on_behalf_of`,`id`);--> statement-breakpoint
+CREATE INDEX `settings_audit_events_result` ON `settings_audit_events` (`outcome`,`id`);

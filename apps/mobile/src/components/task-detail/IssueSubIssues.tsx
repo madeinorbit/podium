@@ -2,6 +2,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { confirmedWorkingAgentCountsByIssue, taskStateWord } from '@podium/client-core/values'
 import type { PageIssue } from '@podium/client-graph/issue-page'
+import { childProgressOf } from '@podium/client-graph/lookup'
 import { sidebarIssueProgress } from '@podium/client-graph/worklist/sidebar'
 import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
@@ -23,7 +24,8 @@ import { useDetailLayout } from './detail-type'
 /** FullDeck.buckets reads this same shared execution progress. */
 function useSubTaskCount(issue?: IssueViewModel) {
   const pool = useMobilePool()
-  if (!pool || !issue?.childCount) return undefined
+  // A count over history answers LOADING until the stubs are complete.
+  if (!pool || !issue || !childProgressOf(issue)?.childCount) return undefined
   const progress = sidebarIssueProgress(pool.issueObject(issue.id))
   if (typeof progress === 'symbol') throw progress
   return `${progress.done}/${progress.total}`

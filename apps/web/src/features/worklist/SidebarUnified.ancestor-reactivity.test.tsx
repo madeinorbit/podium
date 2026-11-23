@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
-import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
-import type { ClientRuntime } from '@podium/client-core/engine'
+
 import { asClientPrincipal } from '@podium/client-core/principal'
-import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
+import { StoreProvider, useClientRuntime } from '@podium/client-core/react'
+import type { ClientRuntime } from '@podium/client-core/runtime-root'
 import { asUserId } from '@podium/model/browser'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -19,7 +19,7 @@ let runtime: ClientRuntime
 let pool: ReturnType<typeof useWorklistPool>
 
 function Capture() {
-  runtime = useStoreHandle() as ClientRuntime
+  runtime = useClientRuntime() as ClientRuntime
   pool = useWorklistPool()
   return null
 }
@@ -28,11 +28,15 @@ async function mount() {
   localStorage.clear()
   window.history.replaceState(null, '', '/')
   pool = null
-  const fixture = createSidebarFixture(6, NOW, true, USER)
+  const fixture = createSidebarFixture(8, NOW, true, USER)
   fixture.patch('issueProjection', 'synthetic-2', { parentId: 'synthetic-0' })
   fixture.patch('issueProjection', 'synthetic-3', { parentId: 'synthetic-2' })
   fixture.patch('issueProjection', 'synthetic-4', { parentId: 'synthetic-0' })
   fixture.patch('issueProjection', 'synthetic-5', { parentId: 'synthetic-1' })
+  // Three leaf work units under the old parent, two under the new one.
+  // The intermediate task is a branch, rather than another work unit.
+  fixture.patch('issueProjection', 'synthetic-6', { parentId: 'synthetic-0' })
+  fixture.patch('issueProjection', 'synthetic-7', { parentId: 'synthetic-1' })
   fixture.patch('session', 'synthetic-session-3', {
     agentState: { phase: 'working', since: new Date(NOW - 60_000).toISOString() },
   })
@@ -43,8 +47,14 @@ async function mount() {
       api={fixture.api}
       createReplicaFn={() => fixture.replica}
       networkEnabled={false}
-      onFatalError={message => { throw new Error(message) }}
-      attachRuntime={owner => attachWorklistPool(owner, error => { throw error })}
+      onFatalError={(message) => {
+        throw new Error(message)
+      }}
+      attachRuntime={(owner) =>
+        attachWorklistPool(owner, (error) => {
+          throw error
+        })
+      }
     >
       <ConfirmProvider>
         <Capture />
@@ -52,7 +62,6 @@ async function mount() {
       </ConfirmProvider>
     </StoreProvider>,
   )
-  await act(async () => { await referenceState(runtime).refreshRepos() })
   await waitFor(() => expect(pool).not.toBeNull())
   await waitFor(() => expect(screen.getByText('Synthetic task 0')).toBeTruthy())
   return fixture
@@ -64,7 +73,11 @@ function row(id: string) {
   return body!.closest('[data-testid="unified-issue-row"]')!
 }
 
-afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks() })
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+})
 
 it('updates a mounted ancestor status when a grandchild session asks', async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
@@ -77,7 +90,9 @@ it('updates a mounted ancestor status when a grandchild session asks', async () 
       agentState: { phase: 'idle', idle: { kind: 'question' }, since: new Date(NOW).toISOString() },
     })
   })
-  await waitFor(() => expect(ancestor.querySelector('[title^="Waiting since"]')?.textContent).toBe('now'))
+  await waitFor(() =>
+    expect(ancestor.querySelector('[title^="Waiting since"]')?.textContent).toBe('now'),
+  )
   expect(ancestor.querySelector('[data-phase="waiting"]')).not.toBeNull()
   expect(row('synthetic-0')).toBe(ancestor)
 })

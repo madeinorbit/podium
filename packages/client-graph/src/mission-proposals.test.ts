@@ -35,14 +35,16 @@ function fixture(policy: 'desktop' | 'brief' = 'desktop') {
     }),
   } as unknown as FullDeck
   const submissions = new ProposalSubmissions(full, policy)
-  const commands = {
-    issues: {
-      start: { mutate: vi.fn(async (_input: unknown) => {}) },
-      promote: { mutate: vi.fn(async (_input: unknown) => {}) },
-      close: { mutate: vi.fn(async (_input: unknown) => {}) },
-    },
+  const ports = {
+    promote: vi.fn(async (_input: unknown) => {}),
+    decline: vi.fn(async (_input: unknown) => {}),
+    // An `issue.begin` record, started once durably queued (POD-6526).
+    startIssueSession: vi.fn((args: { issueId: string; mutationId?: string }) => ({
+      issueId: args.issueId,
+      settled: Promise.resolve(true),
+    })),
   }
-  return { state, submissions, commands }
+  return { state, submissions, ports }
 }
 
 it.each<ProposalAction>([
@@ -65,19 +67,16 @@ it.each<ProposalAction>([
   f.submissions.window.appear(id)
   const visible = [...f.submissions.window.visibleRows]
   let resolve = () => {}
-  const command =
-    verb === 'start'
-      ? f.commands.issues.start
-      : verb === 'backlog'
-        ? f.commands.issues.promote
-        : f.commands.issues.close
-  command.mutate.mockImplementationOnce(
-    () =>
-      new Promise<void>((done) => {
-        resolve = done
-      }),
-  )
-  const submitted = f.submissions.submit(id, verb, f.commands)
+  const held = new Promise<void>((done) => {
+    resolve = done
+  })
+  if (verb === 'start')
+    f.ports.startIssueSession.mockImplementationOnce((args) => ({
+      issueId: args.issueId,
+      settled: held.then(() => true),
+    }))
+  else (verb === 'backlog' ? f.ports.promote : f.ports.decline).mockImplementationOnce(() => held)
+  const submitted = f.submissions.submit(id, verb, f.ports as never)
   const mutationId = f.submissions.byId.get(id)?.mutationId
   expect(f.submissions.byId.get(id)?.phase).toBe('pending')
   runInAction(() => {
@@ -104,13 +103,13 @@ it('brief adjacent receipts keep their order when commands publish and expire se
     f.state.ids = ['before', 'first', 'second', 'after']
   })
   const stop = autorun(() => f.submissions.ids)
-  await f.submissions.submit('second', 'backlog', f.commands)
+  await f.submissions.submit('second', 'backlog', f.ports as never)
   runInAction(() => {
     f.state.ids = ['before', 'first', 'after']
   })
   expect(f.submissions.ids).toEqual(['before', 'first', 'second', 'after'])
   vi.advanceTimersByTime(500)
-  await f.submissions.submit('first', 'start', f.commands)
+  await f.submissions.submit('first', 'start', f.ports as never)
   runInAction(() => {
     f.state.ids = ['before', 'after']
   })
@@ -131,7 +130,7 @@ it('brief holds proposal order only until the last receipt expires', async () =>
     f.state.ids = ['before', 'proposal', 'after']
   })
   const stop = autorun(() => f.submissions.ids)
-  await f.submissions.submit('proposal', 'backlog', f.commands)
+  await f.submissions.submit('proposal', 'backlog', f.ports as never)
   runInAction(() => {
     f.state.ids = ['new', 'after', 'before']
   })
@@ -148,7 +147,7 @@ it('desktop keeps its existing live ordering and appends its persistent receipt'
     f.state.ids = ['before', 'proposal', 'after']
   })
   const stop = autorun(() => f.submissions.ids)
-  await f.submissions.submit('proposal', 'start', f.commands)
+  await f.submissions.submit('proposal', 'start', f.ports as never)
   runInAction(() => {
     f.state.ids = ['after', 'before']
   })
@@ -163,7 +162,7 @@ it.each([
   vi.useFakeTimers()
   const f = fixture(policy)
   const stop = autorun(() => f.submissions.acceptedTree)
-  await f.submissions.submit('proposal', 'start', f.commands)
+  await f.submissions.submit('proposal', 'start', f.ports as never)
   runInAction(() => {
     f.state.ids = []
     f.state.rowIds = ['accepted', 'proposal']
@@ -188,7 +187,7 @@ it.each([
     f.state.rowIds = []
   })
   const stop = autorun(() => f.submissions.acceptedTree)
-  await f.submissions.submit('proposal', 'start', f.commands)
+  await f.submissions.submit('proposal', 'start', f.ports as never)
   runInAction(() => {
     f.state.ids = []
     f.state.rowIds = ['proposal']
@@ -214,7 +213,7 @@ it('brief withholds a promoted task and its visible descendants until the receip
     f.state.depths = { child: 1, grandchild: 2 }
   })
   const stop = autorun(() => f.submissions.acceptedTree)
-  await f.submissions.submit('proposal', 'start', f.commands)
+  await f.submissions.submit('proposal', 'start', f.ports as never)
   runInAction(() => {
     f.state.ids = ['neighbour']
     f.state.rowIds = ['before', 'proposal', 'child', 'grandchild', 'after']
@@ -238,7 +237,7 @@ it.each<ProposalAction>([
   vi.useFakeTimers()
   const f = fixture('brief')
   const stop = autorun(() => f.submissions.ids)
-  await f.submissions.submit('proposal', verb, f.commands)
+  await f.submissions.submit('proposal', verb, f.ports as never)
   runInAction(() => {
     f.state.ids = []
     f.state.abandoned = verb === 'dismiss'
@@ -257,14 +256,14 @@ it.each<ProposalAction>([
   f.submissions.expireReceipts()
   expect(f.submissions.ids).toEqual([])
   expect(f.submissions.receiptDeadline).toBeNull()
-  await f.submissions.submit('proposal', verb, f.commands)
-  const command =
+  await f.submissions.submit('proposal', verb, f.ports as never)
+  const write =
     verb === 'start'
-      ? f.commands.issues.start
+      ? f.ports.startIssueSession
       : verb === 'backlog'
-        ? f.commands.issues.promote
-        : f.commands.issues.close
-  expect(command.mutate).toHaveBeenCalledOnce()
+        ? f.ports.promote
+        : f.ports.decline
+  expect(write).toHaveBeenCalledOnce()
   stop()
 })
 
@@ -275,7 +274,7 @@ it.each<ProposalAction>([
 ])('desktop %s receipt keeps its existing lifetime', async (verb) => {
   const f = fixture()
   const stop = autorun(() => f.submissions.ids)
-  await f.submissions.submit('proposal', verb, f.commands)
+  await f.submissions.submit('proposal', verb, f.ports as never)
   runInAction(() => {
     f.state.ids = []
   })
@@ -286,19 +285,23 @@ it.each<ProposalAction>([
   stop()
 })
 
-it('uses the existing direct Start command, guards repeated submission and retries with one mutation ID', async () => {
+it('starts through an issue.begin record, guards repeated submission and retries with one mutation ID', async () => {
   const f = fixture('brief')
-  f.commands.issues.start.mutate.mockRejectedValueOnce(new Error('Offline'))
-  await f.submissions.submit('proposal', 'start', f.commands)
-  expect(f.submissions.byId.get('proposal')?.error).toBe('Offline')
-  const mutationId = f.commands.issues.start.mutate.mock.calls[0]?.[0]
+  f.ports.startIssueSession.mockReturnValueOnce({
+    issueId: 'proposal',
+    settled: Promise.resolve(false),
+  })
+  await f.submissions.submit('proposal', 'start', f.ports as never)
+  expect(f.submissions.byId.get('proposal')?.error).toBe("Couldn't start the task")
+  const first = f.ports.startIssueSession.mock.calls[0]?.[0]
+  expect(first).toMatchObject({ issueId: 'proposal', mode: 'begin' })
   await Promise.all([
-    f.submissions.submit('proposal', 'start', f.commands),
-    f.submissions.submit('proposal', 'start', f.commands),
+    f.submissions.submit('proposal', 'start', f.ports as never),
+    f.submissions.submit('proposal', 'start', f.ports as never),
   ])
-  expect(f.commands.issues.start.mutate).toHaveBeenCalledTimes(2)
-  expect(f.commands.issues.start.mutate).toHaveBeenLastCalledWith(mutationId)
-  expect(f.commands.issues.promote.mutate).not.toHaveBeenCalled()
+  expect(f.ports.startIssueSession).toHaveBeenCalledTimes(2)
+  expect(f.ports.startIssueSession.mock.calls[1]?.[0].mutationId).toBe(first?.mutationId)
+  expect(f.ports.promote).not.toHaveBeenCalled()
 })
 
 it.each([
@@ -307,20 +310,21 @@ it.each([
 ] as const)('%s drops a declined proposal when publication beats a command refusal', async (policy) => {
   const f = fixture(policy)
   const stop = autorun(() => f.submissions.ids)
-  let refuse = (_error: Error) => {}
-  f.commands.issues.start.mutate.mockImplementationOnce(
-    () =>
-      new Promise<void>((_resolve, reject) => {
-        refuse = reject
-      }),
-  )
-  const command = f.submissions.submit('proposal', 'start', f.commands)
+  // The issue.begin record is refused only after the decline was published.
+  let refuse = () => {}
+  f.ports.startIssueSession.mockImplementationOnce((args) => ({
+    issueId: args.issueId,
+    settled: new Promise<boolean>((resolve) => {
+      refuse = () => resolve(false)
+    }),
+  }))
+  const command = f.submissions.submit('proposal', 'start', f.ports as never)
   runInAction(() => {
     f.state.ids = []
     f.state.abandoned = true
   })
   expect(f.submissions.ids).toEqual(policy === 'brief' ? ['proposal'] : [])
-  refuse(new Error('Proposal already declined'))
+  refuse()
   await command
   expect(f.submissions.byId.get('proposal')?.phase).toBe('error')
   expect(f.submissions.ids).toEqual([])

@@ -31,6 +31,7 @@ export function HostedSignInButton({
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityState={{ busy, disabled: busy }}
+        aria-busy={busy}
         disabled={busy}
         style={
           variant === 'primary'

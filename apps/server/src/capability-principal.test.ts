@@ -1,11 +1,17 @@
-import { asMachineId, asSessionId, asUserId, type Capability, spawnedByParentSessionId } from '@podium/model'
+import {
+  asMachineId,
+  asSessionId,
+  asUserId,
+  type Capability,
+  spawnedByParentSessionId,
+} from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { describe, expect, it } from 'vitest'
 import { capabilityPrincipalResolver } from './capability-principal'
 import { resolvePrincipalAsync } from './command-principal'
-import type { SessionStore } from './store'
-import { openTestStore } from './test-support/open-test-store'
-import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
 import type { SessionRow } from './store/types'
+import { openPeopleStoreSlice, type PeopleStoreSlice } from './test-support/people-store-slice'
+import { expectConstantStatements, type StatementPin } from './test-support/statement-count'
 
 const ALICE = asUserId('user:alice')
 const BOB = asUserId('user:bob')
@@ -39,12 +45,13 @@ const row = (id: string, owner = BOB, spawnedBy: string | null = null): SessionR
 })
 
 /** `size` unrelated sessions plus a root → child → grandchild spawn chain owned by Alice. */
-async function fixture(size: number): Promise<SessionStore> {
-  const store = await openTestStore(':memory:')
-  for (let i = 0; i < size; i++) await store.sessions.upsertSession(row(`other-${i}`))
-  await store.sessions.upsertSession(row('root', ALICE))
-  await store.sessions.upsertSession(row('child', BOB, 'session:root'))
-  await store.sessions.upsertSession(row('grandchild', BOB, 'session:child'))
+async function fixture(size: number): Promise<PeopleStoreSlice> {
+  const store = await openPeopleStoreSlice()
+  for (let i = 0; i < size; i++)
+    await store.sessions.upsertSession(fixtureWriteScope(), row(`other-${i}`))
+  await store.sessions.upsertSession(fixtureWriteScope(), row('root', ALICE))
+  await store.sessions.upsertSession(fixtureWriteScope(), row('child', BOB, 'session:root'))
+  await store.sessions.upsertSession(fixtureWriteScope(), row('grandchild', BOB, 'session:child'))
   return store
 }
 
@@ -55,24 +62,30 @@ const agent = (id: string): Capability =>
     scope: { kind: 'none' },
   }) as unknown as Capability
 
-/** The resolver as relay.ts composed it before POD-6149: two reads of the root row. */
-const legacyResolver = (store: SessionStore) => (capability: Capability) =>
+/**
+ * The resolver as relay.ts composed it before POD-6149: two reads of the root row.
+ * Over the sessions repository NOT drained: a read captures nothing, and on Postgres
+ * the drain's own statements would be counted with the reads.
+ */
+const legacyResolver = (store: PeopleStoreSlice) => (capability: Capability) =>
   resolvePrincipalAsync(capability, {
     parentSessionOf: async (candidate) =>
-      spawnedByParentSessionId((await store.sessions.getSession(asSessionId(candidate)))?.spawnedBy),
+      spawnedByParentSessionId(
+        (await store.undrained.sessions.getSession(asSessionId(candidate)))?.spawnedBy,
+      ),
     onBehalfOfFor: async (candidate) =>
-      (await store.sessions.getSession(asSessionId(candidate)))?.ownerUserId,
+      (await store.undrained.sessions.getSession(asSessionId(candidate)))?.ownerUserId,
   })
 
 const pin = (
   name: string,
-  resolve: (store: SessionStore) => (capability: Capability) => Promise<unknown>,
+  resolve: (store: PeopleStoreSlice) => (capability: Capability) => Promise<unknown>,
   actor: string,
   expected: object,
-): StatementPin<SessionStore> => ({
+): StatementPin<PeopleStoreSlice> => ({
   name,
   setup: fixture,
-  target: (store) => store,
+  target: (store) => store.probeTarget,
   run: async (store) => await resolve(store)(agent(actor)),
   check: (result) => expect(result).toMatchObject(expected),
   teardown: async (store) => await store.close(),
@@ -81,7 +94,7 @@ const pin = (
 describe('capability → principal resolution', () => {
   it('reads a root agent session once, whatever the number of sessions', async () => {
     await expectConstantStatements(
-      pin('root agent', (s) => capabilityPrincipalResolver(s.sessions), 'root', {
+      pin('root agent', (s) => capabilityPrincipalResolver(s.undrained.sessions), 'root', {
         kind: 'agent',
         onBehalfOf: ALICE,
         chain: [],
@@ -100,10 +113,18 @@ describe('capability → principal resolution', () => {
   it('reads each link of a spawn chain once, the root owner from the walk', async () => {
     const expected = { kind: 'agent', onBehalfOf: ALICE, chain: ['child', 'root'] }
     await expectConstantStatements(
-      pin('grandchild agent', (s) => capabilityPrincipalResolver(s.sessions), 'grandchild', expected),
+      pin(
+        'grandchild agent',
+        (s) => capabilityPrincipalResolver(s.undrained.sessions),
+        'grandchild',
+        expected,
+      ),
       3,
     )
-    await expectConstantStatements(pin('legacy grandchild agent', legacyResolver, 'grandchild', expected), 4)
+    await expectConstantStatements(
+      pin('legacy grandchild agent', legacyResolver, 'grandchild', expected),
+      4,
+    )
   })
 
   it('answers exactly what the old resolver answered', async () => {
@@ -130,7 +151,10 @@ describe('capability → principal resolution', () => {
         const resolve = capabilityPrincipalResolver(store.sessions)
         expect(await resolve(agent('root'))).toMatchObject({ onBehalfOf: ALICE, chain: [] })
         // The owner column is immutable on upsert; the parent link is not.
-        await store.sessions.upsertSession(row('root', ALICE, 'session:other-1'))
+        await store.sessions.upsertSession(
+          fixtureWriteScope(),
+          row('root', ALICE, 'session:other-1'),
+        )
         expect(await resolve(agent('root'))).toMatchObject({ onBehalfOf: BOB, chain: ['other-1'] })
       })
     } finally {

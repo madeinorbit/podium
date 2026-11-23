@@ -1,92 +1,155 @@
+import { lastValue, type Reading } from '@podium/client-core/live'
 import { modelShares, projectCostShares, usageSummary } from '@podium/client-core/values'
 import { lazy } from '@podium/mobx-helpers'
 import type { MachineQuotaWire, TaskCostRowWire, UsageBucketWire } from '@podium/model'
-import { action, observable, runInAction } from 'mobx'
+import type { AccountUsagePayload } from '@podium/protocol'
+import { action, observable, observableRef, untracked } from 'mobx'
 import type { MobxPool } from './pool'
-import { RequestAnswer } from './request-answer'
 import { TaskCostView } from './task-cost-view'
 
-interface PulseReading {
-  buckets: UsageBucketWire[]
-  nowMs: number
-}
-
-/** One Pulse opening, with independent usage, quota and task-cost answers.
- * Usage commits the harvest before cost.tasks reads it. A failed reading keeps
- * its previous answer without hiding healthy readings. Concurrent refreshes join. */
-export class PulseView extends RequestAnswer<PulseReading> {
+/**
+ * One Pulse opening (POD-2379, POD-2385, POD-2391) on the pushed readings of
+ * POD-5798.
+ *
+ * QUOTA AND USAGE ARE LIVE VALUES. The server pushes this account's quota on
+ * `account.quota` (held for the app's life) and its usage on `account.usage`;
+ * the LiveStore holds them. Reading {@link buckets} from an observer is what
+ * holds `account.usage`, so the server harvests only while Pulse is on screen.
+ * When the connection drops the last value stays as "last read", so each
+ * reading fails on its own and never hides a healthy one.
+ *
+ * TASK COSTS STAY A REQUEST (`cost.tasks` is a ranked table, not a condition).
+ * The server folds their rows inside the usage harvest, before the usage value
+ * is pushed, so the screen asks again whenever {@link usageStamp} moves. The
+ * project shares divide by the usage total that request was asked against.
+ */
+export class PulseView {
   readonly costs: TaskCostView
-  readonly quota = new RequestAnswer<MachineQuotaWire[]>()
-  // The denominator belongs to the accepted cost harvest, not the latest usage poll.
   @observable private accessor costWindowTotalUsd: number | null = null
-  // Stored on open: the loading calendar stays still until a harvest replaces it.
+  /** The demo build's figures, read in place of the live values. */
+  @observableRef private accessor fixture: {
+    buckets: UsageBucketWire[]
+    quota: MachineQuotaWire[]
+    at: number
+  } | null = null
+  // Stored on open: the loading calendar stays still until a reading replaces it.
   private readonly openedAt = Date.now()
-  private pendingUsage: Promise<void> | undefined
-  private pendingQuota: Promise<void> | undefined
-  private generation = 0
+  /** The screen is focused: only then does reading usage hold `account.usage`. */
+  @observable private accessor active = true
+  /** The usage reading as it stood when the screen lost focus, shown on return
+   *  until the topic answers again. */
+  @observableRef private accessor heldUsage: Reading<AccountUsagePayload> | undefined = undefined
+  /** When each usage value was first received, so a later disconnect cannot
+   *  move the clock its figures are derived against. */
+  private readonly receivedAt = new WeakMap<object, number>()
 
-  constructor(pool: MobxPool) {
-    super()
+  constructor(private readonly pool: MobxPool) {
     this.costs = new TaskCostView(pool)
   }
 
-  @action refresh(
-    usage: () => Promise<{ buckets: UsageBucketWire[] }>,
-    costs: () => Promise<readonly TaskCostRowWire[]>,
-    quota?: () => Promise<MachineQuotaWire[]>,
-  ): Promise<void> {
-    const usageAndCosts = this.refreshUsage(usage, costs)
-    return quota
-      ? Promise.all([usageAndCosts, this.refreshQuota(quota)]).then(() => undefined)
-      : usageAndCosts
+  private get usageReading(): Reading<AccountUsagePayload> | undefined {
+    return this.active ? this.pool.live?.usage() : this.heldUsage
   }
 
-  @action refreshQuota(read: () => Promise<MachineQuotaWire[]>): Promise<void> {
-    if (this.pendingQuota) return this.pendingQuota
-    const pending = this.quota.load(read)
-    this.pendingQuota = pending
-    void pending.finally(() => {
-      if (this.pendingQuota === pending) this.pendingQuota = undefined
-    })
-    return pending
+  /**
+   * Focus follows the tab. Leaving Pulse stops reading `account.usage`, so the
+   * server stops harvesting transcripts for a screen nobody sees; the last
+   * reading stays on screen for the return.
+   */
+  @action setActive(active: boolean): void {
+    if (this.active === active) return
+    // untracked-read: pulse-held-usage
+    if (!active) this.heldUsage = untracked(() => this.pool.live?.usage())
+    this.active = active
   }
 
-  @action refreshUsage(
-    usage: () => Promise<{ buckets: UsageBucketWire[] }>,
-    costs: () => Promise<readonly TaskCostRowWire[]>,
-  ): Promise<void> {
-    if (this.pendingUsage) return this.pendingUsage
-    const generation = this.generation
-    let reading: PulseReading | undefined
-    const usageAndCosts = this.load(async () => {
-      const result = await usage()
-      reading = { buckets: result.buckets, nowMs: Date.now() }
-      return reading
-    }).then(async () => {
-      // A blur during usage must not start the next network read. A failed
-      // harvest cannot supply a denominator for a new task-cost answer either.
-      if (generation !== this.generation) return
-      if (!reading) {
-        runInAction(() => {
-          this.costs.error = this.error
-        })
-        return
-      }
-      const total = this.summary.week.estCostUsd
-      await this.costs.load(costs, false, (tasks) => {
-        this.costWindowTotalUsd = total
-        return tasks
-      })
+  private get quotaReading() {
+    return this.pool.live?.quota
+  }
+
+  /** Null until this run has had a usage value (the one cold state), or when
+   *  the server answered without usage. */
+  @lazy get buckets(): UsageBucketWire[] | null {
+    if (this.fixture) return this.fixture.buckets
+    return lastValue(this.usageReading)?.buckets ?? null
+  }
+
+  /**
+   * The usage reading's own clock, which every figure is derived against: the
+   * daemon's scan time when it sent one, else when the value arrived. Both
+   * belong to the value, so a dropped connection leaves the figures as they
+   * were while the screen says they are the last reading.
+   */
+  @lazy get usageAt(): number | null {
+    if (this.fixture) return this.fixture.at
+    const reading = this.usageReading
+    const value = lastValue(reading)
+    if (!reading || !value) return null
+    const sampled = Date.parse(value.sampledAt ?? '')
+    if (Number.isFinite(sampled)) return sampled
+    if (reading.known && !this.receivedAt.has(value)) this.receivedAt.set(value, reading.at)
+    return this.receivedAt.get(value) ?? (reading.known ? reading.at : reading.since)
+  }
+
+  /** Moves when a fresh usage value lands: the harvest that folds the task-cost
+   *  rows has run. Null while no fresh value is known. */
+  @lazy get usageStamp(): number | null {
+    const reading = this.usageReading
+    return reading?.known && reading.value !== null ? reading.at : null
+  }
+
+  /** What is on screen is not current: the connection was lost (the last value
+   *  is kept), or the server answered without usage (no machine may read this
+   *  account's transcripts, or the scan failed). */
+  @lazy get usageFailed(): boolean {
+    if (this.fixture) return false
+    const reading = this.usageReading
+    if (!reading) return false
+    const value = lastValue(reading)
+    return value === null || (value !== undefined && !reading.known)
+  }
+
+  /** Null until this run has had a quota value. */
+  @lazy get quota(): MachineQuotaWire[] | null {
+    if (this.fixture) return this.fixture.quota
+    return lastValue(this.quotaReading)?.machines ?? null
+  }
+
+  @lazy get quotaAt(): number | null {
+    if (this.fixture) return this.fixture.at
+    const reading = this.quotaReading
+    if (!reading) return null
+    if (reading.known) return reading.at
+    return reading.last !== undefined ? reading.since : null
+  }
+
+  /** The connection was lost; the quota on screen is the last value. */
+  @lazy get quotaFailed(): boolean {
+    if (this.fixture) return false
+    const reading = this.quotaReading
+    return reading !== undefined && !reading.known && reading.last !== undefined
+  }
+
+  /** The demo build: fixed figures instead of the live values. */
+  @action showFixture(buckets: UsageBucketWire[], quota: MachineQuotaWire[]): void {
+    this.fixture = { buckets, quota, at: Date.now() }
+  }
+
+  /**
+   * Asks for the task-cost rows; of overlapping asks only the newest lands. The
+   * rows were folded by the harvest behind the usage on screen when asked, so
+   * the project shares divide by that usage total, not by a later push.
+   */
+  @action refreshCosts(read: () => Promise<readonly TaskCostRowWire[]>): Promise<void> {
+    const total = this.summary.week.estCostUsd
+    return this.costs.load(read, false, (tasks) => {
+      this.costWindowTotalUsd = total
+      return tasks
     })
-    this.pendingUsage = usageAndCosts
-    void usageAndCosts.finally(() => {
-      if (this.pendingUsage === usageAndCosts) this.pendingUsage = undefined
-    })
-    return usageAndCosts
   }
 
   @lazy get summary() {
-    return usageSummary(this.answer?.buckets ?? [], this.answer?.nowMs ?? this.openedAt)
+    return usageSummary(this.buckets ?? [], this.usageAt ?? this.openedAt)
   }
 
   @lazy get models() {
@@ -99,19 +162,12 @@ export class PulseView extends RequestAnswer<PulseReading> {
       : null
   }
 
-  @action override cancel(): void {
-    ++this.generation
-    super.cancel()
+  @action cancel(): void {
     this.costs.cancel()
-    this.quota.cancel()
-    this.pendingUsage = undefined
-    this.pendingQuota = undefined
   }
 
   dispose(): void {
-    this.close()
     this.costs.dispose()
-    this.quota.close()
   }
 }
 

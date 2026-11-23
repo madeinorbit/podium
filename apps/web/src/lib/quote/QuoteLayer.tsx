@@ -244,6 +244,7 @@ export function QuoteLayer({ chord }: { chord: string }): JSX.Element | null {
   if (typeof document === 'undefined') return null
   return createPortal(
     <button
+      data-pressable
       ref={pillRef}
       type="button"
       className="quote-pill"

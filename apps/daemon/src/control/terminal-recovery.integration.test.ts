@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { createTerminalRuntime } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import { createDurableProcess, killHostSession, resolveHostBin, spawnHostAgent } from '@podium/process/durable'
 import type { DurableAttachment } from '@podium/process/screen'
@@ -8,11 +9,11 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { expect, it } from 'vitest'
 import { daemonRuntimeHost } from '../runtime/host'
 import { terminalProfileFor } from '../runtime/registry'
-import { createTerminalRuntime } from '@podium/harness/driver/host'
 import { driverSlotsOver } from '../session/driver-slots.js'
-import { forgetSessionScreen, snapshotLines } from '../session-screens'
-import type { DaemonContext } from './context'
 import { testSessions } from '../session/testing.js'
+import { forgetSessionScreen, snapshotLines } from '../session-screens'
+import { memoryMarkers, SessionAccessStore } from './access'
+import type { DaemonContext } from './context'
 
 it('rebuilds the screen from a durable survivor, and a link-B reattach never signals the existing bridge (POD-4723)', async () => {
   const root = mkdtempSync(join(tmpdir(), 'terminal-recovery-'))
@@ -77,6 +78,7 @@ it('rebuilds the screen from a durable survivor, and a link-B reattach never sig
       reattachGate: (fn: () => Promise<void>) => fn(),
       tailSeedGate: () => {},
       send: (msg: DaemonMessage) => sent.push(msg),
+      access: new SessionAccessStore({ markers: memoryMarkers() }),
     } as unknown as DaemonContext
     const host = daemonRuntimeHost(ctx, ctx.send)
     const runtime = createTerminalRuntime(host, undefined, driverSlotsOver(ctx.sessions))

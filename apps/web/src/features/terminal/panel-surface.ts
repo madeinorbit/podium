@@ -40,7 +40,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { PanelMode } from '@podium/client-core/ui-state'
 import type { TerminalOutlook } from '@podium/client-core/values'
 import { isMachineOfflineForLiveTerminal } from '@podium/model'
-import type { MachineWire, SessionStatus } from '@podium/model/browser'
+import type { MachineFacts, SessionStatus } from '@podium/model/browser'
 
 /** The two live views. Identical to the persisted `PanelMode` — a live panel's
  *  view IS the panel mode; the read-only surfaces have no mode. */
@@ -260,7 +260,7 @@ export function panelChatCapable(
 /**
  * THE NAME OF THE MACHINE A LIVE PANEL CANNOT REACH, or null (POD-4629).
  *
- * A session whose machine went away keeps a `live`/`reconnecting` row, so the
+ * A session whose machine went away keeps a `live` row, so the
  * surface stays `live` and the terminal mounts. The server answers the attach
  * without the daemon, and a PTY that ever spoke reads `outputSeen`, so the
  * startup overlay correctly steps aside — and the operator got an empty
@@ -279,7 +279,7 @@ export function panelChatCapable(
  */
 export function panelOfflineMachine(
   session: Pick<SessionView, 'machineId' | 'machineName'> | undefined,
-  machines: readonly Pick<MachineWire, 'id' | 'name' | 'online' | 'availability'>[],
+  machines: readonly Pick<MachineFacts, 'id' | 'name' | 'online' | 'availability'>[],
 ): string | null {
   if (!session?.machineId) return null
   const machine = machines.find((m) => m.id === session.machineId)

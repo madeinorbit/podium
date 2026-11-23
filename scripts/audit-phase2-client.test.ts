@@ -100,7 +100,7 @@ describe('phase-2 client audit — every detector can say NO', () => {
     // Both platforms, because the brief names both homes and a detector that only
     // knew the web one would certify mobile by never looking.
     const found = perUserStateLocalHome(
-      lines('apps/mobile/src/x.ts', "void AsyncStorage.setItem('pinnedAt:' + id, stamp)"),
+      lines('apps/mobile/src/x.ts', "void AsyncStorage.setItem('readAt:' + id, stamp)"),
     )
     expect(found).toHaveLength(1)
   })
@@ -314,8 +314,11 @@ describe('phase-2 client audit — the composition-root detector', () => {
 
 describe('phase-2 client audit — the POD-404 principal-boundary detectors', () => {
   const PROVIDER = 'packages/client-core/src/react/provider.tsx'
-  const RUNTIME = 'packages/client-core/src/engine/runtime.ts'
-  const WIRING = 'packages/client-core/src/engine/wiring.ts'
+  const RUNTIME = 'packages/client-core/src/runtime-root/root.ts'
+  const HUB = 'packages/client-core/src/runtime-root/connection/hub.ts'
+  const WIRING = 'packages/client-core/src/runtime-root/outbox/wiring.ts'
+  const CONNECTION = 'packages/client-core/src/runtime-root/connection/connection-service.ts'
+  const OUTBOX = 'packages/client-core/src/runtime-root/outbox/outbox-service.ts'
 
   it('construction-outside-provider fires on a second runtime construction site', () => {
     const found = constructionOutsideProvider(
@@ -334,6 +337,14 @@ describe('phase-2 client audit — the POD-404 principal-boundary detectors', ()
     expect(found).toHaveLength(1)
   })
 
+  it('fires on a runtime root built outside the runtime (POD-6681)', () => {
+    const found = constructionOutsideProvider([
+      ...lines('apps/web/src/lib/sneaky.ts', 'const root = createClientRuntime({ principal })'),
+      ...lines('apps/mobile/src/client/Preview.tsx', 'const root = new ClientRuntime(init)'),
+    ])
+    expect(found).toHaveLength(2)
+  })
+
   it('fires on a transport or an outbox opened outside the runtime', () => {
     const found = constructionOutsideProvider([
       ...lines('apps/web/src/lib/sneaky.ts', 'const hub = createEngineHub({ wsClientUrl })'),
@@ -349,10 +360,11 @@ describe('phase-2 client audit — the POD-404 principal-boundary detectors', ()
     // the expensive way and this item inherits the lesson rather than repeating it.
     const found = constructionOutsideProvider([
       ...lines(PROVIDER, 'runtime: createClientRuntime<TApi>({ principal, config, api })'),
-      ...lines(RUNTIME, 'return new ClientRuntime(init)'),
-      ...lines(RUNTIME, 'this.hub = createEngineHub({ wsClientUrl: init.config.wsClientUrl })'),
-      ...lines(RUNTIME, 'this.outbox = (init.createOutboxFn ?? createEngineOutbox)({ api })'),
-      ...lines(WIRING, 'export function createEngineHub(init: CreateEngineHubInit): SocketHub {'),
+      ...lines(RUNTIME, 'return new ClientRuntime(init, root)'),
+      ...lines(RUNTIME, 'const root = createClientRuntime<TApi>({ ...init })'),
+      ...lines(CONNECTION, 'this.hub = createEngineHub({ wsClientUrl: options.wsClientUrl })'),
+      ...lines(OUTBOX, 'this.queue = (options.createOutboxFn ?? createEngineOutbox)({ api })'),
+      ...lines(HUB, 'export function createEngineHub(init: CreateEngineHubInit): SocketHub {'),
       ...lines(
         WIRING,
         'export function createEngineOutbox(init: EngineOutboxInit): EngineOutbox {',

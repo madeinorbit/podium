@@ -24,7 +24,10 @@ const CHECKOUTS = [
   { tag: 'v0.1.1-edge.4', commit: 'd09e5d47a4c3200c2ded231269d91ff0d1d90cd1' },
 ] as const
 
-const git = (args: string[], cwd = ROOT) => execFileSync('git', args, { cwd, stdio: 'pipe' }).toString().trim()
+const git = (args: string[], cwd = ROOT) =>
+  execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' })
+    .toString()
+    .trim()
 
 for (const { tag, commit } of CHECKOUTS) {
   const dir = join(SKEW_DIR, tag)
@@ -34,10 +37,22 @@ for (const { tag, commit } of CHECKOUTS) {
       console.log(`skew: ${tag} already at ${commit.slice(0, 12)}`)
       continue
     }
-    throw new Error(`skew: ${dir} is at ${head.slice(0, 12)}, expected ${commit.slice(0, 12)} for ${tag}`)
+    throw new Error(
+      `skew: ${dir} is at ${head.slice(0, 12)}, expected ${commit.slice(0, 12)} for ${tag}`,
+    )
   }
-  const resolved = git(['rev-parse', `${tag}^{commit}`])
-  if (resolved !== commit) throw new Error(`skew: tag ${tag} resolves to ${resolved}, pinned to ${commit}`)
+  // Agent checkouts carry the branch's objects without necessarily carrying
+  // release refs. The immutable commit is still required; an existing tag must
+  // agree with it, but a missing tag needs no network or shared-ref mutation.
+  const resolved = git(['rev-parse', '--verify', `${commit}^{commit}`])
+  if (resolved !== commit)
+    throw new Error(`skew: expected release commit ${commit}, got ${resolved}`)
+  const tagExists = git(['tag', '--list', tag]).length > 0
+  if (tagExists) {
+    const tagged = git(['rev-parse', `refs/tags/${tag}^{commit}`])
+    if (tagged !== commit)
+      throw new Error(`skew: tag ${tag} resolves to ${tagged}, pinned to ${commit}`)
+  }
   console.log(`skew: adding worktree ${dir} at ${tag} (${commit.slice(0, 12)})`)
   git(['worktree', 'add', '--detach', dir, commit])
   console.log(`skew: installing ${tag} dependencies`)

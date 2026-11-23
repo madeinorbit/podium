@@ -13,14 +13,14 @@
 import {
   type HostMetricsWire,
   isMachineOfflineForLiveTerminal,
+  type MachineFacts,
   type MachineId,
   type MachineQuotaWire,
-  type MachineWire,
   type QuotaWindowHistoryWire,
   quotaAccountKey,
   type UpdateChannel,
 } from '@podium/model'
-import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView, HostMemoryBreakdown } from '@podium/protocol'
 import { relativeTime } from '../focus'
 import { type MachineAvailability, machineViewsFromWire } from './compose/machines/authority'
 import {
@@ -40,6 +40,9 @@ export type MachineCapacityReading =
 
 export type MachineCapacityReadings = Readonly<Partial<Record<MachineId, MachineCapacityReading>>>
 
+/** Transient explanations from machines.list, owned by the open operations view. */
+export type MachineTargetUnavailableReasons = Readonly<Record<string, string | null>>
+
 export type CapacityDetailState = MachineCapacityReading['state'] | 'restricted' | 'offline'
 
 export interface MachineOperationsView {
@@ -58,7 +61,7 @@ export interface MachineOperationsView {
   appVersion: string | null
   targetVersion: string | null
   updateChannel: UpdateChannel | null
-  updateState: NonNullable<MachineWire['versionState']> | 'unknown'
+  updateState: NonNullable<MachineFacts['versionState']> | 'unknown'
   updateLabel: string
 }
 
@@ -81,7 +84,7 @@ export interface VisibleFleetOperationsView {
  * reach a capacity summary.
  */
 export function useGrantedHostMetrics(
-  machines: readonly MachineWire[],
+  machines: readonly MachineFacts[],
   hosts: readonly HostMetricsWire[],
 ): HostMetricsWire[] {
   const grantedIds = new Set(
@@ -97,7 +100,7 @@ export function useGrantedHostMetrics(
 
 /** Quota readings are also use-gated machine facts. */
 export function useGrantedMachineQuota(
-  machines: readonly MachineWire[],
+  machines: readonly MachineFacts[],
   quota: readonly MachineQuotaWire[],
 ): MachineQuotaWire[] {
   const grantedIds = new Set(
@@ -114,7 +117,7 @@ export function useGrantedMachineQuota(
  * fallbacks remain readable for an authorized offline account.
  */
 export function useGrantedQuotaHistory(
-  machines: readonly MachineWire[],
+  machines: readonly MachineFacts[],
   quota: readonly MachineQuotaWire[],
   history: readonly QuotaWindowHistoryWire[],
 ): QuotaWindowHistoryWire[] {
@@ -137,8 +140,8 @@ export function useGrantedQuotaHistory(
 }
 
 function machineHost(
-  machine: MachineWire,
-  machines: readonly MachineWire[],
+  machine: MachineFacts,
+  machines: readonly MachineFacts[],
   hosts: readonly HostMetricsWire[],
 ): HostMetricsWire | undefined {
   const exact = hosts.find((host) => host.machineId === machine.id)
@@ -148,7 +151,7 @@ function machineHost(
   return machines.length === 1 ? hosts.find((host) => host.machineId === undefined) : undefined
 }
 
-function effectiveUpdateState(machine: MachineWire): MachineOperationsView['updateState'] {
+function effectiveUpdateState(machine: MachineFacts): MachineOperationsView['updateState'] {
   if (machine.versionState) return machine.versionState
   if (machine.appVersion && machine.targetVersion && machine.appVersion === machine.targetVersion) {
     return 'current'
@@ -157,8 +160,9 @@ function effectiveUpdateState(machine: MachineWire): MachineOperationsView['upda
 }
 
 function machineUpdateLabel(
-  machine: MachineWire,
+  machine: MachineFacts,
   state: MachineOperationsView['updateState'],
+  targetUnavailableReason: string | null | undefined,
 ): string {
   const installed = machine.appVersion ?? 'version not reported'
   if (state === 'current') return `${installed} · current`
@@ -173,7 +177,7 @@ function machineUpdateLabel(
       : `${installed} · ahead`
   }
   if (state === 'unreported') return 'Build not reported'
-  if (machine.targetUnavailableReason) return `${installed} · target unavailable`
+  if (targetUnavailableReason) return `${installed} · target unavailable`
   return installed
 }
 
@@ -184,9 +188,10 @@ function machineUpdateLabel(
  * machine.
  */
 export function visibleFleetOperations(args: {
-  machines: readonly MachineWire[]
+  machines: readonly MachineFacts[]
   hosts: readonly HostMetricsWire[]
   capacityReadings?: MachineCapacityReadings
+  targetUnavailableReasons?: MachineTargetUnavailableReasons | undefined
   loadPerCore?: number | null
   nowMs?: number
 }): VisibleFleetOperationsView {
@@ -249,7 +254,7 @@ export function visibleFleetOperations(args: {
     return {
       id: machine.id,
       name: machine.name,
-      hostname: machine.hostname,
+      hostname: machine.hostname ?? machine.name,
       online: machine.online,
       availability,
       statusLabel: !machine.online
@@ -273,7 +278,11 @@ export function visibleFleetOperations(args: {
       targetVersion: machine.targetVersion ?? null,
       updateChannel: machine.updateChannel ?? null,
       updateState,
-      updateLabel: machineUpdateLabel(machine, updateState),
+      updateLabel: machineUpdateLabel(
+        machine,
+        updateState,
+        args.targetUnavailableReasons?.[machine.id],
+      ),
     }
   })
 
@@ -323,22 +332,25 @@ export interface ConnectedDeviceView {
   expiresAt: string
 }
 
-export function devicePlatformLabel(platform: MobileClientSession['platform']): string {
+export function devicePlatformLabel(platform: DeviceSignInView['platform']): string {
   if (platform === 'ios') return 'iOS'
   if (platform === 'android') return 'Android'
   if (platform === 'web') return 'Web'
-  return 'Mobile'
+  if (platform === 'macos') return 'macOS'
+  if (platform === 'windows') return 'Windows'
+  if (platform === 'linux') return 'Linux'
+  return 'Unknown'
 }
 
 /** Current device first, then most recently seen. The server has already cut
  * the population to the authenticated user; no user id is rendered or joined. */
 export function connectedDeviceViews(
-  sessions: readonly MobileClientSession[],
+  sessions: readonly DeviceSignInView[],
   nowMs: number,
 ): ConnectedDeviceView[] {
   return sessions
     .map((session) => ({
-      sessionId: session.sessionId,
+      sessionId: session.id,
       name: session.deviceName,
       platform: devicePlatformLabel(session.platform),
       current: session.current,

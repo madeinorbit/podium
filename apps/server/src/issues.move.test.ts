@@ -1,9 +1,11 @@
 import { SORT_KEY_MAX_LEN } from '@podium/model'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterAll, describe, expect, it } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
+import { pinIssueFor } from './test-support/issue-pin'
 
 const registries: SessionRegistry[] = []
 afterAll(async () => {
@@ -33,7 +35,7 @@ async function fixture() {
     principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
   })
   const create = (title: string, parentId?: string, repoPath = '/r') =>
-    op.issues.create({ repoPath, title, parentId, startNow: false })
+    op.issues.create({ repoPath, title, parentId, startNow: false, parentBranch: 'main' })
   const parent = await create('parent')
   const a = await create('a', parent.id)
   const b = await create('b', parent.id)
@@ -50,7 +52,7 @@ async function fixture() {
 describe('sibling-relative issue moves', () => {
   it('moves before/after at the ends and between siblings, preserving all other keys and activity', async () => {
     const { registry, op, a, b, c, d, siblings, order } = await fixture()
-    await registry.issues.crud.markIssueRead(a.id)
+    await registry.issues.crud.markIssueRead(registry.issues.reports.store.serverWriter, a.id)
     const before = await siblings()
     expect(await order()).toEqual(['d', 'c', 'b', 'a'])
     const moved = await op.issues.move({ id: a.id, before: d.id })
@@ -114,7 +116,10 @@ describe('sibling-relative issue moves', () => {
     const { registry, op, a, c, d, order } = await fixture()
     for (const row of [c, d]) {
       const stored = (await registry.sessionStore.issues.getIssue(row.id))!
-      await registry.sessionStore.issues.upsertIssue({ ...stored, sortKey: null })
+      await registry.sessionStore.issues.upsertIssue(fixtureWriteScope(), {
+        ...stored,
+        sortKey: null,
+      })
     }
     expect(await registry.issues.reports.getMeta(c.id)).toMatchObject({ sortKey: null })
     await op.issues.move({ id: a.id, after: d.id })
@@ -122,17 +127,18 @@ describe('sibling-relative issue moves', () => {
   })
 
   it('compacts at the wire ceiling and keeps pinned siblings in the same key space', async () => {
-    const { op, a, d, siblings, order } = await fixture()
+    const { registry, op, a, d, siblings, order } = await fixture()
     await op.issues.update({
       id: d.id,
-      patch: { sortKey: `${'0'.repeat(SORT_KEY_MAX_LEN - 1)}1`, pinned: true },
+      patch: { sortKey: `${'0'.repeat(SORT_KEY_MAX_LEN - 1)}1` },
     })
+    await pinIssueFor(registry.sessionStore, d.id, true)
     await op.issues.move({ id: a.id, before: d.id })
     expect(await order()).toEqual(['a', 'd', 'c', 'b'])
     expect((await siblings()).every((row) => (row.sortKey?.length ?? 0) < SORT_KEY_MAX_LEN)).toBe(
       true,
     )
-    await op.issues.update({ id: d.id, patch: { pinned: false } })
+    await pinIssueFor(registry.sessionStore, d.id, false)
     expect(await order()).toEqual(['a', 'd', 'c', 'b'])
   })
 

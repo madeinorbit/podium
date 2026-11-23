@@ -1,5 +1,5 @@
 import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, IssueProjection } from '@podium/model'
 import {
   actorUser,
   asIssueId,
@@ -19,8 +19,13 @@ import {
   type UnbrandIds,
   type UsageBucketWire,
 } from '@podium/model'
-import type { HostMemoryBreakdown, MobileClientSession } from '@podium/protocol'
+import type { DeviceSignInView, HostMemoryBreakdown } from '@podium/protocol'
 import type { IssueViewModel } from '../replica'
+
+/** A demo issue: the pool row plus its bodies, which the demo seeds as
+ *  `issueBrief` and `issueDescription` records and panel records (POD-6921). */
+export type DemoIssue = IssueViewModel &
+  Partial<Pick<IssueProjection, 'brief' | 'panel' | 'activityNotes'>> & { description: string }
 
 /**
  * Demo harness variety without a second hand-written list: the harnesses this
@@ -79,10 +84,6 @@ function session(
     agentKind: issueDefaultAgentKind(undefined),
     cwd: '/home/dev/src/podium',
     status: 'live',
-    controllerId: null,
-    geometry: { cols: 80, rows: 24 },
-    epoch: 0,
-    clientCount: 0,
     createdAt: min(240),
     lastActiveAt: min(3),
     origin: { kind: 'spawn' },
@@ -230,9 +231,8 @@ export const DEMO_SESSIONS: SessionMeta[] = [
 
 /** Shared scaffolding for the demo proposals (POD-277's screening deck). */
 function proposal(
-  partial: Partial<UnbrandIds<IssueViewModel>> &
-    Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
-): IssueViewModel {
+  partial: Partial<UnbrandIds<DemoIssue>> & Pick<DemoIssue, 'id' | 'seq' | 'title' | 'description'>,
+): DemoIssue {
   return {
     repoPath: '/home/dev/src/podium',
     displayRef: `POD-${partial.seq}`,
@@ -266,7 +266,7 @@ function proposal(
     isDraftVessel: false,
     readAt: null,
     ...partial,
-  } as IssueViewModel
+  } as DemoIssue
 }
 
 /**
@@ -280,18 +280,17 @@ function proposal(
  * proposal nobody has accepted, and one done.
  */
 function missionTask(
-  partial: Partial<UnbrandIds<IssueViewModel>> &
-    Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'description'>,
-): IssueViewModel {
+  partial: Partial<UnbrandIds<DemoIssue>> & Pick<DemoIssue, 'id' | 'seq' | 'title' | 'description'>,
+): DemoIssue {
   return {
     ...proposal(partial),
     stage: 'backlog',
     intentOrigin: 'agent',
     ...partial,
-  } as IssueViewModel
+  } as DemoIssue
 }
 
-const DEMO_MISSION: IssueViewModel[] = [
+const DEMO_MISSION: DemoIssue[] = [
   missionTask({
     id: asIssueId('demo-mission-root'),
     owner: asUserId('demo-user'),
@@ -422,7 +421,7 @@ const DEMO_MISSION: IssueViewModel[] = [
   }),
 ]
 
-export const DEMO_ISSUES: IssueViewModel[] = [
+export const DEMO_ISSUES: DemoIssue[] = [
   ...DEMO_MISSION,
   proposal({
     id: asIssueId('demo-proposal-retry'),
@@ -529,7 +528,7 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     audience: 'human',
     isDraftVessel: false,
     readAt: null,
-  } as IssueViewModel,
+  } as DemoIssue,
   {
     id: asIssueId('demo-issue-header'),
     displayRef: 'POD-121',
@@ -571,7 +570,7 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     audience: 'human',
     isDraftVessel: false,
     readAt: null,
-  } as IssueViewModel,
+  } as DemoIssue,
   {
     id: asIssueId('demo-issue-ci'),
     displayRef: 'POD-118',
@@ -615,7 +614,7 @@ export const DEMO_ISSUES: IssueViewModel[] = [
     audience: 'human',
     isDraftVessel: false,
     readAt: null,
-  } as IssueViewModel,
+  } as DemoIssue,
 ]
 
 export const DEMO_TRANSCRIPTS: Record<string, TranscriptItem[]> = {
@@ -862,12 +861,10 @@ export const DEMO_QUOTA_HISTORY: QuotaWindowHistoryWire[] = Array.from(
   },
 )
 
-export const DEMO_MOBILE_SESSIONS: MobileClientSession[] = [
+export const DEMO_MOBILE_SESSIONS: DeviceSignInView[] = [
   {
-    sessionId: 'demo_current_mobile_session',
-    userId: 'demo',
-    label: 'mobile',
-    deviceId: 'demo-iphone',
+    id: 'demo_current_mobile_session',
+    kind: 'phone',
     deviceName: 'iPhone 16 Pro',
     platform: 'ios',
     createdAt: min(14 * 24 * 60),
@@ -876,10 +873,8 @@ export const DEMO_MOBILE_SESSIONS: MobileClientSession[] = [
     current: true,
   },
   {
-    sessionId: 'demo_other_mobile_session',
-    userId: 'demo',
-    label: 'mobile',
-    deviceId: 'demo-ipad',
+    id: 'demo_other_mobile_session',
+    kind: 'phone',
     deviceName: 'iPad mini',
     platform: 'ios',
     createdAt: min(32 * 24 * 60),

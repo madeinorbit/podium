@@ -409,7 +409,14 @@ describe('C10 (REWRITTEN for POD-3239 B1): the whole chain now reads the session
     }
     // …and the panel reads it off the SESSION ROW, which is the value the server
     // has been publishing all along.
-    expect(files['AgentPanel.tsx']).toMatch(/session\?\.geometry\b/)
+    const inputs = read('../../../apps/web/src/features/terminal/use-session-pane-inputs.ts')
+    expect(files['AgentPanel.tsx']).toContain('const geometry = usePaneGeometry(sessionId)')
+    expect(files['AgentPanel.tsx']).toMatch(/initialGeometry:\s*geometry/)
+    const geometryReader = inputs.slice(
+      inputs.indexOf('export function usePaneGeometry('),
+      inputs.indexOf('const selectedIssueRead'),
+    )
+    expect(geometryReader).toContain('sessionPanes(pool).loaded(id)?.session.geometry')
   })
 })
 

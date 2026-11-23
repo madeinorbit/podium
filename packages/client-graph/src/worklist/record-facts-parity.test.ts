@@ -27,7 +27,7 @@ const fields = ['excluded', 'finished', 'awaitingMerge', 'pendingDecision', 'upd
 function previousFacts(pool: MobxPool, id: string) {
   const resident = omitGone(pool.row('issue', id, 'mark'))
   if (resident !== LOADING) return resident as SliceIssue | undefined
-  const summary = omitGone(pool.row('issue', id, 'summary-fields'))
+  const summary = omitGone(pool.row('issue', id))
   return summary === LOADING ? undefined : summary as SliceIssue | undefined
 }
 const ms = (value: string | null | undefined) => { const number = Date.parse(value ?? ''); return Number.isFinite(number) ? number : null }

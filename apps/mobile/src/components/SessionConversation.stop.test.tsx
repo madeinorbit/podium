@@ -5,8 +5,9 @@ import type { SessionView } from '@podium/client-core/session-values'
  * The session screen said "Working…" and offered nothing to end it: the
  * composer had attach, mic and send, and the only way out was Open terminal →
  * Esc through the xterm. The desktop composer has a Stop control that calls the
- * shared conversation controller's `interrupt`, which sends `sessions.interrupt`
- * with the exact queued message it selected. These tests hold the phone to the
+ * shared conversation controller's `interrupt`, which writes a `session.interrupt`
+ * effect record naming the turn on screen (POD-6397) and the exact queued
+ * message it selected. These tests hold the phone to the
  * same contract, through the REAL composer: Stop is drawn only while a turn
  * runs, a press sends that same command, and a refusal is said out loud rather
  * than swallowed.
@@ -17,6 +18,7 @@ import { type ReactNode, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { renderWithMobileStore } from '../client/test-support'
+import { createMobileTestReplica } from '../client/test-replica'
 
 const legacyQuestions = vi.hoisted(() => vi.fn())
 const factQuestions = vi.hoisted(() => vi.fn())
@@ -87,15 +89,17 @@ const idle = {
   agentState: { phase: 'idle', since: '2026-09-23T12:00:00.000Z' },
 } as unknown as SessionView
 
-function api(interrupt: (input: unknown) => Promise<unknown>) {
+/** `submit` is the server's `sync.submit`: the Stop arrives as `effects.create`. */
+function api(submit: (input: unknown) => Promise<unknown>) {
   return {
     sessions: {
       transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
       answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
-      interrupt: { mutate: interrupt },
     },
+    sync: { submit: { mutate: submit } },
   }
 }
+const applied = async () => ({ outcome: 'applied', result: null })
 
 describe('phone session Stop', () => {
   it('uses source facts and does no retained-history question work on phase updates at 1x/4x', async () => {
@@ -128,7 +132,6 @@ describe('phone session Stop', () => {
           sessions: {
             transcriptRead: { query: async () => ({ items, hasMore: false }) },
             answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
-            interrupt: { mutate: async () => ({ ok: true }) },
           },
         },
       })
@@ -153,45 +156,74 @@ describe('phone session Stop', () => {
     console.log('[actual phone transcript facts phase work1x4x]', JSON.stringify(samples))
   })
 
-  it('shows Stop while a turn runs and sends the session interrupt', async () => {
-    const interrupt = vi.fn(async (_input: unknown) => ({ ok: true }))
+  it('shows Stop while a turn runs and writes the session.interrupt record', async () => {
+    const submit = vi.fn(async (_input: unknown) => await applied())
     await renderWithMobileStore(<SessionConversation session={working} issue={undefined} />, {
       sessions: [working],
-      api: api(interrupt),
+      api: api(submit),
     })
 
     const stop = await screen.findByLabelText('Stop this turn')
     fireEvent.click(stop)
 
-    await waitFor(() => expect(interrupt).toHaveBeenCalledOnce())
-    expect(interrupt.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ sessionId: 'sess-stop' }),
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce())
+    expect(submit.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        command: 'effects.create',
+        input: expect.objectContaining({
+          kind: 'session.interrupt',
+          target: { kind: 'session', id: 'sess-stop' },
+        }),
+      }),
     )
   })
 
   it('draws no Stop on an idle session', async () => {
     await renderWithMobileStore(<SessionConversation session={idle} issue={undefined} />, {
       sessions: [idle],
-      api: api(vi.fn(async () => ({ ok: true }))),
+      api: api(vi.fn(applied)),
     })
 
     await screen.findByLabelText('Send')
     expect(screen.queryByLabelText('Stop this turn')).toBeNull()
   })
 
-  it('says the agent was not stopped when the server refuses', async () => {
-    const refused = vi.fn(async () => ({ ok: false, reason: 'no harness to signal' }))
-    await renderWithMobileStore(<SessionConversation session={working} issue={undefined} />, {
-      sessions: [working],
-      api: api(refused),
+  it('a Stop that failed while its turn still runs says so and offers Kill', async () => {
+    const turn = '2026-09-23T12:00:00.000Z'
+    const running = {
+      ...base,
+      agentState: { phase: 'working', since: turn, turnStartedAt: turn, nativeSubagentCount: 0 },
+    } as unknown as SessionView
+    const replica = createMobileTestReplica()
+    replica.applySnapshot('sessions', [running] as never)
+    replica.applySnapshot('messageRecords', [])
+    replica.applySnapshot('effects', [
+      {
+        id: 'eff_stop',
+        kind: 'session.interrupt',
+        target: { kind: 'session', id: 'sess-stop' },
+        input: { turn },
+        cancelRequested: false,
+        effect: {
+          status: 'failed',
+          attempts: 1,
+          error: { code: 'deadline', message: 'The agent did not stop within 30 s.' },
+        },
+        createdBy: 'user:test',
+        createdAt: turn,
+        updatedAt: turn,
+        revision: 2,
+      },
+    ] as never)
+    replica.finishBootstrap()
+    await renderWithMobileStore(<SessionConversation session={running} issue={undefined} />, {
+      replica,
+      api: api(vi.fn(applied)),
     })
 
-    fireEvent.click(await screen.findByLabelText('Stop this turn'))
-
-    await waitFor(() =>
-      expect(screen.getByTestId('composer-caption').textContent).toBe(
-        'Not stopped: no harness to signal',
-      ),
-    )
+    const banner = await screen.findByTestId('interrupt-stuck')
+    expect(banner.textContent).toContain('The agent did not stop within 30 s.')
+    expect(screen.getByTestId('interrupt-kill')).toBeTruthy()
+    expect(screen.getByTestId('interrupt-dismiss')).toBeTruthy()
   })
 })

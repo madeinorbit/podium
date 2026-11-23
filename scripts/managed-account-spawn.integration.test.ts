@@ -8,12 +8,15 @@
  *
  * It drives the WHOLE chain, no layer faked:
  *
- *   accounts table            apps/server/src/store/accounts.ts      (real sqlite + migrations)
- *     -> resolveAccountEnv    apps/server/src/modules/sessions/account-env.ts
- *     -> credentialEnv        packages/runtime/src/settings.ts       (provider/kind -> env var)
+ *   a credential              (its record, held in memory here; the vault read is
+ *                              attachAccess's, tested in apps/server)
+ *     -> resolveSessionAccess apps/server/src/modules/credentials/access.ts
+ *                              (the harness's declared `accepts` line -> env var)
+ *     -> the `access` field   (epic Task 5: never the frame's plain `env`)
  *     -> SpawnMessage.parse   packages/protocol/.../terminal.ts      (real zod wire round-trip)
- *     -> sessionHandlers.spawn apps/daemon/src/control/session.ts    (the real handler)
- *     -> spawnEnv + spawnAgent -> a real /bin/bash on a real PTY
+ *     -> sessionHandlers.spawn apps/daemon/src/control/session.ts    (the real handler,
+ *                              which keeps the access in the daemon's memory store)
+ *     -> the terminal launch  -> a real /bin/bash standing in for claude, on a real PTY
  *     -> `env` -> assert on the bytes the child actually printed
  *
  * Lives in scripts/ because it is the only tier permitted to compose apps/server AND
@@ -29,56 +32,69 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
-import { asAccountId, asSessionId, type SessionId } from '@podium/model'
+import { asCredentialId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
 import { directPtyDurableForTests } from '@podium/process/durable'
-import { SpawnMessage } from '@podium/protocol'
+import { type AccessField, SpawnMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { memoryMarkers, SessionAccessStore } from '../apps/daemon/src/control/access'
 import type { DaemonContext } from '../apps/daemon/src/control/context'
+import { launchTerminalProcess, sessionHandlers } from '../apps/daemon/src/control/session'
 import { SessionRegistry } from '../apps/daemon/src/session/registry.js'
-import { sessionHandlers } from '../apps/daemon/src/control/session'
-import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-env'
-import { AccountsRepository } from '../apps/server/src/store/accounts'
-import { createBunStoreExecutor } from '../apps/server/src/store/executor'
+import { testTerminalRuntime } from '../apps/daemon/src/session/testing.js'
+import {
+  type AccessDeps,
+  resolveSessionAccess,
+} from '../apps/server/src/modules/credentials/access'
+
+/** Whose key it is: the session owner (POD-6360, managed keys are per user). */
+const OWNER = asUserId('user:spawn-probe-owner')
 
 const CREDENTIAL = 'sk-test-xyz'
 
-function openAccountsDatabase() {
-  const db = openDatabase(':memory:')
-  // This lane owns only the managed-account aggregate. Keeping its fixture at
-  // that boundary avoids coupling a real PTY spawn test to the Bun-only full
-  // server migration runner used by SessionStore.
-  db.exec(`CREATE TABLE accounts (
-    id TEXT PRIMARY KEY,
-    provider TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    credential TEXT NOT NULL,
-    identity TEXT NOT NULL,
-    scope TEXT NOT NULL,
-    created_at INTEGER NOT NULL
-  )`)
-  return db
-}
+/** The owner runs on their own machine. */
+const ownMachine = asMachineId('machine-owner')
 
-/** The server side: a managed anthropic api-key account, resolved to spawn env. */
-async function managedAccountEnv(): Promise<Record<string, string> | undefined> {
-  const db = openAccountsDatabase()
-  const queries = createBunStoreExecutor({ database: db }).queries
-  if (!queries) throw new Error('the probe database is not bun-backed')
-  const accounts = new AccountsRepository(queries)
-  await accounts.upsert({
-    id: asAccountId('managed:anthropic'),
-    provider: 'anthropic',
-    kind: 'api-key',
-    credential: CREDENTIAL,
-    identity: 'sk-t…xyz',
-    scope: 'role',
-    createdAt: 1,
+/**
+ * The server side: a credential of `type`, resolved for claude-code on the
+ * owner's own machine, as the `access` field the spawn frame carries (epic
+ * Task 5). The secret stands in for what `attachAccess` reads from the vault.
+ */
+async function resolvedAccess(type: string, secret: string): Promise<AccessField> {
+  const id = asCredentialId('cred_00000000-0000-4000-8000-000000000216')
+  const record = {
+    id,
+    ownerUserId: OWNER,
+    label: type,
+    type,
+    identity: {},
+    status: 'ok',
+    statusReason: null,
+    expiresAt: null,
+    verifiedAt: null,
+    legacyId: null,
+    legacyKey: null,
+    createdAt: '2026-11-13T00:00:00.000Z',
+    updatedAt: '2026-11-13T00:00:00.000Z',
+  }
+  // Only what the resolver reads: the record, the machine's custodian, the event trail.
+  const deps = {
+    credentials: { get: async () => record, isMachineAllowed: async () => false },
+    machines: { custodian: async () => OWNER, getMachine: async () => undefined },
+    settingsAudit: { append: async () => {} },
+    // The owner uses their own credential: no grant is read for it, none exist.
+    grants: { loadForResource: async () => [] },
+  } as unknown as AccessDeps
+  const plan = await resolveSessionAccess(deps, {
+    harness: 'claude-code',
+    credentialId: id,
+    actingUserId: OWNER,
+    machineId: ownMachine,
   })
-  const env = (await resolveAccountEnv(accounts, asAccountId('managed:anthropic'))).env
-  db.close()
-  return env
+  if (!plan.ok || plan.delivery.kind !== 'env') {
+    throw new Error(`no env delivery for ${type}: ${JSON.stringify(plan)}`)
+  }
+  return { credentialId: id, delivery: { ...plan.delivery, secret } }
 }
 
 interface Harness {
@@ -107,8 +123,14 @@ function makeHarness(settingsDir: string): Harness {
     homeDir: home,
     backend: 'none',
     durable: directPtyDurableForTests(),
-    // The REAL launch table: agentKind 'shell' -> $SHELL, no args.
-    launch: agentLaunchCommand,
+    // The REAL launch table for a shell; a claude session runs an interactive
+    // bash in claude's place, so the test can ask the process for its env
+    // while the daemon's whole claude launch (context, strip, credential,
+    // hide-from-commands) runs for real around it.
+    launch: (kind: string, opts: { cwd: string }) =>
+      kind === 'shell'
+        ? agentLaunchCommand('shell', opts)
+        : { cmd: '/bin/bash', args: ['--norc', '--noprofile', '-i'], cwd: opts.cwd },
     settingsDir,
     // Draft sync is outside this env-propagation lane; keep the real spawn,
     // frame, and exit path explicit while disabling its optional driver.
@@ -146,7 +168,14 @@ function makeHarness(settingsDir: string): Harness {
     },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+    access: new SessionAccessStore({ markers: memoryMarkers() }),
   } as unknown as DaemonContext
+  // An agent spawn needs a runtime to create it; this one runs the daemon's
+  // real terminal launch.
+  ctx.agentRuntime = testTerminalRuntime(
+    ctx,
+    launchTerminalProcess,
+  ) as unknown as DaemonContext['agentRuntime']
 
   return {
     ctx,
@@ -210,7 +239,7 @@ afterEach(() => {
 async function spawnAndDumpEnv(
   h: Harness,
   sessionId: SessionId,
-  env: Record<string, string> | undefined,
+  access: AccessField | undefined,
 ): Promise<string> {
   // The real wire frame, through the real schema — an env the protocol would have
   // rejected can never reach the daemon in production, so it must not here either.
@@ -219,7 +248,7 @@ async function spawnAndDumpEnv(
       JSON.stringify({
         type: 'spawn',
         sessionId,
-        agentKind: 'shell',
+        agentKind: 'claude-code',
         cwd: process.cwd(),
         geometry: { cols: 120, rows: 30 },
         binding: {
@@ -227,10 +256,12 @@ async function spawnAndDumpEnv(
           machineAccess: 'allowed',
           principal: { kind: 'user', userId: 'managed-account-test-user' },
         },
-        ...(env ? { env } : {}),
+        ...(access ? { access } : {}),
       }),
     ),
   )
+  // The credential crosses only in `access`: the plain env carries none.
+  expect(msg.env).toBeUndefined()
 
   await sessionHandlers.spawn(h.ctx, msg)
 
@@ -247,12 +278,16 @@ async function spawnAndDumpEnv(
 
   try {
     await waitFor(() => h.output().length > 0) // shell is up and talking
-    terminal.writeBase64(Buffer.from('env\n', 'utf8').toString('base64'))
+    // By absolute path: the launch seam's harness context carries no command
+    // environment, so the stand-in shell may have no PATH of its own.
+    terminal.writeBase64(Buffer.from('/usr/bin/env\n', 'utf8').toString('base64'))
     // PODIUM_SESSION_ID is bound by the daemon on EVERY spawn, so seeing it in the
     // dump is proof the env actually printed and that this process really came out of
     // Podium's spawn path — which is what makes the absence of ANTHROPIC_API_KEY in
     // the negative case meaningful rather than merely a dump we failed to wait for.
-    await waitFor(() => h.output().includes(`PODIUM_SESSION_ID=${sessionId}`))
+    await waitFor(() => h.output().includes(`PODIUM_SESSION_ID=${sessionId}`)).catch((error) => {
+      throw new Error(`${error}: the child printed ${JSON.stringify(h.output().slice(-2000))}`)
+    })
     await h.settled()
     expect(h.ctx.sessions.get(sessionId)?.label).toBe(`podium-blue-${sessionId}`)
     return h.output()
@@ -265,57 +300,51 @@ async function spawnAndDumpEnv(
   }
 }
 
-describe('managed account -> real spawned process env (#216)', () => {
-  it('POSITIVE: a managed anthropic api-key lands in the spawned process ENVIRONMENT', async () => {
-    const env = await managedAccountEnv()
-    // The server resolved the stored credential into exactly the documented env var.
-    expect(env).toEqual({ ANTHROPIC_API_KEY: CREDENTIAL })
+describe('a session credential -> real spawned process env (#216, epic Task 5)', () => {
+  it('POSITIVE: an anthropic api-key in access lands in the terminal process ENVIRONMENT (acceptance 5, 8)', async () => {
+    const access = await resolvedAccess('anthropic.api-key', CREDENTIAL)
+    // The server resolved the stored credential into exactly the documented variable.
+    expect(access.delivery).toEqual({
+      kind: 'env',
+      variable: 'ANTHROPIC_API_KEY',
+      secret: CREDENTIAL,
+    })
 
     const h = makeHarness(settingsDir)
-    const dump = await spawnAndDumpEnv(h, asSessionId('sess-managed'), env)
+    const dump = await spawnAndDumpEnv(h, asSessionId('sess-managed'), access)
 
     // The child's own `env` listed it — a real process, a real environment.
     expect(dump).toContain(`ANTHROPIC_API_KEY=${CREDENTIAL}`)
+    // Claude Code's switch that keeps it out of the commands the agent runs.
+    expect(dump).toContain('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1')
     // ...and the credential did not displace Podium's own per-session wiring.
     expect(dump).toContain('PODIUM_SESSION_ID=sess-managed')
     expect(dump).toContain('PODIUM_INSTANCE=blue')
     expect(dump).toContain('PODIUM_SESSION_INSTANCE=blue')
   })
 
-  it('NEGATIVE: a native account (no env on the frame) injects NO ANTHROPIC_API_KEY', async () => {
+  it('NEGATIVE: no credential (no access on the frame) injects NO ANTHROPIC_API_KEY', async () => {
     // This is the regression that would silently re-auth every existing user: a spawn
-    // carrying no managed env must leave the agent's credentials exactly as the CLI's
+    // carrying no credential must leave the agent's credentials exactly as the CLI's
     // own on-disk login left them. Podium must add nothing.
+    vi.stubEnv('ANTHROPIC_API_KEY', 'sk-test-inherited-from-the-daemon')
     const h = makeHarness(settingsDir)
     const dump = await spawnAndDumpEnv(h, asSessionId('sess-native'), undefined)
 
     expect(dump).toContain('PODIUM_SESSION_ID=sess-native') // the dump really happened
+    // Neither a delivered key nor one inherited from the daemon's own environment.
     expect(dump).not.toContain('ANTHROPIC_API_KEY=')
-    expect(dump).not.toContain(CREDENTIAL)
+    expect(dump).not.toContain('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=')
   })
 
-  it('an oauth credential rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
-    const db = openAccountsDatabase()
-    const queries = createBunStoreExecutor({ database: db }).queries
-    if (!queries) throw new Error('the probe database is not bun-backed')
-    const accounts = new AccountsRepository(queries)
-    await accounts.upsert({
-      id: asAccountId('managed:claude-oauth'),
-      provider: 'anthropic',
-      kind: 'oauth',
-      credential: 'oat-test-1',
-      identity: 'oat…t-1',
-      scope: 'role',
-      createdAt: 1,
-    })
-    const { env } = await resolveAccountEnv(accounts, asAccountId('managed:claude-oauth'))
-    db.close()
-    expect(env).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' })
+  it('a Claude token rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
+    const access = await resolvedAccess('anthropic.claude-token', 'oat-test-1')
+    expect(access.delivery).toMatchObject({ variable: 'CLAUDE_CODE_OAUTH_TOKEN' })
 
     const h = makeHarness(settingsDir)
-    const dump = await spawnAndDumpEnv(h, asSessionId('sess-oauth'), env)
+    const dump = await spawnAndDumpEnv(h, asSessionId('sess-oauth'), access)
 
     expect(dump).toContain('CLAUDE_CODE_OAUTH_TOKEN=oat-test-1')
-    expect(dump).not.toContain('ANTHROPIC_API_KEY=') // oauth must not also set the api-key var
+    expect(dump).not.toContain('ANTHROPIC_API_KEY=') // a token must not also set the api-key var
   })
 })

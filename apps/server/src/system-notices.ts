@@ -2,6 +2,7 @@ import { AUTO_CONTINUE_SENDER } from '@podium/commands'
 import type { IssueId, SessionId } from '@podium/model'
 import { autoContinueMessageId } from './message-ids'
 import type { MessageDeliveryService } from './modules/messages/service'
+import type { MessageWriter } from './modules/messages/writer'
 
 /**
  * A NOTICE FROM A SERVER JOB TO AN ISSUE IS A MESSAGE (POD-4846).
@@ -17,10 +18,13 @@ import type { MessageDeliveryService } from './modules/messages/service'
  */
 export function systemIssueNotice(
   messages: Pick<MessageDeliveryService, 'send'>,
+  /** The job's own writer: a server job's notice is its own write (POD-6602). */
+  writer: MessageWriter,
   job: string,
 ): (issueId: IssueId, body: string) => Promise<string> {
   return async (issueId, body) => {
     const r = await messages.send(
+      writer,
       { kind: 'system', name: job },
       {
         to: { kind: 'issue', id: issueId },
@@ -46,9 +50,15 @@ export function systemIssueNotice(
  */
 export function autoContinueSender(
   messages: Pick<MessageDeliveryService, 'send'>,
-): (input: { sessionId: SessionId; erroredTurn: string }) => Promise<{ ok: boolean; reason?: string }> {
-  return async ({ sessionId, erroredTurn }) => {
+): (
+  writer: MessageWriter,
+  input: { sessionId: SessionId; erroredTurn: string },
+) => Promise<{ ok: boolean; reason?: string }> {
+  // The writer is whoever asked for the continue (POD-6602): the
+  // `sessions.continue` command's own, or the auto-continue controller's.
+  return async (writer, { sessionId, erroredTurn }) => {
     const r = await messages.send(
+      writer,
       { kind: 'system', name: AUTO_CONTINUE_SENDER },
       {
         messageId: autoContinueMessageId(sessionId, erroredTurn),
