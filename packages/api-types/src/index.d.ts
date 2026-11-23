@@ -205,7 +205,7 @@ declare const PodiumSettings: z.ZodObject<{
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
             subagentModel: string;
-            startScreen: "auto" | "native" | "chat";
+            startScreen: "native" | "auto" | "chat";
             seedCliTheme: boolean;
             credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | "antigravity" | undefined;
@@ -216,7 +216,7 @@ declare const PodiumSettings: z.ZodObject<{
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | "antigravity" | undefined;
             subagentModel?: string | undefined;
-            startScreen?: "auto" | "native" | "chat" | undefined;
+            startScreen?: "native" | "auto" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         }>>;
         superagent: z.ZodDefault<z.ZodObject<{
@@ -289,7 +289,7 @@ declare const PodiumSettings: z.ZodObject<{
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
             subagentModel: string;
-            startScreen: "auto" | "native" | "chat";
+            startScreen: "native" | "auto" | "chat";
             seedCliTheme: boolean;
             credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | "antigravity" | undefined;
@@ -323,7 +323,7 @@ declare const PodiumSettings: z.ZodObject<{
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | "antigravity" | undefined;
             subagentModel?: string | undefined;
-            startScreen?: "auto" | "native" | "chat" | undefined;
+            startScreen?: "native" | "auto" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
@@ -549,7 +549,7 @@ declare const PodiumSettings: z.ZodObject<{
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
             subagentModel: string;
-            startScreen: "auto" | "native" | "chat";
+            startScreen: "native" | "auto" | "chat";
             seedCliTheme: boolean;
             credentialId?: (string & z.BRAND<"CredentialId">) | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | "antigravity" | undefined;
@@ -648,7 +648,7 @@ declare const PodiumSettings: z.ZodObject<{
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | "antigravity" | undefined;
             subagentModel?: string | undefined;
-            startScreen?: "auto" | "native" | "chat" | undefined;
+            startScreen?: "native" | "auto" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
         background?: {
