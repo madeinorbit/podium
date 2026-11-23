@@ -138,6 +138,12 @@ describe('the sessions repository reads only its own workspace', () => {
       expect(ids([...listed.values()].flat(), tag)).toEqual([sid(2)])
       // The other workspace's s5 is bound to the issue only this workspace holds.
       expect(ids(await s.findSessionsByIssueIds([iss(1), heldBy(tag)]), tag)).toEqual([sid(2)])
+      // The seat columns (POD-7431): the ids both hold answer once, deleted s4 not at all.
+      const seat = async (by: 'issue' | 'id' | 'resume', keys: string[]) =>
+        (await s.seatFacts(by, keys)).map((r) => r.id).sort()
+      expect(await seat('issue', [iss(1), heldBy(tag)])).toEqual([sid(2)])
+      expect(await seat('id', [sid(1), sid(4), only(o)])).toEqual([sid(1)])
+      expect(await seat('resume', ['resume-2', `resume-only-${o}`])).toEqual([sid(2)])
       expect(ids(await s.sessionsUnderPath(ROOT), tag)).toEqual(live)
       expect(ids(await s.sessionsWithIdPrefix('only-'), tag)).toEqual([only(tag)])
       expect(ids(await s.sessionsWithIdPrefix('s'), tag)).toEqual(shared)

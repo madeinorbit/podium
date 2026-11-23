@@ -561,6 +561,7 @@ describe('the interactions repository reads and writes only its own workspace', 
       expect(ids(await ix.listOpen(), tag)).toEqual([ixn(1)])
       expect(ids(await ix.listOpen(sid(1)), tag)).toEqual([ixn(1)])
       expect(ids(await ix.openOfIds([ixn(1), ixn(9)]), tag)).toEqual([ixn(1)])
+      expect([...(await ix.openCountsOf([sid(1), sid(2)])).entries()]).toEqual([[sid(1), 1]])
       expect(ids(await ix.listForSession(sid(1)), tag)).toEqual([1, 2, 3].map((n) => ixn(n)))
     }
   })

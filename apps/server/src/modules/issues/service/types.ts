@@ -17,7 +17,8 @@ import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podi
 import type { LinearIssue } from '../../../linear'
 import type { IssueRow, SessionStore } from '../../../store'
 import type { CompleteInput, CompleteResult } from '../../inference/complete'
-import type { SessionFacts } from '../../sessions/facts'
+import type { SessionFacts, SessionSeatFacts } from '../../sessions/facts'
+import type { SeatFactsQuery } from '../../sessions/records'
 import type { PendingUploadStore } from '../pending-uploads'
 
 /**
@@ -186,6 +187,10 @@ export interface IssueDeps {
   runningSessionFacts(): SessionFacts[]
   /** Every live (not deleted) session's facts, from the database (POD-6160). */
   readSessionFacts(): Promise<SessionFacts[]>
+  /** A flight deck's seat candidates (POD-7431): the live sessions on these
+   *  issues, with these ids or on these resume refs, as the few facts seats are
+   *  selected by, without reading any session's satellites. */
+  readSessionSeatFacts(query: SeatFactsQuery): Promise<SessionSeatFacts[]>
   /** One session's facts, from the database where it is not resident. */
   readSessionFactsById(sessionId: SessionId): Promise<SessionFacts | undefined>
   /** The member sessions of ONE issue, from the database (`sessionsForIssue`'s

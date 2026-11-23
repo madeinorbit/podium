@@ -23,6 +23,7 @@ async function harness() {
     // Every fleet read goes through the one spy, so "not called" covers them all.
     runningSessionFacts: sessionFacts,
     readSessionFacts: async () => sessionFacts(),
+    readSessionSeatFacts: async () => sessionFacts(),
     readSessionFactsById: async () => undefined,
     readSessionFactsByIssue: async () => [],
     readSessionFactsByIssues: async () => new Map(),

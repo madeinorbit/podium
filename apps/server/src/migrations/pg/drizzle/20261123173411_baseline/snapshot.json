@@ -1,7 +1,7 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "39e57a47-1144-437a-80ec-98e2c281dea2",
+  "id": "cb271649-ef21-4b1f-8526-b20ec2c3b5ae",
   "prevIds": [
     "00000000-0000-0000-0000-000000000000"
   ],
@@ -20757,6 +20757,34 @@
       "method": "btree",
       "concurrently": false,
       "name": "idx_issues_children",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "issues"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "started_by_session",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": "\"started_by_session\" IS NOT NULL",
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "idx_issues_started_by",
       "entityType": "indexes",
       "schema": "public",
       "table": "issues"

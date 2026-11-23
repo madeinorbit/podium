@@ -321,6 +321,23 @@ export interface SessionRow {
   deletedByIssueId?: IssueId | null
 }
 
+/** The columns of a session a flight deck selects its seats by (POD-7431). */
+export interface SessionSeatRow {
+  id: SessionId
+  agentKind: string
+  issueId: IssueId | null
+  resumeKind: string | null
+  resumeValue: string | null
+  headless: boolean
+  archived: boolean
+  status: SessionStatusPersisted
+  refIssueId: IssueId | null
+  refLetter: string | null
+  refDraft: number | null
+  cwd: string
+  machineId: MachineId
+}
+
 /** One row of the machines table (token_hash is internal — not included here). */
 export interface MachineRecord {
   supersededBy?: MachineId | null

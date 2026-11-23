@@ -2757,6 +2757,7 @@ export class SessionRegistry {
       // memory, everything else from the database.
       runningSessionFacts: () => sessionsSvc.runningSessionFacts(),
       readSessionFacts: async () => await sessionsSvc.readSessionFacts(),
+      readSessionSeatFacts: async (query) => await sessionsSvc.readSessionSeatFacts(query),
       readSessionFactsById: async (sessionId) => await sessionsSvc.readSessionFactsById(sessionId),
       readSessionFactsByIssue: async (worktreePath, issueId) =>
         await sessionsSvc.readSessionFactsByIssue(worktreePath, issueId),

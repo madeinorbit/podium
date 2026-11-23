@@ -237,6 +237,26 @@ const openInteractionsOfIds = preparedFamily((db, t, size: number) =>
     .prepare(),
 )
 
+/** How many asks each of these sessions has open (POD-7431), through
+ *  `idx_pending_interactions_session_time`; a session with none has no row. */
+const openCountsOfSessions = preparedFamily((db, t, size: number) =>
+  db
+    .select({
+      sessionId: t.pendingInteractions.sessionId,
+      open: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(t.pendingInteractions)
+    .where(
+      inWorkspace(
+        t.pendingInteractions,
+        inListOf(t.pendingInteractions.sessionId, size, 'ids'),
+        eq(t.pendingInteractions.status, 'asked'),
+      ),
+    )
+    .groupBy(t.pendingInteractions.sessionId)
+    .prepare(),
+)
+
 const openInteractionsOfSession = prepared((db, t) =>
   db
     .select()
@@ -497,6 +517,22 @@ export class InteractionsRepository {
       ? await openInteractionsOfSession(this.db).all({ sessionId })
       : await openInteractions(this.db).all()
     return rows.map(toRow)
+  }
+
+  /** The open asks of each of these sessions, counted in SQL: one read per
+   *  500 sessions. A session with none is absent. */
+  async openCountsOf(sessionIds: readonly SessionId[]): Promise<Map<SessionId, number>> {
+    const unique = [...new Set(sessionIds)]
+    const out = new Map<SessionId, number>()
+    for (let at = 0; at < unique.length; at += 500) {
+      const chunk = unique.slice(at, at + 500)
+      const size = inListSize(chunk.length)
+      for (const row of await openCountsOfSessions(this.db, size).all(
+        inListValues(chunk, size, 'ids'),
+      ))
+        out.set(row.sessionId, row.open)
+    }
+    return out
   }
 
   /** The open asks among these ids, in no particular order: one read per

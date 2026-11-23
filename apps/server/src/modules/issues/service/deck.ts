@@ -21,6 +21,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { IssueRow } from '../../../store'
+import type { SessionSeatFacts } from '../../sessions/facts'
 import { readSessionRefs } from '../../sessions/refs'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
@@ -31,6 +32,12 @@ function deckEntry<K, V>(values: ReadonlyMap<K, V>, key: K, kind: string): V {
   const value = values.get(key)
   if (value === undefined) throw new Error(`issue deck invariant: missing ${kind} ${String(key)}`)
   return value
+}
+
+/** The full listing's order: repository path, then sequence, then id. */
+function byPathSeq(a: IssueRow, b: IssueRow): number {
+  const text = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0)
+  return text(a.repoPath, b.repoPath) || a.seq - b.seq || text(a.id, b.id)
 }
 
 /** The full, unfolded deck, independent of a device's fold/filter preferences.
@@ -55,28 +62,43 @@ export async function readDeck(
 ): Promise<IssueDeck> {
   const root = await store.rowOrThrow(await store.resolveRef(ref))
   if (root.deletedAt || !(await mayRead(root))) throw new IssueNotFound(ref)
-  const rows = new Map<IssueId, IssueRow>()
-  // Every live, unarchived issue from the database in repository order
-  // (repository path, then sequence), the order the in-memory issue map held
-  // them in after boot (POD-6158).
-  const candidates = await store.deps.store.issues.listIssueRowsWhere({
-    repo: false,
-    live: true,
-    unarchived: true,
-    order: 'path-seq',
-  })
-  for (const row of candidates) {
-    if (row.deletedAt || row.archived || row.draft || !(await mayRead(row))) continue
-    rows.set(row.id, row)
-  }
-  rows.set(root.id, root)
-  const deps = await store.deps.store.issues.listAllIssueDeps()
+  const issues = store.deps.store.issues
+  // THE MISSION'S ROWS ONLY (POD-7431): the root, its descendants, the issues
+  // its sessions started and their descendants, each read by index. A deck
+  // row is live, unarchived, not a draft and readable, the filter the full
+  // listing applied before; the root stays whatever it is.
+  const rows = new Map<IssueId, IssueRow>([[root.id, root]])
   const formal = new Map<IssueId, IssueId[]>()
-  for (const row of rows.values()) {
-    if (!row.parentId) continue
-    const children = formal.get(row.parentId) ?? []
-    children.push(row.id)
-    formal.set(row.parentId, children)
+  const deckRows = async (found: readonly IssueRow[]): Promise<IssueRow[]> => {
+    const shown = await Promise.all(
+      found.map(async (row) =>
+        row.deletedAt || row.archived || row.draft ? false : await mayRead(row),
+      ),
+    )
+    return found.filter((_, at) => shown[at])
+  }
+  // The children of these issues, one level per statement, until a level is
+  // empty: the depth bounds the count, never the workspace's size.
+  const walked = new Set<IssueId>()
+  const readSubtrees = async (ids: readonly IssueId[]): Promise<void> => {
+    let level = ids.filter((id) => !walked.has(id))
+    while (level.length > 0) {
+      for (const id of level) walked.add(id)
+      const found = await issues.listIssueRowsWhere(
+        { repo: false, live: true, unarchived: true, parents: 1, order: 'path-seq' },
+        { parents: level },
+      )
+      const next: IssueId[] = []
+      for (const row of await deckRows(found)) {
+        if (!row.parentId) continue
+        if (!rows.has(row.id)) rows.set(row.id, row)
+        const kids = formal.get(row.parentId) ?? []
+        kids.push(row.id)
+        formal.set(row.parentId, kids)
+        if (!walked.has(row.id)) next.push(row.id)
+      }
+      level = next
+    }
   }
   const admitted = new Set<IssueId>()
   const children = new Map<IssueId, IssueId[]>()
@@ -87,23 +109,31 @@ export async function readDeck(
     children.set(id, kids)
     for (const child of kids) addTree(child)
   }
+  await readSubtrees([root.id])
   addTree(root.id)
 
   // Mission membership uses explicit issueId (including historical senders),
   // not cwd containment. Project only candidates; unreadable sessions can
-  // neither appear in a seat nor supply a provenance graft.
-  // Every session, parked ones read from the database (POD-6160: the map holds
-  // only running sessions, so the resident facts would drop parked seats).
-  const facts = await store.deps.readSessionFacts()
-  const factsById = new Map(facts.map((s) => [s.sessionId, s]))
+  // neither appear in a seat nor supply a provenance graft. The seat facts are
+  // read for the deck's issues, the sessions its rows name and their resume
+  // twins only, without any session's satellites (POD-7431): the projection
+  // below hydrates the candidates alone.
+  const facts = new Map<SessionId, SessionSeatFacts>()
   const resumeTwins = new Map<string, SessionId[]>()
-  for (const s of facts) {
-    if (!s.resume || s.headless) continue
-    const key = resumeKey(s.resume.kind, s.resume.value)
-    const twins = resumeTwins.get(key) ?? []
-    twins.push(s.sessionId)
-    resumeTwins.set(key, twins)
+  const learn = (found: readonly SessionSeatFacts[]): void => {
+    for (const s of found) {
+      if (facts.has(s.sessionId)) continue
+      facts.set(s.sessionId, s)
+      if (!s.resume || s.headless) continue
+      const key = resumeKey(s.resume.kind, s.resume.value)
+      const twins = resumeTwins.get(key) ?? []
+      twins.push(s.sessionId)
+      resumeTwins.set(key, twins)
+    }
   }
+  const factsOfIssues = new Set<IssueId>()
+  const factsOfIds = new Set<SessionId>()
+  const factsOfResumes = new Set<string>()
   const projected = new Map<SessionId, SessionMeta>()
   const requested = new Set<SessionId>()
   // The pool breaks exact parked-resume ties by stable session id.
@@ -111,14 +141,31 @@ export async function readDeck(
     dedupeSessionsByResume(
       [...projected.values()].sort((a, b) => a.sessionId.localeCompare(b.sessionId)),
     )
-  const departed = new Set(
-    deps.filter((dep) => dep.type === 'discovered-from').map((dep) => dep.fromId),
-  )
+  // Provenance: the issues a projected session started, with their own
+  // discovered-from edges, asked once per session.
+  const started = new Map<IssueId, IssueRow>()
+  const departed = new Set<IssueId>()
+  const startedAsked = new Set<SessionId>()
+  const leftMission = (row: IssueRow) =>
+    departed.has(row.id) && row.stage !== 'proposed' && row.stage !== 'backlog'
   let grew = true
   while (grew) {
-    const candidates = new Set(
-      facts.filter((s) => s.issueId && admitted.has(s.issueId)).map((s) => s.sessionId),
-    )
+    const issueIds = [...admitted].filter((id) => !factsOfIssues.has(id))
+    for (const id of issueIds) factsOfIssues.add(id)
+    // The sessions the deck's rows name: proposal authors and coordinators.
+    const named = new Set<SessionId>()
+    for (const id of admitted) {
+      const row = deckEntry(rows, id, 'issue')
+      if (row.stage === 'proposed' && row.startedBySession) named.add(row.startedBySession)
+      if (row.coordinatorSessionId) named.add(row.coordinatorSessionId)
+    }
+    const sessionIds = [...named].filter((id) => !factsOfIds.has(id) && !facts.has(id))
+    for (const id of sessionIds) factsOfIds.add(id)
+    if (issueIds.length > 0 || sessionIds.length > 0)
+      learn(await store.deps.readSessionSeatFacts({ issueIds, sessionIds }))
+    const candidates = new Set<SessionId>()
+    for (const s of facts.values())
+      if (s.issueId && admitted.has(s.issueId)) candidates.add(s.sessionId)
     for (const id of admitted) {
       const row = deckEntry(rows, id, 'issue')
       if (row.stage === 'proposed' && row.startedBySession) candidates.add(row.startedBySession)
@@ -126,21 +173,57 @@ export async function readDeck(
     // Resume collapse is global in the UI. Read only these candidates' twins,
     // including ones outside the deck, and let the projection apply visibility
     // before picking the winner. A private twin cannot hide a visible seat.
+    const resumes: { kind: string; value: string }[] = []
     for (const id of candidates) {
-      const s = factsById.get(id)
+      const s = facts.get(id)
+      if (!s?.resume || s.headless) continue
+      const key = resumeKey(s.resume.kind, s.resume.value)
+      if (factsOfResumes.has(key)) continue
+      factsOfResumes.add(key)
+      resumes.push(s.resume)
+    }
+    if (resumes.length > 0) learn(await store.deps.readSessionSeatFacts({ resumes }))
+    for (const id of candidates) {
+      const s = facts.get(id)
       if (!s?.resume || s.headless) continue
       for (const twin of resumeTwins.get(resumeKey(s.resume.kind, s.resume.value)) ?? [])
         candidates.add(twin)
     }
     const ids = [...candidates].filter((id) => !requested.has(id))
     for (const id of ids) requested.add(id)
-    for (const session of await store.deps.sessionsById(ids, forUser))
-      projected.set(session.sessionId, session)
+    if (ids.length > 0) {
+      for (const session of await store.deps.sessionsById(ids, forUser))
+        projected.set(session.sessionId, session)
+    }
     const authors = new Map(senders().map((s) => [s.sessionId, s]))
+    const ask = [...projected.keys()].filter((id) => !startedAsked.has(id))
+    for (const id of ask) startedAsked.add(id)
+    if (ask.length > 0) {
+      const found = (await deckRows(await issues.liveIssuesStartedBy(ask))).filter(
+        (row) => !started.has(row.id),
+      )
+      for (const row of found) {
+        started.set(row.id, row)
+        if (!rows.has(row.id)) rows.set(row.id, row)
+      }
+      if (found.length > 0) {
+        for (const dep of await issues.depsFromIssues(found.map((row) => row.id)))
+          if (dep.type === 'discovered-from') departed.add(dep.fromId)
+      }
+    }
+    // A graft that can attach reads its subtree first, so the walk below
+    // admits it whole, in the order the full listing gave.
+    const grafts = [...started.values()].filter((row) => !admitted.has(row.id)).sort(byPathSeq)
+    await readSubtrees(
+      grafts.flatMap((row) =>
+        row.startedBySession && authors.get(row.startedBySession)?.issueId && !leftMission(row)
+          ? [row.id]
+          : [],
+      ),
+    )
     grew = false
-    for (const row of rows.values()) {
-      if (admitted.has(row.id) || !row.startedBySession) continue
-      if (departed.has(row.id) && row.stage !== 'proposed' && row.stage !== 'backlog') continue
+    for (const row of grafts) {
+      if (admitted.has(row.id) || !row.startedBySession || leftMission(row)) continue
       const author = authors.get(row.startedBySession)
       if (!author?.issueId || !admitted.has(author.issueId)) continue
       const siblings = children.get(author.issueId) ?? []
@@ -182,8 +265,9 @@ export async function readDeck(
   }
   for (const id of admitted) await refOf(deckEntry(rows, id, 'issue'))
   const blockers = new Map<IssueId, IssueDeckNode['blockers']>()
-  // The blockers' rows by id in one read: a blocker may be archived, a draft or
-  // outside the deck, and still blocks.
+  // The deck's own edges, then the blockers' rows by id in one read: a blocker
+  // may be archived, a draft or outside the deck, and still blocks.
+  const deps = await issues.depsFromIssues([...admitted])
   const targets = await store.rowsByIds(
     deps.flatMap((dep) =>
       dep.type === 'blocked-by' && admitted.has(dep.fromId) ? [dep.toId] : [],
@@ -203,14 +287,14 @@ export async function readDeck(
     })
     blockers.set(dep.fromId, list)
   }
-  const pending = new Map<SessionId, number>()
-  for (const ask of await store.deps.store.interactions.listOpen()) {
-    if (projected.has(ask.sessionId))
-      pending.set(ask.sessionId, (pending.get(ask.sessionId) ?? 0) + 1)
-  }
+  // Open asks of the projected sessions only, counted by the database.
+  const pending =
+    projected.size > 0
+      ? await store.deps.store.interactions.openCountsOf([...projected.keys()])
+      : new Map<SessionId, number>()
   const sessionRefs = await readSessionRefs(
     store.deps.store,
-    facts.filter((s) => projected.has(s.sessionId)),
+    [...facts.values()].filter((s) => projected.has(s.sessionId)),
   )
   const kept = new Map(senders().map((s) => [s.sessionId, s]))
   const seats = new Map<IssueId, IssueDeckSession[]>()
@@ -279,7 +363,7 @@ export async function readDeck(
     // from every session's facts, not this row's seats. Only a boolean leaves.
     coordinated: (id: IssueId) => {
       const coordinator = rows.get(id)?.coordinatorSessionId
-      return coordinator != null && coordinatorLive(factsById.get(coordinator))
+      return coordinator != null && coordinatorLive(facts.get(coordinator))
     },
   }
   const words = rollUpTaskWords(root.id, tree)

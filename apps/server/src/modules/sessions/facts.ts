@@ -11,7 +11,7 @@ import type {
   UserId,
   WorkState,
 } from '@podium/model'
-import type { SessionRecordReads } from './records'
+import type { SeatFactsQuery, SessionRecordReads } from './records'
 import { Session, type SessionDurableFields } from './session'
 import { isRunningStatus, type SessionIdentity, type SessionRecord } from './session-record'
 
@@ -119,6 +119,26 @@ export interface SessionFacts {
   refLetter: string | null
   refDraft: number | null
 }
+
+/**
+ * The few facts a flight deck selects its seats by (POD-7431), read without a
+ * session's satellites. Trusted server-internal data, like {@link SessionFacts}.
+ */
+export type SessionSeatFacts = Pick<
+  SessionFacts,
+  | 'sessionId'
+  | 'agentKind'
+  | 'issueId'
+  | 'resume'
+  | 'headless'
+  | 'archived'
+  | 'status'
+  | 'refIssueId'
+  | 'refLetter'
+  | 'refDraft'
+  | 'cwd'
+  | 'machineId'
+>
 
 /** One live session's facts. Pure field copies — see the class doc on why this
  *  may never grow a call into the store or another service. */
@@ -258,6 +278,11 @@ export class SessionFactsReader {
   /** The sessions spawned by any of these sessions. */
   async readChildren(parentIds: readonly SessionId[]): Promise<SessionFacts[]> {
     return (await this.required().childrenOf(parentIds, 'facts.children')).map(subjectFacts)
+  }
+
+  /** A flight deck's seat candidates, without satellites (POD-7431). */
+  async readSeatFacts(query: SeatFactsQuery): Promise<SessionSeatFacts[]> {
+    return await this.required().seatFacts(query)
   }
 
   private required(): SessionRecordReads {

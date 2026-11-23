@@ -1420,6 +1420,9 @@ export const issues = pgTable(
     index('idx_issues_children')
       .on(table.workspaceId, table.parentId)
       .where(sql`"parent_id" IS NOT NULL`),
+    index('idx_issues_started_by')
+      .on(table.workspaceId, table.startedBySession)
+      .where(sql`"started_by_session" IS NOT NULL`),
     index('idx_issues_seq').on(table.workspaceId, table.seq, table.repoPath, table.id),
     index('idx_issues_repo').on(table.workspaceId, table.repoPath),
     index('idx_issues_stage_updated').on(

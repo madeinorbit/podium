@@ -1,6 +1,6 @@
 import type { SessionId } from '@podium/model'
 import { isIssueMember, isMemberCwd } from '../issue-util'
-import type { SessionRecordReads, SessionSubject } from '../modules/sessions/records'
+import { type SessionRecordReads, type SessionSubject, subjectFacts } from '../modules/sessions/records'
 import type { Session } from '../modules/sessions/session'
 
 /**
@@ -37,6 +37,17 @@ export function residentRecords(sessions: ReadonlyMap<SessionId, Session>): Sess
     },
     withResume: async (resume) => where((s) => s.resume?.kind === resume.kind && s.resume.value === resume.value),
     referencingIssues: async (issueIds) => where((s) => s.refIssueId !== null && issueIds.includes(s.refIssueId)),
+    seatFacts: async (query) => {
+      const issueIds = new Set(query.issueIds ?? [])
+      const sessionIds = new Set(query.sessionIds ?? [])
+      const resumes = query.resumes ?? []
+      return where(
+        (s) =>
+          sessionIds.has(s.sessionId) ||
+          (!!s.issueId && issueIds.has(s.issueId)) ||
+          resumes.some((r) => s.resume?.kind === r.kind && s.resume.value === r.value),
+      ).map(subjectFacts)
+    },
     childrenOf: async (parentIds) => {
       const values = new Set(parentIds.map((id) => `session:${id}`))
       return where((s) => s.spawnedBy !== undefined && values.has(s.spawnedBy))

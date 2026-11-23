@@ -10,6 +10,7 @@ import {
   asIssuePanelItemId,
   asMachineId,
   asRepoId,
+  asSessionId,
   asUserId,
   type IssueId,
   type UserId,
@@ -226,9 +227,18 @@ export async function seed(store: SessionStore, tag: Tag): Promise<void> {
   })
 }
 /** An issue only `tag`'s workspace holds: top level, in the same repository, its own number. */
+/** The session that started each workspace's own planted issue. */
+export const STARTED_BY = asSessionId('started-by')
+
 export async function plantOnly(store: SessionStore, tag: Tag): Promise<void> {
   await store.issues.upsertIssue(
     scope,
-    issue(tag, 6, { id: only(tag), seq: tag === 'a' ? 6 : 7, title: `${tag} only` }),
+    // Started by a session id both workspaces hold (POD-7431's provenance read).
+    issue(tag, 6, {
+      id: only(tag),
+      seq: tag === 'a' ? 6 : 7,
+      title: `${tag} only`,
+      startedBySession: STARTED_BY,
+    }),
   )
 }

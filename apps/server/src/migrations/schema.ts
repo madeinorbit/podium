@@ -2389,6 +2389,12 @@ export const issues = sqliteTable(
     index('idx_issues_children')
       .on(table.workspaceId, table.parentId)
       .where(sql`${table.parentId} IS NOT NULL`),
+    // PROVENANCE ONLY [POD-7431]: the issues a session started, which a flight
+    // deck grafts under its author's issue. Partial, as `idx_issues_children`:
+    // most issues were started by no session.
+    index('idx_issues_started_by')
+      .on(table.workspaceId, table.startedBySession)
+      .where(sql`${table.startedBySession} IS NOT NULL`),
     // A bare `#N` reference names every repository's issue N (POD-6158); with
     // the repository path and id after it, the matches come back in the order
     // they are reported without a sort.

@@ -1,4 +1,5 @@
 import {
+  AgentKind,
   type ConversationId,
   firstAdminMemberId,
   type IssueId,
@@ -8,8 +9,8 @@ import {
   type UserId,
 } from '@podium/model'
 import { isIssueMember, isMemberCwd } from '../../issue-util'
-import type { SessionRow, SessionStore } from '../../store'
-import { subjectFacts } from './facts'
+import type { SessionRow, SessionSeatRow, SessionStore } from '../../store'
+import { type SessionSeatFacts, subjectFacts } from './facts'
 import { Session } from './session'
 import {
   applyObservationCheckpointTo,
@@ -87,6 +88,7 @@ export type SessionRecordReads = Pick<
   | 'withIdPrefix'
   | 'birthRefCandidates'
   | 'childrenOf'
+  | 'seatFacts'
   | 'withStatuses'
   | 'withResume'
   | 'referencingIssues'
@@ -340,6 +342,45 @@ export class SessionRecords {
     )
   }
 
+  /**
+   * THE SEAT FACTS OF A FLIGHT DECK (POD-7431): the live sessions attached to
+   * these issues, with these ids, or bound to these resume refs, as the few
+   * columns a deck selects seats by. A resident session answers with its own
+   * fields as it stands when asked; every other session with its row. No
+   * satellite is read: the deck projects only the sessions it selects. The
+   * same sessions as {@link all} restricted to the query, in no order.
+   */
+  async seatFacts(query: SeatFactsQuery): Promise<SessionSeatFacts[]> {
+    const issueIds = new Set(query.issueIds ?? [])
+    const sessionIds = new Set(query.sessionIds ?? [])
+    const resumeRefs = query.resumes ?? []
+    const resumes = new Set(resumeRefs.map((r) => resumeMatchKey(r.kind, r.value)))
+    const matches = (s: SeatMatchFields) =>
+      sessionIds.has(s.sessionId) ||
+      (!!s.issueId && issueIds.has(s.issueId)) ||
+      (!!s.resume && resumes.has(resumeMatchKey(s.resume.kind, s.resume.value)))
+    // Resident sessions as they stand when asked, before any await (see resolve).
+    const residentIds = new Set(this.ports.sessions.keys())
+    const out = new Map<SessionId, SessionSeatFacts>()
+    for (const session of this.ports.sessions.values()) {
+      if (matches(session)) out.set(session.sessionId, seatFactsOf(subjectFacts(session)))
+    }
+    const store = this.ports.store.sessions
+    const rows = [
+      ...(issueIds.size ? await store.seatFacts('issue', [...issueIds]) : []),
+      ...(sessionIds.size ? await store.seatFacts('id', [...sessionIds]) : []),
+      ...(resumes.size ? await store.seatFacts('resume', resumeRefs.map((r) => r.value)) : []),
+    ]
+    for (const row of rows) {
+      if (residentIds.has(row.id) || out.has(row.id)) continue
+      // A row the boot restore cannot read is no session (`storedSessionInit`).
+      if (!AgentKind.safeParse(row.agentKind).success) continue
+      const facts = seatRowFacts(row)
+      if (matches(facts)) out.set(facts.sessionId, facts)
+    }
+    return [...out.values()]
+  }
+
   private async select(
     candidates: () => Promise<readonly SessionRow[]>,
     matches: (s: SelectionFields) => boolean,
@@ -543,4 +584,57 @@ export function durableView(subject: SessionSubject, options: { agentState?: boo
     delete (facts as Record<string, unknown>).agentState
   }
   return { meta, facts }
+}
+
+/** What {@link SessionRecords.seatFacts} is asked for. */
+export interface SeatFactsQuery {
+  issueIds?: readonly IssueId[]
+  sessionIds?: readonly SessionId[]
+  resumes?: readonly { kind: string; value: string }[]
+}
+
+interface SeatMatchFields {
+  sessionId: SessionId
+  issueId?: IssueId | null | undefined
+  resume?: { kind: string; value: string } | undefined
+}
+
+const resumeMatchKey = (kind: string, value: string) => `${kind}\u0000${value}`
+
+/** The seat fields of a session's facts. */
+function seatFactsOf(f: SessionSeatFacts): SessionSeatFacts {
+  return {
+    sessionId: f.sessionId,
+    agentKind: f.agentKind,
+    ...(f.issueId ? { issueId: f.issueId } : {}),
+    ...(f.resume ? { resume: f.resume } : {}),
+    headless: f.headless,
+    archived: f.archived,
+    status: f.status,
+    refIssueId: f.refIssueId,
+    refLetter: f.refLetter,
+    refDraft: f.refDraft,
+    cwd: f.cwd,
+    machineId: f.machineId,
+  }
+}
+
+/** A row's seat facts, as `storedSessionInit` restores those fields. */
+function seatRowFacts(row: SessionSeatRow): SessionSeatFacts {
+  return {
+    sessionId: row.id,
+    agentKind: row.agentKind as AgentKind,
+    ...(row.issueId ? { issueId: row.issueId } : {}),
+    ...(row.resumeKind && row.resumeValue
+      ? { resume: { kind: row.resumeKind, value: row.resumeValue } }
+      : {}),
+    headless: row.headless,
+    archived: row.archived,
+    status: row.status,
+    refIssueId: row.refIssueId,
+    refLetter: row.refLetter,
+    refDraft: row.refDraft,
+    cwd: row.cwd,
+    machineId: row.machineId,
+  }
 }

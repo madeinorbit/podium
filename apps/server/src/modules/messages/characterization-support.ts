@@ -276,6 +276,7 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
     store,
     runningSessionFacts: factReads.runningSessionFacts,
     readSessionFacts: factReads.readSessionFacts,
+    readSessionSeatFacts: factReads.readSessionSeatFacts,
     readSessionFactsById: factReads.readSessionFactsById,
     readSessionFactsByIssue: factReads.readSessionFactsByIssue,
     readSessionFactsByIssues: factReads.readSessionFactsByIssues,

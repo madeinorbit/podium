@@ -87,6 +87,7 @@ import type {
   SessionDriverCapabilities,
   SessionLifecycleRow,
   SessionRow,
+  SessionSeatRow,
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
@@ -298,6 +299,48 @@ const liveSessionsOfResumeValues = preparedFamily((db, t, size: number) =>
 const liveSessionsOfIssueIds = preparedFamily((db, t, size: number) =>
   sessionsWhere(db, t, and(inListOf(t.sessions.issueId, size), isNull(t.sessions.deletedAt))),
 )
+
+/**
+ * THE COLUMNS A FLIGHT DECK PICKS ITS SEATS BY (POD-7431): mission membership,
+ * resume identity, liveness and the birth ref. No payload column and no
+ * satellite: the deck projects only the sessions it selects.
+ */
+function seatFactsWhere(db: StoreDrizzle, t: StoreTables, where: SQL) {
+  return db
+    .select({
+      id: t.sessions.id,
+      agentKind: t.sessions.agentKind,
+      issueId: t.sessions.issueId,
+      resumeKind: t.sessions.resumeKind,
+      resumeValue: t.sessions.resumeValue,
+      headless: t.sessions.headless,
+      archived: t.sessions.archived,
+      status: t.sessions.status,
+      refIssueId: t.sessions.refIssueId,
+      refLetter: t.sessions.refLetter,
+      refDraft: t.sessions.refDraft,
+      cwd: t.sessions.cwd,
+      machineId: t.sessions.machineId,
+    })
+    .from(t.sessions)
+    .where(inWorkspace(t.sessions, where, isNull(t.sessions.deletedAt)))
+    .prepare()
+}
+
+const seatFactsOfIssueIds = preparedFamily((db, t, size: number) =>
+  seatFactsWhere(db, t, inListOf(t.sessions.issueId, size)),
+)
+const seatFactsOfIds = preparedFamily((db, t, size: number) =>
+  seatFactsWhere(db, t, inListOf(t.sessions.id, size)),
+)
+const seatFactsOfResumeValues = preparedFamily((db, t, size: number) =>
+  seatFactsWhere(db, t, inListOf(t.sessions.resumeValue, size)),
+)
+const SEAT_FACTS = {
+  issue: seatFactsOfIssueIds,
+  id: seatFactsOfIds,
+  resume: seatFactsOfResumeValues,
+} as const
 
 /** The folded cwd `idx_sessions_cwd_folded` indexes; repeat it exactly. */
 const foldedCwd = (t: StoreTables) => sql`lower(replace(${t.sessions.cwd}, '/', '\\'))`
@@ -1983,6 +2026,36 @@ export class SessionsRepository {
       const size = inListSize(chunk.length)
       const rows = await liveSessionsOfIssueIds(this.db, size).all(inListValues(chunk, size))
       out.push(...rows.map(mapSession))
+    }
+    return out
+  }
+
+  /**
+   * The seat columns of the live sessions on these issues, with these ids, or
+   * with these resume values (POD-7431), unordered: one read per 500 keys
+   * through `idx_sessions_issue`, the primary key or `idx_sessions_resume_machine`.
+   */
+  async seatFacts(by: keyof typeof SEAT_FACTS, keys: readonly string[]): Promise<SessionSeatRow[]> {
+    const out: SessionSeatRow[] = []
+    for (const chunk of chunked([...new Set(keys)])) {
+      const size = inListSize(chunk.length)
+      for (const r of await SEAT_FACTS[by](this.db, size).all(inListValues(chunk, size))) {
+        out.push({
+          id: r.id,
+          agentKind: r.agentKind,
+          issueId: r.issueId ?? null,
+          resumeKind: r.resumeKind ?? null,
+          resumeValue: r.resumeValue ?? null,
+          headless: r.headless === true,
+          archived: r.archived === true,
+          status: r.status as SessionStatusPersisted,
+          refIssueId: r.refIssueId ?? null,
+          refLetter: r.refLetter ?? null,
+          refDraft: r.refDraft ?? null,
+          cwd: r.cwd,
+          machineId: r.machineId,
+        })
+      }
     }
     return out
   }

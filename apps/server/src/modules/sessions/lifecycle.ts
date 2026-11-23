@@ -65,7 +65,7 @@ import type { HeadlessService } from '../superagent/headless'
 import type { SessionClientControl } from './client-control'
 import type { SessionDaemonLifecycle } from './daemon-lifecycle'
 import type { SessionDaemonProjection } from './daemon-projection'
-import { type SessionFacts, SessionFactsReader } from './facts'
+import { type SessionFacts, SessionFactsReader, type SessionSeatFacts } from './facts'
 import { machineUseGateFor } from './handoff/access'
 import type { AssertMachineUse, HandoffCaller } from './handoff/ports'
 import type { AnswerChoice, InboxPrincipalReference, SessionInbox } from './inbox'
@@ -97,7 +97,7 @@ import type { SessionLiveTopics } from './live-topics'
 import type { SessionMachineReconciler } from './machine-reconciler'
 import type { SessionNaming } from './naming'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
-import type { SessionRecords } from './records'
+import type { SeatFactsQuery, SessionRecords } from './records'
 import type {
   SessionAdditionalWrite,
   SessionProjectionEvent,
@@ -531,6 +531,12 @@ export class SessionLifecycle {
     ref: { seq: number; letter: string } | { draft: number },
   ): Promise<SessionFacts[]> {
     return await this.facts.readBirthRefCandidates(ref)
+  }
+
+  /** A flight deck's seat candidates (POD-7431): the live sessions on these
+   *  issues, with these ids or on these resume refs, without satellites. */
+  async readSessionSeatFacts(query: SeatFactsQuery): Promise<SessionSeatFacts[]> {
+    return await this.facts.readSeatFacts(query)
   }
 
   /** The sessions spawned by any of these sessions, from the database. */

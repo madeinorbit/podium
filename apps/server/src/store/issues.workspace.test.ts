@@ -53,6 +53,7 @@ import {
   REPO,
   ROOT,
   rowsOf,
+  STARTED_BY,
   scope,
   seed,
   TABLES,
@@ -168,6 +169,7 @@ describe('the issues repository reads only its own workspace', () => {
         iss(4),
       ])
       expect(ids(await s.liveChildrenOf([iss(1), only(o)]), tag)).toEqual([iss(2), iss(3)])
+      expect(ids(await s.liveIssuesStartedBy([STARTED_BY]), tag)).toEqual([only(tag)])
 
       const onMachines = await s.liveWorktreeIssuesOnMachines([MACHINE])
       expect(ids(onMachines.get(MACHINE) ?? [], tag)).toEqual([iss(2)])

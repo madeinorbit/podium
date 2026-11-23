@@ -138,6 +138,7 @@ async function fixture(size: number): Promise<Fixture> {
     store,
     runningSessionFacts: () => [],
     readSessionFacts: async () => [],
+    readSessionSeatFacts: async () => [],
     readSessionFactsById: async () => undefined,
     readSessionFactsByIssue: async () => [],
     sessionsById: async () => [],
@@ -208,9 +209,10 @@ const deckPin: StatementPin<Fixture> = {
     expect(deck.root.children).toHaveLength(size)
     expect(deck.counts.total).toBe(size)
     expect(deck.root.children.some((child) => child.blockers.length > 0)).toBe(true)
-    // Root, listing, and distinct blocker targets. Authorization fetches no
-    // rows of its own, even for the other member's unshared issues.
-    expect(f.issueRowsRead).toBe(1 + (size + 1) + Math.floor((size - 1) / 2))
+    // Root, its children (the mission's rows only, POD-7431), and distinct
+    // blocker targets. Authorization fetches no rows of its own, even for the
+    // other member's unshared issues.
+    expect(f.issueRowsRead).toBe(1 + size + Math.floor((size - 1) / 2))
   },
   teardown: async (f) => await f.store.close(),
 }
@@ -229,18 +231,26 @@ const deckPin: StatementPin<Fixture> = {
 // Panel report DTOs read each normalized table once per batch.
 describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
   it('deck: authorizes loaded rows without a query per issue or blocker', async () => {
-    // Root, listing, dependencies, blocker targets, pending asks, and names.
+    // Root, two subtree levels, dependencies, blocker targets, and names; no
+    // session is projected, so no asks are read (POD-7431).
     await expectConstantStatements(deckPin, 6)
   })
 
-  it('deck pin detects restoring the per-ID authorization loop', async () => {
+  // The deck asks a level's rows together, so even the old per-ID policy now
+  // batches through the row loader (POD-7431). A live read per row still grows.
+  it('deck pin detects an authorization read per loaded row', async () => {
     await expectArmed(deckPin, 6, () => {
       const issueReader = IssueCommandCtx.prototype.issueReader
       const spy = vi.spyOn(IssueCommandCtx.prototype, 'issueReader').mockImplementation(function (
         this: IssueCommandCtx,
       ) {
         const reader = issueReader.call(this)
-        return { viewer: reader.viewer, mayRead: reader.mayRead }
+        const issues = (this.reports as unknown as IssueReportsModule).store.deps.store.issues
+        return {
+          viewer: reader.viewer,
+          mayRead: reader.mayRead,
+          mayReadRow: async (row: IssueRow) => (await issues.getIssueLive(row.id)) !== null,
+        }
       })
       return () => spy.mockRestore()
     })

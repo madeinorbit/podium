@@ -2044,6 +2044,7 @@ CREATE INDEX "idx_issues_tombstones" ON "issues" ("workspace_id","deleted_at") W
 CREATE INDEX "idx_issues_closed_projection" ON "issues" ("workspace_id","id","stage","closed_reason","deleted_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "idx_issues_repo_id_seq" ON "issues" ("workspace_id","repo_id" NULLS FIRST,"seq");--> statement-breakpoint
 CREATE INDEX "idx_issues_children" ON "issues" ("workspace_id","parent_id") WHERE "parent_id" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX "idx_issues_started_by" ON "issues" ("workspace_id","started_by_session") WHERE "started_by_session" IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "idx_issues_seq" ON "issues" ("workspace_id","seq","repo_path","id");--> statement-breakpoint
 CREATE INDEX "idx_issues_repo" ON "issues" ("workspace_id","repo_path");--> statement-breakpoint
 CREATE INDEX "idx_issues_stage_updated" ON "issues" ("workspace_id","stage","updated_at" desc,"id");--> statement-breakpoint

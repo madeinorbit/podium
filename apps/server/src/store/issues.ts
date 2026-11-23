@@ -1,7 +1,7 @@
 // workspace-scoped (POD-6959)
 import type { WriteScope } from '@podium/sync'
 import { CommittedRows } from './committed-rows'
-import { throughIndex } from './index-hints'
+import { bareColumns, throughIndex } from './index-hints'
 /**
  * Issues aggregate — owns the `issues` table and its child tables:
  * `issue_labels`, `issue_deps`, `issue_comments` and `issue_messages`
@@ -176,6 +176,26 @@ const issuesByIds = preparedFamily((db, t, size: number) =>
     .select()
     .from(t.issues)
     .where(inWorkspace(t.issues, inListOf(t.issues.id, size, 'ids')))
+    .prepare(),
+)
+
+/**
+ * The live, unarchived issues these sessions started (POD-7431): the
+ * provenance a flight deck grafts under its author's issue. Through the
+ * partial index, which SQLite would otherwise cost as a walk of every issue.
+ */
+const liveIssuesStartedBy = preparedFamily((db, t, size: number) =>
+  db
+    .select(bareColumns(t.issues))
+    .from(throughIndex(db, t.issues, 'idx_issues_started_by'))
+    .where(
+      inWorkspace(
+        t.issues,
+        inListOf(t.issues.startedBySession, size, 'ids'),
+        isNull(t.issues.deletedAt),
+        eq(t.issues.archived, false),
+      ),
+    )
     .prepare(),
 )
 
@@ -2251,6 +2271,17 @@ export class IssuesRepository {
         out.add(row.issueId)
     }
     return [...out]
+  }
+
+  /** The live, unarchived issues started by these sessions, in the boot map's
+   *  order (repository path, sequence), POD-7431: one read per 500 sessions
+   *  through `idx_issues_started_by`, the few rows ordered here. */
+  async liveIssuesStartedBy(sessionIds: readonly string[]): Promise<IssueRow[]> {
+    const raw = await perChunk(
+      [...new Set(sessionIds)],
+      async (size, values) => await liveIssuesStartedBy(this.db, size).all(values),
+    )
+    return sortListing(await this.mapQuarantined(raw), 'path-seq')
   }
 
   /** The dependency edges FROM these issues, in (from, to, type) order. */

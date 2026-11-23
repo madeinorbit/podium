@@ -1,0 +1,1 @@
+CREATE INDEX `idx_issues_started_by` ON `issues` (`workspace_id`,`started_by_session`) WHERE "issues"."started_by_session" IS NOT NULL;

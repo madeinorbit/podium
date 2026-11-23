@@ -8,6 +8,7 @@ import {
 } from '@podium/model'
 import { isMemberCwd, sessionsForIssue } from '../issue-util'
 import type { SessionFacts } from '../modules/sessions/facts'
+import type { SeatFactsQuery } from '../modules/sessions/records'
 
 /**
  * A `SessionMeta` read back as {@link SessionFacts}, FOR FIXTURES ONLY.
@@ -96,6 +97,7 @@ export function sessionReadPorts(source: () => readonly SessionMeta[]): {
   readSessionFacts(): Promise<SessionFacts[]>
   readSessionFactsByIds(sessionIds: Iterable<SessionId>): Promise<SessionFacts[]>
   readSessionFactsById(sessionId: SessionId): Promise<SessionFacts | undefined>
+  readSessionSeatFacts(query: SeatFactsQuery): Promise<SessionFacts[]>
   readSessionFactsByIssue(worktreePath: string | null, issueId: IssueId | undefined): Promise<SessionFacts[]>
   readSessionFactsByIssues(
     issues: readonly { worktreePath: string | null; issueId: IssueId }[],
@@ -123,6 +125,17 @@ export function sessionReadPorts(source: () => readonly SessionMeta[]): {
       })
     },
     readSessionFactsById: async (sessionId) => facts().find((s) => s.sessionId === sessionId),
+    readSessionSeatFacts: async (query) => {
+      const issueIds = new Set(query.issueIds ?? [])
+      const sessionIds = new Set(query.sessionIds ?? [])
+      const resumes = query.resumes ?? []
+      return facts().filter(
+        (s) =>
+          sessionIds.has(s.sessionId) ||
+          (!!s.issueId && issueIds.has(s.issueId)) ||
+          resumes.some((r) => s.resume?.kind === r.kind && s.resume.value === r.value),
+      )
+    },
     readSessionFactsByIssue: async (worktreePath, issueId) => sessionsForIssue(worktreePath, facts(), issueId),
     readSessionFactsByIssues: async (issues) =>
       new Map(issues.map((issue) => [issue.issueId, sessionsForIssue(issue.worktreePath, facts(), issue.issueId)])),
