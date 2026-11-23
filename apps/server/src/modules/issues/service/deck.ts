@@ -84,10 +84,7 @@ export async function readDeck(
     let level = ids.filter((id) => !walked.has(id))
     while (level.length > 0) {
       for (const id of level) walked.add(id)
-      const found = await issues.listIssueRowsWhere(
-        { repo: false, live: true, unarchived: true, parents: 1, order: 'path-seq' },
-        { parents: level },
-      )
+      const found = await issues.liveUnarchivedChildren(level)
       const next: IssueId[] = []
       for (const row of await deckRows(found)) {
         if (!row.parentId) continue

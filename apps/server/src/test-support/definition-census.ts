@@ -212,6 +212,13 @@ export const FAMILY_SHAPES: ReadonlyMap<string, readonly (string | number)[]> = 
   ['apps/server/src/store/sessions.ts:publishSessionActivity', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfResumeValues', SIZES],
   ['apps/server/src/store/sessions.ts:liveSessionsOfIssueIds', SIZES],
+  // A flight deck's seat columns, provenance, children and open asks (POD-7431).
+  ['apps/server/src/store/sessions.ts:seatFactsOfIssueIds', SIZES],
+  ['apps/server/src/store/sessions.ts:seatFactsOfIds', SIZES],
+  ['apps/server/src/store/sessions.ts:seatFactsOfResumeValues', SIZES],
+  ['apps/server/src/store/issues.ts:liveIssuesStartedBy', SIZES],
+  ['apps/server/src/store/issues.ts:liveUnarchivedChildRows', SIZES],
+  ['apps/server/src/store/interactions.ts:openCountsOfSessions', SIZES],
   ['apps/server/src/store/sessions.ts:upsertSessionOfShape', ['0|id', '31|id']],
   ['apps/server/src/store/sessions.ts:offersOfIds', SIZES],
   ['apps/server/src/store/sessions.ts:draftTimesOfIds', SIZES],

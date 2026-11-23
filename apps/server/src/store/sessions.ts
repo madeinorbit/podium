@@ -76,7 +76,7 @@ import {
   WORKSPACE,
 } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
-import { bareColumns } from './index-hints'
+import { bareColumns, throughIndex } from './index-hints'
 import { prefixUpperBound } from './prefix-range'
 import type { RepoPlaces } from './repos'
 import type {
@@ -305,30 +305,34 @@ const liveSessionsOfIssueIds = preparedFamily((db, t, size: number) =>
  * resume identity, liveness and the birth ref. No payload column and no
  * satellite: the deck projects only the sessions it selects.
  */
-function seatFactsWhere(db: StoreDrizzle, t: StoreTables, where: SQL) {
+function seatFactsWhere(db: StoreDrizzle, t: StoreTables, where: SQL, index?: string) {
+  const c = bareColumns(t.sessions)
   return db
     .select({
-      id: t.sessions.id,
-      agentKind: t.sessions.agentKind,
-      issueId: t.sessions.issueId,
-      resumeKind: t.sessions.resumeKind,
-      resumeValue: t.sessions.resumeValue,
-      headless: t.sessions.headless,
-      archived: t.sessions.archived,
-      status: t.sessions.status,
-      refIssueId: t.sessions.refIssueId,
-      refLetter: t.sessions.refLetter,
-      refDraft: t.sessions.refDraft,
-      cwd: t.sessions.cwd,
-      machineId: t.sessions.machineId,
+      id: c.id,
+      agentKind: c.agentKind,
+      issueId: c.issueId,
+      resumeKind: c.resumeKind,
+      resumeValue: c.resumeValue,
+      headless: c.headless,
+      archived: c.archived,
+      status: c.status,
+      refIssueId: c.refIssueId,
+      refLetter: c.refLetter,
+      refDraft: c.refDraft,
+      cwd: c.cwd,
+      machineId: c.machineId,
     })
-    .from(t.sessions)
+    .from(index ? throughIndex(db, t.sessions, index) : sql`${t.sessions}`)
     .where(inWorkspace(t.sessions, where, isNull(t.sessions.deletedAt)))
     .prepare()
 }
 
+// Through `idx_sessions_issue` by name: a mission of a few hundred issues
+// would otherwise read every session under the operator's statistics, which
+// price a few hundred seeks above one scan (POD-7034, POD-7118).
 const seatFactsOfIssueIds = preparedFamily((db, t, size: number) =>
-  seatFactsWhere(db, t, inListOf(t.sessions.issueId, size)),
+  seatFactsWhere(db, t, inListOf(t.sessions.issueId, size), 'idx_sessions_issue'),
 )
 const seatFactsOfIds = preparedFamily((db, t, size: number) =>
   seatFactsWhere(db, t, inListOf(t.sessions.id, size)),

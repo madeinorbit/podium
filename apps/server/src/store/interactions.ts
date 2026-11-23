@@ -56,6 +56,7 @@ import {
   preparedFamily,
   WORKSPACE,
 } from './executor/sync-drizzle'
+import { bareColumns, throughIndex } from './index-hints'
 
 /** One stored ask. The JSON columns are parsed on the way out, so callers get
  *  the wire shape and never a string. */
@@ -237,20 +238,21 @@ const openInteractionsOfIds = preparedFamily((db, t, size: number) =>
     .prepare(),
 )
 
-/** How many asks each of these sessions has open (POD-7431), through
- *  `idx_pending_interactions_session_time`; a session with none has no row. */
+/** How many asks each of these sessions has open (POD-7431); a session with
+ *  none has no row. Through the open asks' partial index by name, keyed by
+ *  session: without it SQLite walks every open ask of the workspace. */
 const openCountsOfSessions = preparedFamily((db, t, size: number) =>
   db
     .select({
-      sessionId: t.pendingInteractions.sessionId,
+      sessionId: bareColumns(t.pendingInteractions).sessionId,
       open: sql<number>`count(*)`.mapWith(Number),
     })
-    .from(t.pendingInteractions)
+    .from(throughIndex(db, t.pendingInteractions, 'idx_pending_interactions_fingerprint'))
     .where(
       inWorkspace(
         t.pendingInteractions,
         inListOf(t.pendingInteractions.sessionId, size, 'ids'),
-        eq(t.pendingInteractions.status, 'asked'),
+        sql`${t.pendingInteractions.status} = 'asked'`,
       ),
     )
     .groupBy(t.pendingInteractions.sessionId)

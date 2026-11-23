@@ -180,6 +180,27 @@ const issuesByIds = preparedFamily((db, t, size: number) =>
 )
 
 /**
+ * The live, unarchived children of these parents, whole rows (POD-7431): one
+ * level of a flight deck's subtree. Through `idx_issues_children` by name, as
+ * `liveChildrenOf`: without it SQLite walks every issue in the listing order
+ * and keeps the few children, so the read grew with the workspace.
+ */
+const liveUnarchivedChildRows = preparedFamily((db, t, size: number) =>
+  db
+    .select(bareColumns(t.issues))
+    .from(throughIndex(db, t.issues, 'idx_issues_children'))
+    .where(
+      inWorkspace(
+        t.issues,
+        inListOf(t.issues.parentId, size, 'ids'),
+        isNull(t.issues.deletedAt),
+        eq(t.issues.archived, false),
+      ),
+    )
+    .prepare(),
+)
+
+/**
  * The live, unarchived issues these sessions started (POD-7431): the
  * provenance a flight deck grafts under its author's issue. Through the
  * partial index, which SQLite would otherwise cost as a walk of every issue.
@@ -2271,6 +2292,17 @@ export class IssuesRepository {
         out.add(row.issueId)
     }
     return [...out]
+  }
+
+  /** The live, unarchived children of these parents, in the boot map's order
+   *  (repository path, sequence), POD-7431: one read per 500 parents through
+   *  `idx_issues_children`, the few rows ordered here. */
+  async liveUnarchivedChildren(parentIds: readonly string[]): Promise<IssueRow[]> {
+    const raw = await perChunk(
+      [...new Set(parentIds)],
+      async (size, values) => await liveUnarchivedChildRows(this.db, size).all(values),
+    )
+    return sortListing(await this.mapQuarantined(raw), 'path-seq')
   }
 
   /** The live, unarchived issues started by these sessions, in the boot map's

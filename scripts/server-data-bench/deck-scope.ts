@@ -59,7 +59,11 @@ const OPEN_ASKS = 60
 const PAIRS = 5
 /** `DECK_SCOPE_SMOKE=1` checks the script at 2% of the sizes, once. */
 const SMOKE = process.env.DECK_SCOPE_SMOKE === '1'
-const SCALES = SMOKE ? [0.02] : [1, 2]
+const SCALES = process.env.DECK_SCOPE_SCALES
+  ? process.env.DECK_SCOPE_SCALES.split(',').map(Number)
+  : SMOKE
+    ? [0.02]
+    : [1, 2]
 const sized = (n: number, scale: number) => Math.round(n * scale)
 const ROOT = asIssueId('iss_m_root')
 
@@ -288,6 +292,8 @@ interface Sample {
   depRows: number
   checkpointRows: number
   checkpointStatements: number
+  /** SQL milliseconds per statement text, this run. */
+  bySql: Map<string, number>
 }
 
 const results: unknown[] = []
@@ -326,11 +332,14 @@ for (const scale of SCALES) {
         depRows: 0,
         checkpointRows: 0,
         checkpointStatements: 0,
+        bySql: new Map(),
       }
       const detach = probeStatements(store as unknown as StatementProbeHolder, (statement) => {
         sample.statements++
         sample.rows += statement.rows
         sample.sqlMs += statement.durationMs / statement.batchSize
+        const text = statement.sql.replace(/select .*? from /s, "select … from ").slice(0, 400)
+        sample.bySql.set(text, (sample.bySql.get(text) ?? 0) + statement.durationMs / statement.batchSize)
         if (statement.sql.includes('from "issues"')) sample.issueRows += statement.rows
         if (statement.sql.includes('from "sessions"')) sample.sessionRows += statement.rows
         if (statement.sql.includes('from "issue_deps"')) sample.depRows += statement.rows
@@ -399,6 +408,10 @@ for (const scale of SCALES) {
         checkpointRows: last.checkpointRows,
         checkpointStatements: last.checkpointStatements,
         samples: values.map((sample) => Math.round(sample.wallMs * 10) / 10),
+        slowestSql: [...last.bySql]
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 6)
+          .map(([sql, ms]) => ({ ms: Math.round(ms * 100) / 100, sql })),
       }
     }
     const result = {
