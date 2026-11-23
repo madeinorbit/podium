@@ -1,7 +1,6 @@
 import { agentDescriptors } from '@podium/client-core/agent-models'
 import {
   type AccountQuotaGroup,
-  agentLabel,
   agentShortLabel,
   type CapacityView,
   capacityView,
@@ -17,7 +16,10 @@ import {
   percentTone,
   type QuotaLedgerView,
   type QuotaTone,
+  quotaCreditLabel,
+  quotaGroupLabel,
   quotaLedger,
+  quotaWindowShortLabel,
   splitQuotaWindows,
   statusNote,
   type UsageDay,
@@ -422,6 +424,7 @@ interface GatingRow {
   window: QuotaWindowWire
   /** Set when this pool has already lost a model-scoped bucket. */
   modelNote: string | null
+  credits: string | null
 }
 
 /**
@@ -440,7 +443,7 @@ function gatingRows(groups: AccountQuotaGroup[]): GatingRow[] {
       rows.push({
         key: `${group.key}:status`,
         agent: group.agent,
-        agentName: agentLabel(group.agent),
+        agentName: quotaGroupLabel(group),
         window: {
           key: 'status',
           label: statusNote(group),
@@ -449,17 +452,19 @@ function gatingRows(groups: AccountQuotaGroup[]): GatingRow[] {
           windowMinutes: 0,
         },
         modelNote: null,
+        credits: group.credits ? quotaCreditLabel(group.credits) : null,
       })
       continue
     }
     const modelNote = modelLimitNote(group.agent, group.windows)
-    for (const window of splitQuotaWindows(group.windows).gating) {
+    for (const [index, window] of splitQuotaWindows(group.windows).gating.entries()) {
       rows.push({
         key: `${group.key}:${window.key}`,
         agent: group.agent,
-        agentName: agentLabel(group.agent),
+        agentName: quotaGroupLabel(group),
         window,
         modelNote,
+        credits: index === 0 && group.credits ? quotaCreditLabel(group.credits) : null,
       })
     }
   }
@@ -484,7 +489,7 @@ function QuotaRow({ row, nowMs, first }: { row: GatingRow; nowMs: number; first:
         </Text>
         <Text style={styles.quotaDetail} numberOfLines={1}>
           {readable
-            ? `${w.label}${w.resetsAt ? ` · ${formatReset(w.resetsAt, nowMs)}` : ''}`
+            ? `${w.pool ? quotaWindowShortLabel(w) : w.label}${w.resetsAt ? ` · ${formatReset(w.resetsAt, nowMs)}` : ''}`
             : w.label}
         </Text>
         {readable ? (
@@ -499,6 +504,7 @@ function QuotaRow({ row, nowMs, first }: { row: GatingRow; nowMs: number; first:
           />
         ) : null}
         {row.modelNote ? <Text style={styles.quotaNote}>{row.modelNote}</Text> : null}
+        {row.credits ? <Text style={styles.quotaNote}>{row.credits}</Text> : null}
       </View>
       {readable ? (
         <View style={styles.quotaFigure}>

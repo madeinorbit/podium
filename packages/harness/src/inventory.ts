@@ -45,6 +45,7 @@ export { installableTargets, installTargetFor, runInstallTarget } from './invent
 export type { AccountReadScope, QuotaFetcher } from './inventory/usage.js'
 export {
   makeQuotaFetcher,
+  probeAccountQuota,
   quotaAgentLabel,
   scanHostUsage,
   scanHostUsageSources,

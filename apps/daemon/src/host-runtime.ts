@@ -1201,7 +1201,13 @@ export async function createDaemonHostRuntime(args: {
           homeDir: homeDir ?? machineHome,
           ...(harnessRuntime ? { harnessRuntime } : {}),
         })
-        return account ? { home: account.home, env: account.machineEnv } : undefined
+        return account
+          ? {
+              home: account.home,
+              env: account.machineEnv,
+              ...(account.snapshot ? { snapshot: account.snapshot } : {}),
+            }
+          : undefined
       },
     }),
     usageMemo: {},

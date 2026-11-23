@@ -8,13 +8,12 @@
  */
 
 import {
-  declaredValue,
   type HarnessAccountScope,
   type HarnessContext,
   type HarnessEnvironment,
+  type HarnessExecutableSnapshot,
   harnessAccount,
   type ModelChoice,
-  manifestFor,
   PROBEABLE_AGENTS,
   type ProbeableAgent,
   probeAgentModels,
@@ -23,24 +22,20 @@ import {
   withHarnessHome,
   withHomeScope,
 } from '@podium/harness'
-import { makeQuotaFetcher } from '@podium/harness/inventory'
+import { makeQuotaFetcher, probeAccountQuota } from '@podium/harness/inventory'
 import type { AgentQuotaWire } from '@podium/model'
 import type { HarnessHome } from './registry'
 
-type Account = { home: string; env: HarnessEnvironment }
+type Account = { home: string; env: HarnessEnvironment; snapshot?: HarnessExecutableSnapshot }
 type QuotaFetch = (
   kind: string,
   scope: HarnessAccountScope,
-  deps: { now: number },
+  deps: { now: number; snapshot?: HarnessExecutableSnapshot },
 ) => Promise<AgentQuotaWire>
 
 /** The harness's own quota probe over one scope. */
 const manifestQuota: QuotaFetch = async (kind, scope, deps) => {
-  const manifest = manifestFor(kind)
-  const usage = manifest ? declaredValue(manifest.usage) : undefined
-  const quota = usage ? declaredValue(usage.quota) : undefined
-  if (!quota) throw new Error(`${kind} has no quota to read`)
-  return await quota.fetchQuota({ ...deps, account: scope })
+  return await probeAccountQuota(kind, scope, deps)
 }
 
 /**
@@ -70,7 +65,10 @@ export function homeQuotaReader(deps: {
                 harnessAccount(home.harness, account.home, account.env),
                 home.dir,
               )
-              return await fetchQuota(home.harness, scope, { now: now ?? Date.now() })
+              return await fetchQuota(home.harness, scope, {
+                now: now ?? Date.now(),
+                ...(account.snapshot ? { snapshot: account.snapshot } : {}),
+              })
             },
           },
         ],

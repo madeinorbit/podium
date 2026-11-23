@@ -1,5 +1,6 @@
 import { addSink, createRingBufferSink } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { harnessAccount } from './harness-context'
 import {
   type FetchLike,
   parseCodexModels,
@@ -271,6 +272,69 @@ describe('probeClaudeModels (Anthropic /v1/models — subscription OAuth OR API 
 })
 
 describe('probe (injected exec — no shelling out)', () => {
+  it('probes the pinned Antigravity installation with its complete Google home selectors', async () => {
+    const context = {
+      ...harnessAccount('antigravity', '/account/home', {
+        HOME: '/account/home',
+        PATH: '/account/bin',
+        PODIUM_ANTIGRAVITY_HOME: '/accounts/google-first',
+      }),
+      installation: {
+        kind: 'antigravity' as const,
+        executable: '/selected/agy',
+        version: '1.5.15',
+        generation: 1,
+      },
+    }
+    let called = false
+    let observedArgv: readonly string[] = []
+    let observedSsh: string | undefined
+    const models = await probeAgentModels('antigravity', {
+      contexts: { antigravity: context },
+      exec: async (argv, _timeout, env) => {
+        called = true
+        observedArgv = argv
+        observedSsh = env?.SSH_CONNECTION
+        return 'Gemini 3.1 Pro (Low)'
+      },
+    })
+    expect(called).toBe(true)
+    expect(observedArgv).toEqual([
+      '/selected/agy',
+      '--gemini_dir',
+      '/accounts/google-first',
+      '--app_data_dir',
+      'antigravity-cli',
+      'models',
+    ])
+    expect(observedSsh).toBe('podium-managed-home')
+    expect(models[0]?.value).toBe('Gemini 3.1 Pro (Low)')
+  })
+
+  it('refuses partial native-account contexts rather than reading the default Google login', async () => {
+    let called = false
+    expect(
+      await probeAgentModels('antigravity', {
+        contexts: {
+          antigravity: {
+            env: { PATH: '/account/bin' },
+            installation: {
+              kind: 'antigravity',
+              executable: '/selected/agy',
+              version: '1.5.15',
+              generation: 1,
+            },
+          },
+        },
+        exec: async () => {
+          called = true
+          return ''
+        },
+      }),
+    ).toEqual([])
+    expect(called).toBe(false)
+  })
+
   it('returns parsed models on success', async () => {
     const models = await probeAgentModels('grok', { exec: async () => GROK })
     expect(models.map((m) => m.value)).toEqual(['grok-4.5', 'grok-composer-2.5-fast'])

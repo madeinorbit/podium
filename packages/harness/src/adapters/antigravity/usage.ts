@@ -2,6 +2,7 @@ import { type HarnessUsage, supported, unsupported } from '../../manifest.js'
 import { scanJsonlTranscripts, type UsageRecord } from '../../usage-records.js'
 import { isRecord } from '../shared/json-util.js'
 import { listAntigravityTranscripts } from './discovery.js'
+import { fetchAntigravityQuota } from './quota.js'
 
 export function antigravityUsageFromLine(line: string): UsageRecord | null {
   let raw: unknown
@@ -38,9 +39,7 @@ export function antigravityUsageFromLine(line: string): UsageRecord | null {
 }
 
 export const antigravityUsage: HarnessUsage = {
-  quota: unsupported(
-    'A programmatic Google quota-window contract has not been verified; the native /usage and /credits commands remain available in the terminal',
-  ),
+  quota: supported({ fetchQuota: fetchAntigravityQuota }),
   history: unsupported(
     'Antigravity does not persist quota-window samples in its conversation logs',
   ),

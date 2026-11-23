@@ -1,5 +1,5 @@
-import { asMachineId } from '@podium/model'
 import type { AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
+import { asMachineId } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import type { AccountQuotaGroup } from './quota'
@@ -13,10 +13,13 @@ import {
   paceHint,
   paceLabel,
   percentTone,
+  quotaCreditLabel,
+  quotaGroupLabel,
   quotaPace,
   quotaPoolVerdict,
   quotaSurge,
   quotaVerdict,
+  quotaWindowShortLabel,
   spentModels,
   splitQuotaWindows,
   statusNote,
@@ -422,6 +425,97 @@ describe('groupQuotaByAccount', () => {
     machineName,
     hostname: machineName,
     agents,
+  })
+
+  it('keeps anonymous credential homes distinct on the same machine', () => {
+    const groups = groupQuotaByAccount([
+      machine('m1', 'Desk', [
+        agent({ agent: 'antigravity', homeId: 'cred_a:antigravity' }),
+        agent({ agent: 'antigravity', homeId: 'cred_b:antigravity' }),
+      ]),
+    ])
+    expect(groups).toHaveLength(2)
+    expect(new Set(groups.map((group) => group.key)).size).toBe(2)
+  })
+
+  it('separates independent native pools after deduplicating account identity and shares the credit balance once', () => {
+    const groups = groupQuotaByAccount([
+      machine('m1', 'Desk', [
+        agent({
+          agent: 'antigravity',
+          account: { email: 'person@example.com' },
+          credits: { remaining: 1250 },
+          windows: [
+            {
+              ...win(100),
+              key: 'gemini-5h',
+              label: 'Gemini Models · 5-hour',
+              pool: 'Gemini Models',
+            },
+            {
+              ...win(20),
+              key: '3p-5h',
+              label: 'Claude and GPT models · 5-hour',
+              pool: 'Claude and GPT models',
+            },
+          ],
+        }),
+      ]),
+      machine('m2', 'Build', [
+        agent({
+          agent: 'antigravity',
+          status: 'expired',
+          account: { email: 'person@example.com' },
+          windows: [],
+        }),
+      ]),
+    ])
+    expect(groups).toHaveLength(2)
+    expect(groups.map((group) => group.pool)).toEqual(['Gemini Models', 'Claude and GPT models'])
+    expect(groups.map((group) => group.machineNames)).toEqual([
+      ['Desk', 'Build'],
+      ['Desk', 'Build'],
+    ])
+    expect(groups.filter((group) => group.credits)).toHaveLength(1)
+    expect(quotaPoolVerdict(groups, Date.parse('2026-07-07T00:00:00Z')).label).toBe(
+      '1 constrained · 1 healthy',
+    )
+    expect(quotaGroupLabel(groups[0] as AccountQuotaGroup)).toBe('Antigravity · Gemini Models')
+    expect(quotaWindowShortLabel(groups[0]?.windows[0] as QuotaWindowWire)).toBe('5h')
+    expect(quotaCreditLabel({ remaining: 1250 })).toBe('1,250 AI credits remaining')
+  })
+
+  it('uses the fresher healthy account reading, including its credit balance', () => {
+    const groups = groupQuotaByAccount([
+      machine('m1', 'Desk', [
+        agent({ account: { email: 'person@example.com' }, credits: { remaining: 500 } }),
+      ]),
+      machine('m2', 'Build', [
+        agent({
+          account: { email: 'person@example.com' },
+          credits: { remaining: 300 },
+          fetchedAt: '2026-07-07T00:02:00Z',
+          windows: [win(60)],
+        }),
+      ]),
+    ])
+    expect(groups[0]).toMatchObject({ credits: { remaining: 300 }, windows: [{ usedPercent: 60 }] })
+  })
+
+  it('applies a shared account constraint to every alternative pool', () => {
+    const groups = groupQuotaByAccount([
+      machine('m1', 'Desk', [
+        agent({
+          windows: [
+            win(100),
+            { ...win(10), key: 'family-a', pool: 'Family A' },
+            { ...win(20), key: 'family-b', pool: 'Family B' },
+          ],
+        }),
+      ]),
+    ])
+    expect(groups).toHaveLength(2)
+    expect(groups.every((group) => group.windows[0]?.usedPercent === 100)).toBe(true)
   })
 
   it('keeps distinct accounts as separate cards, each labeled with its machine', () => {

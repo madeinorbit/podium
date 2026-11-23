@@ -28,7 +28,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 | `inventory.portableCredential` | supported | supported | supported | declined | declined | declined | declined |
 | `runtime.server` | declined | supported | supported | supported | declined | declined | declined |
 | `runtime.embedded` | supported | declined | declined | declined | declined | declined | declined |
-| `usage.quota` | supported | supported | supported | declined | declined | declined | declined |
+| `usage.quota` | supported | supported | supported | declined | declined | declined | supported |
 | `usage.history` | declined | declined | supported | declined | declined | declined | declined |
 | `usage.transcripts` | supported | supported | supported | declined | declined | declined | supported |
 | `headless.buildExec` | declined | supported | supported | supported | supported | supported | supported |
@@ -122,7 +122,7 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 
-## antigravity — supported 17/28
+## antigravity — supported 18/28
 
 - `composer`: Antigravity composer rendering varies by terminal; submit receipt verification uses native transcript echoes
 - `handoffTranscript`: The native conversation SQLite/protobuf stores have no verified portable export contract
@@ -130,7 +130,6 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `inventory.portableCredential`: Google logins are signed into isolated homes on each machine; shared OS-keyring credentials are never automatically propagated
 - `runtime.server`: agy acp is available upstream; Podium currently drives Antigravity headless sessions with the verified structured print protocol
 - `runtime.embedded`: Antigravity is a native executable; Podium does not embed its Python SDK
-- `usage.quota`: A programmatic Google quota-window contract has not been verified; the native /usage and /credits commands remain available in the terminal
 - `usage.history`: Antigravity does not persist quota-window samples in its conversation logs
 - `transcript.recordColor`: this harness does not report an identity colour in its records
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate

@@ -10,6 +10,9 @@ import {
   percentTone,
   type QuotaPace,
   type QuotaTone,
+  quotaCreditLabel,
+  quotaGroupLabel,
+  quotaWindowShortLabel,
   splitQuotaWindows,
   statusNote,
   windowElapsedPercent,
@@ -164,14 +167,14 @@ export function QuotaIndicator({
       .map(({ group, percent, models }) => {
         const account = group.account?.email ? ` (${group.account.email})` : ''
         if (percent === null) {
-          return `${agentLabel(group.agent, descriptors)}${account} ${statusNote(group) || 'quota unavailable'}`
+          return `${quotaGroupLabel(group, descriptors)}${account} ${statusNote(group) || 'quota unavailable'}`
         }
         // Each model bucket is named in the label — the rail segment is the
         // glance, this is what a screen reader reads out.
         const scoped = models
           .map((w) => `, ${windowScopeModel(w)} ${Math.round(w.usedPercent)}% used`)
           .join('')
-        return `${agentLabel(group.agent, descriptors)}${account} ${Math.round(percent)}% used${scoped}`
+        return `${quotaGroupLabel(group, descriptors)}${account} ${Math.round(percent)}% used${scoped}`
       })
       .join('; ')
     return (
@@ -330,7 +333,7 @@ function QuotaTooltipBody({
     <>
       {ok.map((g) => (
         <span key={g.key} className="text-background/70">
-          {agentLabel(g.agent, descriptors)}
+          {quotaGroupLabel(g, descriptors)}
           {g.account?.email ? ` (${g.account.email})` : ''} —{' '}
           {g.windows.map((w, i) => (
             <span key={w.key}>
@@ -360,7 +363,7 @@ function AccountQuotaCard({
     <div className="rounded-md border border-border px-3 py-2.5">
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm font-medium text-foreground">
-          {agentLabel(g.agent, descriptors)}
+          {quotaGroupLabel(g, descriptors)}
           {g.account?.plan ? (
             <span className="ml-1.5 text-[11px] font-normal text-muted-foreground/70">
               {g.account.plan}
@@ -374,6 +377,14 @@ function AccountQuotaCard({
       {g.account?.email ? (
         <div className="truncate text-[11px] text-muted-foreground/70">{g.account.email}</div>
       ) : null}
+      {g.credits && (
+        <div
+          className="text-[11px] text-muted-foreground/70"
+          title="Account balance shared across model pools"
+        >
+          {quotaCreditLabel(g.credits)}
+        </div>
+      )}
       {g.status !== 'ok' ? (
         <div className="mt-1.5 text-xs text-muted-foreground/70">{statusNote(g)}</div>
       ) : (
@@ -412,7 +423,7 @@ function QuotaWindowRow({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
-        <span className="text-muted-foreground">{w.label}</span>
+        <span className="text-muted-foreground">{quotaWindowShortLabel(w)}</span>
         <span className="flex items-center gap-1.5 text-foreground">
           {pace ? (
             <span

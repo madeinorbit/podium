@@ -40,7 +40,11 @@ if ([PodiumGoogleCredential]::Read('gemini:antigravity', 1, 0, [ref]$credentialP
 
 export function parseAntigravityCredential(contents: string): Record<string, unknown> | undefined {
   try {
-    const raw: unknown = JSON.parse(contents)
+    // go-keyring's macOS security-tool backend encodes its stored value.
+    const text = contents.startsWith('go-keyring-base64:')
+      ? Buffer.from(contents.slice('go-keyring-base64:'.length), 'base64').toString('utf8')
+      : contents
+    const raw: unknown = JSON.parse(text)
     return isRecord(raw) && isRecord(raw.token) ? raw : undefined
   } catch {
     return undefined
@@ -64,7 +68,10 @@ export function antigravityCredentialIdentity(contents: string) {
   let claims: Record<string, unknown> = {}
   try {
     const parsed: unknown = JSON.parse(
-      Buffer.from(String(token.id_token).split('.')[1] ?? '', 'base64url').toString(),
+      Buffer.from(
+        String(record.id_token ?? token.id_token).split('.')[1] ?? '',
+        'base64url',
+      ).toString(),
     )
     if (isRecord(parsed)) claims = parsed
   } catch {

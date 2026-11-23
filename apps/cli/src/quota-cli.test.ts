@@ -17,6 +17,31 @@ const machines: MachineQuotaWire[] = [
     hostname: 'devbox',
     agents: [
       {
+        agent: 'antigravity',
+        status: 'ok',
+        account: { email: 'person@example.com' },
+        fetchedAt: '2026-07-29T09:59:00.000Z',
+        credits: { remaining: 1250 },
+        windows: [
+          {
+            key: 'gemini-5h',
+            label: 'Gemini Models · 5-hour',
+            pool: 'Gemini Models',
+            usedPercent: 100,
+            resetsAt: '2026-07-29T12:15:00.000Z',
+            windowMinutes: 300,
+          },
+          {
+            key: '3p-5h',
+            label: 'Claude and GPT models · 5-hour',
+            pool: 'Claude and GPT models',
+            usedPercent: 20,
+            resetsAt: '2026-07-29T12:15:00.000Z',
+            windowMinutes: 300,
+          },
+        ],
+      },
+      {
         agent: 'claude-code',
         status: 'ok',
         account: { email: 'claude@example.com', plan: 'max' },
@@ -66,6 +91,10 @@ describe('podium quota', () => {
     const output = await runQuotaCli([], client(), NOW)
 
     expect(output).toContain('workstation (devbox)')
+    expect(output).toContain('Antigravity (person@example.com)')
+    expect(output).toContain('Gemini Models · 5-hour: 100% used · 0% left')
+    expect(output).toContain('Claude and GPT models · 5-hour: 20% used · 80% left')
+    expect(output.match(/AI credits: 1250 remaining/gu)).toHaveLength(1)
     expect(output).toContain('Claude (max · claude@example.com)')
     expect(output).toContain(
       '5-hour: 42.5% used · 57.5% left · resets 2026-07-29T12:15:00.000Z (in 2h 15m)',

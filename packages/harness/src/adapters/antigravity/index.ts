@@ -44,7 +44,7 @@ export const antigravityManifest: AgentManifest = {
     effortFlag: 'effort',
     systemPromptFlag: false,
     newSessionIdFlag: false,
-    quota: false,
+    quota: true,
     cloud: false,
     composerScrape: false,
     oscTitle: true,

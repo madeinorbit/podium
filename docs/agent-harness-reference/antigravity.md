@@ -109,9 +109,40 @@ accounting. The model picker enumerates `agy models`; no subscription-specific
 model catalog is hard-coded. The measured subcommand still rejects
 `--output-format`, so its text output is parsed.
 
-Quota windows, cross-machine conversation handoff, cloud migration and an
-all-tools-off mode are not advertised: their required contracts have not been
-verified. The native `/usage` and `/credits` views remain available in the TUI.
+Cross-machine conversation handoff, cloud migration and an all-tools-off mode
+are not advertised: their required contracts have not been verified.
+
+## Google plan quota and credits
+
+Quota reads use the selected installation's native `--print /usage
+--output-format json` and `/credits` commands. Podium accepts only successful
+structured command reports with zero model turns. Google owns authentication,
+token refresh and the quota service contract; Podium does not embed an OAuth
+client secret or depend on a private quota endpoint.
+
+Native groups become independent model-family pools, each with its five-hour
+and weekly limits and exact reset time. Spending Gemini's allowance does not
+make a usable Claude/GPT pool look unavailable. Unknown groups remain visible;
+missing or invalid readings never become unused capacity. AI credits are a
+separate account balance, shown once across its pools. Accounts without credits
+retain their measured plan windows. Gemini API-key usage is not a Google plan
+allowance and has no subscription quota reading.
+The web panel, phone Pulse screen and `podium quota` show these readings;
+`podium quota --json` preserves the complete quota payload.
+
+The default login and every managed Google home use their own account scope
+and the inventory's pinned executable. Polls run in a private workspace with
+an empty customization root. A directory link (a junction on Windows) keeps
+native state at its existing location, so the CLI can refresh the real token
+store without copying credentials. This prevents the CLI from starting global
+MCP servers, plugins or hooks for a quota read. Session-only settings disable
+status/title commands and ensure the fixed slash commands run as commands.
+Browser launchers are suppressed; background polling cannot start sign-in.
+Timeouts, bounded output and probe-owned process cleanup prevent hung reads.
+
+Live readings use the existing quota cache, manual refresh, account grouping
+and quota-history sampling. Native historical quota backfill is unavailable;
+Podium records samples from the first successful read onward.
 
 ## Verification and upstream references
 
@@ -120,9 +151,15 @@ structured completion and failures, native JSONL/SQLite history, malformed
 records, tool questions and late hooks. A process test checks neutral hook
 responses with curl missing and the daemon unreachable. Real CLI probes use
 local Gemini and MCP stubs and no paid model requests.
+Real quota probes also exercise two isolated Google profiles, an expired
+access token refreshed by the native CLI, distinct credit balances and no
+MCP startup. Fixtures contain synthetic accounts only. Secure-store and
+junction behavior on Windows and macOS still require platform verification.
 
 - [CLI reference](https://antigravity.google/docs/cli/reference)
 - [Headless protocol](https://antigravity.google/docs/cli/headless/)
 - [Authentication](https://antigravity.google/docs/install?tab=cli)
 - [Lifecycle hooks](https://antigravity.google/docs/hooks/)
 - [MCP configuration](https://antigravity.google/docs/mcp)
+- [Native usage command](https://antigravity.google/docs/cli/commands/usage/)
+- [Native AI credits](https://antigravity.google/docs/cli/credits/)

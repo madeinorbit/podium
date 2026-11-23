@@ -598,6 +598,15 @@ export interface QuotaProbeOptions {
   account: HarnessAccountScope
   now?: number
   fetchImpl?: typeof fetch
+  /** A bounded native read-only command, pinned to this account's installed
+   * harness. Absent when the CLI is not installed; never resolve it by name. */
+  runCommand?: (request: {
+    /** A builder can bind native directory flags to the private workspace. */
+    args: readonly string[] | ((directory: string) => readonly string[])
+    timeoutMs: number
+    /** References to native state; credentials are never copied to the workspace. */
+    linkedDirectories?: Readonly<Record<string, string>>
+  }) => Promise<LoginCommandResult>
 }
 
 /**
