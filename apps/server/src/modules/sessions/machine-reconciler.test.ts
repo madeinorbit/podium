@@ -1,11 +1,17 @@
 import { asMachineId, asSessionId, asUserId } from '@podium/model'
+import { asCapabilityRef, asDeviceId, type MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { type MachineReconcilerPorts, SessionMachineReconciler } from './machine-reconciler'
 import { Session } from './session'
 
 const machine = asMachineId('reconnect-machine')
-const principal = { kind: 'machine' as const, machine }
+const principal: MachinePrincipal = {
+  kind: 'machine',
+  machine,
+  device: asDeviceId('reconnect-device'),
+  capability: asCapabilityRef('reconnect-capability'),
+}
 
 afterEach(() => vi.restoreAllMocks())
 
