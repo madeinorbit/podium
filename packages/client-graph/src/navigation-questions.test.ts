@@ -95,7 +95,7 @@ it('answers registered roots and the ordered fallback without projecting reposit
 it('tracks an absent registered root through arrival, removal and replacement', () => {
   const f = fixture([lane('/first')])
   const registered: boolean[] = []
-  const roots: (string | null)[] = []
+  const roots: unknown[] = []
   const stopRegistered = autorun(() =>
     registered.push(f.provider.registeredWorktree!('/late') === true),
   )
