@@ -153,6 +153,13 @@ export interface FamilyState {
    */
   readonly cloud?: Context['cloud']
   /**
+   * The workspace the edge bound this request to (`Context.boundWorkspace`),
+   * absent only for callers that are not requests. A family that acts for a
+   * workspace outside this database (`cloud`: the provider's tenant) reads it
+   * here and never from its input (ADR 13).
+   */
+  readonly boundWorkspace?: Context['boundWorkspace']
+  /**
    * THE INSTANCE'S OWN LIFECYCLE, and the ability to turn it over (POD-2766).
    *
    * The pair `setup.activate` needs, and the two members that make this bundle
@@ -479,6 +486,7 @@ export const familyState = (ctx: Context): FamilyState => ({
   ...(ctx.loginPolicy ? { loginPolicy: ctx.loginPolicy } : {}),
   hostLocalRequest: ctx.hostLocalRequest,
   cloud: ctx.cloud,
+  ...(ctx.boundWorkspace ? { boundWorkspace: ctx.boundWorkspace } : {}),
   ...(ctx.readiness ? { readiness: ctx.readiness } : {}),
   ...(ctx.requestCoordinatorRestart
     ? { requestCoordinatorRestart: ctx.requestCoordinatorRestart }

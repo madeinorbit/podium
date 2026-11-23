@@ -40,6 +40,18 @@
  * expensive rather than merely wrong — a queued `createMachine` drained after a
  * reconnect bills for a runtime nobody is waiting for, and a queued `stop`
  * replayed against a recycled id stops something else.
+ *
+ * ---------------------------------------------------------------------------
+ * NO INPUT NAMES A TENANT (ADR 13, POD-7310)
+ * ---------------------------------------------------------------------------
+ *
+ * The tenant a runtime belongs to is the workspace the server bound the request
+ * to (`ctx.boundWorkspace`, from the edge), never a field the client sends. Every
+ * input below is a plain (stripping) `z.object`: the `tenantId` an older client
+ * still sends is an unknown key, the parse drops it, and it never reaches the
+ * handler. The command then acts on the caller's own bound workspace. A runtime
+ * id the caller names is checked against the bound workspace before the provider
+ * is asked to act on it (`CloudService`).
  */
 
 import { CLOUD_HARNESS_KINDS, IssueIdField, MachineIdField, SessionIdField } from '@podium/model'
@@ -82,7 +94,7 @@ const CLOUD_REDACTION: RedactionPolicy = {
   outputPaths: [],
   note:
     'No credential crosses this surface, and the candidates were named rather than waved past. ' +
-    '`tenantId` is a routing key a refusal must state to be actionable. The repo descriptor is ' +
+    'No input names a tenant: the server sends the bound workspace as the provider’s tenant. The repo descriptor is ' +
     'owner/name on a PUBLIC forge coordinate — no token, no clone URL with credentials in it; the ' +
     'provider holds its own forge credential and this command never carries one. `purpose` and ' +
     '`displayName` are human labels. The RESULT is a runtime descriptor (id, status, size) and ' +
@@ -97,8 +109,8 @@ const CLOUD_ATTRIBUTION: AttributionPolicy = {
   rationale:
     'Both halves from the transport principal, never from payload. These commands SPEND MONEY and ' +
     'start compute, so "who asked" is the accountability record that matters most in the whole ' +
-    'command plane — and `tenantId` is a routing address, which Amendment 1 D17 forbids doubling as ' +
-    'the record. An agent provisioning on its human’s behalf must be distinguishable from the human.',
+    'command plane — and the tenant is a routing address (the bound workspace), which Amendment 1 ' +
+    'D17 forbids doubling as the record. An agent provisioning on its human’s behalf must be distinguishable from the human.',
 }
 
 /**
@@ -170,7 +182,6 @@ export const cloudRuntimeIdInput = z.object({ id: z.string().min(1) })
 // ---------------------------------------------------------------------------
 
 export const cloudCreateMachineInput = z.object({
-  tenantId: z.string().min(1),
   displayName: z.string().min(1),
   size: cloudRuntimeSizeInput,
   repo: cloudRepoInput.optional(),
@@ -212,7 +223,6 @@ export const cloudCreateMachineContract = {
 // ---------------------------------------------------------------------------
 
 export const cloudCreateAgentInput = z.object({
-  tenantId: z.string().min(1),
   displayName: z.string().min(1),
   size: cloudRuntimeSizeInput.optional(),
   repo: cloudRepoInput,
@@ -257,7 +267,6 @@ export const cloudCreateAgentContract = {
 
 export const cloudMoveSessionInput = z.object({
   sessionId: z.string().min(1).pipe(SessionIdField),
-  tenantId: z.string().min(1),
   size: cloudRuntimeSizeInput.optional(),
   repo: cloudRepoInput.optional(),
   hibernateLocal: z.boolean().optional(),

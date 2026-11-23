@@ -50,6 +50,7 @@ export const CLOUD_PLAIN_FAMILY = definePlainFamily({
   service: (state, principal?: CommandPrincipal) =>
     new CloudService({
       provider: state.cloud,
+      workspace: state.boundWorkspace,
       sessions: state.modules.sessions,
       repos: state.repos,
       store: state.store,

@@ -14,10 +14,22 @@
  * a tRPC caller. `router.ts` was the only place that knew the ORDER those
  * decisions run in, and the order is load-bearing (see `moveSession` below).
  *
- * Everything here is MOVED, not rewritten: the same checks in the same sequence
+ * Everything here was MOVED, not rewritten: the same checks in the same sequence
  * with the same TRPCError codes and messages. The migration's claim is that
  * nothing changed except where the logic lives, and a method that improved its
  * behaviour on the way past would make that claim unverifiable.
+ *
+ * ---------------------------------------------------------------------------
+ * THE TENANT IS THE BOUND WORKSPACE (ADR 13, POD-7310)
+ * ---------------------------------------------------------------------------
+ *
+ * The one change since the move. The provider's tenant is the workspace the edge
+ * bound the request to, never a client field, and the provider holds ONE
+ * credential for every tenant, so it cannot tell workspaces apart for us. Hence:
+ * provisioning sends the bound workspace as `tenantId`; a runtime id is looked
+ * up and must belong to the bound workspace before stop or wake reaches the
+ * provider; a runtime read of another workspace answers null like an unknown id;
+ * and a provider answer naming another tenant is refused.
  *
  * ---------------------------------------------------------------------------
  * THE PROVIDER IS INJECTED, AND ITS ABSENCE IS A VALUE RATHER THAN A NULL
@@ -32,17 +44,20 @@
  * "unauthorized stays distinguishable from unreachable" true.
  */
 
-import { isAgentKind, type SessionId } from '@podium/model'
+import { isAgentKind, type SessionId, type WorkspaceId } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { harnessSupportsCloud } from '../../harness-manifest'
 import {
   type CloudAgentKind,
+  type CloudAgentRequest,
+  type CloudMachineRequest,
   type CloudRepoRequest,
+  type CloudRuntime,
   type CloudRuntimeProvider,
   CloudRuntimeUnavailableError,
   disabledCloudRuntimeProvider,
   toCloudAgentSourceSession,
 } from '../../cloud-runtime'
+import { harnessSupportsCloud } from '../../harness-manifest'
 import type { RegistryModules, SessionRegistry } from '../../relay'
 import { canonicalizeRepoOrigin } from '../../repo-id'
 import type { RepoRegistry } from '../../repo-registry'
@@ -51,6 +66,13 @@ export interface CloudServiceDeps {
   /** Absent on deployments with no cloud provider; the disabled provider is
    *  substituted once here rather than at every call site. */
   readonly provider: CloudRuntimeProvider | undefined
+  /**
+   * The workspace the edge bound this request to: the provider's TENANT for
+   * every call (ADR 13, POD-7310). No input names a tenant. Absent only for a
+   * caller that is not a request, and then every command and runtime read
+   * refuses rather than guess one.
+   */
+  readonly workspace: WorkspaceId | undefined
   readonly sessions: RegistryModules['sessions']
   readonly repos: RepoRegistry
   readonly store: SessionRegistry['sessionStore']
@@ -62,6 +84,11 @@ export interface CloudServiceDeps {
   readonly hibernateLocal: (sessionId: SessionId) => Promise<{ ok: boolean; reason?: string }>
 }
 
+/** A provisioning request as a command builds it: everything but the tenant,
+ *  which the service adds from the bound workspace. */
+export type CloudMachineInput = Omit<CloudMachineRequest, 'tenantId'>
+export type CloudAgentInput = Omit<CloudAgentRequest, 'tenantId'>
+
 /** The shipped mapping, moved verbatim: an unconfigured provider is a
  *  PRECONDITION, not an internal error. */
 function cloudError(error: unknown): never {
@@ -70,6 +97,11 @@ function cloudError(error: unknown): never {
   }
   throw error
 }
+
+/** An unknown runtime id and another workspace's fail alike (the contract's
+ *  D20.2 note), so the id space cannot be iterated. */
+const runtimeNotFound = () =>
+  new TRPCError({ code: 'NOT_FOUND', message: 'cloud runtime not found' })
 
 export class CloudService {
   private readonly provider: CloudRuntimeProvider
@@ -82,21 +114,28 @@ export class CloudService {
     return await this.provider.capabilities()
   }
 
-  async getRuntime(id: string) {
-    return await this.provider.getRuntime(id)
+  /** A runtime of the bound workspace, or null: another workspace's runtime
+   *  reads as absent, exactly like an unknown id. */
+  async getRuntime(id: string): Promise<CloudRuntime | null> {
+    if (this.provider === disabledCloudRuntimeProvider) return null
+    const tenantId = this.tenant()
+    const runtime = await this.provider.getRuntime(id)
+    return runtime !== null && runtime.tenantId === tenantId ? runtime : null
   }
 
-  async createCloudMachine(input: Parameters<CloudRuntimeProvider['createCloudMachine']>[0]) {
+  async createCloudMachine(input: CloudMachineInput) {
     try {
-      return await this.provider.createCloudMachine(input)
+      const tenantId = this.tenantOfConfiguredProvider()
+      return this.owned(await this.provider.createCloudMachine({ ...input, tenantId }), tenantId)
     } catch (error) {
       cloudError(error)
     }
   }
 
-  async createCloudAgent(input: Parameters<CloudRuntimeProvider['createCloudAgent']>[0]) {
+  async createCloudAgent(input: CloudAgentInput) {
     try {
-      return await this.provider.createCloudAgent(input)
+      const tenantId = this.tenantOfConfiguredProvider()
+      return this.owned(await this.provider.createCloudAgent({ ...input, tenantId }), tenantId)
     } catch (error) {
       cloudError(error)
     }
@@ -104,7 +143,8 @@ export class CloudService {
 
   async stopRuntime(id: string) {
     try {
-      return await this.provider.stopRuntime(id)
+      const tenantId = await this.ownRuntimeId(id)
+      return this.owned(await this.provider.stopRuntime(id), tenantId)
     } catch (error) {
       cloudError(error)
     }
@@ -112,10 +152,56 @@ export class CloudService {
 
   async wakeRuntime(id: string) {
     try {
-      return await this.provider.wakeRuntime(id)
+      const tenantId = await this.ownRuntimeId(id)
+      return this.owned(await this.provider.wakeRuntime(id), tenantId)
     } catch (error) {
       cloudError(error)
     }
+  }
+
+  /** The bound workspace, as the provider's tenant. */
+  private tenant(): WorkspaceId {
+    if (this.deps.workspace === undefined) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'cloud commands need a request bound to a workspace',
+      })
+    }
+    return this.deps.workspace
+  }
+
+  /** The tenant for an act on the provider. An unconfigured provider refuses as
+   *  unconfigured first, as it did before the tenant came from the binding: with
+   *  no provider there is no runtime to protect, and "not configured" is the
+   *  actionable answer. */
+  private tenantOfConfiguredProvider(): WorkspaceId {
+    if (this.provider === disabledCloudRuntimeProvider) throw new CloudRuntimeUnavailableError()
+    return this.tenant()
+  }
+
+  /**
+   * Check that `id` names a runtime of the bound workspace BEFORE the provider
+   * is asked to act on it. The provider's one credential serves every tenant, so
+   * this check, not the provider, is what keeps a member of one workspace off
+   * another's runtime.
+   */
+  private async ownRuntimeId(id: string): Promise<WorkspaceId> {
+    const tenantId = this.tenantOfConfiguredProvider()
+    const runtime = await this.provider.getRuntime(id)
+    if (runtime === null || runtime.tenantId !== tenantId) throw runtimeNotFound()
+    return tenantId
+  }
+
+  /** A runtime the provider answered with must be the bound workspace's; any
+   *  other answer is refused rather than shown to this workspace. */
+  private owned(runtime: CloudRuntime, tenantId: WorkspaceId): CloudRuntime {
+    if (runtime.tenantId !== tenantId) {
+      throw new TRPCError({
+        code: 'INTERNAL_SERVER_ERROR',
+        message: 'cloud provider answered with a runtime of another workspace',
+      })
+    }
+    return runtime
   }
 
   /**
@@ -140,7 +226,6 @@ export class CloudService {
    */
   async moveSession(input: {
     sessionId: SessionId
-    tenantId: string
     size?: 'small' | 'medium' | 'large' | undefined
     repo?: CloudRepoRequest | undefined
     hibernateLocal?: boolean | undefined
@@ -170,21 +255,25 @@ export class CloudService {
     }
 
     try {
-      const runtime = await this.provider.createCloudAgent({
-        tenantId: input.tenantId,
-        displayName: session.name?.trim() || session.title || `${agent} session`,
-        ...(input.size ? { size: input.size } : {}),
-        repo: input.repo ?? await this.inferCloudRepoForSession(session),
-        ...(session.issueId ? { issueId: session.issueId } : {}),
-        purpose: 'move-session',
-        sourceSession: toCloudAgentSourceSession({
-          sessionId: session.sessionId,
-          agent,
-          resume: session.resume,
-          cwd: session.cwd,
-          ...(session.machineId ? { machineId: session.machineId } : {}),
+      const tenantId = this.tenantOfConfiguredProvider()
+      const runtime = this.owned(
+        await this.provider.createCloudAgent({
+          tenantId,
+          displayName: session.name?.trim() || session.title || `${agent} session`,
+          ...(input.size ? { size: input.size } : {}),
+          repo: input.repo ?? (await this.inferCloudRepoForSession(session)),
+          ...(session.issueId ? { issueId: session.issueId } : {}),
+          purpose: 'move-session',
+          sourceSession: toCloudAgentSourceSession({
+            sessionId: session.sessionId,
+            agent,
+            resume: session.resume,
+            cwd: session.cwd,
+            ...(session.machineId ? { machineId: session.machineId } : {}),
+          }),
         }),
-      })
+        tenantId,
+      )
 
       if (input.hibernateLocal) {
         const parked = await this.deps.hibernateLocal(session.sessionId)
@@ -236,8 +325,9 @@ export class CloudService {
     }
 
     const repoRow =
-      (await this.deps.store.repos.listRepos(session.machineId)).find((row) => row.path === repoPath) ??
-      (await this.deps.store.repos.listRepos()).find((row) => row.path === repoPath)
+      (await this.deps.store.repos.listRepos(session.machineId)).find(
+        (row) => row.path === repoPath,
+      ) ?? (await this.deps.store.repos.listRepos()).find((row) => row.path === repoPath)
     const repo = githubRepoFromOrigin(repoRow?.originUrl)
     if (!repo) {
       throw new TRPCError({

@@ -1830,7 +1830,6 @@ type Input_cloud_createAgent = {
         resumeRef?: string | undefined;
         sessionId: string;
     };
-    tenantId: string;
 };
 type Input_cloud_createMachine = {
     displayName: string;
@@ -1842,7 +1841,6 @@ type Input_cloud_createMachine = {
         ref?: string | undefined;
     };
     size: "large" | "medium" | "small";
-    tenantId: string;
 };
 type Input_cloud_moveSession = {
     hibernateLocal?: boolean | undefined;
@@ -1854,7 +1852,6 @@ type Input_cloud_moveSession = {
     };
     sessionId: string;
     size?: "large" | "medium" | "small" | undefined;
-    tenantId: string;
 };
 type Input_conversations_search = {
     after?: undefined | {
