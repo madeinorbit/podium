@@ -923,4 +923,76 @@ describe('after the daemon reconnects (Task 5)', () => {
     )
     expect(refused.length).toBeGreaterThan(0)
   })
+
+  it('commits exactly one durable audit per refresh before sending it', async () => {
+    const store = await openTestStore(':memory:')
+    const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+    const { reg } = await makeRegistry(store)
+    const ids = await Promise.all(Array.from({ length: 3 }, () => liveSession(reg, id)))
+    const before = (await store.settingsAudit.list(100)).length
+    const append = store.settingsAudit.append.bind(store.settingsAudit)
+    const committed: SessionId[] = []
+    const sent: SessionId[] = []
+    const audit = vi.spyOn(store.settingsAudit, 'append').mockImplementation(async (row) => {
+      await append(row)
+      if (row.command === 'credentials.deliver') {
+        committed.push((row.detail as { sessionId: SessionId }).sessionId)
+      }
+    })
+    try {
+      reg.gateway.detachDaemon(store.hostMachine!.id)
+      await attachHostDaemon(reg, (message) => {
+        if (message.type !== 'sessionAccessRefresh') return
+        sent.push(message.sessionId)
+        expect(committed).toEqual(sent)
+      })
+    } finally {
+      audit.mockRestore()
+    }
+    expect([...sent].sort()).toEqual([...ids].sort())
+    const added = (await store.settingsAudit.list(100)).slice(before)
+    expect(added.filter((row) => row.command === 'credentials.deliver')).toHaveLength(ids.length)
+  })
+
+  it('refuses a credential revoked while the probe loop yields', async () => {
+    const store = await openTestStore(':memory:')
+    const id = await credential(store, { type: 'anthropic.api-key', secret: FAKE_A })
+    const { reg } = await makeRegistry(store)
+    for (let i = 0; i < 3; i++) await liveSession(reg, id)
+    const before = (await store.settingsAudit.list(100)).length
+    const after: ControlMessage[] = []
+    let now = 0
+    let revoke: Promise<void> | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => now)
+    const get = store.credentials.get.bind(store.credentials)
+    const reader = vi.spyOn(store.credentials, 'get').mockImplementation(async (credentialId) => {
+      // On an async engine the revoke's I/O can outlive the yield timer.
+      if (revoke) await revoke
+      return await get(credentialId)
+    })
+    try {
+      reg.gateway.detachDaemon(store.hostMachine!.id)
+      await attachHostDaemon(reg, (message) => {
+        after.push(message)
+        if (message.type === 'sessionAccessRefresh' && timer === undefined) {
+          now += 12
+          timer = setTimeout(() => {
+            revoke = store.credentials.setStatus(id, 'revoked')
+          }, 0)
+        }
+      })
+      await revoke
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+      reader.mockRestore()
+      clock.mockRestore()
+    }
+    expect(revoke).toBeDefined()
+    expect(after.filter((message) => message.type === 'sessionAccessRefresh')).toHaveLength(1)
+    expect(after.filter((message) => message.type === 'reattach')).toHaveLength(3)
+    const added = (await store.settingsAudit.list(100)).slice(before)
+    expect(added.filter((row) => row.command === 'credentials.deliver')).toHaveLength(1)
+    expect(added.filter((row) => row.command === 'credentials.refuse')).toHaveLength(2)
+  })
 })
