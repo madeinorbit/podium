@@ -1300,6 +1300,7 @@ export async function createDaemonHostRuntime(args: {
       homes,
       harnessesDir,
       report: () => reportInventory(ctx, { rebuild: true }),
+      reportProgress: () => reportInventory(ctx, { settled: true }),
     })
   // A wave that settled before the service existed: catch up on it now.
   const settledAtStart = harnessRuntime?.settled()

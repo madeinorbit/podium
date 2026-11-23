@@ -84,6 +84,8 @@ export {
 export type {
   HousekeepOptions,
   HousekeepResult,
+  InstallPhase,
+  InstallProgress,
   InstallReleaseOptions,
   InstallReleaseResult,
   InstallStep,
@@ -95,6 +97,7 @@ export type {
 export {
   applyVendorOrigins,
   housekeepReleases,
+  INSTALL_STEP_PHASE,
   installerEnvFor,
   installRelease,
   managedCheckPorts,

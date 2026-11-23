@@ -3,6 +3,12 @@ import { HarnessAgent } from '@podium/model'
 import { z } from 'zod'
 
 export const CAP_HARNESS_INSTALLS = 'harness.installs.v1'
+/**
+ * POD-7471: this daemon reports a running install's progress and answers
+ * `harnessCancelInstallRequest`. A server asks for a cancel only from a daemon
+ * that accepted this; clients offer the cancel only on a machine that did.
+ */
+export const CAP_HARNESS_INSTALL_CANCEL = 'harness.installs.cancel.v1'
 export const InstallHarness = HarnessAgent
 export const HarnessInstallAction = z.enum([
   'install',
@@ -16,6 +22,8 @@ export const HarnessInstallAction = z.enum([
   'remove',
   'home-info',
   'remove-home',
+  /** Stop a running `install`; that install answers `cancelled` (POD-7471). */
+  'cancel-install',
 ])
 export type HarnessInstallAction = z.infer<typeof HarnessInstallAction>
 
@@ -150,6 +158,17 @@ export const HarnessRemoveResultMessage = z.object({
   ...result,
 })
 export type HarnessRemoveResultMessage = z.infer<typeof HarnessRemoveResultMessage>
+
+export const HarnessCancelInstallRequestMessage = z.object({
+  type: z.literal('harnessCancelInstallRequest'),
+  ...request,
+})
+export type HarnessCancelInstallRequestMessage = z.infer<typeof HarnessCancelInstallRequestMessage>
+export const HarnessCancelInstallResultMessage = z.object({
+  type: z.literal('harnessCancelInstallResult'),
+  ...result,
+})
+export type HarnessCancelInstallResultMessage = z.infer<typeof HarnessCancelInstallResultMessage>
 
 /** Shared HTTP/CLI answer; each wire action still has its own result message. */
 export const HarnessActionResult = z.object(result).omit({ requestId: true })

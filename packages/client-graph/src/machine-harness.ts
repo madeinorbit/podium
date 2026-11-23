@@ -5,10 +5,26 @@ import {
   type HarnessVersionPolicy,
 } from '@podium/harness/browser'
 import { lazy } from '@podium/mobx-helpers'
-import type { BuiltinHarnessKind } from '@podium/model'
-import type { HarnessInstallAction } from '@podium/protocol'
+import type { BuiltinHarnessKind, HarnessInstallProgress } from '@podium/model'
+import { CAP_HARNESS_INSTALL_CANCEL, type HarnessInstallAction } from '@podium/protocol'
 import { compareShallow } from 'mobx'
 import type { MachineModel } from './synced-models'
+
+/** A running install as the machine reports it (POD-7471). */
+export interface MachineHarnessProgress {
+  phase: HarnessInstallProgress['phase']
+  /** Whole percent of the current download; only while the vendor named its size. */
+  percent?: number
+  receivedBytes?: number
+  totalBytes?: number
+}
+
+/** The last failed check or install of Podium's copy. */
+export interface MachineHarnessError {
+  message: string
+  at: string
+  version?: string
+}
 
 /** One harness's facts, always read from its shared machine model. No inventory copy. */
 export class MachineHarness {
@@ -69,6 +85,47 @@ export class MachineHarness {
     if (!this.hasOwn) return 'not-installed'
     return this.tooOld ? 'own-too-old' : 'own'
   }
+  /**
+   * Where a running install is. Undefined unless installing on a machine that
+   * reports progress: older daemons report only that an install runs.
+   */
+  @lazy({ equals: compareShallow }) get progress(): MachineHarnessProgress | undefined {
+    if (this.state !== 'installing') return undefined
+    const progress = this.managed?.installing?.progress
+    if (!progress) return undefined
+    const { phase, receivedBytes, totalBytes } = progress
+    return {
+      phase,
+      ...(receivedBytes !== undefined ? { receivedBytes } : {}),
+      ...(totalBytes !== undefined ? { totalBytes } : {}),
+      ...(phase === 'download' && totalBytes
+        ? { percent: Math.min(100, Math.floor(((receivedBytes ?? 0) / totalBytes) * 100)) }
+        : {}),
+    }
+  }
+  /** The last failed check or install of Podium's copy, for any UI to show. */
+  @lazy({ equals: compareShallow }) get lastError(): MachineHarnessError | undefined {
+    const error = this.managed?.lastError
+    if (!error) return undefined
+    return {
+      message: error.message,
+      at: error.at,
+      ...(error.version !== undefined ? { version: error.version } : {}),
+    }
+  }
+  /** A running install can be stopped: the machine says it supports a cancel. */
+  @lazy get canCancel(): boolean {
+    return (
+      this.state === 'installing' &&
+      this.machine.online &&
+      this.machine.use === 'granted' &&
+      (this.machine.deliveryCaps?.includes(CAP_HARNESS_INSTALL_CANCEL) ?? false)
+    )
+  }
+  /** Podium manages this harness but has no release that runs: a failed first install. */
+  @lazy get noUsableRelease(): boolean {
+    return !!this.managed && !this.managed.active && !this.managed.removingAt
+  }
   @lazy get ownLabel(): string | undefined {
     return this.hasOwn
       ? `${this.ownVersion ?? 'Version unknown'} · your install${this.tooOld ? ' · too old for Podium' : ''}`
@@ -89,6 +146,7 @@ export class MachineHarness {
   @lazy get updateNotice(): string | undefined {
     return this.managed ? this.inventory?.management?.updateNotice : undefined
   }
+  /** The row's actions can run. While installing only `cancel-install` can, gated by {@link canCancel}. */
   @lazy get canAct(): boolean {
     return (
       this.machine.online &&
@@ -97,10 +155,12 @@ export class MachineHarness {
     )
   }
   @lazy({ equals: compareShallow }) get actions(): readonly HarnessInstallAction[] {
-    if (this.state === 'installing' || this.state === 'removing') return []
+    if (this.state === 'installing') return this.canCancel ? ['cancel-install'] : []
+    if (this.state === 'removing') return []
     if (this.state === 'shared') return ['remove']
     const actions: HarnessInstallAction[] = []
-    if (!this.managed) actions.push('install')
+    // A failed first install leaves the row with no release: offer it again.
+    if (!this.managed || this.noUsableRelease) actions.push('install')
     if (this.managed) {
       if (!this.managed.vendorUpdated) actions.push('check')
       if (this.managed.previousVersion) actions.push('back')
@@ -119,11 +179,14 @@ export class MachineHarness {
       case 'remove-home':
         return 'Delete Podium home'
       case 'install':
+        if (this.noUsableRelease) return this.lastError ? 'Try again' : 'Install'
         return this.tooOld
           ? 'Install a current version'
           : this.hasOwn
             ? 'Install for Podium'
             : 'Install'
+      case 'cancel-install':
+        return 'Cancel install'
       case 'check':
         return 'Check now'
       case 'back':

@@ -152,7 +152,15 @@ function reportHarnessInventory(send: DaemonContext['send'], inventory: Inventor
  */
 export async function reportInventory(
   ctx: HarnessManagementContext,
-  opts: { rebuild?: boolean; reprobe?: boolean } = {},
+  opts: {
+    rebuild?: boolean
+    reprobe?: boolean
+    /**
+     * Send the snapshot as last observed, without a new probe wave: install
+     * progress (POD-7471) reports twice a second and changes only the overlay.
+     */
+    settled?: boolean
+  } = {},
 ): Promise<void> {
   // The separator is a real NUL written as an ESCAPE, deliberately. NUL cannot
   // occur in a machineId or a path, so the composite key can never collide --
@@ -167,9 +175,9 @@ export async function reportInventory(
       // single-flight, so an initial boot wave or periodic tick joins rather
       // than supersedes the observation that is about to repair the server's
       // persisted inventory row.
-      const snapshot = await (opts.rebuild
-        ? ctx.harnessRuntime.refresh()
-        : ctx.harnessRuntime.reprobe())
+      const snapshot = opts.settled
+        ? (ctx.harnessRuntime.settled() ?? (await ctx.harnessRuntime.current()))
+        : await (opts.rebuild ? ctx.harnessRuntime.refresh() : ctx.harnessRuntime.reprobe())
       if (!ctx.harnessRuntime.isCurrent(snapshot)) return
       // Declared server alternatives admitted by probe (POD-4737 D1): each
       // alternative states its own probe binary, resolved here and probed

@@ -405,6 +405,225 @@
       "encoded": "{\"type\":\"harnessBackResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
     },
     {
+      "schema": "HarnessCancelInstallRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessCancelInstallRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCancelInstallRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessCancelInstallRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "harnessCancelInstallRequest",
+        "requestId": "requestId",
+        "harness": "claude-code"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCancelInstallRequest\",\"requestId\":\"requestId\",\"harness\":\"claude-code\"}"
+    },
+    {
+      "schema": "HarnessCancelInstallResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "harnessCancelInstallResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCancelInstallResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "HarnessCancelInstallResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "harnessCancelInstallResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 1,
+        "changes": [
+          {
+            "id": 1,
+            "harness": "claude-code",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "json-key",
+              "path": ["changes[0].edit.path[0]"],
+              "value": {
+                "unknownFixture": "changes[0].edit.value"
+              }
+            },
+            "prior": {
+              "absent": true,
+              "createdFolder": "changes[0].prior.createdFolder"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "restored",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCancelInstallResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":1,\"changes\":[{\"id\":1,\"harness\":\"claude-code\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"json-key\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":{\"unknownFixture\":\"changes[0].edit.value\"}},\"prior\":{\"absent\":true,\"createdFolder\":\"changes[0].prior.createdFolder\"},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"restored\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessCancelInstallResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "harnessCancelInstallResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 2,
+        "changes": [
+          {
+            "id": 2,
+            "harness": "codex",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "toml-array-entry",
+              "path": ["changes[0].edit.path[0]"],
+              "value": "changes[0].edit.value"
+            },
+            "prior": {
+              "value": {
+                "unknownFixture": "changes[0].prior.value"
+              }
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "changed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"harnessCancelInstallResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":2,\"changes\":[{\"id\":2,\"harness\":\"codex\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"toml-array-entry\",\"path\":[\"changes[0].edit.path[0]\"],\"value\":\"changes[0].edit.value\"},\"prior\":{\"value\":{\"unknownFixture\":\"changes[0].prior.value\"}},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"changed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
+      "schema": "HarnessCancelInstallResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "harnessCancelInstallResult",
+        "requestId": "requestId",
+        "ok": true,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 3,
+        "changes": [
+          {
+            "id": 3,
+            "harness": "grok",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "owned-file",
+              "sha256": "changes[0].edit.sha256"
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessCancelInstallResult\",\"requestId\":\"requestId\",\"ok\":true,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":3,\"changes\":[{\"id\":3,\"harness\":\"grok\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"owned-file\",\"sha256\":\"changes[0].edit.sha256\"},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":true}"
+    },
+    {
+      "schema": "HarnessCancelInstallResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "harnessCancelInstallResult",
+        "requestId": "requestId",
+        "ok": false,
+        "error": "error",
+        "outcome": "outcome",
+        "version": "version",
+        "pendingSessions": 4,
+        "changes": [
+          {
+            "id": 4,
+            "harness": "opencode",
+            "file": "changes[0].file",
+            "edit": {
+              "kind": "hook-handlers",
+              "marker": "changes[0].edit.marker",
+              "events": ["changes[0].edit.events[0]"]
+            },
+            "prior": {
+              "contents": "changes[0].prior.contents"
+            },
+            "serves": "changes[0].serves",
+            "appliedAt": "changes[0].appliedAt",
+            "status": "failed",
+            "reason": "changes[0].reason"
+          }
+        ],
+        "conversations": [
+          {
+            "id": "conversations[0].id",
+            "title": "conversations[0].title"
+          }
+        ],
+        "homeExists": false
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {
+        "changes[0].prior.contents": "changes[0].prior.contents"
+      },
+      "encoded": "{\"type\":\"harnessCancelInstallResult\",\"requestId\":\"requestId\",\"ok\":false,\"error\":\"error\",\"outcome\":\"outcome\",\"version\":\"version\",\"pendingSessions\":4,\"changes\":[{\"id\":4,\"harness\":\"opencode\",\"file\":\"changes[0].file\",\"edit\":{\"kind\":\"hook-handlers\",\"marker\":\"changes[0].edit.marker\",\"events\":[\"changes[0].edit.events[0]\"]},\"prior\":{},\"serves\":\"changes[0].serves\",\"appliedAt\":\"changes[0].appliedAt\",\"status\":\"failed\",\"reason\":\"changes[0].reason\"}],\"conversations\":[{\"id\":\"conversations[0].id\",\"title\":\"conversations[0].title\"}],\"homeExists\":false}"
+    },
+    {
       "schema": "HarnessChangesRequestMessage",
       "variant": "minimal",
       "wire": {

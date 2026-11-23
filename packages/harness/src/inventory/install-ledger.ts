@@ -345,6 +345,27 @@ export class InstallLedger {
     return this.require(kind)
   }
 
+  /**
+   * Drop the row a first install made when that install is cancelled before it
+   * publishes, as if it had never been asked for. Holds the install lock. Keeps
+   * a row that names a release, is being removed, or that a session names.
+   */
+  forgetUnpublished(kind: BuiltinHarnessKind, lock: InstallLock): boolean {
+    return this.withLock(lock, () => {
+      const row = this.get(kind)
+      if (
+        !row ||
+        row.current != null ||
+        row.previous != null ||
+        row.removingAt ||
+        this.sessionInstalls(kind).length > 0
+      )
+        return false
+      this.sql('DELETE FROM managed_install WHERE kind = ?').run(kind)
+      return true
+    })
+  }
+
   /** Stop selecting this install before deleting any release. Holds the install lock. */
   requestRemoval(kind: BuiltinHarnessKind, lock: InstallLock): void {
     if (!lock.held()) throw new InstallLockLostError()

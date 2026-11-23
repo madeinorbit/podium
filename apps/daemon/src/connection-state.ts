@@ -12,6 +12,7 @@ import {
   CAP_HARNESS_HOMES,
   CAP_HARNESS_HOMES_GROK,
   CAP_HARNESS_HOMES_PI,
+  CAP_HARNESS_INSTALL_CANCEL,
   CAP_HARNESS_INSTALLS,
   CAP_MACHINE_PROCESSES_V1,
   CAP_MACHINE_UNINSTALL,
@@ -1143,6 +1144,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         // And Pi homes (PI_CODING_AGENT_DIR).
         CAP_HARNESS_HOMES_PI,
         CAP_HARNESS_INSTALLS,
+        // POD-7471: this daemon reports install progress and cancels a running install.
+        CAP_HARNESS_INSTALL_CANCEL,
         // Credential management §9: this daemon places a conversation for
         // another credential's home before a resume (`conversationPrepareRequest`).
         CAP_CONVERSATION_PREPARE,

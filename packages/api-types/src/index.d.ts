@@ -1919,7 +1919,7 @@ type Input_files_write = ({
     sessionId: string;
 });
 type Input_harnessInstalls_action = {
-    action: "back" | "changes" | "check" | "home-info" | "install" | "pause" | "remove" | "remove-changes" | "remove-home" | "resume" | "take-settings";
+    action: "back" | "cancel-install" | "changes" | "check" | "home-info" | "install" | "pause" | "remove" | "remove-changes" | "remove-home" | "resume" | "take-settings";
     confirmedConversations?: string[] | undefined;
     harness: "antigravity" | "claude-code" | "codex" | "cursor" | "grok" | "opencode" | "pi";
     machineId: string;
@@ -5872,6 +5872,11 @@ type Output_machines_applyUpdate = {
                         };
                         failingSince?: string | undefined;
                         installing?: undefined | {
+                            progress?: undefined | {
+                                phase: "download" | "setup" | "verify";
+                                receivedBytes?: number | undefined;
+                                totalBytes?: number | undefined;
+                            };
                             version?: string | undefined;
                         };
                         lastCheckAt?: string | undefined;
@@ -6059,6 +6064,11 @@ type Output_machines_uninstall = {
                         };
                         failingSince?: string | undefined;
                         installing?: undefined | {
+                            progress?: undefined | {
+                                phase: "download" | "setup" | "verify";
+                                receivedBytes?: number | undefined;
+                                totalBytes?: number | undefined;
+                            };
                             version?: string | undefined;
                         };
                         lastCheckAt?: string | undefined;
