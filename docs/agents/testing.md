@@ -201,7 +201,13 @@ store connection pool, sync worker, and background worker. Postgres uses one dis
 clone per cluster from the [Postgres test harness](#postgres-store-lane). SQLite runs one
 Core over a temporary database file and can restart that Core against the same file.
 
+On a shared Linux validation VM with the Postgres container already running, the sample
+took 14.9 s wall time for both engines (7.4 s SQLite, 6.9 s Postgres). The test process tree
+peaked at 850 MiB summed RSS, sampled every 100 ms, within the 1,000 MB admission charge.
+The shared Postgres container peaked at 53 MiB above its starting memory during the run.
+
 Import `startCoreTestCluster` from `apps/server/src/test-support/core-test-cluster.ts`.
+Set `postgresProcesses` in its options for a different Postgres process count.
 Use `client(index)` for authenticated tRPC and `route(index)` for HTTP and WebSocket URLs.
 For raw client requests, use the route's `clientHeaders` for authentication. Connect a daemon
 using the route's daemon socket URL and the test's protocol credentials.
