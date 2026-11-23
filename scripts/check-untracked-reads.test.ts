@@ -1,7 +1,14 @@
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { inventoryErrors, productionUntrackedReads, scanUntrackedReads } from './check-untracked-reads'
+import {
+  inventoryErrors,
+  productionSideState,
+  productionUntrackedReads,
+  scanSideStateConstructors,
+  scanUntrackedReads,
+  sideStateErrors,
+} from './check-untracked-reads'
 
 it('clock.ts lists every production untracked and peek tag with a reason', () => {
   const root = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -74,4 +81,81 @@ const rows = pool.queries.indexed(question)
   .map(id => pool.row('issue', id, 'peek'))
 `)
   expect(reads).toEqual([{ file: 'example.ts', line: 4, tag: 'spawn-sort-peek' }])
+})
+
+it('every held Map/Set in the client graph and the replica is guarded or carries a reviewed allow', () => {
+  const root = dirname(dirname(fileURLToPath(import.meta.url)))
+  expect(sideStateErrors(productionSideState(root))).toEqual([])
+})
+
+it('finds held collections: class fields, constructor fields, module values and their callbacks', () => {
+  const found = scanSideStateConstructors(
+    'example.ts',
+    `
+const table = new Map<string, number>()
+export const bySet = { a: new Set<string>() }
+const built = Object.fromEntries(KINDS.map((kind) => [kind, new Map()]))
+class Owner {
+  private readonly seen = new Set<string>()
+  private readonly guarded = new SideMap<string, number>('owner.guarded')
+  private later: Map<string, number>
+  constructor() {
+    this.later = new Map()
+    const local = new Map()
+  }
+  read() { const scratch = new Set(); return scratch }
+  private readonly factory = () => { const inner = new Map(); return inner }
+}
+function make() { return new Map() }
+`,
+  )
+  expect(found.map((entry) => [entry.line, entry.collection])).toEqual([
+    [2, 'Map'],
+    [3, 'Set'],
+    [4, 'Map'],
+    [6, 'Set'],
+    [10, 'Map'],
+  ])
+  expect(sideStateErrors(found)).toHaveLength(5)
+})
+
+it('accepts an allow comment above the declaration or the constructor, with a known category', () => {
+  const found = scanSideStateConstructors(
+    'example.ts',
+    `
+// side-state: declaration: fixed kind table
+const KINDS = new Set(['a'])
+const pair = {
+  // side-state: signal: the atoms readers observe
+  atoms: new Map(),
+  // side-state: whatever: no such category
+  other: new Map(),
+}
+// side-state: identity:
+const empty = new Map()
+`,
+  )
+  expect(found.map((entry) => entry.allow?.category)).toEqual([
+    'declaration',
+    'signal',
+    'whatever',
+    undefined,
+  ])
+  expect(sideStateErrors(found)).toEqual([
+    expect.stringContaining('unknown side-state category whatever'),
+    expect.stringContaining('example.ts:11: a held Map is a SideMap'),
+  ])
+})
+
+it('tags signalledRead call sites like untracked reads', () => {
+  const reads = scanUntrackedReads(
+    'example.ts',
+    `
+import { signalledRead as covered } from '@podium/sync/side-state'
+// untracked-read: exit-kind
+const exit = covered(() => replica.exitKind(entity, id))
+signalledRead(() => map.get(key))
+`,
+  )
+  expect(reads.map((read) => read.tag)).toEqual(['exit-kind', undefined])
 })
