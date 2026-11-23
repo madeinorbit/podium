@@ -39498,26 +39498,6 @@
       "guard": "SessionCredentialChip.test.tsx \"acceptance 3: switch credential\" drives one switch per pick."
     },
     {
-      "file": "apps/web/src/features/setup/FirstTaskActivation.tsx",
-      "holder": "FirstTaskActivation/FirstTaskActivation/renderAgentRows/callback",
-      "rule": "consume:map",
-      "tokens": "f6e8820e84f890bfefc653c917242919eac289568dcff115a68555ba3008f200",
-      "gate": [
-        "exit:then:3690d368562285f15158e021acd00d21982af6c501ec51bce92615ebaeecf396"
-      ],
-      "origin": [
-        "7ff332b83199b7ad40568bd17b700d8a4beb44371ec7d25ab95cabf75b497d91"
-      ],
-      "fingerprint": "5cd617e0ee5e4b80f4e66572e8914c5d874e4ea1877d27cbbe9bb598a2414bcc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FirstTaskActivation/FirstTaskActivation/renderAgentRows/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-core/src/session-values.ts",
       "holder": "sessionViews/map:callback",
       "rule": "helper-consumer",

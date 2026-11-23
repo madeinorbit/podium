@@ -3,11 +3,11 @@
  * machine, one harness's page, and its sign-in choice. Every answer comes from
  * the shared {@link AgentSetupView}; this file only lays it out.
  *
- * Two hosts render it: `SetupAgentsDialog` (a 680 px dialog any harness menu
- * opens) and the Harnesses section of Settings › Machine (`embedded`, no
- * dialog chrome). A row carries at most ONE control and a chevron to the
- * harness page (POD-7440: the old row squeezed its name to one word per line
- * behind a wrap of buttons).
+ * Hosts render it in `SetupAgentsDialog` (a 680 px dialog any harness menu
+ * opens), Settings › Machine (`embedded`, no dialog chrome) and onboarding
+ * (`onboarding`, whose host owns the list footer). A row carries at most ONE
+ * control and a chevron to the harness page (POD-7440: the old row squeezed its
+ * name to one word per line behind a wrap of buttons).
  */
 
 import { relativeTime } from '@podium/client-core/focus'
@@ -194,8 +194,8 @@ export interface SetupAgentsMachineChoice {
 
 export interface SetupAgentsPanelProps {
   readonly view: AgentSetupView
-  /** `dialog`: header with close, footer always. `embedded`: Settings › Machine. */
-  readonly variant: 'dialog' | 'embedded'
+  /** `onboarding`: embedded list with the host's install-and-continue footer. */
+  readonly variant: 'dialog' | 'embedded' | 'onboarding'
   readonly onClose?: () => void
   /** Machines the person may set up; the header chip switches between them. */
   readonly machines?: readonly SetupAgentsMachineChoice[]
@@ -233,6 +233,7 @@ export const SetupAgentsPanel = observer(function SetupAgentsPanel({
         variant === 'dialog'
           ? 'max-h-[min(756px,calc(100dvh-2rem))] bg-popover'
           : 'overflow-hidden rounded-lg border border-border bg-card',
+        variant === 'onboarding' && 'rounded-[13px]',
       )}
       data-setup-agents={variant}
     >
@@ -411,7 +412,7 @@ const ListPage = observer(function ListPage({
   onSwitchMachine,
 }: {
   view: AgentSetupView
-  variant: 'dialog' | 'embedded'
+  variant: SetupAgentsPanelProps['variant']
   onClose?: () => void
   onSignIn: (harness: BuiltinHarnessKind) => void
   machines?: readonly SetupAgentsMachineChoice[]
@@ -456,7 +457,7 @@ const ListPage = observer(function ListPage({
           ))
         )}
       </div>
-      <ListFooter view={view} variant={variant} onClose={onClose} />
+      {variant !== 'onboarding' && <ListFooter view={view} variant={variant} onClose={onClose} />}
     </>
   )
 })
@@ -666,7 +667,7 @@ const ListFooter = observer(function ListFooter({
   onClose,
 }: {
   view: AgentSetupView
-  variant: 'dialog' | 'embedded'
+  variant: SetupAgentsPanelProps['variant']
   onClose?: () => void
 }) {
   const selected = view.selectedKinds
@@ -812,7 +813,7 @@ const DetailPage = observer(function DetailPage({
 }: {
   detail: AgentSetupDetail
   view: AgentSetupView
-  variant: 'dialog' | 'embedded'
+  variant: SetupAgentsPanelProps['variant']
   onBack: () => void
   onClose?: () => void
   onSignIn: (harness: BuiltinHarnessKind) => void
@@ -1216,7 +1217,7 @@ const SignInPage = observer(function SignInPage({
 }: {
   item: AgentSetupItem
   view: AgentSetupView
-  variant: 'dialog' | 'embedded'
+  variant: SetupAgentsPanelProps['variant']
   justInstalled: boolean
   onBack: () => void
   onClose?: () => void

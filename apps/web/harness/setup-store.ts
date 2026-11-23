@@ -29,9 +29,14 @@ const machine = {
     agents: BUILTIN_HARNESS_KINDS.map(
       (kind): AgentInventory => ({
         kind,
-        installed: scene === 'installed' && kind === 'codex',
-        login: { state: 'out' },
-        management: { installable: true },
+        installed:
+          (scene === 'installed' || scene === 'mixed') &&
+          (kind === 'codex' || (scene === 'mixed' && kind === 'claude-code')),
+        login: { state: kind === 'codex' && scene !== 'missing' ? 'in' : 'out' },
+        management:
+          scene === 'mixed' && kind === 'cursor'
+            ? { installable: false, reason: 'Install Cursor on a desktop machine.' }
+            : { installable: true },
       }),
     ),
     tools: [],
@@ -81,7 +86,7 @@ const trpc = {
         if (!agent) throw new Error('Unknown harness')
         agent.install = { managed: { paused: false, installing: { version: '1.0.0' } } }
         publishMachine()
-        await new Promise((resolve) => setTimeout(resolve, 500))
+        await new Promise((resolve) => setTimeout(resolve, 1800))
         agent.installed = true
         agent.install = {
           managed: {

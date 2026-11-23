@@ -17,6 +17,7 @@
  * workspace symlinks and renders the MAIN checkout's `@podium/*` sources.
  */
 
+import { useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { Trpc } from '@/app/trpc'
 import { FirstTaskActivation } from '@/features/setup/FirstTaskActivation'
@@ -31,6 +32,21 @@ import '@/styles.css'
 document.documentElement.setAttribute('data-theme', 'podium')
 document.documentElement.classList.add('dark')
 const hash = window.location.hash.slice(1)
+
+function FirstTaskPreview() {
+  const [route, setRoute] = useState<'agent' | 'first-task'>(
+    hash === 'first-task' ? 'first-task' : 'agent',
+  )
+  return (
+    <FirstTaskActivation
+      route={route}
+      onRouteChange={(next) => {
+        if (next === 'agent' || next === 'first-task') setRoute(next)
+      }}
+      onComplete={() => {}}
+    />
+  )
+}
 
 /** The one thing each VPS variant invents: what `setup.channel` answers, and when. */
 function vpsTrpc(): Trpc {
@@ -97,11 +113,7 @@ if (root) {
         onConfigured={onConfigured}
       />
     ) : (
-      <FirstTaskActivation
-        route={hash === 'first-task' ? 'first-task' : 'agent'}
-        onRouteChange={() => {}}
-        onComplete={() => {}}
-      />
+      <FirstTaskPreview />
     ),
   )
 }

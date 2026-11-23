@@ -1,8 +1,10 @@
 import '@/test-support/mock-core-store-handle'
+import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
-import { type AgentInventory, asMachineId } from '@podium/model'
+import { type AgentInventory, asMachineId, BUILTIN_HARNESS_KINDS } from '@podium/model'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { StrictMode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { publishPoolFixture } from '@/test-support/pool-fixture'
 import { FirstTaskActivation } from './FirstTaskActivation'
@@ -20,7 +22,31 @@ let codexInstalled = true
 let codexInstall: AgentInventory['install']
 let codexInstallable = true
 let codexLogin: 'in' | 'out' | 'unknown' = 'in'
+let machineOnline = true
+let inventoryReady = true
 const machineId = asMachineId('machine-a')
+
+// The shared panel owns one view per opening, keyed by the stable request client.
+const trpc = {
+  harnessInstalls: { action: { mutate: harnessAction } },
+  settings: {
+    get: {
+      query: vi.fn(async () => ({
+        sessionDefaults: { agent: 'codex' },
+        gitWorkflow: { defaultParentBranch: 'main' },
+      })),
+    },
+  },
+  credentials: {
+    list: { query: async () => accounts },
+    login: { mutate: login },
+    useOnMyMachines: { mutate: useOnMyMachines },
+  },
+  telemetry: {
+    state: { query: telemetryState },
+    set: { mutate: telemetrySet },
+  },
+}
 
 function store() {
   return {
@@ -38,30 +64,35 @@ function store() {
         id: machineId,
         name: 'Studio Mac',
         hostname: 'studio',
-        online: true,
+        online: machineOnline,
         serviceAssignment: { server: false, agentExecution: true },
         availability: { epoch: 'boot-1', server: false, daemon: true, supervisor: true },
         lastSeenAt: new Date(0).toISOString(),
-        inventory: {
-          os: 'darwin' as const,
-          arch: 'arm64' as const,
-          agents: [
-            {
-              kind: 'codex' as const,
-              installed: codexInstalled,
-              login: { state: codexLogin },
-              install: codexInstall,
-              management: {
-                installable: codexInstallable,
-                ...(!codexInstallable ? { reason: 'Not supported on this platform' } : {}),
-              },
-            },
-            { kind: 'claude-code' as const, installed: false, login: { state: 'out' as const } },
-            { kind: 'opencode' as const, installed: false, login: { state: 'out' as const } },
-            { kind: 'cursor' as const, installed: false, login: { state: 'out' as const } },
-          ],
-          tools: [],
-        },
+        inventory: inventoryReady
+          ? {
+              os: 'darwin' as const,
+              arch: 'arm64' as const,
+              agents: [
+                {
+                  kind: 'codex' as const,
+                  installed: codexInstalled,
+                  login: { state: codexLogin },
+                  install: codexInstall,
+                  management: {
+                    installable: codexInstallable,
+                    ...(!codexInstallable ? { reason: 'Not supported on this platform' } : {}),
+                  },
+                },
+                ...BUILTIN_HARNESS_KINDS.filter((kind) => kind !== 'codex').map((kind) => ({
+                  kind,
+                  installed: false,
+                  login: { state: 'out' as const },
+                  management: { installable: true },
+                })),
+              ],
+              tools: [],
+            }
+          : undefined,
       },
     ],
     uiState: {
@@ -73,30 +104,35 @@ function store() {
       // The pool fixture attaches a preference source, which subscribes.
       subscribe: () => () => {},
     },
-    trpc: {
-      harnessInstalls: { action: { mutate: harnessAction } },
-      settings: {
-        get: {
-          query: vi.fn(async () => ({
-            sessionDefaults: { agent: 'codex' },
-            gitWorkflow: { defaultParentBranch: 'main' },
-          })),
-        },
-      },
-      credentials: {
-        login: { mutate: login },
-        useOnMyMachines: { mutate: useOnMyMachines },
-      },
-      telemetry: {
-        state: { query: telemetryState },
-        set: { mutate: telemetrySet },
-      },
-    },
+    trpc,
   }
 }
 
 vi.mock('@/app/store', () => ({
   readFixture: (selector: (value: ReturnType<typeof store>) => unknown) => selector(store()),
+}))
+
+vi.mock('@/app/store-worklist-pool', async () => ({
+  ...(await import('@/test-support/pool-fixture')).fixturePoolHooks,
+}))
+
+// Supply discovery at the test boundary; the fixture keeps the machine's real model.
+vi.mock('@/features/settings/readers', async (original) => {
+  const { here } = await import('@podium/client-graph/lookup')
+  const { fixturePoolHooks } = await import('@/test-support/pool-fixture')
+  return {
+    ...(await original<typeof import('@/features/settings/readers')>()),
+    useSettingsCatalog: () => {
+      const pool = fixturePoolHooks.useWorklistPool()
+      const machine = here(pool.model('machine', machineId))
+      return { repos: store().repos, machines: machine ? [machine] : [] }
+    },
+  }
+})
+
+// Match the stable descriptor fallback used by the browser harness.
+vi.mock('@/lib/use-harness-descriptors', () => ({
+  useHarnessDescriptors: () => ({ served: undefined }),
 }))
 
 // The detected-accounts card reads `credentials.list` into the shared record pool,
@@ -145,11 +181,13 @@ afterEach(() => {
   codexInstalled = true
   codexInstall = undefined
   codexInstallable = true
+  machineOnline = true
+  inventoryReady = true
   harnessAction.mockReset()
 })
 
 describe('FirstTaskActivation', () => {
-  it('installs the first harness and unlocks Continue only after inventory reports it', async () => {
+  it('pre-ticks suggestions without installing, then advances before installs finish', async () => {
     codexInstalled = false
     codexLogin = 'out'
     let finishInstall!: (value: unknown) => void
@@ -159,81 +197,173 @@ describe('FirstTaskActivation', () => {
       }),
     )
     const onRouteChange = vi.fn()
-    render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
-
-    expect(screen.getAllByRole('button', { name: 'Install' })).toHaveLength(6)
-    expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
-    const codex = screen.getByRole('group', { name: 'Codex actions' })
-    fireEvent.click(within(codex).getByRole('button', { name: 'Install' }))
-    expect(harnessAction).toHaveBeenCalledWith({ machineId, harness: 'codex', action: 'install' })
-    expect(await screen.findByText('Waiting for the machine…')).toBeTruthy()
-    expect(within(codex).getByRole('button', { name: 'Install' }).hasAttribute('disabled')).toBe(
-      true,
+    const { rerender } = render(
+      <StrictMode>
+        <FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />
+      </StrictMode>,
     )
-    await act(async () => {
-      finishInstall({ ok: true, outcome: 'confirmed' })
-    })
-    expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
 
-    codexInstall = { managed: { paused: false, installing: { version: '0.171.0' } } }
-    act(() => publishPoolFixture())
-    expect(await screen.findByText('Installing 0.171.0…')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
-
-    codexInstalled = true
-    codexInstall = {
-      managed: {
-        paused: false,
-        active: { path: '/state/harnesses/codex/1/tool', version: '0.171.0', release: 1 },
-      },
-    }
-    act(() => publishPoolFixture())
-    expect(await screen.findByText('0.171.0 · managed by Podium')).toBeTruthy()
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(false),
-    )
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByRole('region', { name: 'Not installed' })).toBeTruthy()
+    expect(
+      (screen.getByRole('checkbox', { name: 'Install Claude Code' }) as HTMLInputElement).checked,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('checkbox', { name: 'Install Codex' }) as HTMLInputElement).checked,
+    ).toBe(true)
+    expect(
+      (screen.getByRole('checkbox', { name: 'Install OpenCode' }) as HTMLInputElement).checked,
+    ).toBe(true)
+    expect(harnessAction).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Install' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Install 3 agents' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Set up agents' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue without installing' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Install 3 and continue' }))
+    expect(harnessAction.mock.calls.map(([input]) => input)).toEqual([
+      { machineId, harness: 'claude-code', action: 'install' },
+      { machineId, harness: 'codex', action: 'install' },
+      { machineId, harness: 'opencode', action: 'install' },
+    ])
+    expect(onRouteChange).toHaveBeenCalledOnce()
     expect(onRouteChange).toHaveBeenCalledWith('first-task')
-    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy()
+
+    // Leaving drops the view's answer; it must not send a cancel to the machine.
+    rerender(
+      <StrictMode>
+        <FirstTaskActivation
+          route="first-task"
+          onRouteChange={onRouteChange}
+          onComplete={vi.fn()}
+        />
+      </StrictMode>,
+    )
+    expect(harnessAction).toHaveBeenCalledTimes(3)
+    await act(async () => finishInstall({ ok: true, outcome: 'confirmed' }))
+    expect(screen.getByRole('heading', { name: 'Podium is good to go.' })).toBeTruthy()
+    expect(harnessAction).toHaveBeenCalledTimes(3)
   })
 
-  it('shows an install failure and lets the person retry without leaving setup', async () => {
+  it('keeps deselected suggestions unticked and blocks Continue with nothing ready', () => {
     codexInstalled = false
-    harnessAction
-      .mockRejectedValueOnce(new Error('Download failed'))
-      .mockResolvedValueOnce({ ok: true, outcome: 'confirmed' })
     render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
-    const codex = screen.getByRole('group', { name: 'Codex actions' })
-    fireEvent.click(within(codex).getByRole('button', { name: 'Install' }))
-    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Download failed')
-    fireEvent.click(within(codex).getByRole('button', { name: 'Install' }))
-    await waitFor(() => expect(harnessAction).toHaveBeenCalledTimes(2))
-    expect(screen.getByRole('button', { name: 'Continue' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Install Claude Code' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Install Codex' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Install OpenCode' }))
+    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    act(() => publishPoolFixture())
+    expect(screen.getAllByRole('checkbox').every((box) => !(box as HTMLInputElement).checked)).toBe(
+      true,
+    )
+    expect(harnessAction).not.toHaveBeenCalled()
   })
 
   it('shows why a managed install is unavailable', () => {
     codexInstalled = false
     codexInstallable = false
     render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
-    const codex = screen.getByRole('group', { name: 'Codex actions' })
-    expect(within(codex).getByRole('button', { name: 'Install' }).hasAttribute('disabled')).toBe(
+    const blocked = screen.getByRole('region', { name: 'Can’t install here' })
+    expect(within(blocked).getByText('Codex')).toBeTruthy()
+    expect(within(blocked).getByText('Not supported on this platform')).toBeTruthy()
+    expect(screen.queryByRole('checkbox', { name: 'Install Codex' })).toBeNull()
+    expect(harnessAction).not.toHaveBeenCalled()
+  })
+
+  it('shows a previous install failure and can continue while its retry runs', () => {
+    codexInstalled = false
+    codexInstall = {
+      managed: {
+        paused: false,
+        lastError: { at: '2026-11-23T10:00:00Z', message: 'Download failed' },
+      },
+    }
+    harnessAction.mockReturnValue(new Promise(() => {}))
+    const onRouteChange = vi.fn()
+    render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
+    const failed = screen.getByRole('region', { name: 'Didn’t install' })
+    expect(within(failed).getByRole('alert').textContent).toBe('Download failed')
+    for (const checkbox of screen.getAllByRole('checkbox')) {
+      if ((checkbox as HTMLInputElement).checked) fireEvent.click(checkbox)
+    }
+    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
       true,
     )
-    expect(screen.getByText('Not supported on this platform')).toBeTruthy()
+    fireEvent.click(within(failed).getByRole('button', { name: 'Try again' }))
+    expect(harnessAction).toHaveBeenCalledWith({ machineId, harness: 'codex', action: 'install' })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onRouteChange).toHaveBeenCalledWith('first-task')
   })
 
   it('shows supported agents as an honest readiness checklist', async () => {
     const onRouteChange = vi.fn()
     render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
 
-    await screen.findByText('Ready')
-    expect(screen.getAllByRole('button', { name: 'Install' })).toHaveLength(5)
-    expect(screen.getByRole('group', { name: 'OpenCode actions' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: 'Ready' })).toBeTruthy()
+    expect(screen.getByRole('checkbox', { name: 'Install OpenCode' })).toBeTruthy()
+    expect(screen.getAllByRole('checkbox').every((box) => !(box as HTMLInputElement).checked)).toBe(
+      true,
+    )
     expect(screen.getByRole('heading', { name: 'Set up your agents.' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Choose a project/ })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(onRouteChange).toHaveBeenCalledWith('first-task')
+    expect(harnessAction).not.toHaveBeenCalled()
+  })
+
+  it('can skip selected installs when an agent is already ready', () => {
+    const onRouteChange = vi.fn()
+    render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Install OpenCode' }))
+    expect(screen.getByRole('button', { name: 'Install 1 and continue' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue without installing' }))
+    expect(onRouteChange).toHaveBeenCalledWith('first-task')
+    expect(harnessAction).not.toHaveBeenCalled()
+  })
+
+  it('continues while inventory reports an install already running', () => {
+    codexInstalled = false
+    codexInstall = { managed: { paused: false, installing: { version: '0.171.0' } } }
+    const onRouteChange = vi.fn()
+    render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
+    expect(screen.getByRole('region', { name: 'Installing' })).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onRouteChange).toHaveBeenCalledWith('first-task')
+    expect(harnessAction).not.toHaveBeenCalled()
+  })
+
+  it('waits for inventory before choosing suggestions', () => {
+    codexInstalled = false
+    inventoryReady = false
+    render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
+    expect(screen.getByRole('status').textContent).toContain('Checking which agents')
+    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    inventoryReady = true
+    act(() => publishPoolFixture())
+    expect(screen.getByRole('button', { name: 'Install 3 and continue' })).toBeTruthy()
+    expect(harnessAction).not.toHaveBeenCalled()
+  })
+
+  it('cannot continue using an offline machine', () => {
+    machineOnline = false
+    render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
+    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+  })
+
+  it('can return to change the project', () => {
+    const onRouteChange = vi.fn()
+    render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Change project' }))
+    expect(onRouteChange).toHaveBeenCalledWith('local-project')
+    expect(harnessAction).not.toHaveBeenCalled()
   })
 
   it('keeps setup open and hosts login in a modal terminal', async () => {
@@ -243,11 +373,27 @@ describe('FirstTaskActivation', () => {
     render(<FirstTaskActivation route="agent" onRouteChange={vi.fn()} onComplete={vi.fn()} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Sign in' }))
+    fireEvent.click(screen.getByRole('radio', { name: /Sign in with ChatGPT/ }))
     await waitFor(() =>
       expect(login).toHaveBeenCalledWith({ harness: 'codex', machineId: 'machine-a' }),
     )
     expect(await screen.findByText('Login terminal login-session')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Finish agent sign-in' })).toBeTruthy()
+  })
+
+  it('lets an installed agent sign in later before continuing', () => {
+    codexLogin = 'out'
+    const onRouteChange = vi.fn()
+    render(<FirstTaskActivation route="agent" onRouteChange={onRouteChange} onComplete={vi.fn()} />)
+    expect(screen.getByRole('region', { name: 'Needs sign-in' })).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    fireEvent.click(screen.getByRole('radio', { name: /Later/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(onRouteChange).toHaveBeenCalledWith('first-task')
+    expect(login).not.toHaveBeenCalled()
   })
 
   it('steps from the agent page to the ready page in the same mounted component', async () => {
