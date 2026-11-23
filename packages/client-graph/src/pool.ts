@@ -466,9 +466,9 @@ export class MobxPool {
    * built from. Null without one (a read-only pool). It writes visible rows
    * into the tables, so the one reader has nothing to lay over them.
    */
-  private transactions: PoolMutator | null = null
+  @observableRef private accessor transactions: PoolMutator | null = null
   /** The log whose spawn placeholders pool screens read (it owns sessions). */
-  private spawnLog: PoolMutator | null = null
+  @observableRef private accessor spawnLog: PoolMutator | null = null
   /** The one object per row, by entity: built on first request, never twice. */
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
   private readonly target: IngestTarget
@@ -1011,7 +1011,7 @@ export class MobxPool {
   /** Attach the transaction log (POD-5431); one per pool, before any change.
    * `ownsSessions`: the transaction log paints
    * session rows, so the spawn placeholders are read from it too. */
-  attachTransactions(transactions: PoolMutator, ownsSessions = true): void {
+  @action attachTransactions(transactions: PoolMutator, ownsSessions = true): void {
     if (this.transactions !== null) {
       throw new WriteContractError('the pool already has a transaction log')
     }
