@@ -1,8 +1,45 @@
 /** Native browser, clipboard and PTY boundaries for the phone sign-in screenshot. */
+import type { SessionView } from '@podium/client-core/session-values'
+import { loadSyncedModels } from '@podium/client-graph/models'
+import { MobxPool } from '@podium/client-graph/pool'
 import { asSessionId } from '@podium/model'
 import type { SessionOpenUrlMessage } from '@podium/protocol'
 import { Text, View } from 'react-native'
 import { color, font, mono, space } from '../src/theme/theme'
+
+await loadSyncedModels()
+const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+export function useMobilePool() {
+  return pool
+}
+export function setLoginSession(
+  status: SessionView['status'],
+  exitCode?: number,
+  spawnFailure?: string,
+) {
+  pool.apply({
+    type: 'update',
+    rows: [
+      {
+        kind: 'session',
+        id: 'login-session',
+        value: {
+          sessionId: asSessionId('login-session'),
+          agentKind: 'shell',
+          status,
+          exitCode,
+          spawnFailure,
+        } as never,
+      },
+    ],
+  })
+}
+const mode = new URLSearchParams(window.location.search).get('state')
+setLoginSession(
+  mode === 'login-failed' || mode === 'login-ok' ? 'exited' : 'live',
+  mode === 'login-failed' ? -1 : mode === 'login-ok' ? 0 : undefined,
+  mode === 'login-failed' ? 'The sign-in command was refused.' : undefined,
+)
 
 const request: SessionOpenUrlMessage = {
   type: 'sessionOpenUrl',

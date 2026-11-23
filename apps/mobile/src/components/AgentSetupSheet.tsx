@@ -127,7 +127,19 @@ const ConnectedSetup = observer(function ConnectedSetup({
   const signingIn = view.items.find((item) => item.signIn.loginSessionId !== null)
   const loginTerminal = signingIn?.signIn.loginSessionId ? (
     <Suspense fallback={<ActivityIndicator color={color.working} />}>
-      <LoginTerminal sessionId={signingIn.signIn.loginSessionId} />
+      <LoginTerminal
+        key={signingIn.signIn.loginSessionId}
+        sessionId={signingIn.signIn.loginSessionId}
+        onClose={() => signingIn.signIn.closeLogin()}
+        onRetry={
+          signingIn.signIn.choices.some((choice) => choice.kind === 'browser' && choice.available)
+            ? () => {
+                signingIn.signIn.closeLogin()
+                void signingIn.signIn.signInWithBrowser()
+              }
+            : undefined
+        }
+      />
     </Suspense>
   ) : undefined
   if (props.onContinue) {

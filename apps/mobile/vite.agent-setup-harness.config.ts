@@ -15,6 +15,7 @@ export default async () => {
         { find: /^\.\/platform-colors$/, replacement: harness('agent-setup-colors.ts') },
         { find: /^react-native-svg$/, replacement: harness('agent-setup-svg.tsx') },
         { find: /^\.\.\/client\/hooks$/, replacement: harness('agent-setup-browser.tsx') },
+        { find: /^\.\.\/client\/mobile-pool$/, replacement: harness('agent-setup-browser.tsx') },
         { find: /^\.\.\/terminal\/TerminalPane$/, replacement: harness('agent-setup-browser.tsx') },
         { find: /^expo-clipboard$/, replacement: harness('agent-setup-browser.tsx') },
         ...real.resolve.alias,

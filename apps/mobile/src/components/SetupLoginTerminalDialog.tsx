@@ -1,9 +1,13 @@
+import { exitedRecovery } from '@podium/client-core/values'
+import { here } from '@podium/client-graph/lookup'
 import type { SessionId } from '@podium/model'
 import type { SessionOpenUrlMessage } from '@podium/protocol'
 import * as Clipboard from 'expo-clipboard'
+import { observer } from 'mobx-react-lite'
 import { useEffect, useState } from 'react'
 import { Linking, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useConnected, useHub } from '../client/hooks'
+import { useMobilePool } from '../client/mobile-pool'
 import { TerminalPane } from '../terminal/TerminalPane'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
@@ -16,12 +20,28 @@ interface PendingBrowserRequest {
 }
 
 /** Sign-in owns its browser requests while the existing phone terminal owns the PTY. */
-export default function SetupLoginTerminalDialog({ sessionId }: { sessionId: SessionId }) {
+export default observer(function SetupLoginTerminalDialog({
+  sessionId,
+  onClose,
+  onRetry,
+}: {
+  sessionId: SessionId
+  onClose: () => void
+  onRetry?: () => void
+}) {
   const hub = useHub()
   const connected = useConnected()
+  const pool = useMobilePool()
+  const session = pool ? here(pool.model('session', sessionId)) : undefined
+  const exited = session?.status === 'exited'
+  const succeeded = exited && session.exitCode === 0 && !session.spawnFailure
   const [pending, setPending] = useState<PendingBrowserRequest[]>([])
   const [notice, setNotice] = useState('')
   useEffect(() => {
+    if (succeeded) onClose()
+  }, [succeeded, onClose])
+  useEffect(() => {
+    if (exited) return
     // Attaching the terminal's session room replays parked requests. Ignore
     // browser requests from every other session the phone is looking at.
     const offOpen = hub.on('openUrl', (request) => {
@@ -58,7 +78,7 @@ export default function SetupLoginTerminalDialog({ sessionId }: { sessionId: Ses
       offOpen()
       offResult()
     }
-  }, [hub, sessionId])
+  }, [hub, sessionId, exited])
 
   const update = (requestId: string, patch: Partial<Omit<PendingBrowserRequest, 'request'>>) => {
     setPending((current) =>
@@ -92,6 +112,38 @@ export default function SetupLoginTerminalDialog({ sessionId }: { sessionId: Ses
     if (!connected || item.submitting || !item.callback.trim()) return
     update(item.request.requestId, { submitting: true, error: undefined })
     hub.submitOpenUrlCallback(sessionId, item.request.requestId, item.callback.trim())
+  }
+
+  if (succeeded) return null
+  if (exited) {
+    const { detail } = exitedRecovery({
+      exitCode: session.exitCode,
+      spawnFailure: session.spawnFailure,
+      isShell: true,
+      resumable: false,
+    })
+    return (
+      <ScrollView style={styles.page} contentContainerStyle={styles.ended}>
+        <Text accessibilityRole="header" style={styles.title}>
+          Sign-in stopped
+        </Text>
+        <Text accessibilityRole="alert" style={styles.error}>
+          {detail}
+        </Text>
+        <Text style={styles.caption}>
+          {onRetry
+            ? 'Try signing in again, or close to return to setup.'
+            : 'Close to return to setup and sign in again when the machine is available.'}
+        </Text>
+        <View style={styles.recovery}>
+          {onRetry ? (
+            <LoginAction label="Try again" onPress={onRetry} disabled={!connected} />
+          ) : null}
+          <LoginAction label="Close" onPress={onClose} />
+        </View>
+        {onRetry && !connected ? <Text style={styles.caption}>Reconnect to try again.</Text> : null}
+      </ScrollView>
+    )
   }
 
   return (
@@ -165,10 +217,10 @@ export default function SetupLoginTerminalDialog({ sessionId }: { sessionId: Ses
       <Text accessibilityLiveRegion="polite" style={styles.note}>
         {notice || 'Complete sign-in here, then tap Done to return to setup.'}
       </Text>
-      <TerminalPane sessionId={sessionId} active />
+      <TerminalPane key={sessionId} sessionId={sessionId} active />
     </View>
   )
-}
+})
 
 function LoginAction({
   label,
@@ -194,6 +246,8 @@ function LoginAction({
 }
 const styles = StyleSheet.create({
   page: { flex: 1, minHeight: 0, backgroundColor: color.bg },
+  ended: { flexGrow: 1, justifyContent: 'center', padding: space.lg, gap: space.md },
+  recovery: { flexDirection: 'row', gap: space.xl },
   requests: { maxHeight: '65%', flexShrink: 1 },
   requestContent: { padding: space.md, gap: space.md },
   request: {
