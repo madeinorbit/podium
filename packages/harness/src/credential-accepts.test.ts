@@ -15,12 +15,17 @@ import {
   INFERENCE_ROUTES,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { codexPlanProviderArgs } from './adapters/codex/plan-provider.js'
+import { codexApiKeyProviderArgs, codexPlanProviderArgs } from './adapters/codex/plan-provider.js'
 import { BUNDLED_DESCRIPTORS } from './browser.js'
 import { buildBundledDescriptors, buildServedDescriptors } from './descriptors.js'
 import { declaredValue } from './manifest.js'
 import { harnessAccepts, harnessHideFromCommands } from './metadata.js'
-import { AGENT_MANIFESTS } from './registry.js'
+import {
+  AGENT_MANIFESTS,
+  acceptedLinePipe,
+  hideFromCommandsApplies,
+  unmetHideFromCommandsPrerequisites,
+} from './registry.js'
 
 const bundled = (): AcceptsConsumer[] =>
   Object.values(AGENT_MANIFESTS).map((manifest) => ({
@@ -77,20 +82,47 @@ describe('credential matrix over the registry and every bundled adapter', () => 
 })
 
 describe('harnessAccepts', () => {
-  it('Claude Code accepts the key, the token and its own login', () => {
+  it('Claude Code accepts the key, the token and its own login; the key and token on a pipe on Linux', () => {
     expect(harnessAccepts('claude-code')).toEqual([
-      { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },
+      {
+        type: 'anthropic.api-key',
+        deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' },
+        pipe: { variable: 'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR', platforms: ['linux'] },
+      },
       {
         type: 'anthropic.claude-token',
         deliver: { kind: 'env', variable: 'CLAUDE_CODE_OAUTH_TOKEN' },
+        pipe: { variable: 'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR', platforms: ['linux'] },
       },
       { type: 'anthropic.claude-login', deliver: { kind: 'home' } },
     ])
   })
 
+  it('a pipe belongs to its line only on the platforms it names (POD-7378)', () => {
+    const [key, , login] = harnessAccepts('claude-code')
+    if (!key || !login) throw new Error('Claude Code accepts no key line')
+    expect(acceptedLinePipe(key, 'linux')?.variable).toBe('CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR')
+    expect(acceptedLinePipe(key, 'darwin')).toBeUndefined()
+    expect(acceptedLinePipe(key, 'win32')).toBeUndefined()
+    expect(acceptedLinePipe(login, 'linux')).toBeUndefined()
+    // No other harness reads a secret from a pipe yet.
+    for (const manifest of Object.values(AGENT_MANIFESTS)) {
+      if (manifest.kind === 'claude-code') continue
+      expect(
+        manifest.inventory.accepts.some((line) => line.pipe),
+        manifest.kind,
+      ).toBe(false)
+    }
+  })
+
   it('Codex accepts the key, its own login, and the ChatGPT plan on its server driver only', () => {
     expect(harnessAccepts('codex')).toEqual([
-      { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
+      {
+        type: 'openai.api-key',
+        deliver: { kind: 'env', variable: 'OPENAI_API_KEY' },
+        // Only in the Podium home, which holds no Codex login (POD-7271).
+        homeStartArgs: codexApiKeyProviderArgs(),
+      },
       { type: 'openai.chatgpt-login', deliver: { kind: 'home' } },
       {
         type: 'openai.chatgpt-plan',
@@ -99,6 +131,10 @@ describe('harnessAccepts', () => {
         startArgs: codexPlanProviderArgs(),
       },
     ])
+  })
+
+  it('Grok accepts only its own login, held in a home (no passed-in line yet)', () => {
+    expect(harnessAccepts('grok')).toEqual([{ type: 'xai.grok-login', deliver: { kind: 'home' } }])
   })
 
   it('no harness delivers two lines in one variable: the start reads its line off the variable', () => {
@@ -110,9 +146,12 @@ describe('harnessAccepts', () => {
     }
   })
 
-  it('start arguments stay off the wire descriptor', () => {
+  it('start arguments and pipes stay off the wire descriptor', () => {
     const codex = buildBundledDescriptors().find((descriptor) => descriptor.kind === 'codex')
     expect(JSON.stringify(codex?.accepts)).not.toContain('startArgs')
+    expect(JSON.stringify(codex?.accepts)).not.toContain('homeStartArgs')
+    const claude = buildBundledDescriptors().find((descriptor) => descriptor.kind === 'claude-code')
+    expect(JSON.stringify(claude?.accepts)).not.toContain('FILE_DESCRIPTOR')
   })
 
   it('names only drivers the adapter declares', () => {
@@ -139,9 +178,17 @@ describe('harnessAccepts', () => {
 })
 
 describe('hideFromCommands', () => {
-  it('Claude Code scrubs credentials from the commands it runs', () => {
+  it('Claude Code scrubs credentials from the commands it runs, which needs bubblewrap on Linux', () => {
     expect(harnessHideFromCommands('claude-code')).toEqual({
       env: { CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' },
+      requires: [
+        {
+          executable: 'bwrap',
+          package: 'bubblewrap',
+          platforms: ['linux'],
+          missing: expect.stringContaining('bubblewrap'),
+        },
+      ],
     })
   })
 
@@ -159,6 +206,34 @@ describe('hideFromCommands', () => {
     expect(excluded).toEqual(delivered)
     expect(excluded).not.toContain('GH_TOKEN')
   })
+
+  it('the switch applies only where a line still delivers in a variable (POD-7378)', () => {
+    // Claude Code pipes both lines on Linux, so its scrub switch is never set there.
+    expect(hideFromCommandsApplies('claude-code', 'linux')).toBe(false)
+    expect(hideFromCommandsApplies('claude-code', 'darwin')).toBe(true)
+    expect(hideFromCommandsApplies('claude-code', 'win32')).toBe(true)
+    expect(hideFromCommandsApplies('codex', 'linux')).toBe(true)
+    // Grok delivers nothing in a variable, and an unknown harness has no switch.
+    expect(hideFromCommandsApplies('grok', 'linux')).toBe(false)
+    expect(hideFromCommandsApplies('not-a-harness', 'linux')).toBe(false)
+  })
+
+  it('never names bubblewrap as unmet: Linux pipes the credential, other platforms do not need it', () => {
+    const none = () => undefined
+    // POD-7375 required bwrap for Claude Code's scrub on Linux; with the pipe
+    // (POD-7378) no Linux start sets the scrub, so nothing is required.
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      expect(
+        unmetHideFromCommandsPrerequisites('claude-code', { platform, resolve: none }),
+        platform,
+      ).toEqual([])
+    }
+    for (const kind of ['codex', 'not-a-harness']) {
+      expect(
+        unmetHideFromCommandsPrerequisites(kind, { platform: 'linux', resolve: none }),
+      ).toEqual([])
+    }
+  })
 })
 
 describe('accepts on the descriptor wire', () => {
@@ -169,7 +244,9 @@ describe('accepts on the descriptor wire', () => {
       for (const descriptor of set) {
         // The wire carries every line, without the start arguments: those are
         // read by the daemon off its own manifest.
-        const wire = harnessAccepts(descriptor.kind).map(({ startArgs: _local, ...line }) => line)
+        const wire = harnessAccepts(descriptor.kind).map(
+          ({ startArgs: _local, homeStartArgs: _home, pipe: _pipe, ...line }) => line,
+        )
         expect(descriptor.accepts, descriptor.kind).toEqual(wire)
       }
     }

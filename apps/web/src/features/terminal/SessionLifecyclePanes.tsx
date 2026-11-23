@@ -130,6 +130,7 @@ type ExitedProps = Pick<
   'sessionId' | 'exitCode' | 'spawnFailure' | 'resumable' | 'neverBound'
 > & {
   isShell: boolean
+  installRecovery?: JSX.Element
 }
 
 function exitedAction(p: ExitedProps): { detail: string; action: LifecycleAction } {
@@ -156,6 +157,7 @@ export function ExitedPane(props: ExitedProps): JSX.Element {
       <p className="m-0 max-w-[42ch] text-[13px] text-muted-foreground">
         {detail} {action.hint}
       </p>
+      {props.installRecovery}
       <LifecycleButton
         action={action}
         sessionId={props.sessionId}
@@ -185,6 +187,7 @@ export function ExitedBanner(props: ExitedProps & { waking?: boolean }): JSX.Ele
         <RotateCcw size={13} strokeWidth={1.7} />
       </span>
       <span className="pane-state-bar-copy">{detail} Transcript is read-only.</span>
+      {props.installRecovery}
       <LifecycleButton
         action={action}
         sessionId={props.sessionId}

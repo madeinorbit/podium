@@ -9,6 +9,14 @@
  * cannot run there), so it never shows a choice the launch would be refused.
  */
 
+import {
+  type AcceptLine,
+  type CredentialChoice,
+  type CustodianOf,
+  initialCredential,
+  KIND_WORDS,
+  sessionCredentialChoices,
+} from '@podium/client-graph/session-credential-facts'
 import type { CredentialId, CredentialView } from '@podium/model'
 import { KeyRound } from 'lucide-react'
 import type { JSX } from 'react'
@@ -19,14 +27,6 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { CredentialMenuItems } from './CredentialMenuItems'
-import {
-  type AcceptLine,
-  type CredentialChoice,
-  type CustodianOf,
-  initialCredential,
-  KIND_WORDS,
-  sessionCredentialChoices,
-} from './session-credential-facts'
 
 /** A person's pick, and the harness and machine it was made for. */
 export interface CredentialPick {

@@ -14,7 +14,7 @@ import { cursorCatalog } from './catalog.js'
 import { cursorCredentials } from './credentials.js'
 import { cursorDescriptor } from './descriptor.js'
 import { createCursorConversationProvider } from './discovery.js'
-import { cursorInstall } from './install.js'
+import { cursorInstall, cursorManagedInstall } from './install.js'
 import { cursorSelectedModel } from './model-variants.js'
 import { cursorPosture } from './posture.js'
 import { resolveCursorSelection } from './selection.js'
@@ -89,6 +89,7 @@ export const cursorManifest: AgentManifest = {
   credentials: cursorCredentials,
   usage: cursorUsage,
   install: cursorInstall,
+  managedInstall: supported(cursorManagedInstall),
 
   posture: cursorPosture,
   launch(opts) {
@@ -231,6 +232,7 @@ export const cursorManifest: AgentManifest = {
   composer: unsupported('Cursor has no composer scrape rules yet'),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for cursor sessions'),
+  conversationFile: unsupported('cursor declares no conversation file to move between its homes'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued cursor login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',

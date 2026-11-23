@@ -373,6 +373,59 @@
       "encoded": "\"\""
     },
     {
+      "schema": "AgentInstallWire",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "AgentInstallWire",
+      "variant": "full",
+      "wire": {
+        "external": {
+          "path": "external.path",
+          "version": "external.version"
+        },
+        "managed": {
+          "active": {
+            "path": "managed.active.path",
+            "version": "managed.active.version",
+            "release": 1
+          },
+          "currentFailed": {
+            "release": 1,
+            "version": "managed.currentFailed.version"
+          },
+          "previousVersion": "managed.previousVersion",
+          "latest": "managed.latest",
+          "lastCheckAt": "managed.lastCheckAt",
+          "installing": {
+            "version": "managed.installing.version"
+          },
+          "removingAt": "managed.removingAt",
+          "paused": true,
+          "vendorUpdated": true,
+          "lastError": {
+            "at": "managed.lastError.at",
+            "message": "managed.lastError.message",
+            "version": "managed.lastError.version"
+          },
+          "failingSince": "managed.failingSince"
+        },
+        "ledgerRebuilt": {
+          "at": "ledgerRebuilt.at",
+          "reason": "missing"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"external\":{\"path\":\"external.path\",\"version\":\"external.version\"},\"managed\":{\"active\":{\"path\":\"managed.active.path\",\"version\":\"managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"managed.currentFailed.version\"},\"previousVersion\":\"managed.previousVersion\",\"latest\":\"managed.latest\",\"lastCheckAt\":\"managed.lastCheckAt\",\"installing\":{\"version\":\"managed.installing.version\"},\"removingAt\":\"managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"managed.lastError.at\",\"message\":\"managed.lastError.message\",\"version\":\"managed.lastError.version\"},\"failingSince\":\"managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"ledgerRebuilt.at\",\"reason\":\"missing\"}}"
+    },
+    {
       "schema": "AgentInterview",
       "variant": "minimal",
       "wire": {
@@ -511,12 +564,62 @@
             },
             "freshness": 1
           }
-        ]
+        ],
+        "install": {
+          "external": {
+            "path": "install.external.path",
+            "version": "install.external.version"
+          },
+          "managed": {
+            "active": {
+              "path": "install.managed.active.path",
+              "version": "install.managed.active.version",
+              "release": 1
+            },
+            "currentFailed": {
+              "release": 1,
+              "version": "install.managed.currentFailed.version"
+            },
+            "previousVersion": "install.managed.previousVersion",
+            "latest": "install.managed.latest",
+            "lastCheckAt": "install.managed.lastCheckAt",
+            "installing": {
+              "version": "install.managed.installing.version"
+            },
+            "removingAt": "install.managed.removingAt",
+            "paused": true,
+            "vendorUpdated": true,
+            "lastError": {
+              "at": "install.managed.lastError.at",
+              "message": "install.managed.lastError.message",
+              "version": "install.managed.lastError.version"
+            },
+            "failingSince": "install.managed.failingSince"
+          },
+          "ledgerRebuilt": {
+            "at": "install.ledgerRebuilt.at",
+            "reason": "missing"
+          }
+        },
+        "missingPrerequisites": [
+          {
+            "executable": "missingPrerequisites[0].executable",
+            "package": "missingPrerequisites[0].package",
+            "neededFor": "passed-in-credential",
+            "message": "missingPrerequisites[0].message"
+          }
+        ],
+        "management": {
+          "installable": true,
+          "reason": "management.reason",
+          "homeVariable": "management.homeVariable",
+          "updateNotice": "management.updateNotice"
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"version\",\"path\":\"path\",\"login\":{\"state\":\"in\",\"account\":\"login.account\",\"identity\":{\"fingerprint\":\"login.identity.fingerprint\",\"email\":\"login.identity.email\",\"providerAccountId\":\"login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"logins[0].identity.fingerprint\",\"email\":\"logins[0].identity.email\",\"providerAccountId\":\"logins[0].identity.providerAccountId\"},\"freshness\":1}]}"
+      "encoded": "{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"version\",\"path\":\"path\",\"login\":{\"state\":\"in\",\"account\":\"login.account\",\"identity\":{\"fingerprint\":\"login.identity.fingerprint\",\"email\":\"login.identity.email\",\"providerAccountId\":\"login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"logins[0].identity.fingerprint\",\"email\":\"logins[0].identity.email\",\"providerAccountId\":\"logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"install.external.path\",\"version\":\"install.external.version\"},\"managed\":{\"active\":{\"path\":\"install.managed.active.path\",\"version\":\"install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"install.managed.currentFailed.version\"},\"previousVersion\":\"install.managed.previousVersion\",\"latest\":\"install.managed.latest\",\"lastCheckAt\":\"install.managed.lastCheckAt\",\"installing\":{\"version\":\"install.managed.installing.version\"},\"removingAt\":\"install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"install.managed.lastError.at\",\"message\":\"install.managed.lastError.message\",\"version\":\"install.managed.lastError.version\"},\"failingSince\":\"install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"missingPrerequisites[0].executable\",\"package\":\"missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"management.reason\",\"homeVariable\":\"management.homeVariable\",\"updateNotice\":\"management.updateNotice\"}}"
     },
     {
       "schema": "AgentKind",
@@ -764,16 +867,20 @@
             "usedPercent": 1,
             "resetsAt": "windows[0].resetsAt",
             "windowMinutes": 1,
-            "scopeModel": "windows[0].scopeModel"
+            "scopeModel": "windows[0].scopeModel",
+            "pool": "windows[0].pool"
           }
         ],
+        "credits": {
+          "remaining": 1
+        },
         "error": "error",
         "fetchedAt": "fetchedAt"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"agent\":\"claude-code\",\"homeId\":\"homeId\",\"status\":\"ok\",\"account\":{\"email\":\"account.email\",\"plan\":\"account.plan\"},\"windows\":[{\"key\":\"windows[0].key\",\"label\":\"windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"windows[0].scopeModel\"}],\"error\":\"error\",\"fetchedAt\":\"fetchedAt\"}"
+      "encoded": "{\"agent\":\"claude-code\",\"homeId\":\"homeId\",\"status\":\"ok\",\"account\":{\"email\":\"account.email\",\"plan\":\"account.plan\"},\"windows\":[{\"key\":\"windows[0].key\",\"label\":\"windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"windows[0].scopeModel\",\"pool\":\"windows[0].pool\"}],\"credits\":{\"remaining\":1},\"error\":\"error\",\"fetchedAt\":\"fetchedAt\"}"
     },
     {
       "schema": "AgentRuntimeState",
@@ -4474,7 +4581,57 @@
                 },
                 "freshness": 1
               }
-            ]
+            ],
+            "install": {
+              "external": {
+                "path": "agents[0].install.external.path",
+                "version": "agents[0].install.external.version"
+              },
+              "managed": {
+                "active": {
+                  "path": "agents[0].install.managed.active.path",
+                  "version": "agents[0].install.managed.active.version",
+                  "release": 1
+                },
+                "currentFailed": {
+                  "release": 1,
+                  "version": "agents[0].install.managed.currentFailed.version"
+                },
+                "previousVersion": "agents[0].install.managed.previousVersion",
+                "latest": "agents[0].install.managed.latest",
+                "lastCheckAt": "agents[0].install.managed.lastCheckAt",
+                "installing": {
+                  "version": "agents[0].install.managed.installing.version"
+                },
+                "removingAt": "agents[0].install.managed.removingAt",
+                "paused": true,
+                "vendorUpdated": true,
+                "lastError": {
+                  "at": "agents[0].install.managed.lastError.at",
+                  "message": "agents[0].install.managed.lastError.message",
+                  "version": "agents[0].install.managed.lastError.version"
+                },
+                "failingSince": "agents[0].install.managed.failingSince"
+              },
+              "ledgerRebuilt": {
+                "at": "agents[0].install.ledgerRebuilt.at",
+                "reason": "missing"
+              }
+            },
+            "missingPrerequisites": [
+              {
+                "executable": "agents[0].missingPrerequisites[0].executable",
+                "package": "agents[0].missingPrerequisites[0].package",
+                "neededFor": "passed-in-credential",
+                "message": "agents[0].missingPrerequisites[0].message"
+              }
+            ],
+            "management": {
+              "installable": true,
+              "reason": "agents[0].management.reason",
+              "homeVariable": "agents[0].management.homeVariable",
+              "updateNotice": "agents[0].management.updateNotice"
+            }
           }
         ],
         "runtimeDrivers": [
@@ -4500,7 +4657,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"homePath\":\"homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"agents[0].logins[0].identity.fingerprint\",\"email\":\"agents[0].logins[0].identity.email\",\"providerAccountId\":\"agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}]}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
+      "encoded": "{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"podiumVersion\",\"homePath\":\"homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"agents[0].version\",\"path\":\"agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"agents[0].login.account\",\"identity\":{\"fingerprint\":\"agents[0].login.identity.fingerprint\",\"email\":\"agents[0].login.identity.email\",\"providerAccountId\":\"agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"agents[0].logins[0].identity.fingerprint\",\"email\":\"agents[0].logins[0].identity.email\",\"providerAccountId\":\"agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"agents[0].install.external.path\",\"version\":\"agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"agents[0].install.managed.active.path\",\"version\":\"agents[0].install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"agents[0].install.managed.previousVersion\",\"latest\":\"agents[0].install.managed.latest\",\"lastCheckAt\":\"agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"agents[0].install.managed.installing.version\"},\"removingAt\":\"agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"agents[0].install.managed.lastError.at\",\"message\":\"agents[0].install.managed.lastError.message\",\"version\":\"agents[0].install.managed.lastError.version\"},\"failingSince\":\"agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"agents[0].install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"agents[0].missingPrerequisites[0].executable\",\"package\":\"agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"agents[0].management.reason\",\"homeVariable\":\"agents[0].management.homeVariable\",\"updateNotice\":\"agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"tools[0].version\",\"path\":\"tools[0].path\"}]}"
     },
     {
       "schema": "InviteId",
@@ -8007,7 +8164,57 @@
                   },
                   "freshness": 1
                 }
-              ]
+              ],
+              "install": {
+                "external": {
+                  "path": "inventory.agents[0].install.external.path",
+                  "version": "inventory.agents[0].install.external.version"
+                },
+                "managed": {
+                  "active": {
+                    "path": "inventory.agents[0].install.managed.active.path",
+                    "version": "inventory.agents[0].install.managed.active.version",
+                    "release": 1
+                  },
+                  "currentFailed": {
+                    "release": 1,
+                    "version": "inventory.agents[0].install.managed.currentFailed.version"
+                  },
+                  "previousVersion": "inventory.agents[0].install.managed.previousVersion",
+                  "latest": "inventory.agents[0].install.managed.latest",
+                  "lastCheckAt": "inventory.agents[0].install.managed.lastCheckAt",
+                  "installing": {
+                    "version": "inventory.agents[0].install.managed.installing.version"
+                  },
+                  "removingAt": "inventory.agents[0].install.managed.removingAt",
+                  "paused": true,
+                  "vendorUpdated": true,
+                  "lastError": {
+                    "at": "inventory.agents[0].install.managed.lastError.at",
+                    "message": "inventory.agents[0].install.managed.lastError.message",
+                    "version": "inventory.agents[0].install.managed.lastError.version"
+                  },
+                  "failingSince": "inventory.agents[0].install.managed.failingSince"
+                },
+                "ledgerRebuilt": {
+                  "at": "inventory.agents[0].install.ledgerRebuilt.at",
+                  "reason": "missing"
+                }
+              },
+              "missingPrerequisites": [
+                {
+                  "executable": "inventory.agents[0].missingPrerequisites[0].executable",
+                  "package": "inventory.agents[0].missingPrerequisites[0].package",
+                  "neededFor": "passed-in-credential",
+                  "message": "inventory.agents[0].missingPrerequisites[0].message"
+                }
+              ],
+              "management": {
+                "installable": true,
+                "reason": "inventory.agents[0].management.reason",
+                "homeVariable": "inventory.agents[0].management.homeVariable",
+                "updateNotice": "inventory.agents[0].management.updateNotice"
+              }
             }
           ],
           "runtimeDrivers": [
@@ -8034,7 +8241,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"checkoutReach\":\"all\",\"grants\":[{\"grantee\":\"grants[0].grantee\",\"verb\":\"see\",\"grantedAt\":\"grants[0].grantedAt\",\"grantedBy\":\"grants[0].grantedBy\"}],\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"daemon\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}]}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
+      "encoded": "{\"userId\":\"userId\",\"machineId\":\"machineId\",\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"supersedable\":true,\"checkoutReach\":\"all\",\"grants\":[{\"grantee\":\"grants[0].grantee\",\"verb\":\"see\",\"grantedAt\":\"grants[0].grantedAt\",\"grantedBy\":\"grants[0].grantedBy\"}],\"hostname\":\"hostname\",\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"podiumManaged\":true,\"hostsServer\":true,\"serverMoveSupported\":true,\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"components\":[\"daemon\"],\"deliveryCaps\":[\"deliveryCaps[0]\"],\"wireSchemaDigest\":\"wireSchemaDigest\",\"buildReportedAt\":\"buildReportedAt\",\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\"},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]}}"
     },
     {
       "schema": "MachineComponent",
@@ -8274,9 +8481,13 @@
                 "usedPercent": 1,
                 "resetsAt": "agents[0].windows[0].resetsAt",
                 "windowMinutes": 1,
-                "scopeModel": "agents[0].windows[0].scopeModel"
+                "scopeModel": "agents[0].windows[0].scopeModel",
+                "pool": "agents[0].windows[0].pool"
               }
             ],
+            "credits": {
+              "remaining": 1
+            },
             "error": "agents[0].error",
             "fetchedAt": "agents[0].fetchedAt"
           }
@@ -8285,7 +8496,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"homeId\":\"agents[0].homeId\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\"}],\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
+      "encoded": "{\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"homeId\":\"agents[0].homeId\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\",\"pool\":\"agents[0].windows[0].pool\"}],\"credits\":{\"remaining\":1},\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
     },
     {
       "schema": "MachineServiceAssignment",
@@ -8566,7 +8777,57 @@
                   },
                   "freshness": 1
                 }
-              ]
+              ],
+              "install": {
+                "external": {
+                  "path": "inventory.agents[0].install.external.path",
+                  "version": "inventory.agents[0].install.external.version"
+                },
+                "managed": {
+                  "active": {
+                    "path": "inventory.agents[0].install.managed.active.path",
+                    "version": "inventory.agents[0].install.managed.active.version",
+                    "release": 1
+                  },
+                  "currentFailed": {
+                    "release": 1,
+                    "version": "inventory.agents[0].install.managed.currentFailed.version"
+                  },
+                  "previousVersion": "inventory.agents[0].install.managed.previousVersion",
+                  "latest": "inventory.agents[0].install.managed.latest",
+                  "lastCheckAt": "inventory.agents[0].install.managed.lastCheckAt",
+                  "installing": {
+                    "version": "inventory.agents[0].install.managed.installing.version"
+                  },
+                  "removingAt": "inventory.agents[0].install.managed.removingAt",
+                  "paused": true,
+                  "vendorUpdated": true,
+                  "lastError": {
+                    "at": "inventory.agents[0].install.managed.lastError.at",
+                    "message": "inventory.agents[0].install.managed.lastError.message",
+                    "version": "inventory.agents[0].install.managed.lastError.version"
+                  },
+                  "failingSince": "inventory.agents[0].install.managed.failingSince"
+                },
+                "ledgerRebuilt": {
+                  "at": "inventory.agents[0].install.ledgerRebuilt.at",
+                  "reason": "missing"
+                }
+              },
+              "missingPrerequisites": [
+                {
+                  "executable": "inventory.agents[0].missingPrerequisites[0].executable",
+                  "package": "inventory.agents[0].missingPrerequisites[0].package",
+                  "neededFor": "passed-in-credential",
+                  "message": "inventory.agents[0].missingPrerequisites[0].message"
+                }
+              ],
+              "management": {
+                "installable": true,
+                "reason": "inventory.agents[0].management.reason",
+                "homeVariable": "inventory.agents[0].management.homeVariable",
+                "updateNotice": "inventory.agents[0].management.updateNotice"
+              }
             }
           ],
           "runtimeDrivers": [
@@ -8607,7 +8868,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"supersedable\":true,\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}]}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
+      "encoded": "{\"revokedAt\":\"revokedAt\",\"supersededBy\":\"supersededBy\",\"supersedable\":true,\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"harnessVersions\":[{\"harness\":\"harnessVersions[0].harness\",\"version\":\"harnessVersions[0].version\",\"firstSeen\":\"harnessVersions[0].firstSeen\",\"lastSeen\":\"harnessVersions[0].lastSeen\",\"verifiedThrough\":\"harnessVersions[0].verifiedThrough\",\"unverified\":true}],\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\",\"topology\":{\"persistence\":\"systemd\",\"legacyUnits\":[\"services.topology.legacyUnits[0]\"],\"parentUnit\":\"active\"}},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"availability\":{\"epoch\":\"availability.epoch\",\"server\":true,\"daemon\":true,\"supervisor\":true},\"use\":\"granted\",\"owned\":true,\"transferable\":true,\"unowned\":true,\"adoptable\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"homePath\":\"inventory.homePath\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1},\"logins\":[{\"homeId\":\"inventory.agents[0].logins[0].homeId\",\"state\":\"in\",\"identity\":{\"fingerprint\":\"inventory.agents[0].logins[0].identity.fingerprint\",\"email\":\"inventory.agents[0].logins[0].identity.email\",\"providerAccountId\":\"inventory.agents[0].logins[0].identity.providerAccountId\"},\"freshness\":1}],\"install\":{\"external\":{\"path\":\"inventory.agents[0].install.external.path\",\"version\":\"inventory.agents[0].install.external.version\"},\"managed\":{\"active\":{\"path\":\"inventory.agents[0].install.managed.active.path\",\"version\":\"inventory.agents[0].install.managed.active.version\",\"release\":1},\"currentFailed\":{\"release\":1,\"version\":\"inventory.agents[0].install.managed.currentFailed.version\"},\"previousVersion\":\"inventory.agents[0].install.managed.previousVersion\",\"latest\":\"inventory.agents[0].install.managed.latest\",\"lastCheckAt\":\"inventory.agents[0].install.managed.lastCheckAt\",\"installing\":{\"version\":\"inventory.agents[0].install.managed.installing.version\"},\"removingAt\":\"inventory.agents[0].install.managed.removingAt\",\"paused\":true,\"vendorUpdated\":true,\"lastError\":{\"at\":\"inventory.agents[0].install.managed.lastError.at\",\"message\":\"inventory.agents[0].install.managed.lastError.message\",\"version\":\"inventory.agents[0].install.managed.lastError.version\"},\"failingSince\":\"inventory.agents[0].install.managed.failingSince\"},\"ledgerRebuilt\":{\"at\":\"inventory.agents[0].install.ledgerRebuilt.at\",\"reason\":\"missing\"}},\"missingPrerequisites\":[{\"executable\":\"inventory.agents[0].missingPrerequisites[0].executable\",\"package\":\"inventory.agents[0].missingPrerequisites[0].package\",\"neededFor\":\"passed-in-credential\",\"message\":\"inventory.agents[0].missingPrerequisites[0].message\"}],\"management\":{\"installable\":true,\"reason\":\"inventory.agents[0].management.reason\",\"homeVariable\":\"inventory.agents[0].management.homeVariable\",\"updateNotice\":\"inventory.agents[0].management.updateNotice\"}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"server\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"serverMoveEligibility\":{\"eligible\":true,\"reason\":\"current-server\"},\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
     },
     {
       "schema": "MemberId",
@@ -9109,11 +9370,12 @@
       "parseAdded": {
         "mention": true,
         "credentialAttention": true,
-        "credentialShared": false
+        "credentialShared": false,
+        "harnessInstalls": true
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false}"
+      "encoded": "{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false,\"harnessInstalls\":true}"
     },
     {
       "schema": "NoticePushPreferences",
@@ -9121,12 +9383,13 @@
       "wire": {
         "mention": true,
         "credentialAttention": true,
-        "credentialShared": true
+        "credentialShared": true,
+        "harnessInstalls": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true}"
+      "encoded": "{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true,\"harnessInstalls\":true}"
     },
     {
       "schema": "NoticeWire",
@@ -9176,12 +9439,13 @@
         "notices": {
           "mention": true,
           "credentialAttention": true,
-          "credentialShared": false
+          "credentialShared": false,
+          "harnessInstalls": true
         }
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false}}"
+      "encoded": "{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false,\"harnessInstalls\":true}}"
     },
     {
       "schema": "NotificationRouting",
@@ -9193,13 +9457,14 @@
         "notices": {
           "mention": true,
           "credentialAttention": true,
-          "credentialShared": true
+          "credentialShared": true,
+          "harnessInstalls": true
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"web\":true,\"ntfyTopic\":\"ntfyTopic\",\"telegramChatId\":\"telegramChatId\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true}}"
+      "encoded": "{\"web\":true,\"ntfyTopic\":\"ntfyTopic\",\"telegramChatId\":\"telegramChatId\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true,\"harnessInstalls\":true}}"
     },
     {
       "schema": "NotificationSecrets",
@@ -9350,14 +9615,15 @@
           "notices": {
             "mention": true,
             "credentialAttention": true,
-            "credentialShared": false
+            "credentialShared": false,
+            "harnessInstalls": true
           }
         },
         "credentialDefaults": {}
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[]},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false}},\"credentialDefaults\":{}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[]},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":false,\"harnessInstalls\":true}},\"credentialDefaults\":{}}"
     },
     {
       "schema": "PersonalPreferences",
@@ -9412,7 +9678,8 @@
           "notices": {
             "mention": true,
             "credentialAttention": true,
-            "credentialShared": true
+            "credentialShared": true,
+            "harnessInstalls": true
           }
         },
         "credentialDefaults": {
@@ -9422,7 +9689,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"credentialId\":\"roles.coding.credentialId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"credentialId\":\"roles.superagent.credentialId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"credentialId\":\"roles.background.credentialId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"credentialId\":\"roles.shipwright.credentialId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"]},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true}},\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"credentialId\":\"roles.coding.credentialId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"credentialId\":\"roles.superagent.credentialId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"credentialId\":\"roles.background.credentialId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"credentialId\":\"roles.shipwright.credentialId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"]},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\",\"notices\":{\"mention\":true,\"credentialAttention\":true,\"credentialShared\":true,\"harnessInstalls\":true}},\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
     },
     {
       "schema": "PersonalPreferenceState",
@@ -9762,12 +10029,13 @@
         "usedPercent": 1,
         "resetsAt": "resetsAt",
         "windowMinutes": 1,
-        "scopeModel": "scopeModel"
+        "scopeModel": "scopeModel",
+        "pool": "pool"
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"key\":\"key\",\"label\":\"label\",\"usedPercent\":1,\"resetsAt\":\"resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"scopeModel\"}"
+      "encoded": "{\"key\":\"key\",\"label\":\"label\",\"usedPercent\":1,\"resetsAt\":\"resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"scopeModel\",\"pool\":\"pool\"}"
     },
     {
       "schema": "ReadPositionSnapshot",
@@ -11512,7 +11780,7 @@
       "variant": "full/arm6",
       "wire": {
         "sessionId": "sessionId",
-        "agentKind": "shell",
+        "agentKind": "antigravity",
         "createdAt": "createdAt",
         "origin": {
           "kind": "resume",
@@ -11693,7 +11961,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"shell\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":true,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"agentProfileId\":\"agentProfileId\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"namedBy.actor.job\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"automation\",\"id\":\"spawnedBy.id\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":7,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"exited\",\"exitCode\":7,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"oom\",\"archived\":true,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":7,\"outputCount\":7,\"activityCount\":7,\"workState\":\"icebox\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"deleted.by.actor.job\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"secret\",\"agentState\":{\"phase\":\"ended\",\"since\":\"agentState.since\",\"workingMsTotal\":7,\"nativeSubagentCount\":7,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"errored\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"agentState.compactingFrom.need.ask.toolName\",\"detail\":\"agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\",\"turnStartedAt\":\"agentState.turnStartedAt\"},\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":7},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
+      "encoded": "{\"sessionId\":\"sessionId\",\"agentKind\":\"antigravity\",\"createdAt\":\"createdAt\",\"origin\":{\"kind\":\"resume\",\"conversationId\":\"origin.conversationId\"},\"headless\":true,\"cwd\":\"cwd\",\"machineId\":\"machineId\",\"issueId\":\"issueId\",\"model\":\"model\",\"effort\":\"effort\",\"accountId\":\"accountId\",\"durableLabel\":\"durableLabel\",\"agentProfileId\":\"agentProfileId\",\"requestedModel\":\"requestedModel\",\"requestedEffort\":\"requestedEffort\",\"title\":\"title\",\"name\":\"name\",\"nameSource\":\"agent\",\"namedBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"namedBy.actor.job\"},\"onBehalfOf\":\"namedBy.onBehalfOf\"},\"spawnedBy\":{\"kind\":\"automation\",\"id\":\"spawnedBy.id\"},\"refIssueId\":\"refIssueId\",\"refLetter\":\"refLetter\",\"refDraft\":7,\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"status\":\"exited\",\"exitCode\":7,\"spawnFailure\":\"spawnFailure\",\"stoppedAt\":\"stoppedAt\",\"stopReason\":\"oom\",\"archived\":true,\"lastActiveAt\":\"lastActiveAt\",\"lastInputAt\":\"lastInputAt\",\"lastOutputAt\":\"lastOutputAt\",\"lastResumedAt\":\"lastResumedAt\",\"inputCount\":7,\"outputCount\":7,\"activityCount\":7,\"workState\":\"icebox\",\"workflowRunId\":\"workflowRunId\",\"workflowStepId\":\"workflowStepId\",\"deleted\":{\"at\":\"deleted.at\",\"source\":\"standalone\",\"by\":{\"actor\":{\"kind\":\"system\",\"job\":\"deleted.by.actor.job\"},\"onBehalfOf\":\"deleted.by.onBehalfOf\"},\"byIssueId\":\"deleted.byIssueId\"},\"owner\":\"owner\",\"visibility\":\"secret\",\"agentState\":{\"phase\":\"ended\",\"since\":\"agentState.since\",\"workingMsTotal\":7,\"nativeSubagentCount\":7,\"nativeSubagents\":[{\"id\":\"agentState.nativeSubagents[0].id\",\"type\":\"agentState.nativeSubagents[0].type\"}],\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.need.summary\",\"ask\":{\"toolName\":\"agentState.need.ask.toolName\",\"detail\":\"agentState.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.need.interview.questions[0].question\",\"header\":\"agentState.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.need.interview.questions[0].options[0].label\",\"description\":\"agentState.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.error.class\",\"retryable\":true,\"detail\":\"agentState.error.detail\"},\"compactingFrom\":{\"phase\":\"errored\",\"awaitingSubagents\":true,\"idle\":{\"kind\":\"interrupted\",\"summary\":\"agentState.compactingFrom.idle.summary\"},\"need\":{\"kind\":\"permission\",\"summary\":\"agentState.compactingFrom.need.summary\",\"ask\":{\"toolName\":\"agentState.compactingFrom.need.ask.toolName\",\"detail\":\"agentState.compactingFrom.need.ask.detail\",\"canAlwaysAllow\":true},\"interview\":{\"questions\":[{\"question\":\"agentState.compactingFrom.need.interview.questions[0].question\",\"header\":\"agentState.compactingFrom.need.interview.questions[0].header\",\"multiSelect\":true,\"options\":[{\"label\":\"agentState.compactingFrom.need.interview.questions[0].options[0].label\",\"description\":\"agentState.compactingFrom.need.interview.questions[0].options[0].description\",\"preview\":\"agentState.compactingFrom.need.interview.questions[0].options[0].preview\"}]}]}},\"error\":{\"class\":\"agentState.compactingFrom.error.class\",\"retryable\":true,\"detail\":\"agentState.compactingFrom.error.detail\"}},\"observationGap\":{\"reason\":\"transcript_disabled\"},\"stateSource\":\"classifier\",\"stateConfidence\":1,\"stateObservedAt\":\"agentState.stateObservedAt\",\"turnStartedAt\":\"agentState.turnStartedAt\"},\"delegation\":{\"actor\":\"delegation.actor\",\"onBehalfOf\":\"delegation.onBehalfOf\",\"grantedScope\":{\"kind\":\"self\",\"userId\":\"delegation.grantedScope.userId\"},\"parentBindingId\":\"delegation.parentBindingId\",\"revision\":7},\"createdBy\":{\"actor\":{\"kind\":\"system\",\"job\":\"createdBy.actor.job\"},\"onBehalfOf\":\"createdBy.onBehalfOf\"}}"
     },
     {
       "schema": "SessionComposerDraft",
@@ -19367,6 +19635,7 @@
         "notifications.notices.mention": true,
         "notifications.notices.credentialAttention": true,
         "notifications.notices.credentialShared": true,
+        "notifications.notices.harnessInstalls": true,
         "credentialDefaults": {
           "claude-code": "credentialDefaults.claude-code"
         }
@@ -19374,7 +19643,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.credentialId\":\"roles.coding.credentialId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.credentialId\":\"roles.superagent.credentialId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.credentialId\":\"roles.background.credentialId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.credentialId\":\"roles.shipwright.credentialId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\",\"notifications.notices.mention\":true,\"notifications.notices.credentialAttention\":true,\"notifications.notices.credentialShared\":true,\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles.coding.accountId\":\"roles.coding.accountId\",\"roles.coding.credentialId\":\"roles.coding.credentialId\",\"roles.coding.model\":\"roles.coding.model\",\"roles.coding.effort\":\"roles.coding.effort\",\"roles.coding.harness\":\"claude-code\",\"roles.coding.subagentModel\":\"roles.coding.subagentModel\",\"roles.coding.startScreen\":\"native\",\"roles.coding.seedCliTheme\":true,\"roles.superagent.accountId\":\"roles.superagent.accountId\",\"roles.superagent.credentialId\":\"roles.superagent.credentialId\",\"roles.superagent.model\":\"roles.superagent.model\",\"roles.superagent.effort\":\"roles.superagent.effort\",\"roles.superagent.harness\":\"claude-code\",\"roles.background.accountId\":\"roles.background.accountId\",\"roles.background.credentialId\":\"roles.background.credentialId\",\"roles.background.model\":\"roles.background.model\",\"roles.background.effort\":\"roles.background.effort\",\"roles.background.harness\":\"claude-code\",\"roles.shipwright.accountId\":\"roles.shipwright.accountId\",\"roles.shipwright.credentialId\":\"roles.shipwright.credentialId\",\"roles.shipwright.model\":\"roles.shipwright.model\",\"roles.shipwright.effort\":\"roles.shipwright.effort\",\"roles.shipwright.harness\":\"claude-code\",\"sidebar.repoSort\":\"alphabetical\",\"sidebar.repoOrder\":[\"sidebar.repoOrder[0]\"],\"autoContinue.enabled\":true,\"autoContinue.promptDismissed\":true,\"notifications.web\":true,\"notifications.ntfyTopic\":\"notifications.ntfyTopic\",\"notifications.telegramChatId\":\"notifications.telegramChatId\",\"notifications.notices.mention\":true,\"notifications.notices.credentialAttention\":true,\"notifications.notices.credentialShared\":true,\"notifications.notices.harnessInstalls\":true,\"credentialDefaults\":{\"claude-code\":\"credentialDefaults.claude-code\"}}"
     },
     {
       "schema": "UserRole",

@@ -48,6 +48,19 @@ import {
   ReclaimDiskEstimateRequestMessage,
   UsageRequestMessage,
 } from './host'
+import {
+  HarnessBackRequestMessage,
+  HarnessChangesRequestMessage,
+  HarnessCheckRequestMessage,
+  HarnessHomeInfoRequestMessage,
+  HarnessHomeRemoveRequestMessage,
+  HarnessInstallRequestMessage,
+  HarnessPauseRequestMessage,
+  HarnessRemoveChangesRequestMessage,
+  HarnessRemoveRequestMessage,
+  HarnessResumeRequestMessage,
+  HarnessTakeSettingsRequestMessage,
+} from './installs'
 import { InventoryRequestMessage, ModelProbeRequestMessage } from './inventory'
 import { AgentRelayResultMessage } from './issues'
 import { OauthLoopbackCancelMessage, OauthLoopbackRequestMessage } from './oauth-loopback'
@@ -105,6 +118,7 @@ import {
   TranscriptPathsRequestMessage,
   TranscriptReadRequestMessage,
 } from './transcript'
+import { MachineUninstallRequestMessage } from './uninstall'
 import { DevArtifactProbeRequestMessage, UpdateGrantMessage } from './update'
 import {
   WorkspaceCleanRequestMessage,
@@ -235,6 +249,21 @@ export const ControlMessage = z.discriminatedUnion('type', [
   ConversationPrepareRequestMessage,
   /** Batched transcript presence, sent only with CAP_TRANSCRIPT_PATHS. Appended for index stability. */
   TranscriptPathsRequestMessage,
+  HarnessInstallRequestMessage,
+  HarnessCheckRequestMessage,
+  HarnessBackRequestMessage,
+  HarnessPauseRequestMessage,
+  HarnessResumeRequestMessage,
+  HarnessTakeSettingsRequestMessage,
+  HarnessRemoveChangesRequestMessage,
+  HarnessChangesRequestMessage,
+  HarnessRemoveRequestMessage,
+  HarnessHomeInfoRequestMessage,
+  HarnessHomeRemoveRequestMessage,
+  /** Uninstall Podium from the machine (managed installs §12 item 14).
+   *  Appended at the END for index stability; sent only to a daemon that
+   *  accepted `CAP_MACHINE_UNINSTALL`. */
+  MachineUninstallRequestMessage,
 ])
 export type ControlMessage = z.infer<typeof ControlMessage>
 

@@ -2,7 +2,8 @@
  * THE ONBOARDING AGENT AND READY SCREENS, REAL, IN A BROWSER (POD-1225).
  *
  * `bunx vite --config vite.setup.config.ts` in apps/web, then open
- * `/setup-harness.html#agent` or `#first-task`.
+ * `/setup-harness.html#agent` (no harnesses), `?scene=installed#agent`, or `#first-task`.
+ * Capture the agent layouts with `bun apps/web/harness/setup-shots.ts` from the repo root.
  *
  * The new-VPS step is here too (POD-1288), one hash per answer the channel query
  * can give: `#vps-reading` (still unanswered), `#vps-edge`, `#vps-stable` (the
@@ -27,6 +28,8 @@ import { vpsIntroState } from '@/features/setup/vps-activation'
 import '@/index.css'
 import '@/styles.css'
 
+document.documentElement.setAttribute('data-theme', 'podium')
+document.documentElement.classList.add('dark')
 const hash = window.location.hash.slice(1)
 
 /** The one thing each VPS variant invents: what `setup.channel` answers, and when. */

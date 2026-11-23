@@ -1,33 +1,25 @@
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
-  type ActivationAgentReadiness,
   activationAgentIsInstalled,
   activationAgentIsReady,
   activationAgentReadiness,
   activationReadinessCopy,
 } from '@podium/client-core/values'
+import { observer } from '@podium/client-graph/react'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { HOST_REPOS, machinesFor } from '@podium/model'
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  CheckCircle2,
-  CircleAlert,
-  Clock3,
-  LoaderCircle,
-} from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, CircleAlert, LoaderCircle } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { SetupLoginTerminalDialog } from '@/app/SetupLoginTerminalDialog'
 import { serverConfig } from '@/app/trpc'
+import { MachineHarnessRow } from '@/features/settings/machine-harnesses'
 import { useSettingsCatalog, useSettingsDraft } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
 import { useResolvedDescriptors } from '@/lib/harness-descriptors'
 import {
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
-  issueAgentIcon,
   issueAgentKind,
   issueAgentLabel,
   issueDefaultAgentKind,
@@ -41,32 +33,7 @@ import { authRequest } from './member-api'
 import { OnboardingAccountChoices } from './OnboardingAccountChoices'
 import { SetupError } from './SetupFeedback'
 
-/**
- * Sign-in copy, read off the harness descriptors (POD-4475): the one-line
- * command (copied to the clipboard) and the missing/signed-out hints.
- * Harnesses whose sign-in is inside the TUI carry no login copy and fall
- * through to the generic readiness copy.
- */
-function setupHint(
-  agent: IssueAgentKind,
-  readiness: ActivationAgentReadiness,
-  login:
-    | {
-        command?: string | null | undefined
-        installHint?: string | null | undefined
-        signedOutHint?: string | null | undefined
-      }
-    | null
-    | undefined,
-  label: string,
-): string {
-  if (readiness.state === 'logged-out' && login?.signedOutHint) return login.signedOutHint
-  if (readiness.state !== 'missing') return activationReadinessCopy(readiness, label)
-  if (login?.installHint) return login.installHint
-  return activationReadinessCopy(readiness, label)
-}
-
-export function FirstTaskActivation({
+export const FirstTaskActivation = observer(function FirstTaskActivation({
   route,
   onRouteChange,
   onComplete,
@@ -119,16 +86,14 @@ export function FirstTaskActivation({
     setDraft({ ...draft, repoPath: selectedRepo.path })
   }, [draft, selectedRepo, setDraft])
 
-  const readinessByAgent = useMemo(
-    () =>
-      Object.fromEntries(
-        ISSUE_AGENT_KINDS.map((agent) => [
-          agent,
-          activationAgentReadiness(selectedRepo, machines, agent),
-        ]),
-      ) as Record<IssueAgentKind, ActivationAgentReadiness>,
-    [machines, selectedRepo],
-  )
+  // Read the shared machine models while observed: installation arrives through
+  // inventory sync without replacing the catalog's machine array.
+  const readinessByAgent = Object.fromEntries(
+    ISSUE_AGENT_KINDS.map((agent) => [
+      agent,
+      activationAgentReadiness(selectedRepo, machines, agent),
+    ]),
+  ) as Record<IssueAgentKind, ReturnType<typeof activationAgentReadiness>>
   const installedAgents = ISSUE_AGENT_KINDS.filter((agent) =>
     activationAgentIsInstalled(readinessByAgent[agent]),
   )
@@ -217,128 +182,58 @@ export function FirstTaskActivation({
 
   const descriptorByKind = new Map(descriptors.map((d) => [d.kind, d]))
   const agentLogin = (agent: IssueAgentKind) => descriptorByKind.get(agent)?.login
-  const agentBrand = (agent: IssueAgentKind) => descriptorByKind.get(agent)?.brand
   const otherAgents = ISSUE_AGENT_KINDS.filter(
     (agent) => !activationAgentIsReady(readinessByAgent[agent]),
   )
-  const copySetupCommand = (agent: IssueAgentKind): void => {
-    const command = agentLogin(agent)?.command
-    if (command) void navigator.clipboard?.writeText(command)
-  }
-
   const renderAgentRows = (agents: readonly IssueAgentKind[]): JSX.Element[] =>
     agents.map((agent, index) => {
       const readiness = readinessByAgent[agent]
+      const row = selectedMachine?.harnessInstalls.find((row) => row.kind === agent)
       const ready = activationAgentIsReady(readiness)
       const needsLogin = readiness.state === 'logged-out'
-      const setupCommand =
-        readiness.state === 'missing' ? (agentLogin(agent)?.command ?? null) : null
-      const brand = agentBrand(agent)
-      const status = ready ? 'Ready' : needsLogin ? 'Sign-in optional' : 'Waiting'
-
       return (
         <div
           key={agent}
-          className={cn(
-            'flex items-center gap-[15px] px-5 py-4 max-sm:flex-wrap',
-            index < agents.length - 1 && 'border-b border-[#272b33]',
-          )}
+          className={cn('px-5', index < agents.length - 1 && 'border-b border-[#272b33]')}
         >
-          <div
-            className={cn(
-              'flex size-9 flex-none items-center justify-center rounded-[9px] bg-[#22262d] shadow-[inset_0_0_0_1px_#333842]',
-              !brand && (ready ? '[&_svg]:text-[#e6e8ec]' : '[&_svg]:text-[#8a9099]'),
-            )}
-            {...(brand ? { style: { color: brand.fg } } : {})}
-          >
-            {issueAgentIcon(agent, brand ? 18 : 17, descriptors)}
-          </div>
-
-          {/* basis-full below `sm` sends the action button to its own line
-              instead of squeezing this column to ~150px, where the install hint
-              and its command pill collided with the button (POD-1200). */}
-          <div className="min-w-0 flex-1 max-sm:basis-full">
-            <div className="flex items-center gap-2.5">
-              <span
-                className={cn(
-                  'truncate text-[15px] leading-none font-semibold',
-                  ready ? 'text-[#f2f3f5]' : 'text-[#d7dae0]',
-                )}
-              >
-                {issueAgentLabel(agent, descriptors)}
-              </span>
-            </div>
-            {setupCommand && !agentLogin(agent)?.installHint ? (
-              <p className="mt-1.5 flex min-w-0 flex-wrap items-center gap-2 text-[13px] leading-[1.45] text-[#9ba1ab]">
-                <span>Install the CLI, then run</span>
-                {/* No fixed height, and never broken across lines: on a phone
-                    this column is ~150px wide, and a 21px pill with a command
-                    wrapped onto three lines inside it put the text outside its
-                    own box (POD-1200). It wraps as a whole instead. */}
-                <code className="inline-flex items-center rounded-[5px] bg-[#22262d] px-2 py-[3px] font-mono text-[12px] leading-none whitespace-nowrap text-[#c3c8d0] shadow-[inset_0_0_0_1px_#333842]">
-                  {setupCommand}
-                </code>
-                <span>— Podium detects it.</span>
+          {row && <MachineHarnessRow row={row} client={trpc} />}
+          {readiness.state !== 'missing' && row?.state !== 'installing' && (
+            <div className="flex flex-wrap items-center gap-3 pb-4">
+              <p className="settings-prose min-w-0 flex-1 max-sm:basis-full">
+                {needsLogin && agentLogin(agent)?.signedOutHint
+                  ? agentLogin(agent)?.signedOutHint
+                  : activationReadinessCopy(readiness, issueAgentLabel(agent, descriptors))}
               </p>
-            ) : (
-              /* One line on a desktop row, wrapped on a phone: the column is the
-                 full width there now, so ellipsising a sentence that fits is
-                 just hiding the instruction it carries (POD-1200). */
-              <p className="mt-[5px] truncate text-[13px] leading-[1.45] text-[#9ba1ab] max-sm:whitespace-normal">
-                {setupHint(
-                  agent,
-                  readiness,
-                  agentLogin(agent),
-                  issueAgentLabel(agent, descriptors),
-                )}
-              </p>
-            )}
-          </div>
-
-          <span
-            className={cn(
-              'hidden flex-none items-center gap-[7px] text-[12.5px] leading-none sm:inline-flex',
-              ready ? 'text-[#69c48a]' : needsLogin ? 'text-[#a8adb6]' : 'text-[#8a9099]',
-            )}
-          >
-            {ready ? (
-              <CheckCircle2 size={16} aria-hidden="true" />
-            ) : needsLogin ? (
-              <CircleAlert size={16} className="text-[#8a9099]" aria-hidden="true" />
-            ) : (
-              <Clock3 size={16} aria-hidden="true" />
-            )}
-            {status}
-          </span>
-
-          {needsLogin ? (
-            <button
-              type="button"
-              data-pressable
-              disabled={loginBusyAgent !== null}
-              onClick={() => void openLogin(agent)}
-              className="inline-flex h-[31px] w-32 flex-none items-center justify-center gap-2 rounded-[9px] text-[12.5px] leading-none font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d9b477] disabled:opacity-50"
-            >
-              {loginBusyAgent === agent ? (
-                <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
-              ) : (
+              {ready ? (
+                <span className="inline-flex items-center gap-1.5 text-xs text-[#69c48a]">
+                  <CheckCircle2 size={16} aria-hidden="true" />
+                  Ready
+                </span>
+              ) : needsLogin ? (
                 <>
-                  Sign in
-                  <ArrowRight size={14} aria-hidden="true" />
+                  <span className="inline-flex items-center gap-1.5 text-xs text-[#a8adb6]">
+                    <CircleAlert size={16} aria-hidden="true" />
+                    Sign-in optional
+                  </span>
+                  <button
+                    type="button"
+                    data-pressable
+                    disabled={loginBusyAgent !== null}
+                    onClick={() => void openLogin(agent)}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[9px] px-3 text-[12.5px] font-semibold text-[#f2f3f5] shadow-[inset_0_0_0_1px_#454b56] hover:bg-white/[0.04] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d9b477] disabled:opacity-50 sm:min-h-[31px]"
+                  >
+                    {loginBusyAgent === agent ? (
+                      <LoaderCircle size={14} className="animate-spin" aria-hidden="true" />
+                    ) : (
+                      <>
+                        Sign in
+                        <ArrowRight size={14} aria-hidden="true" />
+                      </>
+                    )}
+                  </button>
                 </>
-              )}
-            </button>
-          ) : setupCommand ? (
-            <button
-              type="button"
-              data-pressable
-              onClick={() => copySetupCommand(agent)}
-              className="h-[31px] w-32 flex-none rounded-[9px] text-[12.5px] leading-none text-[#a8adb6] shadow-[inset_0_0_0_1px_#333842] hover:bg-white/[0.04] hover:text-[#f2f3f5] focus-visible:outline-2 focus-visible:outline-[#d9b477]"
-            >
-              Copy command
-            </button>
-          ) : (
-            <span className="hidden w-32 flex-none sm:block" aria-hidden="true" />
+              ) : null}
+            </div>
           )}
         </div>
       )
@@ -354,7 +249,8 @@ export function FirstTaskActivation({
           <code className="font-mono text-[13.5px] text-[#c3c8d0]">
             {selectedMachine?.hostname ?? selectedMachine?.name ?? 'this machine'}
           </code>
-          . Installed agents are enough to continue. Sign in now or later, before you run one.
+          . Install an agent below, or continue with one already installed. Sign in now or later,
+          before you run one.
         </>
       }
       contentClassName="mt-7"
@@ -419,4 +315,4 @@ export function FirstTaskActivation({
       />
     </ActivationShell>
   )
-}
+})

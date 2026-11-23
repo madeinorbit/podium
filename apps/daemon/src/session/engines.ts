@@ -52,8 +52,15 @@ import {
   scopeUnitName,
 } from '@podium/process/durable'
 import { SUN_PATH_MAX, unixSocketPathBytes, unixSocketPathFits } from '@podium/runtime/unix-socket'
-import { deliveryOverlay, type SessionAccessStore, withLeadingArgs } from '../control/access'
+import {
+  assertDeliveryPrerequisites,
+  deliveryOverlay,
+  isPodiumHomeId,
+  type SessionAccessStore,
+  withLeadingArgs,
+} from '../control/access'
 import { noDurableBackendRefusal } from '../durable-backend'
+import type { SessionInstallRecords } from '../session-installs'
 import { nodePrepareLaunchPorts, type PrepareLaunchPorts, prepareLaunch } from '../session-posture'
 import { createEngineJournal } from './journal.js'
 import type { SessionRegistry } from './registry.js'
@@ -116,6 +123,10 @@ export interface SessionEngineScopeOptions {
   /** Where a start writes its launch files and applies its home edits
    *  (POD-6858). Defaults to the real filesystem; tests hand a fake. */
   prepareLaunchPorts?: (context: Record<string, unknown>) => PrepareLaunchPorts
+  /** The daemon's session rows in the install ledger (managed installs §6.2):
+   *  the real filesystem's launch ports record each start's installation
+   *  here. Absent: nothing is recorded. */
+  sessionInstalls?: Pick<SessionInstallRecords, 'record'>
   /** Where a session engine's applied terms go once they are known, before
    *  the process starts (POD-6858 Task 11): the server, with the session's
    *  driver decision. A one-shot turn serves no session and reports none. */
@@ -180,17 +191,26 @@ export class SessionEngineScope implements EngineProcessOwner {
   async startEngine(req: EngineSpawnRequest): Promise<EngineHold> {
     if (!(this.options.hostAvailable?.() ?? true)) throw new Error(noDurableBackendRefusal())
     const adapter = engineAdapter(this.durable, req.label)
-    const { retention, listen, sessionId, command, ...spawn } = req
+    const { retention, listen, sessionId, turnFor, command, ...spawn } = req
     // THE LAUNCH'S TERMS (POD-6858), once, before the process exists: its
     // files, its home edits, and what could not be met, reported for the
-    // session it serves. A failed home edit does not stop the start.
+    // session it serves. A failed home edit does not stop the start. The
+    // installation is recorded for the session the process runs for: the
+    // session's engine, or a one-shot turn of it (managed installs §6.2).
+    const servedSession = sessionId ?? turnFor
     const applied = await prepareLaunch(
       command,
-      (this.options.prepareLaunchPorts ?? nodePrepareLaunchPorts)({
+      (
+        this.options.prepareLaunchPorts ??
+        ((context) => nodePrepareLaunchPorts(context, this.options.sessionInstalls))
+      )({
         label: req.label,
         launch: 'engine',
-        ...(sessionId !== undefined ? { sessionId } : {}),
+        ...(servedSession !== undefined ? { sessionId: servedSession } : {}),
       }),
+      servedSession !== undefined
+        ? { session: servedSession }
+        : { noSession: 'an engine that serves no session' },
     )
     if (sessionId !== undefined) this.options.onLaunchTerms?.(sessionId, applied)
     // THE SESSION'S CREDENTIAL (credential management §8), from memory. A
@@ -198,13 +218,40 @@ export class SessionEngineScope implements EngineProcessOwner {
     // the start after a bounded wait: an engine never starts on the
     // machine's own login in its place. The delivered variable is taken off
     // the family's strip list, which names every inherited credential.
-    const delivered =
-      sessionId !== undefined && this.options.access
-        ? deliveryOverlay(
-            this.options.access.agentKindOf(sessionId),
-            await this.options.access.awaitAccess(sessionId),
-          )
+    //
+    // A ONE-SHOT TURN (`turnFor`) gets its variable from the turn's own env
+    // (`TurnInput.env`); only a secret that goes in on a pipe is applied here
+    // (POD-7378), because only the process layer can hand one over, and every
+    // turn's process gets a pipe of its own.
+    const accessSession = sessionId ?? turnFor
+    const agentKind =
+      accessSession !== undefined ? this.options.access?.agentKindOf(accessSession) : undefined
+    const access =
+      accessSession !== undefined
+        ? await this.options.access?.awaitAccess(accessSession)
         : undefined
+    const overlay =
+      accessSession !== undefined && this.options.access
+        ? deliveryOverlay(agentKind, access, {
+            podiumHome: isPodiumHomeId(command.harnessHomeId),
+          })
+        : undefined
+    // A turn's command is the turn wrapper, which takes no leading arguments.
+    const delivered =
+      sessionId !== undefined ? overlay : overlay?.pipe ? { ...overlay, args: [] } : undefined
+    // A hide switch the harness cannot run here refuses the start before the
+    // process exists (POD-7375), looked up on the PATH the engine gets.
+    if (delivered) {
+      const env: Record<string, string | undefined> = {
+        ...process.env,
+        ...spawn.env,
+        ...delivered.env,
+      }
+      for (const key of [...spawn.stripEnv, ...delivered.strip]) {
+        if (!delivered.keep.includes(key)) delete env[key]
+      }
+      assertDeliveryPrerequisites(agentKind, access, env)
+    }
     const address = listen ? this.mintAddress(req.label, sessionId) : undefined
     if (sessionId !== undefined) {
       // A fresh engine: whatever address an earlier one had is not this one's.
@@ -224,7 +271,10 @@ export class SessionEngineScope implements EngineProcessOwner {
         ...(delivered
           ? {
               env: { ...spawn.env, ...delivered.env },
-              stripEnv: spawn.stripEnv.filter((key) => !delivered.keep.includes(key)),
+              stripEnv: [...new Set([...spawn.stripEnv, ...delivered.strip])].filter(
+                (key) => !delivered.keep.includes(key),
+              ),
+              ...(delivered.pipe ? { pipe: delivered.pipe } : {}),
             }
           : {}),
         cmd: bound.cmd,
@@ -295,13 +345,20 @@ export class SessionEngineScope implements EngineProcessOwner {
       startEngine: (req) => scope.startEngine(req),
       async reattachEngine(input) {
         const hold = await scope.reattachEngine(input)
-        if (hold.address !== undefined || input.sessionId === undefined) return hold
-        // After a restart the entry is new: the address is the recorded one.
-        const address = recorded(input.sessionId)?.address
-        if (address === undefined) return hold
-        const entry = sessions.ensure(input.sessionId)
-        entry.engine = { ...entry.engine, label: input.label, address }
-        return { ...hold, address }
+        if (input.sessionId === undefined) return hold
+        // After a restart the entry is new: the label is the one re-attached,
+        // so the session's engine can be found running (managed installs
+        // §6.2), and the address is the recorded one.
+        const address = hold.address ?? recorded(input.sessionId)?.address
+        const entry =
+          address !== undefined ? sessions.ensure(input.sessionId) : sessions.get(input.sessionId)
+        if (!entry) return hold
+        entry.engine = {
+          ...entry.engine,
+          label: input.label,
+          ...(address !== undefined ? { address } : {}),
+        }
+        return address !== undefined ? { ...hold, address } : hold
       },
       engineAlive: (label) => scope.engineAlive(label),
       destroyEngine: (label, sessionId) =>

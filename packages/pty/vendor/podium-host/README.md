@@ -30,11 +30,18 @@ Deliberate, each for a reason; everything else matches host.c byte for byte.
 
 **Protocol**
 
-- **The screen (`version` says `features=2`; host.c stays at 1).** With the `screen`
+- **The screen (`version` says `features=2` or later; host.c stays at 1).** With the `screen`
   cargo feature, on by default, a host with a pty keeps the terminal's screen in an
   emulator (alacritty_terminal) fed from every read, with `--screen-scrollback N`
   lines of history (default 1000). WELCOME gains a trailing features byte, bit 0 =
   screen; a `--no-pty` host keeps no screen and sends 0. See **Pictures** below.
+- **`create --pipe-env VARIABLE` (Unix, `features=3`, POD-7378).** The host reads its
+  stdin to the end before it forks, refuses an empty or whitespace-only read (exit 1,
+  nothing started), and gives the child a new pipe holding those bytes with the writer
+  already closed. VARIABLE is set to the pipe's descriptor number in the child's
+  environment only, and the host closes its own copy once the child has it. This is how
+  a daemon hands a credential to an agent without an environment variable, an argument
+  or a file. At most 16 KiB.
 - **ERR 5 "input queue full".** The input queue toward a child that is not reading is
   capped at 16 MiB (plus 64 bytes per queued write, so empty WRITEs are bounded too): up
   to 16 MiB in flight toward a slow reader still lands, and a child that has stopped

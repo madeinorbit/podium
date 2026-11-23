@@ -1,0 +1,112 @@
+{
+  "family": "uninstall",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "MachineUninstallRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "machineUninstallRequest",
+        "requestId": "requestId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineUninstallRequest\",\"requestId\":\"requestId\"}"
+    },
+    {
+      "schema": "MachineUninstallRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "machineUninstallRequest",
+        "requestId": "requestId",
+        "force": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineUninstallRequest\",\"requestId\":\"requestId\",\"force\":true}"
+    },
+    {
+      "schema": "MachineUninstallResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "machineUninstallResult",
+        "requestId": "requestId",
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineUninstallResult\",\"requestId\":\"requestId\",\"ok\":true}"
+    },
+    {
+      "schema": "MachineUninstallResultMessage",
+      "variant": "full",
+      "wire": {
+        "type": "machineUninstallResult",
+        "requestId": "requestId",
+        "ok": true,
+        "outcomes": [
+          {
+            "harness": "outcomes[0].harness",
+            "file": "outcomes[0].file",
+            "status": "restored",
+            "reason": "outcomes[0].reason"
+          }
+        ],
+        "removesState": true,
+        "error": "error"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineUninstallResult\",\"requestId\":\"requestId\",\"ok\":true,\"outcomes\":[{\"harness\":\"outcomes[0].harness\",\"file\":\"outcomes[0].file\",\"status\":\"restored\",\"reason\":\"outcomes[0].reason\"}],\"removesState\":true,\"error\":\"error\"}"
+    },
+    {
+      "schema": "UninstallEditOutcome",
+      "variant": "minimal",
+      "wire": {
+        "harness": "harness",
+        "file": "file",
+        "status": "restored"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"harness\":\"harness\",\"file\":\"file\",\"status\":\"restored\"}"
+    },
+    {
+      "schema": "UninstallEditOutcome",
+      "variant": "full",
+      "wire": {
+        "harness": "harness",
+        "file": "file",
+        "status": "restored",
+        "reason": "reason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"harness\":\"harness\",\"file\":\"file\",\"status\":\"restored\",\"reason\":\"reason\"}"
+    },
+    {
+      "schema": "UninstallEditStatus",
+      "variant": "minimal",
+      "wire": "restored",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"restored\""
+    },
+    {
+      "schema": "UninstallEditStatus",
+      "variant": "full",
+      "wire": "restored",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"restored\""
+    }
+  ]
+}

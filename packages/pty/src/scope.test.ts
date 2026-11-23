@@ -2,8 +2,11 @@
  * The systemd scope a durable host runs in (`./scope.ts`, moved out of the
  * abduco module in POD-4986): argv shape, batch tier, reclaim, runtime dir.
  */
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { delimiter, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { scopeReclaimArgvs, systemdScopeArgv, userRuntimeDir } from './scope.js'
+import { daemonTool, scopeReclaimArgvs, systemdScopeArgv, userRuntimeDir } from './scope.js'
 
 describe('systemd scope argv', () => {
   it('wraps the create command in a named transient --user scope (the cgroup that survives redeploy)', () => {
@@ -74,6 +77,30 @@ describe('userRuntimeDir', () => {
     } finally {
       if (prev === undefined) delete process.env.XDG_RUNTIME_DIR
       else process.env.XDG_RUNTIME_DIR = prev
+    }
+  })
+})
+
+describe.skipIf(process.platform === 'win32')("the daemon's own tools (POD-7060)", () => {
+  it('resolve on the PATH given, to the first executable file; the bare name when none holds it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-daemon-tool-'))
+    try {
+      const notExec = join(root, 'plain')
+      const exec = join(root, 'bin')
+      const dirOnly = join(root, 'dir')
+      mkdirSync(notExec)
+      mkdirSync(exec)
+      mkdirSync(join(dirOnly, 'systemd-run'), { recursive: true })
+      writeFileSync(join(notExec, 'systemd-run'), '')
+      writeFileSync(join(exec, 'systemd-run'), '#!/bin/sh\n')
+      chmodSync(join(exec, 'systemd-run'), 0o755)
+      const PATH = ['', dirOnly, notExec, exec].join(delimiter)
+      expect(daemonTool('systemd-run', { PATH })).toBe(join(exec, 'systemd-run'))
+      // An agent PATH without systemd's folder is not where the daemon looks.
+      expect(daemonTool('systemd-run', { PATH: notExec })).toBe('systemd-run')
+      expect(daemonTool('systemd-run', {})).toBe('systemd-run')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })

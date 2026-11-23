@@ -1,3 +1,4 @@
+import { isBuiltinHarnessKind } from '@podium/model'
 import type { IssueBriefWire, IssueDescriptionWire, IssuePanelTodoWire, IssuePanelArtifactWire, IssuePanelDeferredWire, IssuePanelStateWire } from '@podium/model'
 import type { LayoutWire } from '@podium/model'
 import { type IssueNavigationModel, issuePendingDecision, missionTaskBucket, type MissionTaskBucket } from '@podium/client-core/values'
@@ -942,6 +943,14 @@ export class SessionModel extends EntityModel {
 
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
+  }
+
+  /** A failed launch on the person's too-old binary can explicitly install Podium's side. */
+  @lazy get installRecoveryHarness() {
+    if (this.exitCode !== -1 || !this.machineId || !isBuiltinHarnessKind(this.agentKind)) return undefined
+    const machine = here(this.host.model('machine', this.machineId))
+    const harness = machine?.harnessInstalls.find((row) => row.kind === this.agentKind)
+    return harness?.tooOld ? harness : undefined
   }
 
   // Chat facts: each reader observes only the field it shows.

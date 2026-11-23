@@ -62,6 +62,15 @@ export class SettingsMachine {
     return this.machine.hostsServer === true || this.machine.serviceAssignment?.server === true
   }
 
+  /**
+   * "Uninstall Podium" (managed installs §12 item 14) asks the machine's own
+   * daemon, so it needs the machine online; the server's machine is never
+   * uninstalled from here, since that would take the server with it.
+   */
+  @lazy get canUninstall(): boolean {
+    return this.canManage && this.machine.online && !this.runsServer
+  }
+
   @lazy get agentChangesOnRestart(): boolean {
     const service = this.machine.services?.agentExecution
     return (

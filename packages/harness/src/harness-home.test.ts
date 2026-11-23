@@ -47,6 +47,11 @@ describe('harnessHomeVariable', () => {
   it('names the variable that moves the harness’s login directory', () => {
     expect(harnessHomeVariable('claude-code')).toBe('CLAUDE_CONFIG_DIR')
     expect(harnessHomeVariable('codex')).toBe('CODEX_HOME')
+    // Grok's login is never copied to another machine, but GROK_HOME still
+    // moves it with the rest of the folder (POD-7267, POD-7370).
+    expect(harnessHomeVariable('grok')).toBe('GROK_HOME')
+    // Pi's agent folder, login and all (POD-7267, POD-7372).
+    expect(harnessHomeVariable('pi')).toBe('PI_CODING_AGENT_DIR')
     expect(harnessHomeVariable('opencode')).toBeUndefined()
   })
 })

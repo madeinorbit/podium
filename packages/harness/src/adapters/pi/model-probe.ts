@@ -1,4 +1,5 @@
-import type { ModelChoice } from '../../model-probe.js'
+import { join } from 'node:path'
+import type { ModelChoice, ModelProbeContainment, ModelProbeScope } from '../../model-probe.js'
 
 /**
  * Pi's model-probe statement (POD-4737 D3): the probe argv plus the parser
@@ -38,4 +39,45 @@ export function parsePiModels(out: string): ModelChoice[] {
     })
   }
   return models
+}
+
+/**
+ * `pi --list-models` in the person's own agent folder (POD-7392). Measured on
+ * 1.6.0, a listing creates `auth.json`, `settings.json` and `models-store.json`
+ * there when they are absent and refreshes the provider catalogs in
+ * `models-store.json`. The listing therefore runs with `PI_CODING_AGENT_DIR` in
+ * the probe's temporary folder. What it reads stays the person's:
+ *
+ * - `auth.json` is linked in. Pi writes the login through the link and locks
+ *   the link's target, so a refreshed token lands in the person's file under
+ *   the lock their own Pi takes (Pi supports linked logins, #11655).
+ * - `extensions`, `npm` and `git` are linked in: the extensions and packages
+ *   that can add providers to the list.
+ * - `settings.json`, `models.json` (custom providers) and `models-store.json`
+ *   are copied.
+ *
+ * Pi's managed install finds itself from its launcher, so its own
+ * `install/update.lock` stays where it is.
+ */
+export function piModelProbeContainment(
+  scope: ModelProbeScope,
+  root: string,
+): ModelProbeContainment {
+  const dir = join(root, 'pi')
+  const personal = scope.roots.state
+  const login = join(scope.roots.credentials ?? personal, 'auth.json')
+  return {
+    env: { PI_CODING_AGENT_DIR: dir },
+    links: [
+      { from: login, to: join(dir, 'auth.json') },
+      ...['extensions', 'npm', 'git'].map((name) => ({
+        from: join(personal, name),
+        to: join(dir, name),
+      })),
+    ],
+    copies: ['settings.json', 'models.json', 'models-store.json'].map((name) => ({
+      from: join(personal, name),
+      to: join(dir, name),
+    })),
+  }
 }

@@ -21,15 +21,21 @@ const SESSION = asSessionId('00000000-0000-4000-8000-0000000000f5')
 /** Obviously fake. */
 const PLANTED = 'sk-FAKE-planted-turn-secret-0005'
 
+/** A key Codex reads from its variable: the turn's own env carries it. */
 const access: AccessField = {
   credentialId: 'cred_00000000-0000-4000-8000-0000000000f5',
-  delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret: PLANTED },
+  delivery: { kind: 'env', variable: 'OPENAI_API_KEY', secret: PLANTED },
 }
+/** A key Claude Code reads from a pipe on Linux (POD-7378). */
+const claudeAccess = (secret = PLANTED): AccessField => ({
+  credentialId: 'cred_00000000-0000-4000-8000-0000000000f6',
+  delivery: { kind: 'env', variable: 'ANTHROPIC_API_KEY', secret },
+})
 
-function daemon(store: SessionAccessStore) {
+function daemon(store: SessionAccessStore, harness = 'codex') {
   const sent: DaemonMessage[] = []
   const handle = {
-    binding: { sessionId: SESSION, driver: 'headless', harness: 'claude-code' },
+    binding: { sessionId: SESSION, driver: 'headless', harness },
     send: vi.fn(async () => ({
       outcome: 'accepted',
       deliveredAs: 'when-ready',
@@ -64,15 +70,40 @@ describe('runtimeSendRequest and the session credential', () => {
     const d = daemon(new SessionAccessStore({ markers: memoryMarkers() }))
     runtimeHandlers.runtimeSendRequest(d.ctx, turn({ access }))
     await vi.waitFor(() => expect(d.handle.send).toHaveBeenCalledTimes(1))
-    expect(sentEnv(d.handle, 0)).toEqual({
-      ANTHROPIC_API_KEY: PLANTED,
-      CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1',
-    })
+    expect(sentEnv(d.handle, 0)).toEqual({ OPENAI_API_KEY: PLANTED })
     // The second turn of a per-turn driver: no access on the frame, held in memory.
     runtimeHandlers.runtimeSendRequest(d.ctx, turn())
     await vi.waitFor(() => expect(d.handle.send).toHaveBeenCalledTimes(2))
-    expect(sentEnv(d.handle, 1)?.ANTHROPIC_API_KEY).toBe(PLANTED)
+    expect(sentEnv(d.handle, 1)?.OPENAI_API_KEY).toBe(PLANTED)
   })
+
+  it.runIf(process.platform === 'linux')(
+    'a Claude turn on Linux carries its key in no variable: the engine layer pipes it (POD-7378)',
+    async () => {
+      const d = daemon(new SessionAccessStore({ markers: memoryMarkers() }), 'claude-code')
+      runtimeHandlers.runtimeSendRequest(d.ctx, turn({ access: claudeAccess() }))
+      await vi.waitFor(() => expect(d.handle.send).toHaveBeenCalledTimes(1))
+      // No variable and no scrub switch, so no bubblewrap is needed either.
+      expect(sentEnv(d.handle, 0)).toBeUndefined()
+      expect(JSON.stringify(vi.mocked(d.handle.send).mock.calls[0])).not.toContain(PLANTED)
+      // The secret stays with the session, for the engine layer's pipe.
+      expect(d.ctx.access.current(SESSION)).toEqual(claudeAccess())
+    },
+  )
+
+  it.runIf(process.platform === 'linux')(
+    'a Claude turn with an empty key is refused readably and never sent (POD-7378)',
+    async () => {
+      const d = daemon(new SessionAccessStore({ markers: memoryMarkers() }), 'claude-code')
+      runtimeHandlers.runtimeSendRequest(d.ctx, turn({ access: claudeAccess('  ') }))
+      await vi.waitFor(() => expect(d.results()).toHaveLength(1))
+      expect(d.handle.send).not.toHaveBeenCalled()
+      expect(d.results()[0]).toMatchObject({
+        receipt: { outcome: 'refused', refusal: { reason: 'not_running' } },
+      })
+      expect(JSON.stringify(d.results()[0])).toMatch(/credential .* is empty/)
+    },
+  )
 
   it('a session with no credential sends its turn with no env', async () => {
     const d = daemon(new SessionAccessStore({ markers: memoryMarkers() }))
@@ -83,19 +114,19 @@ describe('runtimeSendRequest and the session credential', () => {
 
   it('after a restart, a turn before the refresh waits and then runs with it (acceptance 6)', async () => {
     const markers: MarkerJournal = memoryMarkers()
-    new SessionAccessStore({ markers }).remember(SESSION, access, 'claude-code')
+    new SessionAccessStore({ markers }).remember(SESSION, access, 'codex')
     const d = daemon(new SessionAccessStore({ markers, waitMs: 5_000 }))
     runtimeHandlers.runtimeSendRequest(d.ctx, turn())
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(d.handle.send).not.toHaveBeenCalled()
     d.ctx.access.remember(SESSION, access)
     await vi.waitFor(() => expect(d.handle.send).toHaveBeenCalledTimes(1))
-    expect(sentEnv(d.handle, 0)?.ANTHROPIC_API_KEY).toBe(PLANTED)
+    expect(sentEnv(d.handle, 0)?.OPENAI_API_KEY).toBe(PLANTED)
   })
 
   it('after a restart with no refresh, the turn is refused readably and never sent (acceptance 6)', async () => {
     const markers: MarkerJournal = memoryMarkers()
-    new SessionAccessStore({ markers }).remember(SESSION, access, 'claude-code')
+    new SessionAccessStore({ markers }).remember(SESSION, access, 'codex')
     const d = daemon(new SessionAccessStore({ markers, waitMs: 20 }))
     runtimeHandlers.runtimeSendRequest(d.ctx, turn())
     await vi.waitFor(() => expect(d.results()).toHaveLength(1))

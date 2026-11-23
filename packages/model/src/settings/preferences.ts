@@ -171,13 +171,16 @@ export type AutoContinuePreferences = z.infer<typeof AutoContinuePreferences>
  * an operator identity.
  */
 /**
- * PUSH PER NOTICE KIND (POD-6881). A mention and a credential that needs
- * attention are pushed by default; a credential someone shared is not.
+ * PUSH PER NOTICE KIND (POD-6881). A mention, a credential that needs
+ * attention and a Podium-installed harness that stopped updating are pushed by
+ * default; a credential someone shared is not.
  */
 export const NoticePushPreferences = z.object({
   mention: z.boolean().default(true),
   credentialAttention: z.boolean().default(true),
   credentialShared: z.boolean().default(false),
+  /** Updates of a Podium-installed harness failing for three days, a rebuilt install ledger. */
+  harnessInstalls: z.boolean().default(true),
 })
 export type NoticePushPreferences = z.infer<typeof NoticePushPreferences>
 

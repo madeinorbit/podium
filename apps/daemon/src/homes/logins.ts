@@ -19,7 +19,7 @@ import {
 } from '@podium/harness'
 import type { HomeLogin, Inventory } from '@podium/model'
 import { DEFAULT_HOME_ID, HOME_HARNESSES } from '@podium/protocol'
-import type { HarnessHome } from './registry'
+import { type HarnessHome, isPodiumHome } from './registry'
 
 export function withHomeLogins(
   inventory: Inventory,
@@ -30,8 +30,10 @@ export function withHomeLogins(
     ...inventory,
     agents: inventory.agents.map((agent) => {
       if (!(HOME_HARNESSES as readonly string[]).includes(agent.kind)) return agent
+      // The Podium home holds no login (managed installs §4.3): credentials
+      // are passed in there, so it has no entry.
       const own = homes
-        .filter((home) => home.harness === agent.kind)
+        .filter((home) => home.harness === agent.kind && !isPodiumHome(home))
         .sort((a, b) => a.homeId.localeCompare(b.homeId))
       return {
         ...agent,

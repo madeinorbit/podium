@@ -16,11 +16,19 @@ const bob = { id: asUserId('mem_bob'), displayName: 'Bob Stone' }
 const members = [al, alice, bob]
 
 describe('notice record', () => {
-  it('names the three kinds of this epic, and which are events', () => {
-    expect(NOTICE_KINDS).toEqual(['mention', 'credential-attention', 'credential-shared'])
+  it('names the notice kinds, and which are events', () => {
+    expect(NOTICE_KINDS).toEqual([
+      'mention',
+      'credential-attention',
+      'credential-shared',
+      'harness-install-failing',
+      'harness-ledger-rebuilt',
+    ])
     expect(isEventNoticeKind('mention')).toBe(true)
     expect(isEventNoticeKind('credential-shared')).toBe(true)
     expect(isEventNoticeKind('credential-attention')).toBe(false)
+    expect(isEventNoticeKind('harness-install-failing')).toBe(false)
+    expect(isEventNoticeKind('harness-ledger-rebuilt')).toBe(true)
   })
 
   it('can be about a credential', () => {

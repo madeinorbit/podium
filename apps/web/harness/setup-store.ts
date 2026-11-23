@@ -1,102 +1,111 @@
-/**
- * A STUBBED STORE for the ONBOARDING screens (POD-1225).
- *
- * Aliased over `@/app/store` by `vite.setup.config.ts`, the same trick
- * `coldstart-store.ts` plays: the components, the stylesheet and the layout are
- * exactly what ships, and only the machine inventory underneath is invented.
- * One installed-and-logged-in agent and three missing ones, so the agents
- * screen renders both groups and the divider between them.
- */
-type Selector<T> = (store: unknown) => T
+/** Isolated machine records for the shipping first-run screens. No live requests. */
+import '@podium/client-graph/synced-models'
+import { seedFixtureMachines } from '@podium/client-graph/live-fixture'
+import { MobxPool } from '@podium/client-graph/pool'
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import {
+  type AgentInventory,
+  asMachineId,
+  asUserId,
+  BUILTIN_HARNESS_KINDS,
+  resolveUserPreferences,
+} from '@podium/model'
+import { observable, runInAction } from 'mobx'
+import { useMemo, useSyncExternalStore } from 'react'
 
+const scene = new URLSearchParams(location.search).get('scene') ?? 'missing'
+const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
 const machine = {
-  id: 'machine-a',
-  name: 'MBP-Cofo',
-  hostname: 'MBP-Cofo.local',
+  id: asMachineId('setup-machine'),
+  name: 'Project server',
+  hostname: 'project-server.example.com',
   online: true,
+  serviceAssignment: { server: true, agentExecution: true },
+  availability: { epoch: 'setup-boot', server: true, daemon: true, supervisor: true },
   lastSeenAt: new Date(0).toISOString(),
   inventory: {
-    os: 'darwin' as const,
-    arch: 'arm64' as const,
-    agents: [
-      { kind: 'codex' as const, installed: true, login: { state: 'in' as const } },
-      { kind: 'claude-code' as const, installed: false, login: { state: 'out' as const } },
-      { kind: 'opencode' as const, installed: false, login: { state: 'out' as const } },
-      { kind: 'cursor' as const, installed: false, login: { state: 'out' as const } },
-    ],
+    os: 'linux' as const,
+    arch: 'x64' as const,
+    agents: BUILTIN_HARNESS_KINDS.map(
+      (kind): AgentInventory => ({
+        kind,
+        installed: scene === 'installed' && kind === 'codex',
+        login: { state: 'out' },
+        management: { installable: true },
+      }),
+    ),
     tools: [],
   },
 }
-
-const uiValues = new Map<string, string>()
-
-const store = {
-  repos: [
+function publishMachine() {
+  pool.apply({ type: 'update', rows: seedFixtureMachines(pool, [structuredClone(machine)]) })
+}
+publishMachine()
+pool.apply({
+  type: 'update',
+  rows: [
     {
-      path: '/work/podium',
-      kind: 'repository' as const,
-      branch: 'main',
-      worktrees: [],
-      machineId: machine.id,
+      kind: 'userPreferences',
+      id: 'demo',
+      value: { ...resolveUserPreferences(undefined, asUserId('demo')), id: 'demo' } as never,
     },
   ],
-  machines: [machine],
-  uiState: {
-    get: (key: string) => uiValues.get(key) ?? null,
-    set: (key: string, value: string | null) => {
-      if (value === null) uiValues.delete(key)
-      else uiValues.set(key, value)
-    },
+})
+const repo = {
+  path: '/workspace/project',
+  kind: 'repository' as const,
+  branch: 'main',
+  worktrees: [],
+  machineId: machine.id,
+}
+const values = observable.map<string, string | null>()
+const uiState = {
+  get: (key: string) => values.get(key) ?? null,
+  set: (key: string, value: string | null) => runInAction(() => values.set(key, value)),
+}
+pool.sources.register(['settingsCatalog', 'settingsRepository', 'preference'], {
+  read(entity, id) {
+    if (entity === 'settingsCatalog') return { machines: [machine.id], repositories: [repo.path] }
+    if (entity === 'settingsRepository') return repo
+    if (entity === 'preference') return { value: uiState.get(id) }
+    return undefined
   },
-  trpc: {
-    settings: {
-      get: {
-        query: async () => ({
-          sessionDefaults: { agent: 'codex' },
-          gitWorkflow: { defaultParentBranch: 'main' },
-        }),
+  dispose() {},
+})
+const trpc = {
+  credentials: { list: { query: async () => [] } },
+  harnessInstalls: {
+    action: {
+      async mutate({ harness }: { harness: string }) {
+        const agent = machine.inventory.agents.find((agent) => agent.kind === harness)
+        if (!agent) throw new Error('Unknown harness')
+        agent.install = { managed: { paused: false, installing: { version: '1.0.0' } } }
+        publishMachine()
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        agent.installed = true
+        agent.install = {
+          managed: {
+            paused: false,
+            active: { path: `/state/harnesses/${harness}/1/tool`, version: '1.0.0', release: 1 },
+          },
+        }
+        publishMachine()
+        return { ok: true, outcome: 'confirmed' }
       },
     },
-    accounts: { login: { mutate: async () => ({ sessionId: 'session-harness' }) } },
-    telemetry: {
-      state: {
-        query: async () => ({
-          usage: 'absent',
-          crash: 'absent',
-          endpoint: 'https://pulse.podium.do/v1/u',
-        }),
-      },
-      set: { mutate: async () => ({ usage: 'off', crash: 'off' }) },
-    },
   },
 }
-
-export function readFixture<T>(selector: Selector<T>): T {
-  return selector(store)
+export const useSettingsClient = () => ({ trpc, uiState }) as never
+export const useSettingsTrpc = () => trpc as never
+export const useRequestClient = useSettingsTrpc
+export const useWorklistPool = () => pool
+export function useWorklistPoolProjection<T>(read: (pool: MobxPool) => T) {
+  const projection = useMemo(() => createPoolProjection(pool, read), [read])
+  return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
 }
+export const useHarnessDescriptors = () => ({ served: undefined, status: 'unavailable' })
 
-export function useStore(): unknown {
-  return store
-}
-
-// The login dialog reaches AgentPanel, which imports these by name; they are
-// never called on the two screens this harness renders.
-export function useSlice(): unknown {
-  return {}
-}
-
-export function useReplicaIssues(): unknown[] {
-  return []
-}
-
-export function useSession(): undefined {
-  return undefined
-}
-
-export function useSessionDraft(): string {
-  return ''
-}
-
-export function useSessionExitKind(): undefined {
-  return undefined
-}
+export const useClientRuntime = () => ({})
+export const useCommands = () => ({ sessions: {}, preferences: {}, instancePreferences: {} })
+export const useDeviceState = () => uiState
+export const useUi = () => ({})

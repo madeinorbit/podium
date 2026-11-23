@@ -32,7 +32,13 @@ import { antigravityUsageFromLine } from './usage.js'
 const id = '11111111-1111-4111-8111-111111111111'
 const otherId = '22222222-2222-4222-8222-222222222222'
 const context: HarnessContext = {
-  installation: { kind: 'antigravity', executable: '/opt/agy', version: '1.5.14', generation: 1 },
+  installation: {
+    kind: 'antigravity',
+    executable: '/opt/agy',
+    version: '1.5.14',
+    generation: 1,
+    provenance: 'external',
+  },
   home: '/home/test',
   env: { HOME: '/home/test', PATH: '/usr/bin' },
   roots: antigravityRoots('/home/test', {}),

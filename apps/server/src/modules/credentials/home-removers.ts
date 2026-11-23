@@ -25,11 +25,11 @@ import { harnessAccepts } from '@podium/harness/metadata'
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
-  CAP_HARNESS_HOMES,
   type CredentialRemoveResultMessage,
   HOME_HARNESSES,
   type HomeHarness,
   type HomeRemoveResultMessage,
+  homeCapabilities,
   homeIdFor,
 } from '@podium/protocol'
 import type { CredentialRecord, PlacementRecord } from '../../store/credentials'
@@ -67,13 +67,21 @@ export function homeHarnessFor(type: string): HomeHarness | undefined {
   )
 }
 
+/** Whether the machine's daemon may be asked about homes of `harness`. */
+function offersHomes(
+  deps: Pick<PlacementRemoverDeps, 'daemonSupports'>,
+  machineId: MachineId,
+  harness: HomeHarness,
+): boolean {
+  return homeCapabilities(harness).every((cap) => deps.daemonSupports(machineId, cap))
+}
+
 export function placementRemovers(deps: PlacementRemoverDeps): PlacementTransport['removers'] {
   return {
     'propagated-file': async (machineId: MachineId, credential: CredentialRecord) => {
       const harness = homeHarnessFor(credential.type)
       const fingerprint = credential.identity.fingerprint
-      if (!harness || !fingerprint || !deps.daemonSupports(machineId, CAP_HARNESS_HOMES))
-        return false
+      if (!harness || !fingerprint || !offersHomes(deps, machineId, harness)) return false
       const { outcome, error } = await deps.rpc.credentialRemove(harness, fingerprint, machineId)
       if (outcome === 'changed') {
         // Someone signed in to another login there since: that one is not
@@ -98,7 +106,7 @@ export function placementRemovers(deps: PlacementRemoverDeps): PlacementTranspor
       placement: PlacementRecord,
     ) => {
       const harness = homeHarnessFor(credential.type)
-      if (!harness || !deps.daemonSupports(machineId, CAP_HARNESS_HOMES)) return false
+      if (!harness || !offersHomes(deps, machineId, harness)) return false
       const homeId = placement.homeId ?? homeIdFor(credential.id, harness)
       const signOut = deps.signOut ?? HOME_SIGN_OUT_ON_REMOVE
       const result = await deps.rpc.homeRemove(homeId, machineId, signOut ? { signOut } : {})

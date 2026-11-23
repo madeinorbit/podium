@@ -43,6 +43,11 @@ export const SUBSCRIPTION_KINDS = [
     hint: 'In the terminal, open the link Codex shows and enter the one-time code it prints. If ChatGPT asks you to allow device codes, turn that on under Settings › Security first, then enter the code.',
   }),
   withProgram({
+    type: 'xai.grok-login',
+    title: 'Grok subscription',
+    hint: 'In the terminal, open the link Grok shows and sign in with the account you want to add.',
+  }),
+  withProgram({
     type: 'google.antigravity-login',
     title: 'Google AI subscription',
     hint: 'Open the Google sign-in link in the terminal and sign in with your Google AI account. Paste the authorization code back into the terminal. Free, Pro, Ultra, and eligible enterprise accounts use Antigravity’s native sign-in.',

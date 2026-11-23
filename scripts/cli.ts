@@ -49,8 +49,19 @@ async function loadHost(): Promise<HostModules> {
   }
 }
 
+/** `podium uninstall`'s undo: the daemon's guarded undo of every recorded home edit. */
+async function undoHomeEdits() {
+  const { undoAllHomeEditRecords } = await import('../apps/daemon/src/home-edit-service')
+  return (await undoAllHomeEditRecords()).map((outcome) => ({
+    harness: outcome.record.harness,
+    file: outcome.record.file,
+    status: outcome.status,
+    ...(outcome.status === 'restored' ? {} : { reason: outcome.reason }),
+  }))
+}
+
 export async function main(runtime: CliRuntimeOptions = {}): Promise<void> {
-  return cliMain(loadHost, { localSetupDefault: SOURCE_CHECKOUT, ...runtime })
+  return cliMain(loadHost, { localSetupDefault: SOURCE_CHECKOUT, undoHomeEdits, ...runtime })
 }
 
 /**

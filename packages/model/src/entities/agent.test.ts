@@ -113,7 +113,9 @@ describe('derived harness subsets (4.2)', () => {
     expect([...COST_HARNESS_KINDS]).toEqual(['claude-code', 'codex', 'grok'])
     expect([...USAGE_HARNESS_KINDS]).toEqual(['claude-code', 'codex', 'grok'])
     expect([...OBSERVATION_PROVIDER_KINDS]).toEqual(['claude-code', 'codex', 'grok'])
-    expect([...PORTABLE_CREDENTIAL_HARNESS_KINDS]).toEqual(['claude-code', 'codex', 'grok'])
+    // Pi's login file is declared for its home variable; it is never copied
+    // between machines (POD-7372).
+    expect([...PORTABLE_CREDENTIAL_HARNESS_KINDS]).toEqual(['claude-code', 'codex', 'grok', 'pi'])
     expect(COST_FULL_ATTRIBUTION_HARNESS).toBe('claude-code')
   })
 

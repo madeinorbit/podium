@@ -1,88 +1,87 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { harnessHomeVariable } from '@podium/harness'
+import type { ResolvedHarnessInventory } from '@podium/harness/inventory'
+import { BUILTIN_HARNESS_KINDS } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
 import { installAgents } from './install-agents'
 import { scriptedIO } from './setup-ui'
 
-describe('installAgents', () => {
-  let bin: string
-  beforeEach(() => {
-    bin = mkdtempSync(join(tmpdir(), 'podium-agents-'))
-  })
-  afterEach(() => {
-    rmSync(bin, { recursive: true, force: true })
-  })
+const snapshot = (own = false): ResolvedHarnessInventory =>
+  ({
+    inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
+    executables: new Map(
+      own
+        ? BUILTIN_HARNESS_KINDS.map((kind) => [
+            kind,
+            { kind, path: `/personal/${kind}`, generation: 1 },
+          ])
+        : [],
+    ),
+    commandEnvironment: { env: { PATH: '/machine/bin' } },
+  }) as unknown as ResolvedHarnessInventory
+const installed = async (kind: (typeof BUILTIN_HARNESS_KINDS)[number]) => ({
+  outcome: 'installed' as const,
+  kind,
+  version: '2.0.0',
+  number: 1,
+  dir: '/state/harnesses/release',
+  executable: '/state/harnesses/release/bin/tool',
+  previous: null,
+  swept: [],
+})
 
-  const deps = (over: Record<string, unknown> = {}) => ({
-    fetch: vi.fn((_url: string, out: string) => writeFileSync(out, '#!/bin/sh\n')),
-    run: vi.fn(() => ''),
-    runTool: vi.fn(() => ''),
-    env: {} as NodeJS.ProcessEnv,
-    ...over,
-  })
-
-  it('runs each requested vendor installer once, in the order asked', async () => {
-    const d = deps()
+describe('managed --agents requests', () => {
+  it('records machine-setup and the instance harnesses directory for each explicit request', async () => {
+    const install = vi.fn(installed)
     const { io } = scriptedIO([])
-    const res = await installAgents(io, ['codex', 'grok'], bin, d)
-    expect(res.map((r) => r.id)).toEqual(['codex', 'grok'])
-    expect(res.every((r) => r.ok)).toBe(true)
-    expect(d.fetch).toHaveBeenCalledTimes(2)
-  })
-
-  it('passes each vendor the environment its installer requires', async () => {
-    // Getting these wrong is silent: codex exits non-zero without CODEX_NON_INTERACTIVE, and
-    // both vendors install to the wrong directory without their BIN_DIR variable.
-    const d = deps()
-    const { io } = scriptedIO([])
-    await installAgents(io, ['codex', 'grok'], bin, d)
-    const calls = d.runTool.mock.calls as unknown as [string, string[], NodeJS.ProcessEnv][]
-    const codex = calls.find((c) => c[2].CODEX_INSTALL_DIR !== undefined)
-    expect(codex?.[2]).toMatchObject({ CODEX_NON_INTERACTIVE: '1', CODEX_INSTALL_DIR: bin })
-    expect(calls.find((c) => c[2].GROK_BIN_DIR !== undefined)?.[2].GROK_BIN_DIR).toBe(bin)
-  })
-
-  it('verifies each agent actually runs before calling it installed', async () => {
-    const d = deps()
-    const { io } = scriptedIO([])
-    await installAgents(io, ['codex'], bin, d)
-    const calls = d.run.mock.calls as unknown as [string, string[]][]
-    expect(calls.some((c) => c[0] === join(bin, 'codex') && c[1][0] === '--version')).toBe(true)
-  })
-
-  it('keeps vendor output hidden on success and shows it on failure', async () => {
-    const quiet = scriptedIO([])
-    await installAgents(quiet.io, ['codex'], bin, deps())
-    expect(quiet.output.join('\n')).not.toContain('npm WARN')
-
-    const loud = scriptedIO([])
-    const res = await installAgents(loud.io, ['codex'], bin, {
-      ...deps(),
-      runTool: vi.fn(() => {
-        throw new Error('npm WARN deprecated\nvendor exploded')
+    expect(
+      await installAgents(io, ['codex', 'grok'], {
+        harnessesDir: '/instance/harnesses',
+        snapshot: async () => snapshot(),
+        install,
       }),
-    })
-    expect(res[0]?.ok).toBe(false)
-    expect(loud.output.join('\n')).toContain('vendor exploded')
-  })
-
-  it('does not abort the remaining agents when one fails', async () => {
-    let n = 0
-    const { io } = scriptedIO([])
-    const res = await installAgents(io, ['codex', 'grok'], bin, {
-      ...deps(),
-      runTool: vi.fn(() => {
-        n++
-        if (n === 1) throw new Error('codex exploded')
-        return ''
+    ).toEqual([
+      { id: 'codex', ok: true },
+      { id: 'grok', ok: true },
+    ])
+    expect(install.mock.calls.map(([kind]) => kind)).toEqual(['codex', 'grok'])
+    expect(install).toHaveBeenCalledWith(
+      'codex',
+      false,
+      expect.objectContaining({
+        requestedBy: 'machine-setup',
+        harnessesDir: '/instance/harnesses',
+        commandEnv: { PATH: '/machine/bin' },
       }),
-    })
-    expect(res.map((r) => r.ok)).toEqual([false, true])
+    )
   })
-
-  it('rejects an unsupported agent id rather than silently skipping it', async () => {
+  it.each(
+    BUILTIN_HARNESS_KINDS.filter((kind) => !harnessHomeVariable(kind)),
+  )('refuses %s alongside the person’s own install through the shared mechanism', async (kind) => {
     const { io } = scriptedIO([])
-    await expect(installAgents(io, ['emacs'], bin, deps())).rejects.toThrow('emacs')
+    const [result] = await installAgents(io, [kind], {
+      snapshot: async () => snapshot(true),
+      harnessesDir: '/not-written',
+    })
+    expect(result?.ok).toBe(false)
+    expect(result?.detail).toContain('no folder variable')
+  })
+  it('keeps going after a failure and exposes its cause', async () => {
+    const { io, output } = scriptedIO([])
+    const result = await installAgents(io, ['codex', 'grok'], {
+      snapshot: async () => snapshot(),
+      install: async (kind) => {
+        if (kind === 'codex') throw new Error('vendor unavailable')
+        return installed(kind)
+      },
+    })
+    expect(result.map((row) => row.ok)).toEqual([false, true])
+    expect(output.join('\n')).toContain('vendor unavailable')
+  })
+  it('runs nothing when no harness was requested, and refuses unknown IDs', async () => {
+    const read = vi.fn(async () => snapshot())
+    const { io } = scriptedIO([])
+    expect(await installAgents(io, [], { snapshot: read })).toEqual([])
+    expect(read).not.toHaveBeenCalled()
+    await expect(installAgents(io, ['emacs'], { snapshot: read })).rejects.toThrow('emacs')
   })
 })

@@ -184,7 +184,9 @@ function providerTitle(type: string): string {
       ? 'OpenAI'
       : provider === 'openrouter'
         ? 'OpenRouter'
-        : provider
+        : provider === 'xai'
+          ? 'xAI'
+          : provider
 }
 
 /** A short reason, with the secret cut out if a provider echoed it. */

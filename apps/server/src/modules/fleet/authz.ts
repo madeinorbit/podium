@@ -118,6 +118,7 @@ export const FLEET_TARGETS = {
   },
   'machines.adopt': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.revoke': (input: unknown) => named((input as { id: MachineId }).id),
+  'machines.uninstall': (input: unknown) => named((input as { id: MachineId }).id),
   'machines.moveServer': (input: unknown) =>
     named((input as { targetMachineId: MachineId }).targetMachineId),
   // No machine exists yet, so there is no owner column that could admit anyone —

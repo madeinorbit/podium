@@ -71,13 +71,97 @@ fn bind_socket(path: &Path) -> UnixListener {
     listener
 }
 
+/// The most `--pipe-env` takes on stdin: well under any pipe buffer, so the
+/// write into the child's pipe can never block.
+const PIPE_ENV_MAX: usize = 16 * 1024;
+
+/// The lowest descriptor the child's pipe takes: above the ones a shell
+/// script names (0-9).
+const PIPE_ENV_MIN_FD: rustix::fd::RawFd = 10;
+
+/// What `--pipe-env` hands the child (POD-7378): the variable, and the bytes
+/// read from stdin. Wiped when dropped.
+struct PipeEnv {
+    variable: Vec<u8>,
+    contents: Vec<u8>,
+}
+
+impl PipeEnv {
+    /// Read stdin to its end. Refuse nothing, or only whitespace: a program
+    /// handed an empty credential may fall back to a login of its own (Claude
+    /// Code reads an empty token as no token), so the start fails instead.
+    fn from_stdin(variable: &[u8]) -> PipeEnv {
+        let shown = String::from_utf8_lossy(variable).into_owned();
+        // One allocation that never grows, so no copy is left behind unwiped.
+        let mut contents = Vec::with_capacity(PIPE_ENV_MAX + 1);
+        if let Err(e) = io::stdin()
+            .lock()
+            .take(PIPE_ENV_MAX as u64 + 1)
+            .read_to_end(&mut contents)
+        {
+            die!("--pipe-env {shown}: reading stdin: {}", sys::strerror(&e));
+        }
+        let pipe = PipeEnv {
+            variable: variable.to_vec(),
+            contents,
+        };
+        if pipe.contents.len() > PIPE_ENV_MAX {
+            die!("--pipe-env {shown}: more than {PIPE_ENV_MAX} bytes on stdin");
+        }
+        if pipe.contents.iter().all(u8::is_ascii_whitespace) {
+            die!("--pipe-env {shown}: nothing on stdin to hand the child, so it was not started");
+        }
+        pipe
+    }
+
+    /// A new pipe holding the contents, its writer already closed, for `cmd`
+    /// to inherit: VARIABLE names its descriptor in the child's environment.
+    /// Returns the read end, which the host closes once the child has it.
+    fn attach(self, cmd: &mut process::Command) -> io::Result<OwnedFd> {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::CommandExt;
+        let (r, mut w) = io::pipe()?; // CLOEXEC both ends
+        w.write_all(&self.contents)?;
+        drop(w); // the child reads to the end of the stream
+        // At 10 or above: a shell script the child runs names 0-9 itself
+        // (Podium's turn wrapper does `exec 4>&1`), and would overwrite a
+        // pipe it never knew was there.
+        let r = rustix::io::fcntl_dupfd_cloexec(OwnedFd::from(r), PIPE_ENV_MIN_FD)?;
+        let fd = r.as_raw_fd();
+        cmd.env(OsStr::from_bytes(&self.variable), fd.to_string());
+        // SAFETY: runs between fork and exec; fcntl(F_SETFD) is
+        // async-signal-safe and allocates nothing. The descriptor is open in
+        // the host until after spawn, so no other file can take its number.
+        unsafe {
+            cmd.pre_exec(move || {
+                // SAFETY: F_SETFD on an integer fd touches no memory.
+                if libc::fcntl(fd, libc::F_SETFD, 0) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+        Ok(r)
+    }
+}
+
+impl Drop for PipeEnv {
+    fn drop(&mut self) {
+        for b in self.contents.iter_mut() {
+            // SAFETY: a valid, aligned &mut u8. Volatile, so the wipe of a
+            // buffer about to be freed is not optimized away.
+            unsafe { std::ptr::write_volatile(b, 0) };
+        }
+    }
+}
+
 /// Spawn the child on a pty or on pipes. std's Command does the fork and exec
 /// and reports an exec (or chdir) failure as an error from `spawn`, so
 /// `create` fails instead of hosting a dead child.
 /// Returns the child and the read end of the signal pipe: the handlers are
 /// installed after the pty is set up (POSIX leaves grantpt unspecified once
 /// SIGCHLD is caught) and before the child can exit.
-fn spawn_child(opts: &CreateOpts, cwd: OwnedFd) -> (Child, File) {
+fn spawn_child(opts: &CreateOpts, cwd: OwnedFd, pipe: Option<PipeEnv>) -> (Child, File) {
     let [program, args @ ..] = opts.command.as_slice() else {
         unreachable!("args::parse requires a command")
     };
@@ -113,6 +197,9 @@ fn spawn_child(opts: &CreateOpts, cwd: OwnedFd) -> (Child, File) {
     // A session (and so a process group) of its own, so SIGNAL and KILL
     // reach the whole group.
     sys::prepare_child(&mut cmd, cwd, !opts.no_pty);
+    // After prepare_child, so its closure has run when this one clears the
+    // pipe's close-on-exec flag.
+    let pipe_read = pipe.map(|p| p.attach(&mut cmd).unwrap_or_else(|e| fail("pipe", e)));
     let sig_fd = sys::install_signals().unwrap_or_else(|e| fail("signals", e));
     #[expect(
         clippy::zombie_processes,
@@ -127,6 +214,7 @@ fn spawn_child(opts: &CreateOpts, cwd: OwnedFd) -> (Child, File) {
         ])
     });
     drop(cmd); // closes the parent's copies of the child's ends
+    drop(pipe_read); // only the child holds the pipe now
     let pid = sys::child_pid(&child);
     for f in [Some(&io.output), io.input.as_ref()].into_iter().flatten() {
         sys::set_nonblock(f).unwrap_or_else(|e| fail("nonblock", e));
@@ -142,7 +230,13 @@ fn spawn_child(opts: &CreateOpts, cwd: OwnedFd) -> (Child, File) {
 
 /// Double-fork into the background; the original process waits for the
 /// daemonized host to report "started" (or an error) and exits accordingly.
-fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: OwnedFd, ring: Ring) -> ! {
+fn daemonize_then_run(
+    opts: CreateOpts,
+    listener: UnixListener,
+    cwd: OwnedFd,
+    ring: Ring,
+    pipe: Option<PipeEnv>,
+) -> ! {
     // Identify the socket we bound, and name it absolutely: the host chdirs to
     // "/" and must not unlink someone else's socket at exit (POD-4842 C-4, C-6).
     let sock_id = sys::socket_id(Path::new(&opts.socket));
@@ -198,7 +292,7 @@ fn daemonize_then_run(opts: CreateOpts, listener: UnixListener, cwd: OwnedFd, ri
     if let Err(e) = rustix::stdio::dup2_stdin(&devnull).and(rustix::stdio::dup2_stdout(&devnull)) {
         die!("/dev/null: {}", sys::strerror(&e.into()));
     }
-    let (child, sig_fd) = spawn_child(&opts, cwd); // dies (to the report pipe) on failure
+    let (child, sig_fd) = spawn_child(&opts, cwd, pipe); // dies (to the report pipe) on failure
     let _ = std::env::set_current_dir("/");
     let _ = (&report_w).write_all(b"OK\n");
     let _ = rustix::stdio::dup2_stderr(&devnull);
@@ -250,10 +344,13 @@ pub fn run() {
                         sys::strerror(&e).as_bytes(),
                     ])
                 });
+            // Read to its end before anything is bound or forked: whoever
+            // started the host has written the bytes and closed its end.
+            let pipe = opts.pipe_env.as_deref().map(PipeEnv::from_stdin);
             // Allocated before `create` reports success, as host.c does.
             let ring = Ring::new(opts.ring_bytes);
             let listener = bind_socket(Path::new(&opts.socket));
-            daemonize_then_run(opts, listener, cwd.into(), ring)
+            daemonize_then_run(opts, listener, cwd.into(), ring, pipe)
         }
         Err(args::ArgError::Usage) => usage(),
         Err(args::ArgError::Die(msg)) => die_raw(&[&msg]),

@@ -33,7 +33,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentLaunchCommand } from '@podium/harness'
 import { asCredentialId, asMachineId, asSessionId, asUserId, type SessionId } from '@podium/model'
-import { directPtyDurableForTests } from '@podium/process/durable'
+import {
+  createDurableProcess,
+  type DurableProcess,
+  directPtyDurableForTests,
+  isHostAvailable,
+} from '@podium/process/durable'
 import { type AccessField, SpawnMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -105,9 +110,18 @@ interface Harness {
   /** Resolves once no new PTY frame has arrived for `quietMs` — so an absence
    *  assertion can't pass merely because the output hadn't arrived yet. */
   settled(quietMs?: number): Promise<void>
+  /** Ends a podium-host session by its label (the real-host harness only). */
+  hostKill?(label: string): Promise<void>
+  /** Whether a podium-host session holds the label (the real-host harness only). */
+  hostHas?(label: string): Promise<boolean>
 }
 
-function makeHarness(settingsDir: string): Harness {
+function makeHarness(
+  settingsDir: string,
+  // The real podium-host, for a credential that goes in on a pipe (POD-7378):
+  // only the host hands one over; the direct-pty double refuses it.
+  host?: DurableProcess,
+): Harness {
   const sent: DaemonMessage[] = []
   let buffer = ''
   let lastFrameAt = Date.now()
@@ -122,7 +136,7 @@ function makeHarness(settingsDir: string): Harness {
     sessions: new SessionRegistry(),
     homeDir: home,
     backend: 'none',
-    durable: directPtyDurableForTests(),
+    durable: host ?? directPtyDurableForTests(),
     // The REAL launch table for a shell; a claude session runs an interactive
     // bash in claude's place, so the test can ask the process for its env
     // while the daemon's whole claude launch (context, strip, credential,
@@ -137,6 +151,8 @@ function makeHarness(settingsDir: string): Harness {
     composerEngine: {
       attach: () => false,
       onData: () => {},
+      // The real host reports its size; the double never does.
+      onResize: () => {},
       detach: () => {},
       has: () => false,
     },
@@ -180,6 +196,12 @@ function makeHarness(settingsDir: string): Harness {
   return {
     ctx,
     sent,
+    ...(host
+      ? {
+          hostKill: (label: string) => host.kill(label),
+          hostHas: (label: string) => host.has(label),
+        }
+      : {}),
     output: () => buffer,
     async settled(quietMs = 250) {
       while (Date.now() - lastFrameAt < quietMs) await new Promise((r) => setTimeout(r, 25))
@@ -240,6 +262,8 @@ async function spawnAndDumpEnv(
   h: Harness,
   sessionId: SessionId,
   access: AccessField | undefined,
+  /** Typed after the env dump; its output follows the dump's. */
+  then?: { command: string; until: string },
 ): Promise<string> {
   // The real wire frame, through the real schema — an env the protocol would have
   // rejected can never reach the daemon in production, so it must not here either.
@@ -277,7 +301,17 @@ async function spawnAndDumpEnv(
   const pid = terminal.pid
 
   try {
-    await waitFor(() => h.output().length > 0) // shell is up and talking
+    // The shell is up and talking. Through the real host, a cold first spawn
+    // can print its prompt before the bridge is wired, into the frame tap that
+    // this harness's stubbed observers never flush: a newline asks again.
+    if (h.hostKill) {
+      const nudge = setTimeout(() => {
+        if (h.output().length === 0) terminal.writeBase64(Buffer.from('\n').toString('base64'))
+      }, 2_000)
+      await waitFor(() => h.output().length > 0).finally(() => clearTimeout(nudge))
+    } else {
+      await waitFor(() => h.output().length > 0)
+    }
     // By absolute path: the launch seam's harness context carries no command
     // environment, so the stand-in shell may have no PATH of its own.
     terminal.writeBase64(Buffer.from('/usr/bin/env\n', 'utf8').toString('base64'))
@@ -289,39 +323,117 @@ async function spawnAndDumpEnv(
       throw new Error(`${error}: the child printed ${JSON.stringify(h.output().slice(-2000))}`)
     })
     await h.settled()
+    if (then) {
+      terminal.writeBase64(Buffer.from(`${then.command}\n`, 'utf8').toString('base64'))
+      await waitFor(() => h.output().includes(then.until)).catch((error) => {
+        throw new Error(`${error}: the child printed ${JSON.stringify(h.output().slice(-2000))}`)
+      })
+      await h.settled()
+    }
     expect(h.ctx.sessions.get(sessionId)?.label).toBe(`podium-blue-${sessionId}`)
     return h.output()
   } finally {
     // Reap by explicit pid. Never pattern-kill: a `pkill -f bash` here would take the
-    // developer's live agent sessions with it.
+    // developer's live agent sessions with it. A host-held child is ended by its label.
     terminal.park()
-    await waitFor(() => !alive(pid), 5_000)
-    expect(alive(pid), `leaked PTY child pid ${pid}`).toBe(false)
+    if (h.hostKill) {
+      // The host owns and reaps its child: the session is gone when its label is.
+      const label = `podium-blue-${sessionId}`
+      await h.hostKill(label)
+      const until = Date.now() + 5_000
+      while ((await h.hostHas?.(label)) && Date.now() < until) {
+        await new Promise((r) => setTimeout(r, 50))
+      }
+      expect(await h.hostHas?.(label), `leaked podium-host session ${label}`).toBe(false)
+    } else {
+      await waitFor(() => !alive(pid), 5_000)
+      expect(alive(pid), `leaked PTY child pid ${pid}`).toBe(false)
+    }
   }
 }
 
 describe('a session credential -> real spawned process env (#216, epic Task 5)', () => {
-  it('POSITIVE: an anthropic api-key in access lands in the terminal process ENVIRONMENT (acceptance 5, 8)', async () => {
-    const access = await resolvedAccess('anthropic.api-key', CREDENTIAL)
-    // The server resolved the stored credential into exactly the documented variable.
-    expect(access.delivery).toEqual({
-      kind: 'env',
-      variable: 'ANTHROPIC_API_KEY',
-      secret: CREDENTIAL,
-    })
+  it.skipIf(process.platform === 'linux')(
+    'POSITIVE: an anthropic api-key in access lands in the terminal process ENVIRONMENT (acceptance 5, 8)',
+    async () => {
+      const access = await resolvedAccess('anthropic.api-key', CREDENTIAL)
+      // The server resolved the stored credential into exactly the documented variable.
+      expect(access.delivery).toEqual({
+        kind: 'env',
+        variable: 'ANTHROPIC_API_KEY',
+        secret: CREDENTIAL,
+      })
 
-    const h = makeHarness(settingsDir)
-    const dump = await spawnAndDumpEnv(h, asSessionId('sess-managed'), access)
+      const h = makeHarness(settingsDir)
+      const dump = await spawnAndDumpEnv(h, asSessionId('sess-managed'), access)
 
-    // The child's own `env` listed it — a real process, a real environment.
-    expect(dump).toContain(`ANTHROPIC_API_KEY=${CREDENTIAL}`)
-    // Claude Code's switch that keeps it out of the commands the agent runs.
-    expect(dump).toContain('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1')
-    // ...and the credential did not displace Podium's own per-session wiring.
-    expect(dump).toContain('PODIUM_SESSION_ID=sess-managed')
-    expect(dump).toContain('PODIUM_INSTANCE=blue')
-    expect(dump).toContain('PODIUM_SESSION_INSTANCE=blue')
-  })
+      // The child's own `env` listed it — a real process, a real environment.
+      expect(dump).toContain(`ANTHROPIC_API_KEY=${CREDENTIAL}`)
+      // Claude Code's switch that keeps it out of the commands the agent runs.
+      expect(dump).toContain('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1')
+      // ...and the credential did not displace Podium's own per-session wiring.
+      expect(dump).toContain('PODIUM_SESSION_ID=sess-managed')
+      expect(dump).toContain('PODIUM_INSTANCE=blue')
+      expect(dump).toContain('PODIUM_SESSION_INSTANCE=blue')
+    },
+  )
+
+  describe.runIf(process.platform === 'linux' && isHostAvailable())(
+    'on Linux, through the real podium-host (POD-7378)',
+    () => {
+      let hostRoot = ''
+      beforeEach(() => {
+        // Short: the session socket path must fit Linux's 108-byte sun_path.
+        hostRoot = mkdtempSync(join(tmpdir(), 'psh-'))
+        vi.stubEnv('PODIUM_STATE_DIR', join(hostRoot, 'state'))
+        vi.stubEnv('PODIUM_HOST_SOCKET_DIR', join(hostRoot, 'sock'))
+        // The scope has its own tests; this one reads the child's environment.
+        vi.stubEnv('PODIUM_NO_SCOPE', '1')
+      })
+      afterEach(() => {
+        if (hostRoot) rmSync(hostRoot, { recursive: true, force: true })
+      })
+
+      const cases = [
+        [
+          'anthropic.api-key',
+          CREDENTIAL,
+          'ANTHROPIC_API_KEY',
+          'CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR',
+          'key',
+        ],
+        [
+          'anthropic.claude-token',
+          'oat-test-1',
+          'CLAUDE_CODE_OAUTH_TOKEN',
+          'CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR',
+          'tok',
+        ],
+      ] as const
+      for (const [type, secret, variable, descriptor, tag] of cases) {
+        it(`POSITIVE: ${type} reaches the process on a pipe, in no variable`, async () => {
+          const access = await resolvedAccess(type, secret)
+          expect(access.delivery).toMatchObject({ variable })
+          const h = makeHarness(settingsDir, createDurableProcess())
+          const dump = await spawnAndDumpEnv(h, asSessionId(`sp-${tag}`), access, {
+            // Read through the shell's own descriptor: the pipe it inherited.
+            command: `echo "PIPE=$(/bin/cat /proc/$$/fd/$${descriptor})END"`,
+            until: 'END\r\n',
+          })
+          // Canary first: the secret did reach the process, on the pipe.
+          expect(dump).toContain(`PIPE=${secret}END`)
+          // The env dump, before the read: the descriptor is named, the secret
+          // is in no variable, and no scrub switch is set.
+          const env = dump.slice(0, dump.indexOf('echo "PIPE='))
+          expect(env).toContain(`PODIUM_SESSION_ID=sp-${tag}`)
+          expect(env).toMatch(new RegExp(`${descriptor}=\\d+`))
+          expect(env).not.toContain(`${variable}=`)
+          expect(env).not.toContain(secret)
+          expect(env).not.toContain('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=')
+        })
+      }
+    },
+  )
 
   it('NEGATIVE: no credential (no access on the frame) injects NO ANTHROPIC_API_KEY', async () => {
     // This is the regression that would silently re-auth every existing user: a spawn
@@ -337,14 +449,17 @@ describe('a session credential -> real spawned process env (#216, epic Task 5)',
     expect(dump).not.toContain('CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=')
   })
 
-  it('a Claude token rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
-    const access = await resolvedAccess('anthropic.claude-token', 'oat-test-1')
-    expect(access.delivery).toMatchObject({ variable: 'CLAUDE_CODE_OAUTH_TOKEN' })
+  it.skipIf(process.platform === 'linux')(
+    'a Claude token rides the same path as CLAUDE_CODE_OAUTH_TOKEN',
+    async () => {
+      const access = await resolvedAccess('anthropic.claude-token', 'oat-test-1')
+      expect(access.delivery).toMatchObject({ variable: 'CLAUDE_CODE_OAUTH_TOKEN' })
 
-    const h = makeHarness(settingsDir)
-    const dump = await spawnAndDumpEnv(h, asSessionId('sess-oauth'), access)
+      const h = makeHarness(settingsDir)
+      const dump = await spawnAndDumpEnv(h, asSessionId('sess-oauth'), access)
 
-    expect(dump).toContain('CLAUDE_CODE_OAUTH_TOKEN=oat-test-1')
-    expect(dump).not.toContain('ANTHROPIC_API_KEY=') // a token must not also set the api-key var
-  })
+      expect(dump).toContain('CLAUDE_CODE_OAUTH_TOKEN=oat-test-1')
+      expect(dump).not.toContain('ANTHROPIC_API_KEY=') // a token must not also set the api-key var
+    },
+  )
 })

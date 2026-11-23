@@ -58,7 +58,7 @@ export interface InstallFinishDeps {
   applyChannel?: (channel: string) => void
   persistPath?: (bin: string, home?: string) => { written: string[]; persisted: boolean }
   probeSupervision?: () => SupervisionProbe
-  installAgents?: (io: SetupIO, ids: string[], bin: string) => Promise<unknown>
+  installAgents?: (io: SetupIO, ids: string[]) => Promise<unknown>
   runJoinSetup?: (
     token: string,
     persistence: 'systemd' | 'detached',
@@ -237,7 +237,7 @@ export async function runInstallFinish(
   // downloading three vendor CLIs onto a bare machine is slow enough to expire one. Pairing
   // first also lets the daemon copy credentials and publish inventory while these install.
   if (opts.agents.length > 0) {
-    await (deps.installAgents ?? realInstallAgents)(io, opts.agents, opts.bin)
+    await (deps.installAgents ?? realInstallAgents)(io, opts.agents)
   }
 
   report(io, opts, {

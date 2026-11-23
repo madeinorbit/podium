@@ -64,6 +64,7 @@ export type NoticeDestination =
   | { readonly kind: 'issue'; readonly issueId: string; readonly commentId?: string }
   | { readonly kind: 'session'; readonly sessionId: string }
   | { readonly kind: 'credential'; readonly credentialId: string }
+  | { readonly kind: 'machine'; readonly machineId: string }
   | { readonly kind: 'none' }
 
 /** The subject a notice opens; a subject this build does not know opens nothing. */
@@ -79,6 +80,8 @@ export function noticeDestination(notice: {
         : { kind: 'issue', issueId: notice.subjectId, commentId: notice.subjectAnchor }
     case 'session':
       return { kind: 'session', sessionId: notice.subjectId }
+    case 'machine':
+      return { kind: 'machine', machineId: notice.subjectId }
     case 'credential':
       return { kind: 'credential', credentialId: notice.subjectId }
     default:

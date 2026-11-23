@@ -206,6 +206,18 @@ export interface HeadlessDriverHost {
     execEnv?: Record<string, string>
     envOverlay?: Record<string, string>
   }): { env: Record<string, string>; stripEnv: readonly string[] }
+  /**
+   * The executable one turn runs when the session pinned none (managed
+   * installs §4.2): the installation of the side the session's home is on, so
+   * a turn in a home Podium made runs Podium's install, the same side
+   * `turnChildEnv` composes for. Absent, or undefined: the snapshot's person's
+   * install.
+   */
+  turnExecutable?(input: {
+    agent: HarnessAgent
+    sessionId: SessionId
+    snapshot: ResolvedHarnessInventory
+  }): string | undefined
   /** Fail closed when the live native login no longer matches a tool-less turn.
    *  Throws with `assertNativeHeadlessAccount`'s wording. The
    *  inventory slice comes from the same snapshot the dispatch runs under, so
@@ -887,15 +899,16 @@ export function createHeadlessRuntime(
       input.overrides?.supported === true ? input.overrides.value.model : undefined
     const overridesEffort =
       input.overrides?.supported === true ? input.overrides.value.effort : undefined
+    const executablePath =
+      session.sticky.executablePath ??
+      host.turnExecutable?.({ agent, sessionId: session.sessionId, snapshot })
     return {
       agent,
       accountId: identity.accountId,
       requestDigest: input.requestDigest ?? '',
       cwd: session.cwd,
       prompt: textWithAttachmentPaths(input.text, input.attachments ?? []),
-      ...(session.sticky.executablePath !== undefined
-        ? { executablePath: session.sticky.executablePath }
-        : {}),
+      ...(executablePath !== undefined ? { executablePath } : {}),
       ...((overridesModel ?? session.sticky.model) !== undefined
         ? { model: (overridesModel ?? session.sticky.model) as string }
         : {}),

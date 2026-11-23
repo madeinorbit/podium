@@ -449,6 +449,10 @@ describe('a hosted one-shot turn', () => {
     expect(start.args[0]).toBe('-c')
     expect(start.args[3]?.startsWith(TURN_MARKER_PREFIX)).toBe(true)
     expect(start.retention).toEqual(HEADLESS_TURN_RETENTION)
+    // The turn runs FOR its session, so its installation is recorded against
+    // it (managed installs §6.2); it is not the session's engine.
+    expect(start.turnFor).toBe(sessionId)
+    expect(start.sessionId).toBeUndefined()
     expect(events).toContainEqual({ kind: 'status', status: 'starting' })
     expect(events).toContainEqual({
       kind: 'status',

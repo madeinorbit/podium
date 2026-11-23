@@ -6,6 +6,7 @@
 import type { SessionPosture } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { testHarnessContext } from '../../driver/testing/harness-context.js'
+import { withHarnessHome } from '../../harness-context.js'
 import { applyTerms, launchTerms } from '../../posture.js'
 import {
   LAUNCH_MODES,
@@ -17,6 +18,7 @@ import { claudeCodeManifest } from './index.js'
 import { claudeCodePosture } from './posture.js'
 
 const HOME = '/home/podium-test'
+const PODIUM_HOME = `${HOME}/.podium/homes/podium/claude-code`
 const WORKDIR = '/work/repo/.worktrees/issue-1'
 const REPO_ROOT = '/work/repo'
 const RUNTIME_DIR = '/run/podium/sessions/s1'
@@ -76,6 +78,55 @@ const LEVELS = [
 
 describe('claudeCodePosture', () => {
   for (const mode of LAUNCH_MODES) {
+    it(`${mode}: disables the updater for a managed installation, preserving other launch terms`, () => {
+      const launch = { ...resumeLaunch, env: { KEEP: 'value', DISABLE_AUTOUPDATER: '0' } }
+      const external = claudeCodePosture(
+        launch,
+        request(
+          mode,
+          { mode: 'autonomous' },
+          {
+            context: withHarnessHome(context, { id: 'podium:claude-code', dir: PODIUM_HOME }),
+          },
+        ),
+      )
+      const managed = claudeCodePosture(
+        launch,
+        request(
+          mode,
+          { mode: 'autonomous' },
+          {
+            context: withHarnessHome(
+              testHarnessContext({ kind: 'claude-code', home: HOME, provenance: 'managed' }),
+              { id: 'podium:claude-code', dir: PODIUM_HOME },
+            ),
+          },
+        ),
+      )
+      expect(managed).toEqual({
+        ...external,
+        launch: { ...external.launch, env: { ...external.launch.env, DISABLE_AUTOUPDATER: '1' } },
+        homeEdits: [
+          ...external.homeEdits,
+          {
+            kind: 'json-key',
+            file: `${PODIUM_HOME}/settings.json`,
+            path: ['disableDeepLinkRegistration'],
+            value: 'disable',
+            serves: 'quiet-start',
+            createIfMissing: true,
+          },
+        ],
+      })
+      expect(external.launch.env.DISABLE_AUTOUPDATER).toBe('0')
+      expect(launch.env.DISABLE_AUTOUPDATER).toBe('0')
+    })
+
+    it(`${mode}: adds no updater switch for an external installation`, () => {
+      const out = claudeCodePosture(resumeLaunch, request(mode, { mode: 'autonomous' }))
+      expect(out.launch.env).not.toHaveProperty('DISABLE_AUTOUPDATER')
+    })
+
     for (const { posture, word } of LEVELS) {
       it(`${mode} / ${posture.mode as string}: --permission-mode ${word}, the rules, the trust key`, () => {
         const out = claudeCodePosture(resumeLaunch, request(mode, posture))
@@ -102,6 +153,31 @@ describe('claudeCodePosture', () => {
       })
     }
   }
+
+  it('keeps the per-session hook settings when suppressing managed URL registration', () => {
+    const hookFile = { path: `${RUNTIME_DIR}/hooks.json`, contents: '{"hooks":{}}' }
+    const out = claudeCodePosture(
+      { args: ['--settings', hookFile.path, '--', 'hi'], env: {}, files: [hookFile] },
+      request(
+        'terminal',
+        { mode: 'supervised' },
+        {
+          context: withHarnessHome(
+            testHarnessContext({ kind: 'claude-code', home: HOME, provenance: 'managed' }),
+            { id: 'podium:claude-code', dir: PODIUM_HOME },
+          ),
+        },
+      ),
+    )
+    expect(out.launch.args.slice(0, 2)).toEqual(['--settings', hookFile.path])
+    expect(out.launch.args.filter((arg) => arg === '--settings')).toHaveLength(1)
+    expect(out.launch.files).toEqual([hookFile])
+    expect(out.homeEdits.at(-1)).toMatchObject({
+      file: `${PODIUM_HOME}/settings.json`,
+      path: ['disableDeepLinkRegistration'],
+      value: 'disable',
+    })
+  })
 
   it('appends after the last option when the launch has no prompt boundary', () => {
     const out = claudeCodePosture(

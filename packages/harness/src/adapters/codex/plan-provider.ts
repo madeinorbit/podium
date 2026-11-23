@@ -42,16 +42,54 @@ export async function codexModelProviderChange(
  * point Codex at a local fake endpoint; production uses OpenAI's.
  */
 export function codexPlanProviderArgs(baseUrl: string = CHATGPT_PLAN_BASE_URL): string[] {
-  const key = `model_providers.${CODEX_PLAN_PROVIDER_ID}`
+  return envKeyProviderArgs(
+    CODEX_PLAN_PROVIDER_ID,
+    'ChatGPT plan',
+    baseUrl,
+    CHATGPT_PLAN_TOKEN_VARIABLE,
+  )
+}
+
+/**
+ * CODEX ON AN OPENAI API KEY IN THE PODIUM HOME (managed installs §4.3,
+ * measured in POD-7267). The Podium home holds no Codex login, and Codex's
+ * built-in `openai` provider reads only the login file: with the bare
+ * `OPENAI_API_KEY` a terminal shows the sign-in menu. A provider that reads
+ * the key from that variable answers the first turn. Only the variable's
+ * NAME is an argument.
+ */
+export const CODEX_API_KEY_PROVIDER_ID = 'podium_openai_api_key'
+export const OPENAI_API_KEY_VARIABLE = 'OPENAI_API_KEY'
+
+export function codexApiKeyProviderArgs(baseUrl: string = CHATGPT_PLAN_BASE_URL): string[] {
+  return envKeyProviderArgs(
+    CODEX_API_KEY_PROVIDER_ID,
+    'OpenAI API key',
+    baseUrl,
+    OPENAI_API_KEY_VARIABLE,
+  )
+}
+
+/**
+ * The provider a thread must record to resume in the Podium home: Codex's
+ * built-in `openai` cannot answer there (no login file), so a thread recorded
+ * under it continues on the API-key provider. Any other provider stays.
+ */
+export function codexProviderInPodiumHome(provider: string): string {
+  return provider === 'openai' ? CODEX_API_KEY_PROVIDER_ID : provider
+}
+
+function envKeyProviderArgs(id: string, name: string, baseUrl: string, envKey: string): string[] {
+  const key = `model_providers.${id}`
   return [
     '-c',
-    `model_provider=${JSON.stringify(CODEX_PLAN_PROVIDER_ID)}`,
+    `model_provider=${JSON.stringify(id)}`,
     '-c',
-    `${key}.name=${JSON.stringify('ChatGPT plan')}`,
+    `${key}.name=${JSON.stringify(name)}`,
     '-c',
     `${key}.base_url=${JSON.stringify(baseUrl)}`,
     '-c',
-    `${key}.env_key=${JSON.stringify(CHATGPT_PLAN_TOKEN_VARIABLE)}`,
+    `${key}.env_key=${JSON.stringify(envKey)}`,
     '-c',
     `${key}.wire_api="responses"`,
     '-c',

@@ -110,6 +110,7 @@ describe('terminalRuntimeDriverInventory', () => {
       { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
       { harness: 'cursor', id: 'generic-pty', family: 'terminal' },
       { harness: 'pi', id: 'generic-pty', family: 'terminal' },
+      { harness: 'antigravity', id: 'generic-pty', family: 'terminal' },
     ])
   })
 })
@@ -141,6 +142,7 @@ function makeRuntimeCtx(opencode2Executable?: string): {
     inventory: withBaselineDrivers(INV),
     commandEnvironment: {
       machineHome: '/home/u',
+      env: {},
       resolve: (name: string) => (name === 'opencode2' ? opencode2Executable : undefined),
     },
   }
@@ -492,7 +494,10 @@ it('reports every installed harness version as quiet, timestamped machine data',
 describe('one login per home (credential management §10, acceptance 5)', () => {
   beforeEach(() => buildInventory.mockReset().mockResolvedValue(INV))
 
-  it('a daemon that keeps homes reports default first, then each home', async () => {
+  it.each([
+    'legacy',
+    'runtime',
+  ] as const)('%s reports default first, then each home alongside managed install facts', async (source) => {
     const { mkdtempSync, rmSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { join } = await import('node:path')
@@ -504,13 +509,26 @@ describe('one login per home (credential management §10, acceptance 5)', () => 
         'cred_cccccccc-0000-4000-8000-0000000000c5',
         'claude-code',
       )
-      const { ctx, sent } = makeCtx()
+      const { ctx, sent } = source === 'runtime' ? makeRuntimeCtx() : makeCtx()
       Object.assign(ctx, { homes, homeDir: join(root, 'person') })
+      if (source === 'runtime')
+        Object.assign(ctx, {
+          harnessInstalls: {
+            inventory: (inventory: Inventory): Inventory => ({
+              ...inventory,
+              agents: inventory.agents.map((agent) => ({
+                ...agent,
+                install: { managed: { paused: true } },
+              })),
+            }),
+          },
+        })
       await reportInventory(ctx)
       const report = sent.find((frame) => frame.type === 'inventoryReport')
       const claude = report?.type === 'inventoryReport' ? report.inventory.agents[0] : undefined
       expect(claude?.logins?.map((login) => login.homeId)).toEqual(['default', home.homeId])
       expect(claude?.logins?.[0]?.state).toBe('in')
+      if (source === 'runtime') expect(claude?.install?.managed?.paused).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

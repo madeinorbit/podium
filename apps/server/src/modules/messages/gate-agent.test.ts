@@ -121,8 +121,8 @@ async function harness(opts?: {
   const retired: { factKey: string; target: string }[] = []
   const svc = new MessageDeliveryService({
     writers: messageTestWriters(store),
-          soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
-      legacyRowOwner: () => firstAdminMemberId(store),
+    soleActiveMember: async () => (await store.users.soleActiveMember())?.id as never,
+    legacyRowOwner: () => firstAdminMemberId(store),
     messages: store.messages,
     notificationFacts: store.notificationFacts,
     events: store.events,
@@ -254,6 +254,62 @@ describe('agent spawn (gate)', () => {
     expect(evs[0]!.payload).toMatchObject({
       sessionId: asSessionId('child1'),
       workflowRunId: 'run_1',
+    })
+  })
+
+  describe("the issue's stored model and effort (POD-7363)", () => {
+    const storedPick = { defaultAgent: 'codex', defaultModel: 'gpt-6.2-sol', defaultEffort: 'max' }
+
+    it('runs the stored model and effort when the spawn names neither', async () => {
+      const { gate, spawns } = await harness({ issueOverrides: storedPick })
+      await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'go' })
+      expect(spawns[0]).toMatchObject({ agentKind: 'codex', model: 'gpt-6.2-sol', effort: 'max' })
+    })
+
+    it('keeps them when --harness names the issue’s own harness, and lets each flag win', async () => {
+      const { gate, spawns } = await harness({ issueOverrides: storedPick })
+      await gate.dispatch(PARENT, true, 'spawnAgent', {
+        issue: ISSUE.id,
+        prompt: 'go',
+        harness: 'codex',
+        effort: 'low',
+      })
+      expect(spawns[0]).toMatchObject({ agentKind: 'codex', model: 'gpt-6.2-sol', effort: 'low' })
+    })
+
+    it('treats a stored auto as no pick', async () => {
+      const { gate, spawns } = await harness()
+      await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'go' })
+      expect(spawns[0]).not.toHaveProperty('model')
+      expect(spawns[0]).not.toHaveProperty('effort')
+    })
+
+    it('drops them for a different --harness, whose slugs they were not chosen for', async () => {
+      const { gate, spawns } = await harness({ issueOverrides: storedPick })
+      await gate.dispatch(PARENT, true, 'spawnAgent', {
+        issue: ISSUE.id,
+        prompt: 'go',
+        harness: 'claude-code',
+      })
+      expect(spawns[0]).toMatchObject({ agentKind: 'claude-code' })
+      expect(spawns[0]).not.toHaveProperty('model')
+      expect(spawns[0]).not.toHaveProperty('effort')
+    })
+
+    it('drops them under an explicit --profile, which replaces the issue’s pick', async () => {
+      const { gate, spawns } = await harness({
+        issueOverrides: storedPick,
+        findAgentProfile: async () => ({ id: 'agp_build', name: 'build' }),
+      })
+      await gate.dispatch(PARENT, true, 'spawnAgent', {
+        issue: ISSUE.id,
+        prompt: 'go',
+        agentProfile: 'build',
+      })
+      expect(spawns[0]).toMatchObject({ agentProfileId: 'agp_build' })
+      expect(spawns[0]?.agentKind).toBeUndefined()
+      expect(spawns[0]).not.toHaveProperty('model')
+      expect(spawns[0]).not.toHaveProperty('effort')
     })
   })
 
@@ -501,9 +557,15 @@ describe('agent spawn (gate)', () => {
   it('--new under another member’s task is assigned to the agent’s own human (POD-6287)', async () => {
     // Alice's task; the agent works on it for the instance's first admin. The
     // new task is the creating human's, not the parent's owner's (design §2.2).
-    const onAlicesTask: Capability = { ...PARENT, scope: { kind: 'subtree', rootId: asIssueId(ISSUE.id) } }
+    const onAlicesTask: Capability = {
+      ...PARENT,
+      scope: { kind: 'subtree', rootId: asIssueId(ISSUE.id) },
+    }
     const { gate, created } = await harness({ issueOverrides: { ownerUserId: 'mem_alice' } })
-    await gate.dispatch(onAlicesTask, undefined, 'spawnAgent', { newTitle: 'side task', prompt: 'go' })
+    await gate.dispatch(onAlicesTask, undefined, 'spawnAgent', {
+      newTitle: 'side task',
+      prompt: 'go',
+    })
     expect(created[0]).toMatchObject({
       parentId: ISSUE.id,
       ownerUserId: firstAdminMemberId(),

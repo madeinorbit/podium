@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { defaultInstanceGuardIo } from './instance-guard'
 import {
+  desktopSupervisesInstance,
   isAlive,
   type KillFn,
   listLive,
@@ -299,5 +300,35 @@ describe('a record from a previous boot is not live (POD-3837)', () => {
     rec()
     expect(readRecordForTest('server')?.bootId).toBeUndefined()
     expect(readRecordForTest('server')?.procStartTime).toBeUndefined()
+  })
+})
+
+describe('desktop supervision marker', () => {
+  it('is written by a process the desktop app starts, and kept after it exits', async () => {
+    const prior = process.env.PODIUM_DESKTOP_SUPERVISED
+    process.env.PODIUM_DESKTOP_SUPERVISED = '1'
+    try {
+      const cleanup = await registerProcess('parent', { kill: fakeKill(new Set()) })
+      cleanup()
+    } finally {
+      if (prior === undefined) delete process.env.PODIUM_DESKTOP_SUPERVISED
+      else process.env.PODIUM_DESKTOP_SUPERVISED = prior
+    }
+    // A quit app still runs the instance on its next launch.
+    expect(desktopSupervisesInstance({})).toBe(true)
+  })
+
+  it('is removed when the instance is next started without the app', async () => {
+    writeFileSync(join(dir, 'desktop-supervised'), '')
+    const prior = process.env.PODIUM_DESKTOP_SUPERVISED
+    delete process.env.PODIUM_DESKTOP_SUPERVISED
+    try {
+      const cleanup = await registerProcess('parent', { kill: fakeKill(new Set()) })
+      cleanup()
+    } finally {
+      if (prior !== undefined) process.env.PODIUM_DESKTOP_SUPERVISED = prior
+    }
+    expect(desktopSupervisesInstance({})).toBe(false)
+    expect(desktopSupervisesInstance({ PODIUM_DESKTOP_SUPERVISED: '1' })).toBe(true)
   })
 })

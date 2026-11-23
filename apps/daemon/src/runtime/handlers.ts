@@ -32,7 +32,7 @@ import type {
   TurnReceipt,
 } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
-import { deliveryOverlay } from '../control/access'
+import { assertDeliveryPrerequisites, deliveryOverlay } from '../control/access'
 import type { ControlHandlers, DaemonContext } from '../control/context'
 import { stopSessionProcess } from '../control/session'
 import { runtimeAttachmentBelongsToSession } from './attachment-staging'
@@ -312,22 +312,35 @@ export const runtimeHandlers: Pick<
           })
         })
     }
-    void ctx.access.awaitAccess(msg.sessionId).then(
-      (access) => sendTurn(deliveryOverlay(harness, access).env),
-      (error: unknown) => {
-        const detail = error instanceof Error ? error.message : String(error)
-        const receipt: TurnReceipt = {
-          outcome: 'refused',
-          refusal: { reason: 'not_running', detail },
-        }
-        ctx.send({
-          type: 'runtimeSendResult',
-          requestId: msg.requestId,
-          sessionId: msg.sessionId,
-          receipt,
-        })
-      },
-    )
+    const refuse = (error: unknown): void => {
+      const detail = error instanceof Error ? error.message : String(error)
+      const receipt: TurnReceipt = {
+        outcome: 'refused',
+        refusal: { reason: 'not_running', detail },
+      }
+      ctx.send({
+        type: 'runtimeSendResult',
+        requestId: msg.requestId,
+        sessionId: msg.sessionId,
+        receipt,
+      })
+    }
+    void ctx.access.awaitAccess(msg.sessionId).then((access) => {
+      // A secret that goes in on a pipe (POD-7378) is in no variable here: the
+      // engine layer hands the turn's process a pipe of its own. An empty one,
+      // or a hide switch the harness cannot run here (POD-7375), refuses the
+      // turn before a process starts.
+      let env: Record<string, string>
+      try {
+        const overlay = deliveryOverlay(harness, access)
+        assertDeliveryPrerequisites(harness, access, { ...process.env, ...overlay.env })
+        env = overlay.env
+      } catch (error) {
+        refuse(error)
+        return
+      }
+      sendTurn(env)
+    }, refuse)
   },
 
   runtimeInterruptRequest: (ctx, msg) => {

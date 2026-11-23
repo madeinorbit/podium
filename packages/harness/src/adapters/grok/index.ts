@@ -24,7 +24,7 @@ import { grokCatalog } from './catalog.js'
 import { grokCredentials, hasValidGrokCredential } from './credentials.js'
 import { grokDescriptor } from './descriptor.js'
 import { createGrokConversationProvider } from './discovery.js'
-import { grokInstall } from './install.js'
+import { grokInstall, grokManagedInstall } from './install.js'
 import { grokInstrumentation, grokSessionPaths } from './instrumentation.js'
 import { grokPosture } from './posture.js'
 import { locateGrokTranscript } from './state-locate.js'
@@ -126,9 +126,14 @@ export const grokManifest: AgentManifest = {
   },
 
   inventory: {
-    executable: { names: ['grok'], versionArgs: ['--version'] },
+    executable: {
+      names: ['grok'],
+      versionArgs: ['--version'],
+      fallbackCandidates: (machineHome) => [join(machineHome, '.grok', 'bin', 'grok')],
+    },
     loginCommandProbe: unsupported('Grok login detection still uses its local credential file'),
     loginCommand: supported({ args: ['login'] }),
+    signOutCommand: { args: ['logout'] },
     loginIdentity: supported((homeDir, env?: HarnessEnvironment) =>
       grokCredentials.identity(credentialFileReader(grokCredentials, homeDir, env)),
     ),
@@ -139,8 +144,10 @@ export const grokManifest: AgentManifest = {
     // Its presence flips grok from the OIDC session in `auth.json` to
     // API-key/custom-endpoint auth.
     foreignCredentialEnv: ['XAI_API_KEY'],
-    // An xAI key or Grok login is none of the registry's credential types.
-    accepts: [],
+    // A Grok login lives in `auth.json` under `GROK_HOME`, so a sign-in
+    // folder holds it (managed installs §4.7, POD-7370). No passed-in line:
+    // an `XAI_API_KEY` start in a home was not measured.
+    accepts: [{ type: 'xai.grok-login', deliver: { kind: 'home' } }],
     detectLogin(homeDir, env: HarnessEnvironment) {
       const path = grokHome(homeDir, env)
       try {
@@ -167,6 +174,7 @@ export const grokManifest: AgentManifest = {
   credentials: supported(grokCredentials),
   usage: supported(grokUsage),
   install: supported(grokInstall),
+  managedInstall: supported(grokManagedInstall),
 
   posture: grokPosture,
   launch(opts) {
@@ -565,6 +573,7 @@ export const grokManifest: AgentManifest = {
   composer: unsupported('grok has no composer scrape rules yet'),
 
   handoffTranscript: unsupported('cross-machine handoff is not supported for grok sessions'),
+  conversationFile: unsupported('grok declares no conversation file to move between its homes'),
 
   classifyBrowserOpen: unsupported(
     'no catalogued grok login/link domains yet — the daemon generic redirect_uri heuristic decides (POD-738)',

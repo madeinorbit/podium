@@ -29,10 +29,15 @@ import { CodexCredentialAbsenceGrace } from './credential-absence-grace.js'
 import { codexCredentials } from './credentials.js'
 import { codexDescriptor } from './descriptor.js'
 import { createCodexConversationProvider } from './discovery.js'
-import { codexInstall } from './install.js'
+import { codexInstall, codexManagedInstall } from './install.js'
 import { codexInstrumentation } from './instrumentation.js'
 import { createOwnedCodexRolloutResolver, hostProcessInspection } from './owned-rollout.js'
-import { CHATGPT_PLAN_TOKEN_VARIABLE, codexPlanProviderArgs } from './plan-provider.js'
+import {
+  CHATGPT_PLAN_TOKEN_VARIABLE,
+  codexApiKeyProviderArgs,
+  codexPlanProviderArgs,
+  OPENAI_API_KEY_VARIABLE,
+} from './plan-provider.js'
 import { codexMcpServerKey, codexPosture } from './posture.js'
 import { codexRoots } from './roots.js'
 import {
@@ -90,7 +95,13 @@ const codexCredentialAbsenceGrace = new CodexCredentialAbsenceGrace()
 
 /** The credential types Codex accepts and how each is delivered (credential management §5). */
 const CODEX_ACCEPTS: readonly AcceptedCredential[] = [
-  { type: 'openai.api-key', deliver: { kind: 'env', variable: 'OPENAI_API_KEY' } },
+  {
+    type: 'openai.api-key',
+    deliver: { kind: 'env', variable: OPENAI_API_KEY_VARIABLE },
+    // In the Podium home there is no login file for the built-in provider to
+    // read (managed installs §4.3, POD-7267).
+    homeStartArgs: codexApiKeyProviderArgs(),
+  },
   { type: 'openai.chatgpt-login', deliver: { kind: 'home' } },
   // A ChatGPT plan signed in to Podium reaches Codex as the token of a
   // model provider the server driver is started with (plan Task 15); the
@@ -368,6 +379,7 @@ export const codexManifest: AgentManifest = {
   credentials: supported(codexCredentials),
   usage: supported(codexUsage),
   install: supported(codexInstall),
+  managedInstall: supported(codexManagedInstall),
 
   posture: codexPosture,
   launch(opts) {
@@ -831,8 +843,8 @@ export const codexManifest: AgentManifest = {
       if (rel.startsWith('..')) throw new Error('Codex transcript is outside the sessions root')
       return { path: found.path, ...(rel ? { relativeDir: rel } : {}) }
     },
-    ...codexConversationFile,
   }),
+  conversationFile: supported(codexConversationFile),
 
   transcript: codexTranscript,
 

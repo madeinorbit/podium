@@ -189,6 +189,39 @@ function configOf(env: Readonly<Record<string, string>>): unknown {
 }
 
 describe('opencodePosture', () => {
+  describe('managed update ownership', () => {
+    for (const mode of LAUNCH_MODES) {
+      it.each([
+        'supervised',
+        'autonomous',
+      ] as const)(`${mode}, %s disables only managed updates`, (level) => {
+        const posture = level === 'supervised' ? SUPERVISED : AUTONOMOUS
+        const launch: PostureLaunch = {
+          ...BUILDER[mode],
+          env: { ...BUILDER[mode].env, OPENCODE_DISABLE_AUTOUPDATE: '0' },
+        }
+        const original = structuredClone(launch)
+        const externalRequest = request(mode, posture)
+        const external = opencodePosture(launch, externalRequest)
+        const managed = opencodePosture(launch, {
+          ...externalRequest,
+          context: testHarnessContext({ kind: 'opencode', provenance: 'managed', home: HOME }),
+        })
+        expect(external.launch.env.OPENCODE_DISABLE_AUTOUPDATE).toBe('0')
+        expect(managed).toEqual({
+          ...external,
+          launch: {
+            ...external.launch,
+            env: { ...external.launch.env, OPENCODE_DISABLE_AUTOUPDATE: '1' },
+          },
+        })
+        expect(launch).toEqual(original)
+        const absent = opencodePosture(BUILDER[mode], externalRequest)
+        expect(absent.launch.env).not.toHaveProperty('OPENCODE_DISABLE_AUTOUPDATE')
+      })
+    }
+  })
+
   for (const mode of LAUNCH_MODES) {
     for (const level of ['supervised', 'autonomous'] as const) {
       it(`${mode}, ${level}`, () => {

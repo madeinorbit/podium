@@ -9,55 +9,98 @@
  * two installations.
  *
  * Lifetime: daemon memory, with the session (`DaemonSession.harnessContext`).
- * The binding store is not extended. A daemon restart rebuilds the context
- * from the current inventory on reattach: roots depend only on the home and
- * the account env, so the rebuilt context names the same folders, and the
- * running process is never relaunched.
+ * The binding store is not extended. A daemon restart rebuilds the context on
+ * reattach from the installation the session's row in the install ledger
+ * records (managed installs §6.2), so it names the binary that really runs;
+ * from the current inventory only when there is no row. Roots depend only on
+ * the home and the account env, so the rebuilt context names the same
+ * folders, and the running process is never relaunched.
  */
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
   type HarnessContext,
   type HarnessExecutableSnapshot,
+  type HarnessHomeSide,
   harnessContext,
+  harnessContextOn,
   harnessDriverContext,
+  harnessHomeVariable,
   harnessLoginReadEnv,
   harnessRoots,
   withHarnessHome,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import type { AgentKind, BuiltinHarnessKind, SessionId } from '@podium/model'
-import { parseHomeId } from '@podium/protocol'
+import {
+  type AgentKind,
+  type BuiltinHarnessKind,
+  isBuiltinHarnessKind,
+  type SessionId,
+} from '@podium/model'
+import { HomeHarness, parseHomeId, parsePodiumHomeId } from '@podium/protocol'
+import type { MachineHomeFacts } from './control/access'
 import type { DaemonContext } from './control/context'
 import { resolveManagementCredentialHome } from './harness-management'
-import type { HarnessHome } from './homes/registry'
-import { prepareHomeLaunch } from './homes/share'
+import { type HarnessHome, isPodiumHome } from './homes/registry'
+import { prepareHomeLaunch, type ShareSource } from './homes/share'
+import { recordedInstallation } from './session-installs'
 
 const log = createLogger('daemon:harness-context')
 
 type ContextSource = Pick<DaemonContext, 'harnessRuntime' | 'accountHome' | 'homeDir'> &
-  Partial<Pick<DaemonContext, 'access' | 'homes'>>
+  Partial<Pick<DaemonContext, 'access' | 'homes' | 'sessionInstalls'>>
+
+type HomeSource = Partial<Pick<DaemonContext, 'access' | 'homes' | 'harnessRuntime'>>
 
 /** A session's credential names a home this machine does not hold. */
 export class HomeNotOnMachineError extends Error {
   override readonly name = 'HomeNotOnMachineError'
 }
 
+/** What a snapshot says of the machine's managed installs (managed installs §4.2). */
+export function snapshotHomeFacts(
+  snapshot: Pick<HarnessExecutableSnapshot, 'managed'> &
+    Partial<Pick<HarnessExecutableSnapshot, 'executables'>>,
+): MachineHomeFacts {
+  return {
+    managedInstall: (kind) => snapshot.managed?.has(kind) ?? false,
+    externalInstall: (kind) => snapshot.executables?.has(kind) ?? false,
+  }
+}
+
 /**
- * The Podium home session `sessionId` runs in (credential management §10), or
- * undefined for the harness's own directory. A home the access names that
- * this machine does not hold, or one made for another harness, throws: the
- * session is never started on the harness's own login instead.
+ * The facts of the last settled inventory wave, for a caller with no
+ * snapshot in hand (a transcript read, a home's process list). A launch path
+ * passes its own snapshot's facts, so its home and its binary agree.
+ */
+function settledHomeFacts(ctx: HomeSource): MachineHomeFacts {
+  const settled = ctx.harnessRuntime?.settled?.()
+  return {
+    managedInstall: (kind) => settled?.managed?.has(kind) ?? false,
+    externalInstall: (kind) => settled?.executables.has(kind) ?? false,
+  }
+}
+
+/**
+ * The Podium-made home session `sessionId` runs in (credential management
+ * §10, managed installs §4.3), or undefined for the harness's own directory.
+ * A home the access names that this machine does not hold, or one made for
+ * another harness, throws: the session is never started on the harness's own
+ * login instead. The Podium home is made when it is not there yet; filling
+ * it is `PodiumHomes.reconcile`'s.
  */
 export function sessionHomeFor(
-  ctx: Partial<Pick<DaemonContext, 'access' | 'homes'>>,
+  ctx: HomeSource,
   sessionId: SessionId | undefined,
   kind: AgentKind,
+  machine: MachineHomeFacts = settledHomeFacts(ctx),
 ): HarnessHome | undefined {
   if (!sessionId || !ctx.access) return undefined
-  const homeId = ctx.access.homeIdOf(sessionId)
+  const homeId = ctx.access.homeIdOf(sessionId, machine)
   if (homeId === undefined) return undefined
-  const home = ctx.homes?.get(homeId)
+  const podium = parsePodiumHomeId(homeId)
+  if (podium && podium === kind && ctx.homes) return ctx.homes.ensurePodiumHome(podium).home
+  const home = podium ? undefined : ctx.homes?.get(homeId)
   if (!home || parseHomeId(homeId)?.harness !== kind) {
     throw new HomeNotOnMachineError(
       `This session's login lives in a home this machine does not hold (${homeId}), so it was not started on the machine's own login instead. Sign in to that credential on this machine, or pick another credential.`,
@@ -67,23 +110,90 @@ export function sessionHomeFor(
 }
 
 /**
- * `context`, moved into the session's home when it has one, with the home
- * made ready for a start: the person's settings linked and, for Claude Code,
- * its state file seeded with the person's MCP servers. Unchanged for a
- * session on the harness's own directory.
+ * THE BINARY FOLLOWS THE HOME (managed installs §4.2, §6.1). The one place
+ * that knows a session's home decides which installation it runs:
+ *
+ * - no home (the person's own harness folder): `build('person')`, the
+ *   person's install, never Podium's;
+ * - a home Podium made (the Podium home or a sign-in folder):
+ *   `build('podium')`, Podium's install when there is one, else the
+ *   person's, moved into the home, with the home made ready for a start.
+ *
+ * Made ready (§4.3, §4.6): a sign-in folder links its settings from the
+ * Podium home when the machine has a managed install, else from the person's
+ * folder, and Claude Code's state file there gets that folder's MCP servers.
+ * The Podium home links nothing (it holds copies). Every home Podium made is
+ * marked onboarded, and a delivered Claude API key is marked approved, so the
+ * first turn is not a setup screen.
+ *
+ * `build` returns the context for that side in the account's own folders;
+ * this moves it into the home.
  */
 export function inSessionHome(
-  ctx: Partial<Pick<DaemonContext, 'access' | 'homes'>>,
+  ctx: HomeSource,
   sessionId: SessionId | undefined,
-  context: HarnessContext,
+  kind: BuiltinHarnessKind,
+  build: (side: HarnessHomeSide) => HarnessContext,
+  machine: MachineHomeFacts = settledHomeFacts(ctx),
 ): HarnessContext {
-  const home = sessionHomeFor(ctx, sessionId, context.installation.kind)
-  if (!home) return context
+  const home = sessionHomeFor(ctx, sessionId, kind, machine)
+  if (!home) return build(defaultFolderSide(ctx, sessionId, kind, machine))
+  const context = build('podium')
+  const shareFrom = isPodiumHome(home) ? undefined : shareSourceFor(ctx, home, context, machine)
+  const access = sessionId ? ctx.access?.current(sessionId) : undefined
   prepareHomeLaunch(home, {
-    defaultDir: context.roots.state,
-    personClaudeState: claudeStateFile(context),
+    ...(shareFrom ? { shareFrom } : {}),
+    ...(access?.delivery.kind === 'env'
+      ? { deliveredEnv: { [access.delivery.variable]: access.delivery.secret } }
+      : {}),
   })
   return withHarnessHome(context, { id: home.homeId, dir: home.dir })
+}
+
+/** Where a sign-in folder shares from: the Podium home on Podium's side (§4.6). */
+function shareSourceFor(
+  ctx: HomeSource,
+  home: HarnessHome,
+  context: HarnessContext,
+  machine: MachineHomeFacts,
+): ShareSource {
+  const harness = HomeHarness.safeParse(home.harness)
+  if (harness.success && machine.managedInstall(harness.data) && ctx.homes) {
+    const podium = ctx.homes.ensurePodiumHome(harness.data).home
+    return { dir: podium.dir, claudeState: join(podium.dir, '.claude.json') }
+  }
+  return { dir: context.roots.state, claudeState: claudeStateFile(context) }
+}
+
+/**
+ * The side of the machine session `sessionId` runs on: `podium` when its
+ * access names a home Podium made, else `person`. Throws as
+ * {@link sessionHomeFor} does. For a caller that needs only the installation
+ * (a headless turn's argv) and must not prepare the home.
+ */
+export function sessionHomeSide(
+  ctx: HomeSource,
+  sessionId: SessionId | undefined,
+  kind: AgentKind,
+  machine?: MachineHomeFacts,
+): HarnessHomeSide {
+  return sessionHomeFor(ctx, sessionId, kind, machine)
+    ? 'podium'
+    : defaultFolderSide(ctx, sessionId, kind, machine ?? settledHomeFacts(ctx))
+}
+
+/** Section 4.7: without a directory variable an admitted install uses the default folder.
+ * If a personal copy appeared later, its own login still selects its own binary. */
+function defaultFolderSide(
+  ctx: HomeSource,
+  sessionId: SessionId | undefined,
+  kind: AgentKind,
+  machine: MachineHomeFacts,
+): HarnessHomeSide {
+  if (!isBuiltinHarnessKind(kind) || harnessHomeVariable(kind) || !machine.managedInstall(kind))
+    return 'person'
+  const passedIn = sessionId && ctx.access?.current(sessionId)?.delivery.kind === 'env'
+  return passedIn || !machine.externalInstall?.(kind) ? 'podium' : 'person'
 }
 
 /** Where Claude Code keeps its state file for the harness's own directory. */
@@ -94,7 +204,8 @@ export function claudeStateFile(context: HarnessContext): string {
 
 /**
  * Build the context a new session of `kind` runs under: the inventory's
- * current installation, and the daemon's credential home
+ * current installation for the session's side ({@link inSessionHome}), and
+ * the daemon's credential home
  * (`accountHome ?? homeDir ?? machine home`, the one home host-runtime hands
  * the inventory's login probes).
  *
@@ -107,10 +218,17 @@ export async function buildSessionHarnessContext(
   /** The session it is for: its access names the home it runs in. */
   sessionId?: SessionId,
 ): Promise<HarnessContext> {
-  if (!ctx.harnessRuntime) return inSessionHome(ctx, sessionId, launchSeamHarnessContext(ctx, kind))
+  if (!ctx.harnessRuntime)
+    return inSessionHome(ctx, sessionId, kind, () => launchSeamHarnessContext(ctx, kind))
   const snapshot = await ctx.harnessRuntime.current()
   const home = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome
-  return inSessionHome(ctx, sessionId, harnessContext(snapshot, kind, home))
+  return inSessionHome(
+    ctx,
+    sessionId,
+    kind,
+    (side) => harnessContext(snapshot, kind, home, side),
+    snapshotHomeFacts(snapshot),
+  )
 }
 
 /**
@@ -125,7 +243,8 @@ export async function buildDriverHarnessContext(
   driverId: string | undefined,
   sessionId?: SessionId,
 ): Promise<HarnessContext> {
-  if (!ctx.harnessRuntime) return inSessionHome(ctx, sessionId, launchSeamHarnessContext(ctx, kind))
+  if (!ctx.harnessRuntime)
+    return inSessionHome(ctx, sessionId, kind, () => launchSeamHarnessContext(ctx, kind))
   return driverHarnessContextFrom(
     ctx,
     await ctx.harnessRuntime.current(),
@@ -138,8 +257,7 @@ export async function buildDriverHarnessContext(
 /** {@link buildDriverHarnessContext} over a snapshot the caller already read,
  *  so admission and the spec it admits share one inventory generation. */
 export function driverHarnessContextFrom(
-  ctx: Pick<DaemonContext, 'accountHome' | 'homeDir'> &
-    Partial<Pick<DaemonContext, 'access' | 'homes'>>,
+  ctx: Pick<DaemonContext, 'accountHome' | 'homeDir'> & HomeSource,
   snapshot: HarnessExecutableSnapshot,
   kind: BuiltinHarnessKind,
   /** Undefined: the harness's primary server, which runs its own executable. */
@@ -151,21 +269,65 @@ export function driverHarnessContextFrom(
   return inSessionHome(
     ctx,
     sessionId,
-    driverId === undefined
-      ? harnessContext(snapshot, kind, home)
-      : harnessDriverContext(snapshot, kind, home, driverId),
+    kind,
+    (side) =>
+      driverId === undefined
+        ? harnessContext(snapshot, kind, home, side)
+        : harnessDriverContext(snapshot, kind, home, driverId, side),
+    snapshotHomeFacts(snapshot),
+  )
+}
+
+/**
+ * The context a session's row in the install ledger records (managed
+ * installs §6.2): the installation its process was started on, in the home
+ * its access names, whatever the inventory holds now. Undefined when there is
+ * no row for this harness, or no inventory to read the account half from.
+ */
+export async function recordedSessionHarnessContext(
+  ctx: ContextSource,
+  sessionId: SessionId,
+  kind: BuiltinHarnessKind,
+): Promise<HarnessContext | undefined> {
+  if (!ctx.harnessRuntime || !ctx.sessionInstalls) return undefined
+  const row = ctx.sessionInstalls.get(sessionId)
+  if (!row || row.kind !== kind) return undefined
+  const snapshot = await ctx.harnessRuntime.current()
+  const home = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome
+  const installation = recordedInstallation(row, snapshot.commandEnvironment.generation)
+  // The home it started in, not the one the inventory points at now (§4.2):
+  // a passed-in credential ran in the Podium home exactly when its process
+  // was started on Podium's install, so a session that began in the person's
+  // folder before a managed install appeared is re-attached there.
+  const startedOn: MachineHomeFacts = {
+    managedInstall: (harness) => harness === kind && installation.provenance === 'managed',
+  }
+  return inSessionHome(
+    ctx,
+    sessionId,
+    kind,
+    () => harnessContextOn(snapshot, installation, home),
+    startedOn,
   )
 }
 
 /**
  * THE ENGINE FAMILIES' `harnessContextFor` (POD-6546): the context an engine
- * launch with no spec in hand (adopt, wake) runs under.
+ * launch with no spec in hand (adopt, wake) runs under, and what a client
+ * attached to the engine runs.
  *
  * The one the session holds — the context it was spawned with, so a wake
  * after an inventory refresh relaunches the installation the session started
- * on. After a daemon restart the held one went with the old process: rebuilt
- * from the current inventory for this driver and kept on the session from
- * then on, which is also what native attach reads.
+ * on — with one exception (managed installs §6.2): when that installation is
+ * a release Podium manages and is no longer the current one, and no engine of
+ * the session runs, a new context is built from the inventory as it stands,
+ * in the same home. A parked session then never pins an old release; an
+ * engine still running on it keeps its context, so its client runs the same
+ * binary. The person's own install keeps today's rule.
+ *
+ * After a daemon restart the held one went with the old process: rebuilt from
+ * the session's row in the install ledger (the binary that really runs), else
+ * from the current inventory, and kept on the session from then on.
  *
  * Throws when the harness has left the inventory: an engine never falls back
  * to a basename on the daemon's PATH.
@@ -175,20 +337,83 @@ export async function engineSessionHarnessContext(
   sessionId: SessionId,
   kind: BuiltinHarnessKind,
   driverId: string | undefined,
+  /**
+   * Whether the engine under a durable label still runs (the session engine
+   * scope's `engineAlive`). Absent: an engine is taken to run, so the held
+   * context is kept.
+   */
+  engineAlive?: (label: string) => Promise<boolean>,
 ): Promise<HarnessContext> {
   const held = ctx.sessions.get(sessionId)?.harnessContext
-  if (held) return held
-  const rebuilt = await buildDriverHarnessContext(ctx, kind, driverId, sessionId)
-  // Kept on an entry that already exists, as on the terminal reattach path.
+  if (held) {
+    if (
+      !(await outdatedManagedRelease(ctx, held)) ||
+      (await engineRunning(ctx, sessionId, engineAlive))
+    )
+      return held
+  } else {
+    const recorded = await recordedSessionHarnessContext(ctx, sessionId, kind)
+    if (recorded) return keepOnSession(ctx, sessionId, recorded)
+  }
+  return keepOnSession(
+    ctx,
+    sessionId,
+    await buildDriverHarnessContext(ctx, kind, driverId, sessionId),
+  )
+}
+
+/** Kept on an entry that already exists, as on the terminal reattach path. */
+function keepOnSession(
+  ctx: Pick<DaemonContext, 'sessions'>,
+  sessionId: SessionId,
+  context: HarnessContext,
+): HarnessContext {
   const entry = ctx.sessions.get(sessionId)
-  if (entry) entry.harnessContext = rebuilt
-  return rebuilt
+  if (entry) entry.harnessContext = context
+  return context
+}
+
+/**
+ * Whether `context` runs a release Podium manages that the inventory no
+ * longer offers: Podium's install of the harness is now another release, or
+ * there is none. The person's own install is never outdated here.
+ */
+async function outdatedManagedRelease(
+  ctx: ContextSource,
+  context: HarnessContext,
+): Promise<boolean> {
+  if (context.installation.provenance !== 'managed' || !ctx.harnessRuntime) return false
+  const snapshot = await ctx.harnessRuntime.current()
+  return snapshot.managed?.get(context.installation.kind)?.path !== context.installation.executable
+}
+
+/**
+ * Whether the session's engine process runs: the label the session layer
+ * started or re-attached it under, still live in its host. No label: no
+ * engine of the session is known to run. A check that cannot be made, or
+ * fails, reads as running, so the held context is kept.
+ */
+async function engineRunning(
+  ctx: Pick<DaemonContext, 'sessions'>,
+  sessionId: SessionId,
+  engineAlive: ((label: string) => Promise<boolean>) | undefined,
+): Promise<boolean> {
+  const label = ctx.sessions.get(sessionId)?.engine?.label
+  if (label === undefined) return false
+  if (!engineAlive) return true
+  try {
+    return await engineAlive(label)
+  } catch (err) {
+    log.warn('could not tell whether the session engine runs', { err, sessionId, label })
+    return true
+  }
 }
 
 /**
  * The context a session already holds, or — after a daemon restart, when the
- * survivor's context went with the old process — one rebuilt from the current
- * inventory and kept on the session from then on.
+ * survivor's context went with the old process — one rebuilt from the
+ * session's row in the install ledger (the binary that really runs), else
+ * from the current inventory, and kept on the session from then on.
  *
  * Undefined for a plain shell, and when no context can be rebuilt (the harness
  * has since left the inventory). Reattach must not fail on that: the process
@@ -204,12 +429,12 @@ export async function sessionHarnessContextFor(
   const held = ctx.sessions.get(sessionId)?.harnessContext
   if (held) return held
   try {
-    const rebuilt = await buildSessionHarnessContext(ctx, kind, sessionId)
+    const rebuilt =
+      (await recordedSessionHarnessContext(ctx, sessionId, kind)) ??
+      (await buildSessionHarnessContext(ctx, kind, sessionId))
     // Kept on an entry that already exists; a reattach that has not attached
     // yet stores it once the bridge is wired.
-    const entry = ctx.sessions.get(sessionId)
-    if (entry) entry.harnessContext = rebuilt
-    return rebuilt
+    return keepOnSession(ctx, sessionId, rebuilt)
   } catch (err) {
     log.warn('could not rebuild the harness context for a surviving session', {
       err,
@@ -238,6 +463,7 @@ function launchSeamHarnessContext(ctx: ContextSource, kind: BuiltinHarnessKind):
       executable: `launch-seam:${kind}`,
       version: '',
       generation: 0,
+      provenance: 'external',
     }),
     home,
     env,

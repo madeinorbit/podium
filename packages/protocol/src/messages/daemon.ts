@@ -51,6 +51,19 @@ import {
   ReclaimDiskEstimateResultMessage,
   UsageResultMessage,
 } from './host'
+import {
+  HarnessBackResultMessage,
+  HarnessChangesResultMessage,
+  HarnessCheckResultMessage,
+  HarnessHomeInfoResultMessage,
+  HarnessHomeRemoveResultMessage,
+  HarnessInstallResultMessage,
+  HarnessPauseResultMessage,
+  HarnessRemoveChangesResultMessage,
+  HarnessRemoveResultMessage,
+  HarnessResumeResultMessage,
+  HarnessTakeSettingsResultMessage,
+} from './installs'
 import { InventoryReportMessage, ModelProbeResultMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
 import { NativeBindingReceipt } from './native-binding'
@@ -105,6 +118,7 @@ import {
   TranscriptPathsResultMessage,
   TranscriptReadResultMessage,
 } from './transcript'
+import { MachineUninstallResultMessage } from './uninstall'
 import { DevArtifactProbeResultMessage, UpdateStatusMessage } from './update'
 import {
   WorkspaceCleanResultMessage,
@@ -308,6 +322,20 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ConversationPrepareResultMessage,
   /** Reply to the capability-gated transcript presence batch. Appended for index stability. */
   TranscriptPathsResultMessage,
+  HarnessInstallResultMessage,
+  HarnessCheckResultMessage,
+  HarnessBackResultMessage,
+  HarnessPauseResultMessage,
+  HarnessResumeResultMessage,
+  HarnessTakeSettingsResultMessage,
+  HarnessRemoveChangesResultMessage,
+  HarnessChangesResultMessage,
+  HarnessRemoveResultMessage,
+  HarnessHomeInfoResultMessage,
+  HarnessHomeRemoveResultMessage,
+  /** Reply to `machineUninstallRequest` (managed installs §12 item 14),
+   *  appended at the END for index stability. */
+  MachineUninstallResultMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>
 

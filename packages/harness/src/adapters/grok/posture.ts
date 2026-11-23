@@ -59,6 +59,10 @@ export const GROK_PERMISSION_MODES: readonly string[] = [
 export function grokPosture(launch: PostureLaunch, request: PostureRequest): PostureResult {
   const unmet: UnmetRequirement[] = []
   const mode = permissionMode(request, unmet)
+  // Managed releases are updated by Podium, in every launch mode (POD-7267).
+  if (request.context.installation.provenance === 'managed') {
+    launch = { ...launch, env: { ...launch.env, GROK_DISABLE_AUTOUPDATER: '1' } }
+  }
 
   if (request.mode === 'engine') {
     const edit = podiumAllowEdit(request)

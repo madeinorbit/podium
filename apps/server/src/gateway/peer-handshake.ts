@@ -21,7 +21,11 @@ import {
   CAP_CREDENTIAL_IDENTITY_GUARD,
   CAP_DAEMON_GEOMETRY_APPLIED,
   CAP_HARNESS_HOMES,
+  CAP_HARNESS_HOMES_GROK,
+  CAP_HARNESS_HOMES_PI,
+  CAP_HARNESS_INSTALLS,
   CAP_MACHINE_PROCESSES_V1,
+  CAP_MACHINE_UNINSTALL,
   CAP_SESSION_ACCESS,
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -130,6 +134,12 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       // Credential management §10: this server asks for homes and for a
       // propagated login's removal only from a daemon that accepted this.
       CAP_HARNESS_HOMES,
+      // Managed installs §4.7: this server asks a daemon for a Grok home only
+      // when it accepted this.
+      CAP_HARNESS_HOMES_GROK,
+      // And a Pi home only when it accepted this.
+      CAP_HARNESS_HOMES_PI,
+      CAP_HARNESS_INSTALLS,
       // Credential management §9: this server asks for a conversation to be
       // placed before a switched session resumes, only from a daemon that accepted this.
       CAP_CONVERSATION_PREPARE,
@@ -144,6 +154,9 @@ const createResolvedDaemonAcceptor = (deps: ResolvedDaemonAcceptorDeps): Handsha
       CAP_TOPICS_V1,
       CAP_CHECKOUT_CHANGED_V1,
       CAP_MACHINE_PROCESSES_V1,
+      // Managed installs §12 item 14: this server asks a daemon that accepted
+      // this to uninstall Podium from its machine (the machine menu).
+      CAP_MACHINE_UNINSTALL,
       CAP_TRANSCRIPT_PATHS,
     ],
     transport: {

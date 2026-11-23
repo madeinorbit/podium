@@ -57,7 +57,9 @@ export async function signOutOfHome(
   try {
     const snapshot = await snapshotFor()
     const account = resolveManagementCredentialHome(ctx) ?? snapshot.commandEnvironment.machineHome
-    const context = withHarnessHome(harnessContext(snapshot, home.harness, account), {
+    // A home Podium made: Podium's install when there is one (managed
+    // installs §6.1), the same binary the home's sessions run.
+    const context = withHarnessHome(harnessContext(snapshot, home.harness, account, 'podium'), {
       id: home.homeId,
       dir: home.dir,
     })

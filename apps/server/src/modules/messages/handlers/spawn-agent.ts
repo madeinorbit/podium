@@ -277,16 +277,23 @@ function spawnedEvent(
   }
 }
 
+/** A stored issue model/effort as a launch pick: `auto` (or empty) is no pick. */
+function stored(value: string | null | undefined): string | undefined {
+  return value && value !== 'auto' ? value : undefined
+}
+
 /** Decide and check a spawn: its issue, budget, folder, agent and machine. */
 async function planSpawn(
   ctx: MailHandlerContext,
   input: ContractInput<typeof spawnAgentContract>,
 ): Promise<SpawnPlan> {
   const { caller, deps, access } = ctx
-  if (!caller.principal) throw new MailRefusal('unauthorized', 'agent spawn requires an authenticated principal')
+  if (!caller.principal)
+    throw new MailRefusal('unauthorized', 'agent spawn requires an authenticated principal')
   const attribution = attributionOf(caller.principal)
   const callerOwner = onBehalfOfUser(caller.principal)
-  if (callerOwner === null) throw new MailRefusal('unauthorized', 'agent spawn requires a human owner')
+  if (callerOwner === null)
+    throw new MailRefusal('unauthorized', 'agent spawn requires a human owner')
   const issues = deps.issues
   if (input.issue && input.newTitle) {
     throw new MailRefusal('invalid', 'pass --issue OR --new, not both')
@@ -414,8 +421,17 @@ async function planSpawn(
   // A pinned step's pick is already made, and is passed on as it is.
   const harness =
     step?.agentKind ?? input.harness ?? (input.agentProfile ? undefined : issue.defaultAgent)
-  const model = step?.model ?? input.model
-  const effort = step?.effort ?? input.effort
+  // The issue's stored model/effort come with its harness pick (POD-7363), as on
+  // `issue start` and spawn-on-wake: a spawn that names neither runs what the
+  // issue says, not the harness default. Not under an explicit --profile (it
+  // replaces the issue's pick) or a pinned step, and not when --harness names a
+  // different harness, whose slugs the stored ones were not chosen for.
+  const inheritsIssuePick =
+    !step && !input.agentProfile && (!input.harness || input.harness === issue.defaultAgent)
+  const model =
+    step?.model ?? input.model ?? (inheritsIssuePick ? stored(issue.defaultModel) : undefined)
+  const effort =
+    step?.effort ?? input.effort ?? (inheritsIssuePick ? stored(issue.defaultEffort) : undefined)
   const machineId = step?.machineId ?? issue.machineId
   /**
    * A DELEGATE CANNOT CROSS MACHINES AWAY FROM ITS ISSUE'S WORKTREE (POD-1386).

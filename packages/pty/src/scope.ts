@@ -1,7 +1,17 @@
 import { execFile, type SpawnOptions, spawn } from 'node:child_process'
-import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs'
+import {
+  accessSync,
+  closeSync,
+  constants,
+  existsSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
 import { instanceSessionSliceName } from '@podium/runtime/instance'
@@ -75,6 +85,30 @@ export function systemdScopeArgv(
     '--',
     ...command,
   ]
+}
+
+/**
+ * A tool the DAEMON runs (`systemd-run`, `systemctl`), as an absolute path found
+ * on the daemon's own PATH; the bare name when it is on none.
+ *
+ * A spawn looks a bare name up on the PATH of the env it is handed, and a
+ * durable create is handed the AGENT's env, because `systemd-run` passes it on
+ * to the host and the program. An agent's PATH need not hold systemd's folder,
+ * and when it did not, the scope failed with "not found" and the agent ran in
+ * the daemon's own cgroup, where a restart of the service kills it (POD-7060).
+ */
+export function daemonTool(name: string, env: NodeJS.ProcessEnv = process.env): string {
+  for (const dir of (env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue
+    const candidate = join(dir, name)
+    try {
+      accessSync(candidate, constants.X_OK)
+      if (statSync(candidate).isFile()) return candidate
+    } catch {
+      // not here
+    }
+  }
+  return name
 }
 
 /** The transient scope unit name for a session label — the single source of truth. */
@@ -295,6 +329,24 @@ export interface DurableSpawnOptions {
    * spawns leave it off and judge the lease themselves (POD-4433).
    */
   requireLease?: boolean
+  /**
+   * A secret the program reads from an inherited pipe instead of an
+   * environment variable (POD-7378): the host puts `contents` on a new pipe,
+   * closes the writer before the program starts, and sets `variable` to the
+   * pipe's descriptor number in the program's environment only. The contents
+   * never reach an environment, an argument or a file. Unix only; refused
+   * when empty, because a program handed an empty credential may fall back to
+   * a login of its own. Ignored when the label is adopted: the live program
+   * read its copy when it started.
+   */
+  pipe?: PipeSecret
+}
+
+/** What {@link DurableSpawnOptions.pipe} hands the program. */
+export interface PipeSecret {
+  /** The variable that names the descriptor, such as `CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR`. */
+  readonly variable: string
+  readonly contents: string
 }
 
 /**
@@ -314,14 +366,25 @@ export async function execCreate(
   file: string,
   args: string[],
   options: SpawnOptions,
+  /** Written to the create's stdin, which is then closed (`--pipe-env`). */
+  stdin?: string,
 ): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'podium-create-err-'))
   const errPath = join(dir, 'stderr')
   const fd = openSync(errPath, 'w')
   try {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(file, args, { ...options, stdio: ['ignore', 'ignore', fd] })
+      const child = spawn(file, args, {
+        ...options,
+        stdio: [stdin !== undefined ? 'pipe' : 'ignore', 'ignore', fd],
+      })
       child.once('error', reject)
+      if (stdin !== undefined) {
+        // A create that dies before reading closes the pipe: its exit, not
+        // this write, is the error to report.
+        child.stdin?.once('error', () => undefined)
+        child.stdin?.end(stdin)
+      }
       child.once('exit', (code, signal) => {
         if (code === 0) resolve()
         else reject(new Error(`${file} exited ${code ?? `from ${signal ?? 'an unknown signal'}`}`))

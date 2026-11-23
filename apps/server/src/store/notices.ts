@@ -51,7 +51,7 @@ export type NewNotice = Omit<NoticeRow, 'readAt' | 'resolvedAt' | 'subjectAnchor
 export type NoticeFeedCapture = ChangeLogCommit
 
 /** Kinds with no condition that could clear them (`isEventNoticeKind`). */
-const EVENT_KINDS = ['mention', 'credential-shared']
+const EVENT_KINDS = ['mention', 'credential-shared', 'harness-ledger-rebuilt']
 
 /** At most this many read event notices are resolved by one cap pass. */
 const CAP_BATCH = 500

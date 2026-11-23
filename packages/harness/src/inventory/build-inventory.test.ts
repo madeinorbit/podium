@@ -1,13 +1,24 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFile } from 'node:child_process'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { platform, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
+import { promisify } from 'node:util'
 import type { CommandEnvironment } from '@podium/runtime/command-environment'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { fingerprintForLoginIdentity } from '../adapters/shared/login-identity.js'
 import {
   readFreshnessFromAuthContents,
   readIdentityFromAuthContents,
 } from '../adapters/codex/auth-identity.js'
+import { fingerprintForLoginIdentity } from '../adapters/shared/login-identity.js'
 import { harnessLoginReadEnv } from '../registry.js'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
 import {
@@ -95,6 +106,134 @@ function commandEnvironment(
   }
 }
 
+/** Every path under `dir` with its size, so a write anywhere below shows. */
+function treeListing(dir: string): string[] {
+  const out: string[] = []
+  const walk = (at: string) => {
+    for (const name of readdirSync(at).sort()) {
+      const path = join(at, name)
+      const stat = statSync(path)
+      out.push(`${relative(dir, path)}:${stat.isDirectory() ? 'dir' : stat.size}`)
+      if (stat.isDirectory()) walk(path)
+    }
+  }
+  walk(dir)
+  return out
+}
+
+describe.skipIf(platform() === 'win32')(
+  "the person's install is versioned without writing into their folders (POD-7384)",
+  () => {
+    it("moves only the harness's own folder aside: Codex and Pi are found, their folders stay as they were", async () => {
+      const bin = join(home, 'bin')
+      const observed = join(home, 'observed')
+      mkdirSync(bin, { recursive: true })
+      mkdirSync(observed)
+      // Codex 0.171.0 replaces its arg0 helper links under its home even for
+      // `--version`; Pi creates auth.json and models-store.json in its folder.
+      writeFileSync(
+        join(bin, 'codex'),
+        [
+          '#!/bin/sh',
+          'state="$HOME/.codex"; [ -n "$CODEX_HOME" ] && state="$CODEX_HOME"',
+          'mkdir -p "$state/tmp/arg0-linux/codex-arg0new" && : > "$state/tmp/arg0-linux/codex-arg0new/.lock"',
+          `printf '%s\\n' "$state" >> "${observed}/codex"`,
+          'echo "codex-cli 0.171.0"',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      // Like the official Pi launcher, it finds its node under HOME: a probe
+      // that moved HOME would report Pi as missing.
+      writeFileSync(
+        join(bin, 'pi'),
+        [
+          '#!/bin/sh',
+          '[ -x "$HOME/.local/share/pi-node/current/bin/node" ] || exit 127',
+          'dir="$HOME/.pi/agent"; [ -n "$PI_CODING_AGENT_DIR" ] && dir="$PI_CODING_AGENT_DIR"',
+          `printf '%s\\n' "$dir" >> "${observed}/pi"`,
+          'echo "{}" > "$dir/auth.json"; echo "{}" > "$dir/models-store.json"',
+          'case "$1" in --version) echo 1.6.0 ;; --help) echo "pi - AI coding assistant" ;; esac',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      const nodeBin = join(home, '.local', 'share', 'pi-node', 'current', 'bin')
+      mkdirSync(nodeBin, { recursive: true })
+      writeFileSync(join(nodeBin, 'node'), '#!/bin/sh\n', { mode: 0o755 })
+      const personCodex = join(home, '.codex')
+      const personPi = join(home, '.pi', 'agent')
+      for (const dir of [
+        personCodex,
+        join(personCodex, 'tmp', 'arg0-linux', 'codex-arg0old'),
+        personPi,
+      ]) {
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(join(dir, 'sentinel'), 'personal state\n')
+      }
+      const before = treeListing(home).filter((entry) => !entry.startsWith('observed'))
+      const env = Object.freeze({
+        PATH: `${bin}:/usr/bin:/bin`,
+        HOME: home,
+        CODEX_HOME: personCodex,
+      })
+      const run = promisify(execFile)
+      const exec: ProbeExec = async (argv, timeoutMs, probeEnv) => {
+        const { stdout } = await run(argv[0] as string, argv.slice(1), {
+          timeout: timeoutMs,
+          ...(probeEnv ? { env: probeEnv } : {}),
+        })
+        return stdout
+      }
+
+      const inv = await buildInventory({
+        credentialHome: home,
+        commandEnvironment: {
+          ...commandEnvironment(env),
+          resolve: (command) =>
+            command === 'codex' || command === 'pi' ? join(bin, command) : undefined,
+        },
+        exec,
+      })
+
+      const agent = (kind: string) => inv.agents.find((entry) => entry.kind === kind)
+      expect(agent('codex')).toMatchObject({
+        installed: true,
+        version: 'codex-cli 0.171.0',
+        path: join(bin, 'codex'),
+      })
+      expect(agent('pi')).toMatchObject({
+        installed: true,
+        version: '1.6.0',
+        path: join(bin, 'pi'),
+      })
+      expect(treeListing(home).filter((entry) => !entry.startsWith('observed'))).toEqual(before)
+      // Each probe wrote into a folder of its own, gone after the wave.
+      for (const kind of ['codex', 'pi']) {
+        const folders = [...new Set(readFileSync(join(observed, kind), 'utf8').trim().split('\n'))]
+        expect(folders).toHaveLength(1)
+        expect(folders[0]?.startsWith(home)).toBe(false)
+        expect(existsSync(folders[0] as string)).toBe(false)
+      }
+    })
+
+    it('keeps the machine environment for a harness without a home variable', async () => {
+      const env = Object.freeze({ PATH: '/verified/bin', HOME: home })
+      const seen: Readonly<Record<string, string>>[] = []
+      await buildInventory({
+        credentialHome: home,
+        commandEnvironment: commandEnvironment(env),
+        exec: async (argv, _timeoutMs, probeEnv) => {
+          if (argv[0] === resolvedClaude && probeEnv) seen.push(probeEnv)
+          return '2.1.50 (Claude Code)'
+        },
+      })
+      expect(seen.length).toBeGreaterThan(0)
+      for (const probeEnv of seen) expect(probeEnv).toEqual(env)
+    })
+  },
+)
+
 describe('buildInventory', () => {
   it('derives os and arch from the host', async () => {
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
@@ -104,10 +243,10 @@ describe('buildInventory', () => {
     expect(inv.podiumVersion).toBe(process.env.PODIUM_APP_VERSION ?? 'dev')
   })
 
-  it('reports all 6 kinds, absent when every candidate fails', async () => {
+  it('reports all 7 kinds, absent when every candidate fails', async () => {
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
     expect(inv.agents.map((a) => a.kind).sort()).toEqual(
-      ['claude-code', 'codex', 'cursor', 'grok', 'opencode', 'pi'].sort(),
+      ['antigravity', 'claude-code', 'codex', 'cursor', 'grok', 'opencode', 'pi'].sort(),
     )
     for (const a of inv.agents) {
       expect(a.installed).toBe(false)
@@ -192,6 +331,34 @@ describe('buildInventory', () => {
     })
   })
 
+  it('reports no bubblewrap prerequisite on the Claude row: Linux hands its credential over on a pipe (POD-7378)', async () => {
+    const env = Object.freeze({ PATH: '/verified/bin', HOME: home })
+    const loginExec: LoginProbeExec = async () => ({
+      stdout: JSON.stringify({ loggedIn: false }),
+      stderr: '',
+      exitCode: 1,
+      timedOut: false,
+    })
+    // POD-7375 named bubblewrap missing here; no Linux start sets Claude
+    // Code's scrub switch now, so nothing is missing, with or without bwrap.
+    const withoutBwrap: CommandEnvironment = {
+      ...commandEnvironment(env),
+      resolve: (command) => (command === 'claude' ? resolvedClaude : undefined),
+    }
+    for (const platform of ['linux', 'darwin'] as const) {
+      const inv = await buildInventory({
+        credentialHome: home,
+        commandEnvironment: withoutBwrap,
+        exec: async () => '2.1.50',
+        loginExec,
+        platform,
+      })
+      const claude = inv.agents.find((agent) => agent.kind === 'claude-code')
+      expect(claude?.installed, platform).toBe(true)
+      expect(claude?.missingPrerequisites, platform).toBeUndefined()
+    }
+  })
+
   it('preserves absent Claude config variables in the command environment', async () => {
     const env = Object.freeze({ PATH: '/verified/bin', HOME: home })
     let observed: Readonly<Record<string, string>> | undefined
@@ -236,6 +403,7 @@ describe('buildInventory', () => {
       version: '2.1.50',
       path: resolvedClaude,
       login: { state: 'unknown' },
+      management: { installable: true, homeVariable: 'CLAUDE_CONFIG_DIR' },
     })
   })
 
@@ -544,8 +712,14 @@ describe('buildInventory', () => {
     })
   })
 
-  it('discovers OpenCode in its known user install directory outside PATH', async () => {
-    const opencodePath = join(home, '.opencode', 'bin', 'opencode')
+  it.each([
+    { kind: 'opencode', version: '1.18.16' },
+    { kind: 'grok', version: 'grok 1.0.92 (fixture)' },
+  ])('discovers $kind in its known user install directory outside PATH', async ({
+    kind,
+    version,
+  }) => {
+    const vendorPath = join(home, `.${kind}`, 'bin', kind)
     const env = Object.freeze({ PATH: '/usr/bin:/bin', HOME: home })
     const inv = await buildInventoryWithEnv({
       machineHome: home,
@@ -557,15 +731,15 @@ describe('buildInventory', () => {
         generation: 3,
         machineHome: home,
         loginShell: '/bin/sh',
-        resolve: (candidate) => (candidate === opencodePath ? opencodePath : undefined),
+        resolve: (candidate) => (candidate === vendorPath ? vendorPath : undefined),
       },
-      exec: fakeExec({ opencode: '1.18.16' }),
+      exec: fakeExec({ [kind]: version }),
     })
 
-    expect(inv.agents.find((agent) => agent.kind === 'opencode')).toMatchObject({
+    expect(inv.agents.find((agent) => agent.kind === kind)).toMatchObject({
       installed: true,
-      version: '1.18.16',
-      path: opencodePath,
+      version,
+      path: vendorPath,
     })
   })
 

@@ -56,6 +56,7 @@ export function useShellActions() {
       closeFileTab: ui.closeFileTab,
       closeWorkspaceTab: ui.closeWorkspaceTab,
       setSettingsTab: ui.setSettingsTab,
+      openMachineSettings: ui.openMachineSettings,
       decideApproval: commands.automations.decideApproval,
     }),
     [commands, ui, trpc, hub, httpOrigin, deviceState, owner],

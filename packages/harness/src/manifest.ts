@@ -384,6 +384,27 @@ export interface HarnessAuthStatusProbe {
 export interface HideFromCommands {
   env?: Readonly<Record<string, string>>
   args?: readonly string[]
+  /**
+   * Programs the switch needs on the machine. Without one the harness refuses
+   * to start at all, so a start that would set the switch is refused before
+   * the process runs, with {@link HostPrerequisite.missing} (POD-7375).
+   */
+  requires?: readonly HostPrerequisite[]
+}
+
+/** A program a harness feature needs on the machine, found on the start's PATH. */
+export interface HostPrerequisite {
+  /** The executable looked for (`bwrap`). */
+  readonly executable: string
+  /** The package a person installs to get it (`bubblewrap`). */
+  readonly package: string
+  /** The platforms that need it. */
+  readonly platforms: readonly NodeJS.Platform[]
+  /**
+   * What happens without it, for the person: the refusal and the inventory
+   * row. Names the package and how to install it.
+   */
+  readonly missing: string
 }
 
 /** Prefer a recognizable name + email without duplicating equal values. */
@@ -663,7 +684,7 @@ export interface HarnessUsage {
  * — and the CLI through it — runs installs against fakes in tests and never
  * shells out by accident.
  */
-export interface HarnessInstallPorts {
+export interface HarnessInstallScriptPorts {
   /** Download a URL to a path. Never forwards a GitHub auth token — these are vendor hosts. */
   fetch(url: string, out: string): void
   /** Run a program by ABSOLUTE path (the installed binary's `--version`),
@@ -692,8 +713,12 @@ export interface HarnessInstallPorts {
  * and declaring them as data would build a shell interpreter. The temp-dir
  * lifecycle, the fetch, and the `--version` verification around it are the
  * generic mechanism (`inventory/install.ts`) and stay harness-free.
+ *
+ * Today's `--agents` path: it writes into `~/.local/bin` and forgets. Replaced
+ * by {@link HarnessInstall} (`managedInstall`); the requests task moves the CLI
+ * onto that and deletes this section (docs/design/harness-managed-installs.md §11).
  */
-export interface HarnessInstall {
+export interface HarnessInstallScript {
   /** Binary this install produces directly under the target bin dir. */
   binary: string
   /** Vendor installer URL — after this harness's own env override. */
@@ -702,7 +727,117 @@ export interface HarnessInstall {
    * Run the fetched installer script. Must leave `binary` behind under
    * `binDir`; throw with the vendor's own output on failure.
    */
-  runInstaller(scriptPath: string, binDir: string, ports: HarnessInstallPorts): void
+  runInstaller(scriptPath: string, binDir: string, ports: HarnessInstallScriptPorts): void
+}
+
+// ---------------------------------------------------------------------------
+// Managed install — one release into a folder Podium picks (POD-6865,
+// docs/design/harness-managed-installs.md §5.3).
+// ---------------------------------------------------------------------------
+
+/** One vendor release, as the vendor names it. */
+export interface HarnessRelease {
+  version: string
+}
+
+/** What proved a download. */
+export type ReleaseIntegrityProof =
+  | { kind: 'sha256'; digest: string; publishedAt?: string }
+  | { kind: 'none'; reason: string }
+
+/** What an adapter's `install` put into its folder. */
+export interface InstalledRelease {
+  /** The executable, relative to the folder `install` was given. */
+  executable: string
+  /** What proved the download. */
+  integrity: ReleaseIntegrityProof
+  /** The vendor URL the release came from, as the vendor names it (before any test redirect). */
+  source: string
+  /** The vendor updater cannot be stopped: install once and leave updates to the vendor. */
+  updater?: 'cannot-stop'
+}
+
+/**
+ * The host operations a managed install may use. All asynchronous: a daemon
+ * must not freeze for the length of a 360 MB download.
+ *
+ * VENDOR HOSTS ARE MOVABLE. An adapter names its vendor's real URLs and fetches
+ * them through `fetch`/`fetchText`, which apply the mechanism's vendor-origin
+ * map; a URL handed to a vendor tool goes through `vendorUrl` first. Tests point
+ * the map at a local fake vendor host and the acceptance run at a stand-in
+ * vendor host (`PODIUM_HARNESS_VENDOR_ORIGINS`). An adapter never reads a base
+ * URL from `env`: that is the machine's environment, not Podium's.
+ */
+export interface HarnessCheckPorts {
+  /** Download a vendor URL to a path. No auth header is ever sent. Throws on a non-2xx answer. */
+  fetch(url: string, out: string): Promise<void>
+  /** A small vendor document (a version pointer, a manifest) as text. */
+  fetchText(url: string): Promise<string>
+  /** `url` as this run reaches it: the vendor-origin map applied. */
+  vendorUrl(url: string): string
+  /** Run a program by ABSOLUTE path; resolves with stdout, rejects with its output. */
+  run(cmd: string, args: readonly string[], env: Readonly<Record<string, string>>): Promise<string>
+  /** Run an OS tool (an installer's shell) resolved in `env`, never on the daemon's PATH. */
+  runTool(
+    tool: 'sh' | 'bash',
+    args: readonly string[],
+    env: Readonly<Record<string, string>>,
+  ): Promise<string>
+  platform: NodeJS.Platform
+  arch: string
+  /** Whether this box's libc is musl. */
+  isMusl(): Promise<boolean>
+  /**
+   * The machine command environment with every variable any manifest names in
+   * `foreignCredentialEnv` removed. Never the daemon's own `process.env`.
+   */
+  env: Readonly<Record<string, string>>
+  /** Operator-visible progress note. The mechanism never prints. */
+  note?(message: string): void
+}
+
+export interface HarnessInstallPorts extends HarnessCheckPorts {
+  /**
+   * An empty folder inside the release folder. A vendor installer runs with
+   * `installerEnv`, whose `HOME` is this folder, so its profile edits and
+   * config writes land inside the release and nowhere else.
+   */
+  home: string
+  /**
+   * `env` with `HOME` (and `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` on Windows)
+   * set to `home`, and every harness folder variable and XDG folder variable
+   * removed so they all derive from that `HOME`.
+   */
+  installerEnv: Readonly<Record<string, string>>
+}
+
+/**
+ * How Podium installs and updates this harness itself (§5.3). The mechanism
+ * (`inventory/managed-install.ts`) runs the same steps for every harness: lock,
+ * staging folder, this `install`, outside checks, receipt, rename, publish.
+ *
+ * Declared `supported` when a release can be placed completely inside a folder
+ * Podium picks and `--version` prints the release's version. The adapter stops
+ * the vendor updater, or reports `updater: 'cannot-stop'` for that release:
+ * Podium installs it once and leaves future updates to the vendor (§12, decision 13).
+ */
+export interface HarnessInstall {
+  /** Explain vendor update behavior that can change a managed session's executable. */
+  readonly updateNotice?: string
+  /**
+   * The newest release on the vendor's stable channel for this platform.
+   * One small request. Never a pre-release.
+   */
+  latest(ports: HarnessCheckPorts): Promise<HarnessRelease>
+  /**
+   * Put `release` into the empty folder `dir`, and write nowhere else.
+   * Throws with the vendor's own output on failure.
+   */
+  install(
+    release: HarnessRelease,
+    dir: string,
+    ports: HarnessInstallPorts,
+  ): Promise<InstalledRelease>
 }
 
 // ---------------------------------------------------------------------------
@@ -1092,8 +1227,30 @@ export interface InstalledInstrumentation {
   env?: Record<string, string>
   /** File the host must write before spawning (hook/settings config). */
   file?: { path: string; contents: string }
+  /**
+   * The shared hook file this install keeps Podium's handlers in, whenever
+   * they are there after it ran. The host records it in the install ledger
+   * when the file is in the person's own folder, so "Remove Podium's changes"
+   * can take the handlers out again (POD-7388).
+   */
+  hookFile?: InstrumentationHookFile
   degradedReason?: string
   degradedKind?: InstrumentationDegradedKind
+}
+
+/** Podium's handlers in a hook file the harness reads (`hooks.<Event>[].hooks[]`). */
+export interface InstrumentationHookFile {
+  /** The file, as the install wrote it. */
+  file: string
+  /** Text in every Podium handler's `command`, and in no other handler's. */
+  marker: string
+  /** The hook events Podium handles. */
+  events: readonly string[]
+  /**
+   * What the file held before THIS install wrote it, with the outermost
+   * folder it created for a new file. Absent when it wrote nothing.
+   */
+  prior?: { absent: true; createdFolder?: string } | { contents: string }
 }
 
 export type InstrumentationDegradedKind =
@@ -1723,15 +1880,25 @@ export interface HarnessHandoffTranscript {
     homeDir: string
     resumeValue: string
   }): Promise<{ path: string; relativeDir?: string }>
+}
+
+/**
+ * A HARNESS'S CONVERSATION AS A FILE IN ONE OF ITS HOMES (credential
+ * management §9 "Switching", §10 "Homes"; managed installs §4.6 item 4). The
+ * daemon reads it to put a conversation where a resume in another home of the
+ * same machine finds it. Separate from cross-machine handoff
+ * ({@link HarnessHandoffTranscript}): a harness can move a conversation
+ * between its homes without being packaged for another machine.
+ */
+export interface HarnessConversationFile {
   /**
    * WHERE THE CONVERSATION IS IN ONE CONFIGURATION DIRECTORY (credential
    * management §9 "Switching", §10 "Homes"; epic Task 11). `stateDir` is the
    * harness's state root for a home (`roots(home, { VAR: dir }).state`). The
    * answer is a file inside `stateDir`, or undefined: never a path elsewhere
-   * that an index there points at. Absent: a switch cannot move this harness's
-   * conversation between homes.
+   * that an index there points at.
    */
-  locateInHome?(input: {
+  locateInHome(input: {
     stateDir: string
     cwd: string
     resumeValue: string
@@ -1743,11 +1910,14 @@ export interface HarnessHandoffTranscript {
    * provider: undefined leaves it out, the same object keeps it as it was, a
    * new object replaces it. Codex leaves out encrypted reasoning when the
    * account changes (POD-6893 §3: a foreign one is refused with 400) and
-   * records the provider the target runs on. Absent: every record carries over.
+   * records the provider the target runs on. `inPodiumHome`: the target is
+   * the Podium home (managed installs §4.3), which holds no login, so a record
+   * of a provider that needs one is rewritten to the provider that does not.
+   * Absent: every record carries over.
    */
   carryRecord?(
     record: unknown,
-    change: { accountChanged: boolean; modelProvider?: string },
+    change: { accountChanged: boolean; modelProvider?: string; inPodiumHome?: boolean },
   ): unknown
   /** After the file was placed or rewritten: the harness's own bookkeeping. */
   afterPlace?(input: { stateDir: string; resumeValue: string; path: string }): Promise<void>
@@ -1865,7 +2035,13 @@ export interface AgentManifest {
    * How to install this harness's CLI on a fresh machine. Unsupported ⇒ no
    * verified unattended installer; the CLI refuses with the reason.
    */
-  install: Declared<HarnessInstall>
+  install: Declared<HarnessInstallScript>
+  /**
+   * How Podium installs a release of this harness into its own folder and keeps
+   * it current (managed installs, §5.3). Unsupported ⇒ Podium uses only the
+   * person's own install of this harness.
+   */
+  managedInstall: Declared<HarnessInstall>
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */
   launch(opts: HarnessLaunchOptions): LaunchArgv
   /**
@@ -1908,6 +2084,10 @@ export interface AgentManifest {
   /** Transcript relocation for cross-machine handoff. Unsupported means this
    * harness cannot be packaged even if it otherwise has readable history. */
   handoffTranscript: Declared<HarnessHandoffTranscript>
+  /** Where a conversation is in one of this harness's homes, for a switch or
+   *  a wake in another home on the same machine. Unsupported ⇒ a switch that
+   *  changes the home hands off instead (`homes/conversation.ts`). */
+  conversationFile: Declared<HarnessConversationFile>
 
   /** Transcript reads. Unsupported ⇒ this harness's conversations cannot be read
    *  back (no chat switcher, no BTW); the session still runs. POD-398 folds the

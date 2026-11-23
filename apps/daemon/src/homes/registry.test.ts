@@ -67,7 +67,7 @@ describe('HomeRegistry', () => {
     const homes = new HomeRegistry({ root })
     await expect(homes.ensure('../escape', 'codex')).rejects.toThrow()
     await expect(homes.ensure('cred_..', 'codex')).rejects.toThrow()
-    await expect(homes.ensure(CRED_A, 'grok' as never)).rejects.toThrow()
+    await expect(homes.ensure(CRED_A, 'opencode' as never)).rejects.toThrow()
     expect(existsSync(root) ? readdirSync(root) : []).toEqual([])
     expect(existsSync(join(state, 'escape'))).toBe(false)
   })

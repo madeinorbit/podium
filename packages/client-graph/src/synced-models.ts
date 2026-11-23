@@ -2,6 +2,7 @@ import { lazy } from '@podium/mobx-helpers'
 import {
   type AutomationRunWire,
   type AutomationWire,
+  BUILTIN_HARNESS_KINDS,
   effectiveServiceReport,
   type HostMetricsWire,
   type MachineAccessWire,
@@ -11,6 +12,7 @@ import {
 } from '@podium/model'
 import type { MachineConditionPayload } from '@podium/protocol'
 import { here } from './lookup'
+import { MachineHarness } from './machine-harness'
 import { EntityModel, type ModelHost, registerModels } from './models'
 import type { FieldSource, ModelSchema } from './shared/schema'
 
@@ -50,6 +52,9 @@ export class MachineModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('machine', id, host)
   }
+
+  /** One live reader per nested inventory entry; facts stay on this machine record. */
+  readonly harnessInstalls = BUILTIN_HARNESS_KINDS.map((kind) => new MachineHarness(this, kind))
 
   // Live condition
   /**
@@ -226,7 +231,6 @@ const schema = {
         nullable: true,
         source: machineProjection(),
       },
-
     },
     relations: {},
   },

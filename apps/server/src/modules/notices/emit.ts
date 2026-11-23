@@ -59,6 +59,8 @@ const PUSH_SWITCH: Readonly<Record<NoticeKind, keyof NoticePushPreferences>> = {
   mention: 'mention',
   'credential-attention': 'credentialAttention',
   'credential-shared': 'credentialShared',
+  'harness-install-failing': 'harnessInstalls',
+  'harness-ledger-rebuilt': 'harnessInstalls',
 }
 
 export interface NoticeServiceDeps {

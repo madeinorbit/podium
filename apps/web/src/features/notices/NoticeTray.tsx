@@ -20,7 +20,7 @@ import {
 import { observer } from '@podium/client-graph/react'
 import { createLogger } from '@podium/logger'
 import { asIssueId } from '@podium/model/browser'
-import { AtSign, Bell, KeyRound, Share2 } from 'lucide-react'
+import { AtSign, Bell, DatabaseBackup, KeyRound, PackageX, Share2 } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
 import { useShellActions } from '@/app/shell-data'
@@ -48,6 +48,9 @@ export function openNotice(notice: InboxNoticeModel, actions: Actions): void {
       return
     case 'session':
       actions.navigateToSession(to.sessionId)
+      return
+    case 'machine':
+      actions.openMachineSettings(to.machineId)
       return
     case 'credential':
       actions.setView('settings')
@@ -145,6 +148,8 @@ const KIND_ICON: Record<string, typeof AtSign> = {
   mention: AtSign,
   'credential-attention': KeyRound,
   'credential-shared': Share2,
+  'harness-install-failing': PackageX,
+  'harness-ledger-rebuilt': DatabaseBackup,
 }
 
 const NoticeRow = observer(function NoticeRow({

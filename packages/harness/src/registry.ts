@@ -41,6 +41,7 @@ import {
   type HarnessTranscript,
   type HarnessUsage,
   type HideFromCommands,
+  type HostPrerequisite,
   type PortableCredential,
   type ServerRuntimeSpec,
 } from './manifest.js'
@@ -214,6 +215,54 @@ export function harnessAccepts(kind: AgentKind | string): readonly AcceptedCrede
 /** What a launch adds to keep credentials out of the agent's commands, if the harness has a switch. */
 export function harnessHideFromCommands(kind: AgentKind | string): HideFromCommands | undefined {
   return manifestFor(kind)?.inventory.hideFromCommands
+}
+
+/**
+ * The pipe an accepted line hands its secret over on, on `platform`
+ * (POD-7378): undefined when the line has none or not there, and for a
+ * `home` line.
+ */
+export function acceptedLinePipe(
+  line: AcceptedCredential,
+  platform: NodeJS.Platform,
+): AcceptedCredential['pipe'] {
+  return line.deliver.kind === 'env' && line.pipe?.platforms.includes(platform)
+    ? line.pipe
+    : undefined
+}
+
+/**
+ * Whether a start of this harness on `platform` can ever set its
+ * hide-from-commands switch: it has one, and some line still delivers its
+ * secret in a variable there rather than on a pipe (POD-7378).
+ */
+export function hideFromCommandsApplies(
+  kind: AgentKind | string,
+  platform: NodeJS.Platform,
+): boolean {
+  const manifest = manifestFor(kind)
+  if (!manifest?.inventory.hideFromCommands) return false
+  return manifest.inventory.accepts.some(
+    (line) => line.deliver.kind === 'env' && !acceptedLinePipe(line, platform),
+  )
+}
+
+/**
+ * The programs the harness's hide-from-commands switch needs and `resolve`
+ * does not find, on `platform` (POD-7375). Empty when the harness has no
+ * switch, never sets it there (every passed-in line uses a pipe, POD-7378),
+ * needs nothing there, or everything is found. `resolve` looks a command up
+ * the way the start would: the inventory's command environment, or the PATH
+ * of the exact environment a process gets.
+ */
+export function unmetHideFromCommandsPrerequisites(
+  kind: AgentKind | string,
+  host: { platform: NodeJS.Platform; resolve: (command: string) => string | undefined },
+): readonly HostPrerequisite[] {
+  if (!hideFromCommandsApplies(kind, host.platform)) return []
+  return (manifestFor(kind)?.inventory.hideFromCommands?.requires ?? []).filter(
+    (need) => need.platforms.includes(host.platform) && host.resolve(need.executable) === undefined,
+  )
 }
 
 export function harnessSupportsCredentialPropagation(
@@ -661,16 +710,18 @@ export function harnessInstanceHomeEnv(
 /**
  * The variable that moves `kind`'s whole configuration directory, its login
  * file included (credential management §10): `CLAUDE_CONFIG_DIR` for Claude
- * Code, `CODEX_HOME` for Codex. A Podium home is that directory. Read from the
- * harness's own declaration of its propagatable login file, so the home and
- * the login file can never name different variables. Undefined for a harness
- * whose login cannot be held in a directory of Podium's choosing.
+ * Code, `CODEX_HOME` for Codex, `GROK_HOME` for Grok. A Podium home is that
+ * directory. Read from the harness's own declaration of its login file, so
+ * the home and the login file can never name different variables. Whether
+ * the login may be copied to other machines (`propagatable`) has no bearing
+ * on it. Undefined for a harness whose login cannot be held in a directory of
+ * Podium's choosing.
  */
 export function harnessHomeVariable(kind: AgentKind | string): string | undefined {
   const manifest = manifestFor(kind)
   if (manifest?.environment.managedHomeVariable) return manifest.environment.managedHomeVariable
   const credentials = manifest ? declaredValue(manifest.credentials) : undefined
-  return credentials?.files.find((file) => file.propagatable && file.homeEnvVar)?.homeEnvVar
+  return credentials?.files.find((file) => file.homeEnvVar)?.homeEnvVar
 }
 
 /**
@@ -803,6 +854,7 @@ const TOP_LEVEL_SECTIONS: Record<DeclaredKeys<AgentManifest>, string> = {
   credentials: 'credentials',
   usage: 'usage',
   install: 'install',
+  managedInstall: 'managedInstall',
   exec: 'exec',
   headless: 'headless',
   state: 'state',
@@ -811,6 +863,7 @@ const TOP_LEVEL_SECTIONS: Record<DeclaredKeys<AgentManifest>, string> = {
   transcript: 'transcript',
   composer: 'composer',
   handoffTranscript: 'handoffTranscript',
+  conversationFile: 'conversationFile',
   classifyBrowserOpen: 'classifyBrowserOpen',
 }
 

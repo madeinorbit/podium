@@ -43,6 +43,10 @@ type Rules = Record<string, unknown>
  * `launch()` does, rather than be replaced.
  */
 export function opencodePosture(launch: PostureLaunch, request: PostureRequest): PostureResult {
+  // Podium owns updates for its release in every mode, including an attached TUI.
+  if (request.context.installation.provenance === 'managed') {
+    launch = { ...launch, env: { ...launch.env, OPENCODE_DISABLE_AUTOUPDATE: '1' } }
+  }
   if (request.mode === 'client') {
     return { launch, homeEdits: [], requestedMode: null, unmet: [] }
   }

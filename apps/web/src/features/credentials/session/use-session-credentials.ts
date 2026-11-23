@@ -14,12 +14,12 @@ import type { MobxPool } from '@podium/client-graph'
 import { here } from '@podium/client-graph/lookup'
 import { myPreferences } from '@podium/client-graph/per-user-records'
 import { RecordRequest } from '@podium/client-graph/requested-records'
+import type { AcceptLine, CustodianOf } from '@podium/client-graph/session-credential-facts'
 import type { AccessRefusal, CredentialView, MachineId, SessionId } from '@podium/model'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { useHarnessDescriptors } from '@/lib/use-harness-descriptors'
-import type { AcceptLine, CustodianOf } from './session-credential-facts'
 
 const STALE_MS = 60_000
 

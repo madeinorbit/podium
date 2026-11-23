@@ -19,6 +19,13 @@ pub struct CreateOpts {
     pub ring_bytes: usize,
     pub linger_secs: u64,
     pub no_pty: bool,
+    /// `--pipe-env <VARIABLE>`: read stdin to its end before anything starts
+    /// and hand those bytes to the child on an inherited pipe whose writer is
+    /// already closed, with VARIABLE set to the pipe's descriptor number in the
+    /// child's environment only (POD-7378). The bytes never reach an
+    /// environment, an argument or a file.
+    #[cfg(unix)]
+    pub pipe_env: Option<Vec<u8>>,
     /// Lines of scrollback the kept screen holds (`screen` builds).
     #[cfg(feature = "screen")]
     pub screen_scrollback: usize,
@@ -66,6 +73,14 @@ fn arg_long(name: &[u8], v: &[u8], lo: i64, hi: i64) -> Result<i64, ArgError> {
     if n < lo || n > hi { Err(bad()) } else { Ok(n) }
 }
 
+/// A plain environment variable name: a letter or `_`, then letters, digits
+/// and `_`. Nothing that could smuggle a `=` or a NUL into the child's env.
+#[cfg(unix)]
+fn is_env_name(v: &[u8]) -> bool {
+    matches!(v.first(), Some(b'A'..=b'Z' | b'a'..=b'z' | b'_'))
+        && v.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'_')
+}
+
 pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
     use ArgError::Usage;
     match argv.get(1).map(Vec::as_slice) {
@@ -80,6 +95,8 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
     let (mut sock, mut cwd) = (None, None);
     let (mut cols, mut rows, mut ring, mut linger) = (0, 0, 4i64 << 20, 30);
     let mut no_pty = false;
+    #[cfg(unix)]
+    let mut pipe_env: Option<Vec<u8>> = None;
     #[cfg(windows)]
     let mut pidfile = None;
     #[cfg(feature = "screen")]
@@ -101,6 +118,13 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
             (b"--rows", Some(v)) => rows = arg_long(a, v, 1, MAX_ROWS as i64)?,
             (b"--ring-bytes", Some(v)) => ring = arg_long(a, v, 4096, 1 << 30)?,
             (b"--linger-secs", Some(v)) => linger = arg_long(a, v, 0, 86400)?,
+            #[cfg(unix)]
+            (b"--pipe-env", Some(v)) => {
+                if !is_env_name(v) {
+                    return Err(ArgError::Die([b"bad value for --pipe-env: ", v].concat()));
+                }
+                pipe_env = Some(v.to_vec());
+            }
             #[cfg(feature = "screen")]
             (b"--screen-scrollback", Some(v)) => {
                 screen_scrollback = arg_long(a, v, 0, 100_000)?;
@@ -137,6 +161,8 @@ pub fn parse(argv: &[Vec<u8>]) -> Result<Command, ArgError> {
         ring_bytes: ring as usize,
         linger_secs: linger as u64,
         no_pty,
+        #[cfg(unix)]
+        pipe_env,
         #[cfg(feature = "screen")]
         screen_scrollback: screen_scrollback as usize,
         command,
@@ -192,6 +218,28 @@ mod tests {
         );
         assert_eq!(o.cwd.as_deref(), Some(&b"/tmp"[..]));
         assert!(create("create --no-pty --socket /s -- x").no_pty);
+        #[cfg(unix)]
+        {
+            assert_eq!(create("create --socket /s -- x").pipe_env, None);
+            let o = create("create --socket /s --pipe-env API_KEY_FD -- x");
+            assert_eq!(o.pipe_env.as_deref(), Some(&b"API_KEY_FD"[..]));
+            for bad in ["A=B", "1A", "", "A-B"] {
+                let args = argv("create --socket /s --pipe-env X -- x")
+                    .into_iter()
+                    .map(|a| {
+                        if a == b"X" {
+                            bad.as_bytes().to_vec()
+                        } else {
+                            a
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                assert!(
+                    matches!(parse(&args), Err(ArgError::Die(_))),
+                    "--pipe-env {bad:?} was accepted"
+                );
+            }
+        }
         #[cfg(feature = "screen")]
         {
             assert_eq!(create("create --socket /s -- x").screen_scrollback, 1000);

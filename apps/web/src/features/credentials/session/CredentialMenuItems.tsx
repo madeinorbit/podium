@@ -4,12 +4,16 @@
  * needs attention disabled with why), then the harness's own login, always.
  */
 
+import {
+  type CredentialChoice,
+  credentialKind,
+  KIND_WORDS,
+} from '@podium/client-graph/session-credential-facts'
 import type { CredentialId } from '@podium/model'
 import { Check } from 'lucide-react'
 import type { JSX } from 'react'
 import { DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { identityText } from '../credential-facts'
-import { type CredentialChoice, credentialKind, KIND_WORDS } from './session-credential-facts'
 
 export const OWN_LOGIN_HINT = 'Whatever it is signed in to on the machine'
 
@@ -45,7 +49,9 @@ export function CredentialMenuItems({
   choices,
   selected,
   onSelect,
+  ownLogin = true,
 }: {
+  ownLogin?: boolean
   choices: readonly CredentialChoice[]
   /** The current value: an id, `null` for the own login, `undefined` for none shown. */
   selected: CredentialId | null | undefined
@@ -69,12 +75,14 @@ export function CredentialMenuItems({
           />
         )
       })}
-      <Row
-        label={KIND_WORDS['own-login']}
-        hint={OWN_LOGIN_HINT}
-        checked={selected === null}
-        onSelect={() => onSelect(null)}
-      />
+      {ownLogin && (
+        <Row
+          label={KIND_WORDS['own-login']}
+          hint={OWN_LOGIN_HINT}
+          checked={selected === null}
+          onSelect={() => onSelect(null)}
+        />
+      )}
     </>
   )
 }

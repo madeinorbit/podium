@@ -54,6 +54,11 @@ export function cursorPosture(launch: PostureLaunch, request: PostureRequest): P
 
   let requestedMode: string | null = null
   const options: string[] = []
+  if (
+    request.context.installation.provenance === 'managed' &&
+    !request.context.installation.vendorUpdated
+  )
+    options.push('--disable-auto-update')
   if (headless) {
     options.push('--trust')
     requestedMode = approvalMode(request, unmet)
@@ -72,10 +77,10 @@ export function cursorPosture(launch: PostureLaunch, request: PostureRequest): P
 
   return {
     launch: {
-      // A turn's prompt is its last positional, so its options go right
-      // before it. A terminal gets none.
+      // A turn's prompt is its last positional. Interactive launches can end
+      // in an option value, so their managed updater guard goes at the end.
       args:
-        options.length > 0 && launch.args.length > 0
+        headless && options.length > 0 && launch.args.length > 0
           ? [...launch.args.slice(0, -1), ...options, ...launch.args.slice(-1)]
           : [...launch.args, ...options],
       env: launch.env,

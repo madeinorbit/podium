@@ -1,6 +1,3 @@
-import { asCredentialId, asMachineId, type CredentialView } from '@podium/model'
-import { describe, expect, it } from 'vitest'
-import { credentialView } from '@/test-support/credential-view'
 import {
   credentialKind,
   initialCredential,
@@ -8,7 +5,10 @@ import {
   reachesMachine,
   sessionCredentialChoices,
   sessionCredentialLine,
-} from './session-credential-facts'
+} from '@podium/client-graph/session-credential-facts'
+import { asCredentialId, asMachineId, type CredentialView } from '@podium/model'
+import { describe, expect, it } from 'vitest'
+import { credentialView } from '@/test-support/credential-view'
 
 const CLAUDE_ACCEPTS = [
   { type: 'anthropic.api-key', deliver: { kind: 'env', variable: 'ANTHROPIC_API_KEY' } },

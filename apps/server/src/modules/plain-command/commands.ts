@@ -1,3 +1,4 @@
+import { HARNESS_INSTALL_FAMILY } from '../machines/install-actions'
 /**
  * THE PLAIN COMMAND REGISTRY, COMPOSED (ADR 12 D8 and D9, POD-6593).
  *
@@ -38,6 +39,7 @@ import { PlainCommandRegistry, type PlainRegistration } from './registry'
 /** Every plain registration, family by family. */
 const registrations = (): readonly PlainRegistration[] => [
   ...plainFamilyRegistrations(AUTH_PLAIN_FAMILY),
+  ...plainFamilyRegistrations(HARNESS_INSTALL_FAMILY),
   ...plainFamilyRegistrations(CLOUD_PLAIN_FAMILY),
   ...FLEET_PLAIN_REGISTRATIONS,
   ...plainFamilyRegistrations(HOST_PLAIN_FAMILY),

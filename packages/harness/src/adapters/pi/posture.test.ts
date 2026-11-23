@@ -59,6 +59,28 @@ const WITH_APPROVE: Record<LaunchMode, string[]> = {
 const NO_GATE = 'Pi has no approval gate: it never asks before it runs a tool'
 
 describe('piPosture', () => {
+  describe.each(LAUNCH_MODES)('%s managed update notice control', (mode) => {
+    it('skips the version check for managed releases and preserves all other launch terms', () => {
+      const base = request(mode, AUTONOMOUS)
+      const launch = { ...BUILDER[mode], env: { KEEP: 'value', PI_SKIP_VERSION_CHECK: '0' } }
+      const external = piPosture(launch, base)
+      const managed = piPosture(launch, {
+        ...base,
+        context: testHarnessContext({ kind: 'pi', version: '1.6.0', provenance: 'managed' }),
+      })
+      expect(managed).toEqual({
+        ...external,
+        launch: { ...external.launch, env: { ...launch.env, PI_SKIP_VERSION_CHECK: '1' } },
+      })
+      expect(external.launch.env).toEqual(launch.env)
+      expect(launch.env.PI_SKIP_VERSION_CHECK).toBe('0')
+    })
+
+    it('leaves an external installation without an update switch', () => {
+      expect(piPosture(BUILDER[mode], request(mode, AUTONOMOUS)).launch.env).toEqual({})
+    })
+  })
+
   for (const mode of LAUNCH_MODES) {
     it(`${mode} / autonomous: --approve trusts the folder; nothing unmet`, () => {
       const out = piPosture(BUILDER[mode], request(mode, AUTONOMOUS))

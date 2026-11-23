@@ -35,8 +35,12 @@ import type {
 } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
-import type { ControlMessage, DaemonMessage, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { TerminalScreen } from '@podium/process/screen'
+import type {
+  ControlMessage,
+  DaemonMessage,
+  QueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 import { ForeignWriteCounter } from '../terminal/foreign-writes.js'
 import type { Terminal } from '../terminal/terminal.js'
 
@@ -219,7 +223,8 @@ export class DaemonSession {
    * THE SESSION-PINNED HARNESS CONTEXT (POD-6533): the installation, account
    * environment and folders this session's harness runs under, built once when
    * the session was spawned (`session-harness-context.ts`). Daemon memory only:
-   * a restarted daemon rebuilds it from the current inventory on reattach.
+   * a restarted daemon rebuilds it on reattach from the installation the
+   * session's row in the install ledger records (managed installs §6.2).
    * Undefined for a plain shell or login pane.
    */
   harnessContext: HarnessContext | undefined = undefined
@@ -444,9 +449,7 @@ export class DaemonSession {
         reason: input.abandoned.reason,
         turns: turns.length,
         turnIds,
-        ...(turnIds.length === turns.length
-          ? {}
-          : { unattributed: turns.length - turnIds.length }),
+        ...(turnIds.length === turns.length ? {} : { unattributed: turns.length - turnIds.length }),
       })
     } else {
       log.warn('engine is up but its protocol did not bind; keeping the engine', {

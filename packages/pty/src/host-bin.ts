@@ -47,8 +47,10 @@ const log = createLogger('pty:host-bin')
  *
  * 1 — SPEC-6 protocol version 1 (the retired C host; still ADOPTED when running).
  * 2 — the Rust host's screen: WELCOME's features byte and PICTURE (POD-4909).
+ * 3 — `create --pipe-env` on Unix: a credential handed to the child on an
+ *     inherited pipe instead of an environment variable (POD-7378).
  */
-export const HOST_FEATURES = 2
+export const HOST_FEATURES = 3
 export const RUST_HOST_BINARY = 'podium-host'
 
 export function hostBinaryName(platform: NodeJS.Platform = process.platform): string {

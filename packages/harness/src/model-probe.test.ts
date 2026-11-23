@@ -1,6 +1,17 @@
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { platform, tmpdir } from 'node:os'
+import { join, relative } from 'node:path'
 import { addSink, createRingBufferSink } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { harnessAccount } from './harness-context'
+import { type HarnessContext, harnessAccount, withHarnessHome } from './harness-context'
 import {
   type FetchLike,
   parseCodexModels,
@@ -284,6 +295,7 @@ describe('probe (injected exec — no shelling out)', () => {
         executable: '/selected/agy',
         version: '1.5.15',
         generation: 1,
+        provenance: 'external' as const,
       },
     }
     let called = false
@@ -323,6 +335,7 @@ describe('probe (injected exec — no shelling out)', () => {
               executable: '/selected/agy',
               version: '1.5.15',
               generation: 1,
+              provenance: 'external',
             },
           },
         },
@@ -395,3 +408,336 @@ describe('probe (injected exec — no shelling out)', () => {
     expect(byAgent['claude-code']).toBeUndefined()
   })
 })
+
+/** Every path under `dir` with its size, so a write anywhere below shows. */
+function treeListing(dir: string): string[] {
+  const out: string[] = []
+  const walk = (at: string) => {
+    for (const name of readdirSync(at).sort()) {
+      const path = join(at, name)
+      const stat = lstatSync(path)
+      out.push(`${relative(dir, path)}:${stat.isDirectory() ? 'dir' : stat.size}`)
+      if (stat.isDirectory()) walk(path)
+    }
+  }
+  walk(dir)
+  return out
+}
+
+function externalContext(
+  kind: 'grok' | 'opencode' | 'codex' | 'pi',
+  home: string,
+  executable: string,
+  env: Record<string, string> = {},
+): HarnessContext {
+  const account = harnessAccount(kind, home, { HOME: home, PATH: '/usr/bin:/bin', ...env })
+  return {
+    installation: { kind, executable, version: '1.0.0', generation: 1, provenance: 'external' },
+    home: account.home,
+    env: account.env,
+    roots: account.roots,
+  }
+}
+
+describe.skipIf(platform() === 'win32')(
+  "the person's own install lists its models without writing their folders (POD-7390, POD-7392)",
+  () => {
+    let home: string
+    let bin: string
+    let observed: string
+    beforeEach(() => {
+      home = mkdtempSync(join(tmpdir(), 'podium-model-probe-home-'))
+      bin = mkdtempSync(join(tmpdir(), 'podium-model-probe-bin-'))
+      observed = mkdtempSync(join(tmpdir(), 'podium-model-probe-seen-'))
+    })
+    afterEach(() => {
+      for (const dir of [home, bin, observed]) rmSync(dir, { recursive: true, force: true })
+    })
+
+    it('Grok: GROK_HOME moves aside, the login and settings are still the ones read', async () => {
+      // Grok 1.0.92 appends to its log and opens its session index under
+      // GROK_HOME for `grok models`, and writes config.toml on first start.
+      const exe = join(bin, 'grok')
+      writeFileSync(
+        exe,
+        [
+          '#!/bin/sh',
+          'state="$HOME/.grok"; [ -n "$GROK_HOME" ] && state="$GROK_HOME"',
+          'auth="$state/auth.json"; [ -n "$GROK_AUTH_PATH" ] && auth="$GROK_AUTH_PATH"',
+          `{ echo "home=$state"; echo "auth=$auth"; echo "cwd=$(pwd)"; } > "${observed}/grok"`,
+          'mkdir -p "$state/logs" "$state/sessions"',
+          'echo started >> "$state/logs/unified.jsonl"; echo index > "$state/sessions/session_search.sqlite"',
+          'echo "# written on first start" >> "$state/config.toml"',
+          'grep -q signed-in "$auth" && echo "You are logged in with grok.com."',
+          'echo; echo "Available models:"',
+          'sed -n "s/^default_model = \\"\\(.*\\)\\"/  * \\1 (default)/p" "$state/config.toml"',
+          'echo "  - grok-4.6"',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      const grokHome = join(home, '.grok')
+      mkdirSync(join(grokHome, 'logs'), { recursive: true })
+      writeFileSync(join(grokHome, 'auth.json'), '{"signed-in": true}\n')
+      writeFileSync(join(grokHome, 'config.toml'), 'default_model = "grok-custom"\n')
+      writeFileSync(join(grokHome, 'logs', 'unified.jsonl'), 'personal log\n')
+      const before = treeListing(home)
+      const leftBefore = readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-grok-'))
+
+      const models = await probeAgentModels('grok', {
+        contexts: { grok: externalContext('grok', home, exe) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual(['grok-custom', 'grok-4.6'])
+      expect(treeListing(home)).toEqual(before)
+      expect(readFileSync(join(grokHome, 'config.toml'), 'utf8')).toBe(
+        'default_model = "grok-custom"\n',
+      )
+      const seen = readFileSync(join(observed, 'grok'), 'utf8')
+      expect(seen).toContain(`auth=${join(grokHome, 'auth.json')}`)
+      expect(seen).not.toContain(`home=${grokHome}`)
+      expect(seen).not.toContain(`cwd=${home}`)
+      // The temporary folder is gone.
+      expect(readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-grok-'))).toEqual(
+        leftBefore,
+      )
+    })
+
+    it('OpenCode: data, state and cache move aside, the login, config and model cache are read', async () => {
+      // OpenCode 1.19.6 boots an instance for `opencode models`: log and
+      // database under the data folder, project locks under the state folder,
+      // a models.dev refresh in the cache folder.
+      const exe = join(bin, 'opencode')
+      writeFileSync(
+        exe,
+        [
+          '#!/bin/sh',
+          'data="$HOME/.local/share/opencode"; [ -n "$XDG_DATA_HOME" ] && data="$XDG_DATA_HOME/opencode"',
+          'state="$HOME/.local/state/opencode"; [ -n "$XDG_STATE_HOME" ] && state="$XDG_STATE_HOME/opencode"',
+          'cache="$HOME/.cache/opencode"; [ -n "$XDG_CACHE_HOME" ] && cache="$XDG_CACHE_HOME/opencode"',
+          'config="$HOME/.config/opencode"; [ -n "$XDG_CONFIG_HOME" ] && config="$XDG_CONFIG_HOME/opencode"',
+          'db="$data/opencode.db"; [ -n "$OPENCODE_DB" ] && db="$OPENCODE_DB"',
+          'catalog="$cache/models.json"; [ -n "$OPENCODE_MODELS_PATH" ] && catalog="$OPENCODE_MODELS_PATH"',
+          `{ echo "data=$data"; echo "cwd=$(pwd)"; } > "${observed}/opencode"`,
+          'mkdir -p "$data/log" "$state/locks/abc.lock" "$cache" "$(dirname "$db")"',
+          'echo boot >> "$data/log/opencode.log"; echo rows >> "$db"; echo meta > "$state/locks/abc.lock/meta.json"',
+          'echo refreshed > "$cache/models.json"',
+          'cat "$catalog"',
+          'grep -q key "$data/auth.json" && echo "openai/gpt-6"',
+          'cat "$config/providers.txt"',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      const data = join(home, '.local', 'share', 'opencode')
+      mkdirSync(join(data, 'log'), { recursive: true })
+      writeFileSync(join(data, 'auth.json'), '{"openai": {"key": "sk-test"}}\n')
+      writeFileSync(join(data, 'opencode.db'), 'personal sessions\n')
+      mkdirSync(join(home, '.cache', 'opencode'), { recursive: true })
+      writeFileSync(join(home, '.cache', 'opencode', 'models.json'), 'opencode/big-pickle\n')
+      mkdirSync(join(home, '.config', 'opencode'), { recursive: true })
+      writeFileSync(join(home, '.config', 'opencode', 'providers.txt'), 'custom/local-model\n')
+      const before = treeListing(home)
+
+      const models = await probeAgentModels('opencode', {
+        contexts: { opencode: externalContext('opencode', home, exe) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual([
+        'opencode/big-pickle',
+        'openai/gpt-6',
+        'custom/local-model',
+      ])
+      expect(treeListing(home)).toEqual(before)
+      const seen = readFileSync(join(observed, 'opencode'), 'utf8')
+      expect(seen).not.toContain(`data=${data}`)
+      expect(seen).not.toContain(`cwd=${home}`)
+    })
+
+    it('an OPENCODE_DB in the account environment does not take the listing back into a store', async () => {
+      const exe = join(bin, 'opencode')
+      writeFileSync(exe, '#!/bin/sh\necho rows >> "$OPENCODE_DB"\necho "opencode/big-pickle"\n', {
+        mode: 0o755,
+      })
+      const store = join(home, 'store.db')
+      writeFileSync(store, 'personal sessions\n')
+
+      const models = await probeAgentModels('opencode', {
+        contexts: { opencode: externalContext('opencode', home, exe, { OPENCODE_DB: store }) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual(['opencode/big-pickle'])
+      expect(readFileSync(store, 'utf8')).toBe('personal sessions\n')
+    })
+
+    /** A fake `codex` that writes what 0.171.0 was measured to write: an arg0
+     *  helper folder under CODEX_HOME, and a refreshed login written beside
+     *  the login's resolved file and renamed over it, under auth.lock. */
+    function fakeCodex(): string {
+      const exe = join(bin, 'codex')
+      writeFileSync(
+        exe,
+        [
+          '#!/bin/sh',
+          'state="$HOME/.codex"; [ -n "$CODEX_HOME" ] && state="$CODEX_HOME"',
+          `{ echo "home=$state"; echo "args=$*"; echo "cwd=$(pwd)"; } > "${observed}/codex"`,
+          'mkdir -p "$state/tmp/arg0-linux/codex-arg0Ab12"; : > "$state/tmp/arg0-linux/codex-arg0Ab12/.lock"',
+          'login="$state/auth.json"',
+          'if grep -q rt-old "$login" 2>/dev/null; then',
+          '  : >> "$state/auth.lock"',
+          '  target=$(readlink -f "$login")',
+          '  sed s/rt-old/rt-new/ "$target" > "$(dirname "$target")/.auth-Xy12"',
+          '  mv "$(dirname "$target")/.auth-Xy12" "$target"',
+          'fi',
+          'model=$(sed -n "s/^model = \\"\\(.*\\)\\"/\\1/p" "$state/config.toml")',
+          'printf \'{"models":[{"slug":"%s","visibility":"list","priority":1}\' "$model"',
+          'grep -q rt-new "$login" 2>/dev/null && printf \',{"slug":"gpt-account","visibility":"list","priority":2}\'',
+          'echo "]}"',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      return exe
+    }
+
+    it('Codex: CODEX_HOME moves aside, a refreshed login lands in the person’s auth.json', async () => {
+      const exe = fakeCodex()
+      const codexHome = join(home, '.codex')
+      mkdirSync(codexHome, { recursive: true })
+      writeFileSync(join(codexHome, 'auth.json'), '{"tokens":{"refresh_token":"rt-old"}}\n')
+      writeFileSync(join(codexHome, 'config.toml'), 'model = "gpt-custom"\n')
+      const before = treeListing(home)
+      const leftBefore = readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-codex-'))
+
+      const models = await probeAgentModels('codex', {
+        contexts: { codex: externalContext('codex', home, exe) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual(['gpt-custom', 'gpt-account'])
+      // The rotated token is in the person's file, which is still a file.
+      expect(readFileSync(join(codexHome, 'auth.json'), 'utf8')).toContain('rt-new')
+      expect(lstatSync(join(codexHome, 'auth.json')).isFile()).toBe(true)
+      // The refresh took the person's own lock; nothing else was written.
+      expect(treeListing(home).sort()).toEqual([...before, '.codex/auth.lock:0'].sort())
+      const seen = readFileSync(join(observed, 'codex'), 'utf8')
+      expect(seen).not.toContain(`home=${codexHome}`)
+      expect(seen).toContain('args=-c cli_auth_credentials_store="file" debug models')
+      expect(seen).not.toContain(`cwd=${home}`)
+      expect(readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-codex-'))).toEqual(
+        leftBefore,
+      )
+    })
+
+    it('Codex: a login kept in the keyring, or no login file, is listed in place', async () => {
+      const exe = fakeCodex()
+      const codexHome = join(home, '.codex')
+      mkdirSync(codexHome, { recursive: true })
+      writeFileSync(join(codexHome, 'config.toml'), 'model = "gpt-custom"\n')
+      const context = externalContext('codex', home, exe)
+
+      expect((await probeAgentModels('codex', { contexts: { codex: context } }))[0]?.value).toBe(
+        'gpt-custom',
+      )
+      expect(readFileSync(join(observed, 'codex'), 'utf8')).toContain(`home=${codexHome}\n`)
+
+      writeFileSync(join(codexHome, 'auth.json'), '{"tokens":{"refresh_token":"rt-old"}}\n')
+      writeFileSync(
+        join(codexHome, 'config.toml'),
+        'model = "gpt-custom"\n[profiles.work]\ncli_auth_credentials_store = "auto"\n',
+      )
+      await probeAgentModels('codex', { contexts: { codex: context } })
+      const seen = readFileSync(join(observed, 'codex'), 'utf8')
+      expect(seen).toContain(`home=${codexHome}\n`)
+      expect(seen).toContain('args=debug models')
+    })
+
+    it('Pi: the agent folder moves aside, the login, extensions and settings are the ones read', async () => {
+      // Pi 1.6.0 creates settings.json and models-store.json when absent,
+      // refreshes the provider catalogs, and writes a refreshed login in place.
+      const exe = join(bin, 'pi')
+      writeFileSync(
+        exe,
+        [
+          '#!/bin/sh',
+          'dir="$HOME/.pi/agent"; [ -n "$PI_CODING_AGENT_DIR" ] && dir="$PI_CODING_AGENT_DIR"',
+          `{ echo "dir=$dir"; echo "cwd=$(pwd)"; } > "${observed}/pi"`,
+          '[ -e "$dir/auth.json" ] || echo "{}" > "$dir/auth.json"',
+          '[ -e "$dir/settings.json" ] || echo "{}" > "$dir/settings.json"',
+          'echo refreshed > "$dir/models-store.json"',
+          'login=$(sed s/access-old/access-new/ "$dir/auth.json"); printf "%s\\n" "$login" > "$dir/auth.json"',
+          'echo "provider  model  context  max-out  thinking  images"',
+          'grep -q anthropic "$dir/auth.json" && echo "anthropic  claude-x  200K  64K  yes  yes"',
+          '[ -d "$dir/extensions/provider-ext" ] && echo "ext  ext-model  1K  1K  no  no"',
+          'grep -q custom "$dir/models.json" && echo "custom  local  8K  1K  no  no"',
+          '',
+        ].join('\n'),
+        { mode: 0o755 },
+      )
+      const agent = join(home, '.pi', 'agent')
+      mkdirSync(join(agent, 'extensions', 'provider-ext'), { recursive: true })
+      writeFileSync(join(agent, 'auth.json'), '{"anthropic":{"access":"access-old"}}\n')
+      writeFileSync(join(agent, 'models.json'), '{"providers":{"custom":{}}}\n')
+      writeFileSync(join(agent, 'models-store.json'), '{"personal":true}\n')
+      const before = treeListing(home)
+      const leftBefore = readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-pi-'))
+
+      const models = await probeAgentModels('pi', {
+        contexts: { pi: externalContext('pi', home, exe) },
+      })
+
+      expect(models.map((m) => m.value)).toEqual([
+        'anthropic/claude-x',
+        'ext/ext-model',
+        'custom/local',
+      ])
+      expect(readFileSync(join(agent, 'auth.json'), 'utf8')).toBe(
+        '{"anthropic":{"access":"access-new"}}\n',
+      )
+      expect(lstatSync(join(agent, 'auth.json')).isFile()).toBe(true)
+      expect(readFileSync(join(agent, 'models-store.json'), 'utf8')).toBe('{"personal":true}\n')
+      expect(treeListing(home)).toEqual(before)
+      const seen = readFileSync(join(observed, 'pi'), 'utf8')
+      expect(seen).not.toContain(`dir=${agent}`)
+      expect(seen).not.toContain(`cwd=${home}`)
+      expect(readdirSync(tmpdir()).filter((n) => n.startsWith('podium-models-pi-'))).toEqual(
+        leftBefore,
+      )
+    })
+
+    it('Pi: with no login yet, the empty login Pi creates is not left in the person’s folder', async () => {
+      const exe = join(bin, 'pi')
+      writeFileSync(
+        exe,
+        '#!/bin/sh\n[ -e "$PI_CODING_AGENT_DIR/auth.json" ] || echo "{}" > "$PI_CODING_AGENT_DIR/auth.json"\necho "No models found"\n',
+        { mode: 0o755 },
+      )
+      mkdirSync(join(home, '.pi', 'agent'), { recursive: true })
+      const before = treeListing(home)
+
+      expect(
+        await probeAgentModels('pi', { contexts: { pi: externalContext('pi', home, exe) } }),
+      ).toEqual([])
+      expect(treeListing(home)).toEqual(before)
+    })
+
+    it('a Podium home is listed in place: it is already Podium’s own folder', async () => {
+      const exe = join(bin, 'grok')
+      writeFileSync(
+        exe,
+        `#!/bin/sh\necho "$GROK_HOME" > "${observed}/grok"\necho "Available models:"; echo "  - grok-4.6"\n`,
+        { mode: 0o755 },
+      )
+      const podiumHome = join(home, '.podium', 'homes', 'cred_1', 'grok')
+      mkdirSync(podiumHome, { recursive: true })
+      const context = withHarnessHome(externalContext('grok', home, exe), {
+        id: 'cred_1',
+        dir: podiumHome,
+      })
+
+      const models = await probeAgentModels('grok', { contexts: { grok: context } })
+
+      expect(models.map((m) => m.value)).toEqual(['grok-4.6'])
+      expect(readFileSync(join(observed, 'grok'), 'utf8').trim()).toBe(podiumHome)
+    })
+  },
+)
