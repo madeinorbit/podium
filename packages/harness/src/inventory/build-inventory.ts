@@ -390,7 +390,7 @@ async function probeExternal(
   const identityReader = declaredValue(manifest.inventory.loginIdentity)
   let identity: ReturnType<NonNullable<typeof identityReader>> | undefined
   try {
-    identity = identityReader?.(credentialHome, credentialEnv)
+    identity = detected.identity ?? identityReader?.(credentialHome, credentialEnv)
   } catch {
     // Login identity is best-effort metadata.
   }
@@ -402,6 +402,7 @@ async function probeExternal(
       manifest,
       environment,
       contained.env,
+      credentialHome,
       credentialEnv,
       fallbackLogin,
       commandProbe,
@@ -466,6 +467,7 @@ async function probeExternalCandidates(
   manifest: AgentManifest,
   environment: CommandEnvironment,
   probeEnv: Readonly<Record<string, string>>,
+  credentialHome: string,
   credentialEnv: Readonly<Record<string, string>>,
   fallbackLogin: HarnessLogin,
   commandProbe: HarnessLoginCommandProbe | undefined,
@@ -489,8 +491,17 @@ async function probeExternalCandidates(
     let login = fallbackLogin
     if (commandProbe) {
       try {
+        const selection = manifest.environment.command?.({
+          home: credentialHome,
+          env: credentialEnv,
+          roots: manifest.roots(credentialHome, credentialEnv),
+        })
         const decision = commandProbe.classify(
-          await loginExec([candidate, ...commandProbe.args], commandProbe.timeoutMs, credentialEnv),
+          await loginExec(
+            [candidate, ...(selection?.args ?? []), ...commandProbe.args],
+            commandProbe.timeoutMs,
+            { ...credentialEnv, ...selection?.env },
+          ),
         )
         login =
           decision.kind === 'determined'

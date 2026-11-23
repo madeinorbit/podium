@@ -68,6 +68,21 @@ afterEach(() => {
 })
 
 describe('Add a subscription', () => {
+  it('opens native Google sign-in on the selected machine and explains the authorization-code step', async () => {
+    const commands = fakeServer()
+    const { openTerminal } = show(commands)
+    fireEvent.click(screen.getByRole('radio', { name: /Google AI subscription/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in on Desk' }))
+    expect(
+      await screen.findByText(/Waiting for you to sign in to your Google AI subscription/),
+    ).toBeTruthy()
+    expect(commands.signInStart.mutate).toHaveBeenCalledWith({
+      type: 'google.antigravity-login',
+      machineId: 'machine:desk',
+    })
+    expect(openTerminal).toHaveBeenCalledWith(STARTED.terminalSessionId)
+    expect(screen.getByText(/Paste the authorization code/)).toBeTruthy()
+  })
   it('waiting for sign-in: the terminal opens on the chosen machine and the screen says what to do there', async () => {
     const commands = fakeServer()
     const { openTerminal } = show(commands)

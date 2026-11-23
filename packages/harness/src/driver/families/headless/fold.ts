@@ -11,9 +11,9 @@
 // now, a line at a time, and are the same readers whether the daemon watched
 // the turn live or replayed it after a restart.
 
-import { createPiStreamReducer } from '../../../registry.js'
 import type { HarnessHeadless } from '../../../manifest.js'
-import { HeadlessTurnError, type HeadlessEmit, type HeadlessTurnOutcome } from './types.js'
+import { createAntigravityStreamReducer, createPiStreamReducer } from '../../../registry.js'
+import { type HeadlessEmit, HeadlessTurnError, type HeadlessTurnOutcome } from './types.js'
 
 type OutputFormat = HarnessHeadless['outputFormat']
 
@@ -34,6 +34,8 @@ export function createHeadlessProgressReader(
   let partialItem = ''
   let opencodeText = ''
   const pi = outputFormat === 'pi-jsonl' ? createPiStreamReducer() : undefined
+  const antigravity =
+    outputFormat === 'antigravity-jsonl' ? createAntigravityStreamReducer() : undefined
 
   const emitPartial = (text: string, itemHint?: string): void => {
     if (!text || (text === partialText && itemHint === partialItem)) return
@@ -55,8 +57,8 @@ export function createHeadlessProgressReader(
       return
     }
 
-    if (pi) {
-      const effect = pi.push(event)
+    if (pi || antigravity) {
+      const effect = (pi ?? antigravity)?.push(event)
       if (!effect) return
       if (effect.sessionId) {
         emit({ kind: 'status', status: 'running', harnessSessionId: effect.sessionId })
@@ -227,6 +229,13 @@ export function foldHeadlessOutcome(input: {
     output = output.trim()
   } else if (outputFormat === 'pi-jsonl') {
     const reducer = createPiStreamReducer()
+    for (const line of stdout.split('\n')) reducer.pushLine(line)
+    const result = reducer.result()
+    if (result.sessionId) harnessSessionId = result.sessionId
+    output = result.output
+    piError = result.error
+  } else if (outputFormat === 'antigravity-jsonl') {
+    const reducer = createAntigravityStreamReducer()
     for (const line of stdout.split('\n')) reducer.pushLine(line)
     const result = reducer.result()
     if (result.sessionId) harnessSessionId = result.sessionId

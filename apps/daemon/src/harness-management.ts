@@ -158,7 +158,11 @@ export function managementQuotaFetcher(
     account: async () => {
       const account = await resolveManagementAccount(ctx)
       if (!account) throw new Error('quota read refused: no account home')
-      return { homeDir: account.home, env: account.machineEnv }
+      return {
+        homeDir: account.home,
+        env: account.machineEnv,
+        ...(account.snapshot ? { snapshot: account.snapshot } : {}),
+      }
     },
   })
 }

@@ -243,10 +243,10 @@ describe('buildInventory', () => {
     expect(inv.podiumVersion).toBe(process.env.PODIUM_APP_VERSION ?? 'dev')
   })
 
-  it('reports all 6 kinds, absent when every candidate fails', async () => {
+  it('reports all 7 kinds, absent when every candidate fails', async () => {
     const inv = await buildInventory({ homeDir: home, exec: fakeExec({}) })
     expect(inv.agents.map((a) => a.kind).sort()).toEqual(
-      ['claude-code', 'codex', 'cursor', 'grok', 'opencode', 'pi'].sort(),
+      ['antigravity', 'claude-code', 'codex', 'cursor', 'grok', 'opencode', 'pi'].sort(),
     )
     for (const a of inv.agents) {
       expect(a.installed).toBe(false)

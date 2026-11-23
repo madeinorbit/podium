@@ -5,8 +5,8 @@
  * server's `quota.summary` procedure. `--json` preserves that payload verbatim.
  */
 
-import { makeRelayIssueClient } from '@podium/issue-client'
 import { quotaAgentLabel } from '@podium/harness/inventory'
+import { makeRelayIssueClient } from '@podium/issue-client'
 import type { AgentQuotaWire, MachineQuotaWire, QuotaWindowWire } from '@podium/model'
 import { resolveAgentRelay } from '@podium/runtime/config'
 
@@ -32,7 +32,7 @@ export function quotaHelpText(): string {
     '  --json    Print the exact multi-machine quota payload as JSON.',
     '  --help    Show this help.',
     '',
-    'The readable view includes account, plan, percent used and remaining, reset',
+    'The readable view includes account, plan, AI credits, percent used and remaining, reset',
     'time, and authentication/provider errors. Provider responses may be cached',
     'for up to two minutes, matching the panel polling path.',
   ].join('\n')
@@ -112,6 +112,8 @@ export function renderQuota(machines: MachineQuotaWire[], nowMs = Date.now()): s
           continue
         }
         lines.push(`  ${label}${account}`)
+        if (agent.credits)
+          lines.push(`    AI credits: ${decimal(agent.credits.remaining)} remaining`)
         for (const window of agent.windows) lines.push(renderWindow(window, nowMs))
       }
       return lines.join('\n')

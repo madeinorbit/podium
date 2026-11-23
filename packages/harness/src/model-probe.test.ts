@@ -283,6 +283,71 @@ describe('probeClaudeModels (Anthropic /v1/models — subscription OAuth OR API 
 })
 
 describe('probe (injected exec — no shelling out)', () => {
+  it('probes the pinned Antigravity installation with its complete Google home selectors', async () => {
+    const context = {
+      ...harnessAccount('antigravity', '/account/home', {
+        HOME: '/account/home',
+        PATH: '/account/bin',
+        PODIUM_ANTIGRAVITY_HOME: '/accounts/google-first',
+      }),
+      installation: {
+        kind: 'antigravity' as const,
+        executable: '/selected/agy',
+        version: '1.5.15',
+        generation: 1,
+        provenance: 'external' as const,
+      },
+    }
+    let called = false
+    let observedArgv: readonly string[] = []
+    let observedSsh: string | undefined
+    const models = await probeAgentModels('antigravity', {
+      contexts: { antigravity: context },
+      exec: async (argv, _timeout, env) => {
+        called = true
+        observedArgv = argv
+        observedSsh = env?.SSH_CONNECTION
+        return 'Gemini 3.1 Pro (Low)'
+      },
+    })
+    expect(called).toBe(true)
+    expect(observedArgv).toEqual([
+      '/selected/agy',
+      '--gemini_dir',
+      '/accounts/google-first',
+      '--app_data_dir',
+      'antigravity-cli',
+      'models',
+    ])
+    expect(observedSsh).toBe('podium-managed-home')
+    expect(models[0]?.value).toBe('Gemini 3.1 Pro (Low)')
+  })
+
+  it('refuses partial native-account contexts rather than reading the default Google login', async () => {
+    let called = false
+    expect(
+      await probeAgentModels('antigravity', {
+        contexts: {
+          antigravity: {
+            env: { PATH: '/account/bin' },
+            installation: {
+              kind: 'antigravity',
+              executable: '/selected/agy',
+              version: '1.5.15',
+              generation: 1,
+              provenance: 'external',
+            },
+          },
+        },
+        exec: async () => {
+          called = true
+          return ''
+        },
+      }),
+    ).toEqual([])
+    expect(called).toBe(false)
+  })
+
   it('returns parsed models on success', async () => {
     const models = await probeAgentModels('grok', { exec: async () => GROK })
     expect(models.map((m) => m.value)).toEqual(['grok-4.5', 'grok-composer-2.5-fast'])
@@ -297,7 +362,7 @@ describe('probe (injected exec — no shelling out)', () => {
     expect(models).toEqual([])
   })
 
-  it('probeAllModels fans out over all six agents, keyed by agent kind', async () => {
+  it('probeAllModels fans out over the registered agents, keyed by agent kind', async () => {
     const byAgent = await probeAllModels({
       exec: async (argv) => {
         if (argv[0] === 'grok') return GROK
@@ -305,6 +370,7 @@ describe('probe (injected exec — no shelling out)', () => {
         if (argv[0] === 'opencode') return OPENCODE
         if (argv[0] === 'codex') return CODEX
         if (argv[0] === 'pi') return PI
+        if (argv[0] === 'agy') return 'Gemini 3.1 Pro (Low)'
         return ''
       },
       claude: {
@@ -313,6 +379,7 @@ describe('probe (injected exec — no shelling out)', () => {
       },
     })
     expect(Object.keys(byAgent).sort()).toEqual([
+      'antigravity',
       'claude-code',
       'codex',
       'cursor',
@@ -330,6 +397,7 @@ describe('probe (injected exec — no shelling out)', () => {
     ])
     expect(byAgent['claude-code']?.[0]?.value).toBe('claude-sonnet-5')
     expect(byAgent.codex?.length).toBe(2)
+    expect(byAgent.antigravity?.[0]?.value).toBe('Gemini 3.1 Pro (Low)')
   })
 
   it('omits claude-code when the OAuth call yields nothing so the cache can retain it', async () => {

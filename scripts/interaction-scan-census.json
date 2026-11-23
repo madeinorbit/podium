@@ -31306,20 +31306,20 @@
       "file": "apps/mobile/src/screens/PulseScreen.tsx",
       "holder": "PulseScreen/useMemo:callback/capacity",
       "rule": "helper-consumer",
-      "tokens": "312a771fb5274828fb7c6a37ab1bde42b5f07aa04f3fdcbeeb500562720c27ae",
+      "tokens": "69188547aa4c083f7d94891f8de0cf3869be95948a8f6b0e95c6845dbec84f1a",
       "gate": [],
       "origin": [
         "74939a3eaddeadbf09729ab74f28fc77ff64abb85673264cf8712fcd89438a1f",
         "d44a1ea01b2ea5ec0d010d732e5249393508b9cbd02c73b52b237cd8777f6de7"
       ],
-      "fingerprint": "b1eda20107867ce3cabed5d35ae1d0b892a2411ae00746c09a32cf89454beff5",
+      "fingerprint": "c5ab8b802956821d51b8a4aa8ee55de64a9ea95be62090c02eb445dd9cbc8719",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-6644",
-      "trigger": "A machine or checkout record change, or the first read of my fleet",
-      "bound": "One instance's machines (my fleet: the machine records with my access row) and the registered repositories derived from its checkout records: tens per instance, never sessions or issues",
-      "reason": "Machines and checkouts are synced records (POD-6644); online and load are LiveStore conditions read per machine model. The collection is the fleet or the repository list, derived once per record change.",
-      "guard": "header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
+      "owner": "POD-7406",
+      "trigger": "A machine or checkout record change, a live quota update, or the first read of my fleet",
+      "bound": "One instance's machine and checkout records plus live quota windows for configured accounts and provider pools: tens per instance, never sessions, issues or history",
+      "reason": "Independent provider quota pools change the capacity helper's dependency fingerprint. It still consumes only the instance's fleet and current configured-account quota readings; no global session, issue or history collection is introduced.",
+      "guard": "quota.test.ts, header-source.test.ts, header-point-questions.test.ts, header-idle-cap.test.ts, settings-demand.test.ts, synced-record-models.test.ts"
     },
     {
       "file": "apps/mobile/src/screens/PulseScreen.tsx",

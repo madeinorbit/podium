@@ -41,6 +41,8 @@ export type HostToolName =
   | 'ldd'
   | 'sh'
   | 'bash'
+  | 'secret-tool'
+  | 'powershell.exe'
 
 /**
  * Tools at one fixed system path: never looked up. macOS ships its process
@@ -165,6 +167,7 @@ export function hostTools(
         encoding: 'utf8',
         stdio: (options.stdio ?? ['ignore', 'pipe', 'pipe']) as never,
         ...(options.timeout !== undefined ? { timeout: options.timeout } : {}),
+        ...(options.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
         ...(options.cwd ? { cwd: options.cwd } : {}),
         env: childEnv(options),
       }) as unknown as string

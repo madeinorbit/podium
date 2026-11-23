@@ -111,6 +111,27 @@ export interface AccountQuotaGroup {
   windows: QuotaWindowWire[]
   error?: string
   fetchedAt: string
+  pool?: string
+  credits?: AgentQuotaWire['credits']
+}
+
+export function quotaGroupLabel(
+  group: AccountQuotaGroup,
+  served?: readonly HarnessDescriptorWire[],
+): string {
+  const label = agentLabel(group.agent, served)
+  return group.pool ? `${label} · ${group.pool}` : label
+}
+
+export function quotaWindowShortLabel(window: QuotaWindowWire): string {
+  const prefix = window.pool ? `${window.pool} · ` : ''
+  return windowShortLabel(
+    prefix && window.label.startsWith(prefix) ? window.label.slice(prefix.length) : window.label,
+  )
+}
+
+export function quotaCreditLabel(credits: NonNullable<AgentQuotaWire['credits']>): string {
+  return `${new Intl.NumberFormat('en', { maximumFractionDigits: 2 }).format(credits.remaining)} AI credits remaining`
 }
 
 /**
@@ -130,7 +151,7 @@ export function groupQuotaByAccount(machines: readonly MachineQuotaWire[]): Acco
       const email = agent.account?.email
       const key = email
         ? `${agent.agent}::${email}`
-        : `${agent.agent}::machine:${machine.machineId}`
+        : `${agent.agent}::machine:${machine.machineId}${agent.homeId ? `::home:${agent.homeId}` : ''}`
       const existing = groups.get(key)
       if (!existing) {
         groups.set(key, {
@@ -142,22 +163,51 @@ export function groupQuotaByAccount(machines: readonly MachineQuotaWire[]): Acco
           windows: agent.windows,
           ...(agent.error ? { error: agent.error } : {}),
           fetchedAt: agent.fetchedAt,
+          ...(agent.credits ? { credits: agent.credits } : {}),
         })
         continue
       }
       if (!existing.machineNames.includes(machine.machineName)) {
         existing.machineNames.push(machine.machineName)
       }
-      if (existing.status !== 'ok' && agent.status === 'ok') {
+      if (
+        agent.status === 'ok' &&
+        (existing.status !== 'ok' || Date.parse(agent.fetchedAt) > Date.parse(existing.fetchedAt))
+      ) {
         existing.status = 'ok'
         existing.windows = agent.windows
         existing.fetchedAt = agent.fetchedAt
         existing.error = undefined
+        existing.credits = agent.credits
         if (agent.account) existing.account = agent.account
       }
     }
   }
-  return [...groups.values()]
+  // Merge account identity and freshness before splitting its independent
+  // model pools: an unreadable machine must not add a false unavailable row
+  // beside the same account's healthy readings from another machine.
+  return [...groups.values()].flatMap((group) => {
+    const pools = new Map<string, QuotaWindowWire[]>()
+    const common: QuotaWindowWire[] = []
+    for (const window of group.windows) {
+      if (!window.pool) {
+        common.push(window)
+        continue
+      }
+      const windows = pools.get(window.pool) ?? []
+      windows.push(window)
+      pools.set(window.pool, windows)
+    }
+    if (!pools.size) return [group]
+    return [...pools].map(([pool, windows], index) => ({
+      ...group,
+      key: `${group.key}::pool:${pool}`,
+      pool,
+      windows: [...common, ...windows],
+      // Credits belong to the account, not to each alternative pool.
+      credits: index === 0 ? group.credits : undefined,
+    }))
+  })
 }
 
 /**

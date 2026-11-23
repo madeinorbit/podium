@@ -62,6 +62,7 @@ describe('linkShared', () => {
         'npm',
         'git',
       ],
+      antigravity: [],
     })
   })
 

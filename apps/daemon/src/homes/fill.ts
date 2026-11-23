@@ -102,7 +102,7 @@ export function fillPodiumHome(
     fillOne(report, `${file} mcpServers`, () =>
       fillJsonServers(join(person.dir, file), join(homeDir, file)),
     )
-  } else {
+  } else if (harness !== 'antigravity') {
     const tables = CONFIG_TABLES[harness]
     fillOne(report, 'config.toml mcp_servers', () => fillTomlServers(person.dir, homeDir, tables))
   }
@@ -189,13 +189,18 @@ const FILL_ENTRIES = {
   [codexPodiumHomeFill[0]]: codexPodiumHomeFill[1].entries,
   [grokPodiumHomeFill[0]]: grokPodiumHomeFill[1].entries,
   [piPodiumHomeFill[0]]: piPodiumHomeFill[1].entries,
+  // Antigravity's Podium home is filled by its own launch preparation
+  // (customizations linked from the shared folder), not copied here.
+  antigravity: [],
 } satisfies Readonly<Record<HomeHarness, readonly string[]>>
 
 /** The `config.toml` table each TOML harness's MCP servers sit under. */
 const CONFIG_TABLES = {
   [codexPodiumHomeFill[0]]: codexPodiumHomeFill[1].configTables,
   [grokPodiumHomeFill[0]]: grokPodiumHomeFill[1].configTables,
-} satisfies Readonly<Record<Exclude<HomeHarness, 'claude-code' | 'pi'>, readonly string[]>>
+} satisfies Readonly<
+  Record<Exclude<HomeHarness, 'claude-code' | 'pi' | 'antigravity'>, readonly string[]>
+>
 
 /**
  * Copies one entry (a file or a folder) into the home, writing only what

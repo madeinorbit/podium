@@ -708,6 +708,9 @@ export const QuotaWindowWire = z.object({
   // model alone: spending it drops the model, not the harness, which falls back
   // onto the unscoped pool. Absent means the window gates all work.
   scopeModel: z.string().optional(),
+  /** An independent model-family pool. Its windows constrain that pool;
+   * exhausting it does not exhaust a different pool on the same account. */
+  pool: z.string().optional(),
 })
 export type QuotaWindowWire = z.infer<typeof QuotaWindowWire>
 
@@ -723,6 +726,8 @@ export const AgentQuotaWire = z.object({
   status: z.enum(['ok', 'unauthenticated', 'expired', 'error']),
   account: z.object({ email: z.string().optional(), plan: z.string().optional() }).optional(),
   windows: z.array(QuotaWindowWire),
+  /** The account's native AI-credit balance, separate from plan windows. */
+  credits: z.object({ remaining: z.number().finite().nonnegative() }).optional(),
   error: z.string().optional(),
   fetchedAt: z.string(), // ISO 8601
 })

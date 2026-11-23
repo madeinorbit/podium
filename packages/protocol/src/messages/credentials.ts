@@ -16,9 +16,7 @@ export const CAP_CREDENTIAL_IDENTITY_GUARD = 'credential.identity-guard.v1'
 export const PortableCredentialKind = z.enum([
   PORTABLE_CREDENTIAL_HARNESS_KINDS[0],
   'claude-code-state',
-  PORTABLE_CREDENTIAL_HARNESS_KINDS[1],
-  PORTABLE_CREDENTIAL_HARNESS_KINDS[2],
-  PORTABLE_CREDENTIAL_HARNESS_KINDS[3],
+  ...PORTABLE_CREDENTIAL_HARNESS_KINDS.slice(1),
 ] as const)
 export type PortableCredentialKind = z.infer<typeof PortableCredentialKind>
 
@@ -33,7 +31,7 @@ export type PortableCredentialBundle = z.infer<typeof PortableCredentialBundle>
 export const CredentialExportRequestMessage = z.object({
   type: z.literal('credentialExportRequest'),
   requestId: z.string(),
-  kinds: z.array(PortableCredentialKind).max(4),
+  kinds: z.array(PortableCredentialKind).max(PortableCredentialKind.options.length),
   /** Server-only native login propagation; absent keeps legacy pairing behavior. */
   propagation: z.boolean().optional(),
   /**
@@ -46,15 +44,15 @@ export const CredentialExportRequestMessage = z.object({
 export const CredentialExportResultMessage = z.object({
   type: z.literal('credentialExportResult'),
   requestId: z.string(),
-  bundles: z.array(PortableCredentialBundle).max(4),
-  unavailable: z.array(PortableCredentialKind).max(4),
+  bundles: z.array(PortableCredentialBundle).max(PortableCredentialKind.options.length),
+  unavailable: z.array(PortableCredentialKind).max(PortableCredentialKind.options.length),
 })
 export type CredentialExportResultMessage = z.infer<typeof CredentialExportResultMessage>
 
 export const CredentialInstallRequestMessage = z.object({
   type: z.literal('credentialInstallRequest'),
   requestId: z.string(),
-  bundles: z.array(PortableCredentialBundle).max(4),
+  bundles: z.array(PortableCredentialBundle).max(PortableCredentialKind.options.length),
   /** Server-only native login propagation; absent keeps legacy pairing behavior. */
   propagation: z.boolean().optional(),
   /**
@@ -67,10 +65,10 @@ export const CredentialInstallRequestMessage = z.object({
 export const CredentialInstallResultMessage = z.object({
   type: z.literal('credentialInstallResult'),
   requestId: z.string(),
-  installed: z.array(PortableCredentialKind).max(4),
-  failed: z.array(PortableCredentialKind).max(4),
+  installed: z.array(PortableCredentialKind).max(PortableCredentialKind.options.length),
+  failed: z.array(PortableCredentialKind).max(PortableCredentialKind.options.length),
   /** Not installed because the destination holds a different login, which
    *  stays in place (POD-6301). Also listed under `failed` for older servers. */
-  preserved: z.array(PortableCredentialKind).max(4).optional(),
+  preserved: z.array(PortableCredentialKind).max(PortableCredentialKind.options.length).optional(),
 })
 export type CredentialInstallResultMessage = z.infer<typeof CredentialInstallResultMessage>

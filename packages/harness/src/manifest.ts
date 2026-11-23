@@ -173,6 +173,7 @@ export interface LaunchArgv {
 // ---------------------------------------------------------------------------
 
 export interface HarnessExecOptions {
+  runtimeDir?: string
   prompt: string
   model?: string
   /** Provider-specific reasoning/effort variant (OpenCode uses --variant). */
@@ -186,6 +187,7 @@ export interface HarnessExecOptions {
 
 /** A one-shot exec's argv, without a command (see {@link LaunchArgv}). */
 export interface HarnessExecArgv {
+  files?: LaunchFile[]
   cmd?: never
   args: string[]
   /** Delivered on the child's stdin (then EOF) — Claude's headless prompt path. */
@@ -617,6 +619,15 @@ export interface QuotaProbeOptions {
   account: HarnessAccountScope
   now?: number
   fetchImpl?: typeof fetch
+  /** A bounded native read-only command, pinned to this account's installed
+   * harness. Absent when the CLI is not installed; never resolve it by name. */
+  runCommand?: (request: {
+    /** A builder can bind native directory flags to the private workspace. */
+    args: readonly string[] | ((directory: string) => readonly string[])
+    timeoutMs: number
+    /** References to native state; credentials are never copied to the workspace. */
+    linkedDirectories?: Readonly<Record<string, string>>
+  }) => Promise<LoginCommandResult>
 }
 
 /**
@@ -834,6 +845,10 @@ export interface HarnessInstall {
 // ---------------------------------------------------------------------------
 
 export interface HeadlessExecOptions {
+  /** Names of explicitly delivered credential variables; never their values. */
+  credentialVariables?: readonly string[]
+  /** Session-owned folder for native instruction and MCP configuration files. */
+  runtimeDir?: string
   prompt: string
   /** Machine-authored seed/delta/focus context. Adapters with a native
    * instruction channel keep this out of the visible user message. */
@@ -872,7 +887,13 @@ export interface HarnessHeadless {
   driver: 'claude-sdk' | 'codex-json' | 'resume-exec'
   /** The stdout protocol emitted by one headless turn. The daemon parses this
    * transport shape without branching on which harness selected it. */
-  outputFormat: 'claude-stream-json' | 'codex-jsonl' | 'opencode-jsonl' | 'pi-jsonl' | 'text'
+  outputFormat:
+    | 'claude-stream-json'
+    | 'codex-jsonl'
+    | 'opencode-jsonl'
+    | 'pi-jsonl'
+    | 'antigravity-jsonl'
+    | 'text'
   /**
    * How the persistent session id is allocated on the FIRST turn:
    *   'sdk-session-uuid' — server-minted UUID passed via the SDK's sessionId;
@@ -894,6 +915,7 @@ export interface HarnessHeadless {
       env?: Record<string, string>
       /** Delivered on the child's stdin (then EOF) — pi reads its prompt there. */
       stdin?: string
+      files?: LaunchFile[]
     }
   >
 }
@@ -1978,6 +2000,16 @@ export interface AgentManifest {
    * operator's value. A value a session layer chooses explicitly still wins.
    */
   environment: {
+    /** Selector for an isolated managed login when it is not a propagatable file. */
+    managedHomeVariable?: string
+    /** Extra selectors for a named account, kept out of the machine's own account. */
+    namedAccountEnv?: (home: string) => Readonly<Record<string, string>>
+    /** Native account selectors for CLIs that take directory flags rather than
+     * environment variables. Applied to agent launches and read-only commands alike. */
+    command?: (account: HarnessAccountScope) => {
+      args: readonly string[]
+      env?: Readonly<Record<string, string>>
+    }
     removeInherited: readonly string[]
     instanceHome?: {
       variable: string

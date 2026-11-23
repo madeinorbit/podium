@@ -35,6 +35,7 @@ export const AgentKind = z.enum([
   'opencode',
   'cursor',
   'pi',
+  'antigravity',
   'shell',
 ])
 export type AgentKind = z.infer<typeof AgentKind>
@@ -45,7 +46,15 @@ export function isAgentKind(v: unknown): v is AgentKind {
 }
 
 /** The non-interactive harness surfaces the daemon can drive (AgentKind minus 'shell'). */
-export const HarnessAgent = z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'])
+export const HarnessAgent = z.enum([
+  'claude-code',
+  'codex',
+  'grok',
+  'opencode',
+  'cursor',
+  'pi',
+  'antigravity',
+])
 export type HarnessAgent = z.infer<typeof HarnessAgent>
 
 /** Named identity for data consumers that cannot use the hyphenated enum member
@@ -153,7 +162,7 @@ export function isBuiltinHarnessKind(id: string): id is BuiltinHarnessKind {
 
 /** Harnesses with token-usage cost transcripts. Read by `CostHarness`
  *  (entities/cost.ts). */
-export const COST_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const
+export const COST_HARNESS_KINDS = ['claude-code', 'codex', 'grok', 'antigravity'] as const
 
 /**
  * The harness whose cost attribution is complete — every transcript that
@@ -166,7 +175,7 @@ export const COST_FULL_ATTRIBUTION_HARNESS: BuiltinHarnessKind = 'claude-code'
  * home protocol derives its closed wire vocabulary from this slice; a harness
  * added after the first two is asked for a home only by a daemon that offers
  * its own capability (`homeCapabilities`, protocol homes.ts). */
-export const HOME_HARNESS_KINDS = ['claude-code', 'codex', 'grok', 'pi'] as const
+export const HOME_HARNESS_KINDS = ['claude-code', 'codex', 'grok', 'pi', 'antigravity'] as const
 
 /** Harnesses whose sessions can be exported and resumed elsewhere. Read by
  *  the handoff manifest (entities/handoff.ts) and the handoff-availability
@@ -182,11 +191,11 @@ export const CLOUD_HARNESS_KINDS = ['claude-code', 'codex'] as const
 
 /** Harnesses the usage harvest reads. Read by `UsageSourceWire`
  *  (entities/machine.ts). */
-export const USAGE_HARNESS_KINDS = ['claude-code', 'codex', 'grok'] as const
+export const USAGE_HARNESS_KINDS = ['claude-code', 'codex', 'grok', 'antigravity'] as const
 
 /** Harnesses with a causal observation provider. Read by
  *  `ObservationProvider` (protocol/messages/runtime-state.ts). */
-export const OBSERVATION_PROVIDER_KINDS = ['claude-code', 'codex', 'grok'] as const
+export const OBSERVATION_PROVIDER_KINDS = ['claude-code', 'codex', 'grok', 'antigravity'] as const
 
 /**
  * The harness members of the portable-credential bundle kinds. Read by
@@ -194,7 +203,13 @@ export const OBSERVATION_PROVIDER_KINDS = ['claude-code', 'codex', 'grok'] as co
  * its own `'claude-code-state'` bundle suffix — a bundle name, not a harness,
  * so it stays local to the protocol file.
  */
-export const PORTABLE_CREDENTIAL_HARNESS_KINDS = ['claude-code', 'codex', 'grok', 'pi'] as const
+export const PORTABLE_CREDENTIAL_HARNESS_KINDS = [
+  'claude-code',
+  'codex',
+  'grok',
+  'pi',
+  'antigravity',
+] as const
 
 /**
  * Harnesses offered by the "which harness starts a generic new agent"
@@ -209,6 +224,7 @@ export const AGENT_CHOICE_HARNESS_KINDS = [
   'grok',
   'opencode',
   'cursor',
+  'antigravity',
 ] as const
 
 /**

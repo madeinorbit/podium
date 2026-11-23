@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
+import {
+  antigravityModelProbeArgv,
+  parseAntigravityModels,
+} from './adapters/antigravity/model-probe.js'
 import { claudeCodeDescriptor } from './adapters/claude-code/descriptor.js'
 import {
   codexModelProbeArgv,
@@ -30,6 +34,7 @@ import {
 } from './adapters/pi/model-probe.js'
 import type { HarnessContext } from './harness-context.js'
 import type { HarnessAccountScope, HarnessRoots } from './manifest.js'
+import { manifestFor } from './registry.js'
 
 const execFileAsync = promisify(execFile)
 const log = createLogger('harness:model-probe')
@@ -92,6 +97,7 @@ const MODEL_PROBES = {
   opencode: opencodeModelProbeArgv,
   codex: codexModelProbeArgv,
   pi: piModelProbeArgv,
+  antigravity: antigravityModelProbeArgv,
 } as const satisfies Record<string, readonly string[]>
 
 export type ProbeableAgent = keyof typeof MODEL_PROBES
@@ -114,6 +120,7 @@ const PARSERS: Record<ProbeableAgent, (out: string) => ModelChoice[]> = {
   opencode: parseOpencodeModels,
   codex: parseCodexModels,
   pi: parsePiModels,
+  antigravity: parseAntigravityModels,
 }
 
 export function parseModels(kind: ProbeableAgent, out: string): ModelChoice[] {
@@ -271,10 +278,24 @@ export async function probeAgentModels(
     const listed = await probeContained(kind, command, args, context, contain, exec, timeoutMs)
     if (listed !== IN_PLACE) return listed
   }
+  const accountCommand = manifestFor(kind)?.environment.command
+  // A CLI with native account selectors needs its complete folder scope.
+  // Refuse a partial context rather than probing another account's models.
+  if (context && accountCommand && (!context.home || !context.roots)) return []
+  const selection =
+    context && accountCommand && context.home && context.roots
+      ? accountCommand({ ...context, home: context.home, roots: context.roots })
+      : undefined
   try {
     return parseModels(
       kind,
-      await exec([command, ...args], timeoutMs, context?.env, undefined, MODEL_PROBE_INPUT[kind]),
+      await exec(
+        [command, ...(selection?.args ?? []), ...args],
+        timeoutMs,
+        context ? { ...context.env, ...selection?.env } : undefined,
+        undefined,
+        MODEL_PROBE_INPUT[kind],
+      ),
     )
   } catch {
     return []

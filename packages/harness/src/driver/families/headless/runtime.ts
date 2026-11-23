@@ -927,6 +927,7 @@ export function createHeadlessRuntime(
       ...(input.contextPrompt !== undefined ? { contextPrompt: input.contextPrompt } : {}),
       ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
       ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+      ...(input.env ? { credentialVariables: Object.keys(input.env) } : {}),
       env: host.sessionEnv({
         sessionId: session.sessionId,
         agent,

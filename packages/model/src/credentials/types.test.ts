@@ -6,6 +6,22 @@ import { CREDENTIAL_TYPE_IDS, CREDENTIAL_TYPES } from './types'
 // spec), restated here as the expected values on purpose: the registry is the
 // thing under test, so it cannot also be the oracle.
 const TABLE = {
+  'google.api-key': {
+    provider: 'google',
+    store: 'vault',
+    renewal: 'none',
+    obtain: ['paste'],
+    sharing: 'free',
+    revocation: 'none',
+  },
+  'google.antigravity-login': {
+    provider: 'google',
+    store: 'home',
+    renewal: undefined,
+    obtain: ['harness-sign-in', 'found-on-machine'],
+    sharing: 'warn',
+    revocation: 'sign-out',
+  },
   'anthropic.api-key': {
     provider: 'anthropic',
     store: 'vault',

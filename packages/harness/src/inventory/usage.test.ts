@@ -339,6 +339,7 @@ describe('registry quota fan-out', () => {
       ['claude-code', 'unauthenticated'],
       ['codex', 'unauthenticated'],
       ['grok', 'unauthenticated'],
+      ['antigravity', 'unauthenticated'],
     ])
   })
 })

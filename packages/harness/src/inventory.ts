@@ -138,6 +138,7 @@ export { managedInstallRefusal, requestManagedInstall } from './inventory/reques
 export type { AccountReadScope, QuotaFetcher } from './inventory/usage.js'
 export {
   makeQuotaFetcher,
+  probeAccountQuota,
   quotaAgentLabel,
   scanHostUsage,
   scanHostUsageSources,

@@ -1,17 +1,18 @@
 import {
   type AccountQuotaGroup,
-  agentLabel,
   formatReset,
   groupGatingPace,
   paceLabel,
   percentTone,
   type QuotaPace,
+  quotaCreditLabel,
+  quotaGroupLabel,
   quotaPoolVerdict,
+  quotaWindowShortLabel,
   splitQuotaWindows,
   statusNote,
   windowElapsedPercent,
   windowScopeModel,
-  windowShortLabel,
 } from '@podium/client-core/values'
 import type { QuotaWindowWire } from '@podium/model/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
@@ -71,16 +72,23 @@ export function QuotaPanel({
           return (
             <div key={g.key} className="hp-section">
               <div className="hp-acct">
-                {Icon && (
-                  <Icon size={13} className="hp-acct-icon" aria-hidden={true} />
-                )}
-                <span className="hp-acct-agent">{agentLabel(g.agent, descriptors)}</span>
+                {Icon && <Icon size={13} className="hp-acct-icon" aria-hidden={true} />}
+                <span className="hp-acct-agent">{quotaGroupLabel(g, descriptors)}</span>
                 {g.account?.plan && <span className="hp-acct-plan">{g.account.plan}</span>}
                 {pace && (
                   <span className={cn('hp-pace-chip', PACE_CHIP[pace])}>{paceLabel(pace)}</span>
                 )}
-                {g.account?.email && <span className="hp-acct-sub">{g.account.email}</span>}
+                {g.account?.email && (
+                  <span className="hp-acct-sub" title={g.account.email}>
+                    {g.account.email}
+                  </span>
+                )}
               </div>
+              {g.credits && (
+                <div className="hp-dim-line" title="Account balance shared across model pools">
+                  {quotaCreditLabel(g.credits)}
+                </div>
+              )}
               {unavailable ? (
                 <div className="hp-dim-line hp-quota-unavailable">
                   {statusNote(g) || 'No quota reported'}
@@ -121,7 +129,7 @@ function WindowRow({
     <div className="hp-winrow">
       {/* A scoped window is titled by its model, not by its window kind — the
           model is what the operator loses when it runs out. */}
-      <span className="hp-winlabel">{windowScopeModel(w) ?? windowShortLabel(w.label)}</span>
+      <span className="hp-winlabel">{windowScopeModel(w) ?? quotaWindowShortLabel(w)}</span>
       <span
         className="hp-bar"
         role="presentation"

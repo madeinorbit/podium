@@ -21,6 +21,8 @@ export const CREDENTIAL_TYPE_IDS = [
   'openai.chatgpt-plan',
   'openrouter.api-key',
   'xai.grok-login',
+  'google.api-key',
+  'google.antigravity-login',
 ] as const
 
 export type CredentialTypeId = (typeof CREDENTIAL_TYPE_IDS)[number]
@@ -48,6 +50,25 @@ export interface CredentialTypeSpec {
 }
 
 export const CREDENTIAL_TYPES: Readonly<Record<CredentialTypeId, CredentialTypeSpec>> = {
+  'google.api-key': {
+    id: 'google.api-key',
+    provider: 'google',
+    title: 'Gemini API key',
+    store: 'vault',
+    renewal: 'none',
+    obtain: ['paste'],
+    sharing: 'free',
+    revocation: 'none',
+  },
+  'google.antigravity-login': {
+    id: 'google.antigravity-login',
+    provider: 'google',
+    title: 'Google AI subscription login',
+    store: 'home',
+    obtain: ['harness-sign-in', 'found-on-machine'],
+    sharing: 'warn',
+    revocation: 'sign-out',
+  },
   'anthropic.api-key': {
     id: 'anthropic.api-key',
     provider: 'anthropic',

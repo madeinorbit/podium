@@ -150,7 +150,7 @@
           "target": {
             "kind": "fresh",
             "repoPath": "op.target.repoPath",
-            "agentKind": "shell",
+            "agentKind": "antigravity",
             "model": "op.target.model",
             "effort": "op.target.effort"
           }
@@ -162,7 +162,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"op\":{\"kind\":\"automation-schedule\",\"name\":\"op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"op.target.repoPath\",\"agentKind\":\"shell\",\"model\":\"op.target.model\",\"effort\":\"op.target.effort\"}},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\"}"
+      "encoded": "{\"op\":{\"kind\":\"automation-schedule\",\"name\":\"op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"op.target.repoPath\",\"agentKind\":\"antigravity\",\"model\":\"op.target.model\",\"effort\":\"op.target.effort\"}},\"machineId\":\"machineId\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\"}"
     },
     {
       "schema": "ApprovalExecRequestMessage",
@@ -289,7 +289,7 @@
           "target": {
             "kind": "fresh",
             "repoPath": "op.target.repoPath",
-            "agentKind": "shell",
+            "agentKind": "antigravity",
             "model": "op.target.model",
             "effort": "op.target.effort"
           }
@@ -298,7 +298,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"automation-schedule\",\"name\":\"op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"op.target.repoPath\",\"agentKind\":\"shell\",\"model\":\"op.target.model\",\"effort\":\"op.target.effort\"}}}"
+      "encoded": "{\"type\":\"approvalExecRequest\",\"requestId\":\"requestId\",\"op\":{\"kind\":\"automation-schedule\",\"name\":\"op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"op.target.repoPath\",\"agentKind\":\"antigravity\",\"model\":\"op.target.model\",\"effort\":\"op.target.effort\"}}}"
     },
     {
       "schema": "ApprovalExecResultMessage",
@@ -424,7 +424,7 @@
         "target": {
           "kind": "fresh",
           "repoPath": "target.repoPath",
-          "agentKind": "shell",
+          "agentKind": "antigravity",
           "model": "target.model",
           "effort": "target.effort"
         }
@@ -432,7 +432,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"kind\":\"automation-schedule\",\"name\":\"name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"target.repoPath\",\"agentKind\":\"shell\",\"model\":\"target.model\",\"effort\":\"target.effort\"}}"
+      "encoded": "{\"kind\":\"automation-schedule\",\"name\":\"name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"target.repoPath\",\"agentKind\":\"antigravity\",\"model\":\"target.model\",\"effort\":\"target.effort\"}}"
     },
     {
       "schema": "ApprovalStatus",
@@ -651,7 +651,7 @@
           "target": {
             "kind": "fresh",
             "repoPath": "op.target.repoPath",
-            "agentKind": "shell",
+            "agentKind": "antigravity",
             "model": "op.target.model",
             "effort": "op.target.effort"
           }
@@ -664,7 +664,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"issueSeq\":7,\"issueDisplayRef\":\"issueDisplayRef\",\"issueTitle\":\"issueTitle\",\"op\":{\"kind\":\"automation-schedule\",\"name\":\"op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"op.target.repoPath\",\"agentKind\":\"shell\",\"model\":\"op.target.model\",\"effort\":\"op.target.effort\"}},\"status\":\"failed\",\"createdAt\":\"createdAt\",\"decidedAt\":\"decidedAt\",\"resultText\":\"resultText\"}"
+      "encoded": "{\"id\":\"id\",\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"sessionId\":\"sessionId\",\"issueId\":\"issueId\",\"issueSeq\":7,\"issueDisplayRef\":\"issueDisplayRef\",\"issueTitle\":\"issueTitle\",\"op\":{\"kind\":\"automation-schedule\",\"name\":\"op.name\",\"runAt\":\"2026-01-02T03:04:05.000Z\",\"prompt\":\"op.prompt\",\"target\":{\"kind\":\"fresh\",\"repoPath\":\"op.target.repoPath\",\"agentKind\":\"antigravity\",\"model\":\"op.target.model\",\"effort\":\"op.target.effort\"}},\"status\":\"failed\",\"createdAt\":\"createdAt\",\"decidedAt\":\"decidedAt\",\"resultText\":\"resultText\"}"
     }
   ]
 }

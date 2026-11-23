@@ -18,9 +18,10 @@
 
 import type { BuiltinHarnessKind } from '@podium/protocol'
 import type { HarnessContext, HarnessInstallation } from './harness-context-types.js'
-import type { LaunchFile } from './manifest.js'
+import type { HarnessAccountScope, LaunchFile } from './manifest.js'
 import { applyTerms } from './posture.js'
 import type { AppliedTerms, LaunchTerms } from './posture-types.js'
+import { manifestFor } from './registry.js'
 
 declare const boundCommandBrand: unique symbol
 declare const shellCommandBrand: unique symbol
@@ -88,7 +89,7 @@ export type ShellCommand<I extends HarnessArgv = HarnessArgv> = Omit<I, 'cmd' | 
  * child's whole environment is `harnessChildEnv`'s to build.
  */
 export function harnessCommand<I extends HarnessArgv>(
-  context: Pick<HarnessContext, 'installation' | 'harnessHome'>,
+  context: Pick<HarnessContext, 'installation' | 'harnessHome'> & Partial<HarnessAccountScope>,
   invocation: I,
   terms: LaunchTerms,
 ): BoundCommand<I> {
@@ -97,8 +98,19 @@ export function harnessCommand<I extends HarnessArgv>(
     env?: Readonly<Record<string, string>>
     files?: readonly LaunchFile[]
   }
+  const account = 'request' in terms ? terms.request.context : context
+  const selection =
+    account.home !== undefined && account.env && account.roots
+      ? manifestFor(context.installation.kind)?.environment.command?.(
+          account as HarnessAccountScope,
+        )
+      : undefined
   const { launch, applied } = applyTerms(
-    { args: invocation.args, env: rest.env ?? {}, files: rest.files ?? [] },
+    {
+      args: [...(selection?.args ?? []), ...invocation.args],
+      env: { ...selection?.env, ...rest.env },
+      files: rest.files ?? [],
+    },
     terms,
   )
   return {

@@ -8,40 +8,40 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 
 ## Supported / declined by section
 
-| section | claude-code | codex | grok | opencode | cursor | pi |
-| --- | --- | --- | --- | --- | --- | --- |
-| `credentials` | supported | supported | supported | declined | declined | supported |
-| `usage` | supported | supported | supported | declined | declined | declined |
-| `install` | supported | supported | supported | declined | declined | declined |
-| `managedInstall` | supported | supported | supported | supported | supported | supported |
-| `exec` | supported | supported | supported | supported | supported | supported |
-| `headless` | supported | supported | supported | supported | supported | supported |
-| `state` | supported | supported | supported | supported | supported | supported |
-| `instrumentation` | supported | supported | supported | declined | declined | declined |
-| `observer` | supported | supported | supported | supported | supported | supported |
-| `transcript` | supported | supported | supported | supported | supported | supported |
-| `composer` | supported | supported | declined | declined | declined | declined |
-| `handoffTranscript` | supported | supported | declined | declined | declined | declined |
-| `conversationFile` | supported | supported | declined | declined | declined | supported |
-| `classifyBrowserOpen` | supported | supported | declined | declined | declined | declined |
-| `inventory.loginCommand` | supported | supported | supported | supported | declined | declined |
-| `inventory.loginCommandProbe` | supported | declined | declined | declined | declined | declined |
-| `inventory.loginIdentity` | supported | supported | supported | declined | declined | supported |
-| `inventory.portableCredential` | supported | supported | supported | declined | declined | declined |
-| `runtime.server` | declined | supported | supported | supported | declined | declined |
-| `runtime.embedded` | supported | declined | declined | declined | declined | declined |
-| `usage.quota` | supported | supported | supported | declined | declined | declined |
-| `usage.history` | declined | declined | supported | declined | declined | declined |
-| `usage.transcripts` | supported | supported | supported | declined | declined | declined |
-| `headless.buildExec` | declined | supported | supported | supported | supported | supported |
-| `transcript.recordToItems` | supported | supported | supported | declined | supported | supported |
-| `transcript.recordRuntime` | supported | supported | supported | declined | declined | supported |
-| `transcript.recordColor` | supported | declined | declined | declined | declined | declined |
-| `transcript.chainPaths` | supported | supported | supported | declined | supported | supported |
-| `transcript.sqliteLocator` | declined | declined | declined | supported | declined | declined |
-| `credentials.transfer` | supported | declined | declined | declined | declined | declined |
-| `runtime.server.versionRange` | declined | supported | supported | supported | declined | declined |
-| `runtime.server.clientTerminal` | declined | supported | supported | supported | declined | declined |
+| section | claude-code | codex | grok | opencode | cursor | pi | antigravity |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `credentials` | supported | supported | supported | declined | declined | supported | supported |
+| `usage` | supported | supported | supported | declined | declined | declined | supported |
+| `install` | supported | supported | supported | declined | declined | declined | supported |
+| `managedInstall` | supported | supported | supported | supported | supported | supported | declined |
+| `exec` | supported | supported | supported | supported | supported | supported | supported |
+| `headless` | supported | supported | supported | supported | supported | supported | supported |
+| `state` | supported | supported | supported | supported | supported | supported | supported |
+| `instrumentation` | supported | supported | supported | declined | declined | declined | supported |
+| `observer` | supported | supported | supported | supported | supported | supported | supported |
+| `transcript` | supported | supported | supported | supported | supported | supported | supported |
+| `composer` | supported | supported | declined | declined | declined | declined | declined |
+| `handoffTranscript` | supported | supported | declined | declined | declined | declined | declined |
+| `conversationFile` | supported | supported | declined | declined | declined | supported | declined |
+| `classifyBrowserOpen` | supported | supported | declined | declined | declined | declined | supported |
+| `inventory.loginCommand` | supported | supported | supported | supported | declined | declined | supported |
+| `inventory.loginCommandProbe` | supported | declined | declined | declined | declined | declined | declined |
+| `inventory.loginIdentity` | supported | supported | supported | declined | declined | supported | supported |
+| `inventory.portableCredential` | supported | supported | supported | declined | declined | declined | declined |
+| `runtime.server` | declined | supported | supported | supported | declined | declined | declined |
+| `runtime.embedded` | supported | declined | declined | declined | declined | declined | declined |
+| `usage.quota` | supported | supported | supported | declined | declined | declined | supported |
+| `usage.history` | declined | declined | supported | declined | declined | declined | declined |
+| `usage.transcripts` | supported | supported | supported | declined | declined | declined | supported |
+| `headless.buildExec` | declined | supported | supported | supported | supported | supported | supported |
+| `transcript.recordToItems` | supported | supported | supported | declined | supported | supported | supported |
+| `transcript.recordRuntime` | supported | supported | supported | declined | declined | supported | supported |
+| `transcript.recordColor` | supported | declined | declined | declined | declined | declined | declined |
+| `transcript.chainPaths` | supported | supported | supported | declined | supported | supported | supported |
+| `transcript.sqliteLocator` | declined | declined | declined | supported | declined | declined | declined |
+| `credentials.transfer` | supported | declined | declined | declined | declined | declined | declined |
+| `runtime.server.versionRange` | declined | supported | supported | supported | declined | declined | declined |
+| `runtime.server.clientTerminal` | declined | supported | supported | supported | declined | declined | declined |
 
 ## claude-code — supported 26/30
 
@@ -127,6 +127,21 @@ The `descriptor` and `catalog` Adapter sections (spec §4.1/§4.5) are NOT rows 
 - `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
 - `credentials.transfer`: Pi credentials live in a plain file; no platform transfer applies
 
+## antigravity — supported 18/30
+
+- `managedInstall`: Antigravity releases and updater not yet measured for a Podium-managed install
+- `composer`: Antigravity composer rendering varies by terminal; submit receipt verification uses native transcript echoes
+- `handoffTranscript`: The native conversation SQLite/protobuf stores have no verified portable export contract
+- `conversationFile`: antigravity declares no conversation file to move between its homes
+- `inventory.loginCommandProbe`: Antigravity has no non-interactive login-status command; readiness reads its native token store
+- `inventory.portableCredential`: Google logins are signed into isolated homes on each machine; shared OS-keyring credentials are never automatically propagated
+- `runtime.server`: agy acp is available upstream; Podium currently drives Antigravity headless sessions with the verified structured print protocol
+- `runtime.embedded`: Antigravity is a native executable; Podium does not embed its Python SDK
+- `usage.history`: Antigravity does not persist quota-window samples in its conversation logs
+- `transcript.recordColor`: this harness does not report an identity colour in its records
+- `transcript.sqliteLocator`: this harness stores transcripts in files — there is no database to locate
+- `credentials.transfer`: Google subscription homes use native remote sign-in; automatic copying of OS-keyring credentials is not supported
+
 ## Default posture by launch mode
 
 What `{"mode":"autonomous"}` comes to for a current install, from each adapter's posture section (`packages/harness/src/adapters/<harness>/posture.ts`). `met`: by a flag, inline config or by default. `home edit`: only by an edit to the harness home. `unmet`: this launch cannot meet it; the reasons follow the table. The mode column is the harness mode Podium asks for.
@@ -157,6 +172,10 @@ What `{"mode":"autonomous"}` comes to for a current install, from each adapter's
 | pi | engine | none | met | met | met | met | met |
 | pi | turn | none | met | met | met | met | met |
 | pi | client | none | met | met | met | met | met |
+| antigravity | terminal | `auto` | unmet | met | met | met | met |
+| antigravity | engine | `auto` | met | met | met | met | met |
+| antigravity | turn | `auto` | met | met | unmet | met | met |
+| antigravity | client | `auto` | unmet | met | met | met | met |
 
 Unmet, and why:
 
@@ -179,3 +198,6 @@ Unmet, and why:
 - cursor, client, `autonomy`: unmeasured: Cursor's mode flags were not run in its terminal UI (no signed-in Cursor account was available to the spike), so it starts in the mode its own settings choose
 - cursor, client, `quiet-start`: unmeasured: no signed-in Cursor account was available to the spike
 - cursor, client, `podium-material`: unmeasured: whether Cursor asks before reading Podium's attachments outside the working folder; no signed-in Cursor account was available to the spike
+- antigravity, terminal, `workspace-trust`: Antigravity owns its initial workspace trust confirmation; approve it in the native terminal
+- antigravity, turn, `autonomy`: Antigravity print mode cannot forward interactive permission questions; use its terminal for supervised work
+- antigravity, client, `workspace-trust`: Antigravity owns its initial workspace trust confirmation; approve it in the native terminal

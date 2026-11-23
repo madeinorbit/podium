@@ -77,7 +77,8 @@ export function readHomeLogin(
     return { state: 'unknown' }
   }
   try {
-    const identity = declaredValue(manifest.inventory.loginIdentity)?.(scope.home, scope.env)
+    const identity =
+      detected.identity ?? declaredValue(manifest.inventory.loginIdentity)?.(scope.home, scope.env)
     return identity ? { ...detected, identity } : detected
   } catch {
     return detected

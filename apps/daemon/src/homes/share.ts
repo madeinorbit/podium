@@ -32,10 +32,12 @@
 import { existsSync, lstatSync, readlinkSync, symlinkSync, unlinkSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
+  antigravityHomeSharing,
   claudeHomeSharing,
   codexHomeSharing,
   grokHomeSharing,
   piHomeSharing,
+  prepareAntigravityHomeLaunch,
   prepareClaudeHomeLaunch,
 } from '@podium/harness'
 import type { HomeHarness } from '@podium/protocol'
@@ -47,6 +49,7 @@ export const SHARED_ENTRIES = {
   [codexHomeSharing[0]]: codexHomeSharing[1],
   [grokHomeSharing[0]]: grokHomeSharing[1],
   [piHomeSharing[0]]: piHomeSharing[1],
+  [antigravityHomeSharing[0]]: antigravityHomeSharing[1],
 } satisfies Readonly<Record<HomeHarness, readonly string[]>>
 
 /** What one pass over a home's shared entries did. */
@@ -136,6 +139,7 @@ export function prepareHomeLaunch(home: HarnessHome, input: HomeLaunchInput): Li
     ...(input.shareFrom?.claudeState ? { personClaudeState: input.shareFrom.claudeState } : {}),
     ...(input.deliveredEnv ? { deliveredEnv: input.deliveredEnv } : {}),
   })
+  if (input.shareFrom) prepareAntigravityHomeLaunch(home, { defaultDir: input.shareFrom.dir })
   return report
 }
 

@@ -64,9 +64,13 @@
                 "usedPercent": 1,
                 "resetsAt": "agents[0].windows[0].resetsAt",
                 "windowMinutes": 1,
-                "scopeModel": "agents[0].windows[0].scopeModel"
+                "scopeModel": "agents[0].windows[0].scopeModel",
+                "pool": "agents[0].windows[0].pool"
               }
             ],
+            "credits": {
+              "remaining": 1
+            },
             "error": "agents[0].error",
             "fetchedAt": "agents[0].fetchedAt"
           }
@@ -75,7 +79,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"agentQuotaResult\",\"requestId\":\"requestId\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"homeId\":\"agents[0].homeId\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\"}],\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
+      "encoded": "{\"type\":\"agentQuotaResult\",\"requestId\":\"requestId\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"homeId\":\"agents[0].homeId\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\",\"pool\":\"agents[0].windows[0].pool\"}],\"credits\":{\"remaining\":1},\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
     },
     {
       "schema": "AttentionEventMessage",

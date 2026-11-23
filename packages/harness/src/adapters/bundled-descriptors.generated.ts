@@ -438,5 +438,62 @@ export const GENERATED_BUNDLED_DESCRIPTORS: HarnessDescriptorWire[] =
         "command": "pi",
         "installHint": "Install Pi on this machine, then run “pi” and sign in with its /login command. Podium will detect it automatically."
       }
+    },
+    {
+      "schemaVersion": 1,
+      "kind": "antigravity",
+      "provider": "google",
+      "label": "Antigravity",
+      "shortLabel": "Antigravity",
+      "mark": "AG",
+      "icon": {
+        "id": "antigravity",
+        "viewBox": "0 0 24 24",
+        "d": "M12 2 2 21h5l5-10 5 10h5L12 2Zm0 12-3 7h6l-3-7Z"
+      },
+      "brand": {
+        "bg": "#182b42",
+        "fg": "#8ab4f8"
+      },
+      "capabilities": {
+        "argvPrompt": true,
+        "effort": true,
+        "systemPrompt": false,
+        "subagentModel": false
+      },
+      "catalog": {
+        "models": [],
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "liveMerge": "live-wins-when-non-empty"
+      },
+      "accepts": [
+        {
+          "type": "google.antigravity-login",
+          "deliver": {
+            "kind": "home"
+          }
+        },
+        {
+          "type": "google.api-key",
+          "deliver": {
+            "kind": "env",
+            "variable": "GEMINI_API_KEY"
+          }
+        }
+      ],
+      "login": {
+        "command": "agy acp --login",
+        "installHint": "Install Google Antigravity CLI from antigravity.google/download.",
+        "signedOutHint": "Sign in with your Google account to use your Google AI plan."
+      },
+      "defaults": {
+        "panelMode": "native"
+      }
     }
   ]

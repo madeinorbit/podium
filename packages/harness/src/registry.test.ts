@@ -361,6 +361,7 @@ describe('agent manifest registry', () => {
       cursor: null,
       // Pi signs in through its in-TUI /login command; there is no argv for it.
       pi: null,
+      antigravity: 'agy acp --login',
     })
   })
 
@@ -379,6 +380,7 @@ describe('agent manifest registry', () => {
       opencode: ['poll'],
       cursor: ['poll'],
       pi: ['poll'],
+      antigravity: ['hook', 'classifier'],
     })
     for (const manifest of Object.values(AGENT_MANIFESTS)) {
       expect(manifest.stateChannels.length, manifest.kind).toBeGreaterThan(0)
@@ -395,6 +397,7 @@ describe('agent manifest registry', () => {
 
   it('attributes every provider-boundary event with source and confidence', async () => {
     const payloads: Partial<Record<BuiltinHarnessKind, unknown>> = {
+      antigravity: { hookEventName: 'SessionStart' },
       'claude-code': { hook_event_name: 'SessionStart' },
       codex: { hook_event_name: 'SessionStart' },
       grok: {
@@ -488,10 +491,10 @@ describe('agent manifest registry', () => {
     // is never copied between machines (POD-7372).
     expect(
       BUILTIN_HARNESS_KINDS.filter((kind) => declaredValue(AGENT_MANIFESTS[kind].credentials)),
-    ).toEqual(['claude-code', 'codex', 'grok', 'pi'])
+    ).toEqual(['claude-code', 'codex', 'grok', 'pi', 'antigravity'])
     expect(
       BUILTIN_HARNESS_KINDS.filter((kind) => declaredValue(AGENT_MANIFESTS[kind].usage)),
-    ).toEqual(['claude-code', 'codex', 'grok'])
+    ).toEqual(['claude-code', 'codex', 'grok', 'antigravity'])
   })
 
   it('declares chainPaths on the file harnesses and a sqlite locator on the sqlite one', () => {
@@ -643,6 +646,7 @@ describe('agent manifest registry', () => {
     expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessSupportsMcp(kind))).toEqual([
       'claude-code',
       'codex',
+      'antigravity',
     ])
     expect(harnessDisplayName('claude-code')).toBe('Claude')
     expect(harnessDisplayName('future-harness')).toBe('future-harness')

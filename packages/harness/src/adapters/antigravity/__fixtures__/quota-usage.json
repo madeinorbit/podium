@@ -1,0 +1,59 @@
+{
+  "conversation_id": "",
+  "status": "SUCCESS",
+  "response": "Gemini Models\tWeekly Limit Remaining\t60%\t2026-11-30T12:00:00Z\nGemini Models\tFive Hour Limit Remaining\t75%\t2026-11-23T17:00:00Z\nClaude and GPT models\t\t40%\t2026-11-30T12:00:00Z\nClaude and GPT models\t\t50%\t2026-11-23T17:00:00Z\n",
+  "duration_seconds": 0,
+  "num_turns": 0,
+  "usage": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "thinking_tokens": 0,
+    "cache_read_tokens": 0,
+    "total_tokens": 0
+  },
+  "command": {
+    "name": "usage",
+    "data": {
+      "groups": [
+        {
+          "name": "Gemini Models",
+          "buckets": [
+            {
+              "id": "gemini-weekly",
+              "name": "Weekly Limit Remaining",
+              "window": "weekly",
+              "remaining_fraction": 0.6000000238418579,
+              "reset_time": "2026-11-30T12:00:00Z"
+            },
+            {
+              "id": "gemini-5h",
+              "name": "Five Hour Limit Remaining",
+              "window": "5h",
+              "remaining_fraction": 0.75,
+              "reset_time": "2026-11-23T17:00:00Z"
+            }
+          ]
+        },
+        {
+          "name": "Claude and GPT models",
+          "buckets": [
+            {
+              "id": "3p-weekly",
+              "name": "",
+              "window": "weekly",
+              "remaining_fraction": 0.4000000059604645,
+              "reset_time": "2026-11-30T12:00:00Z"
+            },
+            {
+              "id": "3p-5h",
+              "name": "",
+              "window": "5h",
+              "remaining_fraction": 0.5,
+              "reset_time": "2026-11-23T17:00:00Z"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

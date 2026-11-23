@@ -2,7 +2,11 @@
 // acceptance 7). Each home's probe reads that home: its directory variable is
 // set to the home's directory in the scope the probe gets.
 
-import type { HarnessAccountScope, HarnessContext } from '@podium/harness'
+import type {
+  HarnessAccountScope,
+  HarnessContext,
+  HarnessExecutableSnapshot,
+} from '@podium/harness'
 import { describe, expect, it } from 'vitest'
 import { homeModelProbe, homeQuotaReader } from './probes'
 import type { HarnessHome } from './registry'
@@ -37,6 +41,55 @@ function codexContext(): HarnessContext {
 }
 
 describe('homeQuotaReader', () => {
+  it('keeps two Google homes separate and passes the selected installation to each refresh', async () => {
+    const snapshot: HarnessExecutableSnapshot = {
+      executables: new Map([
+        [
+          'antigravity',
+          {
+            kind: 'antigravity',
+            path: '/installed/agy',
+            version: '1.5.15',
+            generation: 7,
+          },
+        ],
+      ]),
+      commandEnvironment: {
+        env: ACCOUNT.env,
+        pathEntries: ['/usr/bin'],
+        source: 'login-shell',
+        generation: 7,
+        machineHome: ACCOUNT.home,
+        loginShell: '/bin/sh',
+        resolve: () => undefined,
+      },
+    }
+    const homes: HarnessHome[] = ['first', 'second'].map((id) => ({
+      homeId: `${id}:antigravity`,
+      credentialId: id,
+      harness: 'antigravity',
+      dir: `/state/homes/${id}/antigravity`,
+    }))
+    const seen: Array<string | undefined> = []
+    const read = homeQuotaReader({
+      homes: () => homes,
+      account: async () => ({ ...ACCOUNT, snapshot }),
+      fetchQuota: async (_kind, scope, deps) => {
+        expect(deps.snapshot).toBe(snapshot)
+        expect(scope.env.PODIUM_ANTIGRAVITY_HOME).toBe(scope.roots.credentials)
+        seen.push(scope.roots.credentials)
+        return {
+          agent: 'antigravity',
+          status: 'ok',
+          windows: [],
+          fetchedAt: '2026-11-23T12:00:00.000Z',
+        }
+      },
+    })
+    expect((await read(true)).map((wire) => wire.homeId)).toEqual(homes.map((home) => home.homeId))
+    expect(seen).toEqual(homes.map((home) => home.dir))
+  })
+
   it('reads each home’s quota from that home, tagged with its home id (acceptance 7)', async () => {
     const seen: Array<{ kind: string; dir: string | undefined }> = []
     const read = homeQuotaReader({

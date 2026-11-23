@@ -902,6 +902,7 @@ describe('headless dispatch', () => {
         ANTHROPIC_API_KEY: 'sk-chosen',
       })
       expect(JSON.stringify(runners.turns[0]?.spec)).not.toContain('sk-chosen')
+      expect(runners.turns[0]?.spec.credentialVariables).toEqual(['ANTHROPIC_API_KEY'])
     } finally {
       runtime.dispose()
     }

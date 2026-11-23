@@ -11,12 +11,13 @@
  */
 import type { AgentKind, AgentQuotaWire, UsageBucketWire, UsageSourceWire } from '@podium/model'
 import type { QuotaHistorySampleWire } from '@podium/protocol'
-import { harnessAccount } from '../harness-context.js'
+import type { HarnessExecutableSnapshot } from '../executable-runtime.js'
+import { harnessAccount, harnessInstallation } from '../harness-context.js'
 import {
   declaredValue,
+  type HarnessAccountScope,
   type HarnessEnvironment,
   type HarnessQuotaHistory,
-  type HarnessQuotaProbe,
   type HarnessUsageTranscripts,
 } from '../manifest.js'
 import { AGENT_MANIFESTS, manifestFor } from '../registry.js'
@@ -27,6 +28,7 @@ import {
   type UsageScanCache,
   windowBuckets,
 } from '../usage-records.js'
+import { quotaCommandRunner } from './quota-command.js'
 
 export type QuotaFetcher = (deps: { now?: number }) => Promise<AgentQuotaWire>
 
@@ -42,6 +44,35 @@ export type QuotaFetcher = (deps: { now?: number }) => Promise<AgentQuotaWire>
 export interface AccountReadScope {
   homeDir: string
   env?: HarnessEnvironment
+  snapshot?: HarnessExecutableSnapshot
+}
+
+/** One quota probe with the account's optional native execution capability. */
+export async function probeAccountQuota(
+  kind: string,
+  account: HarnessAccountScope,
+  opts: { now?: number; snapshot?: HarnessExecutableSnapshot } = {},
+): Promise<AgentQuotaWire> {
+  const manifest = manifestFor(kind)
+  const usage = manifest && declaredValue(manifest.usage)
+  const probe = usage && declaredValue(usage.quota)
+  if (!manifest || !probe) throw new Error(`${kind} has no quota to read`)
+  const runCommand = opts.snapshot?.executables.has(manifest.kind)
+    ? quotaCommandRunner({
+        ...account,
+        env: Object.fromEntries(
+          Object.entries(account.env).filter(
+            (entry): entry is [string, string] => typeof entry[1] === 'string',
+          ),
+        ),
+        installation: harnessInstallation(opts.snapshot, manifest.kind),
+      })
+    : undefined
+  return probe.fetchQuota({
+    account,
+    ...(opts.now !== undefined ? { now: opts.now } : {}),
+    ...(runCommand ? { runCommand } : {}),
+  })
 }
 
 /**
@@ -66,16 +97,15 @@ function defaultQuotaFetchers(
     const usage = declaredValue(manifest.usage)
     const quota = usage ? declaredValue(usage.quota) : undefined
     if (!quota) continue
-    const probe: HarnessQuotaProbe = quota
     fetchers.push({
       key: manifest.kind,
       fetch: async (deps) => {
         // No account, no read: an error wire rather than a guess at a home.
         if (!scope) throw new Error('quota read refused: no account home')
-        const { homeDir, env } = await scope()
-        return probe.fetchQuota({
+        const { homeDir, env, snapshot } = await scope()
+        return probeAccountQuota(manifest.kind, harnessAccount(manifest.kind, homeDir, env ?? {}), {
           ...deps,
-          account: harnessAccount(manifest.kind, homeDir, env ?? {}),
+          ...(snapshot ? { snapshot } : {}),
         })
       },
     })

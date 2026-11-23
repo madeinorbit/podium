@@ -68,6 +68,7 @@ export const HARNESS_NO_TOOLS: Record<BuiltinHarnessKind, boolean> = {
   grok: false,
   opencode: false,
   pi: true,
+  antigravity: false,
 }
 
 /**

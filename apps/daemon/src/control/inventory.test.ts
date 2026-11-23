@@ -110,6 +110,7 @@ describe('terminalRuntimeDriverInventory', () => {
       { harness: 'opencode', id: 'generic-pty', family: 'terminal' },
       { harness: 'cursor', id: 'generic-pty', family: 'terminal' },
       { harness: 'pi', id: 'generic-pty', family: 'terminal' },
+      { harness: 'antigravity', id: 'generic-pty', family: 'terminal' },
     ])
   })
 })

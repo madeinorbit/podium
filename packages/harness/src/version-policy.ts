@@ -33,6 +33,13 @@ export const GROK_ACP_VERSION_POLICY = {
 } as const satisfies HarnessVersionPolicy
 
 export const HARNESS_VERSION_POLICIES = {
+  // The native directory selectors, streaming input and session workspaces
+  // used by this adapter were measured together on this release.
+  antigravity: {
+    minimum: { major: 1, minor: 5, patch: 14 },
+    verifiedThrough: '1.5.15',
+    recordedAt: '1.5.15',
+  },
   codex: CODEX_VERSION_POLICY,
   opencode: OPENCODE_VERSION_POLICY,
   grok: GROK_ACP_VERSION_POLICY,
@@ -40,7 +47,7 @@ export const HARNESS_VERSION_POLICIES = {
 
 /**
  * The version policy for one harness kind, or `undefined` when it has none
- * (POD-4737) — today only codex, opencode and grok carry policies; a harness
+ * (POD-4737) — codex, opencode, grok and antigravity carry policies; a harness
  * without one (Claude's SDK, cursor, pi) is admitted without a version gate,
  * exactly as the per-harness gates did. A lookup returning `undefined`
  * (never a cast, never another harness's policy) so unknown kinds degrade.
