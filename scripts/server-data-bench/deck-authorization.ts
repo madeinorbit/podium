@@ -146,7 +146,11 @@ for (const issues of [7879, 7884]) {
     const reports = new IssueReportsModule(
       new IssueStore({
         store,
-        readSessionFacts: async () => await facts.readAll(),
+        readSessionFacts: async () => {
+          const rows = await facts.readAll()
+          assert.equal(rows.length, SESSIONS)
+          return rows
+        },
         sessionsById: async (ids: readonly SessionId[]) => {
           assert.equal(ids.length, 0, 'benchmark mission must have no seats')
           return []
@@ -197,8 +201,12 @@ for (const issues of [7879, 7884]) {
         const serialized = JSON.stringify(deck)
         expected ??= serialized
         assert.equal(serialized, expected, `${arm}: deck changed`)
-        assert.equal(sample.issueStatements, arm === 'before' ? issues - DRAFTS + 1 : 2)
-        assert.equal(sample.issueRows, arm === 'before' ? 2 * issues - DRAFTS : issues + 1)
+        // Both arms read the root live and the candidate listing. The old
+        // policy additionally loads every non-draft candidate by ID, including
+        // the root: a live read deliberately does not prime the row loader.
+        assert.equal(sample.issueStatements, arm === 'before' ? issues - DRAFTS + 2 : 2)
+        assert.equal(sample.issueRows, arm === 'before' ? 2 * issues - DRAFTS + 1 : issues + 1)
+        assert.equal(sample.checkpointStatements, Math.ceil(SESSIONS / 500))
         assert.equal(sample.checkpointRows, CHECKPOINTS)
         return sample
       } finally {

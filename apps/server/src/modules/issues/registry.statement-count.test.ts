@@ -229,11 +229,12 @@ const deckPin: StatementPin<Fixture> = {
 // Panel report DTOs read each normalized table once per batch.
 describe('issue listings: pinned statement counts at 5 and 200 issues', () => {
   it('deck: authorizes loaded rows without a query per issue or blocker', async () => {
-    await expectConstantStatements(deckPin, 7)
+    // Root, listing, dependencies, blocker targets, pending asks, and names.
+    await expectConstantStatements(deckPin, 6)
   })
 
   it('deck pin detects restoring the per-ID authorization loop', async () => {
-    await expectArmed(deckPin, 7, () => {
+    await expectArmed(deckPin, 6, () => {
       const issueReader = IssueCommandCtx.prototype.issueReader
       const spy = vi
         .spyOn(IssueCommandCtx.prototype, 'issueReader')
