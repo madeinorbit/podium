@@ -19,6 +19,13 @@ vi.mock('expo-router/stack', () => ({
       header.options = options
       return null
     },
+    // The session menu goes to the native toolbar; this test reads only the header.
+    Toolbar: Object.assign(() => null, {
+      Button: () => null,
+      Label: () => null,
+      Menu: () => null,
+      MenuAction: () => null,
+    }),
   },
 }))
 vi.mock('expo-router/react-navigation', async () => ({
