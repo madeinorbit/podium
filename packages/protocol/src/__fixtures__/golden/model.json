@@ -1747,9 +1747,7 @@
         "kind": "kind",
         "body": "body",
         "createdAt": "createdAt",
-        "artifacts": [
-          "artifacts[0]"
-        ],
+        "artifacts": ["artifacts[0]"],
         "senderUserId": "senderUserId",
         "attachments": [
           {
@@ -1762,9 +1760,7 @@
         "number": 1,
         "askKind": "askKind",
         "detail": "detail",
-        "options": [
-          "options[0]"
-        ],
+        "options": ["options[0]"],
         "status": "status",
         "answer": "answer",
         "settledAt": "settledAt",
@@ -3544,9 +3540,7 @@
             "state": "in"
           }
         ],
-        "allowedMachines": [
-          "allowedMachines[0]"
-        ],
+        "allowedMachines": ["allowedMachines[0]"],
         "sessionCount": 1,
         "access": "owner",
         "sharedWith": [
@@ -3613,9 +3607,7 @@
             "state": "out"
           }
         ],
-        "allowedMachines": [
-          "allowedMachines[0]"
-        ],
+        "allowedMachines": ["allowedMachines[0]"],
         "sessionCount": 2,
         "access": "manage",
         "sharedWith": [
@@ -3672,9 +3664,7 @@
       "schema": "DaemonLinkPolicy",
       "variant": "full",
       "wire": {
-        "trustedNetworks": [
-          "192.168.1.0/24"
-        ]
+        "trustedNetworks": ["192.168.1.0/24"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -4021,11 +4011,7 @@
       "schema": "DoctorReport",
       "variant": "full",
       "wire": {
-        "cycles": [
-          [
-            "cycles[0][0]"
-          ]
-        ],
+        "cycles": [["cycles[0][0]"]],
         "danglingDeps": [
           {
             "from": "danglingDeps[0].from",
@@ -4264,9 +4250,7 @@
         },
         "cancelRequested": true,
         "decision": "approve",
-        "deciders": [
-          "deciders[0]"
-        ],
+        "deciders": ["deciders[0]"],
         "effect": {
           "status": "pending",
           "error": {
@@ -4801,9 +4785,7 @@
         "worktreeName": "worktreeName",
         "worktreeRelativePath": "worktreeRelativePath",
         "cwdSubpath": "cwdSubpath",
-        "bundleBase": [
-          "bundleBase[0]"
-        ],
+        "bundleBase": ["bundleBase[0]"],
         "title": "title",
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
@@ -4835,9 +4817,7 @@
         "worktreeName": "worktreeName",
         "worktreeRelativePath": "worktreeRelativePath",
         "cwdSubpath": "cwdSubpath",
-        "bundleBase": [
-          "bundleBase[0]"
-        ],
+        "bundleBase": ["bundleBase[0]"],
         "title": "title",
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
@@ -4880,9 +4860,7 @@
         "worktreeName": "worktreeName",
         "worktreeRelativePath": "worktreeRelativePath",
         "cwdSubpath": "cwdSubpath",
-        "bundleBase": [
-          "bundleBase[0]"
-        ],
+        "bundleBase": ["bundleBase[0]"],
         "title": "title",
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
@@ -4925,9 +4903,7 @@
         "worktreeName": "worktreeName",
         "worktreeRelativePath": "worktreeRelativePath",
         "cwdSubpath": "cwdSubpath",
-        "bundleBase": [
-          "bundleBase[0]"
-        ],
+        "bundleBase": ["bundleBase[0]"],
         "title": "title",
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
@@ -4997,9 +4973,7 @@
         "worktreeName": "worktreeName",
         "worktreeRelativePath": "worktreeRelativePath",
         "cwdSubpath": "cwdSubpath",
-        "bundleBase": [
-          "bundleBase[0]"
-        ],
+        "bundleBase": ["bundleBase[0]"],
         "title": "title",
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
@@ -5069,9 +5043,7 @@
         "worktreeName": "worktreeName",
         "worktreeRelativePath": "worktreeRelativePath",
         "cwdSubpath": "cwdSubpath",
-        "bundleBase": [
-          "bundleBase[0]"
-        ],
+        "bundleBase": ["bundleBase[0]"],
         "title": "title",
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
@@ -5114,9 +5086,7 @@
         "worktreeName": "worktreeName",
         "worktreeRelativePath": "worktreeRelativePath",
         "cwdSubpath": "cwdSubpath",
-        "bundleBase": [
-          "bundleBase[0]"
-        ],
+        "bundleBase": ["bundleBase[0]"],
         "title": "title",
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
@@ -5159,9 +5129,7 @@
         "worktreeName": "worktreeName",
         "worktreeRelativePath": "worktreeRelativePath",
         "cwdSubpath": "cwdSubpath",
-        "bundleBase": [
-          "bundleBase[0]"
-        ],
+        "bundleBase": ["bundleBase[0]"],
         "title": "title",
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
@@ -5204,9 +5172,7 @@
         "worktreeName": "worktreeName",
         "worktreeRelativePath": "worktreeRelativePath",
         "cwdSubpath": "cwdSubpath",
-        "bundleBase": [
-          "bundleBase[0]"
-        ],
+        "bundleBase": ["bundleBase[0]"],
         "title": "title",
         "issueId": "issueId",
         "sourceMachineId": "sourceMachineId",
@@ -5558,12 +5524,8 @@
             }
           },
           "coverage": 1,
-          "nestedBuckets": [
-            "loop.nestedBuckets[0]"
-          ],
-          "inclusive": [
-            "loop.inclusive[0]"
-          ]
+          "nestedBuckets": ["loop.nestedBuckets[0]"],
+          "inclusive": ["loop.inclusive[0]"]
         }
       },
       "parseAdded": {},
@@ -5694,9 +5656,7 @@
           "telemetrySince": 1
         },
         "daemonLink": {
-          "trustedNetworks": [
-            "192.168.1.0/24"
-          ]
+          "trustedNetworks": ["192.168.1.0/24"]
         }
       },
       "parseAdded": {},
@@ -5741,9 +5701,7 @@
         "deployment.telemetryCrash": "on",
         "deployment.telemetryInstallId": "deployment.telemetryInstallId",
         "deployment.telemetrySince": 1,
-        "daemonLink.trustedNetworks": [
-          "192.168.1.0/24"
-        ]
+        "daemonLink.trustedNetworks": ["192.168.1.0/24"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -6335,18 +6293,14 @@
         "type": "task",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 1,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -6358,9 +6312,7 @@
         "needsHuman": true,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -6400,13 +6352,9 @@
                   "size": 1
                 }
               ],
-              "sourcePaths": [
-                "panel.artifacts[0].sourcePaths[0]"
-              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
               "tracking": "tracked",
-              "untrackedPaths": [
-                "panel.artifacts[0].untrackedPaths[0]"
-              ]
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
             }
           ],
           "deferred": [
@@ -6489,18 +6437,14 @@
         "type": "phase",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 2,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -6512,9 +6456,7 @@
         "needsHuman": false,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -6554,13 +6496,9 @@
                   "size": 2
                 }
               ],
-              "sourcePaths": [
-                "panel.artifacts[0].sourcePaths[0]"
-              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
               "tracking": "untracked",
-              "untrackedPaths": [
-                "panel.artifacts[0].untrackedPaths[0]"
-              ]
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
             }
           ],
           "deferred": [
@@ -6643,18 +6581,14 @@
         "type": "decision",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 3,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -6666,9 +6600,7 @@
         "needsHuman": true,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -6708,13 +6640,9 @@
                   "size": 3
                 }
               ],
-              "sourcePaths": [
-                "panel.artifacts[0].sourcePaths[0]"
-              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
               "tracking": "unknown",
-              "untrackedPaths": [
-                "panel.artifacts[0].untrackedPaths[0]"
-              ]
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
             }
           ],
           "deferred": [
@@ -6797,18 +6725,14 @@
         "type": "decision",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 4,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -6820,9 +6744,7 @@
         "needsHuman": false,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -6862,13 +6784,9 @@
                   "size": 4
                 }
               ],
-              "sourcePaths": [
-                "panel.artifacts[0].sourcePaths[0]"
-              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
               "tracking": "unknown",
-              "untrackedPaths": [
-                "panel.artifacts[0].untrackedPaths[0]"
-              ]
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
             }
           ],
           "deferred": [
@@ -7358,9 +7276,7 @@
           "ahead": 1,
           "dirtyFiles": 1,
           "dirtyOwn": 1,
-          "commits": [
-            "gitState.commits[0]"
-          ],
+          "commits": ["gitState.commits[0]"],
           "lastCommitAt": "gitState.lastCommitAt",
           "unpushed": 1,
           "merged": true,
@@ -7495,9 +7411,7 @@
         "ahead": 1,
         "dirtyFiles": 1,
         "dirtyOwn": 1,
-        "commits": [
-          "commits[0]"
-        ],
+        "commits": ["commits[0]"],
         "lastCommitAt": "lastCommitAt",
         "unpushed": 1,
         "merged": true,
@@ -7535,9 +7449,7 @@
         "ahead": 1,
         "dirtyFiles": 1,
         "dirtyOwn": 1,
-        "commits": [
-          "commits[0]"
-        ],
+        "commits": ["commits[0]"],
         "lastCommitAt": "lastCommitAt",
         "unpushed": 1,
         "merged": true,
@@ -7669,9 +7581,7 @@
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ]
+        "blockedByNotes": ["blockedByNotes[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -8017,13 +7927,9 @@
                 "size": 1
               }
             ],
-            "sourcePaths": [
-              "artifacts[0].sourcePaths[0]"
-            ],
+            "sourcePaths": ["artifacts[0].sourcePaths[0]"],
             "tracking": "tracked",
-            "untrackedPaths": [
-              "artifacts[0].untrackedPaths[0]"
-            ]
+            "untrackedPaths": ["artifacts[0].untrackedPaths[0]"]
           }
         ],
         "deferred": [
@@ -8074,13 +7980,9 @@
             "size": 1
           }
         ],
-        "sourcePaths": [
-          "sourcePaths[0]"
-        ],
+        "sourcePaths": ["sourcePaths[0]"],
         "tracking": "tracked",
-        "untrackedPaths": [
-          "untrackedPaths[0]"
-        ]
+        "untrackedPaths": ["untrackedPaths[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -8123,13 +8025,9 @@
             "size": 1
           }
         ],
-        "sourcePaths": [
-          "sourcePaths[0]"
-        ],
+        "sourcePaths": ["sourcePaths[0]"],
         "tracking": "tracked",
-        "untrackedPaths": [
-          "untrackedPaths[0]"
-        ]
+        "untrackedPaths": ["untrackedPaths[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -8235,13 +8133,9 @@
                   "size": 1
                 }
               ],
-              "sourcePaths": [
-                "panel.artifacts[0].sourcePaths[0]"
-              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
               "tracking": "tracked",
-              "untrackedPaths": [
-                "panel.artifacts[0].untrackedPaths[0]"
-              ]
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
             }
           ],
           "deferred": [
@@ -8490,18 +8384,14 @@
         "type": "task",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 1,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -8513,9 +8403,7 @@
         "needsHuman": true,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -8555,13 +8443,9 @@
                   "size": 1
                 }
               ],
-              "sourcePaths": [
-                "panel.artifacts[0].sourcePaths[0]"
-              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
               "tracking": "tracked",
-              "untrackedPaths": [
-                "panel.artifacts[0].untrackedPaths[0]"
-              ]
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
             }
           ],
           "deferred": [
@@ -8644,18 +8528,14 @@
         "type": "phase",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 2,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -8667,9 +8547,7 @@
         "needsHuman": false,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -8709,13 +8587,9 @@
                   "size": 2
                 }
               ],
-              "sourcePaths": [
-                "panel.artifacts[0].sourcePaths[0]"
-              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
               "tracking": "untracked",
-              "untrackedPaths": [
-                "panel.artifacts[0].untrackedPaths[0]"
-              ]
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
             }
           ],
           "deferred": [
@@ -8798,18 +8672,14 @@
         "type": "decision",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 3,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -8821,9 +8691,7 @@
         "needsHuman": true,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -8863,13 +8731,9 @@
                   "size": 3
                 }
               ],
-              "sourcePaths": [
-                "panel.artifacts[0].sourcePaths[0]"
-              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
               "tracking": "unknown",
-              "untrackedPaths": [
-                "panel.artifacts[0].untrackedPaths[0]"
-              ]
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
             }
           ],
           "deferred": [
@@ -8952,18 +8816,14 @@
         "type": "decision",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 4,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -8975,9 +8835,7 @@
         "needsHuman": false,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -9017,13 +8875,9 @@
                   "size": 4
                 }
               ],
-              "sourcePaths": [
-                "panel.artifacts[0].sourcePaths[0]"
-              ],
+              "sourcePaths": ["panel.artifacts[0].sourcePaths[0]"],
               "tracking": "unknown",
-              "untrackedPaths": [
-                "panel.artifacts[0].untrackedPaths[0]"
-              ]
+              "untrackedPaths": ["panel.artifacts[0].untrackedPaths[0]"]
             }
           ],
           "deferred": [
@@ -9234,9 +9088,7 @@
         "type": "task",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 1,
         "sortKey": "sortKey",
         "dueAt": "dueAt"
@@ -9610,12 +9462,8 @@
           }
         },
         "coverage": 1,
-        "nestedBuckets": [
-          "nestedBuckets[0]"
-        ],
-        "inclusive": [
-          "inclusive[0]"
-        ]
+        "nestedBuckets": ["nestedBuckets[0]"],
+        "inclusive": ["inclusive[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -9743,9 +9591,7 @@
           "crashOwner": "services.crashOwner",
           "topology": {
             "persistence": "systemd",
-            "legacyUnits": [
-              "services.topology.legacyUnits[0]"
-            ],
+            "legacyUnits": ["services.topology.legacyUnits[0]"],
             "parentUnit": "active"
           }
         },
@@ -9753,12 +9599,8 @@
           "server": true,
           "agentExecution": true
         },
-        "components": [
-          "daemon"
-        ],
-        "deliveryCaps": [
-          "deliveryCaps[0]"
-        ],
+        "components": ["daemon"],
+        "deliveryCaps": ["deliveryCaps[0]"],
         "wireSchemaDigest": "wireSchemaDigest",
         "buildReportedAt": "buildReportedAt",
         "harnessVersions": [
@@ -10475,9 +10317,7 @@
       "wire": {
         "id": "id",
         "name": "name",
-        "loggedOutHarnesses": [
-          "claude-code"
-        ],
+        "loggedOutHarnesses": ["claude-code"],
         "custodian": "custodian",
         "appVersion": "appVersion",
         "updateChannel": "dev",
@@ -10609,9 +10449,7 @@
         "crashOwner": "crashOwner",
         "topology": {
           "persistence": "systemd",
-          "legacyUnits": [
-            "topology.legacyUnits[0]"
-          ],
+          "legacyUnits": ["topology.legacyUnits[0]"],
           "parentUnit": "active"
         }
       },
@@ -10665,9 +10503,7 @@
       "variant": "full",
       "wire": {
         "persistence": "systemd",
-        "legacyUnits": [
-          "legacyUnits[0]"
-        ],
+        "legacyUnits": ["legacyUnits[0]"],
         "parentUnit": "active"
       },
       "parseAdded": {},
@@ -10771,9 +10607,7 @@
           "crashOwner": "services.crashOwner",
           "topology": {
             "persistence": "systemd",
-            "legacyUnits": [
-              "services.topology.legacyUnits[0]"
-            ],
+            "legacyUnits": ["services.topology.legacyUnits[0]"],
             "parentUnit": "active"
           }
         },
@@ -10793,9 +10627,7 @@
         "unowned": true,
         "adoptable": true,
         "podiumManaged": true,
-        "components": [
-          "daemon"
-        ],
+        "components": ["daemon"],
         "inventory": {
           "os": "linux",
           "arch": "x64",
@@ -10923,9 +10755,7 @@
         "appVersion": "appVersion",
         "wireSchemaDigest": "wireSchemaDigest",
         "installKind": "installKind",
-        "deliveryCaps": [
-          "deliveryCaps[0]"
-        ],
+        "deliveryCaps": ["deliveryCaps[0]"],
         "serverMoveEligibility": {
           "eligible": true,
           "reason": "current-server"
@@ -11714,9 +11544,7 @@
         "needsHuman": true,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -11740,9 +11568,7 @@
         "needsHuman": false,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -11766,9 +11592,7 @@
         "needsHuman": true,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -11792,9 +11616,7 @@
         "needsHuman": false,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -12167,9 +11989,7 @@
         },
         "sidebar": {
           "repoSort": "alphabetical",
-          "repoOrder": [
-            "sidebar.repoOrder[0]"
-          ]
+          "repoOrder": ["sidebar.repoOrder[0]"]
         },
         "autoContinue": {
           "enabled": true,
@@ -15477,12 +15297,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "server",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "engine"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["engine"],
         "queuedMessageCount": 1,
         "offer": {
           "message": "offer.message",
@@ -15493,9 +15309,7 @@
               "input": true
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -15714,12 +15528,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "terminal",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "client"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["client"],
         "queuedMessageCount": 2,
         "offer": {
           "message": "offer.message",
@@ -15730,9 +15540,7 @@
               "input": false
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -15951,12 +15759,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "server",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "client"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["client"],
         "queuedMessageCount": 3,
         "offer": {
           "message": "offer.message",
@@ -15967,9 +15771,7 @@
               "input": true
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -16189,12 +15991,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "terminal",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "client"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["client"],
         "queuedMessageCount": 4,
         "offer": {
           "message": "offer.message",
@@ -16205,9 +16003,7 @@
               "input": false
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -16427,12 +16223,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "server",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "client"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["client"],
         "queuedMessageCount": 5,
         "offer": {
           "message": "offer.message",
@@ -16443,9 +16235,7 @@
               "input": true
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -16685,12 +16475,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "server",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "engine"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["engine"],
         "queuedMessageCount": 1,
         "offer": {
           "message": "offer.message",
@@ -16701,9 +16487,7 @@
               "input": true
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -16920,12 +16704,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "terminal",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "client"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["client"],
         "queuedMessageCount": 2,
         "offer": {
           "message": "offer.message",
@@ -16936,9 +16716,7 @@
               "input": false
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -17155,12 +16933,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "server",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "client"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["client"],
         "queuedMessageCount": 3,
         "offer": {
           "message": "offer.message",
@@ -17171,9 +16945,7 @@
               "input": true
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -17391,12 +17163,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "terminal",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "client"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["client"],
         "queuedMessageCount": 4,
         "offer": {
           "message": "offer.message",
@@ -17407,9 +17175,7 @@
               "input": false
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -17627,12 +17393,8 @@
         "driverId": "driverId",
         "requestedDriverId": "requestedDriverId",
         "driverFamily": "server",
-        "configureFields": [
-          "configureFields[0]"
-        ],
-        "attachKinds": [
-          "client"
-        ],
+        "configureFields": ["configureFields[0]"],
+        "attachKinds": ["client"],
         "queuedMessageCount": 5,
         "offer": {
           "message": "offer.message",
@@ -17643,9 +17405,7 @@
               "input": true
             }
           ],
-          "artifacts": [
-            "offer.artifacts[0]"
-          ],
+          "artifacts": ["offer.artifacts[0]"],
           "createdAt": "offer.createdAt"
         },
         "handoffTargetMachineId": "handoffTargetMachineId",
@@ -17800,9 +17560,7 @@
             "input": true
           }
         ],
-        "artifacts": [
-          "artifacts[0]"
-        ],
+        "artifacts": ["artifacts[0]"],
         "createdAt": "createdAt"
       },
       "parseAdded": {},
@@ -18464,9 +18222,7 @@
         "headline": "headline",
         "detail": "detail",
         "evidenceRefs": [],
-        "actions": [
-          "retry"
-        ],
+        "actions": ["retry"],
         "raisedAt": "raisedAt"
       },
       "parseAdded": {},
@@ -18484,12 +18240,8 @@
         "reasonCode": "approval-stale",
         "headline": "headline",
         "detail": "detail",
-        "evidenceRefs": [
-          "evidenceRefs[0]"
-        ],
-        "actions": [
-          "retry"
-        ],
+        "evidenceRefs": ["evidenceRefs[0]"],
+        "actions": ["retry"],
         "raisedAt": "raisedAt",
         "resolvedAt": "resolvedAt",
         "resolution": "retry"
@@ -18509,12 +18261,8 @@
         "reasonCode": "policy:fixture-hold",
         "headline": "headline",
         "detail": "detail",
-        "evidenceRefs": [
-          "evidenceRefs[0]"
-        ],
-        "actions": [
-          "policy:fixture-action"
-        ],
+        "evidenceRefs": ["evidenceRefs[0]"],
+        "actions": ["policy:fixture-action"],
         "raisedAt": "raisedAt",
         "resolvedAt": "resolvedAt",
         "resolution": "policy:fixture-action"
@@ -18638,14 +18386,10 @@
         "destination": "destination",
         "trains": [
           {
-            "orderIds": [
-              "trains[0].orderIds[0]"
-            ]
+            "orderIds": ["trains[0].orderIds[0]"]
           }
         ],
-        "blockedOrderIds": [
-          "blockedOrderIds[0]"
-        ]
+        "blockedOrderIds": ["blockedOrderIds[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -18702,9 +18446,7 @@
         "destination": "destination",
         "approvedBaseSha": "approvedBaseSha",
         "approvedHeadSha": "approvedHeadSha",
-        "deliveryDependsOn": [
-          "deliveryDependsOn[0]"
-        ],
+        "deliveryDependsOn": ["deliveryDependsOn[0]"],
         "evidenceManifestRef": "evidenceManifestRef",
         "currentIntegrationReceipt": {
           "rootIssueId": "issueId",
@@ -18732,14 +18474,10 @@
         "policyId": "policyId",
         "validationProfile": {
           "id": "validationProfile.id",
-          "argv": [
-            "validationProfile.argv[0]"
-          ],
+          "argv": ["validationProfile.argv[0]"],
           "cwd": "integration-root",
           "timeoutMs": 1,
-          "resourceLocks": [
-            "validationProfile.resourceLocks[0]"
-          ]
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
         },
         "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "closeMode": "after-destination",
@@ -18770,9 +18508,7 @@
         "destination": "destination",
         "approvedBaseSha": "approvedBaseSha",
         "approvedHeadSha": "approvedHeadSha",
-        "deliveryDependsOn": [
-          "deliveryDependsOn[0]"
-        ],
+        "deliveryDependsOn": ["deliveryDependsOn[0]"],
         "evidenceManifestRef": "evidenceManifestRef",
         "currentIntegrationReceipt": {
           "rootIssueId": "issueId",
@@ -18800,14 +18536,10 @@
         "policyId": "policyId",
         "validationProfile": {
           "id": "validationProfile.id",
-          "argv": [
-            "validationProfile.argv[0]"
-          ],
+          "argv": ["validationProfile.argv[0]"],
           "cwd": "integration-root",
           "timeoutMs": 2,
-          "resourceLocks": [
-            "validationProfile.resourceLocks[0]"
-          ]
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
         },
         "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "closeMode": "leave-open",
@@ -18838,9 +18570,7 @@
         "destination": "destination",
         "approvedBaseSha": "approvedBaseSha",
         "approvedHeadSha": "approvedHeadSha",
-        "deliveryDependsOn": [
-          "deliveryDependsOn[0]"
-        ],
+        "deliveryDependsOn": ["deliveryDependsOn[0]"],
         "evidenceManifestRef": "evidenceManifestRef",
         "currentIntegrationReceipt": {
           "rootIssueId": "issueId",
@@ -18868,14 +18598,10 @@
         "policyId": "policyId",
         "validationProfile": {
           "id": "validationProfile.id",
-          "argv": [
-            "validationProfile.argv[0]"
-          ],
+          "argv": ["validationProfile.argv[0]"],
           "cwd": "integration-root",
           "timeoutMs": 3,
-          "resourceLocks": [
-            "validationProfile.resourceLocks[0]"
-          ]
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
         },
         "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "closeMode": "leave-open",
@@ -18906,9 +18632,7 @@
         "destination": "destination",
         "approvedBaseSha": "approvedBaseSha",
         "approvedHeadSha": "approvedHeadSha",
-        "deliveryDependsOn": [
-          "deliveryDependsOn[0]"
-        ],
+        "deliveryDependsOn": ["deliveryDependsOn[0]"],
         "evidenceManifestRef": "evidenceManifestRef",
         "currentIntegrationReceipt": {
           "rootIssueId": "issueId",
@@ -18936,14 +18660,10 @@
         "policyId": "policyId",
         "validationProfile": {
           "id": "validationProfile.id",
-          "argv": [
-            "validationProfile.argv[0]"
-          ],
+          "argv": ["validationProfile.argv[0]"],
           "cwd": "integration-root",
           "timeoutMs": 4,
-          "resourceLocks": [
-            "validationProfile.resourceLocks[0]"
-          ]
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
         },
         "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "closeMode": "leave-open",
@@ -19078,9 +18798,7 @@
           "generation": 1,
           "reasonCode": "approval-stale",
           "headline": "hold.headline",
-          "actions": [
-            "retry"
-          ]
+          "actions": ["retry"]
         },
         "receiptId": "receiptId"
       },
@@ -19120,9 +18838,7 @@
           "generation": 2,
           "reasonCode": "policy:fixture-hold",
           "headline": "hold.headline",
-          "actions": [
-            "policy:fixture-action"
-          ]
+          "actions": ["policy:fixture-action"]
         },
         "receiptId": "receiptId"
       },
@@ -19334,9 +19050,7 @@
         "policyId": "policyId",
         "validationProfile": {
           "id": "validationProfile.id",
-          "argv": [
-            "validationProfile.argv[0]"
-          ],
+          "argv": ["validationProfile.argv[0]"],
           "cwd": "integration-root",
           "timeoutMs": 1,
           "resourceLocks": []
@@ -19368,14 +19082,10 @@
         "policyId": "policyId",
         "validationProfile": {
           "id": "validationProfile.id",
-          "argv": [
-            "validationProfile.argv[0]"
-          ],
+          "argv": ["validationProfile.argv[0]"],
           "cwd": "integration-root",
           "timeoutMs": 1,
-          "resourceLocks": [
-            "validationProfile.resourceLocks[0]"
-          ]
+          "resourceLocks": ["validationProfile.resourceLocks[0]"]
         },
         "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
@@ -19404,9 +19114,7 @@
           "policyId": "lane.policyId",
           "validationProfile": {
             "id": "lane.validationProfile.id",
-            "argv": [
-              "lane.validationProfile.argv[0]"
-            ],
+            "argv": ["lane.validationProfile.argv[0]"],
             "cwd": "integration-root",
             "timeoutMs": 1,
             "resourceLocks": []
@@ -19459,14 +19167,10 @@
           "policyId": "lane.policyId",
           "validationProfile": {
             "id": "lane.validationProfile.id",
-            "argv": [
-              "lane.validationProfile.argv[0]"
-            ],
+            "argv": ["lane.validationProfile.argv[0]"],
             "cwd": "integration-root",
             "timeoutMs": 1,
-            "resourceLocks": [
-              "lane.validationProfile.resourceLocks[0]"
-            ]
+            "resourceLocks": ["lane.validationProfile.resourceLocks[0]"]
           },
           "validationProfileDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
@@ -19522,9 +19226,7 @@
         "sourceBranch": "sourceBranch",
         "approvedBaseSha": "approvedBaseSha",
         "approvedHeadSha": "approvedHeadSha",
-        "deliveryDependsOn": [
-          "deliveryDependsOn[0]"
-        ]
+        "deliveryDependsOn": ["deliveryDependsOn[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -19572,9 +19274,7 @@
       "variant": "minimal",
       "wire": {
         "id": "id",
-        "argv": [
-          "argv[0]"
-        ],
+        "argv": ["argv[0]"],
         "cwd": "integration-root",
         "timeoutMs": 1,
         "resourceLocks": []
@@ -19589,14 +19289,10 @@
       "variant": "full",
       "wire": {
         "id": "id",
-        "argv": [
-          "argv[0]"
-        ],
+        "argv": ["argv[0]"],
         "cwd": "integration-root",
         "timeoutMs": 1,
-        "resourceLocks": [
-          "resourceLocks[0]"
-        ]
+        "resourceLocks": ["resourceLocks[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -19668,13 +19364,9 @@
           "kind": "patch",
           "summary": "contract.summary",
           "behaviorImpact": "none",
-          "touchedPaths": [
-            "contract.touchedPaths[0]"
-          ],
+          "touchedPaths": ["contract.touchedPaths[0]"],
           "patch": "contract.patch",
-          "concerns": [
-            "contract.concerns[0]"
-          ]
+          "concerns": ["contract.concerns[0]"]
         }
       },
       "parseAdded": {},
@@ -19700,9 +19392,7 @@
           "kind": "inspection",
           "verdict": "ambiguous",
           "summary": "contract.summary",
-          "concerns": [
-            "contract.concerns[0]"
-          ]
+          "concerns": ["contract.concerns[0]"]
         }
       },
       "parseAdded": {},
@@ -19822,9 +19512,7 @@
         "kind": "inspection",
         "verdict": "safe",
         "summary": "summary",
-        "concerns": [
-          "concerns[0]"
-        ]
+        "concerns": ["concerns[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -19873,13 +19561,9 @@
         "kind": "patch",
         "summary": "summary",
         "behaviorImpact": "none",
-        "touchedPaths": [
-          "touchedPaths[0]"
-        ],
+        "touchedPaths": ["touchedPaths[0]"],
         "patch": "patch",
-        "concerns": [
-          "concerns[0]"
-        ]
+        "concerns": ["concerns[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -19893,9 +19577,7 @@
         "kind": "inspection",
         "verdict": "ambiguous",
         "summary": "summary",
-        "concerns": [
-          "concerns[0]"
-        ]
+        "concerns": ["concerns[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -19926,13 +19608,9 @@
         "kind": "patch",
         "summary": "summary",
         "behaviorImpact": "none",
-        "touchedPaths": [
-          "touchedPaths[0]"
-        ],
+        "touchedPaths": ["touchedPaths[0]"],
         "patch": "patch",
-        "concerns": [
-          "concerns[0]"
-        ]
+        "concerns": ["concerns[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -19988,9 +19666,7 @@
       "variant": "full",
       "wire": {
         "repoSort": "alphabetical",
-        "repoOrder": [
-          "repoOrder[0]"
-        ]
+        "repoOrder": ["repoOrder[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -20067,18 +19743,14 @@
         "type": "task",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 1,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -20090,9 +19762,7 @@
         "needsHuman": true,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -20161,18 +19831,14 @@
         "type": "phase",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 2,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -20184,9 +19850,7 @@
         "needsHuman": false,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -20255,18 +19919,14 @@
         "type": "decision",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 3,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -20278,9 +19938,7 @@
         "needsHuman": true,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -20349,18 +20007,14 @@
         "type": "decision",
         "assignee": "assignee",
         "legacyAssignee": "legacyAssignee",
-        "labels": [
-          "labels[0]"
-        ],
+        "labels": ["labels[0]"],
         "estimateMin": 4,
         "sortKey": "sortKey",
         "dueAt": "dueAt",
         "parentId": "parentId",
         "supersededBy": "supersededBy",
         "duplicateOf": "duplicateOf",
-        "blockedByNotes": [
-          "blockedByNotes[0]"
-        ],
+        "blockedByNotes": ["blockedByNotes[0]"],
         "worktreePath": "worktreePath",
         "branch": "branch",
         "parentBranch": "parentBranch",
@@ -20372,9 +20026,7 @@
         "needsHuman": false,
         "asked": {
           "question": "asked.question",
-          "options": [
-            "asked.options[0]"
-          ],
+          "options": ["asked.options[0]"],
           "at": "asked.at",
           "by": "asked.by",
           "attribution": {
@@ -20860,9 +20512,7 @@
         "crashOwner": "crashOwner",
         "topology": {
           "persistence": "systemd",
-          "legacyUnits": [
-            "topology.legacyUnits[0]"
-          ],
+          "legacyUnits": ["topology.legacyUnits[0]"],
           "parentUnit": "active"
         }
       },
@@ -20890,9 +20540,7 @@
       "wire": {
         "userId": "userId",
         "entityId": "entityId",
-        "sessionIds": [
-          "sessionIds[0]"
-        ]
+        "sessionIds": ["sessionIds[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -20905,9 +20553,7 @@
       "wire": {
         "userId": "userId",
         "entityId": "entityId",
-        "sessionIds": [
-          "sessionIds[0]"
-        ]
+        "sessionIds": ["sessionIds[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -20920,9 +20566,7 @@
       "wire": {
         "userId": "userId",
         "entityId": "entityId",
-        "sessionIds": [
-          "sessionIds[0]"
-        ]
+        "sessionIds": ["sessionIds[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
@@ -21003,9 +20647,7 @@
           "descendantCount": 1,
           "provisional": true,
           "floor": "none",
-          "harnesses": [
-            "claude-code"
-          ],
+          "harnesses": ["claude-code"],
           "uncostedSessionCount": 1,
           "sessions": [
             {
@@ -21111,9 +20753,7 @@
         "rollupMessages": 1,
         "sessionCount": 1,
         "floor": "none",
-        "harnesses": [
-          "claude-code"
-        ],
+        "harnesses": ["claude-code"],
         "uncostedSessionCount": 1,
         "sampledAt": "sampledAt"
       },
@@ -21207,9 +20847,7 @@
         "descendantCount": 1,
         "provisional": true,
         "floor": "none",
-        "harnesses": [
-          "claude-code"
-        ],
+        "harnesses": ["claude-code"],
         "uncostedSessionCount": 1,
         "sessions": [
           {
@@ -21637,15 +21275,11 @@
             "label": "tags[0].label"
           }
         ],
-        "toolPaths": [
-          "toolPaths[0]"
-        ],
+        "toolPaths": ["toolPaths[0]"],
         "event": "interrupt",
         "answer": true,
         "systemKind": "recap",
-        "summarizes": [
-          "summarizes[0]"
-        ],
+        "summarizes": ["summarizes[0]"],
         "compaction": {
           "trigger": "compaction.trigger",
           "preTokens": 1,
@@ -21731,15 +21365,11 @@
             "label": "tags[0].label"
           }
         ],
-        "toolPaths": [
-          "toolPaths[0]"
-        ],
+        "toolPaths": ["toolPaths[0]"],
         "event": "interrupt",
         "answer": false,
         "systemKind": "duration",
-        "summarizes": [
-          "summarizes[0]"
-        ],
+        "summarizes": ["summarizes[0]"],
         "compaction": {
           "trigger": "compaction.trigger",
           "preTokens": 2,
@@ -21815,15 +21445,11 @@
             "label": "tags[0].label"
           }
         ],
-        "toolPaths": [
-          "toolPaths[0]"
-        ],
+        "toolPaths": ["toolPaths[0]"],
         "event": "interrupt",
         "answer": true,
         "systemKind": "compaction",
-        "summarizes": [
-          "summarizes[0]"
-        ],
+        "summarizes": ["summarizes[0]"],
         "compaction": {
           "trigger": "compaction.trigger",
           "preTokens": 3,
@@ -21901,15 +21527,11 @@
             "label": "tags[0].label"
           }
         ],
-        "toolPaths": [
-          "toolPaths[0]"
-        ],
+        "toolPaths": ["toolPaths[0]"],
         "event": "interrupt",
         "answer": false,
         "systemKind": "file-changed",
-        "summarizes": [
-          "summarizes[0]"
-        ],
+        "summarizes": ["summarizes[0]"],
         "compaction": {
           "trigger": "compaction.trigger",
           "preTokens": 4,
@@ -21985,15 +21607,11 @@
             "label": "tags[0].label"
           }
         ],
-        "toolPaths": [
-          "toolPaths[0]"
-        ],
+        "toolPaths": ["toolPaths[0]"],
         "event": "interrupt",
         "answer": true,
         "systemKind": "tool-summary",
-        "summarizes": [
-          "summarizes[0]"
-        ],
+        "summarizes": ["summarizes[0]"],
         "compaction": {
           "trigger": "compaction.trigger",
           "preTokens": 5,
@@ -22686,9 +22304,7 @@
         "roles.shipwright.effort": "roles.shipwright.effort",
         "roles.shipwright.harness": "claude-code",
         "sidebar.repoSort": "alphabetical",
-        "sidebar.repoOrder": [
-          "sidebar.repoOrder[0]"
-        ],
+        "sidebar.repoOrder": ["sidebar.repoOrder[0]"],
         "autoContinue.enabled": true,
         "autoContinue.promptDismissed": true,
         "notifications.web": true,
@@ -22980,12 +22596,8 @@
             "summary": "steps[0].summary",
             "evidence": {
               "summary": "steps[0].evidence.summary",
-              "tests": [
-                "steps[0].evidence.tests[0]"
-              ],
-              "artifacts": [
-                "steps[0].evidence.artifacts[0]"
-              ]
+              "tests": ["steps[0].evidence.tests[0]"],
+              "artifacts": ["steps[0].evidence.artifacts[0]"]
             },
             "observation": {
               "cwd": "steps[0].observation.cwd",
@@ -22997,9 +22609,7 @@
               "behind": 1,
               "observedAt": "steps[0].observation.observedAt"
             },
-            "warnings": [
-              "steps[0].warnings[0]"
-            ],
+            "warnings": ["steps[0].warnings[0]"],
             "startedAt": "steps[0].startedAt",
             "completedAt": "steps[0].completedAt"
           }
@@ -23110,12 +22720,8 @@
         "summary": "summary",
         "evidence": {
           "summary": "evidence.summary",
-          "tests": [
-            "evidence.tests[0]"
-          ],
-          "artifacts": [
-            "evidence.artifacts[0]"
-          ]
+          "tests": ["evidence.tests[0]"],
+          "artifacts": ["evidence.artifacts[0]"]
         },
         "observation": {
           "cwd": "observation.cwd",
@@ -23127,9 +22733,7 @@
           "behind": 1,
           "observedAt": "observation.observedAt"
         },
-        "warnings": [
-          "warnings[0]"
-        ],
+        "warnings": ["warnings[0]"],
         "startedAt": "startedAt",
         "completedAt": "completedAt"
       },
@@ -23204,12 +22808,8 @@
       "variant": "full",
       "wire": {
         "summary": "summary",
-        "tests": [
-          "tests[0]"
-        ],
-        "artifacts": [
-          "artifacts[0]"
-        ]
+        "tests": ["tests[0]"],
+        "artifacts": ["artifacts[0]"]
       },
       "parseAdded": {},
       "parseChanged": {},
