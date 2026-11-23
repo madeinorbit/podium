@@ -745,11 +745,11 @@ function makeWorld(options: WorldOptions): {
  * antigravity: confirmed-turn readiness and native transcript correlation.
  * Every shape runs the same ordinary AND adversarial contract properties. */
 const SHIPPED_ARMS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi', 'antigravity'] as const
-/** Cursor and Pi accept only wrapped native message ids in production. The
- * generic corpus sends a person's raw text, so give each its own shipped
+/** Cursor, Pi and Antigravity have no measured raw-text echo tolerance here.
+ * The generic corpus sends raw text, so give each its own shipped
  * profile with a synthetic exact-text tolerance. Preserve their independent
  * instrumentation and timestamp behavior. */
-function textEchoCorpusProfile(harness: 'cursor' | 'pi'): TerminalHarnessProfile {
+function textEchoCorpusProfile(harness: 'cursor' | 'pi' | 'antigravity'): TerminalHarnessProfile {
   return {
     ...shippedProfile(harness),
     acceptCorrelation: {
@@ -767,10 +767,10 @@ const worlds = [
     makeWorld({
       harness,
       profile:
-        harness === 'cursor' || harness === 'pi'
+        harness === 'cursor' || harness === 'pi' || harness === 'antigravity'
           ? textEchoCorpusProfile(harness)
           : shippedProfile(harness),
-      ...(harness === 'cursor' || harness === 'pi'
+      ...(harness === 'cursor' || harness === 'pi' || harness === 'antigravity'
         ? { name: `${harness} (generic-pty, exact-text tolerance)` }
         : {}),
     }),
