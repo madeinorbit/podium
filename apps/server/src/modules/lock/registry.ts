@@ -1,18 +1,19 @@
-import { isPersonCapability } from '@podium/model'
 import {
   type CommandDef,
   type CommandTransport,
   defineCommands,
   type LockCommandName,
 } from '@podium/commands'
+import { isPersonCapability } from '@podium/model'
 import { lockNameProblem } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { type CommandPrincipal, resolvePrincipal } from '../../command-principal'
 import { authorize } from '../../issue-authz'
+import { HostedModeRefusal } from '../../server-mode'
+import type { FrontDoorTransport } from '../front-door'
 import type { IssueCaller } from '../issues/command-ctx'
 import type { IssueService } from '../issues/service'
-import type { FrontDoorTransport } from '../front-door'
 import { runPlainDef } from '../plain-command/entry'
 import type { LockCallerIdentity, LockHolderId, LockService } from './service'
 
@@ -76,6 +77,12 @@ export interface LockCommandDeps {
    * Unknown / operator → null.
    */
   sessionWorkspace?(sessionId: LockHolderId): Promise<string | null>
+  /**
+   * `ServerCapabilities.operatorLocks`: a person without an agent session may
+   * hold leases as the shared `operator`. False on a hosted server, where such
+   * a write is refused. Absent: true, every self-hosted install.
+   */
+  operatorLocks?: boolean
 }
 
 /** Per-call execution context: caller identity + the LockService. */
@@ -102,6 +109,10 @@ export class LockCommandCtx {
     // UNKNOWN_RELAY_SESSION sentinel so it can never impersonate the operator.
     const sessionId: LockHolderId | null =
       cap.actorSessionId ?? (isPersonCapability(cap) ? null : UNKNOWN_RELAY_SESSION)
+    // A hosted workspace has many people and no single operator to hold as.
+    if (sessionId === null && this.deps.operatorLocks === false) {
+      throw new HostedModeRefusal('operator-lock')
+    }
     const issueId = cap.scope.kind === 'subtree' ? cap.scope.rootId : null
     let label = 'operator'
     if (issueId) {
@@ -137,12 +148,10 @@ export const UNKNOWN_RELAY_SESSION = 'unknown-session'
 // is the whole point — it fails at acquire time instead of at reset time.
 // Rules live in @podium/protocol so the CLI, the web read binding and this
 // schema cannot drift apart.
-const lockName = z
-  .string()
-  .superRefine((name, ctx) => {
-    const problem = lockNameProblem(name)
-    if (problem != null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem })
-  })
+const lockName = z.string().superRefine((name, ctx) => {
+  const problem = lockNameProblem(name)
+  if (problem != null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem })
+})
 
 // Shared input fragments. repoPath is REQUIRED: a lock is meaningless without
 // its repo scope; the CLI injects it from the cwd (repos.inferFromPath).

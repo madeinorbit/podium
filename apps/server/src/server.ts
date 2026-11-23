@@ -202,6 +202,7 @@ import { compressHttpResponse } from './response-compression'
 import { resolveServerRole, type ServerRoleConfig } from './roles'
 import { appRouter } from './router'
 import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
+import { type ServerCapabilities, type ServerMode, serverCapabilities } from './server-mode'
 import { createServerReadiness } from './server-readiness'
 import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
 import { registerSetupRoute } from './setup-route'
@@ -273,6 +274,8 @@ export interface ServerHandle {
    * through: built on its own database, or handed in by a hosted root.
    */
   identity: WorkspaceIdentity
+  /** What this server's mode allows, derived once at boot (server-mode.ts). */
+  capabilities: ServerCapabilities
   /**
    * The sign-in carry-over (POD-6751): present on a server that built its own
    * identity core and can write its store. For the hourly sweep and for tests.
@@ -607,6 +610,12 @@ export async function startServer(
   opts: {
     port?: number
     host?: string
+    /**
+     * HOSTED OR SELF-HOSTED (server-mode.ts): the one place a composition root
+     * says which. Absent: self-hosted. Hosted has no machine of its own and
+     * turns off every shortcut that trusts this computer.
+     */
+    mode?: ServerMode
     /** False when this server has no fleet machine of its own. Default: the local install. */
     hostMachine?: false
     role?: Partial<ServerRoleConfig>
@@ -702,13 +711,17 @@ export async function startServer(
   // repos aggregate, `MachinesService` takes it as a dep, and the maintenance realm
   // and in-process daemon link below name this same value. The split-mode daemon
   // reads the same file in its own process; all-in-one is handed it in memory.
-  const hostMachine: HostMachine =
-    opts.hostMachine === false ? null : { id: asMachineId(readOrCreateLocalMachineId()) }
+  // WHAT THIS SERVER MAY DO, derived once from its mode (server-mode.ts). Every
+  // host-only shortcut below asks this object, never the options it came from.
+  const capabilities = serverCapabilities({ mode: opts.mode, hostMachine: opts.hostMachine })
+  const hostMachine: HostMachine = capabilities.hostMachine
+    ? { id: asMachineId(readOrCreateLocalMachineId()) }
+    : null
   const serverPlacement: ServerPlacement = hostMachine
     ? { kind: 'fleet', machineId: hostMachine.id }
     : { kind: 'external' }
   const isHostLocal = (request: Request): boolean =>
-    hostMachine !== null && isHostLocalRequest(request)
+    capabilities.sameMachineTrust && isHostLocalRequest(request)
   const transferBootMode = serverTransferBootMode(stateDir())
   const recoveryOnly = transferBootMode === 'recovery-only'
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
@@ -851,6 +864,7 @@ export async function startServer(
   // clean and broken by different readers (POD-1858, POD-1862).
   const registry: SessionRegistry = await SessionRegistry.create(store, undefined, {
     serverPlacement,
+    capabilities,
     instanceId,
     memberCredentials: credentials,
     clientRelocationCodes: () => serverIdentity().workspace.core.codes,
@@ -972,11 +986,12 @@ export async function startServer(
     import('./modules/instance/service').InstanceLoginPolicy
   > => {
     const loginRequired = await credentialsRequired()
-    const loginRequiredReason = !identity.local
-      ? 'hosted'
-      : loginRequired && (await store.users.hasSeveralActiveMembers())
-        ? 'several-members'
-        : null
+    const loginRequiredReason =
+      capabilities.mode === 'hosted'
+        ? 'hosted'
+        : loginRequired && (await store.users.hasSeveralActiveMembers())
+          ? 'several-members'
+          : null
     return { loginRequired, loginRequiredReason }
   }
   const adoptionStarted = performance.now()
@@ -1172,10 +1187,10 @@ export async function startServer(
           },
         })
   const devPublisher = await wireDevBundlePublisher({
-    sourceRoot: rehearsal || !hostMachine ? undefined : developmentSourceRoot,
+    sourceRoot: rehearsal || !capabilities.devUpdateFeed ? undefined : developmentSourceRoot,
     instanceId,
     artifactOrigin:
-      !rehearsal && hostMachine && developmentSourceRoot
+      !rehearsal && capabilities.devUpdateFeed && developmentSourceRoot
         ? resolveDevArtifactOrigin(config)
         : undefined,
     localArtifactOrigin: () => `http://127.0.0.1:${boundPort}`,
@@ -1829,15 +1844,22 @@ export async function startServer(
    */
   let loopAccounting: LoopAccountingHandle | undefined
   let dropLoopAccounting: (() => void) | undefined
-  app.use('/setup/*', cors())
+  // First-run setup belongs to whoever installed this server. A hosted server
+  // has no such person and no `/setup/*` route at all.
+  if (capabilities.setupRoutes) app.use('/setup/*', cors())
   app.use('/readiness', cors())
-  registerReadinessRoute(app, readiness, membershipCatchUp?.status)
-  registerSetupRoute(app, {
-    readiness,
-    // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
-    // reachability choice, so that server must retain password/reachability setup.
-    localSetupDefault: hostMachine !== null && shouldAdvertiseLocalSetupDefault({ ...opts, host }),
+  registerReadinessRoute(app, readiness, membershipCatchUp?.status, {
+    setupPage: capabilities.setupRoutes,
   })
+  if (capabilities.setupRoutes) {
+    registerSetupRoute(app, {
+      readiness,
+      // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
+      // reachability choice, so that server must retain password/reachability setup.
+      localSetupDefault:
+        hostMachine !== null && shouldAdvertiseLocalSetupDefault({ ...opts, host }),
+    })
+  }
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
@@ -1987,13 +2009,21 @@ export async function startServer(
     worker: () => syncWorker,
     principal: async (request) => syncFeedPrincipal(await principalOfRequest(request)),
   })
+  /**
+   * The host-local first-run bootstrap, which acts as the earliest admin
+   * before anyone can sign in. Never on a server whose mode has no default
+   * principal (hosted).
+   */
+  const isSetupBootstrap = (path: string, request: Request): boolean =>
+    capabilities.earliestAdminDefault &&
+    isHostSetupBootstrap(readiness(), path, request, isHostLocal)
   app.use('/trpc/*', cors())
   app.use('/trpc/*', boundary)
   app.use('/trpc/*', async (c, next) => {
     // A host-local first run must remain possible when PODIUM_PASSWORD already
     // provisioned a credential. Login itself is not a bootstrap surface, so the
     // exact setup allowlist bypasses the ordinary login guard only while blocked.
-    if (isHostSetupBootstrap(readiness(), c.req.path, c.req.raw, isHostLocal)) return await next()
+    if (isSetupBootstrap(c.req.path, c.req.raw)) return await next()
     return await guard(c, next)
   })
   app.use(
@@ -2010,12 +2040,7 @@ export async function startServer(
         // SETUP BOOTSTRAP, before there is anything to authenticate with: the
         // first admin is RESOLVED here too, so the account this acts as is a row
         // that exists rather than an id the build named.
-        const bootstrapAccount = isHostSetupBootstrap(
-          readiness(),
-          hono.req.path,
-          hono.req.raw,
-          isHostLocal,
-        )
+        const bootstrapAccount = isSetupBootstrap(hono.req.path, hono.req.raw)
           ? await store.users.earliestAdmin()
           : undefined
         const principal =
@@ -2748,12 +2773,13 @@ export async function startServer(
       // once instead of on the publisher's 5-minute tick (POD-4640). A socket that
       // cannot be bound costs only that; the server serves regardless.
       const controlSocket =
-        recoveryOnly || rehearsal
+        recoveryOnly || rehearsal || !capabilities.controlSocket
           ? undefined
           : await listenUserSocket(
               serverControlSocketPath({ instanceId }),
               controlSocketHandler({
-                ...(hostMachine && identity.workspace.core.capabilities().adminEndDeviceSignIn
+                ...(capabilities.hostSignIn &&
+                identity.workspace.core.capabilities().adminEndDeviceSignIn
                   ? {
                       hostSignIns: hostSignIns(
                         identity.workspace,
@@ -2826,6 +2852,7 @@ export async function startServer(
         instanceId,
         registry,
         identity: identity.workspace,
+        capabilities,
         ...(signInCarryOver ? { signInCarryOver } : {}),
         recoveryOnly,
         get maintenanceToken() {

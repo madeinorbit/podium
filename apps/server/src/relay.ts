@@ -324,6 +324,7 @@ import { asSystemWrite, syncedWriteProvenance } from './plain-command-scope'
 import { privateResourceAccess } from './private-resources'
 import { MachineRepoDiscovery } from './repo-discovery'
 import { inferRepoFromRoots, RepoRegistry } from './repo-registry'
+import { SELF_HOSTED_CAPABILITIES, type ServerCapabilities } from './server-mode'
 import { soleMemberFor } from './sole-member'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService, stewardNoticeSender } from './steward'
 import { SessionStore } from './store'
@@ -370,6 +371,8 @@ interface SessionRegistryBoot {
 
 interface SessionRegistryOptions {
   serverPlacement?: ServerPlacement
+  /** What this server's mode allows (server-mode.ts). Absent: a self-hosted install. */
+  capabilities?: ServerCapabilities
   /** Boot-resolved deployment identity; every composition root names it explicitly. */
   instanceId: string
   /**
@@ -3473,6 +3476,7 @@ export class SessionRegistry {
       locks,
       issues,
       sessionWorkspace,
+      operatorLocks: (options.capabilities ?? SELF_HOSTED_CAPABILITIES).operatorLocks,
     })
     this.bus.on('session.exited', ({ sessionId }) => locks.releaseForSession(sessionId))
     // THE CONCERTMASTER (POD-7211): the mark on a session, and the curated

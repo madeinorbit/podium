@@ -8,6 +8,8 @@ export function registerReadinessRoute(
   app: Hono,
   readiness: () => ServerReadiness,
   membershipCatchUp?: () => MembershipCatchUpStatus,
+  /** `setupPage: false` (a hosted server) leaves `/setup/mobile` out. Default: served. */
+  opts: { setupPage?: boolean } = {},
 ): void {
   /**
    * 503 WHILE THE DATA PLANE IS BLOCKED (PDM-26), body unchanged.
@@ -27,6 +29,7 @@ export function registerReadinessRoute(
       status.dataPlane === 'available' ? 200 : 503,
     )
   })
+  if (opts.setupPage === false) return
   app.get('/setup/mobile', (c) => {
     const status = readiness()
     if (status.dataPlane === 'available') return c.redirect('/')

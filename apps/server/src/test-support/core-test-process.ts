@@ -10,7 +10,7 @@ process.once('disconnect', () => process.exit(1))
 addSink(createConsoleSink({ minLevel: 'info' }))
 
 // Exercise hosted authentication on loopback using the normal trusted proxy path.
-const server = await startServer({ port: 0, hostMachine: false, trustedProxyHops: 1 })
+const server = await startServer({ port: 0, mode: 'hosted', trustedProxyHops: 1 })
 const store = server.registry.sessionStore
 let dropWakeUps = false
 let dropped = 0
