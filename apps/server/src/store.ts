@@ -347,12 +347,6 @@ export class StoreDatabase {
    * prepared statements.
    */
   readonly queries: GlobalQueries
-  /**
-   * The store's per-table write announcement (POD-3247). One per database: a
-   * repository holding a cached read of a table subscribes here whichever
-   * workspace's store it belongs to. See `store/table-writes.ts`.
-   */
-  readonly tableWrites = new TableWrites()
   /** See {@link StoreLifecycle.legacyIdentityStorage}. */
   get legacyIdentityStorage(): boolean {
     return this.lifecycle.legacyIdentityStorage
@@ -1239,7 +1233,7 @@ export class SessionStore {
     this.repos = new ReposRepository(
       this.queries,
       async (repoId, repoPath) => await this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
-      database.tableWrites,
+      this.tableWrites,
     )
     this.checkouts = new CheckoutsRepository(this.queries)
     this.interactions = new InteractionsRepository(this.queries)
@@ -1463,10 +1457,8 @@ export class SessionStore {
     return this.database.hostMachine
   }
 
-  /** The database's per-table write announcement ({@link StoreDatabase.tableWrites}). */
-  get tableWrites(): TableWrites {
-    return this.database.tableWrites
-  }
+  /** This workspace's table writes invalidate only this workspace's listeners. */
+  readonly tableWrites = new TableWrites()
 
   /** See {@link StoreDatabase.searchIndexEnabled}. */
   get searchIndexEnabled(): boolean {

@@ -81,8 +81,12 @@ import type { IssueService } from './service'
  */
 export interface AgentRelayDispatchDeps {
   readonly approvals: ApprovalService
-  readonly featureStates: () => ReturnType<typeof getFeatureStates>
-  readonly featureEnabled: (id: Parameters<typeof isFeatureEnabled>[0]) => boolean
+  readonly featureStates: () =>
+    | ReturnType<typeof getFeatureStates>
+    | Promise<ReturnType<typeof getFeatureStates>>
+  readonly featureEnabled: (
+    id: Parameters<typeof isFeatureEnabled>[0],
+  ) => boolean | Promise<boolean>
   readonly issueCommands: IssueCommandDispatcher
   readonly issues: IssueService
   readonly listRepos: () =>
@@ -603,7 +607,7 @@ export function makeAgentRelayDispatch(
     const actorSessionId = capability.actorSessionId
     if (result && router === 'issues' && proc === 'prime' && actorSessionId) {
       return await Promise.resolve(result).then(async (issuePrime) => {
-        const workflowPrime = featureEnabled('workflows')
+        const workflowPrime = (await featureEnabled('workflows'))
           ? await workflows.prime({ actor: { kind: 'session', id: actorSessionId }, capability })
           : ''
         // Name-your-own-session (#490): asked for only while the session HAS no

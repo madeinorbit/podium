@@ -40,6 +40,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ControlSend } from './gateway/daemon-ports'
 import type { FeedServing } from './gateway/feed-serving'
 import { SessionRegistry } from './relay'
+import { SELF_HOSTED_WORKSPACE_ID } from './self-hosted-workspace'
 import type { SessionStore } from './store'
 import type { PgDriverOptions } from './store/executor/pg-driver'
 import { probeRoundTrips, probeStatements } from './store/executor/statement-probe'
@@ -306,6 +307,7 @@ async function records(w: World, job: SyncJob): Promise<{ type: string; changes?
 
 const job = (w: World, extra: Partial<SyncJob> = {}): SyncJob =>
   ({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     transferId: 'pin',
     principal: principalOf(w),
     feedId: 'feed',

@@ -3,7 +3,6 @@ import type { WorkspaceId } from '@podium/model'
 import { GrantEdgeVisibilityPolicy, NoDelegationsGranted } from '@podium/sync/bootstrap-worker'
 import { makeFeedVisibility } from '../feed-visibility'
 import { effectPublication } from '../modules/effects/published-input'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { CollectionsRepository } from '../store/collections'
 import type { QueryClient } from '../store/executor/driver'
 import type { RootStoreExecutor } from '../store/executor/executor'
@@ -18,10 +17,9 @@ export interface BootstrapVisibilityOptions {
   /** Test fixtures can preserve their record clock without changing deadlines. */
   readonly now?: () => number
   /**
-   * The workspace whose records and feed are read (POD-7021); the self-hosted
-   * install's when omitted (see `BootstrapJob.workspaceId`).
+   * The explicitly bound workspace whose records and feed are read (POD-7021).
    */
-  readonly workspaceId?: WorkspaceId
+  readonly workspaceId: WorkspaceId
 }
 
 /**
@@ -33,13 +31,13 @@ export interface BootstrapVisibilityOptions {
  */
 export function bootstrapVisibility(
   executor: RootStoreExecutor<QueryClient>,
-  options: BootstrapVisibilityOptions = {},
+  options: BootstrapVisibilityOptions,
 ) {
   const context = (async () => {
     const reads = recordReadsOf(executor.queries, {
       effectExecutors: effectPublication(options.effectKinds ?? []),
       ...(options.now && { now: options.now }),
-      ...(options.workspaceId && { workspaceId: options.workspaceId }),
+      workspaceId: options.workspaceId,
     })
     const { grants, sync } = reads.store
     // The start-up load streams these, and the sharing rules re-send current
@@ -60,7 +58,7 @@ export function bootstrapVisibility(
       // The collection fetch's reads (POD-7085), on the same snapshot and in
       // the job's workspace.
       collections: new CollectionsRepository(
-        legacyWorkspaceQueries(executor.queries, options.workspaceId ?? SELF_HOSTED_WORKSPACE_ID),
+        legacyWorkspaceQueries(executor.queries, options.workspaceId),
       ),
     }
   })()

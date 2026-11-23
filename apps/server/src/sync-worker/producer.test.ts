@@ -14,6 +14,7 @@ import { fixtureWriteScope } from '@podium/sync/testing'
 import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { makeFeedVisibility } from '../feed-visibility'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import type { SessionStore } from '../store'
 import { openTestStore, testStoreLocation } from '../test-support/open-test-store'
 import { testStoreEngine } from '../test-support/pg-test-database'
@@ -25,6 +26,7 @@ import { type BootstrapJob, SyncWorkerError } from './types'
 const T0 = '2026-09-01T00:00:00.000Z'
 const principal = (user: string) => ({ ...DEVICE_GRADE_PRINCIPAL, user: asUserId(user) })
 const job = (user: string): BootstrapJob => ({
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   transferId: user,
   principal: principal(user),
   feedId: 'feed',

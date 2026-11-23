@@ -11,6 +11,7 @@ import { InMemoryReplicaStore, Replica } from '@podium/sync/replica'
 import { sql } from 'drizzle-orm'
 import { Hono } from 'hono'
 import WebSocket from 'ws'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 
 // With PODIUM_TEST_STORE_ENGINE=pg the stores are Postgres clones (POD-6994).
 const { pgBunTestRun } = await import('../test-support/pg-test-host')
@@ -359,7 +360,14 @@ it('retains worker completion metrics after client cancellation releases the bod
     await f.moveHead()
     const abort = new AbortController()
     const transfer = f.worker.bootstrap(
-      { transferId: 'cancel-metrics', principal, feedId: 'f', epoch: 'e', encoding: 'identity' },
+      {
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
+        transferId: 'cancel-metrics',
+        principal,
+        feedId: 'f',
+        epoch: 'e',
+        encoding: 'identity',
+      },
       abort.signal,
     )
     await transfer.meta
@@ -522,6 +530,7 @@ it(
 describe('snapshot delta producer', () => {
   const deltaPrincipal = (user: string) => ({ ...DEVICE_GRADE_PRINCIPAL, user: asUserId(user) })
   const deltaJob = (user: string) => ({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     transferId: user,
     principal: deltaPrincipal(user),
     feedId: 'feed',

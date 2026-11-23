@@ -11,17 +11,13 @@
  *   | model catalog snapshots                | per workspace (one catalog per settings store) |
  *   | operation loaders and memos            | per repository instance                        |
  *   | read-scope slots                       | per owner (repository or source object)        |
- *   | committed-row and table-write listeners| per repository instance (see FINDINGS)         |
+ *   | committed-row and table-write listeners| per workspace store and repository instance         |
  *   | machine enrolment transitions          | keyed by host object                           |
  *   | perf principal digests                 | (workspace, principal)                         |
  *   | update coordinator maps                | install-level, by update id                    |
  *   | kind schemas                           | code; the generations are per workspace        |
  *
  * FINDINGS, reported to the coordinator:
- *   - The table-write announcer (`store/table-writes.ts`) is the DATABASE's, not a repository's:
- *     a write in one workspace announces to every workspace's listeners. It carries no payload
- *     and a listener may only drop what it holds, so nothing crosses; the cost is that another
- *     workspace re-reads. The case below proves the re-read answers its own rows.
  *   - Perf principal digests (`modules/perf/principal.ts`) were keyed by the principal alone, so
  *     the same member id in two workspaces landed in one partition of the process's perf
  *     registry. Settled by POD-7105: the digest hashes (workspace, principal), and every
@@ -69,6 +65,7 @@ import { GreenPrefixCache, isolateShippingTrain } from '../modules/shipping/queu
 import type { SessionStore } from '../store'
 import { kindGenerationBump } from '../sync/kind-tokens'
 import { testStoreEngine } from '../test-support/pg-test-database'
+import { countStatements } from '../test-support/statement-count'
 import { storeSql } from '../test-support/store-sql'
 import * as issueSeed from '../test-support/workspace-seeds/issues'
 import { openWorkspaceStores } from '../test-support/workspace-stores'
@@ -340,17 +337,26 @@ describe('the cache table of design 2.8, each row with the same key in both work
     expect(heard.b).toEqual([])
   })
 
-  it('the table-write announcer is the database’s (a finding): B re-reads, and reads its own rows', async () => {
+  it('the table-write announcer is the workspace’s: A invalidates only A, and B keeps its read', async () => {
     // The same root in both workspaces, a different prefix in each.
     await stores.a.repos.addRepo('/repo', MACHINE, 'https://example.test/project.git', 'AAA')
     await stores.b.repos.addRepo('/repo', MACHINE, 'https://example.test/project.git', 'BBB')
     // Each repository holds its registry read.
     expect(await stores.a.repos.prefixForPath('/repo/src')).toBe('AAA')
     expect(await stores.b.repos.prefixForPath('/repo/src')).toBe('BBB')
-    expect(stores.a.tableWrites).toBe(stores.b.tableWrites)
-    // A write announced in A drops B's held read too; B's re-read is B's own.
+    expect(stores.a.tableWrites).not.toBe(stores.b.tableWrites)
+    const heard: Record<Tag, string[]> = { a: [], b: [] }
+    for (const tag of TAGS) {
+      for (const table of ['repos', 'repo_prefixes']) {
+        stores[tag].tableWrites.subscribe(table, () => heard[tag].push(table))
+      }
+    }
     stores.a.tableWrites.wrote('repos', 'repo_prefixes')
-    expect(await stores.b.repos.prefixForPath('/repo/src')).toBe('BBB')
+    expect(heard).toEqual({ a: ['repos', 'repo_prefixes'], b: [] })
+    // The unrelated workspace never re-reads the registry it already holds.
+    const b = await countStatements(stores.b, () => stores.b.repos.prefixForPath('/repo/src'))
+    expect(b.result).toBe('BBB')
+    expect(b.statements).toBe(0)
     await stores.a.repos.setRepoPrefix(MACHINE, '/repo', 'AAB')
     expect(await stores.a.repos.prefixForPath('/repo/src')).toBe('AAB')
     expect(await stores.b.repos.prefixForPath('/repo/src')).toBe('BBB')

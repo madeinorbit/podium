@@ -238,6 +238,7 @@ export class SyncWorkerClient {
     body: ReadableStream<Uint8Array>
     completed: Promise<BootstrapCompletion>
   } {
+    const workspaceId = jobWorkspaceId(input)
     const job = { ...input, deadlineMs: input.deadlineMs ?? Date.now() + SYNC_JOB_DEADLINE_MS }
     if (this.closed || !this.worker)
       throw new SyncWorkerError(this.closed ? 'shutdown' : 'unavailable')
@@ -271,7 +272,7 @@ export class SyncWorkerClient {
           timer.unref()
           this.jobs.set(job.transferId, {
             principal: job.principal,
-            workspaceId: jobWorkspaceId(job),
+            workspaceId,
             controller,
             resolve,
             reject,

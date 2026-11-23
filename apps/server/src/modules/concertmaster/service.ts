@@ -75,7 +75,7 @@ export const CONCERTMASTER_SYSTEM_SENDER = 'concertmaster'
 export interface ConcertmasterDeps {
   readonly entries: ConcertmasterRepository
   /** The `concertmaster` feature, read on every call. */
-  enabled(): boolean
+  enabled(): boolean | Promise<boolean>
   now(): number
   /** A short random token: what makes an entry id unique within its instant. */
   mint(): string
@@ -196,13 +196,13 @@ export class ConcertmasterService {
   constructor(private readonly deps: ConcertmasterDeps) {}
 
   /** Whether the feature is on: what every surface asks before it offers anything. */
-  enabled(): boolean {
-    return this.deps.enabled()
+  async enabled(): Promise<boolean> {
+    return await this.deps.enabled()
   }
 
   /** Whether the session is a Concertmaster right now (marked, and the feature on). */
   async isConcertmaster(sessionId: SessionId): Promise<boolean> {
-    if (!this.deps.enabled()) return false
+    if (!(await this.deps.enabled())) return false
     return (await this.deps.session(sessionId))?.concertmaster === true
   }
 
@@ -212,7 +212,7 @@ export class ConcertmasterService {
 
   /** The calling session, proven a Concertmaster; refuses in the agent's words otherwise. */
   private async requireConcertmaster(sessionId: SessionId): Promise<void> {
-    if (!this.deps.enabled()) throw new ConcertmasterRefusal('unauthorized', NOT_ENABLED)
+    if (!(await this.deps.enabled())) throw new ConcertmasterRefusal('unauthorized', NOT_ENABLED)
     const session = await this.deps.session(sessionId)
     if (session === undefined || session.deleted) {
       throw new ConcertmasterRefusal('target-not-found', 'this session no longer exists')
@@ -405,7 +405,7 @@ export class ConcertmasterService {
     sessionId: SessionId,
     on: boolean,
   ): Promise<{ concertmaster: boolean; changed: boolean }> {
-    if (!this.deps.enabled()) throw new ConcertmasterRefusal('unauthorized', NOT_ENABLED)
+    if (!(await this.deps.enabled())) throw new ConcertmasterRefusal('unauthorized', NOT_ENABLED)
     const session = await this.deps.session(sessionId)
     if (session === undefined || session.deleted) {
       throw new ConcertmasterRefusal('target-not-found', 'unknown session')
@@ -451,7 +451,7 @@ export class ConcertmasterService {
       text?: string
     },
   ): Promise<{ settled: boolean; status: string }> {
-    if (!this.deps.enabled()) throw new ConcertmasterRefusal('unauthorized', NOT_ENABLED)
+    if (!(await this.deps.enabled())) throw new ConcertmasterRefusal('unauthorized', NOT_ENABLED)
     const ask = await this.deps.entries.entry(input.entryId)
     // One answer for a missing ask and another session's: no existence oracle.
     if (ask === undefined || ask.kind !== 'ask' || ask.sessionId !== input.sessionId) {
@@ -516,7 +516,7 @@ export class ConcertmasterService {
    * between) is one message absent from the curated chat; the agent has it.
    */
   async recordDelivered(sessionId: SessionId, messageId: string): Promise<boolean> {
-    if (!this.deps.enabled()) return false
+    if (!(await this.deps.enabled())) return false
     if (isConcertmasterResponseMessageId(messageId)) return false
     const session = await this.deps.session(sessionId)
     if (session === undefined || !session.concertmaster) return false

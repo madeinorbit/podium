@@ -9,6 +9,8 @@
  * a type, held by `write-routes.typecheck.ts`.
  */
 
+import { readdirSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import * as commands from '@podium/commands'
 import {
   type AnyCommandContract,
@@ -47,6 +49,16 @@ function served(): Served[] {
 }
 
 const mutations = () => served().filter((p) => p.type === 'mutation')
+
+it('only the generator imports the full builder; its boundary needs no process-wide claim', () => {
+  const root = fileURLToPath(new URL('../../', import.meta.url))
+  const consumers = readdirSync(root, { recursive: true })
+    .map(String)
+    .filter((file) => file.endsWith('.ts') && !/\.(?:test|typecheck|suites)\./.test(file))
+    .filter((file) => file !== 'trpc.ts')
+    .filter((file) => /\bwriteProcedureBuilder\b/.test(readFileSync(`${root}/${file}`, 'utf8')))
+  expect(consumers).toEqual(['modules/write-routes/builder.ts'])
+})
 
 describe('the served write routes', () => {
   it('every mutation carries a registration, and it exists', async () => {

@@ -109,7 +109,7 @@ async function* produceRecords(
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
   onMetrics?: (metrics: BootstrapMetrics) => void,
-  options: BootstrapVisibilityOptions = {},
+  options: Omit<BootstrapVisibilityOptions, 'workspaceId'> = {},
 ): AsyncGenerator<Uint8Array> {
   const started = performance.now()
   const attribution = perfPrincipal(jobWorkspaceId(job), job.principal)
@@ -368,7 +368,7 @@ export async function* produceBootstrap(
   signal: AbortSignal,
   onMeta: (meta: SyncMetaSummary) => void,
   onMetrics?: (metrics: BootstrapMetrics) => void,
-  options: BootstrapVisibilityOptions = {},
+  options: Omit<BootstrapVisibilityOptions, 'workspaceId'> = {},
 ): AsyncGenerator<Uint8Array> {
   const lifetime = new AbortController()
   const abort = () => lifetime.abort(signal.reason)

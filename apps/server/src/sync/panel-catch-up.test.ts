@@ -102,6 +102,7 @@ for (const kind of kinds) {
           for await (const bytes of produceBootstrap(
             await testStoreLocation(dbPath),
             {
+              workspaceId: store.workspaceId,
               mode: 'delta',
               transferId: 'catch-up',
               principal,

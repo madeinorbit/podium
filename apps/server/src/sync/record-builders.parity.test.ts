@@ -373,6 +373,7 @@ describe('record builders (POD-6763)', () => {
       // SQLite connection, or a Postgres REPEATABLE READ snapshot.
       const session = await openWorkerReadSession(store.database.location)
       const reads = recordReadsOf(session.executor.queries, {
+        workspaceId: store.workspaceId,
         effectExecutors: reg.modules.effects!.executors,
       })
       let onWorkerConnection: KindParity[]

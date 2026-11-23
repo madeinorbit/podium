@@ -17,8 +17,8 @@
  *    so a person keeps the newest {@link READ_EVENT_NOTICES_KEPT} of them once
  *    read; reading resolves the older ones.
  *
- * `emitNotice` and `resolveNotices` are module functions (the epic's shared
- * names) over the service the server binds at boot ({@link bindNoticeService}).
+ * Each caller receives its workspace's NoticeService explicitly. Constructing
+ * another workspace never changes where an existing caller writes or pushes.
  */
 
 import { randomUUID } from 'node:crypto'
@@ -170,29 +170,4 @@ export class NoticeService {
     }
     afterCommit(async () => await outsideWriteProvenance(step), 'notices.push')
   }
-}
-
-let bound: NoticeService | undefined
-
-/** Bind the service the module functions use; returns the unbind. */
-export function bindNoticeService(service: NoticeService): () => void {
-  bound = service
-  return () => {
-    if (bound === service) bound = undefined
-  }
-}
-
-function boundService(): NoticeService {
-  if (bound === undefined) throw new Error('no notice service is bound')
-  return bound
-}
-
-/** Raise a notice for one person (spec §13): one open notice per key. */
-export async function emitNotice(i: EmitNoticeInput): Promise<void> {
-  await boundService().emitNotice(i)
-}
-
-/** Close every open notice of a key, whoever it is for. */
-export async function resolveNotices(dedupeKey: string): Promise<void> {
-  await boundService().resolveNotices(dedupeKey)
 }

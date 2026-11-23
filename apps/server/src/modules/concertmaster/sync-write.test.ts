@@ -6,8 +6,8 @@
  */
 
 import { asThreadId, INSTANCE_PREFERENCES_ROW_ID, type SessionId } from '@podium/model'
-import { fixtureWriteScope } from '@podium/sync/testing'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { fixtureWriteScope } from '@podium/sync/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { disposeOracles, makeOracle, type Oracle } from '../sessions/oracle-support'
 import { FAMILY_COMMAND_NAMES } from '../sync-write/family-commands'
@@ -68,7 +68,7 @@ async function enable(o: Oracle): Promise<void> {
       ),
     ),
   )
-  await vi.waitFor(() => expect(o.reg.modules.concertmaster?.enabled()).toBe(true))
+  expect(await o.reg.modules.concertmaster?.enabled()).toBe(true)
 }
 
 const mark = async (o: Oracle, sessionId: SessionId, on = true) =>

@@ -854,6 +854,9 @@ async function produce(): Promise<void> {
   const { produceBootstrap } = await import(
     join(checkout, 'apps/server/src/sync-worker/producer.ts')
   )
+  const { SELF_HOSTED_WORKSPACE_ID } = await import(
+    join(checkout, 'apps/server/src/self-hosted-workspace.ts')
+  )
   const encoding = (args.encoding ?? 'zstd') as 'zstd' | 'identity' | 'gzip'
   const runs = Number(args.runs ?? 1)
   const saved: Uint8Array[] = []
@@ -868,6 +871,7 @@ async function produce(): Promise<void> {
       {
         transferId: randomUUID(),
         principal: userPrincipal(args.owner!),
+        workspaceId: SELF_HOSTED_WORKSPACE_ID,
         feedId: 'feed_bench',
         epoch: 'epoch_bench',
         encoding,
@@ -943,7 +947,10 @@ async function collections(): Promise<void> {
   const db = openDatabase(resolve(args.db!), { readOnly: true })
   db.exec('PRAGMA query_only = ON; BEGIN')
   const t0 = performance.now()
-  const bundle = bootstrapVisibility(db, {})
+  const { SELF_HOSTED_WORKSPACE_ID } = await import(
+    join(checkout, 'apps/server/src/self-hosted-workspace.ts')
+  )
+  const bundle = bootstrapVisibility(db, { workspaceId: SELF_HOSTED_WORKSPACE_ID })
   const context = await bundle.context
   await context.sync.readFeedState()
   out('capture', { ms: Math.round(performance.now() - t0) })

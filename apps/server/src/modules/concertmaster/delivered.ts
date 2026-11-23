@@ -11,8 +11,7 @@
  * each committed write changed; this watches for a confirmed message to a
  * session and hands it to the service, which decides whether that session is a
  * Concertmaster. Nothing here runs inside a delivery's transaction, so nothing
- * here can fail or slow a delivery. With the feature off it does nothing, and
- * reads nothing.
+ * here can fail or slow a delivery. The feature is read from the workspace store for each record attempt.
  *
  * AT THE ROOT SCOPE. The announcement runs inside the commit's post-commit
  * drain, and that drain does not wait for this record. Started there, the
@@ -30,7 +29,7 @@ import type { MessageQueueFact } from '../../store/messages'
 const log = createLogger('server:concertmaster')
 
 export interface DeliveredMessageWatchDeps {
-  enabled(): boolean
+  enabled(): boolean | Promise<boolean>
   subscribe(listener: (change: CommittedRowChange<MessageQueueFact>) => void): () => void
   /** Record one confirmed message; runs as a server write of its own. */
   record(sessionId: SessionId, messageId: string): Promise<unknown>
@@ -45,7 +44,7 @@ export class DeliveredMessageWatch {
   }
 
   private onCommitted(change: CommittedRowChange<MessageQueueFact>): void {
-    if (change.operation !== 'upsert' || !this.deps.enabled()) return
+    if (change.operation !== 'upsert') return
     for (const row of change.rows) {
       if (row.toKind !== 'session' || row.toId === null || row.deliveryStatus !== 'confirmed') {
         continue
@@ -60,6 +59,7 @@ export class DeliveredMessageWatch {
 
   private async record(sessionId: SessionId, messageId: string): Promise<void> {
     try {
+      if (!(await this.deps.enabled())) return
       await this.deps.record(sessionId, messageId)
     } catch (err) {
       // One message missing from a curated chat; the agent has it either way.

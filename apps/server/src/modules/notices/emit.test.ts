@@ -15,13 +15,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionStore } from '../../store'
 import { openTestStore } from '../../test-support/open-test-store'
 import {
-  bindNoticeService,
   type EmitNoticeInput,
-  emitNotice,
   NOTICE_BODY_MAX,
   NoticeService,
   READ_EVENT_NOTICES_KEPT,
-  resolveNotices,
 } from './emit'
 
 const ALICE: UserId = asUserId('mem_notice_alice')
@@ -31,7 +28,6 @@ let store: SessionStore
 let service: NoticeService
 let pushed: { user: UserId; message: Record<string, unknown> }[]
 let prefs: Map<UserId, NoticePushPreferences>
-let unbind: () => void
 let clock = 0
 
 const defaults = (): NoticePushPreferences => NoticePushSchema.parse({})
@@ -60,18 +56,16 @@ beforeEach(async () => {
     },
     now: () => new Date(Date.UTC(2026, 10, 13, 0, 0, clock++)).toISOString(),
   })
-  unbind = bindNoticeService(service)
 })
 
 afterEach(async () => {
-  unbind()
   await store.close()
 })
 
 describe('emitNotice and resolveNotices (acceptance 2)', () => {
   it('the same dedupeKey twice while unresolved gives one notice', async () => {
-    await emitNotice(mention())
-    await emitNotice(mention({ title: 'a second wording' }))
+    await service.emitNotice(mention())
+    await service.emitNotice(mention({ title: 'a second wording' }))
 
     const open = await service.list(ALICE, {})
     expect(open).toHaveLength(1)
@@ -88,28 +82,28 @@ describe('emitNotice and resolveNotices (acceptance 2)', () => {
       body: 'Renew it or pick another.',
       dedupeKey: key,
     })
-    await emitNotice(attention)
+    await service.emitNotice(attention)
     expect(await service.unreadCount(ALICE)).toBe(1)
 
-    await resolveNotices(key)
+    await service.resolveNotices(key)
     expect(await service.unreadCount(ALICE)).toBe(0)
     expect(await service.list(ALICE, {})).toEqual([])
 
-    await emitNotice(attention)
+    await service.emitNotice(attention)
     const open = await service.list(ALICE, {})
     expect(open).toHaveLength(1)
     expect(await service.unreadCount(ALICE)).toBe(1)
   })
 
   it('stores a long body cut to the limit', async () => {
-    await emitNotice(mention({ body: 'x'.repeat(NOTICE_BODY_MAX + 50) }))
+    await service.emitNotice(mention({ body: 'x'.repeat(NOTICE_BODY_MAX + 50) }))
     expect((await service.list(ALICE, {}))[0]?.body).toHaveLength(NOTICE_BODY_MAX)
   })
 })
 
 describe('reading and the cap', () => {
   it('marks one notice read only for its recipient', async () => {
-    await emitNotice(mention())
+    await service.emitNotice(mention())
     const [notice] = await service.list(ALICE, {})
     expect(await service.markRead(BOB, notice?.noticeId ?? '')).toBe(false)
     expect(await service.unreadCount(ALICE)).toBe(1)
@@ -119,9 +113,9 @@ describe('reading and the cap', () => {
   })
 
   it('mark all read clears the count and leaves another person’s alone', async () => {
-    await emitNotice(mention())
-    await emitNotice(mention({ dedupeKey: 'mention:cmt_2:alice' }))
-    await emitNotice(mention({ recipientUserId: BOB, dedupeKey: 'mention:cmt_1:bob' }))
+    await service.emitNotice(mention())
+    await service.emitNotice(mention({ dedupeKey: 'mention:cmt_2:alice' }))
+    await service.emitNotice(mention({ recipientUserId: BOB, dedupeKey: 'mention:cmt_1:bob' }))
 
     expect(await service.markAllRead(ALICE)).toBe(2)
     expect(await service.unreadCount(ALICE)).toBe(0)
@@ -130,7 +124,7 @@ describe('reading and the cap', () => {
 
   it('keeps at most the cap of read event notices', async () => {
     for (let i = 0; i < READ_EVENT_NOTICES_KEPT + 2; i++) {
-      await emitNotice(mention({ dedupeKey: `mention:cmt_${i}:alice` }))
+      await service.emitNotice(mention({ dedupeKey: `mention:cmt_${i}:alice` }))
     }
     await service.markAllRead(ALICE)
     expect(await service.list(ALICE, { limit: 200 })).toHaveLength(READ_EVENT_NOTICES_KEPT)
@@ -139,8 +133,8 @@ describe('reading and the cap', () => {
 
 describe('push by kind (acceptance 8)', () => {
   it('pushes a mention and a credential needing attention by default, and not a share', async () => {
-    await emitNotice(mention())
-    await emitNotice(
+    await service.emitNotice(mention())
+    await service.emitNotice(
       mention({
         kind: 'credential-attention',
         subject: { kind: 'credential', id: 'cred_1' },
@@ -148,7 +142,7 @@ describe('push by kind (acceptance 8)', () => {
         title: 'Work key needs attention',
       }),
     )
-    await emitNotice(
+    await service.emitNotice(
       mention({
         kind: 'credential-shared',
         subject: { kind: 'credential', id: 'cred_2' },
@@ -164,8 +158,8 @@ describe('push by kind (acceptance 8)', () => {
 
   it('pushes nothing for a kind the person switched off, and a share once switched on', async () => {
     prefs.set(ALICE, { ...defaults(), mention: false, credentialShared: true })
-    await emitNotice(mention())
-    await emitNotice(
+    await service.emitNotice(mention())
+    await service.emitNotice(
       mention({
         kind: 'credential-shared',
         subject: { kind: 'credential', id: 'cred_2' },
@@ -177,8 +171,8 @@ describe('push by kind (acceptance 8)', () => {
   })
 
   it('pushes to the recipient only, once, with the notice’s title and body and nothing else', async () => {
-    await emitNotice(mention())
-    await emitNotice(mention())
+    await service.emitNotice(mention())
+    await service.emitNotice(mention())
     expect(pushed).toEqual([
       {
         user: ALICE,
@@ -200,13 +194,5 @@ describe('push by kind (acceptance 8)', () => {
     })
     await expect(failing.emitNotice(mention())).resolves.toBeUndefined()
     expect(await failing.unreadCount(ALICE)).toBe(1)
-  })
-})
-
-describe('the binding', () => {
-  it('emitNotice without a bound service is refused, never dropped silently', async () => {
-    unbind()
-    await expect(emitNotice(mention())).rejects.toThrow(/no notice service/)
-    unbind = bindNoticeService(service)
   })
 })

@@ -224,12 +224,7 @@ import { DELIVERY_RETRY_BACKSTOP_MS } from './modules/messages/scheduler'
 import { MessageDeliveryService } from './modules/messages/service'
 import { makeSpawnOnWake } from './modules/messages/spawn'
 import type { MessageWriter } from './modules/messages/writer'
-import {
-  bindNoticeService,
-  emitNotice,
-  NoticeService,
-  resolveNotices,
-} from './modules/notices/emit'
+import { NoticeService } from './modules/notices/emit'
 import { CommentMentions } from './modules/notices/mentions'
 import { makeNoticeFeedCapture } from './modules/notices/records'
 import {
@@ -358,14 +353,14 @@ export type { MemoryBreakdown }
  * The durable state the composition itself needs, read by
  * {@link SessionRegistry.create} before the graph exists (POD-3256).
  *
- * It holds only what cannot wait for {@link SessionRegistry.hydrate}: the
- * feature gate closes over the settings VALUE, so the value has to be in hand
- * when the closure is made.
+ * It holds only what cannot wait for {@link SessionRegistry.hydrate}. The
+ * synchronous daemon-link policy remains here until POD-7484 moves its send
+ * seam onto request-time reads; feature policy already reads the store.
  */
 interface SessionRegistryBoot {
   readonly legacyReceiptCutoff: number
   readonly legacyReceiptOwner: UserId | null
-  readonly settings: Awaited<ReturnType<SessionStore['settings']['getSettings']>>
+  readonly trustedNetworks: readonly string[]
   readonly updateRecovery: Awaited<ReturnType<SessionStore['updateRecovery']['read']>>
 }
 
@@ -885,7 +880,7 @@ export class SessionRegistry {
    * BUILD THE SERVER — the entry point, because composing the graph is not the
    * whole of booting it (POD-3256).
    *
-   * The settings snapshot must exist before the graph is built. Recovery uses
+   * The daemon-link boot policy must exist before the graph is built. Recovery uses
    * the constructed services, so {@link hydrate} runs afterward. The store
    * establishes machine identity before either set of readers (POD-318).
    */
@@ -898,7 +893,7 @@ export class SessionRegistry {
     // The registry's Ledger reads the store's change capture (POD-6920).
     await resolvedStore.attachChangeLog()
     const registry = new SessionRegistry(resolvedStore, notificationPushers, options, {
-      settings: await resolvedStore.settings.getSettings(),
+      trustedNetworks: (await resolvedStore.settings.getSettings()).daemonLink.trustedNetworks,
       updateRecovery: await resolvedStore.updateRecovery.read(),
       legacyReceiptOwner: await resolvedStore.settings.retiredSoloMemberId(),
       legacyReceiptCutoff: await resolvedStore.settings.legacyMutationReceiptCutoff(
@@ -933,31 +928,15 @@ export class SessionRegistry {
     this.memberCredentials = options.memberCredentials
     this.now = options.now ?? Date.now
     const portableStateFence = options.portableStateFence ?? new PortableStateFence()
-    // Resolve feature state once, then keep it atomic with settings changes. This also
-    // avoids reading persistence during instruction preparation after async recovery.
-    // The read itself is the factory's (POD-3256): the gate below closes over the
-    // value, and closing over a promise is not the same object.
-    let currentSettings = boot.settings
-    // THE PROCESS'S SNAPSHOT IS THE INSTANCE TIER (POD-6291). A member's
-    // change carries that member's resolved view, personal leaves included.
-    // Its instance leaves are the instance's, so it is taken at once (the
-    // feature gate reads only those), then replaced by the instance blob so
-    // no member's personal values stay in a process-wide value. A generation
-    // keeps a late blob read from overwriting a newer change.
-    let settingsGeneration = 0
-    this.bus.on('settings.changed', ({ next, member }) => {
-      const generation = ++settingsGeneration
-      currentSettings = next
-      if (member === undefined) return
-      void this.store.settings
-        .getSettings()
-        .then((instance) => {
-          if (generation === settingsGeneration) currentSettings = instance
-        })
-        .catch(() => undefined)
+    // POD-7484 moves this last synchronous settings consumer onto request-time
+    // reads with the credential send seam. Keep only its workspace's networks;
+    // feature policy below reads the store on every call.
+    let trustedNetworks = boot.trustedNetworks
+    this.bus.on('settings.changed', ({ next }) => {
+      trustedNetworks = next.daemonLink.trustedNetworks
     })
-    const featureEnabled = (id: Parameters<typeof isFeatureEnabled>[0]) =>
-      isFeatureEnabled(id, currentSettings)
+    const featureEnabled = async (id: Parameters<typeof isFeatureEnabled>[0]) =>
+      isFeatureEnabled(id, await this.store.settings.getSettings())
     // Delegation is resolved from durable session ownership on every apply. This
     // lookup is available before feature construction and never snapshots rights.
     const principalForCapability = capabilityPrincipalResolver(this.store.sessions)
@@ -1046,7 +1025,7 @@ export class SessionRegistry {
     // Judged from the facts recorded at accept and the trusted networks the
     // instance holds NOW, so an admin's change applies without a reconnect.
     this.daemonLinks = new DaemonLinks({
-      trustedNetworks: () => currentSettings.daemonLink.trustedNetworks,
+      trustedNetworks: () => trustedNetworks,
       kindChanged: (machineId) => machineConditionChanged?.(machineId),
     })
     // Registered after the snapshot's own listener above, so it reads the new value.
@@ -1106,16 +1085,16 @@ export class SessionRegistry {
         )
       },
       onInventoryRecorded: async () => await seedSuperagentDefaults?.(),
-      // Managed-install notices (managed installs §8) go through the inbox the
-      // server binds at boot (POD-6881); a notice is the server's own write.
+      // Managed-install notices (managed installs §8) go through this workspace's
+      // inbox service (POD-6881); a notice is the server's own write.
       installNotices: {
         machine: async (machineId) => {
           const record = await this.store.machines.getMachine(machineId)
           if (!record) return undefined
           return { name: record.name, custodian: await this.store.machines.custodian(machineId) }
         },
-        emit: async (notice) => await asSystemWrite(async () => await emitNotice(notice)),
-        resolve: async (key) => await asSystemWrite(async () => await resolveNotices(key)),
+        emit: async (notice) => await asSystemWrite(async () => await notices.emitNotice(notice)),
+        resolve: async (key) => await asSystemWrite(async () => await notices.resolveNotices(key)),
         now: () => this.now(),
       },
     })
@@ -2672,7 +2651,6 @@ export class SessionRegistry {
       push: async (user, message) => await notify.notifyExternal(message, user),
       now: () => new Date(this.now()).toISOString(),
     })
-    bindNoticeService(notices)
     // releases its held locks and leaves every wait queue (the queue advances
     // with a grant-notification mail). Best-effort — the lazy expiry sweep is
     // the backstop if this listener ever misses a death.
@@ -3789,7 +3767,7 @@ export class SessionRegistry {
     sessionInstructions.register({
       source: 'podium:workflow',
       prepare: async ({ sessionId, cwd, issueId, workflowRevisionId, existingOnly }) => {
-        if (!featureEnabled('workflows')) return null
+        if (!(await featureEnabled('workflows'))) return null
         const prepared = existingOnly
           ? await workflows.prepareExistingSession({
               sessionId,
@@ -5428,7 +5406,7 @@ export class SessionRegistry {
       // (RELAY_ALLOWED lists the exposed procedures).
       dispatch: makeAgentRelayDispatch({
         approvals,
-        featureStates: () => getFeatureStates(currentSettings),
+        featureStates: async () => getFeatureStates(await this.store.settings.getSettings()),
         featureEnabled,
         issueCommands,
         issues,

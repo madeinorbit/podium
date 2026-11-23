@@ -336,6 +336,7 @@ let viewers: { name: string; user: UserId }[]
 const principalOf = (user: UserId): Principal => ({ ...DEVICE_GRADE_PRINCIPAL, user }) as Principal
 
 const base = (user: UserId) => ({
+  workspaceId: store.workspaceId,
   transferId: randomUUID(),
   principal: principalOf(user),
   feedId: 'feed',
@@ -388,7 +389,10 @@ const worlds = new Map<UserId, Map<string, Map<string, Record<string, unknown>>>
 async function worldOf(user: UserId) {
   // The worker's own read session on the store's engine (POD-7118): one snapshot.
   const session = await openWorkerReadSession(location)
-  const bundle = bootstrapVisibility(session.executor, { now: () => NOW })
+  const bundle = bootstrapVisibility(session.executor, {
+    now: () => NOW,
+    workspaceId: store.workspaceId,
+  })
   const out = new Map<string, Map<string, Record<string, unknown>>>()
   try {
     const { policy: rights, records } = await bundle.context

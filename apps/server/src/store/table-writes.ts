@@ -1,5 +1,7 @@
 /**
- * The store's per-table write notification (POD-3247).
+ * One workspace store's per-table write notification (POD-3247, POD-7289).
+ * Each SessionStore owns its announcer: another workspace's writes never
+ * invalidate the reads held by its listeners.
  *
  * A repository that holds a read across calls has to know when that read stops
  * being true. Inside the repository that is a call it can be made to owe — a

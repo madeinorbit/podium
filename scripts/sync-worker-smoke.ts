@@ -1,9 +1,11 @@
+import { SELF_HOSTED_WORKSPACE_ID } from '../apps/server/src/self-hosted-workspace'
 import { SyncWorkerClient } from '../apps/server/src/sync-worker/worker-client'
 import { DEVICE_GRADE_PRINCIPAL } from '../packages/sync/src/bootstrap-worker'
 
 const client = new SyncWorkerClient({ dbPath: process.argv[2]! })
 try {
   const { meta, body } = client.bootstrap({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     transferId: 'compiled',
     principal: DEVICE_GRADE_PRINCIPAL,
     feedId: 'feed',
@@ -19,6 +21,7 @@ try {
   )
     throw new Error('Invalid compiled bootstrap')
   const delta = client.delta({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     mode: 'delta',
     from: 0,
     transferId: 'compiled-delta',

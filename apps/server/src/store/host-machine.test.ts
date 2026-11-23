@@ -37,6 +37,7 @@ it('reports the install capability identically through server and sync-worker re
     'legacy-daemon',
   )
   const worker = recordReadsOf(store.database.queries, {
+    workspaceId: store.workspaceId,
     effectExecutors: { get: () => undefined },
   })
   for (const available of [true, false, true]) {

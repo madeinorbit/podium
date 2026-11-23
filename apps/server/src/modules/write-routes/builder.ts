@@ -2,8 +2,9 @@
  * THE WRITE-ROUTE BUILDER (ADR 12 D9, POD-6593).
  *
  * Every tRPC mutation the server serves is built by this directory, and only
- * here: this module claims the write procedure builder from `trpc.ts` when it
- * loads, and the claim can be made once. Modules get a QUERY-only builder
+ * here: this module receives the write procedure builder from `trpc.ts`.
+ * The import guard holds that boundary without a mutable process-wide claim.
+ * Modules get a QUERY-only builder
  * (`t.procedure` has no `.mutation`, by type). A module declares registrations
  * (the sync write registry's, `sync-write/registry.ts`, or the plain registry's,
  * `plain-command/registry.ts`) and asks `sync.ts` or `plain.ts` for their routes.
@@ -17,13 +18,13 @@ import type { TRPCMutationProcedure } from '@trpc/server'
 import type { z } from 'zod'
 import {
   type Context,
-  claimWriteProcedureBuilder,
   type RouteMeta,
   type WriteProcedureBuilder,
   type WriteRouteMeta,
+  writeProcedureBuilder,
 } from '../../trpc'
 
-const writeProcedure: WriteProcedureBuilder = claimWriteProcedureBuilder()
+const writeProcedure: WriteProcedureBuilder = writeProcedureBuilder()
 
 /** A route's input parser: a schema, or a pass-through for an entry that parses. */
 export type RouteParser = z.ZodTypeAny | ((raw: unknown) => unknown)

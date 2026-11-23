@@ -8,6 +8,7 @@ import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { DEVICE_GRADE_PRINCIPAL } from '@podium/sync/bootstrap-worker'
 import postgres from 'postgres'
 import { applyBaselineSchema } from '../migrations'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { clonePgTestDatabase, testStoreEngine } from '../test-support/pg-test-database'
 import { pgBunTestRun } from '../test-support/pg-test-host'
 import type { BootstrapJob } from './types'
@@ -20,6 +21,7 @@ afterAll(async () => await pgTeardown())
 const ENGINE = testStoreEngine()
 
 const job = (id: string, deadlineMs?: number): BootstrapJob => ({
+  workspaceId: SELF_HOSTED_WORKSPACE_ID,
   transferId: id,
   principal: DEVICE_GRADE_PRINCIPAL,
   feedId: 'feed',

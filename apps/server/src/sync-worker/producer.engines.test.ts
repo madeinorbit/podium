@@ -237,6 +237,7 @@ const layoutRows = (names: readonly string[]) =>
 
 const job = (extra: Partial<SyncJob> = {}): SyncJob =>
   ({
+    workspaceId: SELF_HOSTED_WORKSPACE_ID,
     transferId: 'job',
     principal: { ...DEVICE_GRADE_PRINCIPAL, user: ALICE },
     feedId: 'feed',

@@ -221,6 +221,7 @@ type Line = { type: string; changes?: { entity: string; entityId: string; part?:
 async function answer(w: World, instances: CollectionInstance[]): Promise<Line[]> {
   const job = {
     mode: 'collections',
+    workspaceId: w.store.workspaceId,
     transferId: 'history',
     principal: w.owner,
     feedId: 'feed',
@@ -376,6 +377,7 @@ describe('the policy set loads without reading history (acceptance 5)', () => {
       const w = await world(history)
       const job = {
         mode: 'collections',
+        workspaceId: w.store.workspaceId,
         transferId: 'sidebar-at',
         principal: w.owner,
         feedId: 'feed',

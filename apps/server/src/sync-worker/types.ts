@@ -7,7 +7,6 @@ import type {
   SyncBootstrapRequiredReason,
   SyncMeta,
 } from '@podium/protocol'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 
 export const SYNC_WORKER_MAX_JOBS = 2
 export const SYNC_WORKER_QUEUE_DEPTH = 8
@@ -29,11 +28,10 @@ export interface BootstrapJob {
   deadlineMs?: number
   /**
    * The workspace whose feed and records the job reads (POD-6959 design 2.7):
-   * every read the worker runs for it is that workspace's. Omitted means the
-   * self-hosted install's one workspace, until hosted routing (POD-6960) names
-   * the workspace of each request.
+   * every read the worker runs for it is that workspace's. The request binding
+   * must name it explicitly, including for self-hosted requests.
    */
-  workspaceId?: WorkspaceId
+  workspaceId: WorkspaceId
 }
 /** A fetch of named collection instances (`POST /sync/collections`, POD-7085). */
 export interface CollectionsJob extends Omit<BootstrapJob, 'mode' | 'view'> {
@@ -47,9 +45,11 @@ export interface DeltaJob extends Omit<BootstrapJob, 'mode' | 'view'> {
   pageRows?: number
 }
 export type SyncJob = BootstrapJob | DeltaJob | CollectionsJob
-/** The workspace a job reads: its own, or the self-hosted install's when omitted. */
-export const jobWorkspaceId = (job: SyncJob): WorkspaceId =>
-  job.workspaceId ?? SELF_HOSTED_WORKSPACE_ID
+/** Missing scope is refused before any reads, including at the worker message boundary. */
+export function jobWorkspaceId(job: SyncJob): WorkspaceId {
+  if (!job.workspaceId) throw new Error('sync worker requires an explicit workspace')
+  return job.workspaceId
+}
 export type SyncMetaSummary = SyncMeta
 export type SyncFailureReason =
   | SyncBootstrapRequiredReason

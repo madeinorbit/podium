@@ -18,7 +18,6 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync/adapters/sqlite/sync-repository'
 import { syncServerTables } from '../migrations/sync-server-tables'
 import type { EffectExecutorRegistry } from '../modules/effects/registry'
-import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { AgentProfilesRepository } from '../store/agent-profiles'
 import { AutomationsRepository } from '../store/automations'
 import { CheckoutsRepository } from '../store/checkouts'
@@ -51,17 +50,18 @@ const unsupported = (): never => {
   throw new Error('record builders cannot use writer state')
 }
 
-/** What the reads are for: the workspace (self-hosted when omitted), effects and the clock. */
+/** What the reads are for: the explicitly bound workspace, effects and the clock. */
 export interface RecordReadsOptions {
   readonly effectExecutors: Pick<EffectExecutorRegistry, 'get'>
   readonly now?: () => number
-  readonly workspaceId?: WorkspaceId
+  readonly workspaceId: WorkspaceId
 }
 
 /** The reads of one workspace over an executor's queries (either engine's) the caller holds. */
 export function recordReadsOf(base: GlobalQueries, options: RecordReadsOptions): RecordReads {
   // One handle for every repository: a definition's bound view is cached per handle.
-  const workspaceId = options.workspaceId ?? SELF_HOSTED_WORKSPACE_ID
+  const workspaceId = options.workspaceId
+  if (!workspaceId) throw new Error('record reads require an explicit workspace')
   const q = legacyWorkspaceQueries(base, workspaceId)
   return {
     store: {

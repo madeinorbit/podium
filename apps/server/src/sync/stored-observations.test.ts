@@ -7,6 +7,7 @@ import { collectRecords } from '@podium/sync/record-builders'
 import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
+import { SELF_HOSTED_WORKSPACE_ID } from '../self-hosted-workspace'
 import { recordReadsOver } from '../sync-worker/record-reads'
 import { assignHostMachine } from '../test-support/host-daemon'
 import { rawSql } from '../test-support/issue-corpus'
@@ -162,7 +163,10 @@ describe('stored observations (POD-6765)', () => {
       await store.close()
     }
     const database = openDatabase(path, { readOnly: true })
-    const worker = recordReadsOver(database, { effectExecutors: { get: () => undefined } })
+    const worker = recordReadsOver(database, {
+      effectExecutors: { get: () => undefined },
+      workspaceId: SELF_HOSTED_WORKSPACE_ID,
+    })
     try {
       for (const kind of kinds) {
         expect(await collectRecords(builders.streamAll(worker.reads, kind)), kind).toEqual(
