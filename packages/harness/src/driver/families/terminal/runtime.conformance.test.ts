@@ -1,5 +1,5 @@
 import { AGENT_MANIFESTS, promptEchoCorrelation } from '@podium/harness'
-import { pageHistory } from '@podium/harness/driver/host'
+import { instrumentationSupportsDriver, pageHistory } from '@podium/harness/driver/host'
 import { testHarnessContext, testSessionTerms } from '../../testing/harness-context.js'
 /**
  * THE TERMINAL DRIVER UNDER THE DRIVER CONFORMANCE CORPUS (POD-1761 W3).
@@ -85,10 +85,13 @@ function testProfileFor(harness: AgentKind): TerminalHarnessProfile | undefined 
   const manifest = manifestFor(harness)
   if (!manifest) return undefined
   const terminal = manifest.runtime.terminal
+  const instrumentation = declaredValue(manifest.instrumentation)
   const interrupt = harnessInterrupt(harness)
   return {
     driverId: terminal.driverId,
-    instrumentationRequired: declaredValue(manifest.instrumentation) !== undefined,
+    instrumentationRequired:
+      instrumentation !== undefined &&
+      instrumentationSupportsDriver(instrumentation, terminal.driverId),
     sendProof: terminal.sendProof,
     composerReadiness: manifest.capabilities.composerReadiness,
     acceptCorrelation: terminal.acceptCorrelation,
@@ -738,22 +741,21 @@ function makeWorld(options: WorldOptions): {
  * grok: process-settle readiness, required instrumentation WITHOUT hook acceptance,
  *   raw first turn, submit nudges and context reporting together;
  * opencode: poll-state lifecycle alongside the observation lifecycle;
- * cursor/pi: no instrumentation/context/poll lifecycle, and bracketed first turn.
+ * cursor/pi: separate instrumentation profiles with bracketed first turns;
+ * antigravity: confirmed-turn readiness and native transcript correlation.
  * Every shape runs the same ordinary AND adversarial contract properties. */
-const SHIPPED_ARMS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const
-/**
- * THE CURSOR ARM TYPES A PERSON'S WORDS, AND CURSOR'S HISTORY CANNOT CREDIT
- * THEM (POD-4905, spec §7): its text tolerance was never measured, so the
- * shipped profile confirms only a wrapped message's frame id. The corpus's
- * sends are a person's own words, so this arm runs Cursor's shape with an
- * exact-text tolerance; `terminal-driver.test.ts` pins that the shipped Cursor
- * and Pi profiles never credit such words by order.
- */
-const CURSOR_CORPUS_PROFILE: TerminalHarnessProfile = {
-  ...shippedProfile('cursor'),
-  acceptCorrelation: {
-    'transcript-echo': promptEchoCorrelation((submitted, recorded) => submitted === recorded),
-  },
+const SHIPPED_ARMS = ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi', 'antigravity'] as const
+/** Cursor and Pi accept only wrapped native message ids in production. The
+ * generic corpus sends a person's raw text, so give each its own shipped
+ * profile with a synthetic exact-text tolerance. Preserve their independent
+ * instrumentation and timestamp behavior. */
+function textEchoCorpusProfile(harness: 'cursor' | 'pi'): TerminalHarnessProfile {
+  return {
+    ...shippedProfile(harness),
+    acceptCorrelation: {
+      'transcript-echo': promptEchoCorrelation((submitted, recorded) => submitted === recorded),
+    },
+  }
 }
 const worlds = [
   makeWorld({
@@ -764,8 +766,13 @@ const worlds = [
   ...SHIPPED_ARMS.map((harness) =>
     makeWorld({
       harness,
-      profile: harness === 'cursor' ? CURSOR_CORPUS_PROFILE : shippedProfile(harness),
-      ...(harness === 'cursor' ? { name: 'cursor (generic-pty, exact-text tolerance)' } : {}),
+      profile:
+        harness === 'cursor' || harness === 'pi'
+          ? textEchoCorpusProfile(harness)
+          : shippedProfile(harness),
+      ...(harness === 'cursor' || harness === 'pi'
+        ? { name: `${harness} (generic-pty, exact-text tolerance)` }
+        : {}),
     }),
   ),
 ]
@@ -781,17 +788,14 @@ for (const { target } of worlds) {
 }
 
 describe('shipped terminal profile coverage', () => {
-  it('covers every manifest, with cursor representing the identical pi shape', () => {
-    expect(Object.keys(AGENT_MANIFESTS).sort()).toEqual([...SHIPPED_ARMS, 'pi'].sort())
-    // Pi writes a timestamp on every entry and Cursor writes none; the echo
-    // floor's timestamped path runs in the claude, codex and opencode arms.
-    expect({ ...shippedProfile('pi'), transcriptTimestamps: 'absent' }).toEqual(
-      shippedProfile('cursor'),
-    )
+  it('covers every manifest with its own terminal profile', () => {
+    expect(Object.keys(AGENT_MANIFESTS).sort()).toEqual([...SHIPPED_ARMS].sort())
+    expect(shippedProfile('pi').instrumentationRequired).toBe(true)
+    expect(shippedProfile('cursor').instrumentationRequired).toBe(false)
     expect(testProfileFor('shell')).toBeUndefined()
   })
   it('keeps the adversarial shape distinct from every shipped profile', () => {
-    for (const harness of [...SHIPPED_ARMS, 'pi'] as const) {
+    for (const harness of SHIPPED_ARMS) {
       expect(ADVERSARIAL_PROFILE).not.toEqual(shippedProfile(harness))
     }
   })

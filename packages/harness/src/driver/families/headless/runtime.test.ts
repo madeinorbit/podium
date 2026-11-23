@@ -228,6 +228,7 @@ describe('invocation observation ownership', () => {
         executable: '/selected/codex',
         version: 'codex-cli 0.170.0',
         generation: 2,
+        provenance: 'external',
       })
       expect(created.installation.version).toBe('codex-cli 0.169.0')
       second.hooks?.onInvocationStart?.({
