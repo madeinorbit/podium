@@ -8,10 +8,9 @@
  *  - dropped the `navigator.userActivation` bail-out: notification cues fire
  *    while the window is unfocused, where that check is falsely conservative.
  *    Gesture policy is handled by `prewarmAudio()` instead (see below).
- *  - added `prewarmAudio()`: WKWebView (the Tauri macOS shell) creates
- *    AudioContexts suspended until a user gesture, so the engine calls this
- *    from a real pointerdown/keydown to unlock playback for the whole page
- *    lifetime.
+ *  - split idle context preparation from gesture-based unlock: constructing
+ *    AudioContext can block the main thread, while Safari and WKWebView still
+ *    need resume() called directly from a real gesture.
  */
 
 interface ToneLayer {
@@ -282,16 +281,25 @@ function getAudioContext(): AudioContext | null {
   return sharedContext
 }
 
+/** Prepare the shared context during idle time, without requesting playback. */
+export function prepareAudio(): void {
+  getAudioContext()
+}
+
 /**
  * Unlock audio from inside a real user gesture. WKWebView (and Safari) create
- * AudioContexts suspended until a gesture resumes one; once running it stays
- * running, so a single early call makes later background notification cues
- * audible for the rest of the page's life. Safe to call repeatedly.
+ * AudioContexts suspended until a gesture resumes one. Reuse the idle-prepared
+ * context; retain lazy creation if a gesture beats preparation or it failed.
+ * Safe to call repeatedly, including after the browser suspends playback.
  */
 export function prewarmAudio(): void {
   const context = getAudioContext()
   if (context && context.state !== 'running') {
-    context.resume().catch(() => {})
+    try {
+      void context.resume().catch(() => {})
+    } catch {
+      // Some browsers throw synchronously when audio is blocked.
+    }
   }
 }
 

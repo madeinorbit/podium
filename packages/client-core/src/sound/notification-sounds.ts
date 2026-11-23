@@ -25,9 +25,9 @@ import { reaction } from 'mobx'
 import { hasDomWindow } from '../platform-globals'
 import type { UiState } from '../replica/contract'
 import { SOUND_OWNER_KEY, SOUNDS_ENABLED_KEY } from '../ui-state'
-import { play, prewarmAudio, type SoundName } from './cuelume'
+import { play, prepareAudio, prewarmAudio, type SoundName } from './cuelume'
 
-export { SOUNDS_ENABLED_KEY, SOUND_OWNER_KEY }
+export { SOUND_OWNER_KEY, SOUNDS_ENABLED_KEY }
 
 const THROTTLE_MS = 2000
 
@@ -78,7 +78,10 @@ export function audibleCondition(s: NotificationSession): NotificationCue | null
   return null
 }
 
-export type NotificationSession = Pick<SessionMeta, 'agentState' | 'agentKind' | 'headless' | 'archived'>
+export type NotificationSession = Pick<
+  SessionMeta,
+  'agentState' | 'agentKind' | 'headless' | 'archived'
+>
 
 /** Borrowed before/after rows for one addressed phase change, never a session list. */
 export interface SessionPhaseChange {
@@ -133,40 +136,74 @@ export function createNotificationSounds(options: NotificationSounderDeps) {
     }
     if (pending === null || CUE_PRIORITY[cue] > CUE_PRIORITY[pending]) pending = cue
     if (flushTimer === null) {
-      flushTimer = setTimeout(() => {
-        flushTimer = null
-        const flushed = pending
-        pending = null
-        if (flushed && enabled()) {
-          lastPlayedAt = deps.now()
-          deps.playCue(flushed)
-        }
-      }, lastPlayedAt + THROTTLE_MS - now)
+      flushTimer = setTimeout(
+        () => {
+          flushTimer = null
+          const flushed = pending
+          pending = null
+          if (flushed && enabled()) {
+            lastPlayedAt = deps.now()
+            deps.playCue(flushed)
+          }
+        },
+        lastPlayedAt + THROTTLE_MS - now,
+      )
     }
   }
   return {
     start(): void {
       if (stopReaction) return
       // No fireImmediately: attaching or restarting never replays a prior edge.
-      stopReaction = reaction(deps.phases, (changes) => {
-        for (const change of changes) {
-          if (!change.previous || !change.current) continue
-          const next = audibleCondition(change.current)
-          if (next === null || next === audibleCondition(change.previous)) continue
-          if (!suppressed(change.sessionId)) request(next)
-        }
-      }, { name: 'notification sounds' })
+      stopReaction = reaction(
+        deps.phases,
+        (changes) => {
+          for (const change of changes) {
+            if (!change.previous || !change.current) continue
+            const next = audibleCondition(change.current)
+            if (next === null || next === audibleCondition(change.previous)) continue
+            if (!suppressed(change.sessionId)) request(next)
+          }
+        },
+        { name: 'notification sounds' },
+      )
       // React Native has a window but no DOM; phase observation still works.
       if (!hasDomWindow()) return
-      const prewarm = () => prewarmAudio()
+      // AudioContext construction can take >150 ms. Prepare it away from input
+      // dispatch, but keep resume() directly in the gesture for Safari/WKWebView.
+      const prepare = () => {
+        if (enabled()) prepareAudio()
+      }
+      let cancelPrepare: () => void
+      if (typeof window.requestIdleCallback === 'function') {
+        const idle = window.requestIdleCallback(prepare, { timeout: 2000 })
+        cancelPrepare = () => window.cancelIdleCallback(idle)
+      } else {
+        // A timer inside rAF runs after the first paint, including on WebKit
+        // versions without requestIdleCallback.
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const frame = window.requestAnimationFrame(() => {
+          timer = setTimeout(prepare, 0)
+        })
+        cancelPrepare = () => {
+          window.cancelAnimationFrame(frame)
+          clearTimeout(timer)
+        }
+      }
+      const prewarm = () => {
+        if (enabled()) prewarmAudio()
+      }
       const claim = () => deps.writeOwner(windowId)
       window.addEventListener('pointerdown', prewarm, { passive: true })
       window.addEventListener('keydown', prewarm)
+      // A touch pointerdown need not carry activation; the resulting click does.
+      window.addEventListener('click', prewarm, { passive: true })
       window.addEventListener('focus', claim)
       if (deps.windowFocused()) claim()
       stopDom = () => {
+        cancelPrepare()
         window.removeEventListener('pointerdown', prewarm)
         window.removeEventListener('keydown', prewarm)
+        window.removeEventListener('click', prewarm)
         window.removeEventListener('focus', claim)
       }
     },
