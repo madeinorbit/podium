@@ -187,7 +187,7 @@ describe('two workspaces in one process', () => {
           INSTANCE_PREFERENCES_ROW_ID,
         ])
         expect(rows).toHaveLength(1)
-        expect(rows[0]?.value).toMatchObject({ 'experimental.concertmaster': tag === 'a' })
+        expect(rows[0]?.value).toMatchObject({ experimental: { concertmaster: tag === 'a' } })
         const job: SyncJob = {
           workspaceId: stores[tag].workspaceId,
           transferId: tag,
