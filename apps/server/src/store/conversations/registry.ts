@@ -12,6 +12,7 @@ import type {
   WorkspaceQueries,
 } from '../executor/sync-drizzle'
 import {
+  executeRaw,
   inListOf,
   inListSize,
   inListValues,
@@ -316,23 +317,35 @@ const adoptParents = prepared((db, t) =>
  * is not rewritten.
  */
 const refreshSegmentFiles = prepared((db, t) => {
-  const of = (field: string, type?: 'bigint') =>
-    sql`(SELECT ${offered(db, field, type)} FROM ${offeredRows(db)} WHERE ${offeredKey(db, 'nativeId')} = ${t.conversationSegments.nativeId})`
-  const path = sql`COALESCE(${of('path')}, ${t.conversationSegments.path})`
-  const reportedBytes = sql`COALESCE(${of('reportedBytes', 'bigint')}, ${t.conversationSegments.reportedBytes})`
+  // Materialize the file evidence once. Joining json_each directly lets SQLite
+  // put the segment table first and re-scan the JSON per segment (POD-7433).
+  // This bounded rowset instead drives a seek on all three segment key columns.
+  const nativeId =
+    dialectOf(db) === 'pg' ? sql`offered_files.native_id COLLATE "C"` : sql`offered_files.native_id`
+  const path = sql`COALESCE(offered_files.path, ${t.conversationSegments.path})`
+  const reportedBytes = sql`COALESCE(offered_files.reported_bytes, ${t.conversationSegments.reportedBytes})`
   const differs = isNot(db)
-  return db
+  const update = db
     .update(t.conversationSegments)
     .set({ path, reportedBytes })
+    .from(sql`offered_files`)
     .where(
       inWorkspace(
         t.conversationSegments,
         eq(t.conversationSegments.machineId, param(t.conversationSegments.machineId, 'machineId')),
-        sql`${t.conversationSegments.nativeId} IN (SELECT ${offeredKey(db, 'nativeId')} FROM ${offeredRows(db)})`,
+        eq(t.conversationSegments.nativeId, nativeId),
         sql`(${t.conversationSegments.path} ${differs} ${path} OR ${t.conversationSegments.reportedBytes} ${differs} ${reportedBytes})`,
       ),
     )
-    .prepare()
+    .getSQL()
+  // The builder has no MATERIALIZED option; keep the update built from the
+  // bound tables and prepare the enclosing SQL once on either engine.
+  return db.run(sql`WITH offered_files AS MATERIALIZED (
+    SELECT ${offeredKey(db, 'nativeId')} AS native_id,
+      ${offered(db, 'path')} AS path,
+      ${offered(db, 'reportedBytes', 'bigint')} AS reported_bytes
+    FROM ${offeredRows(db)}
+  ) ${update}`)
 })
 
 const highestSeqInConversation = prepared((db, t) =>
@@ -567,10 +580,10 @@ export class ConversationRegistryRepository {
 
   /**
    * {@link ensure} for many conversations of one machine, in a fixed number of
-   * statements [POD-6227]: one read of the ids already known (per 500), then at
-   * most one write each for parents adopted, files refreshed, identities and
-   * segments created. The result is what calling `ensure` for each entry in
-   * order gives: a native id offered twice is created once, and its later
+   * statements per bounded batch [POD-6227]: one read of the ids already known
+   * per 500, file refreshes per 500, then at most one write each for parents
+   * adopted, identities and segments created. The result is what calling
+   * `ensure` for each entry in order gives: a native id offered twice is created once, and its later
    * offers act on the existing row (the first parent wins, the last path and
    * size offered win).
    */
@@ -665,10 +678,12 @@ export class ConversationRegistryRepository {
     // rows it creates already carry every offer made for them.
     if (adopted.size > 0)
       await adoptParents(this.db).run({ rows: JSON.stringify([...adopted.values()]) })
-    if (refreshed.size > 0) {
-      await refreshSegmentFiles(this.db).run({
+    // Fold the entire report before splitting: duplicates on opposite sides of
+    // a batch boundary still keep the first parent and last offered file fields.
+    for (const batch of chunks([...refreshed.values()])) {
+      await executeRaw(refreshSegmentFiles(this.db), {
         machineId,
-        rows: JSON.stringify([...refreshed.values()]),
+        rows: JSON.stringify(batch),
       })
     }
     if (created.size > 0) {

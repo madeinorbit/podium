@@ -1014,6 +1014,23 @@ describe('POD-6148 — every repository query is served by an index', () => {
     ])
   })
 
+  it('joins offered conversation files once with composite-key segment seeks (POD-7433)', () => {
+    const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
+    const { audited } = auditDefinitions(keyed)
+    const refresh = audited.filter(
+      (entry) =>
+        entry.key === 'apps/server/src/store/conversations/registry.ts:refreshSegmentFiles',
+    )
+    expect(refresh.map((entry) => entry.plan)).toEqual([
+      [
+        'MATERIALIZE offered_files',
+        'SCAN json_each VIRTUAL TABLE INDEX 1:',
+        'SCAN offered_files',
+        'SEARCH conversation_segments USING INDEX sqlite_autoindex_conversation_segments_1 (workspace_id=? AND machine_id=? AND native_id=?)',
+      ],
+    ])
+  })
+
   it('reads the boot ref backfill candidates by index ranges on the ref-less partial indexes (POD-6222)', () => {
     const { keyed } = keyedDefinitions(trackedSources(SOURCE), SOURCE)
     const { audited } = auditDefinitions(keyed)

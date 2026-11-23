@@ -3,6 +3,7 @@ import { sql } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
 import { openTestStore } from './test-support/open-test-store'
+import { countStatements } from './test-support/statement-count'
 import { storeSql, updateCounter } from './test-support/store-sql'
 
 // The conversation registry (docs/spec/conversation-registry.md §3.1): Podium ids
@@ -83,16 +84,28 @@ describe('conversation registry store', () => {
   it('answers siblingSegmentsMany key by key, as siblingSegments does for one', async () => {
     const store = await openTestStore(':memory:')
     const registry = store.conversations.registry
-    await registry.ensure({ machineId: asMachineId('m1'), nativeId: 'a-1', providerId: 'claude-code' })
+    await registry.ensure({
+      machineId: asMachineId('m1'),
+      nativeId: 'a-1',
+      providerId: 'claude-code',
+    })
     await registry.linkSegment({
       machineId: asMachineId('m1'),
       newNativeId: 'a-2',
       priorNativeId: 'a-1',
       providerId: 'claude-code',
     })
-    await registry.ensure({ machineId: asMachineId('m1'), nativeId: 'b-1', providerId: 'claude-code' })
+    await registry.ensure({
+      machineId: asMachineId('m1'),
+      nativeId: 'b-1',
+      providerId: 'claude-code',
+    })
     // The same native id on another machine is another segment.
-    await registry.ensure({ machineId: asMachineId('m2'), nativeId: 'a-1', providerId: 'claude-code' })
+    await registry.ensure({
+      machineId: asMachineId('m2'),
+      nativeId: 'a-1',
+      providerId: 'claude-code',
+    })
     const keys = [
       { machineId: asMachineId('m1'), nativeId: 'a-2' },
       { machineId: asMachineId('m2'), nativeId: 'a-1' },
@@ -101,7 +114,9 @@ describe('conversation registry store', () => {
       { machineId: asMachineId('m1'), nativeId: 'a-1' },
     ]
     const many = await registry.siblingSegmentsMany(keys)
-    const one = await Promise.all(keys.map((key) => registry.siblingSegments(key.machineId, key.nativeId)))
+    const one = await Promise.all(
+      keys.map((key) => registry.siblingSegments(key.machineId, key.nativeId)),
+    )
     expect(many).toEqual(one)
     expect(many[0]).toEqual([
       { machineId: 'm1', nativeId: 'a-1' },
@@ -133,7 +148,9 @@ describe('conversation registry store', () => {
     expect(await store.conversations.registry.segmentPath(asMachineId('m1'), 'n1')).toBe(
       '/home/u/.claude/projects/-new-spot/n1.jsonl',
     )
-    expect(await store.conversations.registry.segmentPath(asMachineId('m1'), 'unseen')).toBeUndefined()
+    expect(
+      await store.conversations.registry.segmentPath(asMachineId('m1'), 'unseen'),
+    ).toBeUndefined()
   })
 
   it('fills a null parent later but never overwrites a set one', async () => {
@@ -195,7 +212,13 @@ describe('conversation registry store', () => {
     const seeded = async () => {
       const store = await openTestStore(':memory:')
       const r = store.conversations.registry
-      await r.ensure({ machineId: M, nativeId: 'old-a', providerId: 'p', path: '/a1', sizeBytes: 10 })
+      await r.ensure({
+        machineId: M,
+        nativeId: 'old-a',
+        providerId: 'p',
+        path: '/a1',
+        sizeBytes: 10,
+      })
       await r.ensure({ machineId: M, nativeId: 'old-b', providerId: 'p' })
       const a = await r.ensure({ machineId: M, nativeId: 'old-parent', providerId: 'p' })
       await r.ensure({ machineId: M, nativeId: 'old-c', providerId: 'p', parentPodiumId: a })
@@ -215,7 +238,14 @@ describe('conversation registry store', () => {
     const resolve = async (store: SessionStore, offer: Offer) => ({
       nativeId: offer.nativeId,
       providerId: 'p',
-      ...(offer.parent ? { parentPodiumId: (await store.conversations.registry.podiumId(M, offer.parent)) as ConversationId } : {}),
+      ...(offer.parent
+        ? {
+            parentPodiumId: (await store.conversations.registry.podiumId(
+              M,
+              offer.parent,
+            )) as ConversationId,
+          }
+        : {}),
       ...(offer.path !== undefined ? { path: offer.path } : {}),
       ...(offer.sizeBytes !== undefined ? { sizeBytes: offer.sizeBytes } : {}),
     })
@@ -223,11 +253,17 @@ describe('conversation registry store', () => {
     it('leaves the rows one ensure per entry leaves, and answers their ids', async () => {
       const one = await seeded()
       const many = await seeded()
-      for (const offer of offers) await one.conversations.registry.ensure({ machineId: M, ...(await resolve(one, offer)) })
+      for (const offer of offers)
+        await one.conversations.registry.ensure({ machineId: M, ...(await resolve(one, offer)) })
       const entries = await Promise.all(offers.map((offer) => resolve(many, offer)))
       const ids = await many.conversations.registry.ensureMany(M, entries)
       expect(await rows(many)).toEqual(await rows(one))
-      expect(ids).toEqual(await many.conversations.registry.podiumIds(M, offers.map((offer) => offer.nativeId)))
+      expect(ids).toEqual(
+        await many.conversations.registry.podiumIds(
+          M,
+          offers.map((offer) => offer.nativeId),
+        ),
+      )
       expect(ids.size).toBe(new Set(offers.map((offer) => offer.nativeId)).size)
     })
 
@@ -236,10 +272,132 @@ describe('conversation registry store', () => {
       const entries = await Promise.all(offers.map((offer) => resolve(store, offer)))
       await store.conversations.registry.ensureMany(M, entries)
       const before = await rows(store)
-      const writes = await updateCounter(store, ['conversation_segments', 'conversation_identities'])
+      const writes = await updateCounter(store, [
+        'conversation_segments',
+        'conversation_identities',
+      ])
       await store.conversations.registry.ensureMany(M, entries)
       expect(await writes()).toBe(0)
       expect(await rows(store)).toEqual(before)
+    })
+
+    it('refreshes a large unchanged scan in bounded batches of distinct native ids', async () => {
+      // POD-7414 finding 5: the startup corpus had 11,347 segments. Include
+      // both sides of the 500-row boundary so a per-row read cannot hide in
+      // the large scan, and duplicate every offer without increasing batches.
+      for (const size of [5, 500, 501, 11_347]) {
+        const store = await openTestStore(':memory:')
+        try {
+          const entries = Array.from({ length: size }, (_, i) => ({
+            nativeId: `scan-${i}`,
+            providerId: 'p',
+            path: `/transcripts/scan-${i}.jsonl`,
+            sizeBytes: i * 1024,
+          }))
+          const registry = store.conversations.registry
+          const ids = await registry.ensureMany(M, entries)
+          const writes = await updateCounter(store, ['conversation_segments'])
+          const scan = await countStatements(store, () =>
+            registry.ensureMany(M, [...entries, ...entries]),
+          )
+          expect(scan.result).toEqual(ids)
+          expect(scan.statements).toBe(2 * Math.ceil(size / 500))
+          expect(await writes()).toBe(0)
+          // Prove the no-op counter sees real changes, including zero bytes.
+          const lastNativeId = `scan-${size - 1}`
+          await registry.ensureMany(M, [{ nativeId: lastNativeId, providerId: 'p', sizeBytes: 0 }])
+          expect(await writes()).toBe(1)
+          expect(
+            await storeSql(store).get(sql`SELECT reported_bytes FROM conversation_segments
+              WHERE machine_id = ${M} AND native_id = ${lastNativeId}`),
+          ).toEqual({ reported_bytes: 0 })
+        } finally {
+          await store.close()
+        }
+      }
+    })
+
+    it('folds duplicate file fields and first parents across refresh batch boundaries', async () => {
+      const store = await openTestStore(':memory:')
+      try {
+        const registry = store.conversations.registry
+        const parentA = await registry.ensure({
+          machineId: M,
+          nativeId: 'parent-a',
+          providerId: 'p',
+        })
+        const parentB = await registry.ensure({
+          machineId: M,
+          nativeId: 'parent-b',
+          providerId: 'p',
+        })
+        const entries = Array.from({ length: 501 }, (_, i) => ({
+          nativeId: `file-${i}`,
+          providerId: 'p',
+          path: `/before/${i}`,
+          sizeBytes: 100,
+        }))
+        const ids = await registry.ensureMany(M, entries)
+        // Same native id on a different machine must keep its own evidence.
+        const otherMachine = asMachineId('other-machine')
+        await registry.ensure({
+          machineId: otherMachine,
+          nativeId: 'file-0',
+          providerId: 'p',
+          path: '/before/0',
+          sizeBytes: 100,
+        })
+        await registry.ensureMany(M, [
+          {
+            nativeId: 'file-0',
+            providerId: 'p',
+            parentPodiumId: parentA,
+            path: '/first',
+            sizeBytes: 200,
+          },
+          ...entries.slice(1),
+          { nativeId: 'file-0', providerId: 'ignored', parentPodiumId: parentB, path: '/last' },
+          { nativeId: 'file-0', providerId: 'ignored', sizeBytes: 0 },
+          // Omitted fields keep earlier offers. An empty path alone is ignored;
+          // offered alongside a size it remains a legitimate file value.
+          { nativeId: 'file-0', providerId: 'ignored', path: '' },
+          { nativeId: 'file-500', providerId: 'p', path: '', sizeBytes: 0 },
+        ])
+        expect([...(await registry.parentPodiumIds([...ids.values()]))]).toEqual([
+          [ids.get('file-0'), parentA],
+        ])
+        await registry.ensureMany(M, [
+          { nativeId: 'file-0', providerId: 'p', parentPodiumId: parentB },
+        ])
+        expect([...(await registry.parentPodiumIds([...ids.values()]))]).toEqual([
+          [ids.get('file-0'), parentA],
+        ])
+        expect(
+          await storeSql(
+            store,
+          ).all(sql`SELECT machine_id, native_id, provider_id, path, reported_bytes
+            FROM conversation_segments WHERE native_id IN ('file-0', 'file-500')
+            ORDER BY machine_id, native_id`),
+        ).toEqual([
+          {
+            machine_id: M,
+            native_id: 'file-0',
+            provider_id: 'p',
+            path: '/last',
+            reported_bytes: 0,
+          },
+          { machine_id: M, native_id: 'file-500', provider_id: 'p', path: '', reported_bytes: 0 },
+          {
+            machine_id: otherMachine,
+            native_id: 'file-0',
+            provider_id: 'p',
+            path: '/before/0',
+            reported_bytes: 100,
+          },
+        ])
+      } finally {
+        await store.close()
+      }
     })
   })
 })
