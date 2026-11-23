@@ -15,13 +15,15 @@ import {
   type ClientGrantClaims,
   type LiveGrantAction,
   LiveGrantKeyRing,
+  MAX_GRANT_BYTES,
   mintLiveGrantKey,
   signClientGrant,
   verifyLiveGrant,
 } from './index'
 
 const ring = new LiveGrantKeyRing([mintLiveGrantKey()])
-const BUDGET_BYTES = 64 * 1024
+/** The signer refuses a token past it ({@link MAX_GRANT_BYTES}); roots count too. */
+const BUDGET_BYTES = MAX_GRANT_BYTES
 
 function claimsFor(sessionCount: number): Omit<ClientGrantClaims, 'kind'> {
   const sessions: Record<string, LiveGrantAction[]> = {}
@@ -65,6 +67,7 @@ describe('client grant size', () => {
       const result = verifyLiveGrant(signed.token, {
         keys: ring.publicOnly(),
         workspace: claims.workspace,
+        kind: 'client',
       })
       const verifyMs = performance.now() - verifyStarted
       expect(result.ok).toBe(true)

@@ -23,7 +23,10 @@ verifier checks the signature before it inflates anything.
 
 Sizes (random UUID session ids, plus 20 machines with three roots each): about 6.9 KB
 for 200 sessions and 29 KB for 1,000 (`src/size.test.ts` prints them), against a
-64 KiB budget. Plain base64 JSON would be 19 KB and 76 KB.
+64 KiB budget that ids, roots and logins all count toward. The signer refuses a
+grant past it, or with more than 1,024 roots on a machine or a root over 4,096
+characters, as `LiveGrantTooLarge`; the route answers 413. Plain base64 JSON would
+be 19 KB and 76 KB.
 
 ## Keys
 
@@ -36,7 +39,10 @@ A key ring in one JSON shape for both sides:
 
 The first key with a private half signs; every key verifies. To rotate: give the
 verifiers the new public key, then put the new key first on Core and keep the old
-one after it for at least an hour (the longest grant), then remove it.
+one after it. Remove it about an hour (the longest grant, a daemon's) plus two
+minutes after the new ring is in place on EVERY Core process: a process can sign
+with the old key for up to 5 s after its file changes (60 s for the self-hosted
+database ring), and verifier clocks lag.
 `LiveGrantKeyFile` (`./key-file`) re-reads a ring when its file changes, so a
 rotation needs no restart.
 

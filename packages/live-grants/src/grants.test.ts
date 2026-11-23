@@ -3,7 +3,7 @@
  * a tampered, expired, wrong-workspace or wrong-key grant is refused.
  */
 
-import { sign } from 'node:crypto'
+import { randomBytes, sign } from 'node:crypto'
 import { deflateRawSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
 import {
@@ -11,6 +11,9 @@ import {
   DAEMON_GRANT_LIFETIME_MS,
   LiveGrantKeyRing,
   LiveGrantSigningUnavailable,
+  LiveGrantTooLarge,
+  MAX_ROOT_CHARS,
+  MAX_ROOTS_PER_MACHINE,
   mintLiveGrantKey,
   parseLiveGrantKeyRing,
   signClientGrant,
@@ -45,7 +48,7 @@ const issue = (overrides: Partial<Parameters<typeof signClientGrant>[1]> = {}) =
   signClientGrant(ring, { ...CLAIMS, ...overrides }, { now: NOW })
 
 const verify = (token: string, now = NOW + 1_000, workspace = WS) =>
-  verifyLiveGrant(token, { keys: verifierRing, workspace, now })
+  verifyLiveGrant(token, { keys: verifierRing, workspace, kind: 'client', now })
 
 describe('client grant round trip', () => {
   it('verifies and answers every scope it was issued with', () => {
@@ -79,6 +82,19 @@ describe('client grant round trip', () => {
     expect(grant.rootsOf('m-use')).toEqual(['/other', '/repo'])
     expect(grant.mayAskPath('m-use', '/repo/src/a.ts')).toBe(true)
     expect(grant.mayAskPath('m-use', '/repository')).toBe(false)
+    expect(grant.mayAskPath('m-use', '/repo')).toBe(true)
+    // A path that climbs or is not in its normal form never counts as inside a root
+    // (review F1): containment on POSIX is a literal prefix test.
+    for (const climbing of [
+      '/repo/../etc/passwd',
+      '/repo/./x',
+      '/repo/a/../../etc',
+      '/repo/..',
+      '/repo//x',
+      '/repo/x/',
+    ]) {
+      expect(grant.mayAskPath('m-use', climbing), climbing).toBe(false)
+    }
     // Roots on a machine without `use` admit no direct ask.
     expect(grant.mayAskPath('m-admin', '/admin-only/x')).toBe(false)
     expect(grant.maySeeLogins('m-use')).toBe(true)
@@ -164,6 +180,7 @@ describe('refusals', () => {
       verifyLiveGrant([prefix, 'k2', payload, signature].join('.'), {
         keys: both,
         workspace: WS,
+        kind: 'client',
         now: NOW,
       }),
     ).toEqual({ ok: false, refusal: 'bad-signature' })
@@ -188,6 +205,19 @@ describe('refusals', () => {
       now: NOW,
     }).token
     expect(verify(unknown)).toEqual({ ok: false, refusal: 'unknown-key' })
+  })
+
+  it('has exactly one valid spelling: the signature segment must be canonical base64url', () => {
+    // The last of 86 characters carries 4 bits a decoder ignores; flip one of them.
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+    const last = alphabet.indexOf(signature.at(-1)!)
+    const twin = `${signature.slice(0, -1)}${alphabet[last ^ 1]}`
+    expect(Buffer.from(twin, 'base64url').equals(Buffer.from(signature, 'base64url'))).toBe(true)
+    expect(verify([prefix, kid, payload, twin].join('.'))).toEqual({
+      ok: false,
+      refusal: 'malformed',
+    })
+    expect(verify(token).ok).toBe(true)
   })
 
   it('refuses what is not a token', () => {
@@ -240,10 +270,38 @@ describe('refusals', () => {
       JSON.stringify({ ...base, s: [], h: [], exp: NOW }),
       JSON.stringify({ ...base, s: [], h: [], m: '' }),
       JSON.stringify({ ...base, k: 'x', s: [], h: [] }),
+      // Longer than its kind lives (review F4, T4): a client grant past five minutes,
+      // and anything past a day.
+      JSON.stringify({ ...base, s: [], h: [], exp: NOW + CLIENT_GRANT_LIFETIME_MS + 1 }),
+      JSON.stringify({ ...base, s: [], h: [], exp: NOW + 25 * 60 * 60_000 }),
     ]) {
       expect(verify(signedOver(json))).toEqual({ ok: false, refusal: 'malformed' })
     }
     expect(verify(signedOver(JSON.stringify({ ...base, s: [], h: [] }))).ok).toBe(true)
+    // A daemon grant lives an hour, never more.
+    const daemon = { v: 1, k: 'd', ws: WS, iat: NOW, mc: 'm-1' }
+    const asDaemon = (exp: number) =>
+      verifyLiveGrant(signedOver(JSON.stringify({ ...daemon, exp })), {
+        keys: verifierRing,
+        workspace: WS,
+        kind: 'daemon',
+        now: NOW,
+      })
+    expect(asDaemon(NOW + DAEMON_GRANT_LIFETIME_MS).ok).toBe(true)
+    expect(asDaemon(NOW + DAEMON_GRANT_LIFETIME_MS + 1)).toEqual({
+      ok: false,
+      refusal: 'malformed',
+    })
+  })
+
+  it('refuses a signed payload that inflates past the bound (a decompression bomb)', () => {
+    // Signed with the real key, so the bound on inflating is what refuses it.
+    const key = ring.signingKey()!
+    const bomb = deflateRawSync(Buffer.alloc(8 * 1024 * 1024, 0x20)).toString('base64url')
+    expect(bomb.length).toBeLessThan(64 * 1024)
+    const part = `plg1.${key.kid}.${bomb}`
+    const token = `${part}.${sign(null, Buffer.from(part), key.privateKey).toString('base64url')}`
+    expect(verify(token)).toEqual({ ok: false, refusal: 'malformed' })
   })
 })
 
@@ -257,9 +315,10 @@ describe('keys', () => {
     const publicFile = parseLiveGrantKeyRing(ring.toJson({ includePrivate: false }))
     expect(publicFile.signingKey()).toBeUndefined()
     const signed = signClientGrant(file, CLAIMS, { now: NOW })
-    expect(verifyLiveGrant(signed.token, { keys: publicFile, workspace: WS, now: NOW }).ok).toBe(
-      true,
-    )
+    expect(
+      verifyLiveGrant(signed.token, { keys: publicFile, workspace: WS, kind: 'client', now: NOW })
+        .ok,
+    ).toBe(true)
   })
 
   it('refuses a damaged key file whole', () => {
@@ -267,6 +326,23 @@ describe('keys', () => {
     expect(() => parseLiveGrantKeyRing('{"keys":[{"kid":"a","publicKey":"AAAA"}]}')).toThrow()
     const good = JSON.parse(ring.toJson({ includePrivate: false })).keys[0]
     expect(() => parseLiveGrantKeyRing(JSON.stringify({ keys: [good, good] }))).toThrow(/twice/)
+  })
+
+  it('refuses at issue, by name, roots a grant cannot hold and a token past the budget', () => {
+    const tooMany = Array.from({ length: MAX_ROOTS_PER_MACHINE + 1 }, (_, i) => `/r${i}`)
+    expect(() => issue({ roots: { 'm-use': tooMany } })).toThrow(LiveGrantTooLarge)
+    expect(() => issue({ roots: { 'm-use': [`/${'x'.repeat(MAX_ROOT_CHARS)}`] } })).toThrow(
+      expect.objectContaining({ name: 'LiveGrantTooLarge', reason: 'root-length' }),
+    )
+    // Roots count toward the budget: 1,000 roots of 1,000 random characters each fit the
+    // per-machine limits but not the token.
+    const big = Array.from({ length: 1000 }, () => `/${randomBytes(750).toString('base64url')}`)
+    expect(() => issue({ roots: { 'm-use': big } })).toThrow(
+      expect.objectContaining({ reason: 'bytes' }),
+    )
+    expect(() =>
+      signClientGrant(ring, CLAIMS, { now: NOW, lifetimeMs: CLIENT_GRANT_LIFETIME_MS + 1 }),
+    ).toThrow(RangeError)
   })
 
   it('signs only what it can verify: an id too long is refused at issue', () => {

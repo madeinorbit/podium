@@ -54,7 +54,7 @@ describe('key rotation', () => {
     const core = new LiveGrantKeyFile(corePath, { now, checkEveryMs: 5_000 })
     const room = new LiveGrantKeyFile(roomPath, { now, checkEveryMs: 5_000 })
     const verify = (token: string) =>
-      verifyLiveGrant(token, { keys: () => room.ring(), workspace: WS, now: clock })
+      verifyLiveGrant(token, { keys: () => room.ring(), workspace: WS, kind: 'client', now: clock })
 
     const old = signClientGrant(core.ring(), CLAIMS, { now: clock })
     expect(old.keyId).toBe('2026-10')

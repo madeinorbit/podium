@@ -25,6 +25,22 @@ export const CLIENT_GRANT_LIFETIME_MS = 5 * 60_000
 /** A daemon grant's life (design 4.5: one hour, refreshed at half time). */
 export const DAEMON_GRANT_LIFETIME_MS = 60 * 60_000
 
+/** The longest life of each kind. A verifier refuses a longer one, and a signer will not issue it. */
+export const MAX_LIFETIME_MS = {
+  client: CLIENT_GRANT_LIFETIME_MS,
+  daemon: DAEMON_GRANT_LIFETIME_MS,
+} as const
+
+/**
+ * The most bytes one token may take (POD-7311 acceptance 4): ids, roots and
+ * logins all count. A grant over it is refused at issue ({@link LiveGrantTooLarge}).
+ */
+export const MAX_GRANT_BYTES = 64 * 1024
+
+/** The most roots one machine's entry may list, and the longest root. */
+export const MAX_ROOTS_PER_MACHINE = 1024
+export const MAX_ROOT_CHARS = 4096
+
 /** The most session ids, and the most machine ids, one client grant names. */
 export const MAX_GRANT_IDS = 1000
 

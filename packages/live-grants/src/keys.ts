@@ -4,8 +4,11 @@
  *
  * Ed25519. A key ring is an ordered list of keys, each with an id. The first
  * key that has its private half signs; every key verifies. Rotation is a new
- * ring: the new key first, the previous one kept after it until the longest
- * grant it signed has expired (one hour, a daemon grant), then dropped.
+ * ring: the new key first, the previous one kept after it, then dropped once
+ * no grant it signed can still be live. Count that from the moment EVERY Core
+ * process signs with the new key, not from the file change: a process reads its
+ * file again within 5 s (its database ring within 60 s), so keep the old key
+ * about an hour (the longest grant, a daemon's) plus two minutes after that.
  *
  * The same JSON shape configures Core (private halves) and the room or the
  * daemon (public halves only):

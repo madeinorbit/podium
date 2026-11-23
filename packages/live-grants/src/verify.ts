@@ -8,7 +8,7 @@
  */
 
 import { verify as verifySignature } from 'node:crypto'
-import { isMachinePathWithinRoot } from '@podium/model'
+import { isMachinePathWithinRoot, machinePathSegments, normalizeMachinePath } from '@podium/model'
 import type { LiveGrantAction, LiveGrantKind, LiveGrantRefusal } from './claims'
 import type { LiveGrantKeyRing } from './keys'
 import {
@@ -23,6 +23,12 @@ import {
 export const MAX_ISSUE_SKEW_MS = 60_000
 
 const NO_ACTIONS: ReadonlySet<LiveGrantAction> = new Set()
+
+/** No `.` or `..` segment, and nothing normalizing would change (read against `root`'s separator). */
+function isPlainPath(root: string, path: string): boolean {
+  if (machinePathSegments(path, root).some((part) => part === '.' || part === '..')) return false
+  return normalizeMachinePath(path, root) === path
+}
 
 interface GrantTimes {
   readonly keyId: string
@@ -98,11 +104,19 @@ export class VerifiedClientGrant extends VerifiedGrant {
     return this.roots.get(machineId) ?? []
   }
 
-  /** A direct ask at `path` on this machine: `use` there, and the path inside a granted root. */
+  /**
+   * A direct ask at `path` on this machine: `use` there, and the path inside a
+   * granted root. Containment is a literal prefix test on POSIX, so a path that
+   * is not already in its normal form (a `.` or `..` segment, a doubled or
+   * trailing separator) is refused before it: `/repo/../etc` never passes as
+   * inside `/repo`.
+   */
   mayAskPath(machineId: string, path: string): boolean {
     return (
       this.allowsMachine(machineId, 'use') &&
-      this.rootsOf(machineId).some((root) => isMachinePathWithinRoot(root, path))
+      this.rootsOf(machineId).some(
+        (root) => isPlainPath(root, path) && isMachinePathWithinRoot(root, path),
+      )
     )
   }
 
@@ -138,22 +152,20 @@ export type VerifyResult<G extends VerifiedLiveGrant = VerifiedLiveGrant> =
   | { readonly ok: true; readonly grant: G }
   | { readonly ok: false; readonly refusal: LiveGrantRefusal }
 
-export interface VerifyOptions<K extends LiveGrantKind | undefined> {
+export interface VerifyOptions<K extends LiveGrantKind> {
   /** The public keys, or a function that returns the current ring (a rotated ring is used at once). */
   readonly keys: LiveGrantKeyRing | (() => LiveGrantKeyRing)
   /** The workspace this room or daemon serves: the grant's audience must be it. */
   readonly workspace: string
-  /** Refuse the other kind. */
-  readonly kind?: K
+  /** The kind this caller accepts; the other kind is refused. Required, so no path can forget it. */
+  readonly kind: K
   /** Epoch ms; defaults to `Date.now()`. */
   readonly now?: number
 }
 
-type GrantOfKind<K> = K extends 'client'
+type GrantOfKind<K extends LiveGrantKind> = K extends 'client'
   ? VerifiedClientGrant
-  : K extends 'daemon'
-    ? VerifiedDaemonGrant
-    : VerifiedLiveGrant
+  : VerifiedDaemonGrant
 
 const refused = (refusal: LiveGrantRefusal) => ({ ok: false, refusal }) as const
 
@@ -162,7 +174,7 @@ const refused = (refusal: LiveGrantRefusal) => ({ ok: false, refusal }) as const
  * payload is ever read: shape, key id, signature, contents, audience, kind,
  * time.
  */
-export function verifyLiveGrant<K extends LiveGrantKind | undefined = undefined>(
+export function verifyLiveGrant<K extends LiveGrantKind>(
   token: unknown,
   opts: VerifyOptions<K>,
 ): VerifyResult<GrantOfKind<K>> {
@@ -186,7 +198,7 @@ export function verifyLiveGrant<K extends LiveGrantKind | undefined = undefined>
     throw error
   }
   if (decoded.workspace !== opts.workspace) return refused('wrong-workspace')
-  if (opts.kind !== undefined && decoded.kind !== opts.kind) return refused('wrong-kind')
+  if (decoded.kind !== opts.kind) return refused('wrong-kind')
   const now = opts.now ?? Date.now()
   if (now >= decoded.expiresAt) return refused('expired')
   if (decoded.issuedAt > now + MAX_ISSUE_SKEW_MS) return refused('not-yet-valid')

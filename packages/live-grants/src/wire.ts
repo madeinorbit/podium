@@ -24,6 +24,9 @@ import {
   LIVE_GRANT_ACTIONS,
   type LiveGrantAction,
   type LiveGrantClaims,
+  MAX_LIFETIME_MS,
+  MAX_ROOT_CHARS,
+  MAX_ROOTS_PER_MACHINE,
 } from './claims'
 
 export const TOKEN_PREFIX = 'plg1'
@@ -34,11 +37,7 @@ export const MAX_TOKEN_CHARS = 512 * 1024
 const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024
 /** The most ids, of each list, a decoded grant may hold. */
 const MAX_DECODED_IDS = 10_000
-/** The longest life a decoded grant may claim: a day. Anything longer is not ours. */
-const MAX_LIFETIME_MS = 24 * 60 * 60_000
 const MAX_ID_CHARS = 256
-const MAX_ROOT_CHARS = 4096
-const MAX_ROOTS_PER_MACHINE = 1024
 
 const ACTION_BIT: Record<LiveGrantAction, number> = { view: 1, use: 2, manage: 4 }
 
@@ -153,7 +152,9 @@ export function splitToken(token: unknown): TokenParts | undefined {
     return undefined
   }
   const bytes = Buffer.from(signature, 'base64url')
-  if (bytes.length !== 64) return undefined
+  // One spelling per signature: base64url's last character carries 4 bits a decoder
+  // ignores, so without the re-encode 16 strings would verify as one grant.
+  if (bytes.length !== 64 || bytes.toString('base64url') !== signature) return undefined
   return { kid, payload, signature: bytes, signed: signedPart(kid, payload) }
 }
 
@@ -267,7 +268,10 @@ export function decodePayload(payload: string): DecodedGrant {
   }
   const issuedAt = time(wire.iat, 'iat')
   const expiresAt = time(wire.exp, 'exp')
-  if (expiresAt <= issuedAt || expiresAt - issuedAt > MAX_LIFETIME_MS) {
+  if (wire.k !== 'c' && wire.k !== 'd') throw new MalformedGrant('the grant kind is unknown')
+  // No longer than its kind ever lives: a longer life is not a grant Core issues.
+  const longest = MAX_LIFETIME_MS[wire.k === 'c' ? 'client' : 'daemon']
+  if (expiresAt <= issuedAt || expiresAt - issuedAt > longest) {
     throw new MalformedGrant('the grant life is out of range')
   }
   const binding = {
@@ -285,7 +289,6 @@ export function decodePayload(payload: string): DecodedGrant {
       ...binding,
     }
   }
-  if (wire.k !== 'c') throw new MalformedGrant('the grant kind is unknown')
   return {
     kind: 'client',
     workspace,

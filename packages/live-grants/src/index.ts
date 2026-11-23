@@ -20,7 +20,11 @@ export {
   type LiveGrantClaims,
   type LiveGrantKind,
   type LiveGrantRefusal,
+  MAX_GRANT_BYTES,
   MAX_GRANT_IDS,
+  MAX_LIFETIME_MS,
+  MAX_ROOT_CHARS,
+  MAX_ROOTS_PER_MACHINE,
   refreshAtOf,
   type SignedLiveGrant,
 } from './claims'
@@ -34,6 +38,7 @@ export {
 } from './keys'
 export {
   LiveGrantSigningUnavailable,
+  LiveGrantTooLarge,
   type SignOptions,
   signClientGrant,
   signDaemonGrant,
