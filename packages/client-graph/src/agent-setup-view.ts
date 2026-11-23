@@ -63,6 +63,22 @@ export interface AgentSetupPreferences {
   savedCredentials(harness: BuiltinHarnessKind): readonly SavedCredentialChoice[]
 }
 
+/** General-purpose harnesses that onboarding ticks when they can be installed here. */
+export const SUGGESTED_HARNESSES: readonly BuiltinHarnessKind[] = [
+  'claude-code',
+  'codex',
+  'opencode',
+]
+
+/** One line for an installing harness, and the bar's fill when it is known. */
+export interface AgentInstallStep {
+  readonly text: string
+  /** 0-100; absent means an indeterminate bar. */
+  readonly percent?: number
+}
+
+const megabytes = (bytes: number): string => String(Math.round(bytes / 1_000_000))
+
 export interface AgentSetupOptions {
   readonly machine: MachineModel
   readonly client: HarnessInstallClient & AgentSignInClient
@@ -236,9 +252,43 @@ export class AgentSetupItem {
   @lazy get progress(): AgentInstallProgress | undefined {
     return this.installing ? rowField<AgentInstallProgress>(this.row, 'progress') : undefined
   }
+  /**
+   * Highest download percent seen and whether it ever went back. The machine reports
+   * percent and bytes per downloaded file, so they restart when an adapter fetches
+   * several files; the bar then turns indeterminate instead of moving backwards.
+   * Plain fields: they only remember what {@link installStep} already showed.
+   */
+  #downloadMax = 0
+  #downloadRestarted = false
+  /** "Downloading · 18 of 41 MB · 44%", "Checking the download", "Setting up Podium’s Codex home". */
+  @lazy get installStep(): AgentInstallStep | undefined {
+    if (!this.installing) {
+      this.#downloadMax = 0
+      this.#downloadRestarted = false
+      return undefined
+    }
+    const progress = this.progress
+    if (!progress) {
+      const reported = this.row.state === 'installing' ? this.row.managedLabel : undefined
+      return { text: reported ?? `Installing ${this.label}…` }
+    }
+    if (progress.phase === 'verify') return { text: 'Checking the download' }
+    if (progress.phase === 'setup') return { text: `Setting up Podium’s ${this.label} home` }
+    const bytes =
+      progress.totalBytes !== undefined
+        ? ` · ${megabytes(progress.receivedBytes ?? 0)} of ${megabytes(progress.totalBytes)} MB`
+        : ''
+    if (progress.percent !== undefined) {
+      if (progress.percent < this.#downloadMax) this.#downloadRestarted = true
+      this.#downloadMax = Math.max(this.#downloadMax, progress.percent)
+    }
+    if (this.#downloadRestarted) return { text: 'Downloading' }
+    if (progress.percent === undefined) return { text: `Downloading${bytes}` }
+    const percent = Math.max(0, Math.min(100, progress.percent))
+    return { text: `Downloading${bytes} · ${percent}%`, percent }
+  }
   @lazy get progressLabel(): string | undefined {
-    if (this.row.state === 'installing') return this.row.managedLabel
-    return this.requesting ? `Installing ${this.label}…` : undefined
+    return this.installStep?.text
   }
 
   // Failure
@@ -316,6 +366,10 @@ export class AgentSetupItem {
 
   @lazy get canAct(): boolean {
     return this.row.canAct && !this.answer.loading
+  }
+  /** Onboarding starts with these ticked; nothing installs until a press. */
+  @lazy get suggested(): boolean {
+    return SUGGESTED_HARNESSES.includes(this.kind)
   }
   @lazy get selectable(): boolean {
     return this.status === 'not-installed'
@@ -821,6 +875,7 @@ export class AgentSetupView {
     // A menu asked about this harness: tick it, so one press installs it. Nothing runs yet.
     const focused = this.focusItem
     if (focused?.selectable) this.selection.add(focused.kind)
+    if (this.origin.kind === 'onboarding') this.selectSuggested()
   }
 
   @lazy get machineName(): string {
@@ -879,6 +934,15 @@ export class AgentSetupView {
   }
   @action selectAllNotInstalled(): void {
     for (const item of this.items) if (item.selectable) this.selection.add(item.kind)
+  }
+  /**
+   * Tick the suggested harnesses that are not installed. Selection only, never an
+   * install. The constructor calls it for onboarding; call it again when the
+   * machine's inventory arrives after the panel opened (items are empty before).
+   */
+  @action selectSuggested(): void {
+    for (const item of this.items)
+      if (item.selectable && item.suggested) this.selection.add(item.kind)
   }
   @action clearSelection(): void {
     this.selection.clear()

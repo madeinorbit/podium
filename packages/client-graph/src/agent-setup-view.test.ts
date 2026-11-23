@@ -14,6 +14,7 @@ import {
   type AgentSetupOrigin,
   type AgentSetupPreferences,
   AgentSetupView,
+  SUGGESTED_HARNESSES,
 } from './agent-setup-view'
 import { MachineHarness } from './machine-harness'
 import type { MachineModel } from './synced-models'
@@ -381,6 +382,38 @@ describe('agent setup selection and installs', () => {
     await settle()
     expect(item('cursor').failure).toBeUndefined()
     expect(item('cursor').status).toBe('not-installed')
+  })
+
+  it('describes install progress in one line and never moves the bar backwards', () => {
+    const { item, machine } = setup()
+    const report = (progress: Record<string, unknown>) =>
+      machine.patchAgent('grok', {
+        install: { managed: { paused: false, installing: { version: '3.0.0', progress } } },
+      } as Partial<AgentInventory>)
+    expect(item('grok').installStep).toEqual({ text: 'Installing 3.0.0…' })
+    report({ phase: 'download', receivedBytes: 20_500_000, totalBytes: 41_000_000 })
+    expect(item('grok').installStep).toEqual({
+      text: 'Downloading · 21 of 41 MB · 50%',
+      percent: 50,
+    })
+    expect(item('grok').progressLabel).toBe('Downloading · 21 of 41 MB · 50%')
+    // A second file starts: percent restarts, so the bar turns indeterminate.
+    report({ phase: 'download', receivedBytes: 4_100_000, totalBytes: 41_000_000 })
+    expect(item('grok').installStep).toEqual({ text: 'Downloading' })
+    report({ phase: 'verify' })
+    expect(item('grok').installStep).toEqual({ text: 'Checking the download' })
+    report({ phase: 'setup' })
+    expect(item('grok').installStep?.text).toBe(`Setting up Podium’s ${item('grok').label} home`)
+  })
+
+  it('onboarding ticks the suggested harnesses that are not installed, and installs nothing', () => {
+    const { view, actions } = setup({ origin: { kind: 'onboarding', onStart: vi.fn() } })
+    expect(SUGGESTED_HARNESSES).toEqual(['claude-code', 'codex', 'opencode'])
+    expect(view.selectedKinds).toEqual(['opencode'])
+    expect(actions).toEqual([])
+    view.clearSelection()
+    view.selectSuggested()
+    expect(view.selectedKinds).toEqual(['opencode'])
   })
 
   it('does not install where Podium can’t, or while the machine is offline', () => {
