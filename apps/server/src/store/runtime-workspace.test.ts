@@ -191,7 +191,7 @@ describe('two workspaces in one process', () => {
         const job: SyncJob = {
           workspaceId: stores[tag].workspaceId,
           transferId: tag,
-          principal: { ...DEVICE_GRADE_PRINCIPAL, user: USER },
+          principal: DEVICE_GRADE_PRINCIPAL,
           feedId: 'feed',
           epoch: 'epoch',
           encoding: 'identity',
